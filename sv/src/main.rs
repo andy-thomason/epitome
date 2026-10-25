@@ -1,9 +1,11 @@
-//! `epitome-sv [options] file.sv...`: for now, preprocesses the files as
-//! one compilation unit and reports the first error with its position.
+//! `epitome-sv [options] file.sv...`: for now, preprocesses and parses the
+//! files as one compilation unit and reports the first error with its
+//! position.
 //!
 //! Options:
 //!
-//! - `-E`: print the preprocessed text.
+//! - `-E`: print the preprocessed text, and stop.
+//! - `--ast`: print the syntax tree.
 //! - `-I dir`, `-Idir`, `+incdir+dir[+dir...]`: search `dir` for
 //!   `` `include `` files.
 //! - `-D name[=text]`, `-Dname[=text]`, `+define+name[=text][+...]`: define
@@ -11,6 +13,7 @@
 //!
 //! Other options are ignored, so that test runners can pass their own.
 
+use epitome_sv::parse::parse;
 use epitome_sv::preprocess::{Options, preprocess_files};
 use epitome_sv::source::SourceMap;
 use std::path::PathBuf;
@@ -25,10 +28,13 @@ fn main() -> ExitCode {
     let mut options = Options::default();
     let mut files = Vec::new();
     let mut print = false;
+    let mut ast = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         if arg == "-E" {
             print = true;
+        } else if arg == "--ast" {
+            ast = true;
         } else if let Some(dir) = arg.strip_prefix("-I") {
             let dir = if dir.is_empty() { args.next().unwrap_or_default() } else { dir.to_string() };
             options.include_dirs.push(dir.into());
@@ -44,17 +50,27 @@ fn main() -> ExitCode {
         }
     }
     if files.is_empty() {
-        eprintln!("usage: epitome-sv [-E] [-I dir] [-D name[=text]] file.sv...");
+        eprintln!("usage: epitome-sv [-E] [--ast] [-I dir] [-D name[=text]] file.sv...");
         return ExitCode::from(2);
     }
     let map = SourceMap::new();
     match preprocess_files(&map, &files, &options) {
-        Ok(out) => {
-            if print {
-                print!("{}", out.text(&map));
-            }
+        Ok(out) if print => {
+            print!("{}", out.text(&map));
             ExitCode::SUCCESS
         }
+        Ok(out) => match parse(&out) {
+            Ok(tree) => {
+                if ast {
+                    print!("{}", tree.dump(tree.root));
+                }
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprint!("{}", map.render(&e));
+                ExitCode::FAILURE
+            }
+        },
         Err(e) => {
             eprint!("{e}");
             ExitCode::FAILURE

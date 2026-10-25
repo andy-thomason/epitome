@@ -98,7 +98,8 @@ impl<'a> Token<'a> {
     /// it is the digits.
     pub fn is_base(self) -> bool {
         let b = self.0.as_bytes();
-        b.first() == Some(&b'\'') && b.len() >= 2 && (b[1].is_ascii_alphabetic())
+        let s = b.get(1).is_some_and(|c| *c == b's' || *c == b'S') as usize;
+        b.first() == Some(&b'\'') && b.len() == 2 + s && b"bBoOdDhH".contains(&b[1 + s])
     }
 
     /// The base letter of a base token, in lower case.
@@ -436,7 +437,7 @@ mod tests {
     }
 
     #[test]
-    fn keywords_are_sorted() {
+    fn keywords() {
         assert!(Token("module").is_keyword());
         assert!(!Token("\\module").is_keyword());
         assert!(Token("\\module").is_name());

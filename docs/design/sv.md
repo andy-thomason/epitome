@@ -10,11 +10,12 @@ The work is measured against the
 (`test1800`): 1478 self-checking tests, one directory per clause of the
 standard. For sources and status labels, see the [index](README.md).
 
-**Status:** Partial. The lexer and the preprocessor are done: every legal
-`test1800` test preprocesses, the clause 22 tests that should fail in the
-preprocessor do, and the output matches Verilator's `-E` token for token
-on all 772 tests both accept (section 4.4). The parser is next (section
-10, step 2).
+**Status:** Partial. The lexer, the preprocessor and the parser are done.
+Every legal `test1800` test preprocesses, and the output matches
+Verilator's `-E` token for token on all 772 tests both accept (section
+4.4). Every legal test parses except three that break the standard, and
+the parse tests that should fail do, for the reasons they give (section
+6.4). Designing the intermediate form that elaboration produces is next.
 
 ## 1. Goals
 
@@ -247,35 +248,114 @@ MLIR lexer does. The parts that need care:
 
 ## 6. Parsing (Annex A)
 
-A hand-written recursive-descent parser over the token stream, following
-the grammar of Annex A, with precedence climbing for expressions
-(table 11-2). It builds an AST in an arena: nodes are indices, every node
-holds the `&str` span of its first and last token, so any node can be
-reported by position.
+**Done** for all of Annex A, in `sv/src/parse/` and `sv/src/ast.rs`.
+`epitome-sv --ast` prints the tree.
 
-SystemVerilog's grammar is ambiguous without knowing which names are
-types. `a * b;` is a declaration if `a` is a type and an expression
-otherwise; `#(` follows a type or a module name. The parser keeps a
-scope of names declared as types (`typedef`, classes, parameters with
-`type`, package imports) and asks it at these points. A name used before
-it is declared (allowed in some places, 6.18) is parsed as an expression
-first and re-read as a type when elaboration knows better.
+### 6.1 The tree
 
-The AST covers, in order of the build:
+The tree follows the lexer's lead: a node holds no text, only where its
+text is.
 
-1. compilation units, modules, ports, parameters, nets and variables,
-   continuous assignments, `always*`/`initial`/`final`, statements and
-   expressions: enough for most of clauses 3–13 and 23;
-2. packages, interfaces and modports, generate blocks, functions and
-   tasks: clauses 13, 25–27;
-3. classes, constraints, covergroups: clauses 8, 18, 19;
-4. assertions, sequences, properties, checkers, clocking blocks: clauses
-   14, 16, 17;
-5. programs, configurations, UDPs, gates, specify blocks and timing
-   checks: clauses 24, 28–31, 33.
+```rust
+pub struct Node { kind: Kind, first: u32, end: u32, child_start: u32, child_len: u32 }
+```
 
-Errors are recovered at `;`, `end*` keywords and `endmodule`, so one
-mistake gives one message.
+`first..end` is a range of the token list (each token a `&str` into its
+source), and the children are a range of one shared list of `NodeId`s.
+All nodes live in one arena, `Ast::nodes`; a node is 20 bytes. A leaf is
+a node of one token (`Name`, `Keyword`, `Op`, `Number`, ...); a sized
+literal such as `8'hFF` is one `Number` node over its three tokens.
+
+Children are what carries meaning: names, literals, operators, the
+keywords that pick a form (a port's direction, `posedge`), and
+sub-constructs. Punctuation and keywords that only introduce a
+construct are not children, but are still in the node's token range.
+Children are always in source order. Attributes, `(* ... *)`, are an
+`Attributes` node just before the item or operand they apply to. Each
+`Kind` documents its children; where an optional child would leave two
+forms looking alike, it has a wrapper (`Label`, `Iff`, `DisableIff`,
+`NamedConnection`, `NamedArg`).
+
+### 6.2 How it parses
+
+A hand-written recursive-descent parser, one function per construct,
+structured after Annex A. Each function pushes the node it builds onto
+a stack; `finish(mark, kind)` turns everything pushed since `mark` into
+the children of a new node. Wrapping something already built (the left
+side of a binary operator, a select after a name) is another `finish`
+with the earlier mark, so left recursion costs nothing. Expressions use
+precedence climbing with the strengths of table 11-2, and properties
+and sequences the same with table 16-3.
+
+Keywords are those of the token's own `` `begin_keywords `` set (section
+4.1), so `logic` is a name under `"1364-2005"`.
+
+SystemVerilog cannot always be read without knowing which names are
+types. The parser does not keep a table of type names; it looks at the
+shape of what follows instead:
+
+- a type followed by a name starts a declaration: `T x;`, `p::T #(8)
+  x[4];`. A name before a name and `(` is an instantiation, `M u(...);`.
+  So `M u;` is a variable of type `M` until elaboration finds that `M` is
+  a module;
+- a name followed by `.name name` in a module body is an interface port;
+- in a sequence, `(` is tried as an expression first, then as a
+  parenthesised sequence (`(a ##1 b)`, `(s, x = 1)`);
+- in `@(...)`, a parenthesis is tried as a nested event expression, then
+  as part of an expression.
+
+Backing up is cheap: it truncates the arena and the stack. The input of
+150 000 lines of assignments and `if`s parses (with preprocessing) in
+0.6 s.
+
+The first error stops the parse. When readings were abandoned along the
+way, the error reported is the one that got furthest through the
+tokens.
+
+### 6.3 Rules checked while parsing
+
+Beyond the grammar, the parser rejects what the standard forbids and
+the tokens alone show, among them: keywords as names; a literal of size
+0; bad digits for a base; `x`, `z` or `?` in a string's octal or hex
+escape; nested attributes; packed dimensions without a range, or on an
+unpacked struct or union; a signed unpacked struct; `rand` in a packed
+struct; an implicit data type without `var`; `type(...)` starting a
+variable without `var` (except `type(this)`, as 6.23 writes it); drive
+strengths without an assignment, charge strengths on anything but
+`trireg`, `(highz0, highz1)`; `vectored` without a range; `wire reg`;
+the restrictions on `interconnect`; a `localparam` without a value in a
+parameter port list; declarations after statements in a block; a block
+with both a label and a name, or an end label that differs; a for loop
+that declares only some of its variables; positional arguments after
+named ones; `ref` with a direction; mixed ordered and named connections
+or parameter values; ports in a generate block, or in the body of a
+module with ANSI ports; a generate region inside a generate block;
+`import` in a class; `local protected`; a static class method; `cover`
+with `else`, `restrict` with an action; delays on `tran` and `pullup`;
+UDPs inside modules, with two outputs, vector or `inout` ports, `reg`
+on a combinational output, bad table symbols, edges in combinational
+tables, two edges in a row, wide or delayed initial values; specify
+blocks outside modules, `ifnone` on edge paths, system tasks in specify
+blocks and timing checks outside them; `$width` with a notifier but no
+threshold; a DPI import without a return type.
+
+### 6.4 Testing
+
+- Unit tests in `parse/tests.rs` check the tree for each kind of
+  construct, and the message and position of each rule above.
+- `tests/test1800.rs` parses every test of `test1800`. Every legal test
+  must parse and every `:type: parse` should-fail test must be rejected.
+  Today: 778 of 781 legal tests parse and all 340 parse should-fail
+  tests but one are rejected, each for the reason the test gives.
+
+The exceptions are listed in the test with their reasons:
+
+- `missing_parentheses_error.sv` (`M u;`) is valid syntax; elaboration
+  will reject it.
+- Three legal tests break the standard, and issues are raised:
+  `escape_sequences_octal.sv` (`\7z`, IEEE1800-2023-tests#4),
+  `nettype_valid_data_types.sv` (dimensions after a nettype's name,
+  #3) and `coverage_save_then_merge.sv` (`before` as a name, #2).
 
 ## 7. Elaboration (clause 23)
 
@@ -336,10 +416,9 @@ pass rate on the clauses it targets stops climbing.
    without error, except tests that `:should_fail_because:` of a lexical
    rule. A cargo test walks the suite when `IEEE1800_TESTS` points at a
    checkout of it.
-2. **Parser**: `epitome-sv --parse-only`. Target: every `:type: parse`
-   test (341 of them) gives the right answer, then every legal test in
-   the suite parses. The cargo test reports the count that parse and lists
-   the first failures with `file:line:col`.
+2. **Parser** (Done): every `:type: parse` test (341 of them) gives the
+   right answer, and every legal test in the suite parses; see section
+   6.4.
 3. **Preprocessor** (Done): clause 22 and every test that uses
    `` `define ``; see section 4.4.
 4. **Elaboration**: `:type: elaboration` tests, clauses 6, 7, 11, 23, 26,

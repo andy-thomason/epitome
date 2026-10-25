@@ -4,6 +4,7 @@
 //! skipped.
 
 use epitome_sv::lexer::tokenize;
+use epitome_sv::parse::parse;
 use epitome_sv::preprocess::{Options, preprocess_files};
 use epitome_sv::source::{Source, SourceMap};
 use std::path::{Path, PathBuf};
@@ -118,4 +119,82 @@ fn preprocess_test1800() {
         eprintln!("rejected: {r}");
     }
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// Should-fail parse tests that only elaboration can reject: the syntax is
+/// valid, and the error is in what a name turns out to be.
+const NEEDS_ELABORATION: &[(&str, &str)] = &[(
+    "23-modules-and-hierarchy/23.03-module-instances/missing_parentheses_error.sv",
+    "`M u;` declares a variable of type M until M is known to be a module",
+)];
+
+/// Legal tests that do not follow the standard, and the issues raised
+/// about them.
+const SUITE_ISSUES: &[(&str, &str)] = &[
+    (
+        "05-lexical-conventions/05.09.1-special-characters-in-strings/escape_sequences_octal.sv",
+        "IEEE1800-2023-tests#4: `\\7z` is not a legal octal escape (5.9.1)",
+    ),
+    (
+        "06-data-types/06.06-net-types/nettype_valid_data_types.sv",
+        "IEEE1800-2023-tests#3: no dimensions may follow a nettype's name (6.6.7)",
+    ),
+    (
+        "40-coverage-api/40.03-coverage-system-functions/coverage_save_then_merge.sv",
+        "IEEE1800-2023-tests#2: `before` is a reserved keyword (Annex B)",
+    ),
+];
+
+#[test]
+fn parse_test1800() {
+    let Some(root) = suite() else { return };
+    let mut paths = Vec::new();
+    files(&root, &mut paths);
+    paths.retain(|p| p.extension().is_some_and(|e| e == "sv"));
+    let (mut parsed, mut rejected) = (0, 0);
+    let (mut wrong, mut accepted) = (Vec::new(), Vec::new());
+    for path in &paths {
+        let text = std::fs::read_to_string(path).unwrap();
+        let dir = path.parent().unwrap();
+        let mut sources = vec![path.clone()];
+        if let Some(more) = header(&text, "files") {
+            sources.extend(more.split_whitespace().map(|f| dir.join(f)));
+        }
+        let should_fail = header(&text, "should_fail_because");
+        let parse_test = header(&text, "type").is_some_and(|t| t == "parse");
+        let name = path.strip_prefix(&root).unwrap().display().to_string();
+        let map = SourceMap::new();
+        let result = preprocess_files(&map, &sources, &Options::default())
+            .and_then(|out| parse(&out).map(|_| ()).map_err(|e| map.render(&e)));
+        match (result, &should_fail) {
+            (Ok(()), None) => parsed += 1,
+            (Ok(()), Some(why)) if parse_test && !NEEDS_ELABORATION.iter().any(|(n, _)| *n == name) => {
+                accepted.push(format!("{name}: {why}"));
+            }
+            (Ok(()), Some(_)) => {}
+            (Err(_), Some(_)) => rejected += 1,
+            (Err(_), None) if SUITE_ISSUES.iter().any(|(n, _)| *n == name) => {}
+            (Err(e), None) => wrong.push(format!("{name}\n{e}")),
+        }
+    }
+    eprintln!(
+        "{} tests: {parsed} legal tests parse, {} do not; {rejected} should-fail tests rejected, {} parse tests wrongly accepted",
+        paths.len(),
+        wrong.len(),
+        accepted.len()
+    );
+    if let Ok(out) = std::env::var("PARSE_REPORT") {
+        let report = format!(
+            "# legal tests that do not parse\n\n{}\n\n# should-fail parse tests accepted\n\n{}\n",
+            wrong.join("\n"),
+            accepted.join("\n")
+        );
+        std::fs::write(out, report).unwrap();
+    }
+    assert!(
+        wrong.is_empty() && accepted.is_empty(),
+        "{} legal tests do not parse; {} should-fail parse tests accepted",
+        wrong.len(),
+        accepted.len()
+    );
 }

@@ -535,9 +535,8 @@ Elaboration sorts processes and nets between the two lower layers:
 - **Netlist** (section 8.1): `always_ff`, `always_comb`, `always_latch`
   and continuous assignments with no delays and no calls into the
   runtime, writing nets with one driver and no strengths, or variables
-  written by that process only. Four-state vectors become two `iN`
-  values, one for the value bits and one for the unknown bits; a design
-  that asks for two-state simulation keeps only the first.
+  written by that process only. How their values are laid out in
+  memory, and the two-state and four-state models, are in section 8.3.
 - **Program** (section 8.2): everything else, including any process
   that the netlist rules reject, which then reads and writes netlist
   values through the state struct between `eval` calls.
@@ -564,10 +563,14 @@ The processes and nets that section 7.8 sends here become one `hw.module`
 per specialisation, built in `epitome-mlir`'s in-memory form:
 `always_ff` becomes `seq` registers with multiplexers and enables from
 its `if` and `case` tree, `always_comb` and continuous assignments
-become `comb`. From there it is the [MLIR](mlir.md) section 7 path:
-flatten, sort, and build one `eval` function, which Epitome compiles as a
-big block. The same form can be written out and given to CIRCT's tools to
-check our netlists.
+become `comb`. The same form can be written out and given to CIRCT's
+tools to check our netlists.
+
+[MLIR](mlir.md) section 7 flattens a design and builds one scalar `eval`.
+`epitome-sv` does not flatten: it builds one `eval` per specialisation
+that runs every instance of it at once, a vector lane per instance
+(section 8.3). The scalar path stays for designs from Chisel and for
+checking.
 
 ### 8.2 The program
 
@@ -585,6 +588,73 @@ Everything else is lowered to Epitome IR:
 - **The netlist runs inside the Active region.** When a value it reads
   changes, the runtime calls `eval`; registers update at the clock edges
   `eval` sees, as nonblocking assignments would.
+
+### 8.3 Instances as lanes
+
+The netlist's state is kept as a structure of arrays, indexed by
+instance. All instances of one specialisation are numbered, and each is
+a **lane**. With 512-bit vectors (AVX-512, and SME on the Apple M4) a
+group of 512 instances shares one set of registers, and `eval` for a
+specialisation runs a group at a time. The instance count is padded to a
+whole group; padding lanes are masked off.
+
+**Layout of a value.** Each object has one layout, chosen at lowering:
+
+| Width | Layout | 512 instances of a two-state value take |
+| --- | --- | --- |
+| 1 to 7 bits | **bit planes**: one vector per bit, bit `i` of lane `n` in vector `i` | `w` vectors (3 for a 3-bit value) |
+| 8, 16, 32 bits, rounding up | **lanes** of 8, 16 or 32 bits | 8, 16 or 32 vectors |
+| over 32 bits | lanes of 32-bit pieces | 32 vectors per piece |
+
+A four-state value has a second array of the same shape for the unknown
+bits: `0`, `1`, `z` and `x` are value and unknown bits `00`, `10`, `01`
+and `11`. So a 1-bit four-state signal for 512 instances is two
+vectors, and a 3-bit one is six.
+
+**Why the boundary is at 8 bits.** From 8 bits up both layouts take the
+same space; below 8, bit planes are smaller. What differs is the work:
+
+- bitwise operators and multiplexers cost the same either way;
+- bit selects, part selects, concatenation and shifts by a constant are
+  free on bit planes (they choose which vectors to use) and cost shifts
+  and masks on lanes;
+- addition on bit planes is a ripple carry of about five operations per
+  bit, against one operation per vector on lanes; multiplication and
+  comparison are worse still.
+
+So the table is the default, and an object used mostly in arithmetic
+(a 4-bit counter) moves up to 8-bit lanes. Converting between layouts is
+a transpose, so each object keeps one layout, and an operation whose
+operands differ converts the smaller one.
+
+**No branches.** `if` and `case` are already multiplexers in the netlist.
+Each lane's clock edge is a mask, so instances on different clocks, or
+with enables, share one `eval`: a register takes its next value where
+the mask is set and keeps its old one elsewhere.
+
+**Ports between specialisations.** A child's lanes are ordered by
+parent: where each parent has one instance of the child, child lane `n`
+belongs to parent lane `n`, and ports connect with no data movement. An
+array of instances, or a child used by several parents, needs a gather
+or scatter at the port, done once per `eval` of the child group.
+
+**Specialisations with few instances.** The top module has one, and
+would use one lane in 512. The lanes can instead hold independent copies
+of the whole simulation, with different seeds or stimulus, so a
+regression of many runs costs little more than one.
+
+**Two models.** The same netlist is lowered twice:
+
+- **four-state**: value and unknown arrays, and the four-state rules of
+  clause 11 for every operator;
+- **two-state**: value arrays only, and most operators one instruction.
+  `x` and `z` become `0` on the way in, as a conversion to a two-state
+  type does.
+
+Two-state halves the state and removes most of the work of four-state
+logic. Which one runs is chosen per simulation; tests that look at `x`
+need four-state. We keep both if two-state is measurably faster, which is
+the expectation.
 
 ## 9. Clean-room rules
 
@@ -637,8 +707,13 @@ Icarus (66.8% and 68.6% today).
 - **Decided:** the preprocessor runs over the whole compilation unit
   before parsing, and each token records the keyword set it was read
   under, so `` `begin_keywords `` needs nothing lazy.
-- **Open:** how much of four-state arithmetic to do inline in IR and how
-  much to call the runtime for, for wide vectors.
+- **Decided:** netlist state is a structure of arrays, one lane per
+  instance, bit planes below 8 bits and 8/16/32-bit lanes above; a
+  two-state and a four-state model (section 8.3).
+- **Open:** whether 64-bit lanes beat 32-bit pieces for wide values on
+  machines with 64-bit vector multiplies.
+- **Open:** whether to skip groups of lanes whose inputs did not change,
+  and at what size of design that pays for its checks.
 - **Decided:** three layers (section 7). The design is Epitome's own IR;
   the synthesisable part lowers to MLIR `hw`/`comb`/`seq` and reuses
   that path; the rest goes straight to Epitome IR and the runtime. `llhd`

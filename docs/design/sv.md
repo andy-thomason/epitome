@@ -678,6 +678,55 @@ logic. Which one runs is chosen per simulation; tests that look at `x`
 need four-state. We keep both if two-state is measurably faster, which is
 the expectation.
 
+### 8.4 Fast mode
+
+`epitome-sv --fast` builds a simulator that keeps only the netlist of
+section 8.1, for speed when a design is trusted and only its outputs
+matter: long runs, regressions, software running on a simulated
+processor. The standard defines no synthesisable subset, so "synthesisable"
+here means what section 7.8 sends to the netlist, plus these changes,
+which are what a synthesis tool would do with the same source:
+
+- **Dropped:** immediate, deferred and concurrent assertions, `assume`,
+  `cover`, `expect`, covergroups and checkers; system tasks with no effect
+  on the design's state (`$display` and its family, `$monitor`,
+  `$strobe`, `$info`, `$warning`, `$error`, `$fatal`); `final`
+  procedures; specify blocks and timing checks.
+- **Ignored:** delays (`#` on assignments, nets, gates and continuous
+  assignments are zero), and drive strengths where a net has one driver.
+- **Kept as initial values:** an `initial` procedure, or a declaration
+  initialiser, that only assigns constants to variables (register reset
+  values as an FPGA flow would load them). Any other `initial` is
+  dropped.
+- **Two-state by default:** `--fast` implies the two-state model of
+  section 8.3; `--fast --four-state` keeps unknown bits.
+
+Every other process is outside the fast design. What drives it is chosen
+by where the design's boundary is:
+
+- **The whole design** (the default): the top module's ports are the
+  interface, set and read by a harness in Rust or C through the
+  generated state header and `eval`, as with arcilator's models
+  ([MLIR](mlir.md) section 7.1). Testbench modules are not compiled.
+- **`--dut <path>`**: only the subtree under that instance is made fast;
+  everything above it, the testbench, still runs in full through the
+  program layer and the runtime, and calls the fast subtree's `eval` in
+  the Active region (section 8.2). So an existing SystemVerilog
+  testbench drives a fast design.
+
+Dropping code changes what a run prints and when it stops, so a fast
+build reports what it dropped: one line per kind of construct with a
+count, and with `--explain`, each construct's position. A design whose
+fast netlist still holds a process the netlist rules reject (a delay that
+matters, a call into the runtime from inside the DUT) is an error naming
+it, never a silent change.
+
+**Testing.** Fast mode is checked against full mode: for every
+`test1800` test and example whose design is synthesisable, both builds
+run the same stimulus and must give the same values on the top-level
+outputs at every clock edge (with `x` compared as `0` against
+two-state).
+
 ## 9. Clean-room rules
 
 `epitome-sv` is a clean-room build from IEEE 1800-2023 alone. The
@@ -733,6 +782,9 @@ Icarus (66.8% and 68.6% today).
   instance; each object in bit planes or in 8/16/32-bit lanes, chosen by
   the operations that use it; a two-state and a four-state model
   (section 8.3).
+- **Decided:** a fast mode that keeps only the netlist, drops
+  assertions, coverage and other non-synthesisable code, and is driven by
+  a harness or, with `--dut`, by the full testbench (section 8.4).
 - **Open:** whether 64-bit lanes beat 32-bit pieces for wide values on
   machines with 64-bit vector multiplies.
 - **Open:** whether to skip groups of lanes whose inputs did not change,

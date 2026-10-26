@@ -618,11 +618,34 @@ same space; below 8, bit planes are smaller. What differs is the work:
 - bit selects, part selects, concatenation and shifts by a constant are
   free on bit planes (they choose which vectors to use) and cost shifts
   and masks on lanes;
-- addition on bit planes is a ripple carry of about five operations per
-  bit, against one operation per vector on lanes; multiplication and
-  comparison are worse still.
+- addition on bit planes is a ripple carry: per bit, a sum (a
+  three-way exclusive or) and a carry (the majority of three), against
+  one operation per vector on lanes; multiplication and comparison are
+  worse still.
 
-So the table is the default, and an object used mostly in arithmetic
+**Three-input logic.** Bit planes are all bitwise logic, and both targets
+have instructions that take three inputs:
+
+- x86-64 with AVX-512 has `vpternlogd`/`q`, which computes *any*
+  function of three inputs, chosen by an 8-bit truth table in its
+  immediate. The sum and the carry are one instruction each, so an add is
+  two per bit; a multiplexer is one; and a four-state operator, whose
+  value and unknown results each depend on four input planes, is a few.
+- AArch64 with SVE2, which streaming SME mode includes, has fixed
+  three-input forms: `eor3` (the sum), `bsl` and its variants (a
+  multiplexer, and the carry as a select on `a ^ b`) and `bcax`.
+
+Instruction selection needs a rule for this: any tree of `and`, `or`,
+`xor` and `not` over at most three distinct inputs becomes one
+`vpternlog`, with the immediate computed by evaluating the tree on the
+three patterns `0xf0`, `0xcc` and `0xaa`. Today `vpternlogd` is in the
+x86 description for assembly only (`asmonly`); this rule is what makes
+code generation use it. The rule is the combiner's
+([combines](combine.md)) or isel's ([isel](isel.md)) to own; it is
+useful outside `epitome-sv` too.
+
+With three-input logic, an 8-bit add on bit planes is 16 instructions
+against 8 on lanes, rather than about 40. So the table is the default, and an object used mostly in arithmetic
 (a 4-bit counter) moves up to 8-bit lanes. Converting between layouts is
 a transpose, so each object keeps one layout, and an operation whose
 operands differ converts the smaller one.

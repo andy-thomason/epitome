@@ -15,7 +15,8 @@ Every legal `test1800` test preprocesses, and the output matches
 Verilator's `-E` token for token on all 772 tests both accept (section
 4.4). Every legal test parses except three that break the standard, and
 the parse tests that should fail do, for the reasons they give (section
-6.4). Designing the intermediate form that elaboration produces is next.
+6.4). The design IR that elaboration produces is planned (section 7);
+building elaboration is next.
 
 ## 1. Goals
 
@@ -51,9 +52,12 @@ They come after everything else passes.
  │                                              │                    │
  │                         elaborate (parameters, generate, hierarchy)│
  │                                              ▼                    │
- │                         typed, flattened design (per instance)    │
- │                                              │                    │
- │                  lower: processes ─► Epitome IR + runtime calls   │
+ │                  design IR (per specialisation; section 7)        │
+ │                           │                       │               │
+ │          netlist: hw / comb / seq      program: processes,        │
+ │          ─► eval (section 8.1)         testbench (section 8.2)    │
+ │                           └───────────┬───────────┘               │
+ │                     Epitome IR + runtime calls                    │
  └──────────────────────────────────────────────┬────────────────────┘
                                                  ▼
                                   epitome_ir::Module
@@ -357,36 +361,230 @@ The exceptions are listed in the test with their reasons:
   `nettype_valid_data_types.sv` (dimensions after a nettype's name,
   #3) and `coverage_save_then_merge.sv` (`before` as a name, #2).
 
-## 7. Elaboration (clause 23)
+## 7. Elaboration and the design IR (clauses 3.12, 23, 27)
 
-Elaboration turns the AST into a design: it binds names, evaluates
+Elaboration turns the AST into a **design**: it binds names, evaluates
 parameters and constant expressions, unrolls generate blocks, resolves
-the hierarchy from `top` downwards, and works out the type and width of
-every expression (clause 11's rules for self- and context-determined
-widths). Each distinct parameterisation of a module is elaborated once
-and shared between its instances.
+the hierarchy from the top modules downwards, and gives every expression
+its type and width (clause 11's rules for self- and context-determined
+operands). The design is Epitome's own IR, the first of three layers:
 
-Values have four states. A `logic [N-1:0]` is two `iN` words (value and
-unknown bits); a `bit` vector is one. Constant evaluation follows the
-same rules as simulation, so they share one implementation.
+| Layer | Holds | Form |
+| --- | --- | --- |
+| Design (this section) | Everything the language means, with names and types resolved | Rust arenas, below |
+| Netlist (section 8.1) | The synthesisable part: cells, wires, registers, memories | MLIR `hw`, `comb` and `seq`, in `epitome-mlir`'s form |
+| Program (section 8.2) | Everything event-driven: processes, testbench code, the scheduler | `epitome_ir` calling a Rust runtime |
+
+`llhd` is not used for now. It has delta and epsilon steps but no
+reactive set, Preponed or Postponed region (clause 4.4), so the runtime
+needs its own scheduler anyway. CIRCT's `moore` dialect is not used as a
+model: it is another tool's reading of the standard (section 9).
+
+The design keeps what the netlist cannot: four-state values, strengths,
+the hierarchy, regions, classes and dynamic data. It is shaped by RTLIL's
+split between wires, cells, connections and processes, but it is a
+language-level IR, not a netlist.
+
+### 7.1 Principles
+
+- **Arenas and ids.** Like the AST (section 6.1), every table is a `Vec`
+  indexed by a `u32` id, with children as ranges of a shared list. No
+  `Rc`, no pointers between entries, no strings except interned symbols.
+- **Every entry points back to the AST.** Each object, expression and
+  statement stores the `NodeId` it came from, so an error at any later
+  stage has a line and column through the token's `&str`.
+- **Elaborated once per specialisation.** A module, interface, program
+  or checker with one set of parameter values, type parameters and
+  interface-port bindings is a **specialisation**, elaborated once and
+  shared by all its instances. Specialisations are independent, so they
+  are elaborated in parallel once their parameters are known.
+- **The hierarchy is kept, not flattened.** Instances refer to
+  specialisations. The netlist flattens (as [MLIR](mlir.md) section 7.2
+  does) or keeps large modules as functions; the design does neither.
+- **Clause 11 is applied once.** After elaboration every operand has its
+  final width and signedness, and every extension, truncation and
+  conversion is an explicit node. No later layer re-derives clause 11.
+- **Structured statements.** Procedural code stays as a tree (`if`,
+  `case`, loops), not a control-flow graph. The netlist needs the
+  structure to turn an `always_ff` into multiplexers and enables, as
+  RTLIL's processes do with their switch rules; the program layer builds
+  the graph when it lowers.
+
+### 7.2 Values and types
+
+Types are interned (`TypeId`). Packed types all reduce to a **bit
+vector** with a width, a signedness and a state count (two or four),
+plus a layout naming its fields and dimensions so that member and part
+selects can be turned into offsets (clauses 6.9–6.11, 7.2.1, 7.4.1).
+The other kinds are:
+
+- `real`, `shortreal`, `realtime`;
+- unpacked arrays: fixed, dynamic, queue and associative (clause 7);
+- unpacked structs and unions;
+- `string`, `chandle`, `event`;
+- enums (a base vector type and its named values; clause 6.19);
+- class handles, interface classes, virtual interfaces;
+- nets of a user-defined nettype (clause 6.6.7), with its resolution
+  function.
+
+Constants are interned too (`ConstId`): a four-state vector of any width
+stored as two word arrays, value bits and unknown bits, so that `0`,
+`1`, `x` and `z` are the four combinations of one bit from each (clause
+6.3.1). Two-state vectors have no unknown words. Reals, strings and
+unpacked aggregates of constants are constants as well.
+
+### 7.3 Scopes and objects
+
+A **scope** is a specialisation, a generate block, a named or unnamed
+block, a task or function, a class, a package, the compilation unit, or a
+clocking block. Each has a parent, a symbol table, and the objects,
+processes and instances declared in it. Unnamed generate blocks get the
+names clause 27.6 gives them.
+
+An **object** is what RTLIL calls a wire, generalised:
+
+- **variable**: type, lifetime (static or automatic; clause 6.21),
+  initial value (run before any process starts; clause 10.5);
+- **net**: type, net kind (`wire`, `tri`, `wand`, `wor`, `tri0`, `tri1`,
+  `trireg`, `supply0`, `supply1`, `uwire`, or a user nettype), its
+  drivers (below) and, for `trireg`, its charge strength;
+- **parameter**, **localparam**, **specparam**: a constant, kept for
+  hierarchical references, `$bits` and the like;
+- **port**: a direction and the object inside it (clause 23.2.2).
+
+References across the hierarchy (`a.b.c`, upwards names, `$root`; clause
+23.6–23.8) are resolved during elaboration to an instance path and an
+object id. A reference into a class or a virtual interface stays a typed
+member access, resolved when the program runs.
+
+### 7.4 Drivers, connections and cells
+
+The structural part follows clause 4.9:
+
+- A **continuous assignment** (clause 10.3) is a driver: target,
+  expression, drive strength, delay. So is an output port that drives an
+  outside net, and an input port driven from outside (clause 4.9.6).
+- An **inout port** connecting two nets is an **alias**, a tran with no
+  strength reduction. Where both sides are nets of the same type with no
+  delay, the two nets are merged, which is what RTLIL's connections do.
+- A **cell** is a gate, a switch, a UDP or a pull (clause 28, 29):
+  kind, terminals (each a one-bit net or net expression), strengths and
+  delays. A UDP's table is kept as data.
+- An **instance** names a specialisation and binds each of its ports to
+  an expression or a net, with `.*` and implicit names already expanded
+  (clause 23.3.2).
+
+A net's value is resolved from its drivers, cells and aliases by the
+rules of clause 28.12 for built-in net kinds and by the resolution
+function for a user nettype. The design records which kind each net
+needs: one driver and no strengths (the common case, which the netlist
+can take), several drivers of a wired kind, or strengths and switches.
+
+### 7.5 Expressions and statements
+
+Expressions are typed nodes in an arena, with explicit conversions:
+constant, object reference, hierarchical reference, bit and part select
+(indices normalised to offsets from the least significant bit, with the
+out-of-range rule of clause 11.5.1), member, the unary, binary and
+conditional operators with their four-state meaning (clause 11.4),
+concatenation and replication, streaming (clause 11.4.14), `inside`,
+casts, calls to tasks, functions, methods and system functions, `new`,
+and assignment patterns (clause 10.9) expanded to their elements.
+
+Statements mirror clause 9–13: blocks (sequential, or `fork` with its
+join kind), assignments (blocking, nonblocking, `assign`, `deassign`,
+`force`, `release`, each with any intra-assignment timing), timing
+controls (`#`, `@`, `wait`, `##`), `if` and `case` with `unique`,
+`unique0` and `priority`, loops, `disable`, `return`, `break`,
+`continue`, event triggers, immediate and deferred assertions, and
+calls.
+
+### 7.6 Processes
+
+A **process** is RTLIL's process generalised to clause 9: its kind
+(`initial`, `always`, `always_comb`, `always_latch`, `always_ff`,
+`final`), its body, and two facts the later layers need:
+
+- **its region set**: active, or reactive for code in a program or a
+  checker and for assertion action blocks (clauses 4.4.2.6, 24);
+- **its sensitivity**: for `always_comb`, `always_latch` and `@*`, the
+  set clause 9.2.2.2 defines (what the body reads, including through
+  called functions, less what it writes first); for an `always_ff` or a
+  leading `@(posedge …)`, the clock edges and any asynchronous ones.
+
+Tasks, functions and class methods are bodies in their scopes, not
+processes. Classes keep their members, methods, virtual slots,
+constraints and covergroups for the program layer. Concurrent
+assertions keep their sequences and properties as expression trees, with
+the clock and `disable iff` each one resolves to (clauses 16.15, 16.16).
+
+### 7.7 Constant evaluation, and an interpreter
+
+Parameters, generate conditions, array bounds and constant functions
+(clause 13.4.3) are evaluated during elaboration by an interpreter over
+expressions and statements in this IR. Simulation uses the same
+four-state rules, so the interpreter is written once and grows into a
+**reference simulator**: a slow, event-driven run of the design, with the
+regions of clause 4.5. It lets `test1800`'s simulation tests pass before
+the compiled path does, and every compiled result is checked against it.
+
+### 7.8 Which code goes where
+
+Elaboration sorts processes and nets between the two lower layers:
+
+- **Netlist** (section 8.1): `always_ff`, `always_comb`, `always_latch`
+  and continuous assignments with no delays and no calls into the
+  runtime, writing nets with one driver and no strengths, or variables
+  written by that process only. Four-state vectors become two `iN`
+  values, one for the value bits and one for the unknown bits; a design
+  that asks for two-state simulation keeps only the first.
+- **Program** (section 8.2): everything else, including any process
+  that the netlist rules reject, which then reads and writes netlist
+  values through the state struct between `eval` calls.
+
+### 7.9 Printing and testing
+
+`epitome-sv --design file.sv` prints the design as text, one entry per
+line, in the generic MLIR form that `epitome-mlir` reads, so that it can
+be diffed and round-tripped like the AST's `sexp`. The 347 `:type:
+elaboration` tests in `test1800` are the measure: legal ones elaborate,
+and the others fail for the reason they give.
 
 ## 8. Simulation
 
-Clause 4's scheduler has regions (active, inactive, NBA, observed,
-reactive, postponed). The plan:
+Clause 4's scheduler has regions; the nine that simulation uses are
+Preponed, Active, Inactive, NBA, Observed, Reactive, Re-Inactive, Re-NBA
+and Postponed. The PLI-only regions wait for VPI. Within a region the
+order of events is free (clause 4.7), so a fixed order chosen at compile
+time is a correct one; only the region boundaries must be kept.
 
-- **Processes become functions.** Each `always`, `initial`, continuous
-  assignment and forked thread is lowered to Epitome IR. A process that
-  waits (`@`, `#`, `wait`) is a state machine: its locals live in a frame
-  and each wait point is a resume label, so threads cost no stack.
-- **A runtime in Rust** holds the event queues, the time wheel, NBA
-  updates, strings, dynamic arrays, queues, associative arrays, class
-  objects and `$display`-style formatting. Generated code calls it
+### 8.1 The netlist
+
+The processes and nets that section 7.8 sends here become one `hw.module`
+per specialisation, built in `epitome-mlir`'s in-memory form:
+`always_ff` becomes `seq` registers with multiplexers and enables from
+its `if` and `case` tree, `always_comb` and continuous assignments
+become `comb`. From there it is the [MLIR](mlir.md) section 7 path:
+flatten, sort, and build one `eval` function, which Epitome compiles as a
+big block. The same form can be written out and given to CIRCT's tools to
+check our netlists.
+
+### 8.2 The program
+
+Everything else is lowered to Epitome IR:
+
+- **Processes become functions.** Each remaining `always`, `initial`,
+  `final` and forked thread is a function. A process that waits (`@`,
+  `#`, `wait`) is a state machine: its locals live in a frame and each
+  wait point is a resume label, so threads cost no stack.
+- **A runtime in Rust** holds the regions, the time wheel, NBA updates,
+  net resolution for nets with several drivers or strengths, strings,
+  dynamic arrays, queues, associative arrays, class objects, mailboxes,
+  semaphores and `$display`-style formatting. Generated code calls it
   through `extern "C"` functions.
-- **Cycle-based fast path.** Logic that is synchronous to one clock and
-  has no delays is scheduled statically: one `eval` per edge, which
-  Epitome compiles as a big block. This is the same code as the `seq`
-  lowering in [MLIR](mlir.md) section 7.
+- **The netlist runs inside the Active region.** When a value it reads
+  changes, the runtime calls `eval`; registers update at the clock edges
+  `eval` sees, as nonblocking assignments would.
 
 ## 9. Clean-room rules
 
@@ -421,8 +619,9 @@ pass rate on the clauses it targets stops climbing.
    6.4.
 3. **Preprocessor** (Done): clause 22 and every test that uses
    `` `define ``; see section 4.4.
-4. **Elaboration**: `:type: elaboration` tests, clauses 6, 7, 11, 23, 26,
-   27.
+4. **Elaboration**: the design IR of section 7, and its interpreter for
+   constant expressions; `:type: elaboration` tests, clauses 6, 7, 11,
+   23, 26, 27.
 5. **Simulation of the synthesisable subset**: the runtime with
    `$display`, `$finish`, `initial`, `always_ff`, `always_comb`, NBAs and
    `#` delays. Every test prints `PASS` this way, so this unlocks the
@@ -440,6 +639,10 @@ Icarus (66.8% and 68.6% today).
   under, so `` `begin_keywords `` needs nothing lazy.
 - **Open:** how much of four-state arithmetic to do inline in IR and how
   much to call the runtime for, for wide vectors.
-- **Open:** whether to lower to the MLIR `hw`/`comb`/`seq` form and reuse
-  that path, or straight to Epitome IR. Straight to IR is planned; the
-  MLIR path would let CIRCT's tools check our netlists.
+- **Decided:** three layers (section 7). The design is Epitome's own IR;
+  the synthesisable part lowers to MLIR `hw`/`comb`/`seq` and reuses
+  that path; the rest goes straight to Epitome IR and the runtime. `llhd`
+  is not used, and `moore` is not a model.
+- **Open:** whether the reference interpreter (section 7.7) runs whole
+  simulations in `test1800`, or only constant functions, once the
+  compiled path works.

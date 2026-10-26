@@ -598,30 +598,39 @@ group of 512 instances shares one set of registers, and `eval` for a
 specialisation runs a group at a time. The instance count is padded to a
 whole group; padding lanes are masked off.
 
-**Layout of a value.** Each object has one layout, chosen at lowering:
+**Layout of a value.** Each object has one of two layouts, chosen at
+lowering from the operations that use it:
 
-| Width | Layout | 512 instances of a two-state value take |
-| --- | --- | --- |
-| 1 to 7 bits | **bit planes**: one vector per bit, bit `i` of lane `n` in vector `i` | `w` vectors (3 for a 3-bit value) |
-| 8, 16, 32 bits, rounding up | **lanes** of 8, 16 or 32 bits | 8, 16 or 32 vectors |
-| over 32 bits | lanes of 32-bit pieces | 32 vectors per piece |
+- **Bit planes**: one vector per bit; bit `i` of lane `n` is in vector
+  `i`. A `w`-bit two-state value for 512 instances takes `w` vectors (3
+  for a 3-bit value).
+- **Lanes** of 8, 16 or 32 bits, rounding the width up; wider values are
+  lanes of 32-bit pieces. A `w`-bit value takes the rounded width in
+  vectors.
 
 A four-state value has a second array of the same shape for the unknown
 bits: `0`, `1`, `z` and `x` are value and unknown bits `00`, `10`, `01`
 and `11`. So a 1-bit four-state signal for 512 instances is two
 vectors, and a 3-bit one is six.
 
-**Why the boundary is at 8 bits.** From 8 bits up both layouts take the
-same space; below 8, bit planes are smaller. What differs is the work:
+**Operations decide.** From 8 bits up both layouts take the same space,
+and below 8 bit planes are smaller, so space rarely decides. The work
+does:
 
-- bitwise operators and multiplexers cost the same either way;
-- bit selects, part selects, concatenation and shifts by a constant are
-  free on bit planes (they choose which vectors to use) and cost shifts
-  and masks on lanes;
-- addition on bit planes is a ripple carry: per bit, a sum (a
-  three-way exclusive or) and a carry (the majority of three), against
-  one operation per vector on lanes; multiplication and comparison are
-  worse still.
+| Operation | Bit planes | Lanes |
+| --- | --- | --- |
+| bitwise operators, multiplexers | one instruction per vector, or fewer with three-input logic | one per vector |
+| bit and part selects, concatenation, shifts by a constant | free: they choose which vectors to use | shifts and masks |
+| `+`, `-` | a ripple carry: a sum and a carry per bit | one per vector |
+| comparisons, `*`, `/`, shifts by a variable | many per bit | one or a few per vector |
+
+So an object that only meets the first two rows, such as a 32-bit bus
+that is masked, selected and multiplexed, stays in bit planes whatever
+its width; one that meets the last two, such as a 4-bit counter, goes to
+lanes. The choice is made per object by adding up the cost of its uses
+in each layout. Converting between layouts is a transpose, so each object
+keeps one layout, and where the operands of an operation differ the
+cheaper side is converted.
 
 **Three-input logic.** Bit planes are all bitwise logic, and both targets
 have instructions that take three inputs:
@@ -629,26 +638,16 @@ have instructions that take three inputs:
 - x86-64 with AVX-512 has `vpternlogd`/`q`, which computes *any*
   function of three inputs, chosen by an 8-bit truth table in its
   immediate. The sum and the carry are one instruction each, so an add is
-  two per bit; a multiplexer is one; and a four-state operator, whose
-  value and unknown results each depend on four input planes, is a few.
+  two per bit (16 for 8 bits, against 8 on lanes); a multiplexer is one;
+  and a four-state operator, whose value and unknown results each depend
+  on four input planes, is a few.
 - AArch64 with SVE2, which streaming SME mode includes, has fixed
   three-input forms: `eor3` (the sum), `bsl` and its variants (a
   multiplexer, and the carry as a select on `a ^ b`) and `bcax`.
 
-Instruction selection needs a rule for this: any tree of `and`, `or`,
-`xor` and `not` over at most three distinct inputs becomes one
-`vpternlog`, with the immediate computed by evaluating the tree on the
-three patterns `0xf0`, `0xcc` and `0xaa`. Today `vpternlogd` is in the
-x86 description for assembly only (`asmonly`); this rule is what makes
-code generation use it. The rule is the combiner's
-([combines](combine.md)) or isel's ([isel](isel.md)) to own; it is
-useful outside `epitome-sv` too.
-
-With three-input logic, an 8-bit add on bit planes is 16 instructions
-against 8 on lanes, rather than about 40. So the table is the default, and an object used mostly in arithmetic
-(a 4-bit counter) moves up to 8-bit lanes. Converting between layouts is
-a transpose, so each object keeps one layout, and an operation whose
-operands differ converts the smaller one.
+Code generation does not use them yet. The plan, owned by the combiner
+because it helps all code, not only simulators, is in
+[combines](combine.md), "Three-input bit functions".
 
 **No branches.** `if` and `case` are already multiplexers in the netlist.
 Each lane's clock edge is a mask, so instances on different clocks, or
@@ -731,8 +730,9 @@ Icarus (66.8% and 68.6% today).
   before parsing, and each token records the keyword set it was read
   under, so `` `begin_keywords `` needs nothing lazy.
 - **Decided:** netlist state is a structure of arrays, one lane per
-  instance, bit planes below 8 bits and 8/16/32-bit lanes above; a
-  two-state and a four-state model (section 8.3).
+  instance; each object in bit planes or in 8/16/32-bit lanes, chosen by
+  the operations that use it; a two-state and a four-state model
+  (section 8.3).
 - **Open:** whether 64-bit lanes beat 32-bit pieces for wide values on
   machines with 64-bit vector multiplies.
 - **Open:** whether to skip groups of lanes whose inputs did not change,

@@ -156,6 +156,8 @@ pub(crate) struct Elab<'a, 'x> {
     pub upward_defs: std::collections::HashSet<Sym>,
     /// Interface instances used as virtual interface values (25.9).
     pub virtual_uses: std::collections::HashSet<Sym>,
+    /// The signatures of DPI imports, by C name (35.4).
+    pub dpi_names: HashMap<String, String>,
     /// Functions exported through each interface instance, and by whom.
     pub exported_fns: HashMap<(InstId, Sym), InstId>,
     /// Forward typedefs, which must each be completed (6.18).
@@ -234,6 +236,7 @@ impl<'a, 'x> Elab<'a, 'x> {
             upward_defs: Default::default(),
             virtual_uses: Default::default(),
             exported_fns: HashMap::new(),
+            dpi_names: HashMap::new(),
         }
     }
 

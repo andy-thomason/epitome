@@ -1609,16 +1609,55 @@ pub(crate) fn sub_done<'a>(_e: &mut Elab<'a, '_>, _sub: SubId) -> R<'a> {
     Ok(())
 }
 
-pub(crate) fn dpi_import<'a>(_e: &mut Elab<'a, '_>, _sc: ScopeId, _n: NodeId) -> R<'a> {
+/// DPI imports (35.4, 35.5): a valid C name, one signature per C name,
+/// and a `pure` import returns a value and has only inputs.
+pub(crate) fn dpi_import<'a>(e: &mut Elab<'a, '_>, _sc: ScopeId, n: NodeId) -> R<'a> {
+    let kids = e.kids(n).to_vec();
+    let proto = e.child(n, Kind::Prototype).unwrap_or(n);
+    let sv_name = e.child(proto, Kind::Name).map(|x| e.ast.token(x).ident_name()).unwrap_or("");
+    let c_node = kids.iter().copied().find(|&k| e.kind(k) == Kind::Name);
+    let c_name = c_node.map(|x| e.ast.token(x).ident_name()).unwrap_or(sv_name);
+    let valid = c_name.bytes().next().is_some_and(|c| c.is_ascii_alphabetic() || c == b'_')
+        && c_name.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_');
+    if !valid {
+        return Err(e.err(c_node.unwrap_or(n), format!("`{c_name}` is not a valid C identifier for a DPI linkage name (35.4)")));
+    }
+    let pure = kids.iter().any(|&k| e.kind(k) == Kind::Keyword && e.text(k) == "pure");
+    if pure {
+        if e.child(proto, Kind::VoidType).is_some() || e.ast.tokens_of(proto).get(1).is_some_and(|t| t.0 == "void") {
+            return Err(e.err(n, "a `pure` import must return a value; it cannot be void (35.5.2)"));
+        }
+        if let Some(ports) = e.child(proto, Kind::TfPorts)
+            && e.ast.tokens_of(ports).iter().any(|t| matches!(t.0, "output" | "inout" | "ref"))
+        {
+            return Err(e.err(ports, "a `pure` import can have only input arguments (35.5.2)"));
+        }
+    }
+    // The signature, as written without the names.
+    let sig: Vec<&str> = e.ast.tokens_of(proto).iter().map(|t| t.0).filter(|t| *t != sv_name).collect();
+    let sig = sig.join(" ");
+    let c = c_name.to_string();
+    if let Some(old) = e.dpi_names.get(&c)
+        && *old != sig
+    {
+        return Err(e.err(n, format!("C name `{c}` is imported twice with different signatures (35.4)")));
+    }
+    e.dpi_names.insert(c, sig);
     Ok(())
 }
 
 pub(crate) fn dpi_export<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a> {
     let name = e.kids(n).iter().copied().filter(|&k| e.kind(k) == Kind::Name).last();
+    let kw = e.kids(n).iter().copied().find(|&k| e.kind(k) == Kind::Keyword).map(|k| e.text(k));
     if let Some(nm) = name {
         let s = e.sym_of(nm);
         match e.scope(sc).names.get(&s).copied() {
-            Some(Binding::Subroutine(_)) => {}
+            Some(Binding::Subroutine(x)) => {
+                let is_task = e.d.subroutines[x.0 as usize].kind == SubKind::Task;
+                if (kw == Some("function") && is_task) || (kw == Some("task") && !is_task) {
+                    return Err(e.err(nm, format!("`{}` is exported as a {}, but it is a {} (35.7)", e.name(s), kw.unwrap(), if is_task { "task" } else { "function" })));
+                }
+            }
             _ => {
                 return Err(e.err(nm, format!("`{}` is exported, but no task or function of that name is declared in this scope (35.7)", e.name(s))));
             }
@@ -2003,9 +2042,12 @@ pub(crate) fn udp<'a>(e: &mut Elab<'a, '_>, n: NodeId) -> R<'a> {
         .filter(|&&k| e.kind(k) == Kind::UdpPortDecl && e.text(e.kids(k)[0]) == "output")
         .flat_map(|&k| e.kids(k).iter().filter(|&&x| e.kind(x) == Kind::Name).map(|&x| e.text(x)).collect::<Vec<_>>())
         .collect();
-    if let Some(ports) = kids.iter().copied().find(|&k| e.kind(k) == Kind::Ports)
-        && let Some(&first) = e.kids(ports).first()
-    {
+    // The header's ports are names after the UDP's own (or a list).
+    let first = match kids.iter().copied().find(|&k| e.kind(k) == Kind::Ports) {
+        Some(ports) => e.kids(ports).first().copied(),
+        None => kids.get(1).copied().filter(|&k| e.kind(k) == Kind::Name),
+    };
+    if let Some(first) = first {
         let fname = e.ast.tokens_of(first).first().map_or("", |t| t.0);
         if !outputs.is_empty() && !outputs.contains(&fname) {
             return Err(e.err(first, "a UDP's output must be its first port (29.3)"));
@@ -2081,7 +2123,96 @@ pub(crate) fn constraint<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<
 
 // ---- other items ----
 
-pub(crate) fn specify<'a>(_e: &mut Elab<'a, '_>, _sc: ScopeId, _n: NodeId) -> R<'a> {
+/// Module paths (30.4), pulse-filtering declarations (30.7) and the
+/// edges timing checks need (31.4).
+pub(crate) fn specify<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a> {
+    let port_dir = |e: &mut Elab<'a, '_>, x: NodeId| -> Option<(Option<Dir>, u32)> {
+        let name = if e.kind(x) == Kind::Name { x } else { *e.kids(x).first()? };
+        if e.kind(name) != Kind::Name {
+            return None;
+        }
+        let s = e.sym_of(name);
+        match lookup::lookup(e, sc, s) {
+            Some(Binding::Object(o)) => Some((e.obj(o).dir, e.d.types.width(e.obj(o).ty))),
+            _ => None,
+        }
+    };
+    let mut paths: Vec<(String, String, bool, NodeId)> = Vec::new();
+    for &item in e.kids(n).to_vec().iter() {
+        match e.kind(item) {
+            Kind::PathDecl => {
+                let k = e.kids(item).to_vec();
+                let toks = e.ast.tokens_of(item);
+                let first = e.ast.node(item).first as usize;
+                let eq = toks.iter().position(|t| t.0 == "=").map_or(usize::MAX, |p| p + first);
+                let Some(op) = k.iter().position(|&x| e.kind(x) == Kind::Op && matches!(e.text(x), "=>" | "*>")) else { continue };
+                let parallel = e.text(k[op]) == "=>";
+                let ifnone = k.iter().any(|&x| e.kind(x) == Kind::Keyword && e.text(x) == "ifnone");
+                let conditional = k.iter().any(|&x| e.kind(x) == Kind::Keyword && e.text(x) == "if");
+                let ins: Vec<NodeId> = k[..op].iter().copied().filter(|&x| matches!(e.kind(x), Kind::Name | Kind::Index | Kind::RangeSelect)).collect();
+                // Destinations end at a polarity or data-source operator.
+                let outs: Vec<NodeId> = k[op + 1..]
+                    .iter()
+                    .copied()
+                    .take_while(|&x| e.kind(x) != Kind::Op)
+                    .filter(|&x| (e.ast.node(x).first as usize) < eq && matches!(e.kind(x), Kind::Name | Kind::Index | Kind::RangeSelect))
+                    .collect();
+                for &i in &ins {
+                    if let Some((d, _)) = port_dir(e, i)
+                        && !matches!(d, Some(Dir::Input | Dir::Inout))
+                    {
+                        return Err(e.err(i, "a module path must start at an input or inout port (30.4.1)"));
+                    }
+                }
+                for &o in &outs {
+                    if let Some((d, _)) = port_dir(e, o)
+                        && !matches!(d, Some(Dir::Output | Dir::Inout))
+                    {
+                        return Err(e.err(o, "a module path must end at an output or inout port (30.4.1)"));
+                    }
+                }
+                if parallel && let (Some(&i), Some(&o)) = (ins.first(), outs.first())
+                    && let (Some((_, wi)), Some((_, wo))) = (port_dir(e, i), port_dir(e, o))
+                    && wi != wo
+                    && e.kind(i) == Kind::Name
+                    && e.kind(o) == Kind::Name
+                {
+                    return Err(e.err(item, format!("a parallel path (`=>`) needs the same width on both sides, not {wi} and {wo} (30.4.5)")));
+                }
+                let key_in = ins.iter().map(|&x| e.ast.text(x)).collect::<Vec<_>>().join(",");
+                let key_out = outs.iter().map(|&x| e.ast.text(x)).collect::<Vec<_>>().join(",");
+                if !conditional {
+                    if let Some(&(_, _, other_ifnone, _)) = paths.iter().find(|(a, b, _, _)| *a == key_in && *b == key_out)
+                        && other_ifnone != ifnone
+                    {
+                        return Err(e.err(item, "a path cannot have both an `ifnone` and an unconditional delay (30.4.4.3)"));
+                    }
+                    paths.push((key_in, key_out, ifnone, item));
+                }
+            }
+            Kind::PulseStyle => {
+                let kw = e.text(e.kids(item)[0]);
+                for &x in &e.kids(item)[1..] {
+                    let name = e.ast.text(x);
+                    if paths.iter().any(|(_, o, _, _)| o.split(',').any(|p| p == name)) {
+                        return Err(e.err(x, format!("`{kw}` must come before any path to `{name}` (30.7)")));
+                    }
+                }
+            }
+            Kind::TimingCheck => {
+                let k = e.kids(item).to_vec();
+                let name = e.text(k[0]);
+                if matches!(name, "$period" | "$width")
+                    && let Some(&first) = k.get(1)
+                    && !(e.kind(first) == Kind::TimingEvent
+                        && e.kids(first).first().is_some_and(|&x| matches!(e.kind(x), Kind::Keyword | Kind::EdgeDescriptors)))
+                {
+                    return Err(e.err(first, format!("`{name}` needs an edge on its reference event (31.4)")));
+                }
+            }
+            _ => {}
+        }
+    }
     Ok(())
 }
 

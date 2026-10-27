@@ -421,6 +421,9 @@ impl<'a, 'x> Elab<'a, 'x> {
         // Definitions first: they form a global name space (3.13).
         for &item in self.kids(root) {
             self.collect_def(item)?;
+            if self.kind(item) == Kind::Udp {
+                checks::udp(self, item)?;
+            }
         }
         // Then the compilation unit's own items and packages, in order.
         self.declare_pass(unit, self.kids(root))?;
@@ -828,6 +831,7 @@ impl<'a, 'x> Elab<'a, 'x> {
                 self.push_item(sc, Item::Opaque(n));
             }
             Kind::Constraint => {
+                checks::constraint(self, sc, n)?;
                 if let Some(name) = self.name_child(n) {
                     let s = self.sym_of(name);
                     if !self.scope(sc).names.contains_key(&s) {

@@ -931,7 +931,7 @@ fn cast<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, kids: &[NodeId]) -> R<
             }
             "const" => xt,
             "string" => Types::STRING,
-            _ => ty::maybe_type(e, sc, target)?.unwrap_or(Types::UNKNOWN),
+            kw => ty::builtin_named(e, kw).unwrap_or(Types::UNKNOWN),
         }
     } else if let Some(t) = ty::maybe_type(e, sc, target)? {
         t
@@ -1156,6 +1156,7 @@ fn scoped<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, kids: &[NodeId]) -> 
     };
     match b {
         Some(Binding::Object(o)) => {
+            super::checks::object_use(e, sc, o, n)?;
             let t = e.obj(o).ty;
             Ok(e.new_expr(ExprKind::Object(o), t, n, vec![]))
         }

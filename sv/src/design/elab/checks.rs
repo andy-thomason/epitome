@@ -1768,6 +1768,92 @@ pub(crate) fn mentions(e: &mut Elab, n: NodeId, s: Sym) -> bool {
     e.ast.tokens_of(n).iter().any(|t| t.0 == text)
 }
 
+// ---- UDPs (29) ----
+
+/// A UDP's output comes first, and its table is consistent (29.3).
+pub(crate) fn udp<'a>(e: &mut Elab<'a, '_>, n: NodeId) -> R<'a> {
+    let kids = e.kids(n).to_vec();
+    let outputs: Vec<&str> = kids
+        .iter()
+        .filter(|&&k| e.kind(k) == Kind::UdpPortDecl && e.text(e.kids(k)[0]) == "output")
+        .flat_map(|&k| e.kids(k).iter().filter(|&&x| e.kind(x) == Kind::Name).map(|&x| e.text(x)).collect::<Vec<_>>())
+        .collect();
+    if let Some(ports) = kids.iter().copied().find(|&k| e.kind(k) == Kind::Ports)
+        && let Some(&first) = e.kids(ports).first()
+    {
+        let fname = e.ast.tokens_of(first).first().map_or("", |t| t.0);
+        if !outputs.is_empty() && !outputs.contains(&fname) {
+            return Err(e.err(first, "a UDP's output must be its first port (29.3)"));
+        }
+    }
+    let Some(table) = kids.iter().copied().find(|&k| e.kind(k) == Kind::UdpTable) else { return Ok(()) };
+    // Combinational rows only: inputs `:` output.
+    let mut rows: Vec<(Vec<u8>, u8, NodeId)> = Vec::new();
+    for &row in e.kids(table) {
+        let text: String = e.ast.tokens_of(row).iter().map(|t| t.0).collect::<Vec<_>>().join("");
+        let parts: Vec<&str> = text.trim_end_matches(';').split(':').collect();
+        if parts.len() != 2 {
+            return Ok(());
+        }
+        let ins: Vec<u8> = parts[0].bytes().filter(|c| !c.is_ascii_whitespace()).map(|c| c.to_ascii_lowercase()).collect();
+        let out = parts[1].trim().bytes().next().unwrap_or(b'x').to_ascii_lowercase();
+        if ins.iter().any(|c| !b"01x?b".contains(c)) {
+            return Ok(());
+        }
+        if ins.iter().all(|&c| c == b'x') && out != b'x' {
+            return Err(e.err(row, "a combinational UDP's output must be x when all its inputs are x (29.3.4)"));
+        }
+        rows.push((ins, out, row));
+    }
+    let matches = |a: u8, b: u8| {
+        let set = |c: u8| -> &'static [u8] {
+            match c {
+                b'?' => b"01x",
+                b'b' => b"01",
+                b'0' => b"0",
+                b'1' => b"1",
+                _ => b"x",
+            }
+        };
+        set(a).iter().any(|x| set(b).contains(x))
+    };
+    for (i, (a, oa, _)) in rows.iter().enumerate() {
+        for (b, ob, at) in &rows[i + 1..] {
+            if oa != ob && a.len() == b.len() && a.iter().zip(b).all(|(&x, &y)| matches(x, y)) {
+                return Err(e.err(*at, "two rows of the UDP's table match the same inputs but give different outputs (29.3.4)"));
+            }
+        }
+    }
+    Ok(())
+}
+
+// ---- constraints (18) ----
+
+/// `dist` and `soft` cannot constrain a `randc` variable (18.5.4, 18.5.13).
+pub(crate) fn constraint<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a> {
+    let mut stack = vec![n];
+    while let Some(x) = stack.pop() {
+        let soft = e.kind(x) == Kind::ConstraintExpr && e.kids(x).first().is_some_and(|&k| e.kind(k) == Kind::Keyword && e.text(k) == "soft");
+        if e.kind(x) == Kind::Dist || soft {
+            let what = if soft { "a soft constraint" } else { "`dist`" };
+            let mut names = vec![x];
+            while let Some(y) = names.pop() {
+                if e.kind(y) == Kind::Name {
+                    let s = e.sym_of(y);
+                    if let Some(Binding::Object(o)) = lookup::lookup(e, sc, s)
+                        && e.obj(o).qualifiers.iter().any(|&q| e.name(q) == "randc")
+                    {
+                        return Err(e.err(y, format!("{what} cannot apply to the `randc` variable `{}` (18.5)", e.name(s))));
+                    }
+                }
+                names.extend(e.ast.children(y).iter().copied());
+            }
+        }
+        stack.extend(e.ast.children(x).iter().copied());
+    }
+    Ok(())
+}
+
 // ---- other items ----
 
 pub(crate) fn specify<'a>(_e: &mut Elab<'a, '_>, _sc: ScopeId, _n: NodeId) -> R<'a> {

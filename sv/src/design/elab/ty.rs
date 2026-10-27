@@ -47,6 +47,22 @@ fn atom_of(s: &str) -> Option<Atom> {
     })
 }
 
+/// A built-in type named by its keyword alone: `int`, `real`, `byte`.
+pub(crate) fn builtin_named(e: &mut Elab, kw: &str) -> Option<TypeId> {
+    if let Some(a) = atom_of(kw) {
+        return Some(e.d.types.intern(Type::Vector { atom: a, signed: a.default_signed(), dims: vec![] }));
+    }
+    Some(match kw {
+        "real" => Types::REAL,
+        "shortreal" => Types::SHORTREAL,
+        "realtime" => Types::REALTIME,
+        "string" => Types::STRING,
+        "chandle" => Types::CHANDLE,
+        "event" => Types::EVENT,
+        _ => return None,
+    })
+}
+
 /// A constant `[l:r]` (or `[n]`, which is `[0:n-1]`).
 pub(crate) fn const_range<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, d: NodeId) -> R<'a, (i64, i64)> {
     let k = e.kids(d).to_vec();

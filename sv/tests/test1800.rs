@@ -203,9 +203,11 @@ fn parse_test1800() {
 /// that should fail at elaboration must be rejected by the parser or by
 /// elaboration. `ELAB_REPORT=<file>` writes the details.
 /// Legal tests that break the standard, fixed in IEEE1800-2023-tests#5:
-/// a `timeunit` after other items (3.14.2.2), or an initialised variable
-/// in a static block without `static` (6.21).
+/// a `timeunit` after other items (3.14.2.2), an initialised variable in a
+/// static block without `static` (6.21), or a UDP row whose inputs are all
+/// x giving a known output (29.3.4).
 const FIXED_IN_PR5: &[&str] = &[
+    "29-udps/29.03-udp-definition/z_input_treated_as_x.sv",
     "03-design-and-verification-building-blocks/03.12.1-compilation-units/identifier_search_order.sv",
     "03-design-and-verification-building-blocks/03.13-name-spaces/block_scope_shadows_module.sv",
     "09-processes/09.03-block-statements/block_names.sv",

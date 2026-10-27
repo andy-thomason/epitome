@@ -405,6 +405,9 @@ pub(crate) fn struct_member<'a>(
         let what = e.d.types.describe(t, &e.d.syms);
         return Err(e.err(name, format!("a packed {kind} can only have integral members, not `{what}` (7.2.1)")));
     }
+    if union && matches!(e.d.types.get(t), Type::Interface { virtual_: true, .. }) {
+        return Err(e.err(name, "a union cannot hold a virtual interface (25.9)"));
+    }
     if union && !tagged && t == Types::VOID {
         return Err(e.err(name, "only a tagged union can have a `void` member (7.3.2)"));
     }
@@ -1136,6 +1139,9 @@ pub(crate) fn assign_compatible<'a>(e: &mut Elab<'a, '_>, _sc: ScopeId, target: 
             // (6.19.3).
             Err(e.err(n, "an integral value cannot be assigned to an enum without a cast (6.19.3)"))
         }
+        (Type::Interface { modport: None, .. }, Type::Interface { modport: Some(_), .. }) => {
+            Err(e.err(n, "a virtual interface with a modport cannot be assigned to one without (25.9)"))
+        }
         (Type::Chandle, _) if src != Types::NULL => {
             Err(e.err(n, "only `null` or another chandle can be assigned to a chandle (6.14)"))
         }
@@ -1768,6 +1774,225 @@ pub(crate) fn mentions(e: &mut Elab, n: NodeId, s: Sym) -> bool {
     e.ast.tokens_of(n).iter().any(|t| t.0 == text)
 }
 
+// ---- interfaces (25) ----
+
+/// What a modport lists (25.5).
+#[derive(Clone, Default, Debug)]
+pub(crate) struct Modport {
+    pub names: Vec<Sym>,
+    /// Tasks and functions it exports: the name and its prototype, if any.
+    pub exports: Vec<(Sym, Option<NodeId>)>,
+    /// Names to check once the interface is complete, with their keyword.
+    pub pending: Vec<(Sym, NodeId, &'static str)>,
+}
+
+pub(crate) fn modport<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a> {
+    for &mi in e.kids(n).to_vec().iter() {
+        if e.kind(mi) != Kind::ModportItem {
+            continue;
+        }
+        let mname = e.sym_of(e.kids(mi)[0]);
+        let mut mp = Modport::default();
+        for &ports in e.kids(mi).to_vec().iter().skip(1) {
+            let pk = e.kids(ports).to_vec();
+            let kw = pk.first().map_or("", |&k| e.text(k));
+            let kw: &'static str = match kw {
+                "input" => "input",
+                "output" => "output",
+                "inout" => "inout",
+                "ref" => "ref",
+                "clocking" => "clocking",
+                "import" => "import",
+                _ => "export",
+            };
+            for &p in &pk[1..] {
+                let (name, at, expr) = match e.kind(p) {
+                    Kind::ModportPort => {
+                        let k = e.kids(p).to_vec();
+                        match k.first().map(|&x| e.kind(x)) {
+                            Some(Kind::Name) => (e.sym_of(k[0]), k[0], None),
+                            Some(Kind::NamedArg) => {
+                                let na = e.kids(k[0]).to_vec();
+                                (e.sym_of(na[0]), na[0], na.get(1).copied())
+                            }
+                            Some(Kind::Prototype) => {
+                                let nm = e.child(k[0], Kind::Name).unwrap();
+                                (e.sym_of(nm), nm, None)
+                            }
+                            _ => continue,
+                        }
+                    }
+                    Kind::Prototype => {
+                        let nm = e.child(p, Kind::Name).unwrap();
+                        let s = e.sym_of(nm);
+                        if kw == "export" {
+                            mp.exports.push((s, Some(p)));
+                        }
+                        mp.names.push(s);
+                        continue;
+                    }
+                    _ => continue,
+                };
+                if mp.names.contains(&name) {
+                    return Err(e.err(at, format!("`{}` appears twice in modport `{}` (25.5)", e.name(name), e.name(mname))));
+                }
+                mp.names.push(name);
+                if let Some(x) = expr
+                    && matches!(kw, "output" | "inout")
+                    && matches!(e.kind(x), Kind::Number | Kind::String | Kind::UnbasedUnsized)
+                {
+                    return Err(e.err(x, format!("the `{kw}` modport expression for `{}` must be assignable (25.5.4)", e.name(name))));
+                }
+                if kw == "export" {
+                    mp.exports.push((name, None));
+                }
+                if expr.is_none() {
+                    mp.pending.push((name, at, kw));
+                }
+            }
+        }
+        e.modports.insert((sc, mname), mp);
+    }
+    Ok(())
+}
+
+/// Once the interface is complete: a modport's names must be its own
+/// declarations (25.5), its clocking blocks its own (25.5.5).
+fn modports_complete<'a>(e: &mut Elab<'a, '_>, sc: ScopeId) -> R<'a> {
+    let mine: Vec<Modport> = e.modports.iter().filter(|((s, _), _)| *s == sc).map(|(_, m)| m.clone()).collect();
+    for mp in mine {
+        for (name, at, kw) in mp.pending {
+            let b = e.scope(sc).names.get(&name).copied();
+            match (kw, b) {
+                ("clocking", Some(Binding::Other(m))) if e.kind(m) == Kind::Clocking => {}
+                ("clocking", _) => {
+                    return Err(e.err(at, format!("modport clocking `{}` must name a clocking block of this interface (25.5.5)", e.name(name))));
+                }
+                ("import" | "export", _) => {}
+                (_, Some(_)) => {}
+                (_, None) => {
+                    return Err(e.err(at, format!("the modport names `{}`, which the interface does not declare (25.5)", e.name(name))));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Through a port with a modport, only the modport's names are visible
+/// (25.5).
+pub(crate) fn modport_access<'a>(e: &mut Elab<'a, '_>, port: NodeId, s: Sym, at: NodeId) -> R<'a> {
+    let Some(ip) = e.child(port, Kind::InterfacePortType) else { return Ok(()) };
+    let k = e.kids(ip).to_vec();
+    if k.len() < 2 {
+        return Ok(());
+    }
+    let (iface, mp) = (e.sym_of(k[0]), e.sym_of(k[1]));
+    let found = e
+        .modports
+        .iter()
+        .find(|((sc, m), _)| *m == mp && e.d.specs.iter().any(|sp| sp.scope == *sc && sp.name == iface))
+        .map(|((sc, _), info)| (*sc, info.names.clone()));
+    // Only signals are restricted; parameters and types stay visible.
+    let signal = |e: &Elab, sc: ScopeId| match e.scope(sc).names.get(&s) {
+        Some(Binding::Object(o)) => matches!(e.obj(*o).kind, ObjKind::Variable | ObjKind::Net(_)),
+        Some(Binding::Type(_)) | Some(Binding::Class(_)) => false,
+        _ => true,
+    };
+    if let Some((sc, names)) = found
+        && !names.contains(&s)
+        && signal(e, sc)
+    {
+        return Err(e.err(at, format!("`{}` is not in modport `{}`, so it cannot be used through this port (25.5)", e.name(s), e.name(mp))));
+    }
+    Ok(())
+}
+
+/// A module connected through a modport that exports tasks must define
+/// them, with the prototype's arguments (25.7).
+pub(crate) fn exported_tasks<'a>(e: &mut Elab<'a, '_>, inst: InstId) -> R<'a> {
+    let spec = e.d.instances[inst.0 as usize].spec;
+    let child = e.d.specs[spec.0 as usize].scope;
+    let ports = e.d.specs[spec.0 as usize].ports.clone();
+    for p in ports {
+        let Some((_, Some(mp))) = p.interface else { continue };
+        let Some(conn) = e.d.instances[inst.0 as usize].connections.iter().find(|c| c.port == p.name).cloned() else { continue };
+        let Some(ifi) = conn.interface else { continue };
+        let isc = e.d.specs[e.d.instances[ifi.0 as usize].spec.0 as usize].scope;
+        let Some(info) = e.modports.get(&(isc, mp)).cloned() else { continue };
+        for (task, proto) in info.exports {
+            let def = e.port_tasks.iter().find(|(sc, port, t, _)| *sc == child && *port == p.name && *t == task).map(|x| x.3);
+            let Some(def) = def else {
+                return Err(e.err(e.d.instances[inst.0 as usize].node, format!("modport `{}` exports `{}`, but the connected module does not define it (25.7)", e.name(mp), e.name(task))));
+            };
+            if let Some(proto) = proto {
+                let count = |e: &Elab, n: NodeId| e.child(n, Kind::TfPorts).map_or(0, |t| e.kids(t).iter().filter(|&&k| e.kind(k) == Kind::TfPort).count());
+                if count(e, proto) != count(e, def) {
+                    return Err(e.err(def, format!("`{}` does not match the prototype in modport `{}` (25.7)", e.name(task), e.name(mp))));
+                }
+            }
+            // A function may be exported by one module only (25.7.4).
+            let is_fn = e.kind(def) == Kind::Function;
+            if is_fn {
+                let key = (ifi, task);
+                if let Some(&first) = e.exported_fns.get(&key)
+                    && first != inst
+                {
+                    return Err(e.err(def, format!("function `{}` is exported through the same interface by two modules (25.7.4)", e.name(task))));
+                }
+                e.exported_fns.insert(key, inst);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// A continuous assignment cannot read through a virtual interface (25.9).
+pub(crate) fn no_virtual_interface<'a>(e: &mut Elab<'a, '_>, x: ExprId, n: NodeId) -> R<'a> {
+    let mut found = false;
+    walk_expr(e, x, &mut |e, y| {
+        if let ExprKind::Object(o) = e.ex(y).kind
+            && matches!(e.d.types.get(e.obj(o).ty), Type::Interface { virtual_: true, .. })
+        {
+            found = true;
+        }
+    });
+    if found {
+        return Err(e.err(n, "a continuous assignment cannot use a virtual interface (25.9)"));
+    }
+    Ok(())
+}
+
+/// Virtual interfaces of interfaces that refer upwards, or of instances
+/// changed by `defparam`, are not allowed (25.9).
+fn virtual_interfaces<'a>(e: &mut Elab<'a, '_>) -> R<'a> {
+    let objs: Vec<(Sym, NodeId)> = e
+        .d
+        .objects
+        .iter()
+        .filter_map(|o| match e.d.types.get(o.ty) {
+            Type::Interface { virtual_: true, def, .. } => Some((*def, o.node)),
+            _ => None,
+        })
+        .collect();
+    for (def, node) in objs {
+        if e.upward_defs.contains(&def) {
+            return Err(e.err(node, format!("interface `{}` refers upwards through the hierarchy, so it cannot be used as a virtual interface (25.9)", e.name(def))));
+        }
+    }
+    for (_, n, _) in e.defparams.clone() {
+        for &a in e.kids(n).to_vec().iter() {
+            let first = e.ast.tokens_of(a).first().map_or("", |t| t.0);
+            if let Some(s) = e.d.syms.lookup(first)
+                && e.virtual_uses.contains(&s)
+            {
+                return Err(e.err(a, format!("`{first}` is changed by `defparam`, so it cannot be assigned to a virtual interface (25.9)")));
+            }
+        }
+    }
+    Ok(())
+}
+
 // ---- UDPs (29) ----
 
 /// A UDP's output comes first, and its table is consistent (29.3).
@@ -1918,7 +2143,10 @@ pub(crate) fn net_alias<'a>(e: &mut Elab<'a, '_>, n: NodeId, parts: &[ExprId]) -
     Ok(())
 }
 
-pub(crate) fn spec_done<'a>(_e: &mut Elab<'a, '_>, _sc: ScopeId, _kind: DefKind) -> R<'a> {
+pub(crate) fn spec_done<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, kind: DefKind) -> R<'a> {
+    if kind == DefKind::Interface {
+        modports_complete(e, sc)?;
+    }
     Ok(())
 }
 
@@ -1931,6 +2159,7 @@ pub(crate) fn after<'a>(e: &mut Elab<'a, '_>) -> R<'a> {
     }
     mixed_timeunits(e)?;
     nettype_resolvers(e)?;
+    virtual_interfaces(e)?;
     defparams(e)?;
     drivers(e)?;
     Ok(())

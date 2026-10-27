@@ -634,6 +634,7 @@ fn name<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, ExprId> {
             // interface (25.9).
             let spec = e.d.instances[i.0 as usize].spec;
             let def = e.d.specs[spec.0 as usize].name;
+            e.virtual_uses.insert(s);
             let t = e.d.types.intern(Type::Interface { spec: Some(spec), def, modport: None, virtual_: true });
             Ok(e.new_expr(ExprKind::Hier { path: vec![s], object: None }, t, n, vec![]))
         }
@@ -1262,6 +1263,7 @@ pub(crate) fn hier<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, Op
             }
         }
         e.upward = true;
+        note_upward(e);
         rest = 2;
     } else {
         match lookup::lookup(e, sc, head.name) {
@@ -1281,7 +1283,10 @@ pub(crate) fn hier<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, Op
                 at = Location::InterfacePort(m);
             }
             Some(Binding::Object(o)) if matches!(e.d.types.get(e.obj(o).ty), Type::Interface { .. }) => {
-                return Ok(Some(e.new_expr(ExprKind::Opaque, Types::UNKNOWN, n, vec![])));
+                // Through a virtual interface: the member is not modelled.
+                let t = e.obj(o).ty;
+                let base = e.new_expr(ExprKind::Object(o), t, steps[0].node, vec![]);
+                return Ok(Some(e.new_expr(ExprKind::Opaque, Types::UNKNOWN, n, vec![base])));
             }
             Some(_) => return Ok(None),
             None => {
@@ -1289,12 +1294,14 @@ pub(crate) fn hier<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, Op
                 match upward(e, head.name) {
                     Some(i) => {
                         e.upward = true;
+                        note_upward(e);
                         at = Location::Instance(i);
                     }
                     None => {
                         if e.d.tops.iter().any(|&i| e.d.instances[i.0 as usize].name == head.name) {
                             let i = e.d.tops.iter().copied().find(|&i| e.d.instances[i.0 as usize].name == head.name).unwrap();
                             e.upward = true;
+                            note_upward(e);
                             at = Location::Instance(i);
                         } else if e.defs.contains_key(&head.name) {
                             // A design element not yet elaborated, named
@@ -1329,7 +1336,8 @@ pub(crate) fn hier<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, Op
                 e.d.specs[spec.0 as usize].scope
             }
             Location::Scope(s) => s,
-            Location::InterfacePort(_) => {
+            Location::InterfacePort(m) => {
+                super::checks::modport_access(e, m, step.name, step.node)?;
                 return Ok(Some(e.new_expr(ExprKind::Hier { path, object: None }, Types::UNKNOWN, n, vec![])));
             }
         };
@@ -1405,6 +1413,19 @@ enum Location {
     Instance(InstId),
     Scope(ScopeId),
     InterfacePort(NodeId),
+}
+
+/// Notes that the design element being elaborated refers upwards.
+fn note_upward(e: &mut Elab) {
+    let spec = e.inst_path.last().map(|&i| e.d.instances[i.0 as usize].spec);
+    let spec = match spec {
+        Some(s) if s.0 != u32::MAX => Some(s),
+        _ => e.d.specs.len().checked_sub(1).map(|i| SpecId(i as u32)),
+    };
+    if let Some(s) = spec {
+        let name = e.d.specs[s.0 as usize].name;
+        e.upward_defs.insert(name);
+    }
 }
 
 /// A task or function declared in an instance above (23.8).

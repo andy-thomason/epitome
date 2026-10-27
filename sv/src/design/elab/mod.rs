@@ -146,6 +146,18 @@ pub(crate) struct Elab<'a, 'x> {
     pub ff_event_seen: bool,
     /// The value of the procedural continuous assignment being checked.
     pub current_rhs: Option<ExprId>,
+    /// Each modport's names, by the interface scope and modport (25.5).
+    pub modports: HashMap<(ScopeId, Sym), checks::Modport>,
+    /// Tasks and functions a module defines through an interface port,
+    /// `task p.t` (25.7): the module's scope, the port, the name, the node.
+    pub port_tasks: Vec<(ScopeId, Sym, Sym, NodeId)>,
+    /// Interface definitions some of whose specialisations make upward
+    /// references (25.9).
+    pub upward_defs: std::collections::HashSet<Sym>,
+    /// Interface instances used as virtual interface values (25.9).
+    pub virtual_uses: std::collections::HashSet<Sym>,
+    /// Functions exported through each interface instance, and by whom.
+    pub exported_fns: HashMap<(InstId, Sym), InstId>,
     /// Forward typedefs, which must each be completed (6.18).
     pub forwards: Vec<(ScopeId, Sym, NodeId)>,
     /// Each nettype's data type and resolution function (6.6.7).
@@ -217,6 +229,11 @@ impl<'a, 'x> Elab<'a, 'x> {
             in_concat: false,
             ff_event_seen: false,
             current_rhs: None,
+            modports: HashMap::new(),
+            port_tasks: Vec::new(),
+            upward_defs: Default::default(),
+            virtual_uses: Default::default(),
+            exported_fns: HashMap::new(),
         }
     }
 
@@ -806,6 +823,7 @@ impl<'a, 'x> Elab<'a, 'x> {
                 self.generate_block(sc, n, None, None)?
             }
             Kind::ModportDecl => {
+                checks::modport(self, sc, n)?;
                 for &mi in self.kids(n) {
                     if self.kind(mi) == Kind::ModportItem {
                         let name = self.name_child(mi).unwrap();
@@ -1118,6 +1136,11 @@ impl<'a, 'x> Elab<'a, 'x> {
             let init = dk[1..].iter().copied().find(|&k| !ty::is_dim(self.kind(k)));
             let t = ty::unpacked(self, sc, base, &dims)?;
             checks::var_type(self, sc, name, t)?;
+            if matches!(self.d.types.get(t), Type::Interface { virtual_: true, .. })
+                && self.in_program_or_interface(sc) == Some(DefKind::Interface)
+            {
+                return Err(self.err(name, "an interface cannot declare a virtual interface (25.9)"));
+            }
             let o = self.new_object(Object {
                 name: s,
                 kind: ObjKind::Variable,
@@ -1987,6 +2010,9 @@ impl<'a, 'x> Elab<'a, 'x> {
                                 format!("`.{}` needs a `{}` in the instantiating scope (23.3.2.3)", self.name(pname), self.name(pname)),
                             ));
                         }
+                        if port.interface.is_some_and(|(i, _)| self.name(i) == "interface") {
+                            return Err(self.err(ck[0], "a generic interface port must be connected explicitly, not by `.name` or `.*` (25.3.3)"));
+                        }
                         // `.name` needs a matching type (23.3.2.3).
                         if let (Some(Binding::Object(o)), Some(po)) = (lookup::lookup(self, sc, pname), port.object) {
                             let (a, b) = (self.obj(o).ty, self.obj(po).ty);
@@ -2050,6 +2076,7 @@ impl<'a, 'x> Elab<'a, 'x> {
             }
         }
         self.d.instances[inst.0 as usize].connections = out;
+        checks::exported_tasks(self, inst)?;
         Ok(())
     }
 
@@ -2082,6 +2109,14 @@ impl<'a, 'x> Elab<'a, 'x> {
         if let Some((iname, _)) = port.interface {
             // An interface instance, or an interface port, passed on.
             let target = self.interface_target(sc, e);
+            if let Some((_, Some(want))) = port.interface
+                && self.kind(e) == Kind::Member
+            {
+                let got = self.sym_of(self.kids(e)[1]);
+                if got != want {
+                    return Err(self.err(e, format!("port `{}` is declared with modport `{}`, but connected through modport `{}` (25.5)", self.name(port.name), self.name(want), self.name(got))));
+                }
+            }
             match target {
                 Some(Binding::Instance(i)) => {
                     let spec = self.d.instances[i.0 as usize].spec;
@@ -2233,6 +2268,7 @@ impl<'a, 'x> Elab<'a, 'x> {
             checks::continuous_lvalue(self, sc, lhs, l)?;
             let lt = self.ex(lhs).ty;
             let rhs = expr::rvalue(self, sc, r, lt)?;
+            checks::no_virtual_interface(self, rhs, r)?;
             let id = DriverId(self.d.drivers.len() as u32);
             self.d.drivers.push(Driver { lhs, rhs, strength, delay: delay.to_vec(), node: a, scope: sc });
             self.push_item(sc, Item::Driver(id));

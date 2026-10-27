@@ -21,6 +21,9 @@ pub(crate) fn declare_sub<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R
     let kind = if e.kind(n) == Kind::Task { SubKind::Task } else { SubKind::Function };
     if e.kind(name_node) == Kind::Scope && !e.ast.tokens_of(name_node).iter().any(|t| t.0 == "::") {
         // `task port.name` exports a task through an interface (25.7).
+        let k = e.kids(name_node).to_vec();
+        let (port, task) = (e.sym_of(k[0]), e.sym_of(k[k.len() - 1]));
+        e.port_tasks.push((sc, port, task, n));
         return Ok(());
     }
     if e.kind(name_node) == Kind::Scope {

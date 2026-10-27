@@ -512,6 +512,11 @@ A **process** is RTLIL's process generalised to clause 9: its kind
   called functions, less what it writes first); for an `always_ff` or a
   leading `@(posedge …)`, the clock edges and any asynchronous ones.
 
+Each process also records its **read and write sets**: the objects it
+may read and write, including through tasks and functions it calls.
+The thread pool (section 8.5) uses them to decide which processes can
+run at the same time.
+
 Tasks, functions and class methods are bodies in their scopes, not
 processes. Classes keep their members, methods, virtual slots,
 constraints and covergroups for the program layer. Concurrent
@@ -727,6 +732,57 @@ run the same stimulus and must give the same values on the top-level
 outputs at every clock edge (with `x` compared as `0` against
 two-state).
 
+### 8.5 Running on a thread pool, without locks
+
+A simulation runs on a pool of worker threads, one per core, that share
+no locks. The work of a time slot is cut into **tasks** before the run
+starts, and each step of the scheduler is a **phase**: a list of tasks
+that may run in any order and at the same time.
+
+**Taking work.** A phase is a slice of task ids and one atomic index.
+Each worker takes the next task with `fetch_add(1)` on the index, runs
+it, and takes another, until the index passes the end. A second atomic
+counts finished tasks; the worker that finishes the last one starts the
+next phase by publishing it and bumping an epoch counter, which the
+others wait on (spinning briefly, then parking). No task ever waits for
+another inside a phase, so there is nothing to lock.
+
+**Why tasks need no locks.** Every word of simulation state has exactly
+one task that may write it in a given phase, decided when the design is
+partitioned, and readers of that word run in later phases or read a copy
+that does not change during the phase:
+
+- **The netlist** (section 8.3) is two phases per clock edge.
+  *Evaluate*: each task is one specialisation's lane group, or a slice
+  of a large one; it reads registers' current values and the inputs, and
+  writes its combinational values and its registers' next values. Where
+  one task's combinational output is another's input (a port between
+  specialisations), the tasks are levelised and each level is a phase.
+  *Commit*: next values become current, as nonblocking assignments
+  would (clause 4.9.4); each task commits what it wrote.
+- **Processes** in the program layer run in parallel when the read and
+  write sets elaboration gives them (section 7.6) show they cannot
+  touch the same variable; processes that can are put in the same task
+  and run one after another. Clause 4.7 lets events in one region run in
+  any order, so this is a legal schedule.
+- **Nonblocking assignments** from a task go to that task's own list.
+  The NBA region applies the lists in task order, so a process's updates
+  stay in the order it made them (clause 4.6) and the result does not
+  depend on which thread ran which task.
+- **Events and wakeups** are written to per-task lists too, and merged
+  in task order at the end of the phase.
+- **Nets with several drivers** have one slot per driver; a resolution
+  task per net, in a later phase, reads them all.
+
+**Determinism.** A task's output depends only on what it reads, and
+merges are in task order, so a run gives the same result on 1 thread as
+on 64. Tests run each simulation both ways and compare.
+
+**Sizing tasks.** A task should be large enough to cost more than taking
+it (one atomic add); a lane group of a few hundred operations is. Small
+specialisations are batched together; large ones are cut at registers,
+which break combinational dependence.
+
 ## 9. Clean-room rules
 
 `epitome-sv` is a clean-room build from IEEE 1800-2023 alone. The
@@ -782,6 +838,9 @@ Icarus (66.8% and 68.6% today).
   instance; each object in bit planes or in 8/16/32-bit lanes, chosen by
   the operations that use it; a two-state and a four-state model
   (section 8.3).
+- **Decided:** the simulation runs on a thread pool with no locks:
+  phases of tasks taken by an atomic index, one writer per word of state,
+  per-task lists merged in task order (section 8.5).
 - **Decided:** a fast mode that keeps only the netlist, drops
   assertions, coverage and other non-synthesisable code, and is driven by
   a harness or, with `--dut`, by the full testbench (section 8.4).

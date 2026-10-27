@@ -39,7 +39,14 @@ pub(crate) fn rvalue<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, target: T
         && e.d.types.is_integral(target)
         && e.d.types.width(e.ex(x).ty) > e.d.types.width(target)
     {
-        return Err(e.err(n, format!("the stream has {} bits, more than the {} of its target (11.4.14.3)", e.d.types.width(e.ex(x).ty), e.d.types.width(target))));
+        return Err(e.err(
+            n,
+            format!(
+                "the stream has {} bits, more than the {} of its target (11.4.14.3)",
+                e.d.types.width(e.ex(x).ty),
+                e.d.types.width(target)
+            ),
+        ));
     }
     let x = context_to(e, x, target);
     super::checks::assign_compatible(e, sc, target, x, n)?;
@@ -81,6 +88,13 @@ pub(crate) fn assign_conv(e: &mut Elab, x: ExprId, t: TypeId) -> ExprId {
     if e.d.types.is_integral(t) && is_unsized_fill(e, x) {
         return fill_literal(e, x, t);
     }
+    // Plain vectors of the same width, signedness and state count are the
+    // same value: `int` and `bit signed [31:0]` need no conversion.
+    let plain = |e: &Elab, a: TypeId| matches!(e.d.types.get(a), Type::Vector { .. });
+    let ty = &e.d.types;
+    if plain(e, xt) && plain(e, t) && ty.width(xt) == ty.width(t) && ty.is_signed(xt) == ty.is_signed(t) && ty.is_four_state(xt) == ty.is_four_state(t) {
+        return x;
+    }
     let node = e.ex(x).node;
     e.new_expr(ExprKind::Convert, t, node, vec![x])
 }
@@ -111,7 +125,15 @@ pub(crate) fn ctx(e: &mut Elab, x: ExprId, t: TypeId) -> ExprId {
         K::Binary(op)
             if matches!(
                 op,
-                BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod | BinOp::And | BinOp::Or | BinOp::Xor | BinOp::Xnor
+                BinOp::Add
+                    | BinOp::Sub
+                    | BinOp::Mul
+                    | BinOp::Div
+                    | BinOp::Mod
+                    | BinOp::And
+                    | BinOp::Or
+                    | BinOp::Xor
+                    | BinOp::Xnor
             ) && !e.d.types.is_real(xe.ty) =>
         {
             let a = ctx(e, xe.args[0], t);
@@ -121,7 +143,10 @@ pub(crate) fn ctx(e: &mut Elab, x: ExprId, t: TypeId) -> ExprId {
             ex.args = vec![a, b];
             x
         }
-        K::Binary(op) if matches!(op, BinOp::Pow | BinOp::Shl | BinOp::Shr | BinOp::AShl | BinOp::AShr) && !e.d.types.is_real(xe.ty) => {
+        K::Binary(op)
+            if matches!(op, BinOp::Pow | BinOp::Shl | BinOp::Shr | BinOp::AShl | BinOp::AShr)
+                && !e.d.types.is_real(xe.ty) =>
+        {
             let a = ctx(e, xe.args[0], t);
             let ex = &mut e.d.exprs[x.0 as usize];
             ex.ty = t;
@@ -187,7 +212,7 @@ fn vector_of(e: &mut Elab, a: TypeId) -> TypeId {
     e.d.types.vector(w, s, f)
 }
 
-fn bool_type(e: &mut Elab, four: bool) -> TypeId {
+fn bool_type(_e: &mut Elab, four: bool) -> TypeId {
     if four { Types::LOGIC } else { Types::BIT }
 }
 
@@ -291,9 +316,10 @@ fn bind_inner<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, ExprId>
             let t = match (c, base) {
                 (None, _) => return Err(e.err(n, "`super` can only be used inside a class (8.15)")),
                 (Some(_), None) => {
-                    if c.is_some_and(|c| e.d.classes[c.0 as usize].node != NodeId(0)
-                        && e.child(e.d.classes[c.0 as usize].node, Kind::Extends).is_none())
-                    {
+                    if c.is_some_and(|c| {
+                        e.d.classes[c.0 as usize].node != NodeId(0)
+                            && e.child(e.d.classes[c.0 as usize].node, Kind::Extends).is_none()
+                    }) {
                         return Err(e.err(n, "`super` is used in a class that extends nothing (8.15)"));
                     }
                     Types::UNKNOWN
@@ -307,7 +333,8 @@ fn bind_inner<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, ExprId>
         Kind::Binary => binary(e, sc, n, &kids),
         Kind::Unary => unary(e, sc, n, &kids),
         Kind::IncDec => {
-            let (op, target) = if e.kind(kids[0]) == Kind::Op { (e.text(kids[0]), kids[1]) } else { (e.text(kids[1]), kids[0]) };
+            let (op, target) =
+                if e.kind(kids[0]) == Kind::Op { (e.text(kids[0]), kids[1]) } else { (e.text(kids[1]), kids[0]) };
             let pre = e.kind(kids[0]) == Kind::Op;
             let x = expr(e, sc, target)?;
             super::checks::lvalue(e, sc, x, target, false)?;
@@ -326,7 +353,8 @@ fn bind_inner<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, ExprId>
         Kind::Conditional => {
             // `(x matches p) ? a : b`: the pattern's variables are seen in a.
             let (c, asc) = if matches!(e.kind(kids[0]), Kind::CondPredicate | Kind::CondPattern)
-                || (e.kind(kids[0]) == Kind::Paren && matches!(e.kind(e.kids(kids[0])[0]), Kind::CondPredicate | Kind::CondPattern))
+                || (e.kind(kids[0]) == Kind::Paren
+                    && matches!(e.kind(e.kids(kids[0])[0]), Kind::CondPredicate | Kind::CondPattern))
             {
                 let inner = if e.kind(kids[0]) == Kind::Paren { e.kids(kids[0])[0] } else { kids[0] };
                 let scope = e.new_scope(ScopeKind::Block, None, Some(sc), inner);
@@ -340,11 +368,12 @@ fn bind_inner<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, ExprId>
             let a = bind(e, asc, kids[1])?;
             let b = bind(e, sc, kids[2])?;
             let (ta, tb) = (e.ex(a).ty, e.ex(b).ty);
-            let t = if e.d.types.is_integral(ta) && e.d.types.is_integral(tb) || e.d.types.is_real(ta) || e.d.types.is_real(tb) {
+            let t = if e.d.types.is_integral(ta) && e.d.types.is_integral(tb)
+                || e.d.types.is_real(ta)
+                || e.d.types.is_real(tb)
+            {
                 arith_type(e, ta, tb)
-            } else if ta == tb {
-                ta
-            } else if tb == Types::NULL {
+            } else if ta == tb || tb == Types::NULL {
                 ta
             } else if ta == Types::NULL {
                 tb
@@ -390,11 +419,13 @@ fn bind_inner<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, ExprId>
         }
         Kind::Concat => concat(e, sc, n, &kids),
         Kind::Replicate => {
-            let inner = concat(e, sc, kids[1], &e.kids(kids[1]).to_vec())?;
+            let inner = concat(e, sc, kids[1], e.kids(kids[1]))?;
             let it = e.ex(inner).ty;
             // String literals replicated a variable number of times are
             // strings (11.4.12.2).
-            let literal_strings = e.ex(inner).args.iter().all(|&a| matches!(e.ex(a).kind, ExprKind::Const(c) if matches!(e.d.consts[c.0 as usize], Const::Str(_))));
+            let literal_strings = e.ex(inner).args.iter().all(
+                |&a| matches!(e.ex(a).kind, ExprKind::Const(c) if matches!(e.d.consts[c.0 as usize], Const::Str(_))),
+            );
             let constant = eval::const_expr(e, sc, kids[0]).is_ok();
             if it == Types::STRING || (literal_strings && !constant) {
                 // A string may be replicated a variable number of times
@@ -410,7 +441,9 @@ fn bind_inner<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, ExprId>
                 return Err(e.err(kids[0], "a replication count must be a non-negative constant (11.4.12.1)"));
             };
             if k == 0 && !e.in_concat {
-                return Err(e.err(n, "a replication of zero is only allowed as part of a larger concatenation (11.4.12.1)"));
+                return Err(
+                    e.err(n, "a replication of zero is only allowed as part of a larger concatenation (11.4.12.1)")
+                );
             }
             let w = e.d.types.width(it) * k as u32;
             let f = e.d.types.is_four_state(it);
@@ -629,7 +662,12 @@ fn name<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, ExprId> {
             let t = e.d.types.intern(Type::Class(c));
             Ok(e.new_expr(ExprKind::TypeRef(t), Types::TYPE, n, vec![]))
         }
-        Some(Binding::Instance(i)) if e.d.specs.get(e.d.instances[i.0 as usize].spec.0 as usize).is_some_and(|sp| sp.kind == DefKind::Interface) => {
+        Some(Binding::Instance(i))
+            if e.d
+                .specs
+                .get(e.d.instances[i.0 as usize].spec.0 as usize)
+                .is_some_and(|sp| sp.kind == DefKind::Interface) =>
+        {
             // An interface instance used as a value is a virtual
             // interface (25.9).
             let spec = e.d.instances[i.0 as usize].spec;
@@ -701,8 +739,10 @@ fn binary<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, kids: &[NodeId]) -> 
                 let b = selfdet(e, b);
                 let (ta, tb) = (e.ex(a).ty, e.ex(b).ty);
                 // A string literal compared with a string is a string.
-                let a = if tb == Types::STRING && e.d.types.is_integral(ta) { assign_conv(e, a, Types::STRING) } else { a };
-                let b = if ta == Types::STRING && e.d.types.is_integral(tb) { assign_conv(e, b, Types::STRING) } else { b };
+                let a =
+                    if tb == Types::STRING && e.d.types.is_integral(ta) { assign_conv(e, a, Types::STRING) } else { a };
+                let b =
+                    if ta == Types::STRING && e.d.types.is_integral(tb) { assign_conv(e, b, Types::STRING) } else { b };
                 (a, b, false)
             };
             let t = bool_type(e, four && !matches!(op, CaseEq | CaseNe));
@@ -843,7 +883,10 @@ fn unpacked_concat<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, target: Typ
             args.push(unpacked_concat(e, sc, k, elem)?);
             continue;
         }
-        if e.kind(k) == Kind::Concat && e.kids(k).iter().all(|&i| e.kind(i) != Kind::Concat) && e.d.types.is_integral(elem) {
+        if e.kind(k) == Kind::Concat
+            && e.kids(k).iter().all(|&i| e.kind(i) != Kind::Concat)
+            && e.d.types.is_integral(elem)
+        {
             // `{1, 2}` inside: its items are elements too (10.10).
             let inner = unpacked_concat(e, sc, k, target)?;
             args.extend(e.ex(inner).args.clone());
@@ -1006,7 +1049,9 @@ fn select<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, ExprId> {
                     }
                 },
             };
-            if e.d.types.is_real(e.ex(idx).ty) && !matches!(e.d.types.get(bt), Type::Unpacked { dim: UDim::Assoc(_), .. }) {
+            if e.d.types.is_real(e.ex(idx).ty)
+                && !matches!(e.d.types.get(bt), Type::Unpacked { dim: UDim::Assoc(_), .. })
+            {
                 return Err(e.err(kids[1], "an index cannot be real (11.5.1)"));
             }
             Ok(e.new_expr(ExprKind::Index, et, n, vec![base, idx]))
@@ -1050,7 +1095,11 @@ fn select<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, ExprId> {
             };
             let t = match e.d.types.get(bt).clone() {
                 Type::Unpacked { elem, dim } => {
-                    let d = if matches!(dim, UDim::Queue(_)) { UDim::Queue(None) } else { UDim::Range(width as i64 - 1, 0) };
+                    let d = if matches!(dim, UDim::Queue(_)) {
+                        UDim::Queue(None)
+                    } else {
+                        UDim::Range(width as i64 - 1, 0)
+                    };
                     let _ = width;
                     e.d.types.intern(Type::Unpacked { elem, dim: d })
                 }
@@ -1106,10 +1155,16 @@ fn member<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, base: ExprId, m: Sym, n: NodeId
                     return Ok(e.new_expr(ExprKind::Opaque, Types::UNKNOWN, n, vec![base]));
                 }
                 // Built-in class methods (`randomize`, `srandom`, ...).
-                if matches!(e.name(m), "randomize" | "srandom" | "get_randstate" | "set_randstate" | "rand_mode" | "constraint_mode") {
+                if matches!(
+                    e.name(m),
+                    "randomize" | "srandom" | "get_randstate" | "set_randstate" | "rand_mode" | "constraint_mode"
+                ) {
                     return Ok(e.new_expr(ExprKind::Method(m), Types::INT, n, vec![base]));
                 }
-                Err(e.err(mn, format!("class `{}` has no member `{}`", e.name(e.d.classes[c.0 as usize].name), e.name(m))))
+                Err(e.err(
+                    mn,
+                    format!("class `{}` has no member `{}`", e.name(e.d.classes[c.0 as usize].name), e.name(m)),
+                ))
             }
         },
         Type::Interface { def, .. } => {
@@ -1138,7 +1193,9 @@ fn scoped<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, kids: &[NodeId]) -> 
         ty::ScopeTarget::Package(p) => {
             let b = lookup::in_package(e, p, s);
             if b.is_none() {
-                return Err(e.err(kids[1], format!("package `{}` has no `{}`", e.name(e.scope(p).name.unwrap()), e.name(s))));
+                return Err(
+                    e.err(kids[1], format!("package `{}` has no `{}`", e.name(e.scope(p).name.unwrap()), e.name(s)))
+                );
             }
             super::checks::package_ref_order(e, sc, p, s, n)?;
             b
@@ -1257,7 +1314,9 @@ pub(crate) fn hier<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, Op
             None => {
                 let unit = e.d.unit;
                 if e.scope(unit).names.contains_key(&top.name) {
-                    return Err(e.err(top.node, "compilation-unit items are not part of the `$root` hierarchy (3.12.1)"));
+                    return Err(
+                        e.err(top.node, "compilation-unit items are not part of the `$root` hierarchy (3.12.1)")
+                    );
                 }
                 return Err(e.err(top.node, format!("there is no top-level instance `{}`", e.name(top.name))));
             }
@@ -1299,7 +1358,12 @@ pub(crate) fn hier<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, Op
                     }
                     None => {
                         if e.d.tops.iter().any(|&i| e.d.instances[i.0 as usize].name == head.name) {
-                            let i = e.d.tops.iter().copied().find(|&i| e.d.instances[i.0 as usize].name == head.name).unwrap();
+                            let i =
+                                e.d.tops
+                                    .iter()
+                                    .copied()
+                                    .find(|&i| e.d.instances[i.0 as usize].name == head.name)
+                                    .unwrap();
                             e.upward = true;
                             note_upward(e);
                             at = Location::Instance(i);
@@ -1347,18 +1411,30 @@ pub(crate) fn hier<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, Op
         if imported {
             return Err(e.err(
                 step.node,
-                format!("`{}` is imported, and imported names cannot be reached through the hierarchy (26.3)", e.name(step.name)),
+                format!(
+                    "`{}` is imported, and imported names cannot be reached through the hierarchy (26.3)",
+                    e.name(step.name)
+                ),
             ));
         }
         if let Location::Instance(inst) = at
-            && e.d.specs.get(e.d.instances[inst.0 as usize].spec.0 as usize).is_some_and(|s| s.kind == DefKind::Program && !e.nested.contains(&s.def))
+            && e.d
+                .specs
+                .get(e.d.instances[inst.0 as usize].spec.0 as usize)
+                .is_some_and(|s| s.kind == DefKind::Program && !e.nested.contains(&s.def))
             && e.in_program_or_interface(sc) != Some(DefKind::Program)
         {
-            return Err(e.err(step.node, format!("`{}` is inside a program, which code outside programs cannot reach (24.3)", e.name(step.name))));
+            return Err(e.err(
+                step.node,
+                format!("`{}` is inside a program, which code outside programs cannot reach (24.3)", e.name(step.name)),
+            ));
         }
         match b {
             Some(Binding::Other(m)) if e.kind(m) == Kind::LetDecl => {
-                return Err(e.err(step.node, format!("`{}` is a `let`, which cannot be referenced hierarchically (11.12)", e.name(step.name))));
+                return Err(e.err(
+                    step.node,
+                    format!("`{}` is a `let`, which cannot be referenced hierarchically (11.12)", e.name(step.name)),
+                ));
             }
             Some(Binding::Instance(inst)) => at = Location::Instance(inst),
             Some(Binding::Instances(first, count)) => {
@@ -1507,7 +1583,9 @@ fn call<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, kids: &[NodeId], with:
                 }
                 Some(Binding::Other(m)) => {
                     if e.kind(m) == Kind::LetDecl && e.ast.node(m).first > e.ast.node(n).first {
-                        return Err(e.err(callee, format!("`let {}` is used before its declaration (11.12)", e.name(s))));
+                        return Err(
+                            e.err(callee, format!("`let {}` is used before its declaration (11.12)", e.name(s)))
+                        );
                     }
                     let mut xs = Vec::new();
                     for &a in &args {
@@ -1515,7 +1593,9 @@ fn call<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, kids: &[NodeId], with:
                     }
                     Ok(e.new_expr(ExprKind::Opaque, Types::UNKNOWN, n, xs))
                 }
-                Some(b) => Err(e.err(callee, format!("`{}` is {}, not a task or function", e.name(s), e.describe_binding(b)))),
+                Some(b) => {
+                    Err(e.err(callee, format!("`{}` is {}, not a task or function", e.name(s), e.describe_binding(b))))
+                }
                 None => {
                     if e.name(s) == "randomize" {
                         return Ok(e.new_expr(ExprKind::Method(s), Types::INT, n, vec![]));
@@ -1679,7 +1759,9 @@ pub(crate) fn call_sub<'a>(
                 if formals.is_empty() && args.len() == 1 && e.kind(a) == Kind::Empty {
                     break;
                 }
-                return Err(e.err(a, format!("`{}` takes {} arguments, but more are given", e.name(name), formals.len())));
+                return Err(
+                    e.err(a, format!("`{}` takes {} arguments, but more are given", e.name(name), formals.len()))
+                );
             }
             if e.kind(a) != Kind::Empty {
                 given[pos] = Some(a);
@@ -1711,7 +1793,11 @@ pub(crate) fn call_sub<'a>(
                 None => {
                     return Err(e.err(
                         n,
-                        format!("argument `{}` of `{}` has no default, so it must be given (13.5.3)", e.name(e.obj(f).name), e.name(name)),
+                        format!(
+                            "argument `{}` of `{}` has no default, so it must be given (13.5.3)",
+                            e.name(e.obj(f).name),
+                            e.name(name)
+                        ),
                     ));
                 }
             },
@@ -1742,20 +1828,61 @@ fn syscall<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, name_node: NodeId, 
     super::checks::syscall(e, sc, name, &xs, args, n)?;
     let arg_ty = |e: &Elab, i: usize| xs.get(i).map(|&x| e.ex(x).ty);
     let t = match name {
-        "$bits" | "$size" | "$left" | "$right" | "$low" | "$high" | "$increment" | "$dimensions"
-        | "$unpacked_dimensions" | "$clog2" | "$countones" | "$countbits" | "$cast" | "$fopen" | "$feof" | "$fgetc"
-        | "$fgets" | "$fscanf" | "$sscanf" | "$fread" | "$ftell" | "$fseek" | "$rewind" | "$ungetc" | "$ferror"
-        | "$test$plusargs" | "$value$plusargs" | "$random" | "$dist_uniform" | "$dist_normal" | "$dist_exponential"
-        | "$dist_poisson" | "$dist_chi_square" | "$dist_t" | "$dist_erlang" | "$system" | "$get_coverage"
-        | "$coverage_control" | "$coverage_get_max" | "$coverage_get" | "$coverage_merge" | "$coverage_save"
-        | "$q_full" | "$q_exam" | "$async$and$array" | "$stacktrace" => Types::INT,
+        "$bits"
+        | "$size"
+        | "$left"
+        | "$right"
+        | "$low"
+        | "$high"
+        | "$increment"
+        | "$dimensions"
+        | "$unpacked_dimensions"
+        | "$clog2"
+        | "$countones"
+        | "$countbits"
+        | "$cast"
+        | "$fopen"
+        | "$feof"
+        | "$fgetc"
+        | "$fgets"
+        | "$fscanf"
+        | "$sscanf"
+        | "$fread"
+        | "$ftell"
+        | "$fseek"
+        | "$rewind"
+        | "$ungetc"
+        | "$ferror"
+        | "$test$plusargs"
+        | "$value$plusargs"
+        | "$random"
+        | "$dist_uniform"
+        | "$dist_normal"
+        | "$dist_exponential"
+        | "$dist_poisson"
+        | "$dist_chi_square"
+        | "$dist_t"
+        | "$dist_erlang"
+        | "$system"
+        | "$get_coverage"
+        | "$coverage_control"
+        | "$coverage_get_max"
+        | "$coverage_get"
+        | "$coverage_merge"
+        | "$coverage_save"
+        | "$q_full"
+        | "$q_exam"
+        | "$async$and$array"
+        | "$stacktrace" => Types::INT,
         "$urandom" | "$urandom_range" | "$stime" => e.d.types.vector(32, false, false),
-        "$onehot" | "$onehot0" | "$isunknown" | "$rose" | "$fell" | "$stable" | "$changed" | "$sampled_bool" => Types::BIT,
+        "$onehot" | "$onehot0" | "$isunknown" | "$rose" | "$fell" | "$stable" | "$changed" | "$sampled_bool" => {
+            Types::BIT
+        }
         "$time" => Types::TIME,
         "$realtime" => Types::REALTIME,
-        "$itor" | "$bitstoreal" | "$sqrt" | "$ln" | "$log10" | "$exp" | "$pow" | "$floor" | "$ceil" | "$sin" | "$cos"
-        | "$tan" | "$asin" | "$acos" | "$atan" | "$atan2" | "$hypot" | "$sinh" | "$cosh" | "$tanh" | "$asinh"
-        | "$acosh" | "$atanh" | "$get_coverage_real" => Types::REAL,
+        "$itor" | "$bitstoreal" | "$sqrt" | "$ln" | "$log10" | "$exp" | "$pow" | "$floor" | "$ceil" | "$sin"
+        | "$cos" | "$tan" | "$asin" | "$acos" | "$atan" | "$atan2" | "$hypot" | "$sinh" | "$cosh" | "$tanh"
+        | "$asinh" | "$acosh" | "$atanh" | "$get_coverage_real" => Types::REAL,
         "$shortrealtobits" => e.d.types.vector(32, false, false),
         "$bitstoshortreal" => Types::SHORTREAL,
         "$rtoi" => Types::INT,
@@ -1770,15 +1897,71 @@ fn syscall<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, name_node: NodeId, 
         },
         "$sformatf" | "$psprintf" | "$typename" => Types::STRING,
         "$past" | "$sampled" => arg_ty(e, 0).unwrap_or(Types::UNKNOWN),
-        "$display" | "$displayb" | "$displayo" | "$displayh" | "$write" | "$writeb" | "$writeo" | "$writeh"
-        | "$strobe" | "$strobeb" | "$strobeo" | "$strobeh" | "$monitor" | "$monitorb" | "$monitoro" | "$monitorh"
-        | "$monitoron" | "$monitoroff" | "$finish" | "$stop" | "$exit" | "$fatal" | "$error" | "$warning" | "$info"
-        | "$fdisplay" | "$fwrite" | "$fstrobe" | "$fmonitor" | "$fclose" | "$fflush" | "$readmemh" | "$readmemb"
-        | "$writememh" | "$writememb" | "$sformat" | "$swrite" | "$swriteb" | "$swriteo" | "$swriteh" | "$dumpfile"
-        | "$dumpvars" | "$dumpon" | "$dumpoff" | "$dumpall" | "$dumpflush" | "$dumplimit" | "$dumpports"
-        | "$printtimescale" | "$timeformat" | "$asserton" | "$assertoff" | "$assertkill" | "$assertcontrol"
-        | "$assertpasson" | "$assertpassoff" | "$assertfailon" | "$assertfailoff" | "$assertnonvacuouson"
-        | "$assertvacuousoff" | "$srandom" | "$q_initialize" | "$q_add" | "$q_remove" | "$set_coverage_db_name"
+        "$display"
+        | "$displayb"
+        | "$displayo"
+        | "$displayh"
+        | "$write"
+        | "$writeb"
+        | "$writeo"
+        | "$writeh"
+        | "$strobe"
+        | "$strobeb"
+        | "$strobeo"
+        | "$strobeh"
+        | "$monitor"
+        | "$monitorb"
+        | "$monitoro"
+        | "$monitorh"
+        | "$monitoron"
+        | "$monitoroff"
+        | "$finish"
+        | "$stop"
+        | "$exit"
+        | "$fatal"
+        | "$error"
+        | "$warning"
+        | "$info"
+        | "$fdisplay"
+        | "$fwrite"
+        | "$fstrobe"
+        | "$fmonitor"
+        | "$fclose"
+        | "$fflush"
+        | "$readmemh"
+        | "$readmemb"
+        | "$writememh"
+        | "$writememb"
+        | "$sformat"
+        | "$swrite"
+        | "$swriteb"
+        | "$swriteo"
+        | "$swriteh"
+        | "$dumpfile"
+        | "$dumpvars"
+        | "$dumpon"
+        | "$dumpoff"
+        | "$dumpall"
+        | "$dumpflush"
+        | "$dumplimit"
+        | "$dumpports"
+        | "$printtimescale"
+        | "$timeformat"
+        | "$asserton"
+        | "$assertoff"
+        | "$assertkill"
+        | "$assertcontrol"
+        | "$assertpasson"
+        | "$assertpassoff"
+        | "$assertfailon"
+        | "$assertfailoff"
+        | "$assertnonvacuouson"
+        | "$assertvacuousoff"
+        | "$srandom"
+        | "$q_initialize"
+        | "$q_add"
+        | "$q_remove"
+        | "$set_coverage_db_name"
         | "$load_coverage_db" => Types::VOID,
         _ => Types::UNKNOWN,
     };
@@ -1788,7 +1971,15 @@ fn syscall<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, name_node: NodeId, 
 /// `a.find(x) with (x > 5)`: the iterator (`item` unless named) is a
 /// variable of the element type in a scope of its own, which the clause is
 /// bound in (7.12). The clause's value is the last argument.
-fn with_clause<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, base: ExprId, m: Sym, args: &[NodeId], w: NodeId, n: NodeId) -> R<'a, ExprId> {
+fn with_clause<'a>(
+    e: &mut Elab<'a, '_>,
+    sc: ScopeId,
+    base: ExprId,
+    m: Sym,
+    args: &[NodeId],
+    w: NodeId,
+    n: NodeId,
+) -> R<'a, ExprId> {
     let bt = e.ex(base).ty;
     let elem = e.d.types.element(bt).unwrap_or(Types::UNKNOWN);
     let scope = e.new_scope(ScopeKind::Block, None, Some(sc), w);
@@ -1840,7 +2031,8 @@ fn scope_arg<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, a: NodeId) -> R<'a, Option<E
                 None => e.defs.contains_key(&s) || e.d.tops.iter().any(|&i| e.d.instances[i.0 as usize].name == s),
                 _ => false,
             };
-            Ok(scope_like.then(|| e.new_expr(ExprKind::Hier { path: vec![s], object: None }, Types::UNKNOWN, a, vec![])))
+            Ok(scope_like
+                .then(|| e.new_expr(ExprKind::Hier { path: vec![s], object: None }, Types::UNKNOWN, a, vec![])))
         }
         Kind::Member => match hier(e, sc, a)? {
             Some(x) if matches!(e.ex(x).kind, ExprKind::Hier { object: None, .. }) => Ok(Some(x)),
@@ -1858,7 +2050,9 @@ pub(crate) fn builtin_method_type(e: &mut Elab, bt: TypeId, m: Sym, args: &[Expr
     match e.d.types.get(bt).clone() {
         Type::String => match name {
             "len" | "compare" | "icompare" | "atoi" | "atohex" | "atooct" | "atobin" => Types::INT,
-            "getc" => e.d.types.intern(Type::Vector { atom: crate::design::types::Atom::Byte, signed: true, dims: vec![] }),
+            "getc" => {
+                e.d.types.intern(Type::Vector { atom: crate::design::types::Atom::Byte, signed: true, dims: vec![] })
+            }
             "toupper" | "tolower" | "substr" => Types::STRING,
             "atoreal" => Types::REAL,
             "putc" | "itoa" | "hextoa" | "octtoa" | "bintoa" | "realtoa" => Types::VOID,

@@ -26,7 +26,6 @@ use super::types::{Type, TypeId, Types};
 use super::value::Bits;
 use super::*;
 use crate::ast::{Ast, Kind, NodeId};
-use crate::lexer::Token;
 use crate::preprocess::{NetType, Output, State};
 use crate::source::Error;
 use std::collections::HashMap;
@@ -77,8 +76,6 @@ pub(crate) struct Elab<'a, 'x> {
     pub work: Vec<(Work, Vec<InstId>)>,
     /// The instances being elaborated, outermost first.
     pub inst_path: Vec<InstId>,
-    /// Syntax nodes of subroutines whose bodies are not elaborated yet.
-    pub sub_nodes: HashMap<SubId, (NodeId, ScopeId)>,
     /// Class declarations not yet elaborated, by scope and name.
     pub class_nodes: HashMap<ClassId, (NodeId, ScopeId)>,
     /// The scope that each class's methods were declared in.
@@ -196,7 +193,6 @@ impl<'a, 'x> Elab<'a, 'x> {
             spec_cache: HashMap::new(),
             work: Vec::new(),
             inst_path: Vec::new(),
-            sub_nodes: HashMap::new(),
             class_nodes: HashMap::new(),
             depth: 0,
             upward: false,
@@ -267,10 +263,6 @@ impl<'a, 'x> Elab<'a, 'x> {
 
     pub fn child(&self, n: NodeId, k: Kind) -> Option<NodeId> {
         self.ast.child(n, k)
-    }
-
-    pub fn tok(&self, n: NodeId) -> Token<'a> {
-        self.ast.token(n)
     }
 
     /// The text of a leaf: a keyword, operator or name.
@@ -583,7 +575,16 @@ impl<'a, 'x> Elab<'a, 'x> {
             let n = self.sym(name);
             let cs = self.new_scope(ScopeKind::Class, Some(n), Some(sc), root);
             let id = ClassId(self.d.classes.len() as u32);
-            self.d.classes.push(Class { name: n, scope: cs, base: None, node: root, virtual_: false, interface: false, params: vec![], implements: vec![] });
+            self.d.classes.push(Class {
+                name: n,
+                scope: cs,
+                base: None,
+                node: root,
+                virtual_: false,
+                interface: false,
+                params: vec![],
+                implements: vec![],
+            });
             self.scope_mut(sc).names.insert(n, Binding::Class(id));
         }
         let n = self.sym("randomize");
@@ -669,8 +670,12 @@ impl<'a, 'x> Elab<'a, 'x> {
         let sc = self.new_scope(ScopeKind::Package, Some(s), Some(unit), n);
         self.packages.insert(s, sc);
         self.d.packages.push(sc);
-        let items: Vec<NodeId> =
-            self.kids(n).iter().copied().filter(|&k| !matches!(self.kind(k), Kind::Name | Kind::Keyword | Kind::EndLabel)).collect();
+        let items: Vec<NodeId> = self
+            .kids(n)
+            .iter()
+            .copied()
+            .filter(|&k| !matches!(self.kind(k), Kind::Name | Kind::Keyword | Kind::EndLabel))
+            .collect();
         self.declare_pass(sc, &items)?;
         for k in items {
             self.item(sc, k)?;
@@ -880,7 +885,11 @@ impl<'a, 'x> Elab<'a, 'x> {
                 }
             }
             Kind::Module if self.in_program_or_interface(sc).is_some() => {
-                let what = if self.in_program_or_interface(sc) == Some(DefKind::Program) { "a program" } else { "an interface" };
+                let what = if self.in_program_or_interface(sc) == Some(DefKind::Program) {
+                    "a program"
+                } else {
+                    "an interface"
+                };
                 return Err(self.err(n, format!("{what} cannot contain a nested module or program (24.3, 25.3)")));
             }
             Kind::Module => {
@@ -889,7 +898,10 @@ impl<'a, 'x> Elab<'a, 'x> {
                 let name = self.name_child(n).unwrap();
                 let s = self.sym_of(name);
                 let used = self.instantiated_in(self.scope(sc).node, s);
-                if !used && let Some(&def) = self.defs.get(&s) && def.node == n {
+                if !used
+                    && let Some(&def) = self.defs.get(&s)
+                    && def.node == n
+                {
                     let id = self.instantiate(Some(sc), sc, s, def, &[], n, None)?;
                     self.declare(sc, s, Binding::Instance(id), name)?;
                     self.push_item(sc, Item::Instance(id));
@@ -968,7 +980,9 @@ impl<'a, 'x> Elab<'a, 'x> {
         let kids = self.kids(a);
         let name = kids[0];
         let s = self.sym_of(name);
-        let value_node = kids.iter().copied().skip(1).find(|&k| !matches!(self.kind(k), Kind::RangeDim | Kind::SizeDim | Kind::UnsizedDim | Kind::QueueDim | Kind::AssocDim));
+        let value_node = kids.iter().copied().skip(1).find(|&k| {
+            !matches!(self.kind(k), Kind::RangeDim | Kind::SizeDim | Kind::UnsizedDim | Kind::QueueDim | Kind::AssocDim)
+        });
         let dims: Vec<NodeId> = kids[1..].iter().copied().filter(|&k| Some(k) != value_node).collect();
         // An override from the instance takes the place of the default.
         let over = if local { None } else { self.take_override(sc, s) };
@@ -989,7 +1003,13 @@ impl<'a, 'x> Elab<'a, 'x> {
                     // A parameter with no default needs a value from every
                     // instance (6.20.1).
                     if self.scope(sc).kind == ScopeKind::Spec {
-                        return Err(self.err(name, format!("parameter `{}` has no default, and the instance does not give it a value (6.20.1)", self.name(s))));
+                        return Err(self.err(
+                            name,
+                            format!(
+                                "parameter `{}` has no default, and the instance does not give it a value (6.20.1)",
+                                self.name(s)
+                            ),
+                        ));
                     }
                     if self.scope(sc).kind != ScopeKind::Class {
                         return Err(self.err(name, format!("parameter `{}` has no value", self.name(s))));
@@ -1063,7 +1083,8 @@ impl<'a, 'x> Elab<'a, 'x> {
                 },
             };
             // `parameter type enum T`: the type must be of that kind (6.20.3).
-            let restriction = self.kids(n).iter().copied().skip(1).find(|&k| self.kind(k) == Kind::Keyword).map(|k| self.text(k));
+            let restriction =
+                self.kids(n).iter().copied().skip(1).find(|&k| self.kind(k) == Kind::Keyword).map(|k| self.text(k));
             if let Some(r) = restriction {
                 checks::type_restriction(self, r, t, name)?;
             }
@@ -1092,7 +1113,8 @@ impl<'a, 'x> Elab<'a, 'x> {
             }
             None => vec![],
         };
-        let ty_node = *kids.iter().find(|&&k| self.kind(k) != Kind::Qualifiers && self.kind(k) != Kind::Attributes).unwrap();
+        let ty_node =
+            *kids.iter().find(|&&k| self.kind(k) != Kind::Qualifiers && self.kind(k) != Kind::Attributes).unwrap();
         // `M u;` with `M` a module: an instance without parentheses.
         if self.kind(ty_node) == Kind::NamedType
             && let Some(nm) = self.kids(ty_node).first().copied()
@@ -1105,7 +1127,10 @@ impl<'a, 'x> Elab<'a, 'x> {
             {
                 return Err(self.err(
                     nm,
-                    format!("`{}` is a module, so instantiating it needs a port list in parentheses (23.3.2)", self.name(s)),
+                    format!(
+                        "`{}` is a module, so instantiating it needs a port list in parentheses (23.3.2)",
+                        self.name(s)
+                    ),
                 ));
             }
         }
@@ -1113,19 +1138,27 @@ impl<'a, 'x> Elab<'a, 'x> {
         if self.kind(ty_node) == Kind::NamedType
             && let Some(&nm) = self.kids(ty_node).first()
             && self.kind(nm) == Kind::Name
-            && { let ns = self.sym_of(nm); self.nettypes.contains(&ns) }
+            && {
+                let ns = self.sym_of(nm);
+                self.nettypes.contains(&ns)
+            }
         {
             return self.net_decl(sc, n);
         }
         if quals.iter().any(|&q| self.name(q) == "automatic")
-            && matches!(self.scope(sc).kind, ScopeKind::Spec | ScopeKind::Unit | ScopeKind::Package | ScopeKind::Generate)
+            && matches!(
+                self.scope(sc).kind,
+                ScopeKind::Spec | ScopeKind::Unit | ScopeKind::Package | ScopeKind::Generate
+            )
         {
             return Err(self.err(n, "variables declared outside procedures and subroutines are static; `automatic` is not allowed here (6.21)"));
         }
         let base = ty::data_type(self, sc, ty_node)?;
         // `process` objects come only from `process::self()` (9.7).
         if self.ast.tokens_of(ty_node).first().is_some_and(|t| t.0 == "process")
-            && kids.iter().any(|&d| self.kind(d) == Kind::Declarator && self.kids(d).iter().any(|&x| self.kind(x) == Kind::New))
+            && kids
+                .iter()
+                .any(|&d| self.kind(d) == Kind::Declarator && self.kids(d).iter().any(|&x| self.kind(x) == Kind::New))
         {
             return Err(self.err(n, "the built-in class `process` cannot be constructed with `new` (9.7)"));
         }
@@ -1300,7 +1333,9 @@ impl<'a, 'x> Elab<'a, 'x> {
             let in_list = spec.is_some_and(|sp| self.d.specs[sp.0 as usize].ports.iter().any(|p| p.name == s))
                 || self.named_in_port_list(sc, s);
             if !in_list && spec.is_some() {
-                return Err(self.err(name, format!("`{}` is declared as a port but is not in the port list", self.name(s))));
+                return Err(
+                    self.err(name, format!("`{}` is declared as a port but is not in the port list", self.name(s)))
+                );
             }
             match self.scope(sc).names.get(&s).copied() {
                 Some(Binding::Object(o)) if self.obj(o).dir.is_none() => {
@@ -1356,8 +1391,20 @@ impl<'a, 'x> Elab<'a, 'x> {
         let pnode = self.obj(p).node;
         let in_header = self.scope(self.obj(p).scope).node;
         let header = self.child(in_header, Kind::Ports);
-        if header.is_some_and(|h| self.ast.children(h).iter().any(|&k| self.kind(k) == Kind::AnsiPort && self.ast.node(k).first <= self.ast.node(pnode).first && self.ast.node(pnode).end <= self.ast.node(k).end)) {
-            return Err(self.err(at, format!("`{}` is an ANSI port, so it cannot be declared again in the body (23.2.2.2)", self.name(self.obj(p).name))));
+        if header.is_some_and(|h| {
+            self.ast.children(h).iter().any(|&k| {
+                self.kind(k) == Kind::AnsiPort
+                    && self.ast.node(k).first <= self.ast.node(pnode).first
+                    && self.ast.node(pnode).end <= self.ast.node(k).end
+            })
+        }) {
+            return Err(self.err(
+                at,
+                format!(
+                    "`{}` is an ANSI port, so it cannot be declared again in the body (23.2.2.2)",
+                    self.name(self.obj(p).name)
+                ),
+            ));
         }
         let old = self.obj(p).ty;
         let explicit_old = !(old == Types::LOGIC);
@@ -1406,13 +1453,17 @@ impl<'a, 'x> Elab<'a, 'x> {
                 if let Some(old) = self.scope(sc).names.get(&s).copied()
                     && old != b
                 {
-                    let from_import = self.scope(sc).items.iter().any(|i| matches!(i, Item::Import(_, Some(x)) if *x == s));
+                    let from_import =
+                        self.scope(sc).items.iter().any(|i| matches!(i, Item::Import(_, Some(x)) if *x == s));
                     return Err(self.err(
                         ik[1],
                         if from_import {
                             format!("`{}` is already imported from another package (26.3)", self.name(s))
                         } else {
-                            format!("`{}` is already declared in this scope, so it cannot be imported (26.3)", self.name(s))
+                            format!(
+                                "`{}` is already declared in this scope, so it cannot be imported (26.3)",
+                                self.name(s)
+                            )
                         },
                     ));
                 }
@@ -1431,7 +1482,9 @@ impl<'a, 'x> Elab<'a, 'x> {
         let s = self.sym_of(name);
         let Some(def) = self.defs.get(&s).copied() else {
             // A class or a type used as `T x(...)` is not an instance.
-            return Err(self.err(name, format!("there is no module, interface, program or primitive `{}`", self.name(s))));
+            return Err(
+                self.err(name, format!("there is no module, interface, program or primitive `{}`", self.name(s)))
+            );
         };
         match def.kind {
             DefKind2::Udp => {
@@ -1512,7 +1565,10 @@ impl<'a, 'x> Elab<'a, 'x> {
         let mut s = Some(sc);
         while let Some(id) = s {
             if self.scope(id).kind == ScopeKind::Spec {
-                return self.spec_of_scope(id).map(|sp| self.d.specs[sp.0 as usize].kind).filter(|&k| k != DefKind::Module);
+                return self
+                    .spec_of_scope(id)
+                    .map(|sp| self.d.specs[sp.0 as usize].kind)
+                    .filter(|&k| k != DefKind::Module);
             }
             s = self.scope(id).parent;
         }
@@ -1570,16 +1626,9 @@ impl<'a, 'x> Elab<'a, 'x> {
     ) -> R<'a, InstId> {
         let _ = parent;
         let id = InstId(self.d.instances.len() as u32);
-        self.d.instances.push(Instance {
-            name,
-            spec: SpecId(u32::MAX),
-            scope: sc,
-            node,
-            connections: vec![],
-            index,
-        });
-        if self.inst_path.len() > 64 {
-            return Err(self.err(node, "the hierarchy is more than 64 instances deep; is it recursive?"));
+        self.d.instances.push(Instance { name, spec: SpecId(u32::MAX), scope: sc, node, connections: vec![], index });
+        if self.inst_path.len() > 10_000 {
+            return Err(self.err(node, "the hierarchy is more than 10000 instances deep; is it recursive?"));
         }
         let key = (def.node, format!("{overrides:?}"));
         if self.nested.contains(&def.node) {
@@ -1630,7 +1679,11 @@ impl<'a, 'x> Elab<'a, 'x> {
                         if all.contains(s2) {
                             return Err(self.err(
                                 at,
-                                format!("`{}` is a local parameter of `{}`, so it cannot be overridden", self.name(*s2), self.name(s)),
+                                format!(
+                                    "`{}` is a local parameter of `{}`, so it cannot be overridden",
+                                    self.name(*s2),
+                                    self.name(s)
+                                ),
                             ));
                         }
                         return Err(self.err(at, format!("`{}` has no parameter `{}`", self.name(s), self.name(*s2))));
@@ -1813,7 +1866,8 @@ impl<'a, 'x> Elab<'a, 'x> {
                 }
                 Kind::AnsiPort => {
                     let pk = self.kids(p);
-                    let kws: Vec<&str> = pk.iter().filter(|&&k| self.kind(k) == Kind::Keyword).map(|&k| self.text(k)).collect();
+                    let kws: Vec<&str> =
+                        pk.iter().filter(|&&k| self.kind(k) == Kind::Keyword).map(|&k| self.text(k)).collect();
                     let explicit_dir = kws.iter().find_map(|&k| match k {
                         "input" => Some(Dir::Input),
                         "output" => Some(Dir::Output),
@@ -1821,7 +1875,10 @@ impl<'a, 'x> Elab<'a, 'x> {
                         "ref" => Some(Dir::Ref),
                         _ => None,
                     });
-                    let net_kw = kws.iter().copied().find(|k| ty::NET_KEYWORDS.contains(k) || *k == "var" || *k == "interconnect");
+                    let net_kw = kws
+                        .iter()
+                        .copied()
+                        .find(|k| ty::NET_KEYWORDS.contains(k) || *k == "var" || *k == "interconnect");
                     if let Some(d) = explicit_dir {
                         dir = d;
                     } else if first {
@@ -1920,7 +1977,13 @@ impl<'a, 'x> Elab<'a, 'x> {
                         return Err(self.err(dk[0], "a `ref` port must be a variable (23.2.2.3)"));
                     }
                     if dir == Dir::Inout && kind == ObjKind::Variable {
-                        return Err(self.err(dk[0], format!("`{}` is an inout port, which must be a net, not a variable (23.2.2.3)", self.name(pname))));
+                        return Err(self.err(
+                            dk[0],
+                            format!(
+                                "`{}` is an inout port, which must be a net, not a variable (23.2.2.3)",
+                                self.name(pname)
+                            ),
+                        ));
                     }
                     if dir == Dir::Ref && dk[1..].iter().any(|&k| !ty::is_dim(self.kind(k))) {
                         return Err(self.err(dk[0], "a `ref` port cannot have a default value (23.2.2.4)"));
@@ -1974,8 +2037,12 @@ impl<'a, 'x> Elab<'a, 'x> {
     fn connect_ports(&mut self, sc: ScopeId, inst: InstId, n: NodeId) -> R<'a> {
         let spec = self.d.instances[inst.0 as usize].spec;
         let ports = self.d.specs[spec.0 as usize].ports.clone();
-        let conns: Vec<NodeId> =
-            self.kids(n).iter().copied().filter(|&k| matches!(self.kind(k), Kind::Connection | Kind::NamedConnection)).collect();
+        let conns: Vec<NodeId> = self
+            .kids(n)
+            .iter()
+            .copied()
+            .filter(|&k| matches!(self.kind(k), Kind::Connection | Kind::NamedConnection))
+            .collect();
         let mut out: Vec<Connection> = Vec::new();
         let named = conns.iter().any(|&c| self.kind(c) == Kind::NamedConnection);
         let mut wildcard = false;
@@ -1984,7 +2051,8 @@ impl<'a, 'x> Elab<'a, 'x> {
                 if self.kind(c) == Kind::Connection {
                     return Err(self.err(c, "ordered and named port connections cannot be mixed (23.3.2)"));
                 }
-                let ck: Vec<NodeId> = self.kids(c).iter().copied().filter(|&k| self.kind(k) != Kind::Attributes).collect();
+                let ck: Vec<NodeId> =
+                    self.kids(c).iter().copied().filter(|&k| self.kind(k) != Kind::Attributes).collect();
                 if self.kind(ck[0]) == Kind::Op {
                     wildcard = true;
                     continue;
@@ -1993,7 +2061,11 @@ impl<'a, 'x> Elab<'a, 'x> {
                 let Some(port) = ports.iter().find(|p| p.name == pname) else {
                     return Err(self.err(
                         ck[0],
-                        format!("`{}` has no port `{}`", self.name(self.d.specs[spec.0 as usize].name), self.name(pname)),
+                        format!(
+                            "`{}` has no port `{}`",
+                            self.name(self.d.specs[spec.0 as usize].name),
+                            self.name(pname)
+                        ),
                     ));
                 };
                 if out.iter().any(|x| x.port == pname) {
@@ -2010,7 +2082,11 @@ impl<'a, 'x> Elab<'a, 'x> {
                         if lookup::lookup(self, sc, pname).is_none() {
                             return Err(self.err(
                                 ck[0],
-                                format!("`.{}` needs a `{}` in the instantiating scope (23.3.2.3)", self.name(pname), self.name(pname)),
+                                format!(
+                                    "`.{}` needs a `{}` in the instantiating scope (23.3.2.3)",
+                                    self.name(pname),
+                                    self.name(pname)
+                                ),
                             ));
                         }
                         if port.interface.is_some_and(|(i, _)| self.name(i) == "interface") {
@@ -2019,7 +2095,10 @@ impl<'a, 'x> Elab<'a, 'x> {
                         // `.name` needs a matching type (23.3.2.3).
                         if let (Some(Binding::Object(o)), Some(po)) = (lookup::lookup(self, sc, pname), port.object) {
                             let (a, b) = (self.obj(o).ty, self.obj(po).ty);
-                            if self.d.types.is_integral(a) && self.d.types.is_integral(b) && self.d.types.width(a) != self.d.types.width(b) {
+                            if self.d.types.is_integral(a)
+                                && self.d.types.is_integral(b)
+                                && self.d.types.width(a) != self.d.types.width(b)
+                            {
                                 return Err(self.err(ck[0], format!("`.{}` connects {} bits to a port of {} bits; an implicit connection needs matching types (23.3.2.3)", self.name(pname), self.d.types.width(a), self.d.types.width(b))));
                             }
                         }
@@ -2041,7 +2120,10 @@ impl<'a, 'x> Elab<'a, 'x> {
                     } else {
                         return Err(self.err(
                             n,
-                            format!("`.*` cannot connect port `{}`: nothing of that name is visible (23.3.2.4)", self.name(p.name)),
+                            format!(
+                                "`.*` cannot connect port `{}`: nothing of that name is visible (23.3.2.4)",
+                                self.name(p.name)
+                            ),
                         ));
                     }
                 }
@@ -2074,7 +2156,9 @@ impl<'a, 'x> Elab<'a, 'x> {
             if p.dir == Dir::Ref && !out.iter().any(|c| c.port == p.name && c.expr.is_some()) {
                 return Err(self.err(n, format!("`ref` port `{}` must be connected (23.3.3.3)", self.name(p.name))));
             }
-            if p.interface.is_some() && !out.iter().any(|c| c.port == p.name && (c.interface.is_some() || c.expr.is_some())) {
+            if p.interface.is_some()
+                && !out.iter().any(|c| c.port == p.name && (c.interface.is_some() || c.expr.is_some()))
+            {
                 return Err(self.err(n, format!("interface port `{}` is not connected (25.3)", self.name(p.name))));
             }
         }
@@ -2117,7 +2201,15 @@ impl<'a, 'x> Elab<'a, 'x> {
             {
                 let got = self.sym_of(self.kids(e)[1]);
                 if got != want {
-                    return Err(self.err(e, format!("port `{}` is declared with modport `{}`, but connected through modport `{}` (25.5)", self.name(port.name), self.name(want), self.name(got))));
+                    return Err(self.err(
+                        e,
+                        format!(
+                            "port `{}` is declared with modport `{}`, but connected through modport `{}` (25.5)",
+                            self.name(port.name),
+                            self.name(want),
+                            self.name(got)
+                        ),
+                    ));
                 }
             }
             match target {
@@ -2127,7 +2219,12 @@ impl<'a, 'x> Elab<'a, 'x> {
                     if got != iname && self.name(iname) != "interface" {
                         return Err(self.err(
                             e,
-                            format!("port `{}` needs an instance of `{}`, not `{}`", self.name(port.name), self.name(iname), self.name(got)),
+                            format!(
+                                "port `{}` needs an instance of `{}`, not `{}`",
+                                self.name(port.name),
+                                self.name(iname),
+                                self.name(got)
+                            ),
                         ));
                     }
                     return Ok(Connection { port: port.name, expr: None, interface: Some(i) });
@@ -2248,12 +2345,18 @@ impl<'a, 'x> Elab<'a, 'x> {
             }
         }
         self.in_cont_assign = true;
-        let r = self.continuous_assigns(sc, &kids, strength, &delay);
+        let r = self.continuous_assigns(sc, kids, strength, &delay);
         self.in_cont_assign = false;
         r
     }
 
-    fn continuous_assigns(&mut self, sc: ScopeId, kids: &[NodeId], strength: Option<(Sym, Sym)>, delay: &[ExprId]) -> R<'a> {
+    fn continuous_assigns(
+        &mut self,
+        sc: ScopeId,
+        kids: &[NodeId],
+        strength: Option<(Sym, Sym)>,
+        delay: &[ExprId],
+    ) -> R<'a> {
         for a in kids.iter().copied().filter(|&k| self.kind(k) == Kind::Assign).collect::<Vec<_>>() {
             let ak = self.kids(a);
             let (l, r) = (ak[0], ak[ak.len() - 1]);
@@ -2298,7 +2401,12 @@ impl<'a, 'x> Elab<'a, 'x> {
             let ik = self.kids(inst);
             let name = ik.iter().copied().find(|&k| self.kind(k) == Kind::Name).map(|k| self.sym_of(k));
             let mut terminals = Vec::new();
-            for c in ik.iter().copied().filter(|&k| matches!(self.kind(k), Kind::Connection | Kind::NamedConnection)).collect::<Vec<_>>() {
+            for c in ik
+                .iter()
+                .copied()
+                .filter(|&k| matches!(self.kind(k), Kind::Connection | Kind::NamedConnection))
+                .collect::<Vec<_>>()
+            {
                 if self.kind(c) == Kind::NamedConnection {
                     let is_udp = self.defs.get(&kind).is_some_and(|d| d.kind == DefKind2::Udp);
                     if !is_udp {
@@ -2325,7 +2433,14 @@ impl<'a, 'x> Elab<'a, 'x> {
                 self.declare(sc, nm, Binding::Other(inst), at)?;
             }
             let id = CellId(self.d.cells.len() as u32);
-            self.d.cells.push(Cell { kind, name, terminals, strength: strength.clone(), delay: delay.clone(), node: inst });
+            self.d.cells.push(Cell {
+                kind,
+                name,
+                terminals,
+                strength: strength.clone(),
+                delay: delay.clone(),
+                node: inst,
+            });
             self.push_item(sc, Item::Cell(id));
         }
         Ok(())
@@ -2351,7 +2466,8 @@ impl<'a, 'x> Elab<'a, 'x> {
         }
         let gname = self.obj(gv).name;
         if self.genvars_active.contains(&gv) {
-            return Err(self.err(init, format!("genvar `{}` is already the index of an enclosing loop (27.4)", self.name(gname))));
+            return Err(self
+                .err(init, format!("genvar `{}` is already the index of an enclosing loop (27.4)", self.name(gname))));
         }
         checks::genvar_step(self, sc, step, gname)?;
         // The body is usually a named block; its name names the array.
@@ -2380,7 +2496,9 @@ impl<'a, 'x> Elab<'a, 'x> {
                     break;
                 }
                 if !seen.insert(v) {
-                    return Err(self.err(step, format!("genvar `{}` takes the value {v} twice (27.4)", self.name(gname))));
+                    return Err(
+                        self.err(step, format!("genvar `{}` takes the value {v} twice (27.4)", self.name(gname)))
+                    );
                 }
                 count += 1;
                 if count > 1_000_000 {
@@ -2403,6 +2521,7 @@ impl<'a, 'x> Elab<'a, 'x> {
                     qualifiers: vec![],
                 });
                 self.scope_mut(blk).names.insert(gname, Binding::Object(p));
+                self.push_item(blk, Item::Object(p));
                 self.generate_body(blk, body)?;
                 v = self.genvar_step_value(sc, step, gv, v)?;
             }
@@ -2442,10 +2561,12 @@ impl<'a, 'x> Elab<'a, 'x> {
         let s = self.sym_of(name_node);
         let decl_scope = sc;
         if checks::mentions(self, val_node, s) {
-            return Err(self.err(val_node, format!("the loop's initial value reads its own genvar `{}` (27.4)", self.name(s))));
+            return Err(
+                self.err(val_node, format!("the loop's initial value reads its own genvar `{}` (27.4)", self.name(s)))
+            );
         }
         let gv = if declares {
-            let o = self.new_object(Object {
+            self.new_object(Object {
                 name: s,
                 kind: ObjKind::Genvar,
                 ty: Types::INTEGER,
@@ -2456,13 +2577,15 @@ impl<'a, 'x> Elab<'a, 'x> {
                 init: None,
                 value: None,
                 qualifiers: vec![],
-            });
-            o
+            })
         } else {
             match lookup::lookup(self, sc, s) {
                 Some(Binding::Object(o)) if self.obj(o).kind == ObjKind::Genvar => o,
                 Some(_) => {
-                    return Err(self.err(name_node, format!("`{}` is not a genvar, so it cannot index a generate loop", self.name(s))));
+                    return Err(self.err(
+                        name_node,
+                        format!("`{}` is not a genvar, so it cannot index a generate loop", self.name(s)),
+                    ));
                 }
                 None => return Err(self.err(name_node, format!("genvar `{}` is not declared", self.name(s)))),
             }
@@ -2588,13 +2711,23 @@ impl<'a, 'x> Elab<'a, 'x> {
             {
                 return Err(self.err(
                     at,
-                    format!("the generate block name `{}` is already used in this scope for {}", self.name(s), self.describe_binding(b)),
+                    format!(
+                        "the generate block name `{}` is already used in this scope for {}",
+                        self.name(s),
+                        self.describe_binding(b)
+                    ),
                 ));
             }
             if let Some(&(_, other)) = self.reserved_blocks.get(&sc).and_then(|v| v.iter().find(|(x, _)| *x == s))
                 && other != n
             {
-                return Err(self.err(at, format!("the block name `{}` is already used by another generate construct in this scope (27.5)", self.name(s))));
+                return Err(self.err(
+                    at,
+                    format!(
+                        "the block name `{}` is already used by another generate construct in this scope (27.5)",
+                        self.name(s)
+                    ),
+                ));
             }
             self.reserved_blocks.entry(sc).or_default().push((s, n));
         }
@@ -2657,7 +2790,12 @@ impl<'a, 'x> Elab<'a, 'x> {
                             out.insert(self.ast.token(nm).0.to_string());
                         }
                     }
-                    Kind::Name if matches!(self.ast.kind(k), Kind::GenerateBlock | Kind::Typedef | Kind::Function | Kind::Task) => {
+                    Kind::Name
+                        if matches!(
+                            self.ast.kind(k),
+                            Kind::GenerateBlock | Kind::Typedef | Kind::Function | Kind::Task
+                        ) =>
+                    {
                         out.insert(self.ast.token(c).0.to_string());
                     }
                     _ => {}
@@ -2684,7 +2822,9 @@ impl<'a, 'x> Elab<'a, 'x> {
         if let Some(old) = self.scope(sc).names.get(&name).copied() {
             let reserved_here = self.reserved_blocks.get(&sc).is_some_and(|v| v.iter().any(|(s, _)| *s == name));
             if !(reserved_here && matches!(old, Binding::Scope(_))) {
-                return Err(self.err(label.unwrap_or(n), format!("`{}` is already declared in this scope", self.name(name))));
+                return Err(
+                    self.err(label.unwrap_or(n), format!("`{}` is already declared in this scope", self.name(name)))
+                );
             }
         }
         self.scope_mut(sc).names.insert(name, Binding::Scope(blk));
@@ -2714,3 +2854,6 @@ pub(crate) enum Over {
     #[allow(dead_code)]
     Node(NodeId, ScopeId),
 }
+
+#[cfg(test)]
+mod tests;

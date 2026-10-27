@@ -190,13 +190,10 @@ pub(crate) fn sub_signature<'a>(e: &mut Elab<'a, '_>, sub: SubId) -> R<'a> {
             let t = match tn {
                 Some(t) if !implicit => ty::data_type(e, scope, t)?,
                 Some(t) if e.kind(t) == Kind::ImplicitType && !e.kids(t).is_empty() => ty::data_type(e, scope, t)?,
-                _ => {
-                    if explicit.is_some() || prev_ty.is_none() {
-                        Types::LOGIC
-                    } else {
-                        prev_ty.unwrap()
-                    }
-                }
+                _ => match prev_ty {
+                    Some(p) if explicit.is_none() => p,
+                    _ => Types::LOGIC,
+                },
             };
             let Some(d) = pk.iter().copied().find(|&k| e.kind(k) == Kind::Declarator) else { continue };
             let dk = e.kids(d).to_vec();
@@ -358,9 +355,13 @@ pub(crate) fn prototype<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'
     let kids = e.kids(proto).to_vec();
     let Some(&name_node) = kids.iter().find(|&&k| e.kind(k) == Kind::Name) else { return Ok(()) };
     // A DPI import may give a C name first; the SystemVerilog name is last.
-    let name_node = *kids.iter().filter(|&&k| e.kind(k) == Kind::Name).next_back().unwrap_or(&name_node);
+    let name_node = *kids.iter().rfind(|&&k| e.kind(k) == Kind::Name).unwrap_or(&name_node);
     let s = e.sym_of(name_node);
-    let kind = if kids.iter().any(|&k| e.kind(k) == Kind::Keyword && e.text(k) == "task") { SubKind::Task } else { SubKind::Function };
+    let kind = if kids.iter().any(|&k| e.kind(k) == Kind::Keyword && e.text(k) == "task") {
+        SubKind::Task
+    } else {
+        SubKind::Function
+    };
     let mut quals = qualifiers(e, proto);
     if proto != n {
         quals.extend(qualifiers(e, n));
@@ -395,8 +396,12 @@ pub(crate) fn prototype<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'
     e.push_item(sc, Item::Subroutine(id));
     sub_signature(e, id)?;
     // Bodies written outside the class for this prototype (8.24).
-    let pending: Vec<(ClassId, crate::design::Sym, NodeId, ScopeId)> =
-        e.out_of_block.iter().copied().filter(|(c, m, _, _)| e.d.classes[c.0 as usize].scope == sc && *m == s).collect();
+    let pending: Vec<(ClassId, crate::design::Sym, NodeId, ScopeId)> = e
+        .out_of_block
+        .iter()
+        .copied()
+        .filter(|(c, m, _, _)| e.d.classes[c.0 as usize].scope == sc && *m == s)
+        .collect();
     for (_, _, body, _) in pending {
         attach_body(e, id, body)?;
     }
@@ -407,7 +412,10 @@ pub(crate) fn prototype<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'
 pub(crate) fn attach_body<'a>(e: &mut Elab<'a, '_>, id: SubId, body: NodeId) -> R<'a> {
     let scope = e.d.subroutines[id.0 as usize].scope;
     if e.kind(e.d.subroutines[id.0 as usize].node) != Kind::Prototype {
-        return Err(e.err(body, format!("`{}` already has a body outside its class (8.24)", e.name(e.d.subroutines[id.0 as usize].name))));
+        return Err(e.err(
+            body,
+            format!("`{}` already has a body outside its class (8.24)", e.name(e.d.subroutines[id.0 as usize].name)),
+        ));
     }
     let proto_args: Vec<(TypeId, Option<Dir>)> =
         e.d.subroutines[id.0 as usize].args.iter().map(|&a| (e.obj(a).ty, e.obj(a).dir)).collect();
@@ -427,7 +435,9 @@ pub(crate) fn attach_body<'a>(e: &mut Elab<'a, '_>, id: SubId, body: NodeId) -> 
     let body_args: Vec<(TypeId, Option<Dir>)> =
         e.d.subroutines[id.0 as usize].args.iter().map(|&a| (e.obj(a).ty, e.obj(a).dir)).collect();
     if body_args != proto_args || e.d.subroutines[id.0 as usize].ret != proto_ret {
-        return Err(e.err(body, format!("the body of `{}` does not match its prototype in the class (8.24)", e.name(fname))));
+        return Err(
+            e.err(body, format!("the body of `{}` does not match its prototype in the class (8.24)", e.name(fname)))
+        );
     }
     e.defer(Work::Body(id));
     Ok(())
@@ -451,7 +461,9 @@ pub(crate) fn process<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a>
     let r = stmt(e, sc, body_node);
     e.proc_kind = None;
     let body = r?;
-    let region = if e.in_program_or_interface(sc) == Some(DefKind::Program) || lookup::enclosing(e, sc, ScopeKind::Other).is_some() {
+    let region = if e.in_program_or_interface(sc) == Some(DefKind::Program)
+        || lookup::enclosing(e, sc, ScopeKind::Other).is_some()
+    {
         RegionSet::Reactive
     } else {
         RegionSet::Active
@@ -536,7 +548,10 @@ fn stmt_inner<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, StmtId>
         Kind::Block => return block(e, sc, n, None),
         Kind::Assign => {
             let op = e.text(kids[1]);
-            let timing_node = kids.iter().copied().find(|&k| matches!(e.kind(k), Kind::Delay | Kind::Event | Kind::RepeatEvent | Kind::CycleDelay));
+            let timing_node = kids
+                .iter()
+                .copied()
+                .find(|&k| matches!(e.kind(k), Kind::Delay | Kind::Event | Kind::RepeatEvent | Kind::CycleDelay));
             let rhs_node = *kids.last().unwrap();
             let lhs = expr::expr(e, sc, kids[0])?;
             let nonblocking = op == "<=";
@@ -709,9 +724,12 @@ fn stmt_inner<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, StmtId>
         }
         Kind::ImmediateAssertion => {
             let kw = e.sym_of(kids[0]);
-            let cond_node = *kids.iter().find(|&&k| !matches!(e.kind(k), Kind::Keyword | Kind::Op | Kind::ActionBlock)).unwrap();
+            let cond_node =
+                *kids.iter().find(|&&k| !matches!(e.kind(k), Kind::Keyword | Kind::Op | Kind::ActionBlock)).unwrap();
             let cond = expr::expr(e, sc, cond_node)?;
-            let deferred = kids.iter().any(|&k| matches!(e.kind(k), Kind::Op) || (e.kind(k) == Kind::Keyword && e.text(k) == "final"));
+            let deferred = kids
+                .iter()
+                .any(|&k| matches!(e.kind(k), Kind::Op) || (e.kind(k) == Kind::Keyword && e.text(k) == "final"));
             let (mut pass, mut fail) = (None, None);
             if let Some(ab) = kids.iter().copied().find(|&k| e.kind(k) == Kind::ActionBlock) {
                 super::checks::action_block(e, ab, deferred)?;
@@ -807,7 +825,12 @@ pub(crate) fn pattern_vars<'a>(e: &mut Elab<'a, '_>, scope: ScopeId, n: NodeId) 
     Ok(())
 }
 
-fn block<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, label: Option<(crate::design::Sym, NodeId)>) -> R<'a, StmtId> {
+fn block<'a>(
+    e: &mut Elab<'a, '_>,
+    sc: ScopeId,
+    n: NodeId,
+    label: Option<(crate::design::Sym, NodeId)>,
+) -> R<'a, StmtId> {
     let kids: Vec<NodeId> = e.kids(n).iter().copied().filter(|&k| e.kind(k) != Kind::Attributes).collect();
     let fork = e.text(kids[0]) == "fork";
     let join = if fork {
@@ -849,8 +872,11 @@ fn block_body<'a>(
         (None, Some(&nm)) => Some(e.sym_of(nm)),
         _ => None,
     };
-    let decls: Vec<NodeId> =
-        kids.iter().copied().filter(|&k| !is_statement(e.kind(k)) && !matches!(e.kind(k), Kind::Keyword | Kind::Name | Kind::EndLabel)).collect();
+    let decls: Vec<NodeId> = kids
+        .iter()
+        .copied()
+        .filter(|&k| !is_statement(e.kind(k)) && !matches!(e.kind(k), Kind::Keyword | Kind::Name | Kind::EndLabel))
+        .collect();
     let scope = if name.is_some() || !decls.is_empty() {
         let s = e.new_scope(ScopeKind::Block, name, Some(sc), n);
         if let Some(nm) = name {
@@ -957,7 +983,13 @@ fn case<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, kids: &[NodeId]) -> R<
     for (xs, body, isc) in item_exprs {
         let xs: Vec<ExprId> = xs
             .into_iter()
-            .map(|x| if integral && e.d.types.is_integral(e.ex(x).ty) && kind != CaseKind::Inside { expr::ctx(e, x, t) } else { expr::selfdet(e, x) })
+            .map(|x| {
+                if integral && e.d.types.is_integral(e.ex(x).ty) && kind != CaseKind::Inside {
+                    expr::ctx(e, x, t)
+                } else {
+                    expr::selfdet(e, x)
+                }
+            })
             .collect();
         let s = stmt(e, isc, body)?;
         items.push((xs, s));
@@ -974,7 +1006,8 @@ fn for_loop<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, kids: &[NodeId]) -
     let init_node = kids.iter().copied().find(|&k| e.kind(k) == Kind::ForInit);
     let step_node = kids.iter().copied().find(|&k| e.kind(k) == Kind::ForStep);
     let body_node = *kids.last().unwrap();
-    let cond_node = kids.iter().copied().find(|&k| !matches!(e.kind(k), Kind::ForInit | Kind::ForStep) && k != body_node);
+    let cond_node =
+        kids.iter().copied().find(|&k| !matches!(e.kind(k), Kind::ForInit | Kind::ForStep) && k != body_node);
     let declares = init_node.is_some_and(|i| e.kids(i).iter().any(|&k| e.kind(k) == Kind::VarDecl));
     let scope = if declares { Some(e.new_scope(ScopeKind::Block, None, Some(sc), n)) } else { None };
     let inner = scope.unwrap_or(sc);
@@ -987,7 +1020,14 @@ fn for_loop<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, kids: &[NodeId]) -
                     // and set before the loop (12.7.1).
                     let tn = *e.kids(k).iter().find(|&&x| ty::is_type(e.kind(x))).unwrap();
                     let t = ty::data_type(e, inner, tn)?;
-                    for d in e.kids(k).to_vec().iter().copied().filter(|&x| e.kind(x) == Kind::Declarator).collect::<Vec<_>>() {
+                    for d in e
+                        .kids(k)
+                        .to_vec()
+                        .iter()
+                        .copied()
+                        .filter(|&x| e.kind(x) == Kind::Declarator)
+                        .collect::<Vec<_>>()
+                    {
                         let dk = e.kids(d).to_vec();
                         let s = e.sym_of(dk[0]);
                         let o = e.new_object(Object {
@@ -1007,7 +1047,9 @@ fn for_loop<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, kids: &[NodeId]) -
                         if let Some(&v) = dk.get(1) {
                             let rhs = expr::rvalue(e, inner, v, t)?;
                             let lhs = e.new_expr(ExprKind::Object(o), t, dk[0], vec![]);
-                            init.push(e.new_stmt(StmtKind::Assign { kind: AssignKind::Blocking, lhs, rhs, timing: None }, d));
+                            init.push(
+                                e.new_stmt(StmtKind::Assign { kind: AssignKind::Blocking, lhs, rhs, timing: None }, d),
+                            );
                         }
                     }
                 }
@@ -1055,7 +1097,10 @@ fn foreach<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, kids: &[NodeId]) ->
                 match dim {
                     UDim::Assoc(it) => dims.push(it),
                     UDim::Wildcard => {
-                        return Err(e.err(kids[0], "`foreach` cannot iterate over a wildcard-indexed associative array (12.7.3)"));
+                        return Err(e.err(
+                            kids[0],
+                            "`foreach` cannot iterate over a wildcard-indexed associative array (12.7.3)",
+                        ));
                     }
                     _ => dims.push(Types::INT),
                 }
@@ -1083,7 +1128,11 @@ fn foreach<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, kids: &[NodeId]) ->
     if var_nodes.len() > dims.len() && e.ex(array).ty != Types::UNKNOWN {
         return Err(e.err(
             var_nodes[dims.len()],
-            format!("`foreach` names {} loop variables, but the array has {} dimensions (12.7.3)", var_nodes.len(), dims.len()),
+            format!(
+                "`foreach` names {} loop variables, but the array has {} dimensions (12.7.3)",
+                var_nodes.len(),
+                dims.len()
+            ),
         ));
     }
     let mut vars = Vec::new();

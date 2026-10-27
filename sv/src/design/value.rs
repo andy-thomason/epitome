@@ -729,7 +729,7 @@ impl Bits {
                 s.push('z');
             } else if ls.iter().all(|&l| l == Logic::X) {
                 s.push('x');
-            } else if ls.iter().any(|&l| l == Logic::X) {
+            } else if ls.contains(&Logic::X) {
                 s.push('X');
             } else {
                 s.push('Z');
@@ -759,7 +759,7 @@ impl fmt::Display for Bits {
             } else {
                 write!(f, "{}'{s}h{}", self.width, self.to_radix(4))
             }
-        } else if self.width % 4 == 0 && !self.to_radix(4).contains(['X', 'Z']) {
+        } else if self.width.is_multiple_of(4) && !self.to_radix(4).contains(['X', 'Z']) {
             write!(f, "{}'{s}h{}", self.width, self.to_radix(4))
         } else {
             write!(f, "{}'{s}b{}", self.width, self.to_radix(1))

@@ -29,6 +29,11 @@ fn define(options: &mut Options, d: &str) {
 }
 
 fn main() -> ExitCode {
+    // Elaboration recurses as deeply as the design's hierarchy.
+    std::thread::Builder::new().stack_size(1 << 30).spawn(run).unwrap().join().unwrap()
+}
+
+fn run() -> ExitCode {
     let mut options = Options::default();
     let mut files = Vec::new();
     let mut print = false;

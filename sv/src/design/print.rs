@@ -83,20 +83,26 @@ impl Printer<'_, '_> {
                 DefKind::Interface => "interface",
                 DefKind::Program => "program",
             };
-            let params: Vec<String> = spec
-                .params
-                .iter()
-                .map(|(s, c)| format!("{} = {}", self.name(*s), self.konst(*c)))
-                .collect();
+            let params: Vec<String> =
+                spec.params.iter().map(|(s, c)| format!("{} = {}", self.name(*s), self.konst(*c))).collect();
             let params = if params.is_empty() { String::new() } else { format!(" #({})", params.join(", ")) };
             let n = spec.instances;
-            self.line(format!("{kind} {}#{i}{params} {{  // {n} instance{}", self.name(spec.name), if n == 1 { "" } else { "s" }));
+            self.line(format!(
+                "{kind} {}#{i}{params} {{  // {n} instance{}",
+                self.name(spec.name),
+                if n == 1 { "" } else { "s" }
+            ));
             self.depth += 1;
             let ports: Vec<String> = spec
                 .ports
                 .iter()
                 .map(|p| match p.interface {
-                    Some((i, m)) => format!("{}: {}{}", self.name(p.name), self.name(i), m.map_or(String::new(), |m| format!(".{}", self.name(m)))),
+                    Some((i, m)) => format!(
+                        "{}: {}{}",
+                        self.name(p.name),
+                        self.name(i),
+                        m.map_or(String::new(), |m| format!(".{}", self.name(m)))
+                    ),
                     None => format!("{} {}", dir(p.dir), self.name(p.name)),
                 })
                 .collect();
@@ -172,7 +178,12 @@ impl Printer<'_, '_> {
                 };
                 let dir = obj.dir.map_or(String::new(), |d| format!("{} ", dir(d)));
                 let auto = if obj.lifetime == Lifetime::Automatic { "automatic " } else { "" };
-                let quals: Vec<&str> = obj.qualifiers.iter().map(|&q| self.name(q)).filter(|q| *q != "automatic" && *q != "static").collect();
+                let quals: Vec<&str> = obj
+                    .qualifiers
+                    .iter()
+                    .map(|&q| self.name(q))
+                    .filter(|q| *q != "automatic" && *q != "static")
+                    .collect();
                 let quals = if quals.is_empty() { String::new() } else { format!("{} ", quals.join(" ")) };
                 let mut s = format!("{dir}{quals}{auto}{kind} {}: {}", self.name(obj.name), self.ty(obj.ty));
                 if let Some(c) = obj.value {
@@ -195,11 +206,15 @@ impl Printer<'_, '_> {
                                 if signed {
                                     x += " signed";
                                 }
-                                let ms: Vec<String> = members.iter().map(|m| format!("{}: {}", self.name(m.name), self.ty(m.ty))).collect();
+                                let ms: Vec<String> = members
+                                    .iter()
+                                    .map(|m| format!("{}: {}", self.name(m.name), self.ty(m.ty)))
+                                    .collect();
                                 format!("{x} {{ {} }}", ms.join("; "))
                             }
                             Type::Enum { base, items, .. } => {
-                                let is: Vec<String> = items.iter().map(|(n, v)| format!("{} = {}", self.name(*n), v)).collect();
+                                let is: Vec<String> =
+                                    items.iter().map(|(n, v)| format!("{} = {}", self.name(*n), v)).collect();
                                 format!("enum {} {{ {} }}", self.ty(base), is.join(", "))
                             }
                             _ => unreachable!(),
@@ -221,7 +236,8 @@ impl Printer<'_, '_> {
                     ProcKind::Final => "final",
                 };
                 let region = if pr.region == RegionSet::Reactive { " reactive" } else { "" };
-                let names = |v: &[ObjId]| v.iter().map(|&o| self.name(self.d.object(o).name)).collect::<Vec<_>>().join(", ");
+                let names =
+                    |v: &[ObjId]| v.iter().map(|&o| self.name(self.d.object(o).name)).collect::<Vec<_>>().join(", ");
                 let mut head = format!("{kind}{region}");
                 if !pr.reads.is_empty() {
                     head += &format!(" reads({})", names(&pr.reads));
@@ -244,7 +260,8 @@ impl Printer<'_, '_> {
                 } else {
                     format!("#({}) ", dr.delay.iter().map(|&x| self.expr(x)).collect::<Vec<_>>().join(", "))
                 };
-                let strength = dr.strength.map_or(String::new(), |(a, b)| format!("({}, {}) ", self.name(a), self.name(b)));
+                let strength =
+                    dr.strength.map_or(String::new(), |(a, b)| format!("({}, {}) ", self.name(a), self.name(b)));
                 self.line(format!("assign {strength}{delay}{} = {}", self.expr(dr.lhs), self.expr(dr.rhs)));
             }
             Item::Cell(c) => {
@@ -274,7 +291,13 @@ impl Printer<'_, '_> {
                     })
                     .collect();
                 let idx = inst.index.map_or(String::new(), |k| format!("[{k}]"));
-                self.line(format!("instance {}{idx}: {}#{} ({})", self.name(inst.name), self.name(spec.name), inst.spec.0, conns.join(", ")));
+                self.line(format!(
+                    "instance {}{idx}: {}#{} ({})",
+                    self.name(inst.name),
+                    self.name(spec.name),
+                    inst.spec.0,
+                    conns.join(", ")
+                ));
             }
             Item::Subroutine(s) => {
                 let sub = self.d.sub(s);
@@ -292,7 +315,8 @@ impl Printer<'_, '_> {
                 } else {
                     String::new()
                 };
-                let quals: Vec<&str> = sub.qualifiers.iter().map(|&q| self.name(q)).collect();
+                let quals: Vec<&str> =
+                    sub.qualifiers.iter().map(|&q| self.name(q)).filter(|q| *q != "automatic" && *q != "static").collect();
                 let quals = if quals.is_empty() { String::new() } else { format!("{} ", quals.join(" ")) };
                 let auto = if sub.lifetime == Lifetime::Automatic { "automatic " } else { "" };
                 self.line(format!("{quals}{auto}{kind} {}({}){ret}", self.name(sub.name), args.join(", ")));
@@ -308,7 +332,8 @@ impl Printer<'_, '_> {
             }
             Item::Class(c) => {
                 let class = self.d.class(c);
-                let base = class.base.map_or(String::new(), |b| format!(" extends {}", self.name(self.d.class(b).name)));
+                let base =
+                    class.base.map_or(String::new(), |b| format!(" extends {}", self.name(self.d.class(b).name)));
                 let kw = if class.interface {
                     "interface class"
                 } else if class.virtual_ {
@@ -348,7 +373,8 @@ impl Printer<'_, '_> {
         match st {
             StmtKind::Null => self.line(";"),
             StmtKind::Block { join, scope, stmts } => {
-                let name = scope.and_then(|s| self.d.scope(s).name).map_or(String::new(), |n| format!(" : {}", self.name(n)));
+                let name =
+                    scope.and_then(|s| self.d.scope(s).name).map_or(String::new(), |n| format!(" : {}", self.name(n)));
                 let (open, close) = match join {
                     None => ("begin", "end".to_string()),
                     Some(j) => (
@@ -450,7 +476,10 @@ impl Printer<'_, '_> {
                 self.indented(body);
             }
             StmtKind::Foreach { array, vars, body, .. } => {
-                let vs: Vec<String> = vars.iter().map(|v| v.map_or(String::new(), |o| self.name(self.d.object(o).name).to_string())).collect();
+                let vs: Vec<String> = vars
+                    .iter()
+                    .map(|v| v.map_or(String::new(), |o| self.name(self.d.object(o).name).to_string()))
+                    .collect();
                 self.line(format!("foreach ({}[{}])", self.expr(array), vs.join(", ")));
                 self.indented(body);
             }
@@ -463,7 +492,9 @@ impl Printer<'_, '_> {
                 self.indented(b);
             }
             StmtKind::WaitFork => self.line("wait fork;"),
-            StmtKind::Return(x) => self.line(format!("return{};", x.map_or(String::new(), |x| format!(" {}", self.expr(x))))),
+            StmtKind::Return(x) => {
+                self.line(format!("return{};", x.map_or(String::new(), |x| format!(" {}", self.expr(x)))))
+            }
             StmtKind::Break => self.line("break;"),
             StmtKind::Continue => self.line("continue;"),
             StmtKind::Disable(x) => self.line(format!("disable {};", self.expr(x))),
@@ -644,7 +675,11 @@ pub fn expr(d: &Design, x: ExprId) -> String {
                 let (wf, wt) = (t.width(from), t.width(to));
                 if wt > wf {
                     let k = if t.is_signed(to) { "sext" } else { "zext" };
-                    let sign = if t.is_signed(to) != t.is_signed(from) { if t.is_signed(to) { " signed" } else { " unsigned" } } else { "" };
+                    let sign = if t.is_signed(to) != t.is_signed(from) {
+                        if t.is_signed(to) { " signed" } else { " unsigned" }
+                    } else {
+                        ""
+                    };
                     return format!("{k}<{wt}{sign}>({})", a(0));
                 }
                 if wt < wf {
@@ -657,7 +692,15 @@ pub fn expr(d: &Design, x: ExprId) -> String {
             };
             format!("cvt<{ts}>({})", a(0))
         }
-        ExprKind::Call(s) => format!("{}({})", d.name(d.sub(*s).name), all(0)),
+        ExprKind::Call(s) => {
+            // A method's object comes first among the arguments.
+            let sub = d.sub(*s);
+            if e.args.len() == sub.args.len() + 1 {
+                format!("{}.{}({})", a(0), d.name(sub.name), all(1))
+            } else {
+                format!("{}({})", d.name(sub.name), all(0))
+            }
+        }
         ExprKind::SysCall(s) => {
             if e.args.is_empty() {
                 d.name(*s).to_string()
@@ -671,10 +714,15 @@ pub fn expr(d: &Design, x: ExprId) -> String {
         ExprKind::Range => format!("[{}:{}]", a(0), a(1)),
         ExprKind::Streaming { left } => format!("{{{} {{{}}}}}", if *left { "<<" } else { ">>" }, all(0)),
         ExprKind::New => {
-            if e.args.is_empty() {
-                "new".into()
-            } else {
-                format!("new({})", all(0))
+            // A class's constructor call carries the arguments.
+            match e.args.first().map(|&c| &d.expr(c).kind) {
+                Some(ExprKind::Call(s)) if d.name(d.sub(*s).name) == "new" => {
+                    let c = d.expr(e.args[0]);
+                    let args: Vec<String> = c.args.iter().map(|&y| expr(d, y)).collect();
+                    format!("new({})", args.join(", "))
+                }
+                None => "new".into(),
+                _ => format!("new({})", all(0)),
             }
         }
         ExprKind::Assign => format!("({} = {})", a(0), a(1)),

@@ -262,8 +262,17 @@ fn named<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, TypeId> {
                     // A class known only by a forward typedef is incomplete
                     // until its definition (6.18).
                     let def = e.d.classes[c.0 as usize].node;
-                    if !e.in_typedef && e.ast.node(def).first > e.ast.node(n).first && e.scope(e.d.classes[c.0 as usize].scope).items.is_empty() {
-                        return Err(e.err(k[0], format!("class `{}` is not yet defined here, so its members cannot be used (6.18)", e.name(e.d.classes[c.0 as usize].name))));
+                    if !e.in_typedef
+                        && e.ast.node(def).first > e.ast.node(n).first
+                        && e.scope(e.d.classes[c.0 as usize].scope).items.is_empty()
+                    {
+                        return Err(e.err(
+                            k[0],
+                            format!(
+                                "class `{}` is not yet defined here, so its members cannot be used (6.18)",
+                                e.name(e.d.classes[c.0 as usize].name)
+                            ),
+                        ));
                     }
                     match lookup::class_member(e, c, s) {
                         Some(Binding::Type(t)) => Ok(t),
@@ -523,7 +532,13 @@ fn enum_type<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, TypeId> 
                     return Err(e.err(ik[0], "an enum value after one with x or z must be given explicitly (6.19)"));
                 }
                 if overflow {
-                    return Err(e.err(ik[0], format!("`{}` would be one more than the largest value of the enum's base type (6.19)", e.name(name))));
+                    return Err(e.err(
+                        ik[0],
+                        format!(
+                            "`{}` would be one more than the largest value of the enum's base type (6.19)",
+                            e.name(name)
+                        ),
+                    ));
                 }
                 next.clone()
             }
@@ -533,7 +548,10 @@ fn enum_type<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, TypeId> 
             _ => {
                 let a = super::ty::const_int(e, sc, range[0])?;
                 if range.len() == 1 && a <= 0 {
-                    return Err(e.err(range[0], format!("`{}[{a}]` names no values; the count must be positive (6.19)", e.name(name))));
+                    return Err(e.err(
+                        range[0],
+                        format!("`{}[{a}]` names no values; the count must be positive (6.19)", e.name(name)),
+                    ));
                 }
                 let (lo, hi) = if range.len() == 2 { (a, super::ty::const_int(e, sc, range[1])?) } else { (0, a - 1) };
                 let base_name = e.name(name).to_string();
@@ -664,7 +682,16 @@ pub(crate) fn declare_class<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) ->
     let id = ClassId(e.d.classes.len() as u32);
     let interface = e.kind(n) == Kind::InterfaceClass;
     let virtual_ = e.has_keyword(n, "virtual");
-    e.d.classes.push(Class { name: s, scope: cs, base: None, node: n, virtual_, interface, params: vec![], implements: vec![] });
+    e.d.classes.push(Class {
+        name: s,
+        scope: cs,
+        base: None,
+        node: n,
+        virtual_,
+        interface,
+        params: vec![],
+        implements: vec![],
+    });
     e.class_nodes.insert(id, (n, sc));
     match e.scope(sc).names.get(&s).copied() {
         Some(Binding::Other(m)) if e.kind(m) == Kind::ForwardTypedef => {

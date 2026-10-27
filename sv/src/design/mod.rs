@@ -185,7 +185,9 @@ pub enum ObjKind {
     /// ...) or a user nettype's name.
     Net(Sym),
     /// A parameter, local or not, or a specparam; its value is in `value`.
-    Param { local: bool },
+    Param {
+        local: bool,
+    },
     Genvar,
     /// An enum's named value.
     EnumConst,
@@ -302,7 +304,10 @@ pub enum ExprKind {
     /// A reference through the hierarchy, kept as its path of names and
     /// resolved for each instance (23.6). `object` is what it found for the
     /// first instance, which gives its type.
-    Hier { path: Vec<Sym>, object: Option<ObjId> },
+    Hier {
+        path: Vec<Sym>,
+        object: Option<ObjId>,
+    },
     Unary(UnOp),
     Binary(BinOp),
     /// `c ? a : b`: [c, a, b]
@@ -315,7 +320,10 @@ pub enum ExprKind {
     Index,
     /// A part select, `a[i:j]`, `a[i+:w]`, `a[i-:w]`: [a, i] (and [a, i, j]
     /// for a constant range), the width, and the kind.
-    Part { kind: PartKind, width: u32 },
+    Part {
+        kind: PartKind,
+        width: u32,
+    },
     /// A struct or union member: [the value], the member's index.
     Member(u32),
     /// A class property through a handle: [the handle] (or none for a
@@ -340,7 +348,9 @@ pub enum ExprKind {
     /// `[a:b]` in `inside`, `dist` and the like: [a, b]
     Range,
     /// `{<< n {...}}` / `{>> {...}}`: [the slice size?, the parts...]
-    Streaming { left: bool },
+    Streaming {
+        left: bool,
+    },
     /// `new` and `new[n]`
     New,
     /// An assignment used as an expression, `(a = b)`: [a, b]
@@ -439,22 +449,53 @@ pub enum StmtKind {
     Null,
     /// `begin ... end` or `fork ... join*`, with its scope if it declares
     /// anything or has a name.
-    Block { join: Option<Join>, scope: Option<ScopeId>, stmts: Vec<StmtId> },
-    Assign { kind: AssignKind, lhs: ExprId, rhs: ExprId, timing: Option<Timing> },
+    Block {
+        join: Option<Join>,
+        scope: Option<ScopeId>,
+        stmts: Vec<StmtId>,
+    },
+    Assign {
+        kind: AssignKind,
+        lhs: ExprId,
+        rhs: ExprId,
+        timing: Option<Timing>,
+    },
     /// A call, increment, or other expression run for its effect.
     Expr(ExprId),
-    If { check: Check, cond: ExprId, then: StmtId, else_: Option<StmtId> },
-    Case { check: Check, kind: CaseKind, expr: ExprId, items: Vec<(Vec<ExprId>, StmtId)>, default: Option<StmtId> },
+    If {
+        check: Check,
+        cond: ExprId,
+        then: StmtId,
+        else_: Option<StmtId>,
+    },
+    Case {
+        check: Check,
+        kind: CaseKind,
+        expr: ExprId,
+        items: Vec<(Vec<ExprId>, StmtId)>,
+        default: Option<StmtId>,
+    },
     Forever(StmtId),
     Repeat(ExprId, StmtId),
     While(ExprId, StmtId),
     DoWhile(StmtId, ExprId),
     /// `for`: its scope (for loop variables), the initialisation, the
     /// condition, the steps and the body.
-    For { scope: Option<ScopeId>, init: Vec<StmtId>, cond: Option<ExprId>, step: Vec<StmtId>, body: StmtId },
+    For {
+        scope: Option<ScopeId>,
+        init: Vec<StmtId>,
+        cond: Option<ExprId>,
+        step: Vec<StmtId>,
+        body: StmtId,
+    },
     /// `foreach (a[i, j])`: the array, the loop variables (none for a
     /// skipped one), the body.
-    Foreach { scope: ScopeId, array: ExprId, vars: Vec<Option<ObjId>>, body: StmtId },
+    Foreach {
+        scope: ScopeId,
+        array: ExprId,
+        vars: Vec<Option<ObjId>>,
+        body: StmtId,
+    },
     Timed(Timing, StmtId),
     Wait(ExprId, StmtId),
     WaitFork,
@@ -464,11 +505,23 @@ pub enum StmtKind {
     Disable(ExprId),
     DisableFork,
     /// `-> e` or `->> e`
-    Trigger { nonblocking: bool, event: ExprId },
+    Trigger {
+        nonblocking: bool,
+        event: ExprId,
+    },
     /// `assign`, `deassign`, `force`, `release` in a procedure (10.6).
-    ProcContinuous { keyword: Sym, lhs: ExprId, rhs: Option<ExprId> },
+    ProcContinuous {
+        keyword: Sym,
+        lhs: ExprId,
+        rhs: Option<ExprId>,
+    },
     /// An immediate or deferred assertion (16.3, 16.4).
-    Assert { keyword: Sym, cond: ExprId, pass: Option<StmtId>, fail: Option<StmtId> },
+    Assert {
+        keyword: Sym,
+        cond: ExprId,
+        pass: Option<StmtId>,
+        fail: Option<StmtId>,
+    },
     /// What the elaborator does not model yet: kept as syntax.
     Opaque,
 }

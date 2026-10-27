@@ -15,8 +15,10 @@ Every legal `test1800` test preprocesses, and the output matches
 Verilator's `-E` token for token on all 772 tests both accept (section
 4.4). Every legal test parses except three that break the standard, and
 the parse tests that should fail do, for the reasons they give (section
-6.4). The design IR that elaboration produces is planned (section 7);
-building elaboration is next.
+6.4). Elaboration builds the design IR of section 7: every legal test
+elaborates (apart from eight that need one compilation unit per file),
+and 654 of the 673 should-fail tests that elaboration can reach are
+rejected for their stated reasons (section 7.10). Simulation is next.
 
 ## 1. Goals
 
@@ -548,11 +550,78 @@ Elaboration sorts processes and nets between the two lower layers:
 
 ### 7.9 Printing and testing
 
-`epitome-sv --design file.sv` prints the design as text, one entry per
-line, in the generic MLIR form that `epitome-mlir` reads, so that it can
-be diffed and round-tripped like the AST's `sexp`. The 347 `:type:
-elaboration` tests in `test1800` are the measure: legal ones elaborate,
-and the others fail for the reason they give.
+`epitome-sv --design file.sv` prints the design as text: each
+specialisation once, with its parameter values and instance count, then
+the hierarchy. Code is printed in SystemVerilog's syntax with the
+conversions of clause 11 written out: `zext<8>(x)`, `sext<8>(x)` and
+`trunc<4>(x)` change an integral value's width, `cvt<T>(x)` any other
+conversion. Processes carry their read, write and sensitivity sets:
+
+```text
+module counter#1 #(W = 32'sd4) {  // 2 instances
+  ports (input clk, input rst, input en, output q)
+  parameter W: int = 32'sd4
+  input wire clk: logic
+  ...
+  output var q: logic[3:0]
+  always_ff reads(clk, rst, en, q) writes(q)
+    @(posedge clk)
+      if (rst)
+        q <= 4'd0;
+      else
+        if (en)
+          q <= trunc<4>((zext<32>(q) + cvt<logic[31:0]>(32'sd1)));
+}
+```
+
+**Changed from the plan:** the text form is this readable one, not the
+generic MLIR form; an MLIR form can be added when the netlist lowering
+needs it. The measure is `elaborate_test1800` in `sv/tests/test1800.rs`:
+legal tests elaborate, and should-fail elaboration tests fail.
+
+### 7.10 What is built
+
+In `sv/src/design/` (`types.rs`, `value.rs`, `print.rs`, and `elab/`):
+
+- **Values**: four-state vectors of any width with clause 11's operators,
+  used by constant evaluation and to be used by the reference simulator.
+- **Elaboration in three passes** (declare, declarations in order, code),
+  so code may name anything in the hierarchy. Specialisations are shared
+  by instances with the same parameter values, except where a design
+  element refers upwards through the hierarchy.
+- **Constant evaluation** over the IR, including constant functions run
+  by a statement interpreter (13.4.3).
+- **Checks**: about 190 rules beyond binding and typing, each citing its
+  clause: name spaces and imports (3.13, 26), drivers and lifetimes (6.5,
+  6.21), types and casts (6.19–6.24, 7), classes (8), processes (9),
+  assignments (10), operators (11), ports and hierarchy (23), programs
+  (24), interfaces and modports (25), generate (27), gates and UDPs (28,
+  29), specify (30, 31) and DPI (35).
+
+**Measured** (`test1800`): all 733 legal tests that are run elaborate;
+654 should-fail tests are rejected (the parser rejects most of the
+syntax ones, elaboration the rest). Nineteen should-fail tests are not
+checked yet, and are listed as such: clocking blocks (14.3), checker
+bodies (17), mailbox element types (15.4), clock inference (16.9),
+configurations (33) and specialised virtual interface types (25.9).
+Forty legal tests break the standard and are fixed in the suite's PR #5
+(IEEE1800-2023-tests#5).
+
+**Gaps, counted:** across the suite, 536 expressions have a type the
+elaborator does not work out yet (members of interfaces reached through
+ports, built-in class methods, tagged unions) and 248 items are kept as
+syntax (assertions, covergroups, clocking blocks, specify blocks).
+Neither is hidden: `Design::gaps` reports both.
+
+**Not yet:** `defparam` is checked but its value is not applied; `bind`
+is recognised but not elaborated; parameterised classes are elaborated
+once, generically; one compilation unit per file (3.12.1 b) is not
+supported; arguments and children are per-node vectors rather than
+ranges of a shared list.
+
+**Speed:** 2,000 specialisations (92,000 lines) elaborate in 1.25 s,
+using 700 MB, most of it the per-node vectors. Packing them is the first
+thing to do for memory.
 
 ## 8. Simulation
 
@@ -816,9 +885,9 @@ pass rate on the clauses it targets stops climbing.
    6.4.
 3. **Preprocessor** (Done): clause 22 and every test that uses
    `` `define ``; see section 4.4.
-4. **Elaboration**: the design IR of section 7, and its interpreter for
-   constant expressions; `:type: elaboration` tests, clauses 6, 7, 11,
-   23, 26, 27.
+4. **Elaboration** (Done, with the gaps in section 7.10): the design IR
+   of section 7, and its interpreter for constant expressions;
+   `:type: elaboration` tests.
 5. **Simulation of the synthesisable subset**: the runtime with
    `$display`, `$finish`, `initial`, `always_ff`, `always_comb`, NBAs and
    `#` delays. Every test prints `PASS` this way, so this unlocks the

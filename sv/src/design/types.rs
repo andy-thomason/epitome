@@ -6,7 +6,7 @@
 //! A struct, union or enum declaration is a new type each time it is
 //! elaborated, which its `uid` records.
 
-use super::{ClassId, Sym, SpecId};
+use super::{ClassId, SpecId, Sym};
 use std::collections::HashMap;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
@@ -101,7 +101,11 @@ pub enum Type {
     Unknown,
     Void,
     /// An atom with packed dimensions, outermost first: `logic [7:0]`.
-    Vector { atom: Atom, signed: bool, dims: Vec<(i64, i64)> },
+    Vector {
+        atom: Atom,
+        signed: bool,
+        dims: Vec<(i64, i64)>,
+    },
     Real(RealKind),
     String,
     Chandle,
@@ -109,7 +113,11 @@ pub enum Type {
     /// The type of `null`.
     Null,
     /// A packed array of a packed struct, union or enum: `s_t [3:0]`.
-    PackedArray { elem: TypeId, dim: (i64, i64), signed: bool },
+    PackedArray {
+        elem: TypeId,
+        dim: (i64, i64),
+        signed: bool,
+    },
     Struct {
         packed: bool,
         union: bool,
@@ -120,13 +128,26 @@ pub enum Type {
         name: Option<Sym>,
         uid: u32,
     },
-    Enum { base: TypeId, items: Vec<(Sym, super::value::Bits)>, name: Option<Sym>, uid: u32 },
-    Unpacked { elem: TypeId, dim: UDim },
+    Enum {
+        base: TypeId,
+        items: Vec<(Sym, super::value::Bits)>,
+        name: Option<Sym>,
+        uid: u32,
+    },
+    Unpacked {
+        elem: TypeId,
+        dim: UDim,
+    },
     Class(ClassId),
     /// An interface instance's type, as a port or `virtual` type: the
     /// interface specialisation (or `None` for a generic `interface`
     /// port) and the modport.
-    Interface { spec: Option<SpecId>, def: Sym, modport: Option<Sym>, virtual_: bool },
+    Interface {
+        spec: Option<SpecId>,
+        def: Sym,
+        modport: Option<Sym>,
+        virtual_: bool,
+    },
     /// The type of a type: `type(int)` used as a value.
     TypeOfType,
 }
@@ -287,7 +308,13 @@ impl Types {
                         Some(if atom.four_state() { Types::LOGIC } else { Types::BIT })
                     }
                 } else if dims.len() == 1 {
-                    let a = if atom.is_scalar() { atom } else if atom.four_state() { Atom::Logic } else { Atom::Bit };
+                    let a = if atom.is_scalar() {
+                        atom
+                    } else if atom.four_state() {
+                        Atom::Logic
+                    } else {
+                        Atom::Bit
+                    };
                     Some(self.intern(Type::Vector { atom: a, signed: false, dims: vec![] }))
                 } else {
                     Some(self.intern(Type::Vector { atom, signed: false, dims: dims[1..].to_vec() }))

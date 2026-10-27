@@ -342,7 +342,9 @@ impl Eval {
                 let ew = e.d.types.element(bt).map_or(1, |t| e.d.types.width(t).max(1)) as i64;
                 let lo_off = lsb_offset(e, bt, lo.min(hi), hi.max(lo));
                 match lo_off {
-                    Some(off) => Ok(Const::Bits(b.slice((off * ew).max(0) as u32, width * ew as u32 / ew as u32 * ew as u32))),
+                    Some(off) => {
+                        Ok(Const::Bits(b.slice((off * ew).max(0) as u32, width * ew as u32 / ew as u32 * ew as u32)))
+                    }
                     None => Ok(Const::Bits(Bits::x(*width))),
                 }
             }
@@ -465,7 +467,11 @@ impl Eval {
             _ => {
                 if !self.frames.is_empty() {
                     let name = e.name(obj.name);
-                    return Err(self.err(e, n, format!("a constant function cannot read `{name}`, which is not its own (13.4.3)")));
+                    return Err(self.err(
+                        e,
+                        n,
+                        format!("a constant function cannot read `{name}`, which is not its own (13.4.3)"),
+                    ));
                 }
                 // `const` variables with constant initialisers are not
                 // constant expressions either (6.20.6).
@@ -692,7 +698,9 @@ impl Eval {
             .map(ObjId)
             .filter_map(|o| {
                 let obj = e.obj(o);
-                (within(e, obj.scope, scope) && obj.kind == ObjKind::Variable).then_some(()).and(obj.init.map(|i| (o, i)))
+                (within(e, obj.scope, scope) && obj.kind == ObjKind::Variable)
+                    .then_some(())
+                    .and(obj.init.map(|i| (o, i)))
             })
             .collect();
         for (o, i) in inits {
@@ -795,7 +803,8 @@ impl Eval {
                                     let (a, b) = (a.extend(w), b.extend(w));
                                     (0..w).all(|i| {
                                         let (p, q) = (a.bit(i), b.bit(i));
-                                        let dont = |l: Logic| l == Logic::Z || (kind == CaseKind::CaseX && l == Logic::X);
+                                        let dont =
+                                            |l: Logic| l == Logic::Z || (kind == CaseKind::CaseX && l == Logic::X);
                                         dont(p) || dont(q) || p == q
                                     })
                                 }
@@ -968,8 +977,10 @@ impl Eval {
                             _ => (0, items.len() as i64 - 1),
                         };
                         let off = if l <= r { i - l } else { l - i };
-                        if matches!(e.d.types.get(bt), Type::Unpacked { dim: UDim::Dynamic | UDim::Queue(_) | UDim::Assoc(_), .. })
-                            && off >= items.len() as i64
+                        if matches!(
+                            e.d.types.get(bt),
+                            Type::Unpacked { dim: UDim::Dynamic | UDim::Queue(_) | UDim::Assoc(_), .. }
+                        ) && off >= items.len() as i64
                         {
                             items.resize(off as usize + 1, default_value(e, lt));
                         }
@@ -1239,11 +1250,15 @@ impl Eval {
             ("toupper", Const::Str(s), _) => Ok(Const::Str(s.to_ascii_uppercase())),
             ("tolower", Const::Str(s), _) => Ok(Const::Str(s.to_ascii_lowercase())),
             ("num", _, Type::Enum { items, .. }) => Ok(Const::Bits(Bits::from_i64(32, true, items.len() as i64))),
-            ("first", _, Type::Enum { items, .. }) => Ok(items.first().map_or(Const::Null, |(_, v)| Const::Bits(v.clone()))),
-            ("last", _, Type::Enum { items, .. }) => Ok(items.last().map_or(Const::Null, |(_, v)| Const::Bits(v.clone()))),
-            ("name", Const::Bits(b), Type::Enum { items, .. }) => {
-                Ok(Const::Str(items.iter().find(|(_, v)| v.case_eq(b)).map_or(vec![], |(s, _)| e.name(*s).as_bytes().to_vec())))
+            ("first", _, Type::Enum { items, .. }) => {
+                Ok(items.first().map_or(Const::Null, |(_, v)| Const::Bits(v.clone())))
             }
+            ("last", _, Type::Enum { items, .. }) => {
+                Ok(items.last().map_or(Const::Null, |(_, v)| Const::Bits(v.clone())))
+            }
+            ("name", Const::Bits(b), Type::Enum { items, .. }) => Ok(Const::Str(
+                items.iter().find(|(_, v)| v.case_eq(b)).map_or(vec![], |(s, _)| e.name(*s).as_bytes().to_vec()),
+            )),
             ("next" | "prev", Const::Bits(b), Type::Enum { items, .. }) => {
                 let k = match args.get(1) {
                     Some(&a) => self.expr(e, a)?.to_i64().unwrap_or(1),
@@ -1253,7 +1268,8 @@ impl Eval {
                 let n = items.len() as i64;
                 Ok(match i {
                     Some(i) => {
-                        let j = if name == "next" { (i as i64 + k).rem_euclid(n) } else { (i as i64 - k).rem_euclid(n) };
+                        let j =
+                            if name == "next" { (i as i64 + k).rem_euclid(n) } else { (i as i64 - k).rem_euclid(n) };
                         Const::Bits(items[j as usize].1.clone())
                     }
                     None => default_value(e, bt),

@@ -71,7 +71,9 @@ pub(crate) fn timeunits<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'
     let t2 = kids.get(2).and_then(|&k| time_of(e, k));
     let set = |slot: &mut Option<i32>, v: Option<i32>, what: &str| -> Result<(), String> {
         match (slot.as_ref(), v) {
-            (Some(old), Some(new)) if *old != new => Err(format!("this {what} differs from the one declared before (3.14.2.2)")),
+            (Some(old), Some(new)) if *old != new => {
+                Err(format!("this {what} differs from the one declared before (3.14.2.2)"))
+            }
             (_, Some(new)) => {
                 *slot = Some(new);
                 Ok(())
@@ -161,7 +163,11 @@ pub(crate) fn package_exports<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) 
                 (Some(_), Some(_)) => {
                     return Err(e.err(
                         ik[1],
-                        format!("`{}` is exported from `{}`, but this package imported it from elsewhere (26.6)", e.name(s), e.name(pname)),
+                        format!(
+                            "`{}` is exported from `{}`, but this package imported it from elsewhere (26.6)",
+                            e.name(s),
+                            e.name(pname)
+                        ),
                     ));
                 }
                 (Some(b), None) => {
@@ -215,11 +221,23 @@ pub(crate) fn object_use<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, o: ObjId, n: Nod
         && e.scope(e.obj(o).scope).kind == ScopeKind::Subroutine
         && e.forks.iter().any(|&j| j != Join::All)
     {
-        return Err(e.err(n, format!("`ref` argument `{}` cannot be used inside `fork ... join_any` or `join_none` (9.3.2)", e.name(e.obj(o).name))));
+        return Err(e.err(
+            n,
+            format!(
+                "`ref` argument `{}` cannot be used inside `fork ... join_any` or `join_none` (9.3.2)",
+                e.name(e.obj(o).name)
+            ),
+        ));
     }
     // Items of an anonymous program are for programs only (24.6).
-    if e.obj(o).qualifiers.iter().any(|&q| e.name(q) == "program") && e.in_program_or_interface(sc) != Some(DefKind::Program) && lookup::enclosing(e, sc, ScopeKind::Package).is_none() {
-        return Err(e.err(n, format!("`{}` belongs to a program, so code outside programs cannot use it (24.6)", e.name(e.obj(o).name))));
+    if e.obj(o).qualifiers.iter().any(|&q| e.name(q) == "program")
+        && e.in_program_or_interface(sc) != Some(DefKind::Program)
+        && lookup::enclosing(e, sc, ScopeKind::Package).is_none()
+    {
+        return Err(e.err(
+            n,
+            format!("`{}` belongs to a program, so code outside programs cannot use it (24.6)", e.name(e.obj(o).name)),
+        ));
     }
     let os = e.obj(o).scope;
     if e.scope(os).kind == ScopeKind::Class && e.obj(o).kind == ObjKind::Variable {
@@ -229,21 +247,32 @@ pub(crate) fn object_use<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, o: ObjId, n: Nod
             && has_q(e, s, "static")
             && lookup::enclosing(e, e.d.subroutines[s.0 as usize].scope, ScopeKind::Class).is_some()
         {
-            return Err(e.err(n, format!("a static method cannot use the non-static property `{}` (8.10)", e.name(e.obj(o).name))));
+            return Err(e.err(
+                n,
+                format!("a static method cannot use the non-static property `{}` (8.10)", e.name(e.obj(o).name)),
+            ));
         }
         if let Some(c) = lookup::class_of_scope(e, os) {
             member_access(e, sc, c, o, n)?;
         }
     }
     // An interconnect net only connects; procedures cannot use it (6.6.8).
-    if matches!(e.obj(o).kind, ObjKind::Net(k) if e.name(k) == "interconnect") && (e.proc_kind.is_some() || e.current_sub.is_some()) {
-        return Err(e.err(n, format!("`{}` is an interconnect net, so procedural code cannot use it (6.6.8)", e.name(e.obj(o).name))));
+    if matches!(e.obj(o).kind, ObjKind::Net(k) if e.name(k) == "interconnect")
+        && (e.proc_kind.is_some() || e.current_sub.is_some())
+    {
+        return Err(e.err(
+            n,
+            format!("`{}` is an interconnect net, so procedural code cannot use it (6.6.8)", e.name(e.obj(o).name)),
+        ));
     }
     let obj_scope = e.obj(o).scope;
     let user_pkg = lookup::enclosing(e, sc, ScopeKind::Package);
     // A package may not refer to the compilation unit's items (26.3).
     if user_pkg.is_some() && obj_scope == e.d.unit && e.obj(o).kind == ObjKind::Variable {
-        return Err(e.err(n, format!("package items cannot refer to `{}` in the compilation unit (26.3)", e.name(e.obj(o).name))));
+        return Err(e.err(
+            n,
+            format!("package items cannot refer to `{}` in the compilation unit (26.3)", e.name(e.obj(o).name)),
+        ));
     }
     // A compilation-unit item used before its declaration (3.12.1).
     if obj_scope == e.d.unit
@@ -251,7 +280,9 @@ pub(crate) fn object_use<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, o: ObjId, n: Nod
         && lookup::enclosing(e, sc, ScopeKind::Spec).is_none()
         && e.ast.node(e.obj(o).node).first > e.ast.node(n).first
     {
-        return Err(e.err(n, format!("`{}` is used before its declaration in the compilation unit", e.name(e.obj(o).name))));
+        return Err(
+            e.err(n, format!("`{}` is used before its declaration in the compilation unit", e.name(e.obj(o).name)))
+        );
     }
     Ok(())
 }
@@ -285,7 +316,9 @@ pub(crate) fn net_type<'a>(e: &mut Elab<'a, '_>, _sc: ScopeId, n: NodeId, t: Typ
     };
     if !ok {
         let what = e.d.types.describe(t, &e.d.syms);
-        return Err(e.err(n, format!("a net cannot have the data type `{what}`; it must be four-state integral (6.7.1)")));
+        return Err(
+            e.err(n, format!("a net cannot have the data type `{what}`; it must be four-state integral (6.7.1)"))
+        );
     }
     Ok(())
 }
@@ -327,13 +360,18 @@ fn nettype_resolvers<'a>(e: &mut Elab<'a, '_>) -> R<'a> {
         let ret = sub.ret;
         if ret != t && ret != Types::UNKNOWN && t != Types::UNKNOWN {
             let (a, b) = (e.d.types.describe(ret, &e.d.syms), e.d.types.describe(t, &e.d.syms));
-            return Err(e.err(r, format!("the resolution function returns `{a}`, but the nettype's data type is `{b}` (6.6.7)")));
+            return Err(e.err(
+                r,
+                format!("the resolution function returns `{a}`, but the nettype's data type is `{b}` (6.6.7)"),
+            ));
         }
         let args = sub.args.clone();
         let ok = args.len() == 1
             && matches!(e.d.types.get(e.obj(args[0]).ty), Type::Unpacked { elem, dim: UDim::Dynamic } if *elem == t || t == Types::UNKNOWN);
         if !ok {
-            return Err(e.err(r, "a resolution function takes one input, a dynamic array of the nettype's data type (6.6.7)"));
+            return Err(
+                e.err(r, "a resolution function takes one input, a dynamic array of the nettype's data type (6.6.7)")
+            );
         }
     }
     Ok(())
@@ -396,7 +434,7 @@ pub(crate) fn struct_member<'a>(
 ) -> R<'a> {
     let kind = if union { "union" } else { "struct" };
     if default.is_some() && (packed || union) {
-        return Err(e.err(name, format!("a member of a packed or union type cannot have a default value (7.2.2)")));
+        return Err(e.err(name, "a member of a packed or union type cannot have a default value (7.2.2)".to_string()));
     }
     if default.is_some() && contains_union(e, t) {
         return Err(e.err(name, "a struct that contains a union cannot give its members default values (7.2.2)"));
@@ -446,7 +484,9 @@ pub(crate) fn struct_whole<'a>(
     if union && packed && !soft && !tagged {
         let ws: Vec<u32> = members.iter().map(|m| e.d.types.width(m.ty)).collect();
         if ws.windows(2).any(|w| w[0] != w[1]) {
-            return Err(e.err(n, "the members of a packed union must all be the same size, unless it is `soft` (7.3.1)"));
+            return Err(
+                e.err(n, "the members of a packed union must all be the same size, unless it is `soft` (7.3.1)")
+            );
         }
     }
     Ok(())
@@ -455,14 +495,23 @@ pub(crate) fn struct_whole<'a>(
 pub(crate) fn enum_value_fits<'a>(e: &mut Elab<'a, '_>, n: NodeId, b: &Bits, width: u32, signed: bool) -> R<'a> {
     // A sized literal must have the base type's width (6.19).
     if e.kind(n) == Kind::Number && e.ast.tokens_of(n).len() == 3 && b.width() != width {
-        return Err(e.err(n, format!("a {}-bit literal cannot give a value to an enum of {width} bits (6.19)", b.width())));
+        return Err(
+            e.err(n, format!("a {}-bit literal cannot give a value to an enum of {width} bits (6.19)", b.width()))
+        );
     }
     // The value must be representable in the base type.
     if b.is_known() {
         let back = b.resize(width, false).with_signed(signed).resize(b.width().max(width) + 1, signed);
         let orig = b.resize(b.width().max(width) + 1, b.signed());
         if !back.case_eq(&orig) {
-            return Err(e.err(n, format!("{} does not fit the enum's {width}-bit {}base type (6.19)", b.to_decimal(), if signed { "signed " } else { "" })));
+            return Err(e.err(
+                n,
+                format!(
+                    "{} does not fit the enum's {width}-bit {}base type (6.19)",
+                    b.to_decimal(),
+                    if signed { "signed " } else { "" }
+                ),
+            ));
         }
     }
     Ok(())
@@ -473,7 +522,13 @@ pub(crate) fn forward_kind<'a>(e: &mut Elab<'a, '_>, fwd: NodeId, class: Option<
     let kw = e.keywords_of(fwd);
     let Some(&want) = kw.first() else { return Ok(()) };
     let got = match (class, t.map(|t| e.d.types.get(t).clone())) {
-        (Some(c), _) => if e.d.classes[c.0 as usize].interface { "interface" } else { "class" },
+        (Some(c), _) => {
+            if e.d.classes[c.0 as usize].interface {
+                "interface"
+            } else {
+                "class"
+            }
+        }
         (_, Some(Type::Struct { union: true, .. })) => "union",
         (_, Some(Type::Struct { .. })) => "struct",
         (_, Some(Type::Enum { .. })) => "enum",
@@ -481,7 +536,13 @@ pub(crate) fn forward_kind<'a>(e: &mut Elab<'a, '_>, fwd: NodeId, class: Option<
         _ => return Ok(()),
     };
     if want != got && !(want == "interface" && got == "class") {
-        return Err(e.err(fwd, format!("the forward typedef says `{want}`, but the definition is a{} `{got}` (6.18)", if got.starts_with(['a', 'e', 'i', 'u']) { "n" } else { "" })));
+        return Err(e.err(
+            fwd,
+            format!(
+                "the forward typedef says `{want}`, but the definition is a{} `{got}` (6.18)",
+                if got.starts_with(['a', 'e', 'i', 'u']) { "n" } else { "" }
+            ),
+        ));
     }
     Ok(())
 }
@@ -512,10 +573,13 @@ pub(crate) fn instance_types<'a>(e: &mut Elab<'a, '_>, lhs: ExprId, rhs: ExprId,
         // Only a type declared inside the design element differs per
         // instance; one from a package is shared.
         let spec_scope = lookup::enclosing(e, e.obj(o1).scope, ScopeKind::Spec);
-        let declared_in_spec = spec_scope.is_some_and(|s| e.scope(s).items.iter().any(|i| matches!(i, Item::Typedef(_, x) if *x == t)))
+        let declared_in_spec = spec_scope
+            .is_some_and(|s| e.scope(s).items.iter().any(|i| matches!(i, Item::Typedef(_, x) if *x == t)))
             || matches!(e.d.types.get(t), Type::Struct { name: None, .. });
         if declared_in_spec {
-            return Err(e.err(n, "each instance declares its own struct type, so values of the two are not equivalent (6.22)"));
+            return Err(
+                e.err(n, "each instance declares its own struct type, so values of the two are not equivalent (6.22)")
+            );
         }
     }
     Ok(())
@@ -542,11 +606,19 @@ pub(crate) fn type_restriction<'a>(e: &mut Elab<'a, '_>, r: &str, t: TypeId, n: 
 
 /// In a static procedure or subroutine, a variable with an initialiser
 /// must say `static` (or `automatic`) (6.21).
-pub(crate) fn static_initializer<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, quals: &[Sym], lifetime: Lifetime, n: NodeId) -> R<'a> {
+pub(crate) fn static_initializer<'a>(
+    e: &mut Elab<'a, '_>,
+    sc: ScopeId,
+    quals: &[Sym],
+    lifetime: Lifetime,
+    n: NodeId,
+) -> R<'a> {
     if lifetime != Lifetime::Static || quals.iter().any(|&q| matches!(e.name(q), "static" | "automatic")) {
         return Ok(());
     }
-    if matches!(e.scope(sc).kind, ScopeKind::Block | ScopeKind::Subroutine) && lookup::enclosing(e, sc, ScopeKind::Class).is_none() {
+    if matches!(e.scope(sc).kind, ScopeKind::Block | ScopeKind::Subroutine)
+        && lookup::enclosing(e, sc, ScopeKind::Class).is_none()
+    {
         return Err(e.err(n, "a variable with an initialiser in a static block or subroutine must be declared `static` or `automatic` (6.21)"));
     }
     Ok(())
@@ -562,7 +634,10 @@ pub(crate) fn type_operand<'a>(e: &mut Elab<'a, '_>, x: ExprId, n: NodeId) -> R<
             bad = Some("a hierarchical reference");
         }
         if matches!(ex.kind, ExprKind::Index)
-            && matches!(e.d.types.get(e.ex(ex.args[0]).ty), Type::Unpacked { dim: UDim::Dynamic | UDim::Queue(_) | UDim::Assoc(_) | UDim::Wildcard, .. })
+            && matches!(
+                e.d.types.get(e.ex(ex.args[0]).ty),
+                Type::Unpacked { dim: UDim::Dynamic | UDim::Queue(_) | UDim::Assoc(_) | UDim::Wildcard, .. }
+            )
         {
             bad = Some("an element of a dynamic array");
         }
@@ -608,11 +683,17 @@ pub(crate) fn class_done<'a>(e: &mut Elab<'a, '_>, c: ClassId) -> R<'a> {
         for item in e.scope(isc).items.clone() {
             let Item::Subroutine(s) = item else { continue };
             let name = e.d.subroutines[s.0 as usize].name;
-            if !matches!(lookup::class_member(e, c, name), Some(Binding::Subroutine(x)) if !e.d.subroutines[x.0 as usize].qualifiers.iter().any(|&q| e.name(q) == "pure") && e.d.subroutines[x.0 as usize].scope != isc) {
+            if !matches!(lookup::class_member(e, c, name), Some(Binding::Subroutine(x)) if !e.d.subroutines[x.0 as usize].qualifiers.iter().any(|&q| e.name(q) == "pure") && e.d.subroutines[x.0 as usize].scope != isc)
+            {
                 let node = e.d.classes[c.0 as usize].node;
                 return Err(e.err(
                     e.name_child(node).unwrap_or(node),
-                    format!("class `{}` implements `{}` but not its method `{}` (8.26)", e.name(e.d.classes[c.0 as usize].name), e.name(e.d.classes[ic.0 as usize].name), e.name(name)),
+                    format!(
+                        "class `{}` implements `{}` but not its method `{}` (8.26)",
+                        e.name(e.d.classes[c.0 as usize].name),
+                        e.name(e.d.classes[ic.0 as usize].name),
+                        e.name(name)
+                    ),
                 ));
             }
         }
@@ -648,7 +729,11 @@ pub(crate) fn class_done<'a>(e: &mut Elab<'a, '_>, c: ClassId) -> R<'a> {
         let name = e.name_child(node).unwrap_or(node);
         return Err(e.err(
             name,
-            format!("class `{}` does not implement the pure virtual method `{}`, so it must be virtual (8.21)", e.name(e.d.classes[c.0 as usize].name), e.name(*s)),
+            format!(
+                "class `{}` does not implement the pure virtual method `{}`, so it must be virtual (8.21)",
+                e.name(e.d.classes[c.0 as usize].name),
+                e.name(*s)
+            ),
         ));
     }
     Ok(())
@@ -698,10 +783,16 @@ fn overrides<'a>(e: &mut Elab<'a, '_>, c: ClassId) -> R<'a> {
         match base {
             Some((b, true)) => {
                 if initial {
-                    return Err(e.err(at, format!("`{}` overrides a virtual method, so it cannot be `:initial` (8.20)", e.name(name))));
+                    return Err(e.err(
+                        at,
+                        format!("`{}` overrides a virtual method, so it cannot be `:initial` (8.20)", e.name(name)),
+                    ));
                 }
                 if has_q(e, b, "final") {
-                    return Err(e.err(at, format!("`{}` is `:final` in the base class, so it cannot be overridden (8.20)", e.name(name))));
+                    return Err(e.err(
+                        at,
+                        format!("`{}` is `:final` in the base class, so it cannot be overridden (8.20)", e.name(name)),
+                    ));
                 }
                 super::stmt::sub_signature(e, b)?;
                 super::stmt::sub_signature(e, s)?;
@@ -710,7 +801,15 @@ fn overrides<'a>(e: &mut Elab<'a, '_>, c: ClassId) -> R<'a> {
                 let (bd, sd) = (bs.defaults.clone(), ss.defaults.clone());
                 let (br, sr) = (bs.ret, ss.ret);
                 if ba.len() != sa.len() {
-                    return Err(e.err(at, format!("the override of `{}` has {} arguments, not {} (8.20)", e.name(name), sa.len(), ba.len())));
+                    return Err(e.err(
+                        at,
+                        format!(
+                            "the override of `{}` has {} arguments, not {} (8.20)",
+                            e.name(name),
+                            sa.len(),
+                            ba.len()
+                        ),
+                    ));
                 }
                 for (i, (&x, &y)) in ba.iter().zip(&sa).enumerate() {
                     let (ox, oy) = (e.obj(x), e.obj(y));
@@ -726,17 +825,27 @@ fn overrides<'a>(e: &mut Elab<'a, '_>, c: ClassId) -> R<'a> {
                         None
                     };
                     if let Some(w) = what {
-                        return Err(e.err(at, format!("the override of `{}` {w} argument `{}` (8.20)", e.name(name), e.name(ox.name))));
+                        return Err(e.err(
+                            at,
+                            format!("the override of `{}` {w} argument `{}` (8.20)", e.name(name), e.name(ox.name)),
+                        ));
                     }
                 }
-                let class_ret = matches!(e.d.types.get(br), Type::Class(_)) && matches!(e.d.types.get(sr), Type::Class(_));
+                let class_ret =
+                    matches!(e.d.types.get(br), Type::Class(_)) && matches!(e.d.types.get(sr), Type::Class(_));
                 if !equivalent(e, br, sr) && !class_ret {
                     return Err(e.err(at, format!("the override of `{}` changes the return type (8.20)", e.name(name))));
                 }
             }
             _ => {
                 if extends {
-                    return Err(e.err(at, format!("`{}` is `:extends`, but no base class has a virtual method of that name (8.20)", e.name(name))));
+                    return Err(e.err(
+                        at,
+                        format!(
+                            "`{}` is `:extends`, but no base class has a virtual method of that name (8.20)",
+                            e.name(name)
+                        ),
+                    ));
                 }
             }
         }
@@ -762,7 +871,10 @@ pub(crate) fn constructor_body<'a>(e: &mut Elab<'a, '_>, sub: SubId) -> R<'a> {
     for (i, &st) in body.iter().enumerate() {
         if is_super_new(e, st) {
             if i != 0 {
-                return Err(e.err(e.d.stmts[st.0 as usize].node, "`super.new` must be the first statement of the constructor (8.15)"));
+                return Err(e.err(
+                    e.d.stmts[st.0 as usize].node,
+                    "`super.new` must be the first statement of the constructor (8.15)",
+                ));
             }
             let class = e.scope(scope).parent.and_then(|p| lookup::class_of_scope(e, p));
             if let Some(c) = class {
@@ -780,7 +892,9 @@ pub(crate) fn constructor_body<'a>(e: &mut Elab<'a, '_>, sub: SubId) -> R<'a> {
                 let ports = e.child(node, Kind::TfPorts);
                 let has_default = ports.is_some_and(|p| e.ast.tokens_of(p).iter().any(|t| t.0 == "default"));
                 if !has_default {
-                    return Err(e.err(n, "`super.new(default)` needs `default` in the constructor's own arguments (8.17)"));
+                    return Err(
+                        e.err(n, "`super.new(default)` needs `default` in the constructor's own arguments (8.17)")
+                    );
                 }
             }
         }
@@ -805,7 +919,9 @@ pub(crate) fn new_class<'a>(e: &mut Elab<'a, '_>, _sc: ScopeId, c: ClassId, n: N
         return Err(e.err(n, "an interface class cannot be constructed (8.26)"));
     }
     if class.virtual_ {
-        return Err(e.err(n, format!("`{}` is an abstract class, so it cannot be constructed (8.21)", e.name(class.name))));
+        return Err(
+            e.err(n, format!("`{}` is an abstract class, so it cannot be constructed (8.21)", e.name(class.name)))
+        );
     }
     if class.node == e.ast.root && e.name(class.name) == "process" {
         return Err(e.err(n, "the built-in class `process` cannot be constructed with `new` (9.7)"));
@@ -824,7 +940,10 @@ pub(crate) fn member_access<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, c: ClassId, o
     let owner = lookup::class_of_scope(e, e.obj(o).scope).unwrap_or(c);
     let here = lookup::enclosing(e, sc, ScopeKind::Class).and_then(|s| lookup::class_of_scope(e, s));
     let Some(here) = here else {
-        return Err(e.err(n, format!("`{}` is {} to its class (8.18)", e.name(e.obj(o).name), if local { "local" } else { "protected" })));
+        return Err(e.err(
+            n,
+            format!("`{}` is {} to its class (8.18)", e.name(e.obj(o).name), if local { "local" } else { "protected" }),
+        ));
     };
     // A class nested inside the owner sees its members too (8.23).
     let mut enclosing = Vec::new();
@@ -840,7 +959,10 @@ pub(crate) fn member_access<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, c: ClassId, o
     }
     let _ = here;
     if protected && !enclosing.iter().any(|&k| derives(e, k, owner)) {
-        return Err(e.err(n, format!("`{}` is protected, so only its class and subclasses can use it (8.18)", e.name(e.obj(o).name))));
+        return Err(e.err(
+            n,
+            format!("`{}` is protected, so only its class and subclasses can use it (8.18)", e.name(e.obj(o).name)),
+        ));
     }
     Ok(())
 }
@@ -878,7 +1000,10 @@ pub(crate) fn class_scope_use<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, c: ClassId,
     if inside.is_some_and(|k| derives(e, k, c)) {
         return Ok(());
     }
-    Err(e.err(n, format!("`{}::` needs a specialisation, `{}#(...)::`, outside the class (8.25.1)", e.text(n), e.text(n))))
+    Err(e.err(
+        n,
+        format!("`{}::` needs a specialisation, `{}#(...)::`, outside the class (8.25.1)", e.text(n), e.text(n)),
+    ))
 }
 
 pub(crate) fn this_allowed<'a>(e: &mut Elab<'a, '_>, _sc: ScopeId, n: NodeId) -> R<'a> {
@@ -968,7 +1093,13 @@ pub(crate) fn pattern_shape<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, t:
         {
             for m in members {
                 if !names.contains(&m.name) && !type_keys.contains(&m.ty) {
-                    return Err(e.err(n, format!("member `{}` is not given a value by any key, and there is no `default` (10.9.2)", e.name(m.name))));
+                    return Err(e.err(
+                        n,
+                        format!(
+                            "member `{}` is not given a value by any key, and there is no `default` (10.9.2)",
+                            e.name(m.name)
+                        ),
+                    ));
                 }
             }
         }
@@ -998,11 +1129,13 @@ pub(crate) fn cast_ok<'a>(e: &mut Elab<'a, '_>, t: TypeId, from: TypeId, n: Node
     if sign_cast && e.d.types.is_real(from) {
         return Err(e.err(n, "`signed'` and `unsigned'` need an integral operand (6.24.1)"));
     }
-    let size_cast = !matches!(target, Kind::Keyword | Kind::Name | Kind::Scope | Kind::Specialize) && !super::ty::is_type(target);
+    let size_cast =
+        !matches!(target, Kind::Keyword | Kind::Name | Kind::Scope | Kind::Specialize) && !super::ty::is_type(target);
     if size_cast && e.d.types.is_real(from) {
         return Err(e.err(n, "a size cast needs an integral operand (6.24.1)"));
     }
-    let bitstream = |e: &Elab, x: TypeId| matches!(e.d.types.get(x), Type::Unpacked { .. } | Type::Struct { packed: false, .. });
+    let bitstream =
+        |e: &Elab, x: TypeId| matches!(e.d.types.get(x), Type::Unpacked { .. } | Type::Struct { packed: false, .. });
     if bitstream(e, from) || matches!(e.d.types.get(t), Type::Unpacked { dim: UDim::Assoc(_) | UDim::Wildcard, .. }) {
         if matches!(e.d.types.get(t), Type::Unpacked { dim: UDim::Assoc(_) | UDim::Wildcard, .. }) {
             return Err(e.err(n, "a bit-stream cast cannot produce an associative array (6.24.3)"));
@@ -1010,7 +1143,10 @@ pub(crate) fn cast_ok<'a>(e: &mut Elab<'a, '_>, t: TypeId, from: TypeId, n: Node
         if let (Some(a), Some(b)) = (bits_fixed(e, t), bits_fixed(e, from))
             && a != b
         {
-            return Err(e.err(n, format!("a bit-stream cast needs the same number of bits on both sides, not {b} and {a} (6.24.3)")));
+            return Err(e.err(
+                n,
+                format!("a bit-stream cast needs the same number of bits on both sides, not {b} and {a} (6.24.3)"),
+            ));
         }
     }
     Ok(())
@@ -1096,12 +1232,17 @@ pub(crate) fn assign_compatible<'a>(e: &mut Elab<'a, '_>, _sc: ScopeId, target: 
                     return Err(e.err(n, "only an associative array can be assigned to an associative array (7.9.9)"));
                 }
                 (UDim::Range(..) | UDim::Dynamic | UDim::Queue(_), UDim::Assoc(_) | UDim::Wildcard) => {
-                    return Err(e.err(n, "an associative array cannot be assigned to a fixed-size, dynamic or queue array (7.6)"));
+                    return Err(e.err(
+                        n,
+                        "an associative array cannot be assigned to a fixed-size, dynamic or queue array (7.6)",
+                    ));
                 }
                 (UDim::Range(a, b), UDim::Range(c, d)) => {
                     let (w1, w2) = ((a - b).abs(), (c - d).abs());
                     if w1 != w2 {
-                        return Err(e.err(n, format!("arrays of {} and {} elements cannot be assigned (7.6)", w1 + 1, w2 + 1)));
+                        return Err(
+                            e.err(n, format!("arrays of {} and {} elements cannot be assigned (7.6)", w1 + 1, w2 + 1))
+                        );
                     }
                 }
                 _ => {}
@@ -1145,7 +1286,9 @@ pub(crate) fn assign_compatible<'a>(e: &mut Elab<'a, '_>, _sc: ScopeId, target: 
         (Type::Chandle, _) if src != Types::NULL => {
             Err(e.err(n, "only `null` or another chandle can be assigned to a chandle (6.14)"))
         }
-        (_, Type::Chandle) if target != Types::CHANDLE => Err(e.err(n, "a chandle can only be assigned to a chandle (6.14)")),
+        (_, Type::Chandle) if target != Types::CHANDLE => {
+            Err(e.err(n, "a chandle can only be assigned to a chandle (6.14)"))
+        }
         (Type::Class(_), _) if e.d.types.is_integral(src) => {
             Err(e.err(n, "an integral value cannot be assigned to a class handle (6.22)"))
         }
@@ -1186,11 +1329,14 @@ fn equivalent(e: &Elab, a: TypeId, b: TypeId) -> bool {
         // themselves.
         (Type::Enum { .. }, _) | (_, Type::Enum { .. }) => false,
         _ if ty.is_integral(a) && ty.is_integral(b) => {
-            ty.width(a) == ty.width(b) && ty.is_signed(a) == ty.is_signed(b) && ty.is_four_state(a) == ty.is_four_state(b)
+            ty.width(a) == ty.width(b)
+                && ty.is_signed(a) == ty.is_signed(b)
+                && ty.is_four_state(a) == ty.is_four_state(b)
         }
-        (Type::Unpacked { elem: x, dim: UDim::Range(l1, r1) }, Type::Unpacked { elem: y, dim: UDim::Range(l2, r2) }) => {
-            (l1 - r1).abs() == (l2 - r2).abs() && equivalent(e, *x, *y)
-        }
+        (
+            Type::Unpacked { elem: x, dim: UDim::Range(l1, r1) },
+            Type::Unpacked { elem: y, dim: UDim::Range(l2, r2) },
+        ) => (l1 - r1).abs() == (l2 - r2).abs() && equivalent(e, *x, *y),
         // A dynamic array or queue may match a fixed one at run time (7.6).
         (Type::Unpacked { elem: x, dim: d1 }, Type::Unpacked { elem: y, dim: d2 })
             if matches!(d1, UDim::Dynamic | UDim::Queue(_)) || matches!(d2, UDim::Dynamic | UDim::Queue(_)) =>
@@ -1223,7 +1369,9 @@ pub(crate) fn lvalue<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, x: ExprId, n: NodeId
             }
             let quals: Vec<&str> = obj.qualifiers.iter().map(|&q| e.name(q)).collect();
             if quals.contains(&"foreach") {
-                return Err(e.err(n, format!("`{name}` is a `foreach` loop variable, so it cannot be assigned (12.7.3)")));
+                return Err(
+                    e.err(n, format!("`{name}` is a `foreach` loop variable, so it cannot be assigned (12.7.3)"))
+                );
             }
             if obj.dir == Some(Dir::ConstRef) {
                 return Err(e.err(n, format!("`{name}` is a `const ref` argument, so it cannot be written (13.5.2)")));
@@ -1232,7 +1380,9 @@ pub(crate) fn lvalue<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, x: ExprId, n: NodeId
                 return Err(e.err(n, format!("`{name}` is `const`, so it cannot be assigned (6.20.6)")));
             }
             if nonblocking && obj.lifetime == Lifetime::Automatic && !matches!(ex.kind, ExprKind::Field(_)) {
-                return Err(e.err(n, format!("`{name}` is automatic, so a nonblocking assignment cannot write it (10.4.2)")));
+                return Err(
+                    e.err(n, format!("`{name}` is automatic, so a nonblocking assignment cannot write it (10.4.2)"))
+                );
             }
             Ok(())
         }
@@ -1240,7 +1390,10 @@ pub(crate) fn lvalue<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, x: ExprId, n: NodeId
             let base = ex.args[0];
             if nonblocking
                 && matches!(ex.kind, ExprKind::Index)
-                && matches!(e.d.types.get(e.ex(base).ty), Type::Unpacked { dim: UDim::Dynamic | UDim::Queue(_) | UDim::Assoc(_) | UDim::Wildcard, .. })
+                && matches!(
+                    e.d.types.get(e.ex(base).ty),
+                    Type::Unpacked { dim: UDim::Dynamic | UDim::Queue(_) | UDim::Assoc(_) | UDim::Wildcard, .. }
+                )
             {
                 return Err(e.err(n, "a nonblocking assignment cannot write an element of a dynamic array, queue or associative array (10.4.2)"));
             }
@@ -1266,7 +1419,7 @@ fn in_constructor(e: &Elab, _sc: ScopeId) -> bool {
 }
 
 /// What a continuous assignment may drive (10.3).
-pub(crate) fn continuous_lvalue<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, x: ExprId, n: NodeId) -> R<'a> {
+pub(crate) fn continuous_lvalue<'a>(e: &mut Elab<'a, '_>, _sc: ScopeId, x: ExprId, n: NodeId) -> R<'a> {
     let ex = e.ex(x).clone();
     if ex.ty == Types::CHANDLE {
         return Err(e.err(n, "a chandle cannot be driven by a continuous assignment (6.14)"));
@@ -1287,10 +1440,10 @@ pub(crate) fn continuous_lvalue<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, x: ExprId
                 _ => Ok(()),
             }
         }
-        ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_) => continuous_lvalue(e, sc, ex.args[0], n),
+        ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_) => continuous_lvalue(e, _sc, ex.args[0], n),
         ExprKind::Concat => {
             for a in ex.args {
-                continuous_lvalue(e, sc, a, n)?;
+                continuous_lvalue(e, _sc, a, n)?;
             }
             Ok(())
         }
@@ -1307,12 +1460,21 @@ pub(crate) fn port_lvalue<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, port: &Port, x:
         let mut ts = Vec::new();
         target_slices(e, x, &mut ts);
         if let Some(&(o, _)) = ts.iter().find(|&&(o, _)| e.obj(o).kind == ObjKind::Variable) {
-            return Err(e.err(n, format!("`{}` is a variable, so it cannot be connected to inout port `{}` (23.3.3.2)", e.name(e.obj(o).name), e.name(port.name))));
+            return Err(e.err(
+                n,
+                format!(
+                    "`{}` is a variable, so it cannot be connected to inout port `{}` (23.3.3.2)",
+                    e.name(e.obj(o).name),
+                    e.name(port.name)
+                ),
+            ));
         }
     }
     match port.dir {
         Dir::Output | Dir::Inout => match e.ex(x).kind {
-            ExprKind::Const(_) => Err(e.err(n, format!("output port `{}` cannot be connected to a constant", e.name(port.name)))),
+            ExprKind::Const(_) => {
+                Err(e.err(n, format!("output port `{}` cannot be connected to a constant", e.name(port.name))))
+            }
             _ => Ok(()),
         },
         Dir::Ref => {
@@ -1342,11 +1504,17 @@ pub(crate) fn output_arg<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, _sub: SubId, f: 
         let (ft, at) = (e.obj(f).ty, e.ex(x).ty);
         if !equivalent(e, ft, at) && !matches!(e.d.types.get(ft), Type::Class(_)) {
             let (a, b) = (e.d.types.describe(at, &e.d.syms), e.d.types.describe(ft, &e.d.syms));
-            return Err(e.err(n, format!("a `ref` argument needs an equivalent type: `{a}` is not equivalent to `{b}` (13.5.2, 6.22.2)")));
+            return Err(e.err(
+                n,
+                format!("a `ref` argument needs an equivalent type: `{a}` is not equivalent to `{b}` (13.5.2, 6.22.2)"),
+            ));
         }
     }
     if e.in_cont_assign && matches!(dir, Dir::Output | Dir::Inout | Dir::Ref) {
-        return Err(e.err(n, "a function with output, inout or ref arguments cannot be called in a continuous assignment (13.4)"));
+        return Err(e.err(
+            n,
+            "a function with output, inout or ref arguments cannot be called in a continuous assignment (13.4)",
+        ));
     }
     if dir == Dir::ConstRef {
         return Ok(());
@@ -1380,7 +1548,10 @@ pub(crate) fn constant_function<'a>(e: &mut Elab<'a, '_>, sub: SubId, n: NodeId)
         return Err(e.err(n, format!("`{name}` is a DPI import, so it cannot be a constant function (13.4.3)")));
     }
     if s.args.iter().any(|&a| e.obj(a).dir.is_some_and(|d| d != Dir::Input)) {
-        return Err(e.err(n, format!("`{name}` has output, inout or ref arguments, so it cannot be a constant function (13.4.3)")));
+        return Err(e.err(
+            n,
+            format!("`{name}` has output, inout or ref arguments, so it cannot be a constant function (13.4.3)"),
+        ));
     }
     if !s.elaborated {
         super::stmt::sub_body(e, sub)?;
@@ -1396,13 +1567,22 @@ pub(crate) fn constant_function<'a>(e: &mut Elab<'a, '_>, sub: SubId, n: NodeId)
         });
     }
     if hier {
-        return Err(e.err(n, format!("`{name}` makes a hierarchical reference, so it cannot be a constant function (13.4.3)")));
+        return Err(
+            e.err(n, format!("`{name}` makes a hierarchical reference, so it cannot be a constant function (13.4.3)"))
+        );
     }
     Ok(())
 }
 
 /// System tasks and functions (20, 21).
-pub(crate) fn syscall<'a>(e: &mut Elab<'a, '_>, _sc: ScopeId, name: &str, xs: &[ExprId], args: &[NodeId], n: NodeId) -> R<'a> {
+pub(crate) fn syscall<'a>(
+    e: &mut Elab<'a, '_>,
+    _sc: ScopeId,
+    name: &str,
+    xs: &[ExprId],
+    args: &[NodeId],
+    n: NodeId,
+) -> R<'a> {
     match name {
         "$monitor" | "$fmonitor" | "$strobe" | "$fstrobe" => {
             for (i, &x) in xs.iter().enumerate() {
@@ -1417,7 +1597,10 @@ pub(crate) fn syscall<'a>(e: &mut Elab<'a, '_>, _sc: ScopeId, name: &str, xs: &[
                 });
                 if let Some(o) = auto {
                     let at = args.get(i).copied().unwrap_or(n);
-                    return Err(e.err(at, format!("`{}` is automatic, so `{name}` cannot watch it (21.2.3)", e.name(e.obj(o).name))));
+                    return Err(e.err(
+                        at,
+                        format!("`{}` is automatic, so `{name}` cannot watch it (21.2.3)", e.name(e.obj(o).name)),
+                    ));
                 }
             }
             Ok(())
@@ -1447,8 +1630,12 @@ pub(crate) fn builtin_method<'a>(
         "sort" | "rsort" | "reverse" | "shuffle" if assoc => {
             Err(e.err(n, format!("`{name}` cannot be used on an associative array (7.12.2)")))
         }
-        "reverse" | "shuffle" if with.is_some() => Err(e.err(n, format!("`{name}` does not take a `with` clause (7.12.2)"))),
-        "find" | "find_index" | "find_first" | "find_first_index" | "find_last" | "find_last_index" if with.is_none() => {
+        "reverse" | "shuffle" if with.is_some() => {
+            Err(e.err(n, format!("`{name}` does not take a `with` clause (7.12.2)")))
+        }
+        "find" | "find_index" | "find_first" | "find_first_index" | "find_last" | "find_last_index"
+            if with.is_none() =>
+        {
             Err(e.err(n, format!("`{name}` needs a `with` clause (7.12.1)")))
         }
         "find" | "find_index" | "find_first" | "find_first_index" | "find_last" | "find_last_index" | "min" | "max"
@@ -1465,7 +1652,10 @@ pub(crate) fn builtin_method<'a>(
 pub(crate) fn new_array<'a>(e: &mut Elab<'a, '_>, t: TypeId, n: NodeId) -> R<'a> {
     match e.d.types.get(t) {
         Type::Unpacked { dim: UDim::Dynamic, .. } | Type::Unknown => Ok(()),
-        Type::Unpacked { .. } => Err(e.err(n, "`new[]` can only create a dynamic array, and this array's outer dimension is not dynamic (7.5.1)")),
+        Type::Unpacked { .. } => Err(e.err(
+            n,
+            "`new[]` can only create a dynamic array, and this array's outer dimension is not dynamic (7.5.1)",
+        )),
         _ => Ok(()),
     }
 }
@@ -1620,7 +1810,10 @@ pub(crate) fn dpi_import<'a>(e: &mut Elab<'a, '_>, _sc: ScopeId, n: NodeId) -> R
     let valid = c_name.bytes().next().is_some_and(|c| c.is_ascii_alphabetic() || c == b'_')
         && c_name.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_');
     if !valid {
-        return Err(e.err(c_node.unwrap_or(n), format!("`{c_name}` is not a valid C identifier for a DPI linkage name (35.4)")));
+        return Err(e.err(
+            c_node.unwrap_or(n),
+            format!("`{c_name}` is not a valid C identifier for a DPI linkage name (35.4)"),
+        ));
     }
     let pure = kids.iter().any(|&k| e.kind(k) == Kind::Keyword && e.text(k) == "pure");
     if pure {
@@ -1647,7 +1840,7 @@ pub(crate) fn dpi_import<'a>(e: &mut Elab<'a, '_>, _sc: ScopeId, n: NodeId) -> R
 }
 
 pub(crate) fn dpi_export<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a> {
-    let name = e.kids(n).iter().copied().filter(|&k| e.kind(k) == Kind::Name).last();
+    let name = e.kids(n).iter().copied().rfind(|&k| e.kind(k) == Kind::Name);
     let kw = e.kids(n).iter().copied().find(|&k| e.kind(k) == Kind::Keyword).map(|k| e.text(k));
     if let Some(nm) = name {
         let s = e.sym_of(nm);
@@ -1655,11 +1848,25 @@ pub(crate) fn dpi_export<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<
             Some(Binding::Subroutine(x)) => {
                 let is_task = e.d.subroutines[x.0 as usize].kind == SubKind::Task;
                 if (kw == Some("function") && is_task) || (kw == Some("task") && !is_task) {
-                    return Err(e.err(nm, format!("`{}` is exported as a {}, but it is a {} (35.7)", e.name(s), kw.unwrap(), if is_task { "task" } else { "function" })));
+                    return Err(e.err(
+                        nm,
+                        format!(
+                            "`{}` is exported as a {}, but it is a {} (35.7)",
+                            e.name(s),
+                            kw.unwrap(),
+                            if is_task { "task" } else { "function" }
+                        ),
+                    ));
                 }
             }
             _ => {
-                return Err(e.err(nm, format!("`{}` is exported, but no task or function of that name is declared in this scope (35.7)", e.name(s))));
+                return Err(e.err(
+                    nm,
+                    format!(
+                        "`{}` is exported, but no task or function of that name is declared in this scope (35.7)",
+                        e.name(s)
+                    ),
+                ));
             }
         }
     }
@@ -1744,7 +1951,13 @@ pub(crate) fn gate_terminals<'a>(
             if let ExprKind::Object(o) = e.ex(t).kind
                 && matches!(e.obj(o).kind, ObjKind::Net(k) if e.name(k) == "uwire")
             {
-                return Err(e.err(n, format!("`{}` is a uwire, so it cannot be connected to a bidirectional switch (6.6.2)", e.name(e.obj(o).name))));
+                return Err(e.err(
+                    n,
+                    format!(
+                        "`{}` is a uwire, so it cannot be connected to a bidirectional switch (6.6.2)",
+                        e.name(e.obj(o).name)
+                    ),
+                ));
             }
         }
     }
@@ -1756,7 +1969,10 @@ pub(crate) fn gate_terminals<'a>(
             for &t in terms {
                 let w = e.d.types.width(e.ex(t).ty);
                 if w != 1 && w != count && w != 0 {
-                    return Err(e.err(n, format!("a {w}-bit terminal cannot be spread over an array of {count} gates (28.3.6)")));
+                    return Err(e.err(
+                        n,
+                        format!("a {w}-bit terminal cannot be spread over an array of {count} gates (28.3.6)"),
+                    ));
                 }
             }
         }
@@ -1802,7 +2018,9 @@ pub(crate) fn genvar_step<'a>(e: &mut Elab<'a, '_>, _sc: ScopeId, step: NodeId, 
         && e.kind(t) == Kind::Name
         && e.sym_of(t) != gv
     {
-        return Err(e.err(t, format!("the loop's step assigns `{}`, not its genvar `{}` (27.4)", e.text(t), e.name(gv))));
+        return Err(
+            e.err(t, format!("the loop's step assigns `{}`, not its genvar `{}` (27.4)", e.text(t), e.name(gv)))
+        );
     }
     Ok(())
 }
@@ -1873,14 +2091,19 @@ pub(crate) fn modport<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a>
                     _ => continue,
                 };
                 if mp.names.contains(&name) {
-                    return Err(e.err(at, format!("`{}` appears twice in modport `{}` (25.5)", e.name(name), e.name(mname))));
+                    return Err(
+                        e.err(at, format!("`{}` appears twice in modport `{}` (25.5)", e.name(name), e.name(mname)))
+                    );
                 }
                 mp.names.push(name);
                 if let Some(x) = expr
                     && matches!(kw, "output" | "inout")
                     && matches!(e.kind(x), Kind::Number | Kind::String | Kind::UnbasedUnsized)
                 {
-                    return Err(e.err(x, format!("the `{kw}` modport expression for `{}` must be assignable (25.5.4)", e.name(name))));
+                    return Err(e.err(
+                        x,
+                        format!("the `{kw}` modport expression for `{}` must be assignable (25.5.4)", e.name(name)),
+                    ));
                 }
                 if kw == "export" {
                     mp.exports.push((name, None));
@@ -1905,12 +2128,21 @@ fn modports_complete<'a>(e: &mut Elab<'a, '_>, sc: ScopeId) -> R<'a> {
             match (kw, b) {
                 ("clocking", Some(Binding::Other(m))) if e.kind(m) == Kind::Clocking => {}
                 ("clocking", _) => {
-                    return Err(e.err(at, format!("modport clocking `{}` must name a clocking block of this interface (25.5.5)", e.name(name))));
+                    return Err(e.err(
+                        at,
+                        format!(
+                            "modport clocking `{}` must name a clocking block of this interface (25.5.5)",
+                            e.name(name)
+                        ),
+                    ));
                 }
                 ("import" | "export", _) => {}
                 (_, Some(_)) => {}
                 (_, None) => {
-                    return Err(e.err(at, format!("the modport names `{}`, which the interface does not declare (25.5)", e.name(name))));
+                    return Err(e.err(
+                        at,
+                        format!("the modport names `{}`, which the interface does not declare (25.5)", e.name(name)),
+                    ));
                 }
             }
         }
@@ -1942,7 +2174,14 @@ pub(crate) fn modport_access<'a>(e: &mut Elab<'a, '_>, port: NodeId, s: Sym, at:
         && !names.contains(&s)
         && signal(e, sc)
     {
-        return Err(e.err(at, format!("`{}` is not in modport `{}`, so it cannot be used through this port (25.5)", e.name(s), e.name(mp))));
+        return Err(e.err(
+            at,
+            format!(
+                "`{}` is not in modport `{}`, so it cannot be used through this port (25.5)",
+                e.name(s),
+                e.name(mp)
+            ),
+        ));
     }
     Ok(())
 }
@@ -1955,19 +2194,35 @@ pub(crate) fn exported_tasks<'a>(e: &mut Elab<'a, '_>, inst: InstId) -> R<'a> {
     let ports = e.d.specs[spec.0 as usize].ports.clone();
     for p in ports {
         let Some((_, Some(mp))) = p.interface else { continue };
-        let Some(conn) = e.d.instances[inst.0 as usize].connections.iter().find(|c| c.port == p.name).cloned() else { continue };
+        let Some(conn) = e.d.instances[inst.0 as usize].connections.iter().find(|c| c.port == p.name).cloned() else {
+            continue;
+        };
         let Some(ifi) = conn.interface else { continue };
         let isc = e.d.specs[e.d.instances[ifi.0 as usize].spec.0 as usize].scope;
         let Some(info) = e.modports.get(&(isc, mp)).cloned() else { continue };
         for (task, proto) in info.exports {
-            let def = e.port_tasks.iter().find(|(sc, port, t, _)| *sc == child && *port == p.name && *t == task).map(|x| x.3);
+            let def =
+                e.port_tasks.iter().find(|(sc, port, t, _)| *sc == child && *port == p.name && *t == task).map(|x| x.3);
             let Some(def) = def else {
-                return Err(e.err(e.d.instances[inst.0 as usize].node, format!("modport `{}` exports `{}`, but the connected module does not define it (25.7)", e.name(mp), e.name(task))));
+                return Err(e.err(
+                    e.d.instances[inst.0 as usize].node,
+                    format!(
+                        "modport `{}` exports `{}`, but the connected module does not define it (25.7)",
+                        e.name(mp),
+                        e.name(task)
+                    ),
+                ));
             };
             if let Some(proto) = proto {
-                let count = |e: &Elab, n: NodeId| e.child(n, Kind::TfPorts).map_or(0, |t| e.kids(t).iter().filter(|&&k| e.kind(k) == Kind::TfPort).count());
+                let count = |e: &Elab, n: NodeId| {
+                    e.child(n, Kind::TfPorts)
+                        .map_or(0, |t| e.kids(t).iter().filter(|&&k| e.kind(k) == Kind::TfPort).count())
+                };
                 if count(e, proto) != count(e, def) {
-                    return Err(e.err(def, format!("`{}` does not match the prototype in modport `{}` (25.7)", e.name(task), e.name(mp))));
+                    return Err(e.err(
+                        def,
+                        format!("`{}` does not match the prototype in modport `{}` (25.7)", e.name(task), e.name(mp)),
+                    ));
                 }
             }
             // A function may be exported by one module only (25.7.4).
@@ -1977,7 +2232,13 @@ pub(crate) fn exported_tasks<'a>(e: &mut Elab<'a, '_>, inst: InstId) -> R<'a> {
                 if let Some(&first) = e.exported_fns.get(&key)
                     && first != inst
                 {
-                    return Err(e.err(def, format!("function `{}` is exported through the same interface by two modules (25.7.4)", e.name(task))));
+                    return Err(e.err(
+                        def,
+                        format!(
+                            "function `{}` is exported through the same interface by two modules (25.7.4)",
+                            e.name(task)
+                        ),
+                    ));
                 }
                 e.exported_fns.insert(key, inst);
             }
@@ -2005,15 +2266,14 @@ pub(crate) fn no_virtual_interface<'a>(e: &mut Elab<'a, '_>, x: ExprId, n: NodeI
 /// Virtual interfaces of interfaces that refer upwards, or of instances
 /// changed by `defparam`, are not allowed (25.9).
 fn virtual_interfaces<'a>(e: &mut Elab<'a, '_>) -> R<'a> {
-    let objs: Vec<(Sym, NodeId)> = e
-        .d
-        .objects
-        .iter()
-        .filter_map(|o| match e.d.types.get(o.ty) {
-            Type::Interface { virtual_: true, def, .. } => Some((*def, o.node)),
-            _ => None,
-        })
-        .collect();
+    let objs: Vec<(Sym, NodeId)> =
+        e.d.objects
+            .iter()
+            .filter_map(|o| match e.d.types.get(o.ty) {
+                Type::Interface { virtual_: true, def, .. } => Some((*def, o.node)),
+                _ => None,
+            })
+            .collect();
     for (def, node) in objs {
         if e.upward_defs.contains(&def) {
             return Err(e.err(node, format!("interface `{}` refers upwards through the hierarchy, so it cannot be used as a virtual interface (25.9)", e.name(def))));
@@ -2025,7 +2285,12 @@ fn virtual_interfaces<'a>(e: &mut Elab<'a, '_>) -> R<'a> {
             if let Some(s) = e.d.syms.lookup(first)
                 && e.virtual_uses.contains(&s)
             {
-                return Err(e.err(a, format!("`{first}` is changed by `defparam`, so it cannot be assigned to a virtual interface (25.9)")));
+                return Err(e.err(
+                    a,
+                    format!(
+                        "`{first}` is changed by `defparam`, so it cannot be assigned to a virtual interface (25.9)"
+                    ),
+                ));
             }
         }
     }
@@ -2062,7 +2327,8 @@ pub(crate) fn udp<'a>(e: &mut Elab<'a, '_>, n: NodeId) -> R<'a> {
         if parts.len() != 2 {
             return Ok(());
         }
-        let ins: Vec<u8> = parts[0].bytes().filter(|c| !c.is_ascii_whitespace()).map(|c| c.to_ascii_lowercase()).collect();
+        let ins: Vec<u8> =
+            parts[0].bytes().filter(|c| !c.is_ascii_whitespace()).map(|c| c.to_ascii_lowercase()).collect();
         let out = parts[1].trim().bytes().next().unwrap_or(b'x').to_ascii_lowercase();
         if ins.iter().any(|c| !b"01x?b".contains(c)) {
             return Ok(());
@@ -2087,7 +2353,10 @@ pub(crate) fn udp<'a>(e: &mut Elab<'a, '_>, n: NodeId) -> R<'a> {
     for (i, (a, oa, _)) in rows.iter().enumerate() {
         for (b, ob, at) in &rows[i + 1..] {
             if oa != ob && a.len() == b.len() && a.iter().zip(b).all(|(&x, &y)| matches(x, y)) {
-                return Err(e.err(*at, "two rows of the UDP's table match the same inputs but give different outputs (29.3.4)"));
+                return Err(e.err(
+                    *at,
+                    "two rows of the UDP's table match the same inputs but give different outputs (29.3.4)",
+                ));
             }
         }
     }
@@ -2100,7 +2369,8 @@ pub(crate) fn udp<'a>(e: &mut Elab<'a, '_>, n: NodeId) -> R<'a> {
 pub(crate) fn constraint<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a> {
     let mut stack = vec![n];
     while let Some(x) = stack.pop() {
-        let soft = e.kind(x) == Kind::ConstraintExpr && e.kids(x).first().is_some_and(|&k| e.kind(k) == Kind::Keyword && e.text(k) == "soft");
+        let soft = e.kind(x) == Kind::ConstraintExpr
+            && e.kids(x).first().is_some_and(|&k| e.kind(k) == Kind::Keyword && e.text(k) == "soft");
         if e.kind(x) == Kind::Dist || soft {
             let what = if soft { "a soft constraint" } else { "`dist`" };
             let mut names = vec![x];
@@ -2110,7 +2380,9 @@ pub(crate) fn constraint<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<
                     if let Some(Binding::Object(o)) = lookup::lookup(e, sc, s)
                         && e.obj(o).qualifiers.iter().any(|&q| e.name(q) == "randc")
                     {
-                        return Err(e.err(y, format!("{what} cannot apply to the `randc` variable `{}` (18.5)", e.name(s))));
+                        return Err(
+                            e.err(y, format!("{what} cannot apply to the `randc` variable `{}` (18.5)", e.name(s)))
+                        );
                     }
                 }
                 names.extend(e.ast.children(y).iter().copied());
@@ -2145,17 +2417,26 @@ pub(crate) fn specify<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a>
                 let toks = e.ast.tokens_of(item);
                 let first = e.ast.node(item).first as usize;
                 let eq = toks.iter().position(|t| t.0 == "=").map_or(usize::MAX, |p| p + first);
-                let Some(op) = k.iter().position(|&x| e.kind(x) == Kind::Op && matches!(e.text(x), "=>" | "*>")) else { continue };
+                let Some(op) = k.iter().position(|&x| e.kind(x) == Kind::Op && matches!(e.text(x), "=>" | "*>")) else {
+                    continue;
+                };
                 let parallel = e.text(k[op]) == "=>";
                 let ifnone = k.iter().any(|&x| e.kind(x) == Kind::Keyword && e.text(x) == "ifnone");
                 let conditional = k.iter().any(|&x| e.kind(x) == Kind::Keyword && e.text(x) == "if");
-                let ins: Vec<NodeId> = k[..op].iter().copied().filter(|&x| matches!(e.kind(x), Kind::Name | Kind::Index | Kind::RangeSelect)).collect();
+                let ins: Vec<NodeId> = k[..op]
+                    .iter()
+                    .copied()
+                    .filter(|&x| matches!(e.kind(x), Kind::Name | Kind::Index | Kind::RangeSelect))
+                    .collect();
                 // Destinations end at a polarity or data-source operator.
                 let outs: Vec<NodeId> = k[op + 1..]
                     .iter()
                     .copied()
                     .take_while(|&x| e.kind(x) != Kind::Op)
-                    .filter(|&x| (e.ast.node(x).first as usize) < eq && matches!(e.kind(x), Kind::Name | Kind::Index | Kind::RangeSelect))
+                    .filter(|&x| {
+                        (e.ast.node(x).first as usize) < eq
+                            && matches!(e.kind(x), Kind::Name | Kind::Index | Kind::RangeSelect)
+                    })
                     .collect();
                 for &i in &ins {
                     if let Some((d, _)) = port_dir(e, i)
@@ -2171,21 +2452,30 @@ pub(crate) fn specify<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a>
                         return Err(e.err(o, "a module path must end at an output or inout port (30.4.1)"));
                     }
                 }
-                if parallel && let (Some(&i), Some(&o)) = (ins.first(), outs.first())
+                if parallel
+                    && let (Some(&i), Some(&o)) = (ins.first(), outs.first())
                     && let (Some((_, wi)), Some((_, wo))) = (port_dir(e, i), port_dir(e, o))
                     && wi != wo
                     && e.kind(i) == Kind::Name
                     && e.kind(o) == Kind::Name
                 {
-                    return Err(e.err(item, format!("a parallel path (`=>`) needs the same width on both sides, not {wi} and {wo} (30.4.5)")));
+                    return Err(e.err(
+                        item,
+                        format!(
+                            "a parallel path (`=>`) needs the same width on both sides, not {wi} and {wo} (30.4.5)"
+                        ),
+                    ));
                 }
                 let key_in = ins.iter().map(|&x| e.ast.text(x)).collect::<Vec<_>>().join(",");
                 let key_out = outs.iter().map(|&x| e.ast.text(x)).collect::<Vec<_>>().join(",");
                 if !conditional {
-                    if let Some(&(_, _, other_ifnone, _)) = paths.iter().find(|(a, b, _, _)| *a == key_in && *b == key_out)
+                    if let Some(&(_, _, other_ifnone, _)) =
+                        paths.iter().find(|(a, b, _, _)| *a == key_in && *b == key_out)
                         && other_ifnone != ifnone
                     {
-                        return Err(e.err(item, "a path cannot have both an `ifnone` and an unconditional delay (30.4.4.3)"));
+                        return Err(
+                            e.err(item, "a path cannot have both an `ifnone` and an unconditional delay (30.4.4.3)")
+                        );
                     }
                     paths.push((key_in, key_out, ifnone, item));
                 }
@@ -2205,7 +2495,9 @@ pub(crate) fn specify<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a>
                 if matches!(name, "$period" | "$width")
                     && let Some(&first) = k.get(1)
                     && !(e.kind(first) == Kind::TimingEvent
-                        && e.kids(first).first().is_some_and(|&x| matches!(e.kind(x), Kind::Keyword | Kind::EdgeDescriptors)))
+                        && e.kids(first)
+                            .first()
+                            .is_some_and(|&x| matches!(e.kind(x), Kind::Keyword | Kind::EdgeDescriptors)))
                 {
                     return Err(e.err(first, format!("`{name}` needs an edge on its reference event (31.4)")));
                 }
@@ -2246,7 +2538,13 @@ pub(crate) fn net_alias<'a>(e: &mut Elab<'a, '_>, n: NodeId, parts: &[ExprId]) -
         target_slices(e, p, &mut ts);
         all.extend(ts.into_iter().map(|(o, s)| (o, s, i)));
     }
-    let kinds: Vec<Sym> = all.iter().filter_map(|&(o, _, _)| match e.obj(o).kind { ObjKind::Net(k) => Some(k), _ => None }).collect();
+    let kinds: Vec<Sym> = all
+        .iter()
+        .filter_map(|&(o, _, _)| match e.obj(o).kind {
+            ObjKind::Net(k) => Some(k),
+            _ => None,
+        })
+        .collect();
     if kinds.windows(2).any(|w| w[0] != w[1]) {
         return Err(e.err(n, "aliased nets must be of the same net type (10.11)"));
     }
@@ -2323,7 +2621,13 @@ fn defparams<'a>(e: &mut Elab<'a, '_>) -> R<'a> {
                 match e.obj(o).kind {
                     ObjKind::Param { local: true } => {
                         e.inst_path = saved;
-                        return Err(e.err(target, format!("`{}` is a local parameter, so `defparam` cannot set it (23.10.1)", e.name(e.obj(o).name))));
+                        return Err(e.err(
+                            target,
+                            format!(
+                                "`{}` is a local parameter, so `defparam` cannot set it (23.10.1)",
+                                e.name(e.obj(o).name)
+                            ),
+                        ));
                     }
                     ObjKind::Param { .. } => {}
                     _ => {
@@ -2370,14 +2674,7 @@ fn target_slices(e: &Elab, x: ExprId, out: &mut Vec<(ObjId, Slice)>) {
             }) else {
                 return target_slices(e, base, out);
             };
-            let konst = |i: usize| match ex.args.get(i).map(|&a| &e.ex(a).kind) {
-                Some(ExprKind::Const(c)) => e.d.consts[c.0 as usize].to_i64(),
-                Some(ExprKind::Convert) => match &e.ex(e.ex(ex.args[i]).args[0]).kind {
-                    ExprKind::Const(c) => e.d.consts[c.0 as usize].to_i64(),
-                    _ => None,
-                },
-                _ => None,
-            };
+            let konst = |i: usize| ex.args.get(i).and_then(|&a| const_index(e, a));
             let slice = match &ex.kind {
                 ExprKind::Member(m) => Slice::Member(*m),
                 ExprKind::Index => konst(1).map_or(Slice::Whole, |i| Slice::Range(i, i)),
@@ -2398,6 +2695,20 @@ fn target_slices(e: &Elab, x: ExprId, out: &mut Vec<(ObjId, Slice)>) {
         }
         ExprKind::Convert => target_slices(e, ex.args[0], out),
         _ => {}
+    }
+}
+
+/// An index known at elaboration: a literal, or a parameter (such as a
+/// generate loop's genvar), maybe converted.
+fn const_index(e: &Elab, x: ExprId) -> Option<i64> {
+    match &e.ex(x).kind {
+        ExprKind::Const(c) => e.d.consts[c.0 as usize].to_i64(),
+        ExprKind::Convert => const_index(e, e.ex(x).args[0]),
+        ExprKind::Object(o) => match e.obj(*o).kind {
+            ObjKind::Param { .. } | ObjKind::EnumConst => e.obj(*o).value.and_then(|c| e.d.consts[c.0 as usize].to_i64()),
+            _ => None,
+        },
+        _ => None,
     }
 }
 
@@ -2516,10 +2827,19 @@ fn drivers<'a>(e: &mut Elab<'a, '_>) -> R<'a> {
                 continue;
             }
             if cont.iter().any(|&(o2, s2, _)| o2 == o && overlaps(s, s2)) {
-                return Err(e.err(node, format!("variable `{}` is written by a procedure and by a continuous driver (6.5)", obj_name(e, o))));
+                return Err(e.err(
+                    node,
+                    format!("variable `{}` is written by a procedure and by a continuous driver (6.5)", obj_name(e, o)),
+                ));
             }
             if e.d.objects[o.0 as usize].dir == Some(Dir::Input) {
-                return Err(e.err(node, format!("`{}` is an input port, so it cannot be assigned inside the module (23.3.3)", obj_name(e, o))));
+                return Err(e.err(
+                    node,
+                    format!(
+                        "`{}` is an input port, so it cannot be assigned inside the module (23.3.3)",
+                        obj_name(e, o)
+                    ),
+                ));
             }
         }
         for w in writes {
@@ -2543,13 +2863,29 @@ fn drivers<'a>(e: &mut Elab<'a, '_>) -> R<'a> {
     for &(o, _, n) in &cont {
         let obj = &e.d.objects[o.0 as usize];
         if obj.kind == ObjKind::Variable && obj.init.is_some() && obj.dir.is_none() {
-            return Err(e.err(n, format!("variable `{}` has an initialiser, so a continuous assignment cannot also write it (6.5)", obj_name(e, o))));
+            return Err(e.err(
+                n,
+                format!(
+                    "variable `{}` has an initialiser, so a continuous assignment cannot also write it (6.5)",
+                    obj_name(e, o)
+                ),
+            ));
         }
         if obj.kind == ObjKind::Variable && obj.dir == Some(Dir::Input) {
-            return Err(e.err(n, format!("`{}` is an input port, so it cannot be assigned inside the module (23.3.3)", obj_name(e, o))));
+            return Err(e.err(
+                n,
+                format!("`{}` is an input port, so it cannot be assigned inside the module (23.3.3)", obj_name(e, o)),
+            ));
         }
-        if matches!(obj.kind, ObjKind::Net(k) if e.name(k) == "interconnect") && e.d.drivers.iter().any(|d| d.node == n) {
-            return Err(e.err(n, format!("`{}` is an interconnect net, so it cannot be the target of a continuous assignment (6.6.8)", obj_name(e, o))));
+        if matches!(obj.kind, ObjKind::Net(k) if e.name(k) == "interconnect") && e.d.drivers.iter().any(|d| d.node == n)
+        {
+            return Err(e.err(
+                n,
+                format!(
+                    "`{}` is an interconnect net, so it cannot be the target of a continuous assignment (6.6.8)",
+                    obj_name(e, o)
+                ),
+            ));
         }
     }
     Ok(())
@@ -2566,7 +2902,7 @@ pub(crate) fn walk_expr(e: &Elab, x: ExprId, f: &mut dyn FnMut(&Elab, ExprId)) {
 
 pub(crate) fn walk_stmt(e: &Elab, s: StmtId, f: &mut dyn FnMut(&Elab, ExprId)) {
     let st = e.d.stmts[s.0 as usize].kind.clone();
-    let mut ex = |x: ExprId, f: &mut dyn FnMut(&Elab, ExprId)| walk_expr(e, x, f);
+    let ex = |x: ExprId, f: &mut dyn FnMut(&Elab, ExprId)| walk_expr(e, x, f);
     match st {
         StmtKind::Block { stmts, .. } => stmts.into_iter().for_each(|s| walk_stmt(e, s, f)),
         StmtKind::Assign { lhs, rhs, timing, .. } => {

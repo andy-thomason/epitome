@@ -32,6 +32,9 @@ pub(crate) fn rvalue<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, target: T
         _ => {}
     }
     let x = bind(e, sc, n)?;
+    if e.ex(x).ty == Types::VOID {
+        return Err(e.err(n, "a void function has no value to assign (6.13)"));
+    }
     let x = context_to(e, x, target);
     super::checks::assign_compatible(e, sc, target, x, n)?;
     Ok(assign_conv(e, x, target))
@@ -302,6 +305,9 @@ fn bind_inner<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, ExprId>
             let pre = e.kind(kids[0]) == Kind::Op;
             let x = expr(e, sc, target)?;
             super::checks::lvalue(e, sc, x, target, false)?;
+            if matches!(e.d.types.get(e.ex(x).ty), Type::Enum { .. }) {
+                return Err(e.err(n, format!("`{op}` would assign an integral value to an enum variable (6.19.4)")));
+            }
             let u = match (op, pre) {
                 ("++", true) => UnOp::PreInc,
                 ("--", true) => UnOp::PreDec,
@@ -1487,6 +1493,18 @@ fn call<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, kids: &[NodeId]) -> R<
                 ty::ScopeTarget::Unit => e.scope(e.d.unit).names.get(&s).copied(),
                 ty::ScopeTarget::Unknown => None,
             };
+            // `C::new(args)`: a typed constructor call (8.7).
+            if let ty::ScopeTarget::Class(c) = target
+                && e.name(s) == "new"
+            {
+                let t = e.d.types.intern(Type::Class(c));
+                let own = e.scope(e.d.classes[c.0 as usize].scope).names.get(&s).copied();
+                let mut xs = Vec::new();
+                if let Some(Binding::Subroutine(ctor)) = own {
+                    xs.push(call_sub(e, sc, ctor, n, &args, None)?);
+                }
+                return Ok(e.new_expr(ExprKind::New, t, n, xs));
+            }
             match b {
                 Some(Binding::Subroutine(sub)) => call_sub(e, sc, sub, n, &args, None),
                 _ => {

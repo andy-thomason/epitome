@@ -1155,6 +1155,7 @@ fn event_terms<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, out: &mut Vec<E
                 _ => (Edge::Any, 0),
             };
             let x = expr::expr(e, sc, k[xi])?;
+            super::checks::event_operand(e, x, edge != Edge::Any, k[xi])?;
             let iff = match k.get(xi + 1) {
                 Some(&i) if e.kind(i) == Kind::Iff => Some(expr::expr(e, sc, e.kids(i)[0])?),
                 _ => None,

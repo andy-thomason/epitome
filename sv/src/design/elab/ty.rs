@@ -235,11 +235,19 @@ fn named<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, TypeId> {
                     Some(Binding::Other(_)) => Ok(Types::UNKNOWN),
                     _ => Err(e.err(k[1], format!("there is no type `{}` there", e.name(s)))),
                 },
-                ScopeTarget::Class(c) => match lookup::class_member(e, c, s) {
-                    Some(Binding::Type(t)) => Ok(t),
-                    Some(Binding::Class(c2)) => Ok(e.d.types.intern(Type::Class(c2))),
-                    _ => Ok(Types::UNKNOWN),
-                },
+                ScopeTarget::Class(c) => {
+                    // A class known only by a forward typedef is incomplete
+                    // until its definition (6.18).
+                    let def = e.d.classes[c.0 as usize].node;
+                    if !e.in_typedef && e.ast.node(def).first > e.ast.node(n).first && e.scope(e.d.classes[c.0 as usize].scope).items.is_empty() {
+                        return Err(e.err(k[0], format!("class `{}` is not yet defined here, so its members cannot be used (6.18)", e.name(e.d.classes[c.0 as usize].name))));
+                    }
+                    match lookup::class_member(e, c, s) {
+                        Some(Binding::Type(t)) => Ok(t),
+                        Some(Binding::Class(c2)) => Ok(e.d.types.intern(Type::Class(c2))),
+                        _ => Ok(Types::UNKNOWN),
+                    }
+                }
                 ScopeTarget::Unit => match e.scope(e.d.unit).names.get(&s).copied() {
                     Some(Binding::Type(t)) => Ok(t),
                     Some(Binding::Class(c)) => Ok(e.d.types.intern(Type::Class(c))),
@@ -452,6 +460,7 @@ fn enum_type<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, TypeId> 
     let mut item_nodes = Vec::new();
     let mut next = Bits::zero(width, signed);
     let mut next_known = true;
+    let mut overflow = false;
     for it in kids.iter().copied().filter(|&k| e.kind(k) == Kind::EnumItem).collect::<Vec<_>>() {
         let ik = e.kids(it).to_vec();
         let name = e.sym_of(ik[0]);
@@ -482,6 +491,9 @@ fn enum_type<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, TypeId> 
                 if !next_known {
                     return Err(e.err(ik[0], "an enum value after one with x or z must be given explicitly (6.19)"));
                 }
+                if overflow {
+                    return Err(e.err(ik[0], format!("`{}` would be one more than the largest value of the enum's base type (6.19)", e.name(name))));
+                }
                 next.clone()
             }
         };
@@ -489,6 +501,9 @@ fn enum_type<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, TypeId> 
             0 => vec![(name, start.clone())],
             _ => {
                 let a = super::ty::const_int(e, sc, range[0])?;
+                if range.len() == 1 && a <= 0 {
+                    return Err(e.err(range[0], format!("`{}[{a}]` names no values; the count must be positive (6.19)", e.name(name))));
+                }
                 let (lo, hi) = if range.len() == 2 { (a, super::ty::const_int(e, sc, range[1])?) } else { (0, a - 1) };
                 let base_name = e.name(name).to_string();
                 let mut v = start.clone();
@@ -516,10 +531,9 @@ fn enum_type<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, TypeId> 
             }
             next_known = v.is_known();
             next = v.add(&Bits::from_u64(width, signed, 1)).resize(width, false).with_signed(signed);
-            if next_known && !v.is_zero() && next.is_zero() && !signed {
-                // Wrapped: the next implicit value would not fit.
-                next_known = true;
-            }
+            // Incrementing the largest value wraps: the next implicit value
+            // would not fit.
+            overflow = next_known && next.cmp_op(&v, |o| o.is_le()) == crate::design::value::Logic::One;
             items.push((s, v));
             item_nodes.push(it);
         }
@@ -553,7 +567,11 @@ pub(crate) fn typedef<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a>
     let name_node = *kids.iter().find(|&&k| e.kind(k) == Kind::Name).unwrap();
     let s = e.sym_of(name_node);
     let tn = kids[0];
-    let base = data_type(e, sc, tn)?;
+    // A typedef may name a member of a class not yet defined (6.18).
+    e.in_typedef = true;
+    let base = data_type(e, sc, tn);
+    e.in_typedef = false;
+    let base = base?;
     let dims: Vec<NodeId> = kids.iter().copied().filter(|&k| is_dim(e.kind(k))).collect();
     let mut t = unpacked(e, sc, base, &dims)?;
     // Name a struct, union or enum after its first typedef.
@@ -578,6 +596,7 @@ pub(crate) fn typedef<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a>
     }
     match e.scope(sc).names.get(&s).copied() {
         Some(Binding::Other(m)) if e.kind(m) == Kind::ForwardTypedef => {
+            super::checks::forward_kind(e, m, None, Some(t))?;
             e.scope_mut(sc).names.insert(s, Binding::Type(t));
         }
         _ => e.declare(sc, s, Binding::Type(t), name_node)?,
@@ -594,6 +613,9 @@ pub(crate) fn nettype<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a>
     let s = e.sym_of(name_node);
     super::checks::nettype_data(e, t, kids[0])?;
     e.nettypes.insert(s);
+    // `with f`: the resolution function, checked once declared.
+    let resolver = kids.get(2).copied();
+    e.nettype_info.insert(s, (t, resolver.map(|r| (sc, r))));
     e.declare(sc, s, Binding::Type(t), name_node)?;
     e.push_item(sc, Item::Typedef(s, t));
     Ok(())

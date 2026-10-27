@@ -210,6 +210,10 @@ pub(crate) fn unit_ref<'a>(e: &mut Elab<'a, '_>, _sc: ScopeId, s: Sym, b: Option
 
 /// Where a name is used, rules that depend on what it is.
 pub(crate) fn object_use<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, o: ObjId, n: NodeId) -> R<'a> {
+    // An interconnect net only connects; procedures cannot use it (6.6.8).
+    if matches!(e.obj(o).kind, ObjKind::Net(k) if e.name(k) == "interconnect") && (e.proc_kind.is_some() || e.current_sub.is_some()) {
+        return Err(e.err(n, format!("`{}` is an interconnect net, so procedural code cannot use it (6.6.8)", e.name(e.obj(o).name))));
+    }
     let obj_scope = e.obj(o).scope;
     let user_pkg = lookup::enclosing(e, sc, ScopeKind::Package);
     // A package may not refer to the compilation unit's items (26.3).
@@ -243,7 +247,10 @@ pub(crate) fn net_type<'a>(e: &mut Elab<'a, '_>, _sc: ScopeId, n: NodeId, t: Typ
     // A net's data type must be four-state integral, or an unpacked array
     // or struct of them (6.7.1).
     let mut base = t;
-    while let Type::Unpacked { elem, .. } = e.d.types.get(base) {
+    while let Type::Unpacked { elem, dim } = e.d.types.get(base) {
+        if !matches!(dim, UDim::Range(..)) {
+            return Err(e.err(n, "a net's unpacked dimensions must be fixed-size (6.7)"));
+        }
         base = *elem;
     }
     let ok = match e.d.types.get(base) {
@@ -258,7 +265,52 @@ pub(crate) fn net_type<'a>(e: &mut Elab<'a, '_>, _sc: ScopeId, n: NodeId, t: Typ
     Ok(())
 }
 
-pub(crate) fn nettype_data<'a>(_e: &mut Elab<'a, '_>, _t: TypeId, _n: NodeId) -> R<'a> {
+/// The data types a user-defined nettype may have (6.6.7): integral,
+/// real or shortreal, or fixed-size unpacked arrays and structs of them.
+pub(crate) fn nettype_data<'a>(e: &mut Elab<'a, '_>, t: TypeId, n: NodeId) -> R<'a> {
+    fn valid(e: &Elab, t: TypeId) -> bool {
+        match e.d.types.get(t) {
+            Type::Unknown => true,
+            Type::Real(k) => *k != crate::design::types::RealKind::RealTime || true,
+            Type::Unpacked { elem, dim: UDim::Range(..) } => valid(e, *elem),
+            Type::Struct { members, .. } => members.iter().all(|m| valid(e, m.ty)),
+            _ => e.d.types.is_integral(t),
+        }
+    }
+    if !valid(e, t) {
+        let what = e.d.types.describe(t, &e.d.syms);
+        return Err(e.err(n, format!("`{what}` is not a valid data type for a nettype (6.6.7)")));
+    }
+    Ok(())
+}
+
+/// A nettype's resolution function returns its data type and takes one
+/// input, a dynamic array of it (6.6.7).
+fn nettype_resolvers<'a>(e: &mut Elab<'a, '_>) -> R<'a> {
+    for (_, (t, res)) in e.nettype_info.clone() {
+        let Some((sc, r)) = res else { continue };
+        let target = match e.kind(r) {
+            Kind::Name => {
+                let s = e.sym_of(r);
+                lookup::lookup(e, sc, s)
+            }
+            _ => None,
+        };
+        let Some(Binding::Subroutine(f)) = target else { continue };
+        super::stmt::sub_signature(e, f)?;
+        let sub = &e.d.subroutines[f.0 as usize];
+        let ret = sub.ret;
+        if ret != t && ret != Types::UNKNOWN && t != Types::UNKNOWN {
+            let (a, b) = (e.d.types.describe(ret, &e.d.syms), e.d.types.describe(t, &e.d.syms));
+            return Err(e.err(r, format!("the resolution function returns `{a}`, but the nettype's data type is `{b}` (6.6.7)")));
+        }
+        let args = sub.args.clone();
+        let ok = args.len() == 1
+            && matches!(e.d.types.get(e.obj(args[0]).ty), Type::Unpacked { elem, dim: UDim::Dynamic } if *elem == t || t == Types::UNKNOWN);
+        if !ok {
+            return Err(e.err(r, "a resolution function takes one input, a dynamic array of the nettype's data type (6.6.7)"));
+        }
+    }
     Ok(())
 }
 
@@ -372,14 +424,49 @@ pub(crate) fn struct_whole<'a>(
 }
 
 pub(crate) fn enum_value_fits<'a>(e: &mut Elab<'a, '_>, n: NodeId, b: &Bits, width: u32, signed: bool) -> R<'a> {
-    // A sized literal wider than the base type is an error (6.19).
-    if b.width() > width && e.kind(n) == Kind::Number && e.ast.tokens_of(n).len() == 3 {
-        let fits = b.resize(width, b.signed()).extend(b.width()).case_eq(b);
-        if !fits {
-            return Err(e.err(n, "the enum value does not fit its base type (6.19)"));
+    // A sized literal must have the base type's width (6.19).
+    if e.kind(n) == Kind::Number && e.ast.tokens_of(n).len() == 3 && b.width() != width {
+        return Err(e.err(n, format!("a {}-bit literal cannot give a value to an enum of {width} bits (6.19)", b.width())));
+    }
+    // The value must be representable in the base type.
+    if b.is_known() {
+        let back = b.resize(width, false).with_signed(signed).resize(b.width().max(width) + 1, signed);
+        let orig = b.resize(b.width().max(width) + 1, b.signed());
+        if !back.case_eq(&orig) {
+            return Err(e.err(n, format!("{} does not fit the enum's {width}-bit {}base type (6.19)", b.to_decimal(), if signed { "signed " } else { "" })));
         }
     }
-    let _ = signed;
+    Ok(())
+}
+
+/// A forward typedef's keyword must match the definition (6.18).
+pub(crate) fn forward_kind<'a>(e: &mut Elab<'a, '_>, fwd: NodeId, class: Option<ClassId>, t: Option<TypeId>) -> R<'a> {
+    let kw = e.keywords_of(fwd);
+    let Some(&want) = kw.first() else { return Ok(()) };
+    let got = match (class, t.map(|t| e.d.types.get(t).clone())) {
+        (Some(c), _) => if e.d.classes[c.0 as usize].interface { "interface" } else { "class" },
+        (_, Some(Type::Struct { union: true, .. })) => "union",
+        (_, Some(Type::Struct { .. })) => "struct",
+        (_, Some(Type::Enum { .. })) => "enum",
+        (_, Some(Type::Class(_))) => "class",
+        _ => return Ok(()),
+    };
+    if want != got && !(want == "interface" && got == "class") {
+        return Err(e.err(fwd, format!("the forward typedef says `{want}`, but the definition is a{} `{got}` (6.18)", if got.starts_with(['a', 'e', 'i', 'u']) { "n" } else { "" })));
+    }
+    Ok(())
+}
+
+/// What an event control may wait on (9.4.2): not a chandle, and no edge
+/// of a real.
+pub(crate) fn event_operand<'a>(e: &mut Elab<'a, '_>, x: ExprId, edge: bool, n: NodeId) -> R<'a> {
+    let t = e.ex(x).ty;
+    if t == Types::CHANDLE {
+        return Err(e.err(n, "a chandle cannot be used in an event expression (6.14)"));
+    }
+    if edge && e.d.types.is_real(t) {
+        return Err(e.err(n, "an edge of a real value cannot be detected (6.12)"));
+    }
     Ok(())
 }
 
@@ -674,6 +761,16 @@ pub(crate) fn assign_compatible<'a>(e: &mut Elab<'a, '_>, _sc: ScopeId, target: 
             // (6.19.3).
             Err(e.err(n, "an integral value cannot be assigned to an enum without a cast (6.19.3)"))
         }
+        (Type::Chandle, _) if src != Types::NULL => {
+            Err(e.err(n, "only `null` or another chandle can be assigned to a chandle (6.14)"))
+        }
+        (_, Type::Chandle) if target != Types::CHANDLE => Err(e.err(n, "a chandle can only be assigned to a chandle (6.14)")),
+        (Type::Class(_), _) if e.d.types.is_integral(src) => {
+            Err(e.err(n, "an integral value cannot be assigned to a class handle (6.22)"))
+        }
+        (_, Type::Class(_)) if e.d.types.is_integral(target) => {
+            Err(e.err(n, "a class handle cannot be assigned to an integral variable (6.22)"))
+        }
         (Type::Enum { .. }, Type::Enum { .. }) => {
             Err(e.err(n, "a value of one enum type cannot be assigned to another without a cast (6.19.3)"))
         }
@@ -777,6 +874,12 @@ fn in_constructor(e: &Elab, _sc: ScopeId) -> bool {
 /// What a continuous assignment may drive (10.3).
 pub(crate) fn continuous_lvalue<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, x: ExprId, n: NodeId) -> R<'a> {
     let ex = e.ex(x).clone();
+    if ex.ty == Types::CHANDLE {
+        return Err(e.err(n, "a chandle cannot be driven by a continuous assignment (6.14)"));
+    }
+    if let ExprKind::Field(_) = ex.kind {
+        return Err(e.err(n, "a class property cannot be driven by a continuous assignment (8.4)"));
+    }
     match ex.kind {
         ExprKind::Object(o) | ExprKind::Hier { object: Some(o), .. } => {
             let obj = e.obj(o);
@@ -805,6 +908,14 @@ pub(crate) fn continuous_lvalue<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, x: ExprId
 }
 
 pub(crate) fn port_lvalue<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, port: &Port, x: ExprId, n: NodeId) -> R<'a> {
+    // An inout port connects nets (23.3.3.2).
+    if port.dir == Dir::Inout {
+        let mut ts = Vec::new();
+        target_slices(e, x, &mut ts);
+        if let Some(&(o, _)) = ts.iter().find(|&&(o, _)| e.obj(o).kind == ObjKind::Variable) {
+            return Err(e.err(n, format!("`{}` is a variable, so it cannot be connected to inout port `{}` (23.3.3.2)", e.name(e.obj(o).name), e.name(port.name))));
+        }
+    }
     match port.dir {
         Dir::Output | Dir::Inout => match e.ex(x).kind {
             ExprKind::Const(_) => Err(e.err(n, format!("output port `{}` cannot be connected to a constant", e.name(port.name)))),
@@ -1160,6 +1271,16 @@ pub(crate) fn gate_terminals<'a>(
     if !is_gate {
         return Ok(());
     }
+    // A `uwire` has one driver, so it cannot be on a switch (6.6.2).
+    if kw.contains("tran") {
+        for &t in terms {
+            if let ExprKind::Object(o) = e.ex(t).kind
+                && matches!(e.obj(o).kind, ObjKind::Net(k) if e.name(k) == "uwire")
+            {
+                return Err(e.err(n, format!("`{}` is a uwire, so it cannot be connected to a bidirectional switch (6.6.2)", e.name(e.obj(o).name))));
+            }
+        }
+    }
     let array = e.kids(inst).iter().any(|&k| super::ty::is_dim(e.kind(k)));
     if !array {
         for (i, &t) in terms.iter().enumerate() {
@@ -1250,7 +1371,13 @@ pub(crate) fn spec_done<'a>(_e: &mut Elab<'a, '_>, _sc: ScopeId, _kind: DefKind)
 
 /// Checks that need the whole design.
 pub(crate) fn after<'a>(e: &mut Elab<'a, '_>) -> R<'a> {
+    for (sc, s, n) in e.forwards.clone() {
+        if matches!(e.scope(sc).names.get(&s), Some(Binding::Other(m)) if *m == n) {
+            return Err(e.err(n, format!("the forward typedef `{}` is never defined (6.18)", e.name(s))));
+        }
+    }
     mixed_timeunits(e)?;
+    nettype_resolvers(e)?;
     defparams(e)?;
     drivers(e)?;
     Ok(())
@@ -1292,42 +1419,218 @@ fn defparams<'a>(e: &mut Elab<'a, '_>) -> R<'a> {
     Ok(())
 }
 
-/// A variable may be written by one continuous assignment, or by
-/// procedures, but not both (6.5); `always_comb`, `always_latch` and
-/// `always_ff` own the variables they write (9.2.2).
+/// What part of an object an assignment writes.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Slice {
+    Whole,
+    /// Bits or elements `lo..=hi` of the outermost dimension.
+    Range(i64, i64),
+    Member(u32),
+}
+
+fn overlaps(a: Slice, b: Slice) -> bool {
+    match (a, b) {
+        (Slice::Whole, _) | (_, Slice::Whole) => true,
+        (Slice::Range(a0, a1), Slice::Range(b0, b1)) => a0 <= b1 && b0 <= a1,
+        (Slice::Member(x), Slice::Member(y)) => x == y,
+        _ => false,
+    }
+}
+
+/// The objects an assignment target writes, with the part of each.
+fn target_slices(e: &Elab, x: ExprId, out: &mut Vec<(ObjId, Slice)>) {
+    let ex = e.ex(x);
+    match &ex.kind {
+        ExprKind::Object(o) | ExprKind::Hier { object: Some(o), .. } => out.push((*o, Slice::Whole)),
+        ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_) => {
+            let base = ex.args[0];
+            let bk = &e.ex(base).kind;
+            let Some(o) = (match bk {
+                ExprKind::Object(o) | ExprKind::Hier { object: Some(o), .. } => Some(*o),
+                _ => None,
+            }) else {
+                return target_slices(e, base, out);
+            };
+            let konst = |i: usize| match ex.args.get(i).map(|&a| &e.ex(a).kind) {
+                Some(ExprKind::Const(c)) => e.d.consts[c.0 as usize].to_i64(),
+                Some(ExprKind::Convert) => match &e.ex(e.ex(ex.args[i]).args[0]).kind {
+                    ExprKind::Const(c) => e.d.consts[c.0 as usize].to_i64(),
+                    _ => None,
+                },
+                _ => None,
+            };
+            let slice = match &ex.kind {
+                ExprKind::Member(m) => Slice::Member(*m),
+                ExprKind::Index => konst(1).map_or(Slice::Whole, |i| Slice::Range(i, i)),
+                ExprKind::Part { kind, width } => match (kind, konst(1)) {
+                    (PartKind::Range, Some(a)) => konst(2).map_or(Slice::Whole, |b| Slice::Range(a.min(b), a.max(b))),
+                    (PartKind::Up, Some(a)) => Slice::Range(a, a + *width as i64 - 1),
+                    (PartKind::Down, Some(a)) => Slice::Range(a - *width as i64 + 1, a),
+                    _ => Slice::Whole,
+                },
+                _ => Slice::Whole,
+            };
+            out.push((o, slice));
+        }
+        ExprKind::Concat | ExprKind::Pattern => {
+            for &a in &ex.args {
+                target_slices(e, a, out);
+            }
+        }
+        ExprKind::Convert => target_slices(e, ex.args[0], out),
+        _ => {}
+    }
+}
+
+fn proc_targets(e: &Elab, s: StmtId, out: &mut Vec<(ObjId, Slice)>) {
+    let st = e.d.stmts[s.0 as usize].kind.clone();
+    match st {
+        StmtKind::Assign { lhs, .. } => target_slices(e, lhs, out),
+        StmtKind::Block { stmts, .. } => stmts.into_iter().for_each(|x| proc_targets(e, x, out)),
+        StmtKind::If { then, else_, .. } => {
+            proc_targets(e, then, out);
+            if let Some(x) = else_ {
+                proc_targets(e, x, out);
+            }
+        }
+        StmtKind::Case { items, default, .. } => {
+            for (_, x) in items {
+                proc_targets(e, x, out);
+            }
+            if let Some(d) = default {
+                proc_targets(e, d, out);
+            }
+        }
+        StmtKind::For { init, step, body, .. } => {
+            init.into_iter().chain(step).for_each(|x| proc_targets(e, x, out));
+            proc_targets(e, body, out);
+        }
+        StmtKind::Forever(b)
+        | StmtKind::Repeat(_, b)
+        | StmtKind::While(_, b)
+        | StmtKind::DoWhile(b, _)
+        | StmtKind::Timed(_, b)
+        | StmtKind::Wait(_, b) => proc_targets(e, b, out),
+        StmtKind::Foreach { body, .. } => proc_targets(e, body, out),
+        _ => {}
+    }
+}
+
+fn obj_name(e: &Elab, o: ObjId) -> String {
+    e.name(e.d.objects[o.0 as usize].name).to_string()
+}
+
+/// Who writes what (6.5, 6.6): a variable may be written by one
+/// continuous assignment or by procedures, but not both, part by part;
+/// `uwire` nets and nets of a nettype with no resolution function have one
+/// driver; `always_comb`, `always_latch` and `always_ff` own the variables
+/// they write (9.2.2).
 fn drivers<'a>(e: &mut Elab<'a, '_>) -> R<'a> {
     use std::collections::HashMap;
-    let mut cont: HashMap<ObjId, NodeId> = HashMap::new();
+    // Continuous writers: assignments, and output and inout ports of
+    // instances, which drive what they are connected to (4.9.6).
+    let mut cont: Vec<(ObjId, Slice, NodeId)> = Vec::new();
     for d in &e.d.drivers {
-        if let ExprKind::Object(o) = e.d.exprs[d.lhs.0 as usize].kind
-            && e.d.objects[o.0 as usize].kind == ObjKind::Variable
-        {
-            if let Some(&first) = cont.get(&o) {
-                let _ = first;
-                return Err(e.err(d.node, format!("variable `{}` is driven by two continuous assignments (6.5)", e.name(e.d.objects[o.0 as usize].name))));
+        let mut ts = Vec::new();
+        target_slices(e, d.lhs, &mut ts);
+        // A net's declaration assignment is its driver, not a write.
+        cont.extend(ts.into_iter().map(|(o, s)| (o, s, d.node)));
+    }
+    for inst in &e.d.instances {
+        if inst.spec.0 == u32::MAX {
+            continue;
+        }
+        let ports = &e.d.specs[inst.spec.0 as usize].ports;
+        for c in &inst.connections {
+            let Some(x) = c.expr else { continue };
+            let Some(p) = ports.iter().find(|p| p.name == c.port) else { continue };
+            if matches!(p.dir, Dir::Output | Dir::Inout) && inst.index.is_none() {
+                let mut ts = Vec::new();
+                target_slices(e, x, &mut ts);
+                cont.extend(ts.into_iter().map(|(o, s)| (o, s, e.d.exprs[x.0 as usize].node)));
             }
-            cont.insert(o, d.node);
         }
     }
+    for c in &e.d.cells {
+        // Switches are bidirectional: they connect, not drive.
+        if e.name(c.kind).contains("tran") {
+            continue;
+        }
+        if let Some(&out) = c.terminals.first() {
+            let mut ts = Vec::new();
+            target_slices(e, out, &mut ts);
+            cont.extend(ts.into_iter().map(|(o, s)| (o, s, c.node)));
+        }
+    }
+    let kind_of = |e: &Elab, o: ObjId| e.d.objects[o.0 as usize].kind;
+    // Two continuous writers of the same part of a variable, or of a
+    // single-driver net.
+    for (i, &(o, s, n)) in cont.iter().enumerate() {
+        let single = match kind_of(e, o) {
+            ObjKind::Variable => true,
+            ObjKind::Net(k) => {
+                let kn = e.name(k);
+                kn == "uwire" || e.nettype_info.get(&k).is_some_and(|(_, r)| r.is_none())
+            }
+            _ => false,
+        };
+        if !single {
+            continue;
+        }
+        if let Some(&(_, _, _)) = cont[..i].iter().find(|&&(o2, s2, _)| o2 == o && overlaps(s, s2)) {
+            let what = match kind_of(e, o) {
+                ObjKind::Variable => format!("variable `{}` has two continuous drivers (6.5)", obj_name(e, o)),
+                _ => format!("net `{}` can have only one driver (6.6.2, 6.6.7)", obj_name(e, o)),
+            };
+            return Err(e.err(n, what));
+        }
+    }
+    // Procedural writers.
     let mut owner: HashMap<ObjId, (ProcKind, NodeId)> = HashMap::new();
-    for p in &e.d.processes {
-        for &w in &p.writes {
-            if e.d.objects[w.0 as usize].kind != ObjKind::Variable || e.d.objects[w.0 as usize].lifetime == Lifetime::Automatic {
+    let procs: Vec<(ProcKind, StmtId, NodeId, Vec<ObjId>)> =
+        e.d.processes.iter().map(|p| (p.kind, p.body, p.node, p.writes.clone())).collect();
+    for (kind, body, node, writes) in procs {
+        let mut ts = Vec::new();
+        proc_targets(e, body, &mut ts);
+        for (o, s) in ts {
+            if kind_of(e, o) != ObjKind::Variable || e.d.objects[o.0 as usize].lifetime == Lifetime::Automatic {
                 continue;
             }
-            if cont.contains_key(&w) {
-                return Err(e.err(p.node, format!("variable `{}` is written by a procedure and by a continuous assignment (6.5)", e.name(e.d.objects[w.0 as usize].name))));
+            if cont.iter().any(|&(o2, s2, _)| o2 == o && overlaps(s, s2)) {
+                return Err(e.err(node, format!("variable `{}` is written by a procedure and by a continuous driver (6.5)", obj_name(e, o))));
             }
-            let exclusive = matches!(p.kind, ProcKind::AlwaysComb | ProcKind::AlwaysLatch | ProcKind::AlwaysFf);
+            if e.d.objects[o.0 as usize].dir == Some(Dir::Input) {
+                return Err(e.err(node, format!("`{}` is an input port, so it cannot be assigned inside the module (23.3.3)", obj_name(e, o))));
+            }
+        }
+        for w in writes {
+            if kind_of(e, w) != ObjKind::Variable || e.d.objects[w.0 as usize].lifetime == Lifetime::Automatic {
+                continue;
+            }
+            let exclusive = matches!(kind, ProcKind::AlwaysComb | ProcKind::AlwaysLatch | ProcKind::AlwaysFf);
             if let Some(&(k, _)) = owner.get(&w)
                 && (exclusive || matches!(k, ProcKind::AlwaysComb | ProcKind::AlwaysLatch | ProcKind::AlwaysFf))
             {
                 return Err(e.err(
-                    p.node,
-                    format!("variable `{}` is written by an `always_comb`, `always_latch` or `always_ff` procedure and by another process (9.2.2)", e.name(e.d.objects[w.0 as usize].name)),
+                    node,
+                    format!("variable `{}` is written by an `always_comb`, `always_latch` or `always_ff` procedure and by another process (9.2.2)", obj_name(e, w)),
                 ));
             }
-            owner.entry(w).or_insert((p.kind, p.node));
+            owner.entry(w).or_insert((kind, node));
+        }
+    }
+    // A variable's initialiser is a procedural write (6.5); an input port
+    // variable is driven from outside.
+    for &(o, _, n) in &cont {
+        let obj = &e.d.objects[o.0 as usize];
+        if obj.kind == ObjKind::Variable && obj.init.is_some() && obj.dir.is_none() {
+            return Err(e.err(n, format!("variable `{}` has an initialiser, so a continuous assignment cannot also write it (6.5)", obj_name(e, o))));
+        }
+        if obj.kind == ObjKind::Variable && obj.dir == Some(Dir::Input) {
+            return Err(e.err(n, format!("`{}` is an input port, so it cannot be assigned inside the module (23.3.3)", obj_name(e, o))));
+        }
+        if matches!(obj.kind, ObjKind::Net(k) if e.name(k) == "interconnect") && e.d.drivers.iter().any(|d| d.node == n) {
+            return Err(e.err(n, format!("`{}` is an interconnect net, so it cannot be the target of a continuous assignment (6.6.8)", obj_name(e, o))));
         }
     }
     Ok(())

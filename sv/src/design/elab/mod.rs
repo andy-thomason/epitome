@@ -130,6 +130,14 @@ pub(crate) struct Elab<'a, 'x> {
     pub has_bind: bool,
     /// The scope a nested definition is being instantiated from.
     pub nested_parent: Option<ScopeId>,
+    /// The names of the packages defined, to find duplicates (3.13).
+    pub package_names: std::collections::HashSet<Sym>,
+    /// Whether a typedef's type is being elaborated.
+    pub in_typedef: bool,
+    /// Forward typedefs, which must each be completed (6.18).
+    pub forwards: Vec<(ScopeId, Sym, NodeId)>,
+    /// Each nettype's data type and resolution function (6.6.7).
+    pub nettype_info: HashMap<Sym, (TypeId, Option<(ScopeId, NodeId)>)>,
 }
 
 impl<'a, 'x> Elab<'a, 'x> {
@@ -187,6 +195,10 @@ impl<'a, 'x> Elab<'a, 'x> {
             connecting_array: false,
             has_bind: ast.nodes.iter().any(|n| n.kind == Kind::Bind),
             nested_parent: None,
+            package_names: Default::default(),
+            nettype_info: HashMap::new(),
+            forwards: Vec::new(),
+            in_typedef: false,
         }
     }
 
@@ -572,7 +584,7 @@ impl<'a, 'x> Elab<'a, 'x> {
             Kind::Package => {
                 let name = self.name_child(item).unwrap();
                 let s = self.sym_of(name);
-                if self.packages.contains_key(&s) && s != self.sym("std") {
+                if !self.package_names.insert(s) {
                     return Err(self.err(name, format!("package `{}` is already defined (3.13)", self.name(s))));
                 }
                 return Ok(());
@@ -681,6 +693,9 @@ impl<'a, 'x> Elab<'a, 'x> {
                 let s = self.sym_of(name);
                 if !self.scope(sc).names.contains_key(&s) {
                     self.scope_mut(sc).names.insert(s, Binding::Other(n));
+                    self.forwards.push((sc, s, n));
+                } else if let Some(Binding::Class(c)) = self.scope(sc).names.get(&s).copied() {
+                    checks::forward_kind(self, n, Some(c), None)?;
                 }
             }
             Kind::NettypeDecl => ty::nettype(self, sc, n)?,
@@ -1024,6 +1039,11 @@ impl<'a, 'x> Elab<'a, 'x> {
         {
             return self.net_decl(sc, n);
         }
+        if quals.iter().any(|&q| self.name(q) == "automatic")
+            && matches!(self.scope(sc).kind, ScopeKind::Spec | ScopeKind::Unit | ScopeKind::Package | ScopeKind::Generate)
+        {
+            return Err(self.err(n, "variables declared outside procedures and subroutines are static; `automatic` is not allowed here (6.21)"));
+        }
         let base = ty::data_type(self, sc, ty_node)?;
         let is_const = quals.iter().any(|&q| self.name(q) == "const");
         let lifetime = self.lifetime_of(sc, &quals);
@@ -1048,7 +1068,8 @@ impl<'a, 'x> Elab<'a, 'x> {
                 qualifiers: quals.clone(),
             });
             // A non-ANSI port declared again as a variable (23.2.2.1).
-            if let Some(Binding::Object(p)) = self.scope(sc).names.get(&s).copied()
+            if self.scope(sc).kind == ScopeKind::Spec
+                && let Some(Binding::Object(p)) = self.scope(sc).names.get(&s).copied()
                 && self.obj(p).dir.is_some()
                 && self.obj(p).node != dcl
             {
@@ -1124,7 +1145,9 @@ impl<'a, 'x> Elab<'a, 'x> {
             let dims: Vec<NodeId> = dk[1..].iter().copied().filter(|&k| ty::is_dim(self.kind(k))).collect();
             let init = dk[1..].iter().copied().find(|&k| !ty::is_dim(self.kind(k)));
             let t = ty::unpacked(self, sc, base, &dims)?;
-            if let Some(Binding::Object(p)) = self.scope(sc).names.get(&s).copied()
+            checks::net_type(self, sc, dcl, t, user_nettype)?;
+            if self.scope(sc).kind == ScopeKind::Spec
+                && let Some(Binding::Object(p)) = self.scope(sc).names.get(&s).copied()
                 && self.obj(p).dir.is_some()
                 && self.obj(p).node != dcl
             {
@@ -1776,6 +1799,9 @@ impl<'a, 'x> Elab<'a, 'x> {
                         Some(t) => ty::data_type(self, sc, t)?,
                         None => Types::LOGIC,
                     };
+                    if base == Types::CHANDLE {
+                        return Err(self.err(dk[0], "a port cannot be a chandle (6.14)"));
+                    }
                     let dims: Vec<NodeId> = dk[1..].iter().copied().filter(|&k| ty::is_dim(self.kind(k))).collect();
                     let t = ty::unpacked(self, sc, base, &dims)?;
                     let kw = if inherit { prev_kind } else { net_kw };

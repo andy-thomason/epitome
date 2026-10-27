@@ -56,10 +56,10 @@ They come after everything else passes.
  │                                              ▼                    │
  │                  design IR (per specialisation; section 7)        │
  │                           │                       │               │
- │          netlist: hw / comb / seq      program: processes,        │
- │          ─► eval (section 8.1)         testbench (section 8.2)    │
- │                           └───────────┬───────────┘               │
- │                     Epitome IR + runtime calls                    │
+ │          interpreter: bytecode,        netlist: hw / comb / seq   │
+ │          scheduler (section 8.2)       as lanes (8.1, 8.3)        │
+ │          runs everything; default      synthesisable logic, when  │
+ │                                        run time matters           │
  └──────────────────────────────────────────────┬────────────────────┘
                                                  ▼
                                   epitome_ir::Module
@@ -375,7 +375,7 @@ operands). The design is Epitome's own IR, the first of three layers:
 | --- | --- | --- |
 | Design (this section) | Everything the language means, with names and types resolved | Rust arenas, below |
 | Netlist (section 8.1) | The synthesisable part: cells, wires, registers, memories | MLIR `hw`, `comb` and `seq`, in `epitome-mlir`'s form |
-| Program (section 8.2) | Everything event-driven: processes, testbench code, the scheduler | `epitome_ir` calling a Rust runtime |
+| Interpreter (section 8.2) | Everything, and the scheduler; the only home of testbench code | Bytecode per specialisation |
 
 `llhd` is not used for now. It has delta and epsilon steps but no
 reactive set, Preponed or Postponed region (clause 4.4), so the runtime
@@ -544,7 +544,7 @@ Elaboration sorts processes and nets between the two lower layers:
   runtime, writing nets with one driver and no strengths, or variables
   written by that process only. How their values are laid out in
   memory, and the two-state and four-state models, are in section 8.3.
-- **Program** (section 8.2): everything else, including any process
+- **Interpreter** (section 8.2): everything else, including any process
   that the netlist rules reject, which then reads and writes netlist
   values through the state struct between `eval` calls.
 
@@ -630,6 +630,24 @@ and Postponed. The PLI-only regions wait for VPI. Within a region the
 order of events is free (clause 4.7), so a fixed order chosen at compile
 time is a correct one; only the region boundaries must be kept.
 
+There are two ways to run a design, and they share one scheduler:
+
+- **The interpreter** (section 8.2) runs everything, and is the default.
+  It is built for a short time to first result: 100,000 lines of
+  SystemVerilog should be simulating within a second or two, with no
+  code generation at all. It is also the reference that the compiled
+  path is checked against.
+- **The compiled netlist** (sections 8.1, 8.3) runs the synthesisable
+  logic, laid out as a structure of arrays with instances as vector
+  lanes, and compiled by Epitome's code generator when run time matters
+  more than build time. Concurrent assertions, which are clocked and
+  sample like registers, may go with it.
+
+Everything else (testbench code, classes, `fork`, dynamic data, system
+tasks) stays in the interpreter for good. Such code is rarely where a
+simulation spends its time, and compiling it would cost build time for
+little gain. (This replaces an earlier plan to compile it to Epitome IR.)
+
 ### 8.1 The netlist
 
 The processes and nets that section 7.8 sends here become one `hw.module`
@@ -645,22 +663,50 @@ that runs every instance of it at once, a vector lane per instance
 (section 8.3). The scalar path stays for designs from Chisel and for
 checking.
 
-### 8.2 The program
+### 8.2 The interpreter
 
-Everything else is lowered to Epitome IR:
+**Building it is linear and cheap.** After elaboration, three passes,
+each linear in the size of the design:
 
-- **Processes become functions.** Each remaining `always`, `initial`,
-  `final` and forked thread is a function. A process that waits (`@`,
-  `#`, `wait`) is a state machine: its locals live in a frame and each
-  wait point is a resume label, so threads cost no stack.
-- **A runtime in Rust** holds the regions, the time wheel, NBA updates,
-  net resolution for nets with several drivers or strengths, strings,
-  dynamic arrays, queues, associative arrays, class objects, mailboxes,
-  semaphores and `$display`-style formatting. Generated code calls it
-  through `extern "C"` functions.
-- **The netlist runs inside the Active region.** When a value it reads
-  changes, the runtime calls `eval`; registers update at the clock edges
-  `eval` sees, as nonblocking assignments would.
+1. **Layout.** Every static object (variable, net, the static locals of
+   blocks and subroutines) of a specialisation gets a slot in that
+   specialisation's frame. Each instance gets a frame base in one state
+   store, so an object's slot is the instance's base plus the object's
+   offset. Automatic variables live in per-call frames.
+2. **Compile code once per specialisation.** Expressions and statements
+   are turned into a flat bytecode for a stack machine, with every name
+   already resolved to a frame offset, a constant, or an entry in the
+   instance's link table (hierarchical references, interface ports),
+   and every clause 11 conversion already explicit in the IR. Instances
+   of a specialisation share its code.
+3. **Link instances.** Each instance fills its link table and its port
+   connections, which become continuous drivers (4.9.6).
+
+No pass looks at the source text again, and nothing waits on a code
+generator.
+
+**Values** are four-state vectors stored inline up to 64 bits (value and
+unknown words) and on the heap above; reals, strings and handles have
+their own variants. Two-state objects carry no unknown word.
+
+**Processes** are coroutines over the bytecode: a program counter, an
+operand stack and a frame, so any number of them wait at no cost to the
+native stack. A process that waits records why: a time (in the time
+wheel), an event expression (on the waiting lists of the slots it
+reads), or a condition (re-evaluated when its slots change).
+
+**Continuous assignments and port connections** are small processes
+sensitive to what they read; nets with several drivers or strengths keep
+one value per driver and resolve them (clause 28).
+
+**The scheduler** follows clause 4.5: the active and reactive region
+sets iterated to quiescence, nonblocking updates applied in order, then
+Postponed (`$strobe`, `$monitor`). It is the one the compiled netlist
+joins later.
+
+**Measures:** the share of `test1800`'s simulation tests that print
+`PASS`, and the time from source to first simulated cycle on a large
+generated design.
 
 ### 8.3 Instances as lanes
 
@@ -887,12 +933,14 @@ pass rate on the clauses it targets stops climbing.
 4. **Elaboration** (Done, with the gaps in section 7.10): the design IR
    of section 7, and its interpreter for constant expressions;
    `:type: elaboration` tests.
-5. **Simulation of the synthesisable subset**: the runtime with
-   `$display`, `$finish`, `initial`, `always_ff`, `always_comb`, NBAs and
-   `#` delays. Every test prints `PASS` this way, so this unlocks the
-   bulk of clauses 3–13.
-6. **Testbench language**: classes, queues, `fork`/`join`, mailboxes,
-   semaphores, constrained random, then assertions and coverage.
+5. **The interpreter** (section 8.2): the scheduler, processes,
+   continuous assignments and `$display`/`$finish` first, since every
+   simulation test prints `PASS`; then the testbench language (classes,
+   queues, `fork`, mailboxes, constrained random), then assertions and
+   coverage. Time from source to first cycle is measured throughout.
+6. **The compiled netlist** (sections 8.1, 8.3): synthesisable logic as a
+   structure of arrays with instances as lanes, checked against the
+   interpreter; then fast mode (8.4) and the thread pool (8.5).
 
 The aim at each stage is to pass more of `test1800` than Verilator and
 Icarus (66.8% and 68.6% today).
@@ -918,8 +966,8 @@ Icarus (66.8% and 68.6% today).
   and at what size of design that pays for its checks.
 - **Decided:** three layers (section 7). The design is Epitome's own IR;
   the synthesisable part lowers to MLIR `hw`/`comb`/`seq` and reuses
-  that path; the rest goes straight to Epitome IR and the runtime. `llhd`
-  is not used, and `moore` is not a model.
-- **Open:** whether the reference interpreter (section 7.7) runs whole
-  simulations in `test1800`, or only constant functions, once the
-  compiled path works.
+  that path; the rest is interpreted (section 8.2). `llhd` is not used,
+  and `moore` is not a model.
+- **Decided:** the interpreter runs whole simulations and is the
+  default; testbench code is never compiled; the compiled netlist is an
+  accelerator for synthesisable logic (section 8).

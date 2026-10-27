@@ -453,6 +453,10 @@ impl Eval {
             }
         }
         let obj = e.obj(o);
+        if !e.in_specparam && obj.qualifiers.iter().any(|&q| e.name(q) == "specparam") {
+            let name = e.name(obj.name);
+            return Err(self.err(e, n, format!("specparam `{name}` can only be used in specparams and specify blocks, not in a parameter or range (6.20.5)")));
+        }
         match obj.kind {
             ObjKind::Param { .. } | ObjKind::EnumConst | ObjKind::Genvar => match obj.value {
                 Some(c) if c.0 != u32::MAX => Ok(e.d.consts[c.0 as usize].clone()),

@@ -147,6 +147,7 @@ pub(crate) fn data_type<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'
                     return Ok(t);
                 }
                 let x = super::expr::expr(e, sc, inner)?;
+                super::checks::type_operand(e, x, inner)?;
                 Ok(e.ex(x).ty)
             }
         }
@@ -419,6 +420,7 @@ fn struct_type<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, TypeId
     let soft = kws.contains(&"soft");
     let signed = kws.contains(&"signed");
     let mut members = Vec::new();
+    let mut has_default = false;
     for m in kids.iter().copied().filter(|&k| e.kind(k) == Kind::StructMember).collect::<Vec<_>>() {
         let mk = e.kids(m).to_vec();
         let rand = mk.iter().any(|&k| e.kind(k) == Kind::Keyword && e.text(k).starts_with("rand"));
@@ -429,6 +431,7 @@ fn struct_type<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, TypeId
             let name = e.sym_of(dk[0]);
             let dims: Vec<NodeId> = dk[1..].iter().copied().filter(|&k| is_dim(e.kind(k))).collect();
             let default = dk[1..].iter().copied().find(|&k| !is_dim(e.kind(k)));
+            has_default |= default.is_some();
             let t = unpacked(e, sc, base, &dims)?;
             if members.iter().any(|x: &Member| x.name == name) {
                 return Err(e.err(dk[0], format!("member `{}` is declared twice", e.name(name))));
@@ -438,6 +441,9 @@ fn struct_type<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, TypeId
         }
     }
     super::checks::struct_whole(e, n, union, packed, soft, tagged, &members)?;
+    if has_default && members.iter().any(|m| matches!(e.d.types.get(m.ty), Type::Struct { union: true, .. })) {
+        return Err(e.err(n, "a struct that contains a union cannot give its members default values (7.2.2)"));
+    }
     let uid = e.d.types.uid();
     let base = e.d.types.intern(Type::Struct { packed, union, tagged, soft, signed, members, name: None, uid });
     let dims: Vec<NodeId> = kids.iter().copied().filter(|&k| is_dim(e.kind(k))).collect();
@@ -684,6 +690,9 @@ pub(crate) fn class_body<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<
     for &k in &kids {
         if e.kind(k) == Kind::Extends {
             let ek = e.kids(k).to_vec();
+            if e.ast.tokens_of(ek[0]).first().is_some_and(|t| t.0 == "process") {
+                return Err(e.err(ek[0], "the built-in class `process` is final, so it cannot be extended (9.7)"));
+            }
             let t = data_type(e, sc, ek[0])?;
             match e.d.types.get(t).clone() {
                 Type::Class(b) => {

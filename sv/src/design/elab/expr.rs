@@ -437,7 +437,30 @@ fn bind_inner<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, ExprId>
         Kind::AssignmentPattern => pattern(e, sc, n, None),
         Kind::Cast => cast(e, sc, n, &kids),
         Kind::Member | Kind::Index | Kind::RangeSelect | Kind::Scope | Kind::Specialize => select(e, sc, n),
-        Kind::Call => call(e, sc, n, &kids),
+        Kind::Call => call(e, sc, n, &kids, None),
+        // `a.method(...) with (...)` (7.12).
+        Kind::With => {
+            let inner = kids[0];
+            match e.kind(inner) {
+                Kind::Call => {
+                    let ik = e.kids(inner).to_vec();
+                    call(e, sc, inner, &ik, Some(n))
+                }
+                Kind::Member => {
+                    let mk = e.kids(inner).to_vec();
+                    let base = expr(e, sc, mk[0])?;
+                    let m = e.sym_of(mk[1]);
+                    let bt = e.ex(base).ty;
+                    super::checks::builtin_method(e, bt, m, &[], Some(n), mk[1])?;
+                    if matches!(e.d.types.get(bt), Type::Unpacked { .. }) {
+                        return with_clause(e, sc, base, m, &[], n, n);
+                    }
+                    let t = builtin_method_type(e, bt, m, &[]);
+                    Ok(e.new_expr(ExprKind::Method(m), t, n, vec![base]))
+                }
+                _ => Ok(e.new_expr(ExprKind::Opaque, Types::UNKNOWN, n, vec![])),
+            }
+        }
         Kind::New => new_expr(e, sc, n, None),
         Kind::TypeExpr => {
             let t = ty::data_type(e, sc, kids[0])?;
@@ -627,6 +650,7 @@ pub(crate) fn object_ref<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, o: ObjId, n: Nod
         return Err(e.err(n, format!("genvar `{}` can only be used in a generate loop (27.4)", e.name(obj.name))));
     }
     super::checks::object_use(e, sc, o, n)?;
+    super::checks::declared_before(e, sc, o, n)?;
     Ok(e.new_expr(ExprKind::Object(o), t, n, vec![]))
 }
 
@@ -909,7 +933,7 @@ fn cast<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, kids: &[NodeId]) -> R<
         let f = e.d.types.is_four_state(xt);
         e.d.types.vector(w as u32, s, f)
     };
-    super::checks::cast_ok(e, t, xt, n)?;
+    super::checks::cast_ok(e, t, xt, n, e.kind(target))?;
     // The operand is evaluated at the cast's width, as if assigned (6.24.1).
     let x = if e.d.types.is_integral(t) { context_to(e, x, t) } else { selfdet(e, x) };
     if e.d.types.is_integral(t) && is_unsized_fill(e, x) {
@@ -1033,6 +1057,12 @@ fn select<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, ExprId> {
 /// method, or a built-in method called without parentheses.
 fn member<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, base: ExprId, m: Sym, n: NodeId, mn: NodeId) -> R<'a, ExprId> {
     let bt = e.ex(base).ty;
+    // An array method's iterator has its index as a method (7.12.4).
+    if let ExprKind::Object(o) = e.ex(base).kind
+        && e.iterators.get(&o) == Some(&m)
+    {
+        return Ok(e.new_expr(ExprKind::Method(m), Types::INT, n, vec![base]));
+    }
     match e.d.types.get(bt).clone() {
         Type::Struct { members, .. } => match members.iter().position(|x| x.name == m) {
             Some(i) => {
@@ -1397,13 +1427,13 @@ fn pick_block<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, s: ScopeId, ix: NodeId) -> 
 
 // ---- calls ----
 
-fn call<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, kids: &[NodeId]) -> R<'a, ExprId> {
+fn call<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, kids: &[NodeId], with: Option<NodeId>) -> R<'a, ExprId> {
     let callee = kids[0];
     let args: Vec<NodeId> = match kids.iter().copied().find(|&k| e.kind(k) == Kind::Args) {
         Some(a) => e.kids(a).to_vec(),
         None => vec![],
     };
-    let with = kids.iter().copied().find(|&k| e.kind(k) == Kind::With);
+    let with = with.or_else(|| kids.iter().copied().find(|&k| e.kind(k) == Kind::With));
     match e.kind(callee) {
         Kind::SystemName => syscall(e, sc, n, callee, &args),
         Kind::Name => {
@@ -1471,6 +1501,14 @@ fn call<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, kids: &[NodeId]) -> R<
                     }
                     _ => {}
                 }
+            }
+            // With a `with` clause, an array method's arguments name its
+            // iterator and index (7.12); the clause is bound with them.
+            if let Some(w) = with
+                && matches!(e.d.types.get(bt), Type::Unpacked { .. } | Type::String)
+            {
+                super::checks::builtin_method(e, bt, m, &[base], with, ck[1])?;
+                return with_clause(e, sc, base, m, &args, w, n);
             }
             let mut xs = vec![base];
             for &a in &args {
@@ -1687,6 +1725,50 @@ fn syscall<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, name_node: NodeId, 
         _ => Types::UNKNOWN,
     };
     Ok(e.new_expr(ExprKind::SysCall(s), t, n, xs))
+}
+
+/// `a.find(x) with (x > 5)`: the iterator (`item` unless named) is a
+/// variable of the element type in a scope of its own, which the clause is
+/// bound in (7.12). The clause's value is the last argument.
+fn with_clause<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, base: ExprId, m: Sym, args: &[NodeId], w: NodeId, n: NodeId) -> R<'a, ExprId> {
+    let bt = e.ex(base).ty;
+    let elem = e.d.types.element(bt).unwrap_or(Types::UNKNOWN);
+    let scope = e.new_scope(ScopeKind::Block, None, Some(sc), w);
+    let iter = match args.first() {
+        Some(&a) if e.kind(a) == Kind::Name => e.sym_of(a),
+        _ => e.sym("item"),
+    };
+    let o = e.new_object(Object {
+        name: iter,
+        kind: ObjKind::Variable,
+        ty: elem,
+        scope,
+        node: w,
+        lifetime: Lifetime::Automatic,
+        dir: None,
+        init: None,
+        value: None,
+        qualifiers: vec![],
+    });
+    e.scope_mut(scope).names.insert(iter, Binding::Object(o));
+    // `it.index`, or the name the second argument gives the index.
+    let index_name = match args.get(1) {
+        Some(&a) if e.kind(a) == Kind::Name => e.sym_of(a),
+        _ => e.sym("index"),
+    };
+    e.iterators.insert(o, index_name);
+    let clause = *e.kids(w).last().unwrap();
+    let x = if e.kind(clause) == Kind::ConstraintBlock {
+        e.new_expr(ExprKind::Opaque, Types::UNKNOWN, clause, vec![])
+    } else {
+        expr(e, scope, clause)?
+    };
+    let mut t = builtin_method_type(e, bt, m, &[]);
+    // A reduction's result has the clause's type (7.12.3).
+    if matches!(e.name(m), "sum" | "product" | "and" | "or" | "xor") {
+        t = e.ex(x).ty;
+    }
+    Ok(e.new_expr(ExprKind::Method(m), t, n, vec![base, x]))
 }
 
 /// An argument naming an instance, a block or a design element, kept as a

@@ -39,6 +39,12 @@ pub(crate) fn declare_sub<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R
     }
     let s = e.sym_of(name_node);
     let quals = qualifiers(e, n);
+    if e.name(s) == "new"
+        && e.scope(sc).kind == ScopeKind::Class
+        && let Some(&q) = quals.iter().find(|&&q| matches!(e.name(q), "static" | "virtual"))
+    {
+        return Err(e.err(name_node, format!("a constructor cannot be `{}` (8.7)", e.name(q))));
+    }
     let lifetime = sub_lifetime(e, sc, n);
     let scope = e.new_scope(ScopeKind::Subroutine, Some(s), Some(sc), n);
     let id = SubId(e.d.subroutines.len() as u32);
@@ -542,6 +548,7 @@ fn stmt_inner<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, StmtId>
                 }
                 _ => expr::rvalue(e, sc, rhs_node, lt)?,
             };
+            super::checks::instance_types(e, lhs, rhs, n)?;
             StmtKind::Assign { kind: akind, lhs, rhs, timing }
         }
         Kind::ExprStatement => {
@@ -1026,10 +1033,8 @@ fn foreach<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, kids: &[NodeId]) ->
                 }
                 break;
             }
-            Type::Vector { atom, .. } if !atom.is_scalar() => {
-                dims.push(Types::INT);
-                break;
-            }
+            // An integer type's bits are not a dimension to iterate.
+            Type::Vector { .. } => break,
             Type::PackedArray { elem, .. } => {
                 dims.push(Types::INT);
                 t = elem;

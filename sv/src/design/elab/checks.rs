@@ -343,7 +343,8 @@ pub(crate) fn assoc_key<'a>(e: &mut Elab<'a, '_>, it: TypeId, idx: ExprId, n: No
     if e.d.types.is_real(kt) && !e.d.types.is_real(it) {
         return Err(e.err(n, "a real cannot index an associative array with an integral index type (7.8.4)"));
     }
-    if it == Types::STRING && e.d.types.is_integral(kt) && !matches!(e.ex(idx).kind, ExprKind::Const(_)) {
+    let is_str_lit = matches!(e.ex(idx).kind, ExprKind::Const(c) if matches!(e.d.consts[c.0 as usize], Const::Str(_)));
+    if it == Types::STRING && e.d.types.is_integral(kt) && !is_str_lit {
         return Err(e.err(n, "a string-indexed associative array needs a string index (7.8.2)"));
     }
     Ok(())
@@ -466,6 +467,80 @@ pub(crate) fn event_operand<'a>(e: &mut Elab<'a, '_>, x: ExprId, edge: bool, n: 
     }
     if edge && e.d.types.is_real(t) {
         return Err(e.err(n, "an edge of a real value cannot be detected (6.12)"));
+    }
+    Ok(())
+}
+
+/// Two references into different instances of one specialisation have
+/// types declared there that differ, though they print the same (6.22).
+pub(crate) fn instance_types<'a>(e: &mut Elab<'a, '_>, lhs: ExprId, rhs: ExprId, n: NodeId) -> R<'a> {
+    let path = |e: &Elab, x: ExprId| match &e.ex(x).kind {
+        ExprKind::Hier { path, object: Some(o) } => Some((path.clone(), *o)),
+        _ => None,
+    };
+    let (Some((p1, o1)), Some((p2, _))) = (path(e, lhs), path(e, rhs)) else { return Ok(()) };
+    let t = e.obj(o1).ty;
+    if matches!(e.d.types.get(t), Type::Struct { packed: false, .. }) && p1[..p1.len() - 1] != p2[..p2.len() - 1] {
+        // Only a type declared inside the design element differs per
+        // instance; one from a package is shared.
+        let spec_scope = lookup::enclosing(e, e.obj(o1).scope, ScopeKind::Spec);
+        let declared_in_spec = spec_scope.is_some_and(|s| e.scope(s).items.iter().any(|i| matches!(i, Item::Typedef(_, x) if *x == t)))
+            || matches!(e.d.types.get(t), Type::Struct { name: None, .. });
+        if declared_in_spec {
+            return Err(e.err(n, "each instance declares its own struct type, so values of the two are not equivalent (6.22)"));
+        }
+    }
+    Ok(())
+}
+
+/// `parameter type enum T` and the like (6.20.3).
+pub(crate) fn type_restriction<'a>(e: &mut Elab<'a, '_>, r: &str, t: TypeId, n: NodeId) -> R<'a> {
+    let ok = match (r, e.d.types.get(t)) {
+        (_, Type::Unknown) => true,
+        ("enum", Type::Enum { .. }) => true,
+        ("struct", Type::Struct { union: false, .. }) => true,
+        ("union", Type::Struct { union: true, .. }) => true,
+        ("class", Type::Class(_)) => true,
+        ("interface", Type::Class(c)) => e.d.classes[c.0 as usize].interface,
+        ("enum" | "struct" | "union" | "class" | "interface", _) => false,
+        _ => true,
+    };
+    if !ok {
+        let what = e.d.types.describe(t, &e.d.syms);
+        return Err(e.err(n, format!("this type parameter takes only {r} types, not `{what}` (6.20.3)")));
+    }
+    Ok(())
+}
+
+/// In a static procedure or subroutine, a variable with an initialiser
+/// must say `static` (or `automatic`) (6.21).
+pub(crate) fn static_initializer<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, quals: &[Sym], lifetime: Lifetime, n: NodeId) -> R<'a> {
+    if lifetime != Lifetime::Static || quals.iter().any(|&q| matches!(e.name(q), "static" | "automatic")) {
+        return Ok(());
+    }
+    if matches!(e.scope(sc).kind, ScopeKind::Block | ScopeKind::Subroutine) && lookup::enclosing(e, sc, ScopeKind::Class).is_none() {
+        return Err(e.err(n, "a variable with an initialiser in a static block or subroutine must be declared `static` or `automatic` (6.21)"));
+    }
+    Ok(())
+}
+
+/// What `type(...)` may take (6.23): no hierarchical references, no
+/// elements of dynamic arrays.
+pub(crate) fn type_operand<'a>(e: &mut Elab<'a, '_>, x: ExprId, n: NodeId) -> R<'a> {
+    let mut bad = None;
+    walk_expr(e, x, &mut |e, y| {
+        let ex = e.ex(y);
+        if matches!(ex.kind, ExprKind::Hier { .. }) {
+            bad = Some("a hierarchical reference");
+        }
+        if matches!(ex.kind, ExprKind::Index)
+            && matches!(e.d.types.get(e.ex(ex.args[0]).ty), Type::Unpacked { dim: UDim::Dynamic | UDim::Queue(_) | UDim::Assoc(_) | UDim::Wildcard, .. })
+        {
+            bad = Some("an element of a dynamic array");
+        }
+    });
+    if let Some(what) = bad {
+        return Err(e.err(n, format!("`type()` cannot refer to {what} (6.23)")));
     }
     Ok(())
 }
@@ -676,7 +751,71 @@ pub(crate) fn pattern_shape<'a>(e: &mut Elab<'a, '_>, _sc: ScopeId, n: NodeId, t
     Ok(())
 }
 
-pub(crate) fn cast_ok<'a>(_e: &mut Elab<'a, '_>, _t: TypeId, _from: TypeId, _n: NodeId) -> R<'a> {
+/// Casts (6.24): sign and size casts take integral values; a bit-stream
+/// cast needs a destination of fixed or dynamic shape and, between fixed
+/// types, the same number of bits.
+pub(crate) fn cast_ok<'a>(e: &mut Elab<'a, '_>, t: TypeId, from: TypeId, n: NodeId, target: Kind) -> R<'a> {
+    let sign_cast = target == Kind::Keyword && matches!(e.text(e.kids(n)[0]), "signed" | "unsigned");
+    if sign_cast && e.d.types.is_real(from) {
+        return Err(e.err(n, "`signed'` and `unsigned'` need an integral operand (6.24.1)"));
+    }
+    let size_cast = !matches!(target, Kind::Keyword | Kind::Name | Kind::Scope | Kind::Specialize) && !super::ty::is_type(target);
+    if size_cast && e.d.types.is_real(from) {
+        return Err(e.err(n, "a size cast needs an integral operand (6.24.1)"));
+    }
+    let bitstream = |e: &Elab, x: TypeId| matches!(e.d.types.get(x), Type::Unpacked { .. } | Type::Struct { packed: false, .. });
+    if bitstream(e, from) || matches!(e.d.types.get(t), Type::Unpacked { dim: UDim::Assoc(_) | UDim::Wildcard, .. }) {
+        if matches!(e.d.types.get(t), Type::Unpacked { dim: UDim::Assoc(_) | UDim::Wildcard, .. }) {
+            return Err(e.err(n, "a bit-stream cast cannot produce an associative array (6.24.3)"));
+        }
+        if let (Some(a), Some(b)) = (bits_fixed(e, t), bits_fixed(e, from))
+            && a != b
+        {
+            return Err(e.err(n, format!("a bit-stream cast needs the same number of bits on both sides, not {b} and {a} (6.24.3)")));
+        }
+    }
+    Ok(())
+}
+
+/// The bits in a type of fixed size, unpacked parts included.
+fn bits_fixed(e: &Elab, t: TypeId) -> Option<u64> {
+    match e.d.types.get(t) {
+        Type::Unpacked { elem, dim: UDim::Range(l, r) } => Some(((l - r).unsigned_abs() + 1) * bits_fixed(e, *elem)?),
+        Type::Unpacked { .. } | Type::String | Type::Class(_) | Type::Unknown => None,
+        Type::Struct { members, union, packed: false, .. } => {
+            let ws: Option<Vec<u64>> = members.iter().map(|m| bits_fixed(e, m.ty)).collect();
+            let ws = ws?;
+            Some(if *union { ws.into_iter().max().unwrap_or(0) } else { ws.into_iter().sum() })
+        }
+        _ => {
+            let w = e.d.types.width(t);
+            (w > 0).then_some(w as u64)
+        }
+    }
+}
+
+/// A variable must be declared before a simple reference to it (6.21),
+/// and so must parameters and specparams.
+pub(crate) fn declared_before<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, o: ObjId, n: NodeId) -> R<'a> {
+    let obj = e.obj(o);
+    if !matches!(obj.kind, ObjKind::Variable | ObjKind::Param { .. } | ObjKind::Net(_)) || obj.dir.is_some() {
+        return Ok(());
+    }
+    if obj.qualifiers.iter().any(|&q| matches!(e.name(q), "implicit" | "result")) {
+        return Ok(());
+    }
+    let os = obj.scope;
+    if !matches!(e.scope(os).kind, ScopeKind::Spec | ScopeKind::Generate | ScopeKind::Block) {
+        return Ok(());
+    }
+    // Only references in the same design element's own code, not through
+    // a class or subroutine declared elsewhere.
+    if lookup::enclosing(e, sc, ScopeKind::Class).is_some() {
+        return Ok(());
+    }
+    if e.ast.node(obj.node).first > e.ast.node(n).first && e.ast.node(obj.node).end > e.ast.node(n).end {
+        return Err(e.err(n, format!("`{}` is used before its declaration (6.21)", e.name(obj.name))));
+    }
     Ok(())
 }
 
@@ -771,6 +910,9 @@ pub(crate) fn assign_compatible<'a>(e: &mut Elab<'a, '_>, _sc: ScopeId, target: 
         (_, Type::Class(_)) if e.d.types.is_integral(target) => {
             Err(e.err(n, "a class handle cannot be assigned to an integral variable (6.22)"))
         }
+        (Type::Struct { packed: false, .. }, Type::Struct { packed: false, .. }) => {
+            Err(e.err(n, "unpacked structs from different declarations are not equivalent (6.22.2)"))
+        }
         (Type::Enum { .. }, Type::Enum { .. }) => {
             Err(e.err(n, "a value of one enum type cannot be assigned to another without a cast (6.19.3)"))
         }
@@ -797,7 +939,11 @@ fn equivalent(e: &Elab, a: TypeId, b: TypeId) -> bool {
         return true;
     }
     match (ty.get(a), ty.get(b)) {
-        (Type::Vector { .. } | Type::PackedArray { .. }, Type::Vector { .. } | Type::PackedArray { .. }) => {
+        // Packed integral types of the same width, signedness and state
+        // count are equivalent (6.22.2); enums are only equivalent to
+        // themselves.
+        (Type::Enum { .. }, _) | (_, Type::Enum { .. }) => false,
+        _ if ty.is_integral(a) && ty.is_integral(b) => {
             ty.width(a) == ty.width(b) && ty.is_signed(a) == ty.is_signed(b) && ty.is_four_state(a) == ty.is_four_state(b)
         }
         (Type::Unpacked { elem: x, dim: UDim::Range(l1, r1) }, Type::Unpacked { elem: y, dim: UDim::Range(l2, r2) }) => {
@@ -850,6 +996,12 @@ pub(crate) fn lvalue<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, x: ExprId, n: NodeId
         }
         ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_) | ExprKind::Convert => {
             let base = ex.args[0];
+            if nonblocking
+                && matches!(ex.kind, ExprKind::Index)
+                && matches!(e.d.types.get(e.ex(base).ty), Type::Unpacked { dim: UDim::Dynamic | UDim::Queue(_) | UDim::Assoc(_) | UDim::Wildcard, .. })
+            {
+                return Err(e.err(n, "a nonblocking assignment cannot write an element of a dynamic array, queue or associative array (10.4.2)"));
+            }
             lvalue(e, sc, base, n, nonblocking)
         }
         ExprKind::Concat | ExprKind::Pattern | ExprKind::Streaming { .. } => {
@@ -943,6 +1095,13 @@ pub(crate) fn output_arg<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, _sub: SubId, f: 
         && matches!(e.obj(o).kind, ObjKind::Net(_))
     {
         return Err(e.err(n, "a net cannot be passed by reference (13.5.2)"));
+    }
+    if matches!(dir, Dir::Ref | Dir::ConstRef) {
+        let (ft, at) = (e.obj(f).ty, e.ex(x).ty);
+        if !equivalent(e, ft, at) && !matches!(e.d.types.get(ft), Type::Class(_)) {
+            let (a, b) = (e.d.types.describe(at, &e.d.syms), e.d.types.describe(ft, &e.d.syms));
+            return Err(e.err(n, format!("a `ref` argument needs an equivalent type: `{a}` is not equivalent to `{b}` (13.5.2, 6.22.2)")));
+        }
     }
     if e.in_cont_assign && matches!(dir, Dir::Output | Dir::Inout | Dir::Ref) {
         return Err(e.err(n, "a function with output, inout or ref arguments cannot be called in a continuous assignment (13.4)"));

@@ -134,6 +134,10 @@ pub(crate) struct Elab<'a, 'x> {
     pub package_names: std::collections::HashSet<Sym>,
     /// Whether a typedef's type is being elaborated.
     pub in_typedef: bool,
+    /// Whether a specparam's value is being evaluated.
+    pub in_specparam: bool,
+    /// Array-method iterators and the names of their indices (7.12.4).
+    pub iterators: HashMap<ObjId, Sym>,
     /// Forward typedefs, which must each be completed (6.18).
     pub forwards: Vec<(ScopeId, Sym, NodeId)>,
     /// Each nettype's data type and resolution function (6.6.7).
@@ -199,6 +203,8 @@ impl<'a, 'x> Elab<'a, 'x> {
             nettype_info: HashMap::new(),
             forwards: Vec::new(),
             in_typedef: false,
+            in_specparam: false,
+            iterators: HashMap::new(),
         }
     }
 
@@ -667,9 +673,13 @@ impl<'a, 'x> Elab<'a, 'x> {
                     if self.kind(a) == Kind::SpecparamAssign {
                         let kids = self.kids(a);
                         let name = self.sym_of(kids[0]);
-                        let v = eval::const_expr(self, sc, kids[1]).unwrap_or(Const::Bits(Bits::x(32)));
+                        self.in_specparam = true;
+                        let v = eval::const_expr(self, sc, kids[1]);
+                        self.in_specparam = false;
+                        let v = v.unwrap_or(Const::Bits(Bits::x(32)));
                         let ty = eval::type_of_const(self, &v);
                         let c = self.new_const(v);
+                        let sym_specparam = self.sym("specparam");
                         let o = self.new_object(Object {
                             name,
                             kind: ObjKind::Param { local: true },
@@ -680,7 +690,7 @@ impl<'a, 'x> Elab<'a, 'x> {
                             dir: None,
                             init: None,
                             value: Some(c),
-                            qualifiers: vec![],
+                            qualifiers: vec![sym_specparam],
                         });
                         self.declare(sc, name, Binding::Object(o), kids[0])?;
                         self.push_item(sc, Item::Object(o));
@@ -918,7 +928,12 @@ impl<'a, 'x> Elab<'a, 'x> {
             None => match value_node {
                 Some(v) => eval::const_expr(self, sc, v)?,
                 None => {
-                    if self.scope(sc).kind != ScopeKind::Spec && self.scope(sc).kind != ScopeKind::Class {
+                    // A parameter with no default needs a value from every
+                    // instance (6.20.1).
+                    if self.scope(sc).kind == ScopeKind::Spec {
+                        return Err(self.err(name, format!("parameter `{}` has no default, and the instance does not give it a value (6.20.1)", self.name(s))));
+                    }
+                    if self.scope(sc).kind != ScopeKind::Class {
                         return Err(self.err(name, format!("parameter `{}` has no value", self.name(s))));
                     }
                     Const::Bits(Bits::x(32))
@@ -989,6 +1004,11 @@ impl<'a, 'x> Elab<'a, 'x> {
                     None => Types::UNKNOWN,
                 },
             };
+            // `parameter type enum T`: the type must be of that kind (6.20.3).
+            let restriction = self.kids(n).iter().copied().skip(1).find(|&k| self.kind(k) == Kind::Keyword).map(|k| self.text(k));
+            if let Some(r) = restriction {
+                checks::type_restriction(self, r, t, name)?;
+            }
             self.declare(sc, s, Binding::Type(t), name)?;
             self.push_item(sc, Item::Typedef(s, t));
             if let Some(sp) = self.spec_of_scope(sc) {
@@ -1045,6 +1065,12 @@ impl<'a, 'x> Elab<'a, 'x> {
             return Err(self.err(n, "variables declared outside procedures and subroutines are static; `automatic` is not allowed here (6.21)"));
         }
         let base = ty::data_type(self, sc, ty_node)?;
+        // `process` objects come only from `process::self()` (9.7).
+        if self.ast.tokens_of(ty_node).first().is_some_and(|t| t.0 == "process")
+            && kids.iter().any(|&d| self.kind(d) == Kind::Declarator && self.kids(d).iter().any(|&x| self.kind(x) == Kind::New))
+        {
+            return Err(self.err(n, "the built-in class `process` cannot be constructed with `new` (9.7)"));
+        }
         let is_const = quals.iter().any(|&q| self.name(q) == "const");
         let lifetime = self.lifetime_of(sc, &quals);
         for dcl in kids.iter().copied().filter(|&k| self.kind(k) == Kind::Declarator).collect::<Vec<_>>() {
@@ -1079,6 +1105,7 @@ impl<'a, 'x> Elab<'a, 'x> {
             self.declare(sc, s, Binding::Object(o), name)?;
             self.push_item(sc, Item::Object(o));
             if let Some(i) = init {
+                checks::static_initializer(self, sc, &quals, lifetime, dcl)?;
                 let e = expr::rvalue(self, sc, i, t)?;
                 self.obj_mut(o).init = Some(e);
             } else if is_const && self.scope(sc).kind != ScopeKind::Class {

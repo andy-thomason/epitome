@@ -128,23 +128,6 @@ const NEEDS_ELABORATION: &[(&str, &str)] = &[(
     "`M u;` declares a variable of type M until M is known to be a module",
 )];
 
-/// Legal tests that do not follow the standard, and the issues raised
-/// about them.
-const SUITE_ISSUES: &[(&str, &str)] = &[
-    (
-        "05-lexical-conventions/05.09.1-special-characters-in-strings/escape_sequences_octal.sv",
-        "IEEE1800-2023-tests#4: `\\7z` is not a legal octal escape (5.9.1)",
-    ),
-    (
-        "06-data-types/06.06-net-types/nettype_valid_data_types.sv",
-        "IEEE1800-2023-tests#3: no dimensions may follow a nettype's name (6.6.7)",
-    ),
-    (
-        "40-coverage-api/40.03-coverage-system-functions/coverage_save_then_merge.sv",
-        "IEEE1800-2023-tests#2: `before` is a reserved keyword (Annex B)",
-    ),
-];
-
 #[test]
 fn parse_test1800() {
     let Some(root) = suite() else { return };
@@ -173,7 +156,6 @@ fn parse_test1800() {
             }
             (Ok(()), Some(_)) => {}
             (Err(_), Some(_)) => rejected += 1,
-            (Err(_), None) if SUITE_ISSUES.iter().any(|(n, _)| *n == name) => {}
             (Err(e), None) => wrong.push(format!("{name}\n{e}")),
         }
     }
@@ -202,53 +184,6 @@ fn parse_test1800() {
 /// Runs elaboration over every test. Legal tests must elaborate; tests
 /// that should fail at elaboration must be rejected by the parser or by
 /// elaboration. `ELAB_REPORT=<file>` writes the details.
-/// Legal tests that break the standard, fixed in IEEE1800-2023-tests#5:
-/// a `timeunit` after other items (3.14.2.2), an initialised variable in a
-/// static block without `static` (6.21), or a UDP row whose inputs are all
-/// x giving a known output (29.3.4).
-const FIXED_IN_PR5: &[&str] = &[
-    "29-udps/29.03-udp-definition/z_input_treated_as_x.sv",
-    "03-design-and-verification-building-blocks/03.12.1-compilation-units/identifier_search_order.sv",
-    "03-design-and-verification-building-blocks/03.13-name-spaces/block_scope_shadows_module.sv",
-    "09-processes/09.03-block-statements/block_names.sv",
-    "23-modules-and-hierarchy/23.06-hierarchical-names/hierarchical_references.sv",
-    "H-dpi-c-layer/H.09-context/scope_functions.sv",
-    "14-clocking-blocks/14.03-clocking-blocks/clocking_block_event.sv",
-    "14-clocking-blocks/14.03-clocking-blocks/cycle_delay.sv",
-    "14-clocking-blocks/14.03-clocking-blocks/cycle_delay_zero.sv",
-    "14-clocking-blocks/14.03-clocking-blocks/default_clocking_by_name.sv",
-    "14-clocking-blocks/14.03-clocking-blocks/global_clocking.sv",
-    "14-clocking-blocks/14.03-clocking-blocks/hierarchical_clocking_signals.sv",
-    "14-clocking-blocks/14.03-clocking-blocks/input_sampling_default_skew.sv",
-    "14-clocking-blocks/14.03-clocking-blocks/input_skew_values.sv",
-    "14-clocking-blocks/14.03-clocking-blocks/multiple_future_drives.sv",
-    "14-clocking-blocks/14.03-clocking-blocks/synchronous_drives.sv",
-    "16-assertions/16.05-concurrent-sampling/sampled_values.sv",
-    "16-assertions/16.07-sequences/first_match_throughout_within.sv",
-    "16-assertions/16.07-sequences/repetition.sv",
-    "16-assertions/16.07-sequences/sampled_value_functions.sv",
-    "16-assertions/16.07-sequences/sequence_and_or_intersect.sv",
-    "16-assertions/16.07-sequences/sequence_delays.sv",
-    "16-assertions/16.10-local-variables/sequence_local_variables.sv",
-    "16-assertions/16.11-subroutines-on-match/subroutine_calls_on_match.sv",
-    "16-assertions/16.12-properties/abort_and_disable.sv",
-    "16-assertions/16.12-properties/boolean_property_operators.sv",
-    "16-assertions/16.12-properties/case_and_recursive_properties.sv",
-    "16-assertions/16.12-properties/followed_by.sv",
-    "16-assertions/16.12-properties/implication.sv",
-    "16-assertions/16.12-properties/temporal_operators.sv",
-    "16-assertions/16.13-sequence-methods/triggered_method.sv",
-    "16-assertions/16.14-concurrent-assertions/assert_assume_cover.sv",
-    "16-assertions/16.14-concurrent-assertions/default_clocking_and_disable.sv",
-    "16-assertions/16.14-concurrent-assertions/procedural_concurrent_assertion.sv",
-    "16-assertions/16.17-expect/expect_statement.sv",
-    "17-checkers/17.02-checker-declaration/checker_with_assertions.sv",
-    "17-checkers/17.03-checker-instantiation/procedural_checker_instance.sv",
-    "17-checkers/17.07-checker-variables/checker_variable_assignments.sv",
-    "17-checkers/17.07-checker-variables/free_variable_with_assumption.sv",
-    "20-utility-system-tasks/20.03-time-functions/time_functions.sv",
-];
-
 /// Should-fail elaboration tests whose rules need what the elaborator does
 /// not model yet: clocking blocks (14.3), checker bodies (17), mailbox
 /// element types (15.4), clock inference (16.9), configurations (33) and
@@ -302,9 +237,6 @@ fn elaborate_all() {
         let should_fail = header(&text, "should_fail_because");
         let kind = header(&text, "type").unwrap_or_else(|| "simulation".into());
         let name = path.strip_prefix(&root).unwrap().display().to_string();
-        if SUITE_ISSUES.iter().any(|(n, _)| *n == name) || FIXED_IN_PR5.contains(&name.as_str()) {
-            continue;
-        }
         // One compilation unit per file (3.12.1 b) is not supported yet.
         if header(&text, "flags-icarus").is_some_and(|f| f.split_whitespace().any(|w| w == "-u")) {
             separate_units += 1;

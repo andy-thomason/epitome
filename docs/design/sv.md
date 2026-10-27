@@ -13,10 +13,10 @@ standard. For sources and status labels, see the [index](README.md).
 **Status:** Partial. The lexer, the preprocessor and the parser are done.
 Every legal `test1800` test preprocesses, and the output matches
 Verilator's `-E` token for token on all 772 tests both accept (section
-4.4). Every legal test parses except three that break the standard, and
-the parse tests that should fail do, for the reasons they give (section
-6.4). Elaboration builds the design IR of section 7: every legal test
-elaborates (apart from eight that need one compilation unit per file),
+4.4). Every legal test parses, and the parse tests that should fail do,
+for the reasons they give (section 6.4). Elaboration builds the design
+IR of section 7: every legal test elaborates (apart from eight that need
+one compilation unit per file),
 and 654 of the 673 should-fail tests that elaboration can reach are
 rejected for their stated reasons (section 7.10). Simulation is next.
 
@@ -351,17 +351,17 @@ threshold; a DPI import without a return type.
   construct, and the message and position of each rule above.
 - `tests/test1800.rs` parses every test of `test1800`. Every legal test
   must parse and every `:type: parse` should-fail test must be rejected.
-  Today: 778 of 781 legal tests parse and all 340 parse should-fail
-  tests but one are rejected, each for the reason the test gives.
+  Today: all 781 legal tests parse and all 341 parse should-fail tests
+  but one are rejected, each for the reason the test gives.
 
-The exceptions are listed in the test with their reasons:
+The exception is listed in the test: `missing_parentheses_error.sv`
+(`M u;`) is valid syntax, which elaboration rejects.
 
-- `missing_parentheses_error.sv` (`M u;`) is valid syntax; elaboration
-  will reject it.
-- Three legal tests break the standard, and issues are raised:
-  `escape_sequences_octal.sv` (`\7z`, IEEE1800-2023-tests#4),
-  `nettype_valid_data_types.sv` (dimensions after a nettype's name,
-  #3) and `coverage_save_then_merge.sv` (`before` as a name, #2).
+Legal tests found to break the standard were fixed in the suite
+(issues IEEE1800-2023-tests#1 to #4, and PR #5, which also corrected 41
+tests that elaboration found: `timeunit` after other items, initialised
+variables in static blocks without `static`, and a UDP row of all x
+inputs with a known output).
 
 ## 7. Elaboration and the design IR (clauses 3.12, 23, 27)
 
@@ -598,14 +598,13 @@ In `sv/src/design/` (`types.rs`, `value.rs`, `print.rs`, and `elab/`):
   (24), interfaces and modports (25), generate (27), gates and UDPs (28,
   29), specify (30, 31) and DPI (35).
 
-**Measured** (`test1800`): all 733 legal tests that are run elaborate;
+**Measured** (`test1800`): all 776 legal tests that are run elaborate;
 654 should-fail tests are rejected (the parser rejects most of the
 syntax ones, elaboration the rest). Nineteen should-fail tests are not
 checked yet, and are listed as such: clocking blocks (14.3), checker
 bodies (17), mailbox element types (15.4), clock inference (16.9),
 configurations (33) and specialised virtual interface types (25.9).
-Forty legal tests break the standard and are fixed in the suite's PR #5
-(IEEE1800-2023-tests#5).
+Legal tests that broke the standard were fixed in the suite's PR #5.
 
 **Gaps, counted:** across the suite, 536 expressions have a type the
 elaborator does not work out yet (members of interfaces reached through

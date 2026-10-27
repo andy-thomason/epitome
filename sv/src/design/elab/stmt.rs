@@ -292,7 +292,10 @@ fn base_ctor_args<'a>(e: &mut Elab<'a, '_>, scope: ScopeId) -> R<'a, Vec<(ObjId,
     let class_scope = e.scope(scope).parent;
     let class = class_scope.and_then(|c| lookup::class_of_scope(e, c));
     let base = class.and_then(|c| e.d.classes[c.0 as usize].base);
-    let Some(base) = base else { return Ok(vec![]) };
+    let Some(base) = base else {
+        let n = e.scope(scope).node;
+        return Err(e.err(n, "`default` in a constructor's arguments needs a base class to take them from (8.17)"));
+    };
     let new = e.sym("new");
     let bs = e.d.classes[base.0 as usize].scope;
     let Some(Binding::Subroutine(ctor)) = e.scope(bs).names.get(&new).copied() else { return Ok(vec![]) };
@@ -339,6 +342,7 @@ pub(crate) fn sub_body<'a>(e: &mut Elab<'a, '_>, sub: SubId) -> R<'a> {
     e.loop_depth = saved_loop;
     r?;
     super::checks::sub_done(e, sub)?;
+    super::checks::constructor_body(e, sub)?;
     Ok(())
 }
 
@@ -397,6 +401,12 @@ pub(crate) fn prototype<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'
 /// Gives prototype `id` the out-of-block body `body`.
 pub(crate) fn attach_body<'a>(e: &mut Elab<'a, '_>, id: SubId, body: NodeId) -> R<'a> {
     let scope = e.d.subroutines[id.0 as usize].scope;
+    if e.kind(e.d.subroutines[id.0 as usize].node) != Kind::Prototype {
+        return Err(e.err(body, format!("`{}` already has a body outside its class (8.24)", e.name(e.d.subroutines[id.0 as usize].name))));
+    }
+    let proto_args: Vec<(TypeId, Option<Dir>)> =
+        e.d.subroutines[id.0 as usize].args.iter().map(|&a| (e.obj(a).ty, e.obj(a).dir)).collect();
+    let proto_ret = e.d.subroutines[id.0 as usize].ret;
     e.d.subroutines[id.0 as usize].node = body;
     e.d.subroutines[id.0 as usize].elaborated = false;
     e.scope_mut(scope).node = body;
@@ -409,6 +419,11 @@ pub(crate) fn attach_body<'a>(e: &mut Elab<'a, '_>, id: SubId, body: NodeId) -> 
     let fname = e.d.subroutines[id.0 as usize].name;
     e.scope_mut(scope).names.remove(&fname);
     sub_signature(e, id)?;
+    let body_args: Vec<(TypeId, Option<Dir>)> =
+        e.d.subroutines[id.0 as usize].args.iter().map(|&a| (e.obj(a).ty, e.obj(a).dir)).collect();
+    if body_args != proto_args || e.d.subroutines[id.0 as usize].ret != proto_ret {
+        return Err(e.err(body, format!("the body of `{}` does not match its prototype in the class (8.24)", e.name(fname))));
+    }
     e.defer(Work::Body(id));
     Ok(())
 }

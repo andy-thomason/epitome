@@ -616,6 +616,8 @@ pub struct Class {
     pub virtual_: bool,
     pub interface: bool,
     pub params: Vec<(Sym, ConstId)>,
+    /// The interface classes it implements (8.26).
+    pub implements: Vec<ClassId>,
 }
 
 /// The whole design.

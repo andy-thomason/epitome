@@ -117,6 +117,12 @@ pub(crate) fn data_type<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'
             Ok(e.d.types.intern(Type::Vector { atom: Atom::Logic, signed, dims: packed }))
         }
         Kind::NamedType => {
+            if e.kind(kids[0]) == Kind::Name
+                && e.text(kids[0]) == "weak_reference"
+                && let Some(&pv) = kids.iter().find(|&&k| e.kind(k) == Kind::ParamValues)
+            {
+                super::checks::weak_reference_param(e, sc, pv)?;
+            }
             let base = named(e, sc, kids[0])?;
             let dims: Vec<NodeId> = kids.iter().copied().filter(|&k| is_dim(e.kind(k))).collect();
             if dims.is_empty() {
@@ -259,6 +265,9 @@ fn named<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, TypeId> {
         }
         Kind::Specialize => {
             let k = e.kids(n).to_vec();
+            if e.kind(k[0]) == Kind::Name && e.text(k[0]) == "weak_reference" {
+                super::checks::weak_reference_param(e, sc, k[1])?;
+            }
             named(e, sc, k[0])
         }
         // A type from an interface port, `port.T` (25.10): not modelled.
@@ -639,7 +648,7 @@ pub(crate) fn declare_class<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) ->
     let id = ClassId(e.d.classes.len() as u32);
     let interface = e.kind(n) == Kind::InterfaceClass;
     let virtual_ = e.has_keyword(n, "virtual");
-    e.d.classes.push(Class { name: s, scope: cs, base: None, node: n, virtual_, interface, params: vec![] });
+    e.d.classes.push(Class { name: s, scope: cs, base: None, node: n, virtual_, interface, params: vec![], implements: vec![] });
     e.class_nodes.insert(id, (n, sc));
     match e.scope(sc).names.get(&s).copied() {
         Some(Binding::Other(m)) if e.kind(m) == Kind::ForwardTypedef => {
@@ -690,7 +699,7 @@ pub(crate) fn class_body<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<
     for &k in &kids {
         if e.kind(k) == Kind::Extends {
             let ek = e.kids(k).to_vec();
-            if e.ast.tokens_of(ek[0]).first().is_some_and(|t| t.0 == "process") {
+            if e.ast.tokens_of(ek[0]).iter().any(|t| t.0 == "process") {
                 return Err(e.err(ek[0], "the built-in class `process` is final, so it cannot be extended (9.7)"));
             }
             let t = data_type(e, sc, ek[0])?;
@@ -709,10 +718,11 @@ pub(crate) fn class_body<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<
         if e.kind(k) == Kind::Implements {
             for &it in e.kids(k).to_vec().iter() {
                 let t = data_type(e, sc, it)?;
-                if let Type::Class(c) = e.d.types.get(t).clone()
-                    && !e.d.classes[c.0 as usize].interface
-                {
-                    return Err(e.err(it, "a class can only implement interface classes (8.26)"));
+                if let Type::Class(c) = e.d.types.get(t).clone() {
+                    if !e.d.classes[c.0 as usize].interface {
+                        return Err(e.err(it, "a class can only implement interface classes (8.26)"));
+                    }
+                    e.d.classes[id.0 as usize].implements.push(c);
                 }
             }
         }
@@ -729,6 +739,9 @@ pub(crate) fn class_body<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<
         .collect();
     e.declare_pass(cs, &items)?;
     for k in items {
+        if e.d.classes[id.0 as usize].interface && e.kind(k) == Kind::VarDecl {
+            return Err(e.err(k, "an interface class cannot declare properties (8.26)"));
+        }
         e.item(cs, k)?;
     }
     super::checks::class_done(e, id)?;

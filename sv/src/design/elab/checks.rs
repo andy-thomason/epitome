@@ -210,6 +210,20 @@ pub(crate) fn unit_ref<'a>(e: &mut Elab<'a, '_>, _sc: ScopeId, s: Sym, b: Option
 
 /// Where a name is used, rules that depend on what it is.
 pub(crate) fn object_use<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, o: ObjId, n: NodeId) -> R<'a> {
+    let os = e.obj(o).scope;
+    if e.scope(os).kind == ScopeKind::Class && e.obj(o).kind == ObjKind::Variable {
+        let static_member = e.obj(o).qualifiers.iter().any(|&q| e.name(q) == "static");
+        if !static_member
+            && let Some(s) = e.current_sub
+            && has_q(e, s, "static")
+            && lookup::enclosing(e, e.d.subroutines[s.0 as usize].scope, ScopeKind::Class).is_some()
+        {
+            return Err(e.err(n, format!("a static method cannot use the non-static property `{}` (8.10)", e.name(e.obj(o).name))));
+        }
+        if let Some(c) = lookup::class_of_scope(e, os) {
+            member_access(e, sc, c, o, n)?;
+        }
+    }
     // An interconnect net only connects; procedures cannot use it (6.6.8).
     if matches!(e.obj(o).kind, ObjKind::Net(k) if e.name(k) == "interconnect") && (e.proc_kind.is_some() || e.current_sub.is_some()) {
         return Err(e.err(n, format!("`{}` is an interconnect net, so procedural code cannot use it (6.6.8)", e.name(e.obj(o).name))));
@@ -566,10 +580,27 @@ pub(crate) fn extends<'a>(e: &mut Elab<'a, '_>, c: ClassId, base: ClassId, n: No
 }
 
 pub(crate) fn class_done<'a>(e: &mut Elab<'a, '_>, c: ClassId) -> R<'a> {
+    overrides(e, c)?;
     let class = &e.d.classes[c.0 as usize];
     if class.virtual_ || class.interface {
         return Ok(());
     }
+    // Every method of the interface classes it implements (8.26).
+    for ic in class.implements.clone() {
+        let isc = e.d.classes[ic.0 as usize].scope;
+        for item in e.scope(isc).items.clone() {
+            let Item::Subroutine(s) = item else { continue };
+            let name = e.d.subroutines[s.0 as usize].name;
+            if !matches!(lookup::class_member(e, c, name), Some(Binding::Subroutine(x)) if !e.d.subroutines[x.0 as usize].qualifiers.iter().any(|&q| e.name(q) == "pure") && e.d.subroutines[x.0 as usize].scope != isc) {
+                let node = e.d.classes[c.0 as usize].node;
+                return Err(e.err(
+                    e.name_child(node).unwrap_or(node),
+                    format!("class `{}` implements `{}` but not its method `{}` (8.26)", e.name(e.d.classes[c.0 as usize].name), e.name(e.d.classes[ic.0 as usize].name), e.name(name)),
+                ));
+            }
+        }
+    }
+    let class = &e.d.classes[c.0 as usize];
     // A class that is not virtual must implement every pure virtual
     // method it inherits (8.21).
     let mut pure: Vec<(Sym, NodeId)> = Vec::new();
@@ -606,6 +637,151 @@ pub(crate) fn class_done<'a>(e: &mut Elab<'a, '_>, c: ClassId) -> R<'a> {
     Ok(())
 }
 
+fn has_q(e: &Elab, s: SubId, q: &str) -> bool {
+    e.d.subroutines[s.0 as usize].qualifiers.iter().any(|&x| e.name(x) == q)
+}
+
+/// The base class method `name` overrides, and whether it is virtual
+/// (declared so, or overriding a virtual one).
+fn base_method(e: &Elab, c: ClassId, name: Sym) -> Option<(SubId, bool)> {
+    let mut cur = e.d.classes[c.0 as usize].base;
+    let mut guard = 0;
+    while let Some(b) = cur {
+        let sc = e.d.classes[b.0 as usize].scope;
+        if let Some(Binding::Subroutine(s)) = e.scope(sc).names.get(&name).copied() {
+            let virt = has_q(e, s, "virtual") || has_q(e, s, "pure") || base_method(e, b, name).is_some_and(|(_, v)| v);
+            return Some((s, virt));
+        }
+        cur = e.d.classes[b.0 as usize].base;
+        guard += 1;
+        if guard > 64 {
+            break;
+        }
+    }
+    None
+}
+
+/// Virtual method overrides (8.20): `:initial`, `:extends` and `:final`,
+/// and an override's arguments and return type.
+fn overrides<'a>(e: &mut Elab<'a, '_>, c: ClassId) -> R<'a> {
+    let sc = e.d.classes[c.0 as usize].scope;
+    for item in e.scope(sc).items.clone() {
+        let Item::Subroutine(s) = item else { continue };
+        let name = e.d.subroutines[s.0 as usize].name;
+        if e.name(name) == "new" {
+            continue;
+        }
+        let at = e.d.subroutines[s.0 as usize].node;
+        let at = e.name_child(at).unwrap_or(at);
+        let (initial, extends) = (has_q(e, s, "initial"), has_q(e, s, "extends"));
+        if initial && extends {
+            return Err(e.err(at, "a method cannot be both `:initial` and `:extends` (8.20)"));
+        }
+        let base = base_method(e, c, name);
+        match base {
+            Some((b, true)) => {
+                if initial {
+                    return Err(e.err(at, format!("`{}` overrides a virtual method, so it cannot be `:initial` (8.20)", e.name(name))));
+                }
+                if has_q(e, b, "final") {
+                    return Err(e.err(at, format!("`{}` is `:final` in the base class, so it cannot be overridden (8.20)", e.name(name))));
+                }
+                super::stmt::sub_signature(e, b)?;
+                super::stmt::sub_signature(e, s)?;
+                let (bs, ss) = (&e.d.subroutines[b.0 as usize], &e.d.subroutines[s.0 as usize]);
+                let (ba, sa) = (bs.args.clone(), ss.args.clone());
+                let (bd, sd) = (bs.defaults.clone(), ss.defaults.clone());
+                let (br, sr) = (bs.ret, ss.ret);
+                if ba.len() != sa.len() {
+                    return Err(e.err(at, format!("the override of `{}` has {} arguments, not {} (8.20)", e.name(name), sa.len(), ba.len())));
+                }
+                for (i, (&x, &y)) in ba.iter().zip(&sa).enumerate() {
+                    let (ox, oy) = (e.obj(x), e.obj(y));
+                    let what = if ox.name != oy.name {
+                        Some("renames")
+                    } else if !equivalent(e, ox.ty, oy.ty) {
+                        Some("changes the type of")
+                    } else if ox.dir != oy.dir {
+                        Some("changes the direction of")
+                    } else if bd.get(i).copied().flatten().is_some() != sd.get(i).copied().flatten().is_some() {
+                        Some("changes whether there is a default for")
+                    } else {
+                        None
+                    };
+                    if let Some(w) = what {
+                        return Err(e.err(at, format!("the override of `{}` {w} argument `{}` (8.20)", e.name(name), e.name(ox.name))));
+                    }
+                }
+                let class_ret = matches!(e.d.types.get(br), Type::Class(_)) && matches!(e.d.types.get(sr), Type::Class(_));
+                if !equivalent(e, br, sr) && !class_ret {
+                    return Err(e.err(at, format!("the override of `{}` changes the return type (8.20)", e.name(name))));
+                }
+            }
+            _ => {
+                if extends {
+                    return Err(e.err(at, format!("`{}` is `:extends`, but no base class has a virtual method of that name (8.20)", e.name(name))));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// A constructor's `super.new` comes first, and not when `extends` gives
+/// the base constructor's arguments (8.15, 8.17).
+pub(crate) fn constructor_body<'a>(e: &mut Elab<'a, '_>, sub: SubId) -> R<'a> {
+    let s = &e.d.subroutines[sub.0 as usize];
+    if e.name(s.name) != "new" {
+        return Ok(());
+    }
+    let body = s.body.clone();
+    let scope = s.scope;
+    let node = s.node;
+    let is_super_new = |e: &Elab, st: StmtId| -> bool {
+        let n = e.d.stmts[st.0 as usize].node;
+        let toks = e.ast.tokens_of(n);
+        toks.len() >= 3 && toks[0].0 == "super" && toks[1].0 == "." && toks[2].0 == "new"
+    };
+    for (i, &st) in body.iter().enumerate() {
+        if is_super_new(e, st) {
+            if i != 0 {
+                return Err(e.err(e.d.stmts[st.0 as usize].node, "`super.new` must be the first statement of the constructor (8.15)"));
+            }
+            let class = e.scope(scope).parent.and_then(|p| lookup::class_of_scope(e, p));
+            if let Some(c) = class {
+                let cnode = e.d.classes[c.0 as usize].node;
+                if let Some(x) = e.child(cnode, Kind::Extends)
+                    && e.kids(x).len() > 1
+                {
+                    return Err(e.err(e.d.stmts[st.0 as usize].node, "the `extends` clause gives the base constructor's arguments, so `super.new` cannot be called (8.17)"));
+                }
+            }
+            // `super.new(default)` needs `default` among this constructor's
+            // arguments.
+            let n = e.d.stmts[st.0 as usize].node;
+            if e.ast.tokens_of(n).iter().any(|t| t.0 == "default") {
+                let ports = e.child(node, Kind::TfPorts);
+                let has_default = ports.is_some_and(|p| e.ast.tokens_of(p).iter().any(|t| t.0 == "default"));
+                if !has_default {
+                    return Err(e.err(n, "`super.new(default)` needs `default` in the constructor's own arguments (8.17)"));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// `weak_reference #(T)`: T must be a class (8.30).
+pub(crate) fn weak_reference_param<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, pv: NodeId) -> R<'a> {
+    if let Some(&arg) = e.kids(pv).first()
+        && let Some(t) = super::ty::maybe_type(e, sc, arg)?
+        && !matches!(e.d.types.get(t), Type::Class(_) | Type::Unknown)
+    {
+        return Err(e.err(arg, "`weak_reference` can only refer to class objects (8.30)"));
+    }
+    Ok(())
+}
+
 pub(crate) fn new_class<'a>(e: &mut Elab<'a, '_>, _sc: ScopeId, c: ClassId, n: NodeId) -> R<'a> {
     let class = &e.d.classes[c.0 as usize];
     if class.interface {
@@ -630,10 +806,20 @@ pub(crate) fn member_access<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, c: ClassId, o
     let Some(here) = here else {
         return Err(e.err(n, format!("`{}` is {} to its class (8.18)", e.name(e.obj(o).name), if local { "local" } else { "protected" })));
     };
-    if local && here != owner {
+    // A class nested inside the owner sees its members too (8.23).
+    let mut enclosing = Vec::new();
+    let mut cur = Some(sc);
+    while let Some(id) = cur {
+        if let Some(k) = lookup::class_of_scope(e, id) {
+            enclosing.push(k);
+        }
+        cur = e.scope(id).parent;
+    }
+    if local && !enclosing.contains(&owner) {
         return Err(e.err(n, format!("`{}` is local to its class (8.18)", e.name(e.obj(o).name))));
     }
-    if protected && !derives(e, here, owner) {
+    let _ = here;
+    if protected && !enclosing.iter().any(|&k| derives(e, k, owner)) {
         return Err(e.err(n, format!("`{}` is protected, so only its class and subclasses can use it (8.18)", e.name(e.obj(o).name))));
     }
     Ok(())

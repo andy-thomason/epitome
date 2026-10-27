@@ -7,7 +7,11 @@
 //! - `-E`: print the preprocessed text, and stop.
 //! - `--ast`: print the syntax tree.
 //! - `--design`: elaborate, and print the design.
-//! - `--parse-only`: stop after parsing.
+//! - `--parse-only`: stop after parsing; `--elab-only`: after elaborating.
+//! - `+name` or `+name=value`: plusargs for the simulation (21.6).
+//!
+//! Without these, the design is simulated by the interpreter. The exit
+//! status is non-zero if `$fatal` was called or the run hit a limit.
 //! - `-I dir`, `-Idir`, `+incdir+dir[+dir...]`: search `dir` for
 //!   `` `include `` files.
 //! - `-D name[=text]`, `-Dname[=text]`, `+define+name[=text][+...]`: define
@@ -40,6 +44,8 @@ fn run() -> ExitCode {
     let mut ast = false;
     let mut design = false;
     let mut parse_only = false;
+    let mut elab_only = false;
+    let mut plusargs = Vec::new();
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         if arg == "-E" {
@@ -50,6 +56,8 @@ fn run() -> ExitCode {
             design = true;
         } else if arg == "--parse-only" {
             parse_only = true;
+        } else if arg == "--elab-only" {
+            elab_only = true;
         } else if let Some(dir) = arg.strip_prefix("-I") {
             let dir = if dir.is_empty() { args.next().unwrap_or_default() } else { dir.to_string() };
             options.include_dirs.push(dir.into());
@@ -60,6 +68,8 @@ fn run() -> ExitCode {
             options.include_dirs.extend(dirs.split('+').filter(|d| !d.is_empty()).map(PathBuf::from));
         } else if let Some(ds) = arg.strip_prefix("+define+") {
             ds.split('+').filter(|d| !d.is_empty()).for_each(|d| define(&mut options, d));
+        } else if arg.starts_with('+') && !arg.starts_with("+incdir+") && !arg.starts_with("+define+") {
+            plusargs.push(arg.clone());
         } else if !arg.starts_with('-') && !arg.starts_with('+') {
             files.push(PathBuf::from(arg));
         }
@@ -87,7 +97,16 @@ fn run() -> ExitCode {
                         if design {
                             print!("{}", print_design(&d));
                         }
-                        ExitCode::SUCCESS
+                        if design || elab_only {
+                            return ExitCode::SUCCESS;
+                        }
+                        let opts = epitome_sv::sim::Options { plusargs, ..Default::default() };
+                        let mut stdout = std::io::stdout();
+                        let r = epitome_sv::sim::simulate(&d, &tree, &mut stdout, &opts);
+                        for u in &r.unsupported {
+                            eprintln!("epitome-sv: not simulated: {u}");
+                        }
+                        if r.failed { ExitCode::FAILURE } else { ExitCode::SUCCESS }
                     }
                     Err(e) => {
                         eprint!("{}", map.render(&e));

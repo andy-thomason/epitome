@@ -10,6 +10,8 @@ use crate::ast::{Kind, NodeId};
 use crate::design::types::{Type, TypeId, Types, UDim};
 use crate::design::value::{Bits, Logic};
 use crate::design::*;
+use crate::design::ops::{self, bits_of, const_eq, default_value, lsb_offset, truth};
+
 use std::collections::HashMap;
 
 /// Binds and evaluates a constant expression.
@@ -25,6 +27,11 @@ pub(crate) fn const_expr<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<
 
 /// The type a parameter takes from its value when declared without one
 /// (6.20.2).
+/// See `ops::convert`.
+pub(crate) fn convert_const(e: &Elab, v: &Const, t: TypeId) -> Const {
+    ops::convert(&e.d.types, v, t)
+}
+
 pub(crate) fn type_of_const(e: &mut Elab, v: &Const) -> TypeId {
     match v {
         Const::Bits(b) => {
@@ -39,70 +46,12 @@ pub(crate) fn type_of_const(e: &mut Elab, v: &Const) -> TypeId {
         Const::Type(_) => Types::TYPE,
         Const::Null => Types::NULL,
         Const::Unbounded => Types::INT,
-        Const::Aggregate(_) => Types::UNKNOWN,
+        Const::Aggregate(_) | Const::Handle(_) => Types::UNKNOWN,
     }
 }
 
-/// A constant converted to type `t`, as assignment converts (10.7).
-pub(crate) fn convert_const(e: &Elab, v: &Const, t: TypeId) -> Const {
-    let ty = &e.d.types;
-    if ty.is_integral(t) {
-        let w = ty.width(t);
-        let s = ty.is_signed(t);
-        let four = ty.is_four_state(t);
-        let b = match v {
-            Const::Bits(b) => b.resize(w, b.signed()).with_signed(s),
-            Const::Real(r) => Bits::from_f64(w, s, *r),
-            Const::Str(st) => Bits::from_str_bytes(st).resize(w, false).with_signed(s),
-            _ => return v.clone(),
-        };
-        let b = if four { b } else { two_state(&b) };
-        return Const::Bits(b);
-    }
-    if ty.is_real(t) {
-        return match v {
-            Const::Bits(b) => Const::Real(b.to_f64()),
-            Const::Real(r) => {
-                if matches!(ty.get(t), Type::Real(crate::design::types::RealKind::ShortReal)) {
-                    Const::Real(*r as f32 as f64)
-                } else {
-                    Const::Real(*r)
-                }
-            }
-            _ => v.clone(),
-        };
-    }
-    if t == Types::STRING {
-        return match v {
-            Const::Bits(b) => Const::Str(b.to_str_bytes()),
-            _ => v.clone(),
-        };
-    }
-    v.clone()
-}
 
-/// x and z become 0 (6.3.2.1).
-pub(crate) fn two_state(b: &Bits) -> Bits {
-    let mut r = b.clone();
-    for i in 0..b.width() {
-        if !b.bit(i).is_known() {
-            r.set_bit(i, Logic::Zero);
-        }
-    }
-    r
-}
 
-/// Equality for a generate `case` item: bit for bit (27.5).
-pub(crate) fn const_eq(a: &Const, b: &Const) -> bool {
-    match (a, b) {
-        (Const::Bits(x), Const::Bits(y)) => x.case_eq(y),
-        (Const::Real(x), Const::Real(y)) => x == y,
-        (Const::Bits(x), Const::Real(y)) | (Const::Real(y), Const::Bits(x)) => x.to_f64() == *y,
-        (Const::Str(x), Const::Str(y)) => x == y,
-        (Const::Type(x), Const::Type(y)) => x == y,
-        _ => a == b,
-    }
-}
 
 /// A time literal's value in the time unit of the scope it is written in
 /// (3.14).
@@ -140,37 +89,7 @@ pub(crate) struct Eval {
     pub node: NodeId,
 }
 
-fn bits_of(c: &Const) -> Option<Bits> {
-    match c {
-        Const::Bits(b) => Some(b.clone()),
-        Const::Real(r) => Some(Bits::from_f64(64, true, *r)),
-        Const::Str(s) => Some(Bits::from_str_bytes(s)),
-        _ => None,
-    }
-}
 
-/// The default value of a variable of type `t` (6.8, table 6-7).
-pub(crate) fn default_value(e: &Elab, t: TypeId) -> Const {
-    let ty = &e.d.types;
-    if ty.is_integral(t) {
-        let w = ty.width(t);
-        let s = ty.is_signed(t);
-        return Const::Bits(if ty.is_four_state(t) { Bits::x(w).with_signed(s) } else { Bits::zero(w, s) });
-    }
-    match ty.get(t) {
-        Type::Real(_) => Const::Real(0.0),
-        Type::String => Const::Str(vec![]),
-        Type::Unpacked { elem, dim: UDim::Range(l, r) } => {
-            let n = (l - r).unsigned_abs() as usize + 1;
-            let d = default_value(e, *elem);
-            Const::Aggregate(vec![d; n.min(1 << 20)])
-        }
-        Type::Unpacked { .. } => Const::Aggregate(vec![]),
-        Type::Struct { members, .. } => Const::Aggregate(members.iter().map(|m| default_value(e, m.ty)).collect()),
-        Type::Class(_) | Type::Null | Type::Chandle => Const::Null,
-        _ => Const::Bits(Bits::x(1)),
-    }
-}
 
 impl Eval {
     fn err<'a>(&self, e: &Elab<'a, '_>, n: NodeId, msg: impl Into<String>) -> Stop<'a> {
@@ -202,7 +121,7 @@ impl Eval {
             K::TypeRef(t) => Ok(Const::Type(*t)),
             K::Convert => {
                 let v = self.expr(e, ex.args[0])?;
-                Ok(convert_const(e, &v, ty))
+                Ok(ops::convert(&e.d.types, &v, ty))
             }
             K::Unary(op @ (UnOp::PreInc | UnOp::PreDec | UnOp::PostInc | UnOp::PostDec)) => {
                 let old = self.expr(e, ex.args[0])?;
@@ -340,7 +259,7 @@ impl Eval {
                 }
                 let b = bits_of(&base).ok_or(Stop::NotConstant)?;
                 let ew = e.d.types.element(bt).map_or(1, |t| e.d.types.width(t).max(1)) as i64;
-                let lo_off = lsb_offset(e, bt, lo.min(hi), hi.max(lo));
+                let lo_off = lsb_offset(&e.d.types, bt, lo.min(hi), hi.max(lo));
                 match lo_off {
                     Some(off) => {
                         Ok(Const::Bits(b.slice((off * ew).max(0) as u32, width * ew as u32 / ew as u32 * ew as u32)))
@@ -481,180 +400,22 @@ impl Eval {
     }
 
     fn unary<'a>(&mut self, e: &Elab<'a, '_>, op: UnOp, v: Const, ty: TypeId, _a: ExprId, n: NodeId) -> V<'a> {
-        if let Const::Real(r) = v {
-            return Ok(match op {
-                UnOp::Plus => Const::Real(r),
-                UnOp::Neg => Const::Real(-r),
-                UnOp::LogNot => Const::Bits(Bits::from_bool(r == 0.0)),
-                _ => return Err(self.err(e, n, "this operator cannot take a real")),
-            });
-        }
-        let b = bits_of(&v).ok_or(Stop::NotConstant)?;
-        let w = e.d.types.width(ty).max(b.width());
-        let s = e.d.types.is_signed(ty);
-        let r = match op {
-            UnOp::Plus => b,
-            UnOp::Neg => b.resize(w, s).with_signed(s).neg(),
-            UnOp::Not => b.not(),
-            UnOp::LogNot => Bits::of_logic(match b.truth() {
-                Some(t) => {
-                    if t {
-                        Logic::Zero
-                    } else {
-                        Logic::One
-                    }
-                }
-                None => Logic::X,
-            }),
-            UnOp::RedAnd => Bits::of_logic(b.reduce_and()),
-            UnOp::RedNand => Bits::of_logic(b.reduce_and()).not(),
-            UnOp::RedOr => Bits::of_logic(b.reduce_or()),
-            UnOp::RedNor => Bits::of_logic(b.reduce_or()).not(),
-            UnOp::RedXor => Bits::of_logic(b.reduce_xor()),
-            UnOp::RedXnor => Bits::of_logic(b.reduce_xor()).not(),
-            _ => return Err(Stop::NotConstant),
-        };
-        Ok(Const::Bits(r))
+        ops::unary(&e.d.types, op, v, ty).ok_or_else(|| self.err(e, n, "this operator cannot take this operand"))
     }
-
     fn binary<'a>(&mut self, e: &Elab<'a, '_>, op: BinOp, a: Const, b: Const, ty: TypeId, n: NodeId) -> V<'a> {
-        use BinOp::*;
-        // Reals.
-        if matches!(a, Const::Real(_)) || matches!(b, Const::Real(_)) {
-            let x = match &a {
-                Const::Real(r) => *r,
-                Const::Bits(b) => b.to_f64(),
-                _ => return Err(Stop::NotConstant),
-            };
-            let y = match &b {
-                Const::Real(r) => *r,
-                Const::Bits(b) => b.to_f64(),
-                _ => return Err(Stop::NotConstant),
-            };
-            let bl = |v: bool| Const::Bits(Bits::from_bool(v));
-            return Ok(match op {
-                Add => Const::Real(x + y),
-                Sub => Const::Real(x - y),
-                Mul => Const::Real(x * y),
-                Div => Const::Real(x / y),
-                Pow => Const::Real(x.powf(y)),
-                Eq | CaseEq => bl(x == y),
-                Ne | CaseNe => bl(x != y),
-                Lt => bl(x < y),
-                Le => bl(x <= y),
-                Gt => bl(x > y),
-                Ge => bl(x >= y),
-                _ => return Err(self.err(e, n, "this operator cannot take a real")),
-            });
-        }
-        // Strings compare as strings.
-        if let (Const::Str(x), Const::Str(y)) = (&a, &b)
-            && (matches!(op, Eq | Ne | CaseEq | CaseNe) || (ty != Types::UNKNOWN && !e.d.types.is_integral(ty)))
-        {
-            let bl = |v: bool| Const::Bits(Bits::from_bool(v));
-            return Ok(match op {
-                Eq | CaseEq => bl(x == y),
-                Ne | CaseNe => bl(x != y),
-                Lt => bl(x < y),
-                Le => bl(x <= y),
-                Gt => bl(x > y),
-                _ => bl(x >= y),
-            });
-        }
         if matches!(a, Const::Unbounded) || matches!(b, Const::Unbounded) {
             return Err(Stop::NotConstant);
         }
-        if matches!((&a, &b), (Const::Type(_), Const::Type(_))) {
-            let same = a == b;
-            return Ok(Const::Bits(Bits::from_bool(if matches!(op, Eq | CaseEq) { same } else { !same })));
+        let real = matches!(a, Const::Real(_)) || matches!(b, Const::Real(_));
+        match ops::binary(&e.d.types, op, a, b, ty) {
+            Some(v) => Ok(v),
+            None if real => Err(self.err(e, n, "this operator cannot take a real")),
+            None => Err(Stop::NotConstant),
         }
-        let x = bits_of(&a).ok_or(Stop::NotConstant)?;
-        let y = bits_of(&b).ok_or(Stop::NotConstant)?;
-        let w = e.d.types.width(ty).max(1);
-        let s = e.d.types.is_signed(ty);
-        let fit = |v: &Bits| v.resize(w, v.signed()).with_signed(s);
-        let r = match op {
-            Add => fit(&x).add(&fit(&y)),
-            Sub => fit(&x).sub(&fit(&y)),
-            Mul => fit(&x).mul(&fit(&y)),
-            Div => fit(&x).div(&fit(&y)),
-            Mod => fit(&x).rem(&fit(&y)),
-            And => fit(&x).and(&fit(&y)),
-            Or => fit(&x).or(&fit(&y)),
-            Xor => fit(&x).xor(&fit(&y)),
-            Xnor => fit(&x).xnor(&fit(&y)),
-            Pow => fit(&x).pow(&y),
-            Shl | AShl | Shr | AShr => {
-                let v = fit(&x);
-                match y.to_u64() {
-                    Some(k) => match op {
-                        Shl | AShl => v.shl(k),
-                        Shr => v.lshr(k),
-                        _ => v.ashr(k),
-                    },
-                    None => Bits::x(w),
-                }
-            }
-            Eq => Bits::of_logic(x.logic_eq(&y)),
-            Ne => Bits::of_logic(x.logic_eq(&y)).not(),
-            CaseEq => Bits::from_bool(x.case_eq(&y)),
-            CaseNe => Bits::from_bool(!x.case_eq(&y)),
-            WildEq => Bits::of_logic(x.wildcard_eq(&y)),
-            WildNe => Bits::of_logic(x.wildcard_eq(&y)).not(),
-            Lt => Bits::of_logic(x.cmp_op(&y, |o| o.is_lt())),
-            Le => Bits::of_logic(x.cmp_op(&y, |o| o.is_le())),
-            Gt => Bits::of_logic(x.cmp_op(&y, |o| o.is_gt())),
-            Ge => Bits::of_logic(x.cmp_op(&y, |o| o.is_ge())),
-            Implies => {
-                let (p, q) = (x.truth(), y.truth());
-                Bits::of_logic(match (p, q) {
-                    (Some(false), _) | (_, Some(true)) => Logic::One,
-                    (Some(true), Some(false)) => Logic::Zero,
-                    _ => Logic::X,
-                })
-            }
-            Equiv => match (x.truth(), y.truth()) {
-                (Some(p), Some(q)) => Bits::from_bool(p == q),
-                _ => Bits::x(1),
-            },
-            LogAnd | LogOr => unreachable!(),
-        };
-        Ok(Const::Bits(r))
     }
-
     fn index<'a>(&mut self, e: &Elab<'a, '_>, base: &Const, bt: TypeId, i: &Const, ty: TypeId, _n: NodeId) -> V<'a> {
-        let Some(idx) = i.to_i64() else {
-            return Ok(default_value(e, ty));
-        };
-        match base {
-            Const::Aggregate(items) => {
-                let (l, r) = match e.d.types.get(bt) {
-                    Type::Unpacked { dim: UDim::Range(l, r), .. } => (*l, *r),
-                    _ => (0, items.len() as i64 - 1),
-                };
-                let off = if l <= r { idx - l } else { l - idx };
-                if off < 0 || off as usize >= items.len() {
-                    return Ok(default_value(e, ty));
-                }
-                Ok(items[off as usize].clone())
-            }
-            Const::Str(s) => {
-                if idx < 0 || idx as usize >= s.len() {
-                    return Ok(Const::Bits(Bits::zero(8, false)));
-                }
-                Ok(Const::Bits(Bits::from_u64(8, false, s[idx as usize] as u64)))
-            }
-            _ => {
-                let b = bits_of(base).ok_or(Stop::NotConstant)?;
-                let ew = e.d.types.width(ty).max(1);
-                match lsb_offset(e, bt, idx, idx) {
-                    Some(off) => Ok(Const::Bits(b.slice(off as u32 * ew, ew))),
-                    None => Ok(Const::Bits(Bits::x(ew))),
-                }
-            }
-        }
+        ops::index(&e.d.types, base, bt, i, ty).ok_or(Stop::NotConstant)
     }
-
     pub(crate) fn call<'a>(&mut self, e: &mut Elab<'a, '_>, sub: SubId, args: &[ExprId], n: NodeId) -> V<'a> {
         super::checks::constant_function(e, sub, n).map_err(Stop::Error)?;
         if !e.d.subroutines[sub.0 as usize].elaborated {
@@ -673,7 +434,7 @@ impl Eval {
         for (i, &f) in formals.iter().enumerate() {
             let v = match args.get(i) {
                 Some(&a) => self.expr(e, a)?,
-                None => default_value(e, e.obj(f).ty),
+                None => default_value(&e.d.types, e.obj(f).ty),
             };
             frame.insert(f, v);
         }
@@ -687,10 +448,10 @@ impl Eval {
             .collect();
         for o in locals {
             let t = e.obj(o).ty;
-            frame.insert(o, default_value(e, t));
+            frame.insert(o, default_value(&e.d.types, t));
         }
         if let Some(Binding::Object(r)) = e.scope(scope).names.get(&name).copied() {
-            frame.insert(r, default_value(e, ret));
+            frame.insert(r, default_value(&e.d.types, ret));
         }
         // Initialisers of locals.
         self.frames.push(frame);
@@ -729,7 +490,7 @@ impl Eval {
                 _ => Const::Null,
             },
         };
-        Ok(convert_const(e, &v, ret))
+        Ok(ops::convert(&e.d.types, &v, ret))
     }
 
     fn stmt<'a>(&mut self, e: &mut Elab<'a, '_>, s: StmtId) -> Result<(), Stop<'a>> {
@@ -751,7 +512,7 @@ impl Eval {
                     for o in locals {
                         let v = match e.obj(o).init {
                             Some(i) => self.expr(e, i)?,
-                            None => default_value(e, e.obj(o).ty),
+                            None => default_value(&e.d.types, e.obj(o).ty),
                         };
                         self.frames.last_mut().ok_or(Stop::NotConstant)?.insert(o, v);
                     }
@@ -828,7 +589,7 @@ impl Eval {
                         (0..e.d.objects.len() as u32).map(ObjId).filter(|&o| e.obj(o).scope == bs).collect();
                     for o in locals {
                         let t = e.obj(o).ty;
-                        self.frames.last_mut().ok_or(Stop::NotConstant)?.insert(o, default_value(e, t));
+                        self.frames.last_mut().ok_or(Stop::NotConstant)?.insert(o, default_value(&e.d.types, t));
                     }
                 }
                 for s in init {
@@ -920,7 +681,7 @@ impl Eval {
                 for _ in 0..n {
                     if let Some(Some(v)) = vars.first() {
                         let t = e.obj(*v).ty;
-                        let c = convert_const(e, &Const::Bits(Bits::from_i64(32, true, i)), t);
+                        let c = ops::convert(&e.d.types, &Const::Bits(Bits::from_i64(32, true, i)), t);
                         self.frames.last_mut().ok_or(Stop::NotConstant)?.insert(*v, c);
                     }
                     match self.stmt(e, body) {
@@ -958,7 +719,7 @@ impl Eval {
         let lt = lx.ty;
         match lx.kind {
             ExprKind::Object(o) => {
-                let v = convert_const(e, &v, lt);
+                let v = ops::convert(&e.d.types, &v, lt);
                 let Some(f) = self.frames.iter_mut().rev().find(|f| f.contains_key(&o)) else {
                     let name = e.name(e.obj(o).name);
                     return Err(self.err(e, lx.node, format!("a constant function cannot write `{name}` (13.4.3)")));
@@ -982,17 +743,17 @@ impl Eval {
                             Type::Unpacked { dim: UDim::Dynamic | UDim::Queue(_) | UDim::Assoc(_), .. }
                         ) && off >= items.len() as i64
                         {
-                            items.resize(off as usize + 1, default_value(e, lt));
+                            items.resize(off as usize + 1, default_value(&e.d.types, lt));
                         }
                         if off >= 0 && (off as usize) < items.len() {
-                            items[off as usize] = convert_const(e, &v, lt);
+                            items[off as usize] = ops::convert(&e.d.types, &v, lt);
                         }
                         Const::Aggregate(items)
                     }
                     (Const::Bits(mut b), Some(i)) => {
                         let ew = e.d.types.width(lt).max(1);
-                        if let Some(off) = lsb_offset(e, bt, i, i) {
-                            let nv = bits_of(&convert_const(e, &v, lt)).unwrap_or(Bits::x(ew));
+                        if let Some(off) = lsb_offset(&e.d.types, bt, i, i) {
+                            let nv = bits_of(&ops::convert(&e.d.types, &v, lt)).unwrap_or(Bits::x(ew));
                             b.set_slice(off as u32 * ew, &nv.resize(ew, false));
                         }
                         Const::Bits(b)
@@ -1017,7 +778,7 @@ impl Eval {
                     PartKind::Up => (a + width as i64 - 1, a),
                     PartKind::Down => (a, a - width as i64 + 1),
                 };
-                if let Some(off) = lsb_offset(e, bt, lo.min(hi), hi.max(lo)) {
+                if let Some(off) = lsb_offset(&e.d.types, bt, lo.min(hi), hi.max(lo)) {
                     let nv = bits_of(&v).unwrap_or(Bits::x(width));
                     b.set_slice(off as u32, &nv.resize(width, false));
                 }
@@ -1095,7 +856,7 @@ impl Eval {
                 let w = e.d.types.width(t);
                 if w == 0 {
                     // An unpacked array of fixed size, or a value.
-                    let v = bits_total(e, t);
+                    let v = ops::bits_total(&e.d.types, t);
                     return match v {
                         Some(v) => Ok(int(v as i64)),
                         None => {
@@ -1120,7 +881,7 @@ impl Eval {
                     Some(&a) => self.expr(e, a)?.to_i64().unwrap_or(1),
                     None => 1,
                 };
-                let Some((l, r)) = nth_range(e, t, dim) else { return Err(Stop::NotConstant) };
+                let Some((l, r)) = ops::nth_range(&e.d.types, t, dim) else { return Err(Stop::NotConstant) };
                 Ok(int(match name {
                     "$size" => (l - r).abs() + 1,
                     "$left" => l,
@@ -1138,7 +899,7 @@ impl Eval {
             }
             "$dimensions" | "$unpacked_dimensions" => {
                 let t = arg_ty(e, 0);
-                let (p, u) = count_dims(e, t);
+                let (p, u) = ops::count_dims(&e.d.types, t);
                 Ok(int(if name == "$dimensions" { (p + u) as i64 } else { u as i64 }))
             }
             "$signed" | "$unsigned" => {
@@ -1272,7 +1033,7 @@ impl Eval {
                             if name == "next" { (i as i64 + k).rem_euclid(n) } else { (i as i64 - k).rem_euclid(n) };
                         Const::Bits(items[j as usize].1.clone())
                     }
-                    None => default_value(e, bt),
+                    None => default_value(&e.d.types, bt),
                 })
             }
             _ => Err(Stop::NotConstant),
@@ -1280,15 +1041,6 @@ impl Eval {
     }
 }
 
-fn truth(c: &Const) -> Option<bool> {
-    match c {
-        Const::Bits(b) => b.truth(),
-        Const::Real(r) => Some(*r != 0.0),
-        Const::Str(s) => Some(!s.is_empty()),
-        Const::Null => Some(false),
-        _ => None,
-    }
-}
 
 /// Whether scope `s` is `top` or inside it.
 fn within(e: &Elab, s: ScopeId, top: ScopeId) -> bool {
@@ -1302,102 +1054,9 @@ fn within(e: &Elab, s: ScopeId, top: ScopeId) -> bool {
     false
 }
 
-/// The offset, in elements from the least significant end, of the indices
-/// `lo..=hi` of an integral type's outermost dimension; `None` if out of
-/// range (11.5.1).
-pub(crate) fn lsb_offset(e: &Elab, t: TypeId, lo: i64, hi: i64) -> Option<i64> {
-    let (l, r) = e.d.types.packed_range(t).unwrap_or((e.d.types.width(t) as i64 - 1, 0));
-    let (min, max) = (l.min(r), l.max(r));
-    if lo < min || hi > max {
-        return None;
-    }
-    Some(if l >= r { lo - r } else { r - hi })
-}
 
-/// The range of dimension `dim` (1 is the outermost), unpacked first, for
-/// `$left` and the like (20.7).
-fn nth_range(e: &Elab, t: TypeId, dim: i64) -> Option<(i64, i64)> {
-    let mut ranges = Vec::new();
-    let mut cur = t;
-    loop {
-        match e.d.types.get(cur) {
-            Type::Unpacked { elem, dim: UDim::Range(l, r) } => {
-                ranges.push((*l, *r));
-                cur = *elem;
-            }
-            Type::Vector { atom, dims, .. } => {
-                if dims.is_empty() {
-                    if !atom.is_scalar() {
-                        ranges.push((atom.width() as i64 - 1, 0));
-                    }
-                } else {
-                    ranges.extend(dims.iter().copied());
-                }
-                break;
-            }
-            Type::PackedArray { elem, dim, .. } => {
-                ranges.push(*dim);
-                cur = *elem;
-            }
-            Type::Struct { .. } | Type::Enum { .. } => {
-                let w = e.d.types.width(cur) as i64;
-                if w > 0 {
-                    ranges.push((w - 1, 0));
-                }
-                break;
-            }
-            _ => break,
-        }
-    }
-    ranges.get(dim as usize - 1).copied()
-}
 
-fn count_dims(e: &Elab, t: TypeId) -> (usize, usize) {
-    let (mut p, mut u) = (0, 0);
-    let mut cur = t;
-    loop {
-        match e.d.types.get(cur) {
-            Type::Unpacked { elem, .. } => {
-                u += 1;
-                cur = *elem;
-            }
-            Type::Vector { atom, dims, .. } => {
-                p += if dims.is_empty() { usize::from(!atom.is_scalar()) } else { dims.len() };
-                break;
-            }
-            Type::PackedArray { elem, .. } => {
-                p += 1;
-                cur = *elem;
-            }
-            Type::Struct { packed: true, .. } | Type::Enum { .. } => {
-                p += 1;
-                break;
-            }
-            Type::String => {
-                u += 1;
-                break;
-            }
-            _ => break,
-        }
-    }
-    (p, u)
-}
 
-/// The number of bits in a fixed-size type, unpacked dimensions included.
-fn bits_total(e: &Elab, t: TypeId) -> Option<u64> {
-    match e.d.types.get(t) {
-        Type::Unpacked { elem, dim: UDim::Range(l, r) } => Some(((l - r).unsigned_abs() + 1) * bits_total(e, *elem)?),
-        Type::Struct { members, union, .. } => {
-            let ws: Option<Vec<u64>> = members.iter().map(|m| bits_total(e, m.ty)).collect();
-            let ws = ws?;
-            Some(if *union { ws.into_iter().max().unwrap_or(0) } else { ws.into_iter().sum() })
-        }
-        _ => {
-            let w = e.d.types.width(t);
-            if w > 0 { Some(w as u64) } else { None }
-        }
-    }
-}
 
 #[allow(dead_code)]
 fn is_kind(e: &Elab, n: NodeId, k: Kind) -> bool {

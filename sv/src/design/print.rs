@@ -614,6 +614,7 @@ pub fn konst(d: &Design, c: &Const) -> String {
         Const::Type(t) => d.types.describe(*t, &d.syms),
         Const::Null => "null".into(),
         Const::Unbounded => "$".into(),
+        Const::Handle(h) => format!("handle#{h}"),
     }
 }
 

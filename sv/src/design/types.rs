@@ -334,6 +334,37 @@ impl Types {
         }
     }
 
+    /// The width of one element after an index, without making types: a
+    /// bit of a vector, a packed element, or 8 for a string's character.
+    pub fn elem_width(&self, id: TypeId) -> u32 {
+        match self.get(id) {
+            Type::Unpacked { elem, .. } | Type::PackedArray { elem, .. } => self.width(*elem),
+            // `logic [3:0][7:0]`: an element is 8 bits; `logic [7:0]` or
+            // `int`: one bit.
+            Type::Vector { atom, dims, .. } => match dims.len() {
+                0 => 1,
+                1 => atom.width(),
+                _ => dims[1..].iter().fold(atom.width() as u64, |w, &(l, r)| w * ((l - r).unsigned_abs() + 1)) as u32,
+            },
+            Type::String => 8,
+            _ => 1,
+        }
+    }
+
+    /// The element type after an index, if that type already exists.
+    pub fn element_of(&self, id: TypeId) -> Option<TypeId> {
+        let t = match self.get(id).clone() {
+            Type::Unpacked { elem, .. } | Type::PackedArray { elem, .. } => return Some(elem),
+            Type::Vector { atom, dims, .. } if dims.len() > 1 => Type::Vector { atom, signed: false, dims: dims[1..].to_vec() },
+            Type::Vector { atom, .. } => {
+                let a = if atom.is_scalar() { atom } else if atom.four_state() { Atom::Logic } else { Atom::Bit };
+                Type::Vector { atom: a, signed: false, dims: vec![] }
+            }
+            _ => return None,
+        };
+        self.map.get(&t).copied()
+    }
+
     /// The outermost packed range of an integral type, `[l:r]`.
     pub fn packed_range(&self, id: TypeId) -> Option<(i64, i64)> {
         match self.get(id) {

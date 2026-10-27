@@ -7,4 +7,5 @@ pub mod keywords;
 pub mod lexer;
 pub mod parse;
 pub mod preprocess;
+pub mod sim;
 pub mod source;

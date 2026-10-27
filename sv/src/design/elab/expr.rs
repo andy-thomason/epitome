@@ -1303,6 +1303,8 @@ pub(crate) fn hier<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, Op
     }
     let head = &steps[0];
     let mut at: Location;
+    // How to reach the target from any instance of this specialisation.
+    let mut hops: Vec<Hop> = Vec::new();
     let mut rest = 1;
     let root = e.name(head.name) == "$root";
     if root {
@@ -1310,7 +1312,10 @@ pub(crate) fn hier<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, Op
         let t = e.d.tops.iter().copied().find(|&i| e.d.instances[i.0 as usize].name == top.name);
         let in_progress = e.inst_path.first().copied().filter(|&i| e.d.instances[i.0 as usize].name == top.name);
         match t.or(in_progress) {
-            Some(i) => at = Location::Instance(i),
+            Some(i) => {
+                at = Location::Instance(i);
+                hops.push(Hop::Top(i));
+            }
             None => {
                 let unit = e.d.unit;
                 if e.scope(unit).names.contains_key(&top.name) {
@@ -1326,10 +1331,15 @@ pub(crate) fn hier<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, Op
         rest = 2;
     } else {
         match lookup::lookup(e, sc, head.name) {
-            Some(Binding::Instance(i)) => at = Location::Instance(i),
+            Some(Binding::Instance(i)) => {
+                at = Location::Instance(i);
+                hops.push(Hop::Down(i));
+            }
             Some(Binding::Instances(first, count)) => {
                 let Some(ix) = head.index else { return Ok(None) };
-                at = Location::Instance(pick_instance(e, sc, first, count, ix)?);
+                let i = pick_instance(e, sc, first, count, ix)?;
+                at = Location::Instance(i);
+                hops.push(Hop::Down(i));
             }
             Some(Binding::Scope(s)) => {
                 at = Location::Scope(s);
@@ -1355,6 +1365,7 @@ pub(crate) fn hier<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, Op
                         e.upward = true;
                         note_upward(e);
                         at = Location::Instance(i);
+                        hops.push(Hop::Up(head.name));
                     }
                     None => {
                         if e.d.tops.iter().any(|&i| e.d.instances[i.0 as usize].name == head.name) {
@@ -1367,6 +1378,7 @@ pub(crate) fn hier<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, Op
                             e.upward = true;
                             note_upward(e);
                             at = Location::Instance(i);
+                            hops.push(Hop::Top(i));
                         } else if e.defs.contains_key(&head.name) {
                             // A design element not yet elaborated, named
                             // from below or before it: kept unresolved.
@@ -1436,12 +1448,17 @@ pub(crate) fn hier<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, Op
                     format!("`{}` is a `let`, which cannot be referenced hierarchically (11.12)", e.name(step.name)),
                 ));
             }
-            Some(Binding::Instance(inst)) => at = Location::Instance(inst),
+            Some(Binding::Instance(inst)) => {
+                at = Location::Instance(inst);
+                hops.push(Hop::Down(inst));
+            }
             Some(Binding::Instances(first, count)) => {
                 let Some(ix) = step.index else {
                     return Err(e.err(step.node, "an array of instances needs an index here"));
                 };
-                at = Location::Instance(pick_instance(e, sc, first, count, ix)?);
+                let inst = pick_instance(e, sc, first, count, ix)?;
+                at = Location::Instance(inst);
+                hops.push(Hop::Down(inst));
             }
             Some(Binding::Scope(s)) => {
                 at = Location::Scope(s);
@@ -1452,6 +1469,7 @@ pub(crate) fn hier<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, Op
             Some(Binding::Object(o)) => {
                 let t = e.obj(o).ty;
                 let mut x = e.new_expr(ExprKind::Hier { path: path[..=i].to_vec(), object: Some(o) }, t, n, vec![]);
+                e.d.hops.insert(x, hops.clone());
                 if let Some(ix) = step.index {
                     let idx = expr(e, sc, ix)?;
                     let et = e.d.types.element(t).unwrap_or(Types::UNKNOWN);
@@ -2017,7 +2035,9 @@ fn with_clause<'a>(
     if matches!(e.name(m), "sum" | "product" | "and" | "or" | "xor") {
         t = e.ex(x).ty;
     }
-    Ok(e.new_expr(ExprKind::Method(m), t, n, vec![base, x]))
+    // The iterator goes last, so the simulator can set it.
+    let it = e.new_expr(ExprKind::Object(o), elem, w, vec![]);
+    Ok(e.new_expr(ExprKind::Method(m), t, n, vec![base, x, it]))
 }
 
 /// An argument naming an instance, a block or a design element, kept as a

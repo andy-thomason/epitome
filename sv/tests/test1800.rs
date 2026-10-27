@@ -299,3 +299,131 @@ fn elaborate_all() {
         now_checked
     );
 }
+
+/// Runs every simulation test in the interpreter and judges it as the
+/// suite's runner does: a line that is exactly `PASS` and none containing
+/// `FAIL` (or the `:expect:` lines, in order); a should-fail test must
+/// fail. Tests needing DPI or VPI C code are skipped. `SIM_REPORT=<file>`
+/// writes the details. The pass count may not fall below `SIM_FLOOR`.
+#[test]
+fn simulate_test1800() {
+    std::thread::Builder::new().stack_size(512 << 20).spawn(simulate_all).unwrap().join().unwrap();
+}
+
+/// The number of simulation tests that pass today.
+const SIM_FLOOR: usize = 369;
+
+fn simulate_all() {
+    let Some(root) = suite() else { return };
+    let mut paths = Vec::new();
+    files(&root, &mut paths);
+    paths.retain(|p| p.extension().is_some_and(|e| e == "sv"));
+    let (mut pass, mut skipped) = (0, 0);
+    let mut fails: Vec<String> = Vec::new();
+    let mut unsupported: std::collections::BTreeMap<String, usize> = Default::default();
+    let start = std::time::Instant::now();
+    let verbose = std::env::var("SIM_VERBOSE").is_ok();
+    for path in &paths {
+        let text = std::fs::read_to_string(path).unwrap();
+        let kind = header(&text, "type").unwrap_or_else(|| "simulation".into());
+        if kind != "simulation" {
+            continue;
+        }
+        if header(&text, "dpi").is_some() || header(&text, "vpi").is_some() {
+            skipped += 1;
+            continue;
+        }
+        if header(&text, "flags-icarus").is_some_and(|f| f.split_whitespace().any(|w| w == "-u")) {
+            skipped += 1;
+            continue;
+        }
+        let should_fail = header(&text, "should_fail_because").is_some();
+        let dir = path.parent().unwrap();
+        let mut sources = vec![path.clone()];
+        if let Some(more) = header(&text, "files") {
+            sources.extend(more.split_whitespace().map(|f| dir.join(f)));
+        }
+        let name = path.strip_prefix(&root).unwrap().display().to_string();
+        if verbose {
+            eprintln!("{name}");
+        }
+        let map = SourceMap::new();
+        let opts = Options { include_dirs: vec![dir.to_path_buf()], ..Default::default() };
+        let Ok(out) = preprocess_files(&map, &sources, &opts) else {
+            if should_fail {
+                pass += 1;
+            } else {
+                fails.push(format!("{name}: does not preprocess"));
+            }
+            continue;
+        };
+        let Ok(ast) = parse(&out) else {
+            if should_fail {
+                pass += 1;
+            } else {
+                fails.push(format!("{name}: does not parse"));
+            }
+            continue;
+        };
+        let design = match epitome_sv::design::elab::elaborate(&ast, &out) {
+            Ok(d) => d,
+            Err(e) => {
+                if should_fail {
+                    pass += 1;
+                } else {
+                    fails.push(format!("{name}: does not elaborate: {}", map.render(&e).lines().next().unwrap_or("")));
+                }
+                continue;
+            }
+        };
+        let plusargs: Vec<String> = header(&text, "plusargs").map(|p| p.split_whitespace().map(String::from).collect()).unwrap_or_default();
+        let sim_opts = epitome_sv::sim::Options { plusargs, max_steps: 20_000_000, time_limit: Some(std::time::Duration::from_secs(1)) };
+        let mut buf: Vec<u8> = Vec::new();
+        let _ = std::env::set_current_dir(dir);
+        let t0 = std::time::Instant::now();
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| epitome_sv::sim::simulate(&design, &ast, &mut buf, &sim_opts)));
+        let output = String::from_utf8_lossy(&buf).to_string();
+        if t0.elapsed().as_secs_f64() > 1.0 {
+            eprintln!("slow: {name} {:.1}s", t0.elapsed().as_secs_f64());
+        }
+        let Ok(r) = r else {
+            fails.push(format!("{name}: the simulator panicked"));
+            continue;
+        };
+        for u in &r.unsupported {
+            *unsupported.entry(u.clone()).or_default() += 1;
+        }
+        let ok = if should_fail {
+            r.failed || r.errors > 0
+        } else if let Some(expect) = header(&text, "expect") {
+            let want: Vec<&str> = expect.split("  ").map(str::trim).filter(|l| !l.is_empty()).collect();
+            let mut lines = output.lines().map(str::trim);
+            !r.failed && want.iter().all(|w| lines.any(|l| l == *w))
+        } else {
+            !r.failed && output.lines().any(|l| l.trim() == "PASS") && !output.lines().any(|l| l.contains("FAIL"))
+        };
+        if ok {
+            pass += 1;
+        } else {
+            let last: Vec<&str> = output.lines().rev().take(3).collect();
+            fails.push(format!("{name}: {}", last.into_iter().rev().collect::<Vec<_>>().join(" | ")));
+        }
+    }
+    let total = pass + fails.len();
+    eprintln!(
+        "{total} simulation tests: {pass} pass, {} fail, {skipped} skipped (DPI, VPI or separate units); {:.1}s",
+        fails.len(),
+        start.elapsed().as_secs_f64()
+    );
+    if let Ok(out) = std::env::var("SIM_REPORT") {
+        let mut u: Vec<(String, usize)> = unsupported.into_iter().collect();
+        u.sort_by(|a, b| b.1.cmp(&a.1));
+        let report = format!(
+            "# failures\n\n{}\n\n# not simulated, by how many tests\n\n{}\n",
+            fails.join("\n"),
+            u.iter().map(|(k, n)| format!("{n:5} {k}")).collect::<Vec<_>>().join("\n")
+        );
+        std::fs::write(out, report).unwrap();
+    }
+    assert!(pass >= SIM_FLOOR, "{pass} simulation tests pass, fewer than {SIM_FLOOR}");
+}

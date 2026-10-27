@@ -20,6 +20,7 @@
 //!   conversion clause 11 implies written out as a `Convert`.
 
 pub mod elab;
+pub mod ops;
 pub mod print;
 pub mod types;
 pub mod value;
@@ -77,6 +78,8 @@ pub enum Const {
     Null,
     /// `$` given as a parameter's value (6.20.2).
     Unbounded,
+    /// A class object, by its index in the simulator's heap.
+    Handle(u32),
 }
 
 impl Const {
@@ -624,6 +627,9 @@ pub struct Spec {
     /// ports) inside.
     pub ports: Vec<Port>,
     pub instances: u32,
+    /// The time unit and precision, as powers of ten of a second (3.14).
+    pub time_unit: i8,
+    pub time_precision: i8,
 }
 
 #[derive(Clone, Debug)]
@@ -694,6 +700,23 @@ pub struct Design<'a> {
     pub packages: Vec<ScopeId>,
     /// The top-level instances (23.3.1).
     pub tops: Vec<InstId>,
+    /// The compilation unit's time unit and precision (3.14).
+    pub unit_time: (i8, i8),
+    /// For each hierarchical reference, how to reach its target's instance
+    /// from an instance of the specialisation it is written in.
+    pub hops: HashMap<ExprId, Vec<Hop>>,
+}
+
+/// One step of a hierarchical reference through the instance tree.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Hop {
+    /// Into a child instance.
+    Down(InstId),
+    /// Up to the nearest enclosing instance with this instance or
+    /// definition name (23.8).
+    Up(Sym),
+    /// To a top-level instance.
+    Top(InstId),
 }
 
 impl<'a> Design<'a> {

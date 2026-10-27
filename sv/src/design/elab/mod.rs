@@ -183,6 +183,8 @@ impl<'a, 'x> Elab<'a, 'x> {
             unit: ScopeId(0),
             packages: Vec::new(),
             tops: Vec::new(),
+            unit_time: (-9, -9),
+            hops: HashMap::new(),
         };
         Elab {
             ast,
@@ -447,6 +449,10 @@ impl<'a, 'x> Elab<'a, 'x> {
             }
         }
         checks::unit_timeunits(self, root)?;
+        if let Some(&(u, p)) = self.timeunits.get(&unit) {
+            let u = u.unwrap_or(-9) as i8;
+            self.d.unit_time = (u, p.map_or(u, |p| p as i8));
+        }
         self.run_work()?;
         // Top-level instances: design elements that nothing instantiates.
         let used = self.instantiated_names();
@@ -1664,7 +1670,17 @@ impl<'a, 'x> Elab<'a, 'x> {
         let unit = self.d.unit;
         let sc = self.new_scope(ScopeKind::Spec, Some(s), Some(outer.unwrap_or(unit)), n);
         let spec = SpecId(self.d.specs.len() as u32);
-        self.d.specs.push(Spec { kind, name: s, def: n, params: vec![], scope: sc, ports: vec![], instances: 0 });
+        self.d.specs.push(Spec {
+            kind,
+            name: s,
+            def: n,
+            params: vec![],
+            scope: sc,
+            ports: vec![],
+            instances: 0,
+            time_unit: -9,
+            time_precision: -9,
+        });
         // Overrides by position apply to the parameters of the port list,
         // or, without one, to the body's parameters, in order (23.10.2).
         let order = self.overridable_params(n);
@@ -1703,6 +1719,15 @@ impl<'a, 'x> Elab<'a, 'x> {
         let r = self.spec_body(sc, n, kind);
         self.pending_overrides.pop();
         r?;
+        // Its time unit and precision: its own, else `` `timescale ``, else
+        // the compilation unit's (3.14.2.3).
+        let (unit, prec) = self.timeunits.get(&sc).copied().unwrap_or((None, None));
+        let ts = self.state(n).timescale;
+        let (uu, up) = self.d.unit_time;
+        let unit = unit.map(|u| u as i8).or(ts.map(|t| t.unit)).unwrap_or(uu);
+        let prec = prec.map(|p| p as i8).or(ts.map(|t| t.precision)).unwrap_or(up.min(unit));
+        self.d.specs[spec.0 as usize].time_unit = unit;
+        self.d.specs[spec.0 as usize].time_precision = prec;
         Ok(spec)
     }
 
@@ -2668,7 +2693,7 @@ impl<'a, 'x> Elab<'a, 'x> {
             }
             for &e in &ik[..ik.len() - 1] {
                 let c = eval::const_expr(self, sc, e)?;
-                if chosen.is_none() && eval::const_eq(&v, &c) {
+                if chosen.is_none() && crate::design::ops::const_eq(&v, &c) {
                     chosen = Some(body);
                 }
             }

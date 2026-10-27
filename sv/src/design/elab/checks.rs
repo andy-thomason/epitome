@@ -210,6 +210,17 @@ pub(crate) fn unit_ref<'a>(e: &mut Elab<'a, '_>, _sc: ScopeId, s: Sym, b: Option
 
 /// Where a name is used, rules that depend on what it is.
 pub(crate) fn object_use<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, o: ObjId, n: NodeId) -> R<'a> {
+    // A `ref` argument cannot outlive its call in a forked process (9.3.2).
+    if matches!(e.obj(o).dir, Some(Dir::Ref | Dir::ConstRef))
+        && e.scope(e.obj(o).scope).kind == ScopeKind::Subroutine
+        && e.forks.iter().any(|&j| j != Join::All)
+    {
+        return Err(e.err(n, format!("`ref` argument `{}` cannot be used inside `fork ... join_any` or `join_none` (9.3.2)", e.name(e.obj(o).name))));
+    }
+    // Items of an anonymous program are for programs only (24.6).
+    if e.obj(o).qualifiers.iter().any(|&q| e.name(q) == "program") && e.in_program_or_interface(sc) != Some(DefKind::Program) && lookup::enclosing(e, sc, ScopeKind::Package).is_none() {
+        return Err(e.err(n, format!("`{}` belongs to a program, so code outside programs cannot use it (24.6)", e.name(e.obj(o).name))));
+    }
     let os = e.obj(o).scope;
     if e.scope(os).kind == ScopeKind::Class && e.obj(o).kind == ObjKind::Variable {
         let static_member = e.obj(o).qualifiers.iter().any(|&q| e.name(q) == "static");
@@ -573,7 +584,10 @@ pub(crate) fn extends<'a>(e: &mut Elab<'a, '_>, c: ClassId, base: ClassId, n: No
     if !b.interface && e.d.classes[c.0 as usize].interface {
         return Err(e.err(n, "an interface class can only extend interface classes (8.26)"));
     }
-    if e.has_keyword(b.node, "final") || e.keywords_of(b.node).contains(&":final") {
+    if b.node == e.ast.root && e.name(b.name) == "process" {
+        return Err(e.err(n, "the built-in class `process` is final, so it cannot be extended (9.7)"));
+    }
+    if b.node != e.ast.root && (e.has_keyword(b.node, "final") || e.keywords_of(b.node).contains(&":final")) {
         return Err(e.err(n, "a final class cannot be extended (8.13)"));
     }
     Ok(())
@@ -790,6 +804,9 @@ pub(crate) fn new_class<'a>(e: &mut Elab<'a, '_>, _sc: ScopeId, c: ClassId, n: N
     if class.virtual_ {
         return Err(e.err(n, format!("`{}` is an abstract class, so it cannot be constructed (8.21)", e.name(class.name))));
     }
+    if class.node == e.ast.root && e.name(class.name) == "process" {
+        return Err(e.err(n, "the built-in class `process` cannot be constructed with `new` (9.7)"));
+    }
     Ok(())
 }
 
@@ -918,10 +935,43 @@ pub(crate) fn sized_in_concat<'a>(e: &mut Elab<'a, '_>, n: NodeId) -> R<'a> {
     Ok(())
 }
 
-/// A positional pattern needs one element per element of its target
-/// (10.9).
-pub(crate) fn pattern_shape<'a>(e: &mut Elab<'a, '_>, _sc: ScopeId, n: NodeId, t: TypeId, items: &[NodeId]) -> R<'a> {
-    if items.iter().any(|&k| matches!(e.kind(k), Kind::PatternKey | Kind::Replicate)) {
+/// A positional pattern needs one element per element of its target;
+/// keys may not repeat, and every member must be covered (10.9).
+pub(crate) fn pattern_shape<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, t: TypeId, items: &[NodeId]) -> R<'a> {
+    if items.iter().any(|&k| e.kind(k) == Kind::PatternKey) {
+        let mut seen: Vec<String> = Vec::new();
+        let mut has_default = false;
+        let mut type_keys: Vec<TypeId> = Vec::new();
+        let mut names: Vec<Sym> = Vec::new();
+        for &k in items {
+            let Some(&key) = e.kids(k).first() else { continue };
+            if e.kind(key) == Kind::Keyword && e.text(key) == "default" {
+                has_default = true;
+                continue;
+            }
+            let text = e.ast.text(key);
+            if seen.contains(&text) {
+                return Err(e.err(key, format!("`{text}` is a key twice in one pattern (10.9)")));
+            }
+            seen.push(text);
+            if let Some(tk) = super::ty::maybe_type(e, sc, key)? {
+                type_keys.push(tk);
+            } else if e.kind(key) == Kind::Name {
+                names.push(e.sym_of(key));
+            }
+        }
+        if let Type::Struct { members, .. } = e.d.types.get(t).clone()
+            && !has_default
+        {
+            for m in members {
+                if !names.contains(&m.name) && !type_keys.contains(&m.ty) {
+                    return Err(e.err(n, format!("member `{}` is not given a value by any key, and there is no `default` (10.9.2)", e.name(m.name))));
+                }
+            }
+        }
+        return Ok(());
+    }
+    if items.iter().any(|&k| e.kind(k) == Kind::Replicate) {
         return Ok(());
     }
     let want = match e.d.types.get(t) {
@@ -1421,8 +1471,28 @@ pub(crate) fn expr_statement<'a>(_e: &mut Elab<'a, '_>, _x: ExprId, _n: NodeId) 
 }
 
 pub(crate) fn proc_continuous<'a>(e: &mut Elab<'a, '_>, _sc: ScopeId, kw: &str, lhs: ExprId, n: NodeId) -> R<'a> {
+    // `assign` and `force` take a whole variable, not part of one (10.6).
+    if matches!(e.ex(lhs).kind, ExprKind::Index | ExprKind::Part { .. }) {
+        let mut ts = Vec::new();
+        target_slices(e, lhs, &mut ts);
+        if ts.iter().any(|&(o, _)| e.obj(o).kind == ObjKind::Variable) {
+            return Err(e.err(n, format!("`{kw}` must target a whole variable, not a select of one (10.6)")));
+        }
+    }
     let mut auto = None;
     let mut net = None;
+    let rhs = e.current_rhs;
+    let mut f = |e: &Elab, y: ExprId| {
+        if let ExprKind::Object(o) = e.ex(y).kind
+            && e.obj(o).lifetime == Lifetime::Automatic
+            && e.obj(o).kind == ObjKind::Variable
+        {
+            auto = Some(o);
+        }
+    };
+    if let Some(r) = rhs {
+        walk_expr(e, r, &mut f);
+    }
     walk_expr(e, lhs, &mut |e, y| {
         if let ExprKind::Object(o) = e.ex(y).kind {
             if e.obj(o).lifetime == Lifetime::Automatic && e.obj(o).kind == ObjKind::Variable {
@@ -1475,6 +1545,13 @@ pub(crate) fn timing_allowed<'a>(e: &mut Elab<'a, '_>, _sc: ScopeId, n: NodeId) 
         return Err(e.err(n, "a function cannot contain a delay, event control or `wait` (13.4)"));
     }
     match e.proc_kind {
+        Some(ProcKind::AlwaysFf) => {
+            if e.ff_event_seen {
+                return Err(e.err(n, "an `always_ff` procedure has one event control, at its start (9.2.2.4)"));
+            }
+            e.ff_event_seen = true;
+            Ok(())
+        }
         Some(ProcKind::AlwaysComb) | Some(ProcKind::AlwaysLatch) => {
             Err(e.err(n, "an `always_comb` or `always_latch` procedure cannot contain timing controls (9.2.2.2)"))
         }
@@ -1627,6 +1704,18 @@ pub(crate) fn gate_terminals<'a>(
         }
     }
     let array = e.kids(inst).iter().any(|&k| super::ty::is_dim(e.kind(k)));
+    if array {
+        let dim = e.kids(inst).iter().copied().find(|&k| super::ty::is_dim(e.kind(k))).unwrap();
+        if let Ok((l, r)) = super::ty::const_range(e, _sc, dim) {
+            let count = (l - r).unsigned_abs() as u32 + 1;
+            for &t in terms {
+                let w = e.d.types.width(e.ex(t).ty);
+                if w != 1 && w != count && w != 0 {
+                    return Err(e.err(n, format!("a {w}-bit terminal cannot be spread over an array of {count} gates (28.3.6)")));
+                }
+            }
+        }
+    }
     if !array {
         for (i, &t) in terms.iter().enumerate() {
             let w = e.d.types.width(e.ex(t).ty);
@@ -1690,7 +1779,40 @@ pub(crate) fn defparam<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a
     Ok(())
 }
 
+/// A stream on the left of an assignment cannot need more bits than the
+/// value gives it (11.4.14.3).
+pub(crate) fn stream_widths<'a>(e: &mut Elab<'a, '_>, lhs: ExprId, rhs: ExprId, n: NodeId) -> R<'a> {
+    if matches!(e.ex(lhs).kind, ExprKind::Streaming { .. }) {
+        let (lw, rw) = (e.d.types.width(e.ex(lhs).ty), e.d.types.width(e.ex(rhs).ty));
+        let rw = match e.ex(rhs).kind {
+            ExprKind::Convert => e.d.types.width(e.ex(e.ex(rhs).args[0]).ty),
+            _ => rw,
+        };
+        if lw > rw && rw > 0 {
+            return Err(e.err(n, format!("the stream takes {lw} bits, but the value has only {rw} (11.4.14.3)")));
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn net_alias<'a>(e: &mut Elab<'a, '_>, n: NodeId, parts: &[ExprId]) -> R<'a> {
+    // The same kind of net on every side (10.11), and no bit aliased to
+    // itself.
+    let mut all: Vec<(ObjId, Slice, usize)> = Vec::new();
+    for (i, &p) in parts.iter().enumerate() {
+        let mut ts = Vec::new();
+        target_slices(e, p, &mut ts);
+        all.extend(ts.into_iter().map(|(o, s)| (o, s, i)));
+    }
+    let kinds: Vec<Sym> = all.iter().filter_map(|&(o, _, _)| match e.obj(o).kind { ObjKind::Net(k) => Some(k), _ => None }).collect();
+    if kinds.windows(2).any(|w| w[0] != w[1]) {
+        return Err(e.err(n, "aliased nets must be of the same net type (10.11)"));
+    }
+    for (i, &(o, s, side)) in all.iter().enumerate() {
+        if all[..i].iter().any(|&(o2, s2, side2)| o2 == o && side2 != side && overlaps(s, s2)) {
+            return Err(e.err(n, format!("bits of `{}` are aliased to themselves (10.11)", e.name(e.obj(o).name))));
+        }
+    }
     let mut width = None;
     for &p in parts {
         if let ExprKind::Object(o) = e.ex(p).kind
@@ -1743,6 +1865,12 @@ fn defparams<'a>(e: &mut Elab<'a, '_>) -> R<'a> {
                     return Err(err);
                 }
             };
+            let value = e.kids(a)[1];
+            if let Err(err) = super::eval::const_expr(e, sc, value) {
+                e.inst_path = saved;
+                let _ = err;
+                return Err(e.err(value, "a `defparam` value must be a constant expression (23.10.1)"));
+            }
             if let Some(x) = x
                 && let ExprKind::Hier { object: Some(o), .. } | ExprKind::Object(o) = e.ex(x).kind
             {

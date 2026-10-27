@@ -64,9 +64,8 @@ pub(crate) fn resolve<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, s: Sym, at: Option<
         if let Some((b, _)) = found {
             // Now declared here; record where, for 26.3.
             e.scope_mut(id).names.insert(s, b);
-            if let Some(at) = at {
-                e.imported_uses.insert((id, s), at);
-            }
+            let at = at.unwrap_or(e.scope(id).node);
+            e.imported_uses.entry((id, s)).or_insert(at);
             return Ok(Some(b));
         }
         cur = e.scope(id).parent;
@@ -82,23 +81,15 @@ pub(crate) fn resolve<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, s: Sym, at: Option<
 /// A name a package makes visible: its own declarations, and what it
 /// exports (26.6).
 pub(crate) fn in_package(e: &mut Elab, p: ScopeId, s: Sym) -> Option<Binding> {
-    let imported_here = e.scope(p).items.iter().any(|i| matches!(i, Item::Import(_, Some(x)) if *x == s));
+    // A name the package imported, explicitly or by using a wildcard
+    // candidate, is visible only if exported (26.6).
+    let imported_here = e.scope(p).items.iter().any(|i| matches!(i, Item::Import(_, Some(x)) if *x == s))
+        || e.imported_uses.contains_key(&(p, s));
     if let Some(b) = e.scope(p).names.get(&s).copied() {
-        if !imported_here {
-            return Some(b);
-        }
-        if exports(e, p, s) {
+        if !imported_here || exports(e, p, s) {
             return Some(b);
         }
         return None;
-    }
-    if exports(e, p, s) {
-        let wild = e.scope(p).wildcards.clone();
-        for q in wild {
-            if let Some(b) = in_package(e, q, s) {
-                return Some(b);
-            }
-        }
     }
     None
 }

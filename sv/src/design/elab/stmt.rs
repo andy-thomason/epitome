@@ -319,6 +319,7 @@ pub(crate) fn sub_body<'a>(e: &mut Elab<'a, '_>, sub: SubId) -> R<'a> {
     let kids = e.kids(n).to_vec();
     let saved = e.current_sub.replace(sub);
     let saved_loop = std::mem::replace(&mut e.loop_depth, 0);
+    let saved_forks = std::mem::take(&mut e.forks);
     let r = (|| -> R<'a> {
         let mut body = Vec::new();
         let name_pos = kids.iter().position(|&k| matches!(e.kind(k), Kind::Name | Kind::Scope)).unwrap_or(0);
@@ -340,6 +341,7 @@ pub(crate) fn sub_body<'a>(e: &mut Elab<'a, '_>, sub: SubId) -> R<'a> {
     })();
     e.current_sub = saved;
     e.loop_depth = saved_loop;
+    e.forks = saved_forks;
     r?;
     super::checks::sub_done(e, sub)?;
     super::checks::constructor_body(e, sub)?;
@@ -442,6 +444,7 @@ pub(crate) fn process<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a>
     };
     let body_node = *kids.iter().skip(1).find(|&&k| e.kind(k) != Kind::Attributes).unwrap();
     e.proc_kind = Some(kind);
+    e.ff_event_seen = false;
     let r = stmt(e, sc, body_node);
     e.proc_kind = None;
     let body = r?;
@@ -564,6 +567,7 @@ fn stmt_inner<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, StmtId>
                 _ => expr::rvalue(e, sc, rhs_node, lt)?,
             };
             super::checks::instance_types(e, lhs, rhs, n)?;
+            super::checks::stream_widths(e, lhs, rhs, n)?;
             StmtKind::Assign { kind: akind, lhs, rhs, timing }
         }
         Kind::ExprStatement => {
@@ -577,9 +581,12 @@ fn stmt_inner<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, StmtId>
             if e.kind(target) == Kind::Assign {
                 let ak = e.kids(target).to_vec();
                 let lhs = expr::expr(e, sc, ak[0])?;
-                super::checks::proc_continuous(e, sc, e.name(kw), lhs, ak[0])?;
                 let lt = e.ex(lhs).ty;
                 let rhs = expr::rvalue(e, sc, *ak.last().unwrap(), lt)?;
+                e.current_rhs = Some(rhs);
+                let r = super::checks::proc_continuous(e, sc, e.name(kw), lhs, ak[0]);
+                e.current_rhs = None;
+                r?;
                 StmtKind::ProcContinuous { keyword: kw, lhs, rhs: Some(rhs) }
             } else {
                 let lhs = expr::expr(e, sc, target)?;
@@ -638,6 +645,9 @@ fn stmt_inner<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, StmtId>
             match kw {
                 "return" => {
                     let v = kids.get(1).copied();
+                    if !e.forks.is_empty() {
+                        return Err(e.err(n, "`return` cannot be used inside a fork (9.3.2)"));
+                    }
                     super::checks::return_stmt(e, v, n)?;
                     let x = match (v, e.current_sub) {
                         (Some(v), Some(s)) => {
@@ -812,7 +822,13 @@ fn block<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, label: Option<(crate:
     }
     // Processes forked with `join_none` may wait, even in a function.
     let saved_sub = if join == Some(Join::None) { e.current_sub.take() } else { e.current_sub };
+    if let Some(j) = join {
+        e.forks.push(j);
+    }
     let r = block_body(e, sc, n, label, &kids, join);
+    if join.is_some() {
+        e.forks.pop();
+    }
     e.current_sub = saved_sub;
     r
 }

@@ -138,6 +138,14 @@ pub(crate) struct Elab<'a, 'x> {
     pub in_specparam: bool,
     /// Array-method iterators and the names of their indices (7.12.4).
     pub iterators: HashMap<ObjId, Sym>,
+    /// The forks around the code being elaborated, innermost last.
+    pub forks: Vec<Join>,
+    /// Whether the operands of a concatenation are being elaborated.
+    pub in_concat: bool,
+    /// Whether an `always_ff`'s event control has been seen.
+    pub ff_event_seen: bool,
+    /// The value of the procedural continuous assignment being checked.
+    pub current_rhs: Option<ExprId>,
     /// Forward typedefs, which must each be completed (6.18).
     pub forwards: Vec<(ScopeId, Sym, NodeId)>,
     /// Each nettype's data type and resolution function (6.6.7).
@@ -205,6 +213,10 @@ impl<'a, 'x> Elab<'a, 'x> {
             in_typedef: false,
             in_specparam: false,
             iterators: HashMap::new(),
+            forks: Vec::new(),
+            in_concat: false,
+            ff_event_seen: false,
+            current_rhs: None,
         }
     }
 
@@ -543,10 +555,16 @@ impl<'a, 'x> Elab<'a, 'x> {
         let s = self.sym("std");
         let unit = self.d.unit;
         let sc = self.new_scope(ScopeKind::Package, Some(s), Some(unit), root);
-        for name in ["process", "semaphore", "mailbox", "randomize", "weak_reference"] {
+        // Built-in classes (Annex G): their members are not modelled.
+        for name in ["process", "semaphore", "mailbox", "weak_reference"] {
             let n = self.sym(name);
-            self.scope_mut(sc).names.insert(n, Binding::Other(root));
+            let cs = self.new_scope(ScopeKind::Class, Some(n), Some(sc), root);
+            let id = ClassId(self.d.classes.len() as u32);
+            self.d.classes.push(Class { name: n, scope: cs, base: None, node: root, virtual_: false, interface: false, params: vec![], implements: vec![] });
+            self.scope_mut(sc).names.insert(n, Binding::Class(id));
         }
+        let n = self.sym("randomize");
+        self.scope_mut(sc).names.insert(n, Binding::Other(root));
         self.std_pkg = Some(sc);
         self.packages.insert(s, sc);
     }
@@ -752,6 +770,9 @@ impl<'a, 'x> Elab<'a, 'x> {
                 self.defer(Work::Process(sc, n));
             }
             Kind::Instantiation => self.instantiation(sc, n)?,
+            Kind::GateInstantiation if self.in_program_or_interface(sc) == Some(DefKind::Program) => {
+                return Err(self.err(n, "a program cannot contain primitive instances (24.3)"));
+            }
             Kind::GateInstantiation => {
                 let kw = self.kids(n)[0];
                 let k = self.sym_of(kw);
@@ -769,10 +790,12 @@ impl<'a, 'x> Elab<'a, 'x> {
             }
             Kind::GenerateIf => {
                 self.count_construct(sc);
+                self.reserve_block_names(sc, n)?;
                 self.generate_if(sc, n)?
             }
             Kind::GenerateCase => {
                 self.count_construct(sc);
+                self.reserve_block_names(sc, n)?;
                 self.generate_case(sc, n)?
             }
             Kind::GenerateBlock => {
@@ -831,6 +854,10 @@ impl<'a, 'x> Elab<'a, 'x> {
                     }
                 }
             }
+            Kind::Module if self.in_program_or_interface(sc).is_some() => {
+                let what = if self.in_program_or_interface(sc) == Some(DefKind::Program) { "a program" } else { "an interface" };
+                return Err(self.err(n, format!("{what} cannot contain a nested module or program (24.3, 25.3)")));
+            }
             Kind::Module => {
                 // A nested module or program that nothing instantiates is
                 // instantiated once, by its own name (23.4, 24.3).
@@ -844,11 +871,17 @@ impl<'a, 'x> Elab<'a, 'x> {
                 }
             }
             Kind::AnonymousProgram => {
-                // Its items belong to the enclosing scope (24.6).
+                // Its items belong to the enclosing scope (24.6), but only
+                // program code may use them.
                 let items: Vec<NodeId> = self.kids(n).to_vec();
                 self.declare_pass(sc, &items)?;
+                let first_obj = self.d.objects.len();
                 for k in items {
                     self.item(sc, k)?;
+                }
+                let tag = self.sym("program");
+                for o in &mut self.d.objects[first_obj..] {
+                    o.qualifiers.push(tag);
                 }
             }
             Kind::Udp | Kind::Config | Kind::Package | Kind::ExternModule => {
@@ -1289,6 +1322,13 @@ impl<'a, 'x> Elab<'a, 'x> {
 
     /// A port declared with a direction, then again as a net or variable.
     fn complete_port(&mut self, p: ObjId, t: TypeId, kind: ObjKind, at: NodeId) -> R<'a> {
+        // An ANSI port is complete in the header (23.2.2.2).
+        let pnode = self.obj(p).node;
+        let in_header = self.scope(self.obj(p).scope).node;
+        let header = self.child(in_header, Kind::Ports);
+        if header.is_some_and(|h| self.ast.children(h).iter().any(|&k| self.kind(k) == Kind::AnsiPort && self.ast.node(k).first <= self.ast.node(pnode).first && self.ast.node(pnode).end <= self.ast.node(k).end)) {
+            return Err(self.err(at, format!("`{}` is an ANSI port, so it cannot be declared again in the body (23.2.2.2)", self.name(self.obj(p).name))));
+        }
         let old = self.obj(p).ty;
         let explicit_old = !(old == Types::LOGIC);
         if explicit_old && old != t && self.d.types.width(old) != self.d.types.width(t) {
@@ -1849,6 +1889,12 @@ impl<'a, 'x> Elab<'a, 'x> {
                     if dir == Dir::Ref && matches!(kind, ObjKind::Net(_)) {
                         return Err(self.err(dk[0], "a `ref` port must be a variable (23.2.2.3)"));
                     }
+                    if dir == Dir::Inout && kind == ObjKind::Variable {
+                        return Err(self.err(dk[0], format!("`{}` is an inout port, which must be a net, not a variable (23.2.2.3)", self.name(pname))));
+                    }
+                    if dir == Dir::Ref && dk[1..].iter().any(|&k| !ty::is_dim(self.kind(k))) {
+                        return Err(self.err(dk[0], "a `ref` port cannot have a default value (23.2.2.4)"));
+                    }
                     let o = self.new_object(Object {
                         name: pname,
                         kind,
@@ -1937,6 +1983,13 @@ impl<'a, 'x> Elab<'a, 'x> {
                                 format!("`.{}` needs a `{}` in the instantiating scope (23.3.2.3)", self.name(pname), self.name(pname)),
                             ));
                         }
+                        // `.name` needs a matching type (23.3.2.3).
+                        if let (Some(Binding::Object(o)), Some(po)) = (lookup::lookup(self, sc, pname), port.object) {
+                            let (a, b) = (self.obj(o).ty, self.obj(po).ty);
+                            if self.d.types.is_integral(a) && self.d.types.is_integral(b) && self.d.types.width(a) != self.d.types.width(b) {
+                                return Err(self.err(ck[0], format!("`.{}` connects {} bits to a port of {} bits; an implicit connection needs matching types (23.3.2.3)", self.name(pname), self.d.types.width(a), self.d.types.width(b))));
+                            }
+                        }
                         self.port_expr(sc, port, ck[0])?
                     }
                 };
@@ -1985,6 +2038,9 @@ impl<'a, 'x> Elab<'a, 'x> {
             }
         }
         for p in &ports {
+            if p.dir == Dir::Ref && !out.iter().any(|c| c.port == p.name && c.expr.is_some()) {
+                return Err(self.err(n, format!("`ref` port `{}` must be connected (23.3.3.3)", self.name(p.name))));
+            }
             if p.interface.is_some() && !out.iter().any(|c| c.port == p.name && (c.interface.is_some() || c.expr.is_some())) {
                 return Err(self.err(n, format!("interface port `{}` is not connected (25.3)", self.name(p.name))));
             }
@@ -2221,9 +2277,7 @@ impl<'a, 'x> Elab<'a, 'x> {
                 }
             }
             checks::gate_terminals(self, sc, n, inst, kind, &terminals)?;
-            if let Some(nm) = name
-                && !self.scope(sc).names.contains_key(&nm)
-            {
+            if let Some(nm) = name {
                 let at = ik.iter().copied().find(|&k| self.kind(k) == Kind::Name).unwrap();
                 self.declare(sc, nm, Binding::Other(inst), at)?;
             }
@@ -2422,8 +2476,6 @@ impl<'a, 'x> Elab<'a, 'x> {
             }
         })?;
         let taken = c.as_bits().and_then(|b| b.truth()).unwrap_or(false);
-        // The names of blocks not taken are still names in the scope (27.5).
-        self.reserve_block_names(sc, n)?;
         let chosen = if taken { Some(kids[1]) } else { kids.get(2).copied() };
         if let Some(b) = chosen {
             self.generate_branch(sc, b)?;
@@ -2434,7 +2486,6 @@ impl<'a, 'x> Elab<'a, 'x> {
     fn generate_case(&mut self, sc: ScopeId, n: NodeId) -> R<'a> {
         let kids = self.kids(n);
         let v = eval::const_expr(self, sc, kids[0])?;
-        self.reserve_block_names(sc, n)?;
         let mut default = None;
         let mut chosen = None;
         let mut defaults = 0;
@@ -2496,6 +2547,11 @@ impl<'a, 'x> Elab<'a, 'x> {
                     at,
                     format!("the generate block name `{}` is already used in this scope for {}", self.name(s), self.describe_binding(b)),
                 ));
+            }
+            if let Some(&(_, other)) = self.reserved_blocks.get(&sc).and_then(|v| v.iter().find(|(x, _)| *x == s))
+                && other != n
+            {
+                return Err(self.err(at, format!("the block name `{}` is already used by another generate construct in this scope (27.5)", self.name(s))));
             }
             self.reserved_blocks.entry(sc).or_default().push((s, n));
         }

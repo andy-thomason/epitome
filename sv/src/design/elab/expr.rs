@@ -35,6 +35,12 @@ pub(crate) fn rvalue<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, target: T
     if e.ex(x).ty == Types::VOID {
         return Err(e.err(n, "a void function has no value to assign (6.13)"));
     }
+    if matches!(e.ex(x).kind, ExprKind::Streaming { .. })
+        && e.d.types.is_integral(target)
+        && e.d.types.width(e.ex(x).ty) > e.d.types.width(target)
+    {
+        return Err(e.err(n, format!("the stream has {} bits, more than the {} of its target (11.4.14.3)", e.d.types.width(e.ex(x).ty), e.d.types.width(target))));
+    }
     let x = context_to(e, x, target);
     super::checks::assign_compatible(e, sc, target, x, n)?;
     Ok(assign_conv(e, x, target))
@@ -403,6 +409,9 @@ fn bind_inner<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, ExprId>
             let Some(k) = count.to_i64().filter(|&k| k >= 0) else {
                 return Err(e.err(kids[0], "a replication count must be a non-negative constant (11.4.12.1)"));
             };
+            if k == 0 && !e.in_concat {
+                return Err(e.err(n, "a replication of zero is only allowed as part of a larger concatenation (11.4.12.1)"));
+            }
             let w = e.d.types.width(it) * k as u32;
             let f = e.d.types.is_four_state(it);
             let t = if w == 0 { Types::UNKNOWN } else { e.d.types.vector(w, false, f) };
@@ -792,7 +801,10 @@ fn concat<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, kids: &[NodeId]) -> 
     let mut strings = false;
     let mut unknown = false;
     for &k in kids {
-        let x = expr(e, sc, k)?;
+        let saved = std::mem::replace(&mut e.in_concat, kids.len() > 1);
+        let x = expr(e, sc, k);
+        e.in_concat = saved;
+        let x = x?;
         let t = e.ex(x).ty;
         if t == Types::STRING {
             strings = true;
@@ -977,6 +989,9 @@ fn select<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, ExprId> {
                     elem
                 }
                 Type::Unknown => Types::UNKNOWN,
+                Type::Vector { atom, dims, .. } if atom.is_scalar() && dims.is_empty() => {
+                    return Err(e.err(kids[1], "a scalar cannot be indexed (11.5.1)"));
+                }
                 _ => match e.d.types.element(bt) {
                     Some(t) => t,
                     None => {
@@ -1083,6 +1098,9 @@ fn member<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, base: ExprId, m: Sym, n: NodeId
             Some(Binding::Subroutine(s)) => call_sub(e, sc, s, n, &[], Some(base)),
             Some(_) => Ok(e.new_expr(ExprKind::Opaque, Types::UNKNOWN, n, vec![base])),
             None => {
+                if e.d.classes[c.0 as usize].node == NodeId(0) || e.d.classes[c.0 as usize].node == e.ast.root {
+                    return Ok(e.new_expr(ExprKind::Method(m), Types::UNKNOWN, n, vec![base]));
+                }
                 if e.d.classes[c.0 as usize].base.is_none() && !class_complete(e, c) {
                     return Ok(e.new_expr(ExprKind::Opaque, Types::UNKNOWN, n, vec![base]));
                 }
@@ -1213,6 +1231,12 @@ pub(crate) fn hier<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, Op
         return Ok(None);
     }
     steps.reverse();
+    if lookup::enclosing(e, sc, ScopeKind::Package).is_some()
+        && steps.len() > 1
+        && lookup::lookup(e, sc, steps[0].name).is_none()
+    {
+        return Err(e.err(n, "package items cannot make hierarchical references (26.2)"));
+    }
     // A name with no dots that is not declared: only an upward module name
     // could make it a reference, and that needs a dot.
     if steps.len() == 1 {
@@ -1317,7 +1341,16 @@ pub(crate) fn hier<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, Op
                 format!("`{}` is imported, and imported names cannot be reached through the hierarchy (26.3)", e.name(step.name)),
             ));
         }
+        if let Location::Instance(inst) = at
+            && e.d.specs.get(e.d.instances[inst.0 as usize].spec.0 as usize).is_some_and(|s| s.kind == DefKind::Program && !e.nested.contains(&s.def))
+            && e.in_program_or_interface(sc) != Some(DefKind::Program)
+        {
+            return Err(e.err(step.node, format!("`{}` is inside a program, which code outside programs cannot reach (24.3)", e.name(step.name))));
+        }
         match b {
+            Some(Binding::Other(m)) if e.kind(m) == Kind::LetDecl => {
+                return Err(e.err(step.node, format!("`{}` is a `let`, which cannot be referenced hierarchically (11.12)", e.name(step.name))));
+            }
             Some(Binding::Instance(inst)) => at = Location::Instance(inst),
             Some(Binding::Instances(first, count)) => {
                 let Some(ix) = step.index else {
@@ -1450,7 +1483,10 @@ fn call<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, kids: &[NodeId], with:
                         None => Err(e.err(callee, format!("`{}` is not a task or function", e.name(s)))),
                     }
                 }
-                Some(Binding::Other(_)) => {
+                Some(Binding::Other(m)) => {
+                    if e.kind(m) == Kind::LetDecl && e.ast.node(m).first > e.ast.node(n).first {
+                        return Err(e.err(callee, format!("`let {}` is used before its declaration (11.12)", e.name(s))));
+                    }
                     let mut xs = Vec::new();
                     for &a in &args {
                         xs.push(arg_expr(e, sc, a)?);
@@ -1870,7 +1906,7 @@ fn new_expr<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, target: Option<Typ
         if let Some(Binding::Subroutine(ctor)) = own {
             let call = call_sub(e, sc, ctor, n, &args, None)?;
             xs.push(call);
-        } else if args.iter().any(|&a| e.kind(a) != Kind::Empty) {
+        } else if args.iter().any(|&a| e.kind(a) != Kind::Empty) && e.d.classes[c.0 as usize].node != e.ast.root {
             return Err(e.err(n, "the class has no constructor that takes arguments (8.7)"));
         }
     } else {

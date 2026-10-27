@@ -2,6 +2,7 @@
 //! `docs/design/sv.md` for the plan.
 
 pub mod ast;
+pub mod design;
 pub mod keywords;
 pub mod lexer;
 pub mod parse;

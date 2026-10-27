@@ -1,11 +1,13 @@
-//! `epitome-sv [options] file.sv...`: for now, preprocesses and parses the
-//! files as one compilation unit and reports the first error with its
-//! position.
+//! `epitome-sv [options] file.sv...`: for now, preprocesses, parses and
+//! elaborates the files as one compilation unit and reports the first
+//! error with its position.
 //!
 //! Options:
 //!
 //! - `-E`: print the preprocessed text, and stop.
 //! - `--ast`: print the syntax tree.
+//! - `--design`: elaborate, and print the design.
+//! - `--parse-only`: stop after parsing.
 //! - `-I dir`, `-Idir`, `+incdir+dir[+dir...]`: search `dir` for
 //!   `` `include `` files.
 //! - `-D name[=text]`, `-Dname[=text]`, `+define+name[=text][+...]`: define
@@ -13,6 +15,8 @@
 //!
 //! Other options are ignored, so that test runners can pass their own.
 
+use epitome_sv::design::elab::elaborate;
+use epitome_sv::design::print::print as print_design;
 use epitome_sv::parse::parse;
 use epitome_sv::preprocess::{Options, preprocess_files};
 use epitome_sv::source::SourceMap;
@@ -29,12 +33,18 @@ fn main() -> ExitCode {
     let mut files = Vec::new();
     let mut print = false;
     let mut ast = false;
+    let mut design = false;
+    let mut parse_only = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         if arg == "-E" {
             print = true;
         } else if arg == "--ast" {
             ast = true;
+        } else if arg == "--design" {
+            design = true;
+        } else if arg == "--parse-only" {
+            parse_only = true;
         } else if let Some(dir) = arg.strip_prefix("-I") {
             let dir = if dir.is_empty() { args.next().unwrap_or_default() } else { dir.to_string() };
             options.include_dirs.push(dir.into());
@@ -50,7 +60,7 @@ fn main() -> ExitCode {
         }
     }
     if files.is_empty() {
-        eprintln!("usage: epitome-sv [-E] [--ast] [-I dir] [-D name[=text]] file.sv...");
+        eprintln!("usage: epitome-sv [-E] [--ast] [--design] [-I dir] [-D name[=text]] file.sv...");
         return ExitCode::from(2);
     }
     let map = SourceMap::new();
@@ -64,7 +74,21 @@ fn main() -> ExitCode {
                 if ast {
                     print!("{}", tree.dump(tree.root));
                 }
-                ExitCode::SUCCESS
+                if parse_only {
+                    return ExitCode::SUCCESS;
+                }
+                match elaborate(&tree, &out) {
+                    Ok(d) => {
+                        if design {
+                            print!("{}", print_design(&d));
+                        }
+                        ExitCode::SUCCESS
+                    }
+                    Err(e) => {
+                        eprint!("{}", map.render(&e));
+                        ExitCode::FAILURE
+                    }
+                }
             }
             Err(e) => {
                 eprint!("{}", map.render(&e));

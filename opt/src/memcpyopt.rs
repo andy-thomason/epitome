@@ -41,7 +41,7 @@ struct Piece {
     offset: i64,
     size: u64,
     byte: u8,
-    align: Option<u64>,
+    align: Option<Align>,
 }
 
 pub fn run(sh: &Shared, f: &mut Function) -> Stats {
@@ -200,10 +200,9 @@ fn make_memset(sh: &Shared, f: &mut Function, b: BlockId, run: &[Piece]) {
         let g = f.add_inst(
             Op::Gep {
                 flags: GepFlags::default(),
-                inrange: None,
                 source_ty: i8t,
                 ptr: start.base,
-                indices: vec![sh.int(64, start.offset)],
+                indices: vec![sh.int(64, start.offset)].into(),
             },
             Some((None, ptr_ty)),
         );
@@ -225,7 +224,7 @@ fn make_memset(sh: &Shared, f: &mut Function, b: BlockId, run: &[Piece]) {
         }],
     );
     if let Some(a) = start.align {
-        call.args[0].attrs.push(Attr::Int { name: "align".into(), value: a, style: IntStyle::Space });
+        call.args[0].attrs.push(Attr::Int { name: "align".into(), value: a.bytes(), style: IntStyle::Space });
     }
     let c = f.add_inst(Op::Call(Box::new(call)), None);
     f.blocks[b.index()].insts.insert(at, c);

@@ -259,7 +259,7 @@ impl<'s, 'm> BasicAa<'s, 'm> {
             let gep: Option<(TypeId, Value, Vec<Value>)> = match v {
                 Value::Local(l) => match f.locals[l.index()].def {
                     LocalDef::Inst(i) => match &f.insts[i.index()].op {
-                        Op::Gep { source_ty, ptr, indices, .. } => Some((*source_ty, *ptr, indices.clone())),
+                        Op::Gep { source_ty, ptr, indices, .. } => Some((*source_ty, *ptr, indices.to_vec())),
                         Op::Cast { op: CastOp::BitCast, value, .. } => {
                             v = *value;
                             continue;

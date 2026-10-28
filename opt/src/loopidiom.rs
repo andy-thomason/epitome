@@ -335,9 +335,7 @@ fn try_loop(sh: &Shared, f: &mut Function, l: &Loop, pre: BlockId, dry: bool) ->
     if dry {
         return true;
     }
-    if !epitome_ir::chop::allow(|| {
-        format!("loopidiom: the loop at %{} as a memset", f.block_name(h).unwrap_or("?"))
-    }) {
+    if !epitome_ir::chop::allow(|| format!("loopidiom: the loop at %{} as a memset", f.block_name(h).unwrap_or("?"))) {
         return false;
     }
 
@@ -366,7 +364,13 @@ fn try_loop(sh: &Shared, f: &mut Function, l: &Loop, pre: BlockId, dry: bool) ->
         }
         emit(f, Op::Cast { op: CastOp::SExt, flags: IntFlags::NONE, fmf: FastMath::default(), value: v }, i64t)
     };
-    let binary = |op: BinOp, lhs: Value, rhs: Value| Op::Binary { op, flags: IntFlags::NONE, fmf: FastMath::default(), lhs, rhs };
+    let binary = |op: BinOp, lhs: Value, rhs: Value| Op::Binary {
+        op,
+        flags: IntFlags::NONE,
+        fmf: FastMath::default(),
+        lhs,
+        rhs,
+    };
     let start64 = wide(f, &mut emit, start);
     let bound64 = wide(f, &mut emit, bound);
     // The offset at the counter's start, its constant parts added up.
@@ -394,7 +398,7 @@ fn try_loop(sh: &Shared, f: &mut Function, l: &Loop, pre: BlockId, dry: bool) ->
     let address = if int_const(sh, offset) == Some(0) {
         base
     } else {
-        emit(f, Op::Gep { flags: GepFlags::default(), inrange: None, source_ty: i8t, ptr: base, indices: vec![offset] }, ptr_ty)
+        emit(f, Op::Gep { flags: GepFlags::default(), source_ty: i8t, ptr: base, indices: vec![offset].into() }, ptr_ty)
     };
     let mut trip = emit(f, binary(BinOp::Sub, bound64, start64), i64t);
     if let Some(pred) = at_least_one {

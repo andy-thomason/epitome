@@ -132,8 +132,8 @@ pub fn split_wide(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
         new_params[k] = ty.pair;
         let mut s = B { f, new: Vec::new() };
         let agg = Value::Local(p.local);
-        let lo = s.op(Op::ExtractValue { aggregate: agg, indices: vec![0] }, ty.i64);
-        let hi = s.op(Op::ExtractValue { aggregate: agg, indices: vec![1] }, ty.i64);
+        let lo = s.op(Op::ExtractValue { aggregate: agg, indices: vec![0].into() }, ty.i64);
+        let hi = s.op(Op::ExtractValue { aggregate: agg, indices: vec![1].into() }, ty.i64);
         entry_new.extend(s.new);
         parts.insert(p.local, (lo, hi));
     }
@@ -478,17 +478,17 @@ fn rewrite(
             let i8t = cx.m.types.int(8);
             let eight = int(cx, i64t, 8);
             let p8 = s.op(
-                Op::Gep { flags: GepFlags::default(), inrange: None, source_ty: i8t, ptr, indices: vec![eight] },
+                Op::Gep { flags: GepFlags::default(), source_ty: i8t, ptr, indices: vec![eight].into() },
                 cx.m.types.ptr(0),
             );
             // The high half is as many bytes as it takes, and no more (an
             // `i104`'s five: an `i40`, which `promote_odd` loads in pieces).
             let hb = (bits - 64).div_ceil(8) * 8;
             let hi = if hb == 64 {
-                s.op(Op::Load { volatile, atomic: None, ptr: p8, align: align.map(|a| a.min(8)) }, i64t)
+                s.op(Op::Load { volatile, atomic: None, ptr: p8, align: align.map(|a| a.min(Align::of(8))) }, i64t)
             } else {
                 let narrow = cx.m.types.int(hb);
-                let v = s.op(Op::Load { volatile, atomic: None, ptr: p8, align: Some(1) }, narrow);
+                let v = s.op(Op::Load { volatile, atomic: None, ptr: p8, align: Some(Align::of(1)) }, narrow);
                 s.cast(CastOp::ZExt, v, i64t)
             };
             set(parts, bits_of, (lo, hi));
@@ -502,7 +502,7 @@ fn rewrite(
             let i8t = cx.m.types.int(8);
             let eight = int(cx, i64t, 8);
             let p8 = s.op(
-                Op::Gep { flags: GepFlags::default(), inrange: None, source_ty: i8t, ptr, indices: vec![eight] },
+                Op::Gep { flags: GepFlags::default(), source_ty: i8t, ptr, indices: vec![eight].into() },
                 cx.m.types.ptr(0),
             );
             let st = s.f.add_inst(Op::Store { volatile, atomic: None, value: lo, ptr, align }, None);
@@ -523,7 +523,8 @@ fn rewrite(
                 let narrow = cx.m.types.int(hb);
                 s.cast(CastOp::Trunc, hi, narrow)
             };
-            let st = s.f.add_inst(Op::Store { volatile, atomic: None, value: hi, ptr: p8, align: Some(1) }, None);
+            let st =
+                s.f.add_inst(Op::Store { volatile, atomic: None, value: hi, ptr: p8, align: Some(Align::of(1)) }, None);
             s.new.push(st);
             Ok(false)
         }
@@ -551,8 +552,8 @@ fn rewrite(
                 // Its halves, in the block of its normal edge (made above).
                 s.f.locals[r.index()].ty = ty.pair;
                 let agg = Value::Local(r);
-                let lo = s.f.add_inst(Op::ExtractValue { aggregate: agg, indices: vec![0] }, Some((None, i64t)));
-                let hi = s.f.add_inst(Op::ExtractValue { aggregate: agg, indices: vec![1] }, Some((None, i64t)));
+                let lo = s.f.add_inst(Op::ExtractValue { aggregate: agg, indices: vec![0].into() }, Some((None, i64t)));
+                let hi = s.f.add_inst(Op::ExtractValue { aggregate: agg, indices: vec![1].into() }, Some((None, i64t)));
                 s.f.blocks[normal.index()].insts.splice(0..0, [lo, hi]);
                 parts.insert(r, (s.f.result(lo), s.f.result(hi)));
                 bits_of.insert(r, bits);
@@ -583,8 +584,8 @@ fn rewrite(
                 s.f.insts[i.index()].op = Op::Call(call);
                 // The call stays; its halves come after it.
                 let agg = Value::Local(r);
-                let lo = s.f.add_inst(Op::ExtractValue { aggregate: agg, indices: vec![0] }, Some((None, i64t)));
-                let hi = s.f.add_inst(Op::ExtractValue { aggregate: agg, indices: vec![1] }, Some((None, i64t)));
+                let lo = s.f.add_inst(Op::ExtractValue { aggregate: agg, indices: vec![0].into() }, Some((None, i64t)));
+                let hi = s.f.add_inst(Op::ExtractValue { aggregate: agg, indices: vec![1].into() }, Some((None, i64t)));
                 let (lo, hi) = (s.f.result(lo), s.f.result(hi));
                 let (Value::Local(l), Value::Local(h)) = (lo, hi) else { unreachable!() };
                 let (LocalDef::Inst(li), LocalDef::Inst(hi_i)) = (s.f.locals[l.index()].def, s.f.locals[h.index()].def)
@@ -671,8 +672,8 @@ fn op_name(op: &Op) -> String {
 fn aggregate(cx: &mut Ctx, s: &mut B, ty: &Types, parts: &HashMap<LocalId, Pair>, v: Value) -> Result<Value, String> {
     let (lo, hi) = pair_of(cx, ty, parts, v)?;
     let undef = Value::Const(cx.m.consts.intern(Constant { ty: ty.pair, kind: ConstKind::Undef }));
-    let a = s.op(Op::InsertValue { aggregate: undef, element: lo, indices: vec![0] }, ty.pair);
-    Ok(s.op(Op::InsertValue { aggregate: a, element: hi, indices: vec![1] }, ty.pair))
+    let a = s.op(Op::InsertValue { aggregate: undef, element: lo, indices: vec![0].into() }, ty.pair);
+    Ok(s.op(Op::InsertValue { aggregate: a, element: hi, indices: vec![1].into() }, ty.pair))
 }
 
 /// A call to a runtime function of two wide values, giving one.
@@ -683,8 +684,8 @@ fn runtime(cx: &mut Ctx, s: &mut B, ty: &Types, name: &str, args: &[Pair]) -> Pa
     let undef = Value::Const(cx.m.consts.intern(Constant { ty: ty.pair, kind: ConstKind::Undef }));
     let mut call_args = Vec::new();
     for &(lo, hi) in args {
-        let a = s.op(Op::InsertValue { aggregate: undef, element: lo, indices: vec![0] }, ty.pair);
-        let a = s.op(Op::InsertValue { aggregate: a, element: hi, indices: vec![1] }, ty.pair);
+        let a = s.op(Op::InsertValue { aggregate: undef, element: lo, indices: vec![0].into() }, ty.pair);
+        let a = s.op(Op::InsertValue { aggregate: a, element: hi, indices: vec![1].into() }, ty.pair);
         call_args.push(CallArg { value: a, attrs: vec![Attr::Word(WIDE.into())] });
     }
     let r = s.op(
@@ -702,8 +703,8 @@ fn runtime(cx: &mut Ctx, s: &mut B, ty: &Types, name: &str, args: &[Pair]) -> Pa
         })),
         ty.pair,
     );
-    let lo = s.op(Op::ExtractValue { aggregate: r, indices: vec![0] }, ty.i64);
-    let hi = s.op(Op::ExtractValue { aggregate: r, indices: vec![1] }, ty.i64);
+    let lo = s.op(Op::ExtractValue { aggregate: r, indices: vec![0].into() }, ty.i64);
+    let hi = s.op(Op::ExtractValue { aggregate: r, indices: vec![1].into() }, ty.i64);
     (lo, hi)
 }
 
@@ -712,8 +713,8 @@ fn runtime_to_scalar(cx: &mut Ctx, s: &mut B, ty: &Types, name: &str, (lo, hi): 
     let callee = crate::legalize::declare(cx, name, ret, &[ty.pair]);
     let fn_ty = cx.m.types.intern(Type::Function { ret, params: vec![ty.pair], varargs: false });
     let undef = Value::Const(cx.m.consts.intern(Constant { ty: ty.pair, kind: ConstKind::Undef }));
-    let a = s.op(Op::InsertValue { aggregate: undef, element: lo, indices: vec![0] }, ty.pair);
-    let a = s.op(Op::InsertValue { aggregate: a, element: hi, indices: vec![1] }, ty.pair);
+    let a = s.op(Op::InsertValue { aggregate: undef, element: lo, indices: vec![0].into() }, ty.pair);
+    let a = s.op(Op::InsertValue { aggregate: a, element: hi, indices: vec![1].into() }, ty.pair);
     s.op(
         Op::Call(Box::new(Call {
             tail: TailKind::None,
@@ -751,8 +752,8 @@ fn runtime_from_scalar(cx: &mut Ctx, s: &mut B, ty: &Types, name: &str, arg: Val
         })),
         ty.pair,
     );
-    let lo = s.op(Op::ExtractValue { aggregate: r, indices: vec![0] }, ty.i64);
-    let hi = s.op(Op::ExtractValue { aggregate: r, indices: vec![1] }, ty.i64);
+    let lo = s.op(Op::ExtractValue { aggregate: r, indices: vec![0].into() }, ty.i64);
+    let hi = s.op(Op::ExtractValue { aggregate: r, indices: vec![1].into() }, ty.i64);
     (lo, hi)
 }
 

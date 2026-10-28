@@ -179,6 +179,8 @@ enum Place {
     Slot(usize),
     Local(ObjId),
     Field(u32, u32),
+    /// The parts of a concatenation, most significant first.
+    Concat(Vec<Target>),
     None,
 }
 
@@ -253,6 +255,9 @@ pub(crate) struct Sim<'d, 'a, 'o> {
     watch: Vec<Vec<(u32, u32)>>,
     /// Nets that resolve several drivers or carry strengths, by slot.
     nets: HashMap<usize, net::Net>,
+    /// Each UDP instance's inputs at its last evaluation and its state,
+    /// by process and bit.
+    udp_state: HashMap<(u32, u32), (Vec<Logic>, Logic)>,
     /// Drivers watching a whole slot, for good.
     fixed: Vec<Vec<u32>>,
     /// Drivers watching one element of an unpacked array, by slot and
@@ -315,6 +320,7 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
             elems_of: HashMap::new(),
             triggered: HashMap::new(),
             nets: HashMap::new(),
+            udp_state: HashMap::new(),
             procs: Vec::new(),
             active: VecDeque::new(),
             inactive: Vec::new(),
@@ -765,7 +771,7 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
             Place::Slot(s) => self.read_slot(*s),
             Place::Local(o) => self.read_local(cx, *o),
             Place::Field(h, f) => self.heap.get(*h as usize).and_then(|o| o.fields.get(*f as usize).cloned()).unwrap_or(Const::Null),
-            Place::None => Const::Null,
+            Place::Concat(_) | Place::None => Const::Null,
         }
     }
 
@@ -774,6 +780,16 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
     /// changes are woken, unless `quiet`.
     fn write_cx(&mut self, cx: &Cx, t: &Target, v: Const, quiet: bool) {
         let v = crate::design::ops::convert(self.types(), &v, t.ty);
+        if let Place::Concat(parts) = &t.place {
+            let Some(bits) = crate::design::ops::bits_of(&v) else { return };
+            let mut lo = bits.width();
+            for pt in parts {
+                let w = self.d.types.width(pt.ty);
+                lo = lo.saturating_sub(w);
+                self.write_cx(cx, pt, Const::Bits(bits.slice(lo, w)), quiet);
+            }
+            return;
+        }
         if let Place::Slot(s) = &t.place {
             // In place, so writing one element does not copy the array.
             let s = self.find(*s);
@@ -791,7 +807,7 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
         let old = self.read_place(cx, &t.place);
         let new = if t.path.is_empty() { v } else { update(self.types(), old, &t.path, v) };
         match &t.place {
-            Place::Slot(_) => {}
+            Place::Slot(_) | Place::Concat(_) => {}
             Place::Local(o) => {
                 let mut l = cx.locals.borrow_mut();
                 match l.iter_mut().rev().find(|(k, _)| k == o) {

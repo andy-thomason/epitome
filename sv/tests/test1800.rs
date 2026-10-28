@@ -311,7 +311,7 @@ fn simulate_test1800() {
 }
 
 /// The number of simulation tests that pass today.
-const SIM_FLOOR: usize = 404;
+const SIM_FLOOR: usize = 417;
 
 fn simulate_all() {
     let Some(root) = suite() else { return };

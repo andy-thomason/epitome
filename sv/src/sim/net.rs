@@ -249,6 +249,68 @@ pub fn cell_outputs(kind: &str, n: usize) -> std::ops::Range<usize> {
     }
 }
 
+fn udp_level(c: u8) -> Logic {
+    match c {
+        b'0' => Logic::Zero,
+        b'1' => Logic::One,
+        _ => Logic::X,
+    }
+}
+
+/// Whether a level symbol (table 29-1) covers a value.
+fn udp_matches(sym: u8, v: Logic) -> bool {
+    match sym {
+        b'0' => v == Logic::Zero,
+        b'1' => v == Logic::One,
+        b'x' => v == Logic::X,
+        b'?' => true,
+        b'b' => v.is_known(),
+        _ => false,
+    }
+}
+
+/// A UDP's next output from its inputs before and now and its state
+/// (29.4 to 29.6, 29.9). Edge rows are tried for each input that changed,
+/// then level rows, which win; a change no row covers gives x, and `-`
+/// keeps the state.
+pub fn udp_eval(u: &crate::design::Udp, prev: &[Logic], cur: &[Logic], q: Logic) -> Logic {
+    use crate::design::UdpIn;
+    let state_ok = |r: &crate::design::UdpRow, q: Logic| r.state.is_none_or(|s| udp_matches(s, q));
+    let out = |r: &crate::design::UdpRow, q: Logic| if r.out == b'-' { q } else { udp_level(r.out) };
+    let levels_ok = |r: &crate::design::UdpRow, skip: Option<usize>| {
+        r.inputs.len() == cur.len()
+            && r.inputs.iter().enumerate().all(|(k, i)| match i {
+                UdpIn::Level(c) => udp_matches(*c, cur[k]),
+                _ => Some(k) == skip,
+            })
+    };
+    if !u.sequential {
+        return u.rows.iter().find(|r| levels_ok(r, None)).map_or(Logic::X, |r| out(r, q));
+    }
+    let mut result = None;
+    let mut q2 = q;
+    for k in (0..cur.len()).filter(|&k| prev.get(k) != Some(&cur[k])) {
+        let (a, b) = (prev.get(k).copied().unwrap_or(Logic::X), cur[k]);
+        let edge = |i: &UdpIn| match *i {
+            UdpIn::Edge(x, y) => udp_matches(x, a) && udp_matches(y, b),
+            UdpIn::Pos => matches!((a, b), (Logic::Zero, Logic::One | Logic::X) | (Logic::X, Logic::One)),
+            UdpIn::Neg => matches!((a, b), (Logic::One, Logic::Zero | Logic::X) | (Logic::X, Logic::Zero)),
+            UdpIn::Level(_) => false,
+        };
+        let hit = u.rows.iter().find(|r| r.inputs.get(k).is_some_and(edge) && levels_ok(r, Some(k)) && state_ok(r, q2));
+        q2 = match hit {
+            Some(r) => out(r, q2),
+            None => Logic::X,
+        };
+        result = Some(q2);
+    }
+    if let Some(r) = u.rows.iter().find(|r| levels_ok(r, None) && state_ok(r, q)) {
+        return out(r, q);
+    }
+    // A change no row covers gave x above; no change keeps the state.
+    result.unwrap_or(q)
+}
+
 /// The net kinds that resolve even with one driver, or none.
 fn special(kind: &str) -> bool {
     !matches!(kind, "wire" | "tri" | "uwire" | "interconnect")
@@ -358,6 +420,16 @@ impl Sim<'_, '_, '_> {
                 Some(c) => Sig { lo: -c, hi: c },
                 None => Sig::Z,
             };
+            // A gate's output is x until it is first evaluated, and a
+            // delayed gate's for its delay.
+            let mut contrib = vec![vec![Sig::Z; width as usize]; us.len()];
+            for (index, &(p, _, _)) in us.iter().enumerate() {
+                if let Some(Driven::Cell(c)) = self.procs[p as usize].driver
+                    && !self.d.cells[c.0 as usize].delay.is_empty()
+                {
+                    contrib[index] = vec![Sig { lo: -STRONG, hi: STRONG }; width as usize];
+                }
+            }
             let mut net = Net {
                 wired,
                 own,
@@ -366,7 +438,7 @@ impl Sim<'_, '_, '_> {
                 decay_epoch: 0,
                 width,
                 ty,
-                contrib: vec![vec![Sig::Z; width as usize]; us.len()],
+                contrib,
                 sig: vec![start; width as usize],
             };
             net.resolve();
@@ -532,7 +604,7 @@ impl Sim<'_, '_, '_> {
 
     /// A gate's, switch's or pull's outputs, or `None` if it is not
     /// modelled.
-    pub(super) fn cell(&mut self, cx: &Cx, c: CellId) -> Option<Vec<(Const, Vec<Sig>)>> {
+    pub(super) fn cell(&mut self, p: u32, cx: &Cx, c: CellId) -> Option<Vec<(Const, Vec<Sig>)>> {
         let cell = &self.d.cells[c.0 as usize];
         let kind = self.d.name(cell.kind);
         let terms = cell.terminals.clone();
@@ -608,7 +680,27 @@ impl Sim<'_, '_, '_> {
                 }
                 r
             }
-            _ => return None,
+            _ => {
+                let d = self.d;
+                let u = d.udps.get(&cell.kind)?;
+                let ins: Vec<Const> = terms[1..].iter().map(|&t| self.eval(cx, t)).collect();
+                let w = terms.iter().map(|&t| width(self, t)).max().unwrap_or(1);
+                let mut r = Vec::new();
+                for i in 0..w {
+                    // z reads as x (29.3.5).
+                    let cur: Vec<Logic> = ins.iter().map(|v| if bit(v, i) == Logic::Z { Logic::X } else { bit(v, i) }).collect();
+                    let next = match self.udp_state.get(&(p, i)) {
+                        Some((prev, q)) => udp_eval(u, prev, &cur, *q),
+                        // The first evaluation: a sequential UDP starts at
+                        // its initial value (29.7).
+                        None if u.sequential => udp_eval(u, &cur, &cur, udp_level(u.init)),
+                        None => udp_eval(u, &cur, &cur, Logic::X),
+                    };
+                    self.udp_state.insert((p, i), (cur, next));
+                    r.push(Sig::drive(next, s0, s1));
+                }
+                r
+            }
         };
         let mut res = Vec::new();
         for k in outs {

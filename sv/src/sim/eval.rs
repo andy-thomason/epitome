@@ -440,6 +440,12 @@ impl Sim<'_, '_, '_> {
                 t.ty = self.d.expr(e.args[0]).ty;
                 t
             }
+            ExprKind::Concat => {
+                // `{a, b} = v`: the value split among the parts, the first
+                // most significant (10.10, 11.4.12).
+                let parts = e.args.iter().map(|&a| self.target(cx, a)).collect();
+                Target { place: Place::Concat(parts), path: vec![], ty: e.ty }
+            }
             ExprKind::Index => {
                 let mut t = self.target(cx, e.args[0]);
                 let i = self.eval(cx, e.args[1]);
@@ -1061,9 +1067,12 @@ impl Sim<'_, '_, '_> {
             Driven::Cell(c) => {
                 let cell = &self.d.cells[c.0 as usize];
                 let kind = self.d.name(cell.kind).to_string();
+                let cell_kind = cell.kind;
                 let terms = cell.terminals.clone();
                 let delay = cell.delay.clone();
-                match self.cell(&cx, c) {
+                // A sequential UDP's initial value is not delayed (29.7).
+                let delay = if !armed && self.d.udps.get(&cell_kind).is_some_and(|u| u.sequential) { vec![] } else { delay };
+                match self.cell(p, &cx, c) {
                     Some(outs) => self.emit(p, inst, &delay, outs),
                     None => self.unsupported(format!("gate or primitive `{kind}`")),
                 }

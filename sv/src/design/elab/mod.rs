@@ -186,6 +186,7 @@ impl<'a, 'x> Elab<'a, 'x> {
             unit_time: (-9, -9),
             hops: HashMap::new(),
             nets: HashMap::new(),
+            udps: HashMap::new(),
         };
         Elab {
             ast,
@@ -438,6 +439,7 @@ impl<'a, 'x> Elab<'a, 'x> {
             self.collect_def(item)?;
             if self.kind(item) == Kind::Udp {
                 checks::udp(self, item)?;
+                self.udp_table(item);
             }
         }
         // Then the compilation unit's own items and packages, in order.
@@ -2378,6 +2380,68 @@ impl<'a, 'x> Elab<'a, 'x> {
         Ok(o)
     }
 
+    /// A UDP's table, for simulation (29.3).
+    fn udp_table(&mut self, n: NodeId) {
+        let kids = self.kids(n).to_vec();
+        let Some(&name) = kids.iter().find(|&&k| self.kind(k) == Kind::Name) else { return };
+        let name = self.sym_of(name);
+        let Some(table) = kids.iter().copied().find(|&k| self.kind(k) == Kind::UdpTable) else { return };
+        // `initial q = 1'b1;`, or an ANSI `output reg q = 1'b1`.
+        let last_char = |me: &Self, x: NodeId| {
+            let toks = me.ast.tokens_of(x);
+            toks.last().and_then(|t| t.0.bytes().last()).map(|c| c.to_ascii_lowercase())
+        };
+        let mut init = b'x';
+        for &k in &kids {
+            match self.kind(k) {
+                Kind::UdpInitial => init = last_char(self, self.kids(k)[1]).unwrap_or(b'x'),
+                Kind::AnsiPort | Kind::UdpPortDecl => {
+                    let toks = self.ast.tokens_of(k);
+                    if toks.iter().any(|t| t.0 == "=") {
+                        init = toks.last().and_then(|t| t.0.bytes().last()).map_or(b'x', |c| c.to_ascii_lowercase());
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut rows = Vec::new();
+        let mut sequential = false;
+        for &row in self.kids(table) {
+            let text: String = self.ast.tokens_of(row).iter().map(|t| t.0).collect::<Vec<_>>().join("");
+            let text = text.trim_end_matches(';').to_ascii_lowercase();
+            let parts: Vec<&str> = text.split(':').collect();
+            let mut inputs = Vec::new();
+            let mut cs = parts[0].bytes().filter(|c| !c.is_ascii_whitespace());
+            while let Some(c) = cs.next() {
+                inputs.push(match c {
+                    b'(' => {
+                        let a = cs.next().unwrap_or(b'?');
+                        let b = cs.next().unwrap_or(b'?');
+                        cs.next();
+                        UdpIn::Edge(a, b)
+                    }
+                    b'r' => UdpIn::Edge(b'0', b'1'),
+                    b'f' => UdpIn::Edge(b'1', b'0'),
+                    b'*' => UdpIn::Edge(b'?', b'?'),
+                    b'p' => UdpIn::Pos,
+                    b'n' => UdpIn::Neg,
+                    c => UdpIn::Level(c),
+                });
+            }
+            let field = |s: &str| s.bytes().find(|c| !c.is_ascii_whitespace()).unwrap_or(b'x');
+            let (state, out) = match parts.as_slice() {
+                [_, st, o] => {
+                    sequential = true;
+                    (Some(field(st)), field(o))
+                }
+                [_, o] => (None, field(o)),
+                _ => continue,
+            };
+            rows.push(UdpRow { inputs, state, out });
+        }
+        self.d.udps.insert(name, Udp { sequential, init, rows });
+    }
+
     // ---- continuous assignments, gates ----
 
     fn continuous_assign(&mut self, sc: ScopeId, n: NodeId) -> R<'a> {
@@ -2440,7 +2504,8 @@ impl<'a, 'x> Elab<'a, 'x> {
             None => vec![],
         };
         let mut delay = Vec::new();
-        if let Some(dl) = kids.iter().copied().find(|&k| self.kind(k) == Kind::Delay) {
+        // A UDP instance's `#(3, 6)` parses as parameter values (29.8).
+        if let Some(dl) = kids.iter().copied().find(|&k| matches!(self.kind(k), Kind::Delay | Kind::ParamValues)) {
             for &k in self.kids(dl) {
                 delay.push(expr::expr(self, sc, k)?);
             }

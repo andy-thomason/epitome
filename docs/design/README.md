@@ -28,9 +28,14 @@ short) has to do to work like LLVM. They are split into two halves:
   without rebuilding, as description files found at run time; feature
   gates; relocations, registers and object-file identities as data; and
   RISC-V RV64, the second machine; inline assembly's constraints and
-  modifiers as data.
+  modifiers as data; operands written by name; and AMD's R600
+  (Evergreen), for assembly.
 - [x86-64: a plan](x86.md): how x86 instructions are written in a
   description, and what the code generator must learn first.
+- [Partial machines: a plan](partial-machines.md): machines without
+  memory, a stack, calls or floating point; checking that a program fits
+  one; fencing off what Epitome must not optimise or lower; and a VLIW
+  GPU (TeraScale) to test it on.
 - [Object files, assembly and disassembly](objects.md): writing Mach-O
   and ELF object files that match clang's assembler; `epitome-as`, which
   assembles with the machine description run backwards; and
@@ -73,6 +78,7 @@ how they were found in
 | [The RISC-V Instruction Set Manual, Volume I](https://github.com/riscv/riscv-isa-manual) and the [RISC-V ELF psABI](https://github.com/riscv-non-isa/riscv-elf-psabi-doc) | The RISC-V RV64 description: encodings, the LP64D convention and relocations (`targets.md`) |
 | [Intel 64 and IA-32 Architectures Software Developer's Manual](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html), [AMD64 Architecture Programmer's Manual](https://www.amd.com/en/search/documentation/hub.html) and the [System V x86-64 psABI](https://gitlab.com/x86-psABIs/x86-64-ABI) | The planned x86-64 description: encodings, semantics, the convention and relocations (`x86.md`) |
 | Arm's A-profile Architecture Machine Readable Specification (AARCHMRS, open-source package, BSD 3-clause) | Checking the AArch64 description's encodings and mnemonics, and the bit layouts of entries generated from it (`isel.md`) |
+| [AMD Evergreen Family Instruction Set Architecture: Instructions and Microcode](https://www.x.org/docs/AMD/old/AMD_Evergreen-Family_Instruction_Set_Architecture.pdf) (2011) | The R600 (Evergreen) description: microcode formats and opcodes (`targets.md`) |
 | [Using the New Pass Manager](https://llvm.org/docs/NewPassManager.html) | Pass manager design and pipeline syntax |
 | [The LLVM Target-Independent Code Generator](https://llvm.org/docs/CodeGenerator.html) | Codegen phases, data structures, SelectionDAG, register allocation, MC layer |
 | [Global Instruction Selection](https://llvm.org/docs/GlobalISel/index.html) and [Core Pipeline](https://llvm.org/docs/GlobalISel/Pipeline.html) | GlobalISel passes and generic MIR |

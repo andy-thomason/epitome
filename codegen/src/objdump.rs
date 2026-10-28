@@ -536,7 +536,7 @@ pub fn instruction(
                     None => Operand::Imm(v),
                 },
             },
-            Kind::Imm | Kind::Cond => Operand::Imm(v),
+            Kind::Imm | Kind::Cond | Kind::Enum(_) => Operand::Imm(v),
         }
     });
     (text, len)

@@ -200,7 +200,8 @@ impl<'t> Assembler<'t> {
                 continue;
             }
             let tpl = Template { instr: i, parts: split_template(&ins.asm) };
-            let m = mnemonic(&ins.asm);
+            // (By the mnemonic in lower case, as lines are looked up.)
+            let m = mnemonic(&ins.asm).to_ascii_lowercase();
             match m.find('{') {
                 Some(k) => by_prefix.push((m[..k].to_string(), tpl)),
                 None => by_mnemonic.entry(m.to_string()).or_default().push(tpl),
@@ -214,17 +215,42 @@ impl<'t> Assembler<'t> {
     /// it, outside brackets; or, before a bracket, the nearest from which
     /// the rest of the template matches (`%pcrel_lo(.L1)` before `(t5)`).
     fn holes<'l>(&self, tpl: &Template, line: &'l str) -> Option<Vec<(String, &'l str)>> {
-        let mut got = Vec::new();
-        Self::holes_from(&tpl.parts, line, 0, &mut got).then_some(got)
+        let mut out = Vec::new();
+        self.holes_from(tpl, 0, line, 0, &mut out).then_some(out)
     }
 
-    fn holes_from<'l>(parts: &[Part], line: &'l str, pos: usize, got: &mut Vec<(String, &'l str)>) -> bool {
-        let Some((part, rest)) = parts.split_first() else {
-            return pos == line.len();
-        };
+    /// Whether `line` from `pos` matches the template from part `k`, the
+    /// holes' texts pushed to `out`. A hole of an enum operand is one of its
+    /// names (perhaps empty), each tried in turn until the rest matches, so
+    /// enum holes may be side by side (`{neg}{src}`); any other hole is not
+    /// empty, is balanced in brackets, and runs to an occurrence of the next
+    /// literal text, the first unless that text has a bracket.
+    fn holes_from<'l>(
+        &self,
+        tpl: &Template,
+        k: usize,
+        line: &'l str,
+        pos: usize,
+        out: &mut Vec<(String, &'l str)>,
+    ) -> bool {
+        let Some(part) = tpl.parts.get(k) else { return pos == line.len() };
         match part {
-            Part::Lit(l) => line[pos..].starts_with(l.as_str()) && Self::holes_from(rest, line, pos + l.len(), got),
+            Part::Lit(l) => {
+                line[pos..].starts_with(l.as_str()) && self.holes_from(tpl, k + 1, line, pos + l.len(), out)
+            }
             Part::Hole(inner) => {
+                if let Some(e) = self.enum_of(tpl.instr, inner) {
+                    for (name, _) in &e.names {
+                        if line[pos..].starts_with(name.as_str()) {
+                            out.push((inner.clone(), &line[pos..pos + name.len()]));
+                            if self.holes_from(tpl, k + 1, line, pos + name.len(), out) {
+                                return true;
+                            }
+                            out.pop();
+                        }
+                    }
+                    return false;
+                }
                 let balanced = |s: &str| {
                     if !s.contains(['(', ')']) {
                         return true;
@@ -235,24 +261,24 @@ impl<'t> Assembler<'t> {
                         depth >= 0
                     }) && depth == 0
                 };
-                let take = |end: usize, got: &mut Vec<(String, &'l str)>| {
+                let take = |end: usize, out: &mut Vec<(String, &'l str)>| {
                     if end == pos || !balanced(&line[pos..end]) {
                         return None;
                     }
-                    got.push((inner.clone(), &line[pos..end]));
-                    let ok = Self::holes_from(rest, line, end, got);
+                    out.push((inner.clone(), &line[pos..end]));
+                    let ok = self.holes_from(tpl, k + 1, line, end, out);
                     if !ok {
-                        got.pop();
+                        out.pop();
                     }
                     Some(ok)
                 };
-                match rest.first() {
-                    None => take(line.len(), got) == Some(true),
+                match tpl.parts.get(k + 1) {
+                    None => take(line.len(), out) == Some(true),
                     Some(Part::Hole(_)) => false,
                     Some(Part::Lit(l)) => {
                         let again = l.contains('(');
                         for (at, _) in line[pos..].match_indices(l.as_str()) {
-                            match take(pos + at, got) {
+                            match take(pos + at, out) {
                                 Some(true) => return true,
                                 Some(false) if !again => return false,
                                 _ => {}
@@ -262,6 +288,15 @@ impl<'t> Assembler<'t> {
                     }
                 }
             }
+        }
+    }
+
+    /// The enum a template's hole is an operand of, if it is one.
+    fn enum_of(&self, i: usize, hole: &str) -> Option<&crate::machine::EnumDef> {
+        let o = self.t.instrs[i].operands.iter().find(|o| o.name == hole)?;
+        match o.kind {
+            Kind::Enum(e) => Some(&self.t.machine.enums[e as usize]),
+            _ => None,
         }
     }
 
@@ -317,6 +352,7 @@ impl<'t> Assembler<'t> {
                     set(&mut r.env, name, text.parse::<f32>().ok()?.to_bits() as i64)?
                 }
                 Kind::Imm => set(&mut r.env, name, parse_int(text)?)?,
+                Kind::Enum(e) => set(&mut r.env, name, self.t.machine.enums[e as usize].value(text)?)?,
                 Kind::Cond => {
                     // (In either case: `NE` is `ne`.)
                     let c = self.t.conds.iter().find(|c| c.asm.eq_ignore_ascii_case(text))?;

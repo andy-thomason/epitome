@@ -6019,7 +6019,8 @@ fn lower_const_divs(cx: &mut Ctx, f: &mut Function) {
                     let bias = s.bin(BinOp::LShr, sign, c(cx, w as i64 - kk), ty);
                     let t = s.bin(BinOp::Add, x, bias, ty);
                     if rem {
-                        let low = s.bin(BinOp::And, t, c(cx, -(ad as i64)), ty);
+                        // (The mask is -ad, which for the most negative divisor is itself.)
+                        let low = s.bin(BinOp::And, t, c(cx, (ad as i64).wrapping_neg()), ty);
                         s.bin(BinOp::Sub, x, low, ty)
                     } else {
                         let q = s.bin(BinOp::AShr, t, c(cx, kk), ty);

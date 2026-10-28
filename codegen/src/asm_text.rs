@@ -341,10 +341,8 @@ pub fn expand(stmts: Vec<(usize, String)>) -> Result<Vec<(usize, String)>, (usiz
 pub fn instruction(m: &Machine, stmt: &str, fresh: &mut dyn FnMut() -> String) -> Vec<String> {
     let (labs, rest) = labels(stmt);
     let (mnem, args) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));
-    let mut ops = operands(args);
-    for op in &mut ops {
-        *op = fold(m, mnem, op);
-    }
+    let given = operands(args);
+    let ops: Vec<String> = given.iter().map(|op| fold(m, mnem, op)).collect();
     let head: String = labs.iter().map(|l| format!("{l}: ")).collect();
     let body = match (m.asm_pseudos.as_str(), mnem, ops.as_slice()) {
         ("riscv", "li", [d, v]) if let Ok(v) = v.parse::<i64>() => li(d, v),
@@ -367,6 +365,9 @@ pub fn instruction(m: &Machine, stmt: &str, fresh: &mut dyn FnMut() -> String) -
             let l = fresh();
             vec![format!("{l}: auipc {via}, %pcrel_hi({s})"), format!("{m} {d}, %pcrel_lo({l})({via})")]
         }
+        // As written, where nothing is folded (an operand may have a comma
+        // of its own: R600's `ExecMask,PredicateBit (MASKED)`).
+        _ if ops == given => vec![rest.to_string()],
         _ if ops.is_empty() => vec![mnem.to_string()],
         _ => vec![format!("{mnem} {}", ops.join(", "))],
     };

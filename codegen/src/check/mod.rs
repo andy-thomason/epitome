@@ -357,6 +357,11 @@ fn sample(t: &Target, i: usize, k: usize, spread: usize) -> Option<Env> {
             Kind::Label => 0,
             Kind::Sym => 0,
             Kind::Cond => t.conds.get(k % t.conds.len().max(1)).map_or(0, |c| c.value),
+            // A spread of its names, the operands of one entry differing.
+            Kind::Enum(e) => {
+                let names = &t.machine.enums[e as usize].names;
+                names.get((j * 7 + k * 13) % names.len().max(1)).map_or(0, |&(_, v)| v)
+            }
         };
         env.insert(o.name.clone(), v);
     }
@@ -500,7 +505,7 @@ fn text_of(t: &Target, i: usize, w: &[u8]) -> Option<String> {
         match o.kind {
             Kind::Reg(c) => Operand::Reg(Reg::P(t.machine.phys(c, v))),
             Kind::Label | Kind::Sym => Operand::Text(v.to_string()),
-            Kind::Imm | Kind::Cond => Operand::Imm(v),
+            Kind::Imm | Kind::Cond | Kind::Enum(_) => Operand::Imm(v),
         }
     }))
 }
@@ -576,7 +581,7 @@ fn assembly(t: &Target) -> Section {
                         Kind::Reg(c) => Operand::Reg(Reg::P(t.machine.phys(c, v))),
                         Kind::Label => Operand::Text(label.into()),
                         Kind::Sym => Operand::Sym("sym".into()),
-                        Kind::Imm | Kind::Cond => Operand::Imm(v),
+                        Kind::Imm | Kind::Cond | Kind::Enum(_) => Operand::Imm(v),
                     }
                 });
                 s.checked += 1;
@@ -877,7 +882,7 @@ pub fn sample_assembly(t: &Target, syntax: Syntax, per: usize) -> String {
                     Kind::Reg(c) => Operand::Reg(Reg::P(t.machine.phys(c, v))),
                     Kind::Label => Operand::Text(here.clone()),
                     Kind::Sym => Operand::Sym("sym".into()),
-                    Kind::Imm | Kind::Cond => Operand::Imm(v),
+                    Kind::Imm | Kind::Cond | Kind::Enum(_) => Operand::Imm(v),
                 }
             });
             out.push_str(&format!("{here}:\t{line}\t{} {}\n", t.machine.asm_comment, ins.name));

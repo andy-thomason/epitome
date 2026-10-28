@@ -28,6 +28,9 @@ pub enum Kind {
     Label,
     Sym,
     Cond,
+    /// A value of the machine's enum with this index, written by name
+    /// (`machine.rs`).
+    Enum(u16),
 }
 
 #[derive(Clone, Debug)]
@@ -1104,6 +1107,8 @@ impl Target {
                     Kind::Sym
                 } else if attr(&p.attrs, "cond").is_some() {
                     Kind::Cond
+                } else if let Some(Some(e)) = attr(&p.attrs, "enum") {
+                    Kind::Enum(self.machine.enum_index(e).ok_or_else(|| format!("@{name}: no enum {e}"))? as u16)
                 } else {
                     return Err(format!("@{name}: operand %{pname} has no kind"));
                 };

@@ -21,9 +21,8 @@ fn riscv_dir() -> String {
     format!("{}/targets/riscv64", env!("CARGO_MANIFEST_DIR"))
 }
 
-/// The RISC-V description with one change, checked: the errors of section
-/// `section`.
-fn broken(file: &str, from: &str, to: &str, section: &str) -> Vec<String> {
+/// The RISC-V description with one change, loaded.
+fn changed(file: &str, from: &str, to: &str) -> Result<Target, String> {
     let mut files: Vec<(String, String)> = std::fs::read_dir(riscv_dir())
         .unwrap()
         .map(|e| e.unwrap().path())
@@ -35,7 +34,13 @@ fn broken(file: &str, from: &str, to: &str, section: &str) -> Vec<String> {
     assert_eq!(f.1.matches(from).count(), 1, "{from}");
     f.1 = f.1.replace(from, to);
     let refs: Vec<(&str, &str)> = files.iter().map(|(n, t)| (n.as_str(), t.as_str())).collect();
-    let t = Target::load_files(&refs).unwrap();
+    Target::load_files(&refs)
+}
+
+/// The RISC-V description with one change, checked: the errors of section
+/// `section`.
+fn broken(file: &str, from: &str, to: &str, section: &str) -> Vec<String> {
+    let t = changed(file, from, to).unwrap();
     let report = check::check(&t);
     report.sections.into_iter().find(|s| s.name == section).unwrap().errors
 }
@@ -81,6 +86,15 @@ fn checks_find_mistakes() {
         "structure",
     );
     has(&e, "both saved and clobbered");
+}
+
+/// A convention with an empty result list is an error, not a panic.
+#[test]
+fn empty_results_are_errors() {
+    let e = changed("70-abi.ll", "!{!\"fp-result\", !\"fa0\"}", "!{!\"fp-result\"}").err().unwrap();
+    assert!(e.contains("empty fp-result"), "{e}");
+    let e = changed("70-abi.ll", "!{!\"result\", !\"a0\"}", "!{!\"result\"}").err().unwrap();
+    assert!(e.contains("empty result"), "{e}");
 }
 
 #[test]

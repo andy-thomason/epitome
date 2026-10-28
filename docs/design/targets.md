@@ -151,6 +151,28 @@ read them. A template writes a register as another class names it with
 `boolean-branches = compare` makes `prepare` rewrite a branch on a boolean
 that isn't a comparison into a comparison with zero.
 
+### Operands written by name
+
+Some operands are neither a register of a file nor a number: R600's
+source operand is one of 128 registers, or a constant from one of four
+banks, or an inline constant, each with a channel (`T5.Y`, `KC0[2].X`,
+`0.5`, `PV.W`). `!target.enums` names such sets of values, and an operand
+with `"enum"="src"` is one of them, written by name:
+
+```llvm
+!1200 = !{!"src", !"0", !"T{0-127}.{X,Y,Z,W}", !"512", !"KC0[{0-31}].{X,Y,Z,W}", !"992", !"0.0", ...}
+!1202 = !{!"neg", !"0", !"", !"1", !"-"}
+```
+
+Each pattern's names take values in order from the number before it;
+braces are a range or alternatives, the leftmost varying slowest. So
+`T1.Y` is 5, and the encoding takes it apart with expressions
+(`sel0:9=s0>>2`, `c0:2=s0&3`). A name may be empty: `{n0}{s0}` reads
+`-T1.Y` and `T1.Y` alike. The assembler tries an enum's names in order
+until the rest of the line matches, so enum operands may be side by
+side, and `-1` (an inline constant) is not read as `-` and `1`. Where two
+names have one value, the first is how it is written.
+
 ### CPUs
 
 `!target.cpus` lists CPUs by LLVM's names for them, each followed by its
@@ -615,3 +637,43 @@ Adding V would mean:
 The files and classes are now data, but V's vector length is set at run
 time (`vsetvli`). That is state the code generator would have to track
 between instructions, and it has nothing for that yet.
+
+## AMD R600 (Evergreen)
+
+`codegen/targets/r600` describes AMD's Evergreen shader cores (Radeon HD
+5000 and 6000) for assembly and disassembly. `gen_r600.py` writes it from
+the microcode formats of AMD's "Evergreen Family Instruction Set
+Architecture" (2011). The assembly syntax is what LLVM's r600 back end
+writes, since that is the only assembly for it there is, and
+`tests/r600.rs` compares each line `llc -show-mc-encoding` writes, as we
+assemble it, with the bytes llc gives for it.
+
+It is a partial machine ([partial-machines.md](partial-machines.md)):
+`!target.lacks` says it has no stack, calls, globals, indirect branches or
+traps. Its instructions are 64 bits (`instruction-unit` 8), and a vertex
+fetch is 128:
+
+- **ALU instructions** (`ALU_WORD0` with `ALU_WORD1_OP2` or `_OP3`): one
+  entry per opcode and absolute-value combination. Sources, the
+  destination, negation, the end of a group (`* `), predication
+  (`Pred_sel_zero`) and the bank swizzle (`BS:VEC_021/SCL_122`) are
+  enum operands. A group's literal constants follow it, two to a word,
+  written `LITERALS 2, 0` (llc writes `2(2.802597e-45), 0(0.000000e+00)`,
+  which the test reads so);
+- **control flow** (`CF_WORD0/1`, `CF_ALU_WORD0/1`): clauses (`ALU 36, @4,
+  KC0[CB0:0-32], KC1[]`, `TEX 0 @14`), jumps and pops (`JUMP @6 POP:1`),
+  the hardware loops (`LOOP_START_DX10`, `END_LOOP`, `LOOP_BREAK`),
+  `CF_END` and `PAD`;
+- **a memory export** (`MEM_RAT_CACHELESS STORE_RAW`) and **a 32-bit vertex
+  fetch** (`VTX_READ_32`), in the forms llc writes.
+
+Where llc's names differ from AMD's (`LSHR` for `LSHR_INT`, `MULHI` for
+`MULHI_UINT`, `END_LOOP` for `LOOP_END`), the entries take llc's for
+control flow and AMD's for ALU instructions, with llc's as
+`!target.asm-aliases`. AMD's table writes opcode 66 as `PREDE_INT`; it is
+`PRED_SETE_INT`.
+
+Not yet: the other memory exports, fetches other than `VTX_READ_32`,
+`LDS_IDX_OP`, the extended ALU clause (`CF_ALU_WORD0_EXT`), and
+instruction selection, which needs groups and clauses
+([partial-machines.md](partial-machines.md), section 5).

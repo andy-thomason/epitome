@@ -905,7 +905,7 @@ impl<'a, 'b> Sel<'a, 'b> {
                         return None;
                     }
                 }
-                Kind::Cond => return None,
+                Kind::Cond | Kind::Enum(_) => return None,
             }
         }
         // Immediates must fit their instructions.

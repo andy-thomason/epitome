@@ -467,6 +467,7 @@ pub fn fill_template(t: &Target, abi: Option<&crate::abi::Abi>, i: usize, value:
             (Operand::Imm(v), Kind::Cond) => {
                 out.push_str(t.conds.iter().find(|c| c.value == v).map_or("?", |c| c.asm.as_str()));
             }
+            (Operand::Imm(v), Kind::Enum(e)) => out.push_str(t.machine.enums[e as usize].name(v).unwrap_or("?")),
             (Operand::Imm(v), _) => match modifier {
                 Some("h32") => {
                     let _ = write!(out, "0x{:x}", v as u64 & 0xffff_ffff);
@@ -735,7 +736,7 @@ pub fn disassemble(t: &Target, bytes: &[u8], pc: u64) -> (String, usize) {
                     Kind::Reg(c) => Operand::Reg(Reg::P(t.machine.phys(c, v))),
                     Kind::Label => Operand::Text(format!("0x{:x}", (pc as i64 + v) as u64)),
                     Kind::Sym => Operand::Text("<symbol>".into()),
-                    Kind::Imm | Kind::Cond => Operand::Imm(v),
+                    Kind::Imm | Kind::Cond | Kind::Enum(_) => Operand::Imm(v),
                 }
             });
             (text, len)

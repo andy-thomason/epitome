@@ -386,11 +386,14 @@ pub fn read(m: &Module, prefix: &str, machine: &crate::machine::Machine) -> Resu
         let one = |k: &str| -> Result<String, String> {
             get(k)?.first().cloned().ok_or_else(|| format!("{name}: empty {k}"))
         };
+        let first = |k: &str| -> Result<u8, String> {
+            regs(&get(k)?)?.first().copied().ok_or_else(|| format!("{name}: empty {k}"))
+        };
         let frame = regs(&get("frame")?)?;
         out.push(Abi {
             name: name.to_string(),
             args: regs(&get("args")?)?,
-            result: regs(&get("result")?)?[0],
+            result: first("result")?,
             clobbers: regs(&get("clobbers")?)?,
             saved: regs(&get("saved")?)?,
             reserved: {
@@ -412,7 +415,7 @@ pub fn read(m: &Module, prefix: &str, machine: &crate::machine::Machine) -> Resu
             },
             scratch: regs(&get("scratch")?)?,
             fp_args: regs(&get("fp-args")?)?,
-            fp_result: regs(&get("fp-result")?)?[0],
+            fp_result: first("fp-result")?,
             fp_clobbers: regs(&get("fp-clobbers")?)?,
             fp_saved: regs(&get("fp-saved")?)?,
             fp_scratch: regs(&get("fp-scratch")?)?,

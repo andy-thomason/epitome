@@ -254,7 +254,8 @@ impl Sim<'_, '_, '_> {
             K::Streaming { left } => self.stream(cx, e, *left),
             K::Dollar => Const::Unbounded,
             K::Range | K::Tagged(_) | K::Opaque => {
-                self.unsupported("an expression the elaborator keeps as syntax".into());
+                let what = format!("{:?} `{}`", self.ast.kind(e.node), self.line_of(e.node));
+                self.unsupported(format!("expression kept as syntax: {what}"));
                 ops::default_value(tys, ty)
             }
         }
@@ -782,6 +783,8 @@ impl Sim<'_, '_, '_> {
             sensitive: vec![],
             driver: None,
             armed: false,
+            outs: vec![],
+            round: 0,
         });
         loop {
             if self.over_limit() {
@@ -986,8 +989,18 @@ impl Sim<'_, '_, '_> {
                 let d = &self.d.drivers[id.0 as usize];
                 let (lhs, rhs, delay) = (d.lhs, d.rhs, d.delay.clone());
                 let v = self.eval(&cx, rhs);
-                let t = self.target(&cx, lhs);
-                if let Some(&dl) = delay.first() {
+                if self.procs[p as usize].outs.first().is_some_and(Option::is_some) {
+                    // A resolved net: the value goes in with the driver's
+                    // strength.
+                    let names: Vec<&str> = match self.d.drivers[id.0 as usize].strength {
+                        Some((a, b)) => vec![self.d.name(a), self.d.name(b)],
+                        None => vec![],
+                    };
+                    let (s0, s1) = net::strengths(&names, (net::STRONG, net::STRONG));
+                    let sig = net::sigs_of(&v, s0, s1);
+                    self.emit(p, inst, &delay, vec![(v, sig)]);
+                } else if let Some(&dl) = delay.first() {
+                    let t = self.target(&cx, lhs);
                     let dv = self.eval(&cx, dl);
                     let ticks = self.ticks(inst, &dv);
                     if ticks > 0 {
@@ -996,6 +1009,7 @@ impl Sim<'_, '_, '_> {
                         self.write_cx(&cx, &t, v, false);
                     }
                 } else {
+                    let t = self.target(&cx, lhs);
                     self.write_cx(&cx, &t, v, false);
                 }
                 if !armed {
@@ -1014,17 +1028,31 @@ impl Sim<'_, '_, '_> {
                 let (Some(x), Some(po)) = (conn.expr, port.object) else { return };
                 let pcx = Cx { inst: parent, locals: Rc::default(), this: None };
                 let ccx = Cx { inst: child, locals: Rc::default(), this: None };
+                let to_net = self.procs[p as usize].outs.first().is_some_and(Option::is_some);
                 if port.dir == Dir::Input {
                     let v = self.eval(&pcx, x);
-                    let t = self.target_obj(&ccx, po);
-                    self.write_cx(&ccx, &t, v, false);
+                    if to_net {
+                        let sig = self.sigs_of_expr(&pcx, x, &v);
+                        self.put_outputs(p, vec![(v, sig)]);
+                    } else {
+                        let t = self.target_obj(&ccx, po);
+                        self.write_cx(&ccx, &t, v, false);
+                    }
                     if !armed {
                         self.reads_elem(&pcx, x, &mut reads);
                     }
                 } else {
                     let v = self.read_obj(&ccx, po);
-                    let t = self.target(&pcx, x);
-                    self.write_cx(&pcx, &t, v, false);
+                    if to_net {
+                        let sig = match self.slot_of_obj(child, po).and_then(|s| self.nets.get(&self.find(s))) {
+                            Some(n) => n.sig.clone(),
+                            None => net::sigs_of(&v, net::STRONG, net::STRONG),
+                        };
+                        self.put_outputs(p, vec![(v, sig)]);
+                    } else {
+                        let t = self.target(&pcx, x);
+                        self.write_cx(&pcx, &t, v, false);
+                    }
                     if let Some(s) = self.slot_of_obj(child, po) {
                         reads.push((s, None));
                     }
@@ -1034,18 +1062,17 @@ impl Sim<'_, '_, '_> {
                 let cell = &self.d.cells[c.0 as usize];
                 let kind = self.d.name(cell.kind).to_string();
                 let terms = cell.terminals.clone();
-                let ins: Vec<Const> = terms.iter().skip(1).map(|&t| self.eval(&cx, t)).collect();
-                if let Some(v) = gate(&kind, &ins) {
-                    if let Some(&out) = terms.first() {
-                        let t = self.target(&cx, out);
-                        self.write_cx(&cx, &t, v, false);
-                    }
-                } else {
-                    self.unsupported(format!("gate or primitive `{kind}`"));
+                let delay = cell.delay.clone();
+                match self.cell(&cx, c) {
+                    Some(outs) => self.emit(p, inst, &delay, outs),
+                    None => self.unsupported(format!("gate or primitive `{kind}`")),
                 }
                 if !armed {
-                    for &t in terms.iter().skip(1) {
-                        self.reads_elem(&cx, t, &mut reads);
+                    let outs = net::cell_outputs(&kind, terms.len());
+                    for (k, &t) in terms.iter().enumerate() {
+                        if !outs.contains(&k) {
+                            self.reads_elem(&cx, t, &mut reads);
+                        }
                     }
                 }
             }
@@ -1105,7 +1132,7 @@ fn member(tys: &Types, base: Const, bt: TypeId, i: u32) -> Const {
 }
 
 /// A gate's output from its inputs (28.4–28.7).
-fn gate(kind: &str, ins: &[Const]) -> Option<Const> {
+pub(super) fn gate(kind: &str, ins: &[Const]) -> Option<Const> {
     let bit = |c: &Const| match c {
         Const::Bits(b) => b.bit(0),
         _ => Logic::X,

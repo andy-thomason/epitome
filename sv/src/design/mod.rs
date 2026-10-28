@@ -705,6 +705,17 @@ pub struct Design<'a> {
     /// For each hierarchical reference, how to reach its target's instance
     /// from an instance of the specialisation it is written in.
     pub hops: HashMap<ExprId, Vec<Hop>>,
+    /// What a net declaration says beyond the net's kind: a trireg's
+    /// charge strength and the net delay (6.7, 28.16).
+    pub nets: HashMap<ObjId, NetInfo>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct NetInfo {
+    /// `small`, `medium` or `large`.
+    pub charge: Option<Sym>,
+    /// Rise, fall and, for a trireg, charge decay delays.
+    pub delay: Vec<ExprId>,
 }
 
 /// One step of a hierarchical reference through the instance tree.

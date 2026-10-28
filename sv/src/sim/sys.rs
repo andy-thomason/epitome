@@ -587,6 +587,15 @@ impl Sim<'_, '_, '_> {
                         continue;
                     };
                     next += 1;
+                    // `%v` of a resolved net: its strengths (21.2.1.5), most
+                    // significant bit first.
+                    if conv == 'v'
+                        && let Some(sigs) = self.net_sigs(cx, a)
+                    {
+                        let parts: Vec<String> = sigs.iter().rev().map(|&s| super::net::format(s)).collect();
+                        out.push_str(&parts.join(" "));
+                        continue;
+                    }
                     let v = self.eval(cx, a);
                     let t = self.d.expr(a).ty;
                     let caller_unit = self.unit_of(cx.inst);

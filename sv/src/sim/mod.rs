@@ -11,6 +11,7 @@
 
 mod code;
 mod eval;
+mod net;
 mod sys;
 
 use crate::ast::Ast;
@@ -152,6 +153,13 @@ struct Proc {
     driver: Option<Driven>,
     /// A driver's inputs are watched for good once it has first run.
     armed: bool,
+    /// For each of a driver's outputs that drives a resolved net: the
+    /// net's slot, the driver's place among its contributions, and the
+    /// bits it drives if not all.
+    outs: Vec<Option<NetOut>>,
+    /// Bumped each time a gate is evaluated, so a delayed output that a
+    /// newer one replaces is dropped (inertial delay, 28.16).
+    round: u32,
 }
 
 /// What a driver process computes.
@@ -198,6 +206,18 @@ struct Target {
 enum Timed {
     Wake(u32, u32),
     Nba(Target, Const, Cx),
+    /// A gate's or driver's delayed outputs: the process, its `round`, and
+    /// for each output its value and signal.
+    Drive(u32, u32, Vec<(Const, Vec<net::Sig>)>),
+    /// A trireg's charge decays, unless it was driven since.
+    Decay(usize, u32),
+}
+
+#[derive(Clone, Copy, Debug)]
+struct NetOut {
+    slot: usize,
+    index: u32,
+    bits: Option<(u32, u32)>,
 }
 
 /// A class object.
@@ -231,6 +251,8 @@ pub(crate) struct Sim<'d, 'a, 'o> {
     vals: Vec<Const>,
     canon: Vec<u32>,
     watch: Vec<Vec<(u32, u32)>>,
+    /// Nets that resolve several drivers or carry strengths, by slot.
+    nets: HashMap<usize, net::Net>,
     /// Drivers watching a whole slot, for good.
     fixed: Vec<Vec<u32>>,
     /// Drivers watching one element of an unpacked array, by slot and
@@ -292,6 +314,7 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
             elem_watch: HashMap::new(),
             elems_of: HashMap::new(),
             triggered: HashMap::new(),
+            nets: HashMap::new(),
             procs: Vec::new(),
             active: VecDeque::new(),
             inactive: Vec::new(),
@@ -469,6 +492,7 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
         for i in 0..self.insts.len() as u32 {
             self.start_inst(i);
         }
+        self.setup_nets();
     }
 
     fn add_inst(&mut self, elab: InstId, parent: Option<u32>) -> u32 {
@@ -483,7 +507,14 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
             if let Home::Frame(sp, off) = self.homes[i]
                 && sp == spec
             {
-                self.vals[(base + off) as usize] = crate::design::ops::default_value(self.types(), o.ty);
+                // A net is z until something drives it (6.5).
+                let v = match o.kind {
+                    ObjKind::Net(_) if self.d.types.is_integral(o.ty) => {
+                        Const::Bits(Bits::fill(self.d.types.width(o.ty), false, Logic::Z))
+                    }
+                    _ => crate::design::ops::default_value(self.types(), o.ty),
+                };
+                self.vals[(base + off) as usize] = v;
             }
         }
         if let Some(p) = parent {
@@ -614,6 +645,8 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
             sensitive: vec![],
             driver,
             armed: false,
+            outs: vec![],
+            round: 0,
         });
         self.active.push_back(id);
         id
@@ -1034,6 +1067,12 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
                         }
                     }
                     Timed::Nba(t, v, cx) => self.nba.push((t, v, cx)),
+                    Timed::Drive(p, round, outs) => {
+                        if self.procs[p as usize].round == round {
+                            self.put_outputs(p, outs);
+                        }
+                    }
+                    Timed::Decay(s, epoch) => self.decay(s, epoch),
                 }
             }
         }
@@ -1133,7 +1172,7 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
         }
     }
 
-    fn line_of(&self, n: crate::ast::NodeId) -> String {
+    pub(super) fn line_of(&self, n: crate::ast::NodeId) -> String {
         let t = self.ast.token(n).0;
         t.to_string()
     }
@@ -1319,6 +1358,8 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
                         sensitive: vec![],
                         driver: None,
                         armed: false,
+            outs: vec![],
+            round: 0,
                     });
                     self.active.push_back(id);
                     kids.push(id);

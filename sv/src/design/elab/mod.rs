@@ -61,7 +61,7 @@ pub(crate) enum Work {
     Gate(ScopeId, NodeId, Sym),
     Connect(ScopeId, InstId, NodeId),
     Body(SubId),
-    NetInit(ObjId, NodeId),
+    NetInit(ObjId, NodeId, Option<(Sym, Sym)>),
     Alias(ScopeId, NodeId),
     ElabTask(ScopeId, NodeId),
 }
@@ -185,6 +185,7 @@ impl<'a, 'x> Elab<'a, 'x> {
             tops: Vec::new(),
             unit_time: (-9, -9),
             hops: HashMap::new(),
+            nets: HashMap::new(),
         };
         Elab {
             ast,
@@ -504,14 +505,15 @@ impl<'a, 'x> Elab<'a, 'x> {
             Work::Gate(sc, n, kind) => self.gate(sc, n, kind),
             Work::Connect(sc, inst, n) => self.connect(sc, inst, n),
             Work::Body(sub) => stmt::sub_body(self, sub),
-            Work::NetInit(obj, n) => {
+            Work::NetInit(obj, n, strength) => {
                 let sc = self.obj(obj).scope;
                 let ty = self.obj(obj).ty;
                 let rhs = expr::rvalue(self, sc, n, ty)?;
                 let lhs = self.new_expr(ExprKind::Object(obj), ty, n, vec![]);
                 self.obj_mut(obj).init = Some(rhs);
                 let id = DriverId(self.d.drivers.len() as u32);
-                self.d.drivers.push(Driver { lhs, rhs, strength: None, delay: vec![], node: n, scope: sc });
+                let delay = self.d.nets.get(&obj).map(|i| i.delay.clone()).unwrap_or_default();
+                self.d.drivers.push(Driver { lhs, rhs, strength, delay, node: n, scope: sc });
                 self.push_item(sc, Item::Driver(id));
                 Ok(())
             }
@@ -1267,6 +1269,24 @@ impl<'a, 'x> Elab<'a, 'x> {
             base
         };
         checks::net_type(self, sc, n, base, user_nettype)?;
+        // A drive strength (for the declaration assignments) or a trireg's
+        // charge strength, and the net delay.
+        let mut strength = None;
+        let mut charge = None;
+        if let Some(st) = kids.iter().copied().find(|&k| self.kind(k) == Kind::Strength) {
+            let ks: Vec<Sym> = self.kids(st).iter().map(|&k| self.sym_of(k)).collect();
+            match ks.as_slice() {
+                [c] if matches!(self.name(*c), "small" | "medium" | "large") => charge = Some(*c),
+                [a, b] => strength = Some((*a, *b)),
+                _ => {}
+            }
+        }
+        let mut delay = Vec::new();
+        if let Some(dl) = kids.iter().copied().find(|&k| self.kind(k) == Kind::Delay) {
+            for &k in self.kids(dl) {
+                delay.push(expr::expr(self, sc, k)?);
+            }
+        }
         for dcl in kids.iter().copied().filter(|&k| self.kind(k) == Kind::Declarator).collect::<Vec<_>>() {
             let dk = self.kids(dcl);
             let name = dk[0];
@@ -1297,8 +1317,11 @@ impl<'a, 'x> Elab<'a, 'x> {
             });
             self.declare(sc, s, Binding::Object(o), name)?;
             self.push_item(sc, Item::Object(o));
+            if charge.is_some() || !delay.is_empty() {
+                self.d.nets.insert(o, NetInfo { charge, delay: delay.clone() });
+            }
             if let Some(i) = init {
-                self.defer(Work::NetInit(o, i));
+                self.defer(Work::NetInit(o, i, strength));
             }
         }
         Ok(())

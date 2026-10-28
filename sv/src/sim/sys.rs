@@ -778,7 +778,7 @@ impl Sim<'_, '_, '_> {
         let arg = |me: &mut Self, i: usize| rest.get(i).map(|&a| me.eval(cx, a));
         // A `with` clause: the clause, then the iterator.
         let with = if rest.len() == 2 && matches!(self.d.expr(rest[1]).kind, ExprKind::Object(_)) { Some((rest[0], rest[1])) } else { None };
-        let values: Vec<Const> = if assoc { items.chunks(2).map(|c| c[1].clone()).collect() } else { items.clone() };
+        let values: Vec<Const> = if assoc { items.as_chunks::<2>().0.iter().map(|c| c[1].clone()).collect() } else { items.clone() };
         match name {
             "size" | "num" => int(if assoc { items.len() / 2 } else { items.len() } as i64),
             "exists" => {

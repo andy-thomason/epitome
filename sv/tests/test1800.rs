@@ -322,7 +322,7 @@ fn simulate_all() {
     let mut fails: Vec<String> = Vec::new();
     let mut unsupported: std::collections::BTreeMap<String, usize> = Default::default();
     let start = std::time::Instant::now();
-    let verbose = std::env::var("SIM_VERBOSE").is_ok();
+    let verbose = std::env::var("SIM_VERBOSE").is_ok_and(|v| !v.is_empty());
     for path in &paths {
         let text = std::fs::read_to_string(path).unwrap();
         let kind = header(&text, "type").unwrap_or_else(|| "simulation".into());

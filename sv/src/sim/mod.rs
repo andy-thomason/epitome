@@ -150,6 +150,8 @@ struct Proc {
     sensitive: Vec<(ObjId, Option<ExprId>)>,
     /// A continuous driver: which one.
     driver: Option<Driven>,
+    /// A driver's inputs are watched for good once it has first run.
+    armed: bool,
 }
 
 /// What a driver process computes.
@@ -229,6 +231,12 @@ pub(crate) struct Sim<'d, 'a, 'o> {
     vals: Vec<Const>,
     canon: Vec<u32>,
     watch: Vec<Vec<(u32, u32)>>,
+    /// Drivers watching a whole slot, for good.
+    fixed: Vec<Vec<u32>>,
+    /// Drivers watching one element of an unpacked array, by slot and
+    /// element position; and the watched elements of each slot.
+    elem_watch: HashMap<(usize, u32), Vec<u32>>,
+    elems_of: HashMap<usize, Vec<u32>>,
     /// When each named event last triggered.
     triggered: HashMap<usize, u64>,
     procs: Vec<Proc>,
@@ -280,6 +288,9 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
             vals: Vec::new(),
             canon: Vec::new(),
             watch: Vec::new(),
+            fixed: Vec::new(),
+            elem_watch: HashMap::new(),
+            elems_of: HashMap::new(),
             triggered: HashMap::new(),
             procs: Vec::new(),
             active: VecDeque::new(),
@@ -435,6 +446,7 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
         }
         self.canon = (0..self.vals.len() as u32).collect();
         self.watch = vec![Vec::new(); self.vals.len()];
+        self.fixed = vec![Vec::new(); self.vals.len()];
         // Ports that can share their outside net's value do (4.9.6).
         for i in 0..self.insts.len() as u32 {
             self.alias_ports(i);
@@ -601,6 +613,7 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
             children: vec![],
             sensitive: vec![],
             driver,
+            armed: false,
         });
         self.active.push_back(id);
         id
@@ -728,17 +741,24 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
     /// changes are woken, unless `quiet`.
     fn write_cx(&mut self, cx: &Cx, t: &Target, v: Const, quiet: bool) {
         let v = crate::design::ops::convert(self.types(), &v, t.ty);
-        let old = self.read_place(cx, &t.place);
-        let new = if t.path.is_empty() { v } else { update(self.types(), old.clone(), &t.path, v) };
-        match &t.place {
-            Place::Slot(s) => {
-                let s = self.find(*s);
-                let changed = !same(&self.vals[s], &new);
-                self.vals[s] = new;
-                if changed && !quiet {
-                    self.changed(s);
-                }
+        if let Place::Slot(s) = &t.place {
+            // In place, so writing one element does not copy the array.
+            let s = self.find(*s);
+            let d = self.d;
+            let changed = update_in_place(&d.types, &mut self.vals[s], &t.path, v);
+            if changed && !quiet {
+                let elem = match t.path.first() {
+                    Some(Sel::Elem(i)) => Some(*i as u32),
+                    _ => None,
+                };
+                self.changed_elem(s, elem);
             }
+            return;
+        }
+        let old = self.read_place(cx, &t.place);
+        let new = if t.path.is_empty() { v } else { update(self.types(), old, &t.path, v) };
+        match &t.place {
+            Place::Slot(_) => {}
             Place::Local(o) => {
                 let mut l = cx.locals.borrow_mut();
                 match l.iter_mut().rev().find(|(k, _)| k == o) {
@@ -764,6 +784,31 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
 
     /// Wakes what watches slot `s`.
     fn changed(&mut self, s: usize) {
+        self.changed_elem(s, None);
+    }
+
+    /// Wakes what watches slot `s`, or element `elem` of it.
+    fn changed_elem(&mut self, s: usize, elem: Option<u32>) {
+        for i in 0..self.fixed[s].len() {
+            let p = self.fixed[s][i];
+            self.wake(p);
+        }
+        if !self.elem_watch.is_empty() {
+            let elems: Vec<u32> = match elem {
+                Some(e) => vec![e],
+                None => self.elems_of.get(&s).cloned().unwrap_or_default(),
+            };
+            for e in elems {
+                if let Some(ps) = self.elem_watch.get(&(s, e)) {
+                    for p in ps.clone() {
+                        self.wake(p);
+                    }
+                }
+            }
+        }
+        if self.watch[s].is_empty() {
+            return;
+        }
         let list = std::mem::take(&mut self.watch[s]);
         let mut keep = Vec::new();
         for (p, epoch) in list {
@@ -844,9 +889,85 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
     fn watch_slot(&mut self, p: u32, s: usize) {
         let epoch = self.procs[p as usize].epoch;
         let s = self.find(s);
+        if self.watch[s].last() == Some(&(p, epoch)) {
+            return;
+        }
+        // Drop stale entries now and then, so lists that seldom fire
+        // stay short.
+        let n = self.watch[s].len();
+        if n >= 64 && n.is_power_of_two() {
+            let procs = &self.procs;
+            self.watch[s].retain(|&(q, e)| procs[q as usize].epoch == e && procs[q as usize].state == State::Waiting);
+        }
         if !self.watch[s].contains(&(p, epoch)) {
             self.watch[s].push((p, epoch));
         }
+    }
+
+    /// Watches, for good, what a driver reads: a constant element of an
+    /// unpacked array by itself, anything else whole.
+    fn arm_driver(&mut self, p: u32, reads: &[(usize, Option<u32>)]) {
+        for &(s, e) in reads {
+            let s = self.find(s);
+            match e {
+                Some(e) => {
+                    let list = self.elem_watch.entry((s, e)).or_default();
+                    if !list.contains(&p) {
+                        list.push(p);
+                        self.elems_of.entry(s).or_default().push(e);
+                    }
+                }
+                None => {
+                    if !self.fixed[s].contains(&p) {
+                        self.fixed[s].push(p);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Like `reads`, but an unpacked array indexed by a constant is
+    /// reported by element.
+    fn reads_elem(&mut self, cx: &Cx, x: ExprId, out: &mut Vec<(usize, Option<u32>)>) {
+        let d = self.d;
+        let e = d.expr(x);
+        if matches!(e.kind, ExprKind::Index)
+            && let ExprKind::Object(o) = d.expr(e.args[0]).kind
+            && let Some(s) = self.array_slot(cx, o)
+        {
+            let mut idx = Vec::new();
+            self.reads(cx, e.args[1], &mut idx);
+            if idx.is_empty() && !has_call(d, e.args[1]) {
+                let i = self.eval(cx, e.args[1]);
+                if let Some(off) = self.elem_offset(d.expr(e.args[0]).ty, &i) {
+                    out.push((s, Some(off as u32)));
+                    return;
+                }
+            }
+        }
+        let mut whole = Vec::new();
+        self.reads(cx, x, &mut whole);
+        out.extend(whole.into_iter().map(|s| (s, None)));
+    }
+
+    /// The slot of a fixed-size unpacked array variable.
+    fn array_slot(&self, cx: &Cx, o: ObjId) -> Option<usize> {
+        if !matches!(self.homes[o.0 as usize], Home::Frame(..) | Home::Global(_)) {
+            return None;
+        }
+        if !matches!(self.types().get(self.d.object(o).ty), Type::Unpacked { dim: UDim::Range(..), .. }) {
+            return None;
+        }
+        self.slot_of_obj(cx.inst, o).map(|s| self.find(s))
+    }
+
+    /// The position of index `i` in a fixed-size unpacked array type.
+    fn elem_offset(&self, ty: TypeId, i: &Const) -> Option<usize> {
+        let Type::Unpacked { dim: UDim::Range(l, r), .. } = self.types().get(ty) else { return None };
+        let (l, r) = (*l, *r);
+        let idx = i.to_i64()?;
+        let off = if l <= r { idx - l } else { l - idx };
+        (off >= 0 && off <= (l - r).abs()).then_some(off as usize)
     }
 
     /// The slots an expression reads, for waiting on.
@@ -1197,6 +1318,7 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
                         children: vec![],
                         sensitive: vec![],
                         driver: None,
+                        armed: false,
                     });
                     self.active.push_back(id);
                     kids.push(id);
@@ -1429,6 +1551,32 @@ enum Flow {
 }
 
 /// Whether two values are the same, x and z included.
+/// Writes `new` at the end of `path` inside `v`; whether anything changed.
+fn update_in_place(tys: &Types, v: &mut Const, path: &[Sel], new: Const) -> bool {
+    match (path.split_first(), &mut *v) {
+        (None, _) => {
+            let changed = !same(v, &new);
+            *v = new;
+            changed
+        }
+        (Some((Sel::Elem(i), rest)), Const::Aggregate(items)) if *i < items.len() => update_in_place(tys, &mut items[*i], rest, new),
+        (Some((Sel::Member(i), rest)), Const::Aggregate(items)) if (*i as usize) < items.len() => {
+            update_in_place(tys, &mut items[*i as usize], rest, new)
+        }
+        _ => {
+            let old = std::mem::replace(v, Const::Null);
+            *v = update(tys, old.clone(), path, new);
+            !same(&old, v)
+        }
+    }
+}
+
+/// Whether an expression calls a subroutine.
+fn has_call(d: &Design, x: ExprId) -> bool {
+    let e = d.expr(x);
+    matches!(e.kind, ExprKind::Call(_) | ExprKind::SysCall(..) | ExprKind::Method(..)) || e.args.iter().any(|&a| has_call(d, a))
+}
+
 fn same(a: &Const, b: &Const) -> bool {
     match (a, b) {
         (Const::Bits(x), Const::Bits(y)) => x.width() == y.width() && x.case_eq(y),

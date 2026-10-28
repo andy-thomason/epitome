@@ -7,7 +7,8 @@ use crate::design::ops;
 impl Sim<'_, '_, '_> {
     /// The value of an expression.
     pub(super) fn eval(&mut self, cx: &Cx, x: ExprId) -> Const {
-        let e = self.d.expr(x).clone();
+        let d = self.d;
+        let e = d.expr(x);
         let ty = e.ty;
         let tys = &self.d.types;
         use ExprKind as K;
@@ -108,7 +109,7 @@ impl Sim<'_, '_, '_> {
                     }
                 }
             }
-            K::Concat => self.concat(cx, &e),
+            K::Concat => self.concat(cx, e),
             K::Replicate(k) => {
                 let v = self.eval(cx, e.args[0]);
                 let k = if *k == u32::MAX { self.eval(cx, e.args[1]).to_i64().unwrap_or(0).max(0) as usize } else { *k as usize };
@@ -119,6 +120,18 @@ impl Sim<'_, '_, '_> {
                 }
             }
             K::Index => {
+                // An element of an array variable, without copying the array.
+                if let K::Object(o) = self.d.expr(e.args[0]).kind
+                    && let Some(s) = self.array_slot(cx, o)
+                    && matches!(self.vals[s], Const::Aggregate(_))
+                {
+                    let i = self.eval(cx, e.args[1]);
+                    let bt = self.d.expr(e.args[0]).ty;
+                    return match (self.elem_offset(bt, &i), &self.vals[s]) {
+                        (Some(off), Const::Aggregate(items)) if off < items.len() => items[off].clone(),
+                        _ => ops::default_value(tys, ty),
+                    };
+                }
                 let base = self.eval(cx, e.args[0]);
                 let i = self.eval(cx, e.args[1]);
                 let bt = self.d.expr(e.args[0]).ty;
@@ -144,7 +157,7 @@ impl Sim<'_, '_, '_> {
                 }
                 ops::index(tys, &base, bt, &i, ty).unwrap_or_else(|| ops::default_value(tys, ty))
             }
-            K::Part { kind, width } => self.part(cx, &e, *kind, *width),
+            K::Part { kind, width } => self.part(cx, e, *kind, *width),
             K::Member(i) => {
                 let base = self.eval(cx, e.args[0]);
                 let bt = self.d.expr(e.args[0]).ty;
@@ -229,7 +242,7 @@ impl Sim<'_, '_, '_> {
                 }
                 Const::Bits(if any_x { Bits::x(1) } else { Bits::from_bool(false) })
             }
-            K::New => self.new_value(cx, &e, x),
+            K::New => self.new_value(cx, e, x),
             K::Null => Const::Null,
             K::This => cx.this.map_or(Const::Null, Const::Handle),
             K::Assign => {
@@ -238,7 +251,7 @@ impl Sim<'_, '_, '_> {
                 self.write_cx(cx, &t, v.clone(), false);
                 v
             }
-            K::Streaming { left } => self.stream(cx, &e, *left),
+            K::Streaming { left } => self.stream(cx, e, *left),
             K::Dollar => Const::Unbounded,
             K::Range | K::Tagged(_) | K::Opaque => {
                 self.unsupported("an expression the elaborator keeps as syntax".into());
@@ -768,6 +781,7 @@ impl Sim<'_, '_, '_> {
             children: vec![],
             sensitive: vec![],
             driver: None,
+            armed: false,
         });
         loop {
             if self.over_limit() {
@@ -965,7 +979,8 @@ impl Sim<'_, '_, '_> {
     pub(super) fn drive(&mut self, p: u32, dr: Driven) {
         let inst = self.procs[p as usize].frames[0].cx.inst;
         let cx = Cx { inst, locals: Rc::default(), this: None };
-        let mut reads: Vec<usize> = Vec::new();
+        let armed = self.procs[p as usize].armed;
+        let mut reads: Vec<(usize, Option<u32>)> = Vec::new();
         match dr {
             Driven::Assign(id) => {
                 let d = &self.d.drivers[id.0 as usize];
@@ -983,9 +998,11 @@ impl Sim<'_, '_, '_> {
                 } else {
                     self.write_cx(&cx, &t, v, false);
                 }
-                self.reads(&cx, rhs, &mut reads);
-                for &a in self.d.expr(lhs).args.clone().iter().skip(1) {
-                    self.reads(&cx, a, &mut reads);
+                if !armed {
+                    self.reads_elem(&cx, rhs, &mut reads);
+                    for &a in self.d.expr(lhs).args.clone().iter().skip(1) {
+                        self.reads_elem(&cx, a, &mut reads);
+                    }
                 }
             }
             Driven::Port(child, k) => {
@@ -1001,13 +1018,15 @@ impl Sim<'_, '_, '_> {
                     let v = self.eval(&pcx, x);
                     let t = self.target_obj(&ccx, po);
                     self.write_cx(&ccx, &t, v, false);
-                    self.reads(&pcx, x, &mut reads);
+                    if !armed {
+                        self.reads_elem(&pcx, x, &mut reads);
+                    }
                 } else {
                     let v = self.read_obj(&ccx, po);
                     let t = self.target(&pcx, x);
                     self.write_cx(&pcx, &t, v, false);
                     if let Some(s) = self.slot_of_obj(child, po) {
-                        reads.push(s);
+                        reads.push((s, None));
                     }
                 }
             }
@@ -1024,8 +1043,10 @@ impl Sim<'_, '_, '_> {
                 } else {
                     self.unsupported(format!("gate or primitive `{kind}`"));
                 }
-                for &t in terms.iter().skip(1) {
-                    self.reads(&cx, t, &mut reads);
+                if !armed {
+                    for &t in terms.iter().skip(1) {
+                        self.reads_elem(&cx, t, &mut reads);
+                    }
                 }
             }
         }
@@ -1033,8 +1054,9 @@ impl Sim<'_, '_, '_> {
         pr.state = State::Waiting;
         pr.epoch = pr.epoch.wrapping_add(1);
         pr.wait = Wait::Change;
-        for s in reads {
-            self.watch_slot(p, s);
+        if !pr.armed {
+            pr.armed = true;
+            self.arm_driver(p, &reads);
         }
     }
 

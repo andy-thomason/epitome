@@ -185,7 +185,7 @@ fn reduce(sh: &Shared, f: &mut Function, names: &mut Names, l: &Loop, preds: &[V
                 }
                 match &f.insts[u.index()].op {
                     Op::Gep { ptr, indices, source_ty, .. }
-                        if indices.as_slice() == [v] && *ptr != v && invariant(f, l, *ptr) && in_loop(f, l, u) =>
+                        if indices[..] == [v] && *ptr != v && invariant(f, l, *ptr) && in_loop(f, l, u) =>
                     {
                         let g = f.result(u);
                         let addr_only = users(f, g).into_iter().all(|x| match &f.insts[x.index()].op {
@@ -291,13 +291,7 @@ fn reduce(sh: &Shared, f: &mut Function, names: &mut Names, l: &Loop, preds: &[V
                 base
             } else {
                 let g = f.add_inst(
-                    Op::Gep {
-                        flags: GepFlags::default(),
-                        inrange: None,
-                        source_ty: ty,
-                        ptr: base,
-                        indices: vec![first_index],
-                    },
+                    Op::Gep { flags: GepFlags::default(), source_ty: ty, ptr: base, indices: vec![first_index].into() },
                     Some((Some(names.fresh("lsr.start")), ptr_ty)),
                 );
                 before_pre.push(g);
@@ -310,7 +304,7 @@ fn reduce(sh: &Shared, f: &mut Function, names: &mut Names, l: &Loop, preds: &[V
             f.blocks[h.index()].insts.insert(0, p);
             let pv = f.result(p);
             let step = f.add_inst(
-                Op::Gep { flags: GepFlags::default(), inrange: None, source_ty: ty, ptr: pv, indices: vec![step_v] },
+                Op::Gep { flags: GepFlags::default(), source_ty: ty, ptr: pv, indices: vec![step_v].into() },
                 Some((Some(names.fresh("lsr.ptr.next")), ptr_ty)),
             );
             before_latch.push(step);
@@ -332,10 +326,9 @@ fn reduce(sh: &Shared, f: &mut Function, names: &mut Names, l: &Loop, preds: &[V
                         // immediate offset in the load or store.
                         f.insts[g.index()].op = Op::Gep {
                             flags: GepFlags::default(),
-                            inrange: None,
                             source_ty: ty,
                             ptr: pv,
-                            indices: vec![sh.int(64, c)],
+                            indices: vec![sh.int(64, c)].into(),
                         };
                     }
                 }

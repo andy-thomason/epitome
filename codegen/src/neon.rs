@@ -376,11 +376,11 @@ fn gep(cx: &mut Ctx, s: &mut Seq, elem: TypeId, p: Value, k: i64) -> Value {
     let i64t = cx.m.types.int(64);
     let ptr = cx.m.types.ptr(0);
     let k = cx.int(i64t, k);
-    s.op(Op::Gep { flags: GepFlags(0), inrange: None, source_ty: elem, ptr: p, indices: vec![k] }, ptr)
+    s.op(Op::Gep { flags: GepFlags(0), source_ty: elem, ptr: p, indices: vec![k].into() }, ptr)
 }
 
 fn load(s: &mut Seq, p: Value, ty: TypeId) -> Value {
-    s.op(Op::Load { ptr: p, align: Some(1), volatile: false, atomic: None }, ty)
+    s.op(Op::Load { ptr: p, align: Some(Align::of(1)), volatile: false, atomic: None }, ty)
 }
 
 /// A structured load (a struct of vectors): `ld1xN` consecutive vectors;
@@ -426,7 +426,7 @@ fn load_structure(cx: &mut Ctx, s: &mut Seq, op: &str, args: &[Value], ty: TypeI
     }
     let mut agg = Value::Const(cx.m.consts.intern(Constant { ty, kind: ConstKind::Poison }));
     for (q, v) in vs.into_iter().enumerate() {
-        agg = s.op(Op::InsertValue { aggregate: agg, element: v, indices: vec![q as u32] }, ty);
+        agg = s.op(Op::InsertValue { aggregate: agg, element: v, indices: vec![q as u32].into() }, ty);
     }
     Some(agg)
 }
@@ -441,7 +441,7 @@ fn store_structure(cx: &mut Ctx, s: &mut Seq, op: &str, args: &[Value]) {
     let vty = cx.value_ty(s.f, args[0]);
     let (n, elem) = lanes(cx, vty).unwrap();
     let store = |s: &mut Seq, v: Value, p: Value| {
-        s.op_void(Op::Store { volatile: false, atomic: None, value: v, ptr: p, align: Some(1) })
+        s.op_void(Op::Store { volatile: false, atomic: None, value: v, ptr: p, align: Some(Align::of(1)) })
     };
     let vectors = &args[..parts];
     if op.starts_with("st1x") {

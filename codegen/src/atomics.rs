@@ -190,7 +190,7 @@ fn expand_one(cx: &mut Ctx, f: &mut Function, blk: BlockId, k: usize) -> Result<
                         volatile: false,
                         atomic: Some(Atomic { elementwise: false, scope: None, ordering: Ordering::Monotonic }),
                         ptr,
-                        align: Some(u64::from(bits / 8)),
+                        align: Some(Align::of(u64::from(bits / 8))),
                     },
                     ity,
                 );
@@ -229,7 +229,7 @@ fn expand_one(cx: &mut Ctx, f: &mut Function, blk: BlockId, k: usize) -> Result<
                         volatile: false,
                         atomic: Some(Atomic { elementwise: false, scope: None, ordering: Ordering::Monotonic }),
                         ptr,
-                        align: Some(u64::from(bits / 8)),
+                        align: Some(Align::of(u64::from(bits / 8))),
                     },
                     ity,
                 );
@@ -371,7 +371,7 @@ fn library_size(cx: &Ctx, f: &Function, i: InstId) -> Option<u64> {
     };
     let bytes = u64::from(bits.div_ceil(8));
     let odd = !matches!(bits, 8 | 16 | 32 | 64);
-    let misaligned = align.is_some_and(|a| a < bytes);
+    let misaligned = align.is_some_and(|a| a.bytes() < bytes);
     (bits % 8 == 0 && (odd || misaligned)).then_some(bytes)
 }
 
@@ -389,8 +389,10 @@ fn c_order(o: Ordering) -> i64 {
 /// A stack slot of type `ty`, made at the function's entry.
 fn slot(cx: &mut Ctx, f: &mut Function, ty: TypeId) -> Value {
     let ptr = cx.m.types.ptr(0);
-    let a = f
-        .add_inst(Op::Alloca { inalloca: false, ty, count: None, align: Some(16), addrspace: None }, Some((None, ptr)));
+    let a = f.add_inst(
+        Op::Alloca { inalloca: false, ty, count: None, align: Some(Align::of(16)), addrspace: None },
+        Some((None, ptr)),
+    );
     let entry = f.layout[0];
     f.blocks[entry.index()].insts.insert(0, a);
     f.result(a)
@@ -456,7 +458,7 @@ fn library_atomic(cx: &mut Ctx, f: &mut Function, blk: BlockId, k: usize, size: 
             // compare-and-swap); then a loop of compare-and-swaps of the
             // new value made from it, until nothing came between.
             let mut s = Seq { f, new: Vec::new() };
-            let first = s.op(Op::Load { volatile: false, atomic: None, ptr, align: Some(1) }, ty);
+            let first = s.op(Op::Load { volatile: false, atomic: None, ptr, align: Some(Align::of(1)) }, ty);
             let pre = std::mem::take(&mut s.new);
             let (lp, done) = open_loop(f, blk, k, pre);
             let mut s = Seq { f, new: Vec::new() };
@@ -519,7 +521,7 @@ fn ordered(o: Ordering) -> bool {
 
 /// The integer type an atomic value of type `ty` goes through, and its
 /// width: one the machine does atomically, naturally aligned.
-fn int_of(cx: &mut Ctx, ty: TypeId, align: Option<u64>) -> Result<(TypeId, u32), String> {
+fn int_of(cx: &mut Ctx, ty: TypeId, align: Option<Align>) -> Result<(TypeId, u32), String> {
     let bits = match cx.m.types.get(ty) {
         Type::Int(b) => *b,
         Type::Ptr(0) | Type::Double => 64,
@@ -530,7 +532,7 @@ fn int_of(cx: &mut Ctx, ty: TypeId, align: Option<u64>) -> Result<(TypeId, u32),
     if !matches!(bits, 8 | 16 | 32 | 64) {
         return Err(format!("atomics of {bits} bits are not supported yet"));
     }
-    if align.is_some_and(|a| a < u64::from(bits / 8)) {
+    if align.is_some_and(|a| a.bytes() < u64::from(bits / 8)) {
         return Err("misaligned atomics are not supported".into());
     }
     Ok((cx.m.types.int(bits), bits))

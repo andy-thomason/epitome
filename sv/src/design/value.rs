@@ -225,6 +225,16 @@ impl Bits {
         self.unk[w] = self.unk[w] & !(1 << b) | (u as u64) << b;
     }
 
+    /// x and z bits become 0.
+    pub fn known_or_zero(&self) -> Bits {
+        let mut r = self.clone();
+        for k in 0..r.val.len() {
+            r.val[k] &= !r.unk[k];
+            r.unk[k] = 0;
+        }
+        r
+    }
+
     pub fn is_known(&self) -> bool {
         self.unk.iter().all(|&w| w == 0)
     }

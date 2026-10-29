@@ -776,6 +776,7 @@ impl Sim<'_, '_, '_> {
     fn array_method(&mut self, cx: &Cx, base: ExprId, v: Const, elem: TypeId, dim: UDim, name: &str, rest: &[ExprId], ty: TypeId) -> Const {
         let int = |v: i64| Const::Bits(Bits::from_i64(32, true, v));
         let assoc = matches!(dim, UDim::Assoc(_) | UDim::Wildcard);
+        let bt = self.d.expr(base).ty;
         let mut items = match v {
             Const::Aggregate(i) => i,
             _ => vec![],
@@ -792,10 +793,12 @@ impl Sim<'_, '_, '_> {
             "size" | "num" => int(if assoc { items.len() / 2 } else { items.len() } as i64),
             "exists" => {
                 let k = arg(self, 0).unwrap_or(Const::Null);
+                let Some(k) = self.assoc_key(bt, k) else { return int(0) };
                 int(items.chunks(2).any(|c| ops::const_eq(&c[0], &k)) as i64)
             }
             "delete" => {
-                match (arg(self, 0), assoc) {
+                let k = if assoc { arg(self, 0).map(|k| self.assoc_key(bt, k).unwrap_or(Const::Null)) } else { arg(self, 0) };
+                match (k, assoc) {
                     (None, _) => items.clear(),
                     (Some(k), true) => {
                         if let Some(p) = items.chunks(2).position(|c| ops::const_eq(&c[0], &k)) {
@@ -829,11 +832,14 @@ impl Sim<'_, '_, '_> {
                 x.unwrap_or_else(|| ops::default_value(self.types(), elem))
             }
             "insert" => {
-                let i = arg(self, 0).and_then(|c| c.to_i64()).unwrap_or(0).clamp(0, items.len() as i64) as usize;
+                // An index outside 0 to size, or unknown, does nothing (7.10.2.2).
+                let i = arg(self, 0).and_then(|c| c.to_i64()).unwrap_or(-1);
                 let x = arg(self, 1).unwrap_or(Const::Null);
-                let x = ops::convert(self.types(), &x, elem);
-                items.insert(i, x);
-                set(self, items);
+                if i >= 0 && i as usize <= items.len() {
+                    let x = ops::convert(self.types(), &x, elem);
+                    items.insert(i as usize, x);
+                    set(self, items);
+                }
                 Const::Null
             }
             "first" | "last" | "next" | "prev" if assoc => {
@@ -850,8 +856,13 @@ impl Sim<'_, '_, '_> {
                 match pick {
                     Some(k) => {
                         let t = self.target(cx, kx);
+                        // A key that does not fit the argument is truncated,
+                        // and the result is -1 (7.9.2).
+                        let narrowed = ops::convert(self.types(), &k, t.ty);
+                        let fits = !self.d.types.is_integral(t.ty)
+                            || ops::const_eq(&ops::convert(self.types(), &narrowed, self.key_type(bt)), &k);
                         self.write_cx(cx, &t, k, false);
-                        int(1)
+                        int(if fits { 1 } else { -1 })
                     }
                     None => int(0),
                 }

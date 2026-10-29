@@ -133,9 +133,10 @@ impl Sim<'_, '_, '_> {
                     };
                 }
                 let base = self.eval(cx, e.args[0]);
-                let i = self.eval(cx, e.args[1]);
                 let bt = self.d.expr(e.args[0]).ty;
+                let i = self.index_value(cx, &base, bt, e.args[1]);
                 if let Type::Unpacked { dim: UDim::Assoc(_) | UDim::Wildcard, .. } = tys.get(bt) {
+                    let Some(i) = self.assoc_key(bt, i) else { return ops::default_value(tys, ty) };
                     if let Const::Aggregate(items) = &base {
                         for c in items.chunks(2) {
                             if ops::const_eq(&c[0], &i) {
@@ -252,7 +253,10 @@ impl Sim<'_, '_, '_> {
                 v
             }
             K::Streaming { left } => self.stream(cx, e, *left),
-            K::Dollar => Const::Unbounded,
+            K::Dollar => match self.dollar.last() {
+                Some(&n) => Const::Bits(Bits::from_i64(32, true, n)),
+                None => Const::Unbounded,
+            },
             K::Range | K::Tagged(_) | K::Opaque => {
                 let what = format!("{:?} `{}`", self.ast.kind(e.node), self.line_of(e.node));
                 self.unsupported(format!("expression kept as syntax: {what}"));
@@ -318,10 +322,69 @@ impl Sim<'_, '_, '_> {
         Const::Bits(Bits::concat(&parts))
     }
 
+    /// An associative array's key as its index type, or `None` for an
+    /// integral key with x or z bits, which reads the default and writes
+    /// nothing (7.8.6).
+    pub(super) fn assoc_key(&self, bt: TypeId, k: Const) -> Option<Const> {
+        let tys = &self.d.types;
+        match tys.get(bt) {
+            Type::Unpacked { dim: UDim::Assoc(kt), .. } if tys.is_integral(*kt) => {
+                let k = ops::convert(tys, &k, *kt);
+                match &k {
+                    Const::Bits(b) if !b.is_known() => None,
+                    _ => Some(k),
+                }
+            }
+            Type::Unpacked { dim: UDim::Assoc(kt), .. } => Some(ops::convert(tys, &k, *kt)),
+            _ => match &k {
+                Const::Bits(b) if !b.is_known() => None,
+                _ => Some(k),
+            },
+        }
+    }
+
+    /// An associative array's index type, or the array type for `[*]`.
+    pub(super) fn key_type(&self, bt: TypeId) -> TypeId {
+        match self.d.types.get(bt) {
+            Type::Unpacked { dim: UDim::Assoc(kt), .. } => *kt,
+            _ => bt,
+        }
+    }
+
+    /// An index, with `$` bound to a queue's last index.
+    pub(super) fn index_value(&mut self, cx: &Cx, base: &Const, bt: TypeId, x: ExprId) -> Const {
+        if is_queue(&self.d.types, bt) && has_dollar(self.d, x) {
+            let n = match base {
+                Const::Aggregate(items) => items.len() as i64,
+                _ => 0,
+            };
+            self.dollar.push(n - 1);
+            let v = self.eval(cx, x);
+            self.dollar.pop();
+            v
+        } else {
+            self.eval(cx, x)
+        }
+    }
+
     fn part(&mut self, cx: &Cx, e: &Expr, kind: PartKind, width: u32) -> Const {
         let base = self.eval(cx, e.args[0]);
-        let a = self.eval(cx, e.args[1]).to_i64();
         let bt = self.d.expr(e.args[0]).ty;
+        if is_queue(&self.d.types, bt) && kind == PartKind::Range {
+            // `q[a:b]`: the elements from a to b, clipped to the queue;
+            // none if a > b or either is unknown (7.10.1).
+            let a = self.index_value(cx, &base, bt, e.args[1]).to_i64();
+            let b = self.index_value(cx, &base, bt, e.args[2]).to_i64();
+            let Const::Aggregate(items) = &base else { return Const::Aggregate(vec![]) };
+            return match (a, b) {
+                (Some(a), Some(b)) if a <= b && b >= 0 && a < items.len() as i64 => {
+                    let (a, b) = (a.max(0) as usize, (b as usize).min(items.len() - 1));
+                    Const::Aggregate(items[a..=b].to_vec())
+                }
+                _ => Const::Aggregate(vec![]),
+            };
+        }
+        let a = self.eval(cx, e.args[1]).to_i64();
         let tys = &self.d.types;
         let Some(a) = a else { return ops::default_value(tys, e.ty) };
         let (hi, lo) = match kind {
@@ -448,15 +511,24 @@ impl Sim<'_, '_, '_> {
             }
             ExprKind::Index => {
                 let mut t = self.target(cx, e.args[0]);
-                let i = self.eval(cx, e.args[1]);
                 let bt = self.d.expr(e.args[0]).ty;
+                let i = if is_queue(&self.d.types, bt) && has_dollar(self.d, e.args[1]) {
+                    let base = self.eval(cx, e.args[0]);
+                    self.index_value(cx, &base, bt, e.args[1])
+                } else {
+                    self.eval(cx, e.args[1])
+                };
                 let tys = &self.d.types;
                 let sel = match tys.get(bt) {
-                    Type::Unpacked { dim: UDim::Assoc(_) | UDim::Wildcard, .. } => Some(Sel::Key(i)),
+                    Type::Unpacked { dim: UDim::Assoc(_) | UDim::Wildcard, elem } => {
+                        let et = *elem;
+                        self.assoc_key(bt, i).map(|k| Sel::Key(k, et))
+                    }
                     Type::Unpacked { dim: UDim::Range(l, r), .. } => i.to_i64().and_then(|k| {
                         let off = if l <= r { k - l } else { l - k };
                         (off >= 0 && off <= (l - r).abs()).then_some(Sel::Elem(off as usize))
                     }),
+                    Type::Unpacked { dim: UDim::Queue(_), .. } => i.to_i64().filter(|&k| k >= 0).map(|k| Sel::QueueElem(k as usize)),
                     Type::Unpacked { .. } => i.to_i64().filter(|&k| k >= 0).map(|k| Sel::Elem(k as usize)),
                     _ => {
                         let ew = tys.width(e.ty).max(1);

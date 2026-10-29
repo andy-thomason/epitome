@@ -188,8 +188,11 @@ enum Place {
 enum Sel {
     /// An element of an unpacked array, by position.
     Elem(usize),
-    /// A key of an associative array.
-    Key(Const),
+    /// An element of a queue; one just past the end appends (7.10.1).
+    QueueElem(usize),
+    /// A key of an associative array, and the element type, whose default
+    /// a new element starts from.
+    Key(Const, TypeId),
     /// Bits of a packed value: the low bit and the width.
     Bits(u32, u32),
     /// A member of an unpacked struct.
@@ -255,6 +258,9 @@ pub(crate) struct Sim<'d, 'a, 'o> {
     watch: Vec<Vec<(u32, u32)>>,
     /// Nets that resolve several drivers or carry strengths, by slot.
     nets: HashMap<usize, net::Net>,
+    /// What `$` stands for in the indices of the queues being indexed:
+    /// the last index (7.10.1).
+    dollar: Vec<i64>,
     /// Each UDP instance's inputs at its last evaluation and its state,
     /// by process and bit.
     udp_state: HashMap<(u32, u32), (Vec<Logic>, Logic)>,
@@ -320,6 +326,7 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
             elems_of: HashMap::new(),
             triggered: HashMap::new(),
             nets: HashMap::new(),
+            dollar: Vec::new(),
             udp_state: HashMap::new(),
             procs: Vec::new(),
             active: VecDeque::new(),
@@ -515,9 +522,7 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
             {
                 // A net is z until something drives it (6.5).
                 let v = match o.kind {
-                    ObjKind::Net(_) if self.d.types.is_integral(o.ty) => {
-                        Const::Bits(Bits::fill(self.d.types.width(o.ty), false, Logic::Z))
-                    }
+                    ObjKind::Net(_) => crate::design::ops::net_default(self.types(), o.ty),
                     _ => crate::design::ops::default_value(self.types(), o.ty),
                 };
                 self.vals[(base + off) as usize] = v;
@@ -1616,7 +1621,9 @@ fn update_in_place(tys: &Types, v: &mut Const, path: &[Sel], new: Const) -> bool
             *v = new;
             changed
         }
-        (Some((Sel::Elem(i), rest)), Const::Aggregate(items)) if *i < items.len() => update_in_place(tys, &mut items[*i], rest, new),
+        (Some((Sel::Elem(i) | Sel::QueueElem(i), rest)), Const::Aggregate(items)) if *i < items.len() => {
+            update_in_place(tys, &mut items[*i], rest, new)
+        }
         (Some((Sel::Member(i), rest)), Const::Aggregate(items)) if (*i as usize) < items.len() => {
             update_in_place(tys, &mut items[*i as usize], rest, new)
         }
@@ -1626,6 +1633,17 @@ fn update_in_place(tys: &Types, v: &mut Const, path: &[Sel], new: Const) -> bool
             !same(&old, v)
         }
     }
+}
+
+/// Whether an expression mentions `$`.
+fn has_dollar(d: &Design, x: ExprId) -> bool {
+    let e = d.expr(x);
+    matches!(e.kind, ExprKind::Dollar) || e.args.iter().any(|&a| has_dollar(d, a))
+}
+
+/// Whether a type is a queue or dynamic array, whose indices may use `$`.
+fn is_queue(tys: &Types, t: TypeId) -> bool {
+    matches!(tys.get(t), Type::Unpacked { dim: UDim::Queue(_) | UDim::Dynamic, .. })
 }
 
 /// Whether an expression calls a subroutine.
@@ -1677,6 +1695,15 @@ fn edge(e: Edge, old: &Const, new: &Const) -> bool {
 fn update(tys: &Types, v: Const, path: &[Sel], new: Const) -> Const {
     let Some((first, rest)) = path.split_first() else { return new };
     match (first, v) {
+        (Sel::QueueElem(i), Const::Aggregate(mut items)) => {
+            if *i < items.len() {
+                let old = std::mem::replace(&mut items[*i], Const::Null);
+                items[*i] = update(tys, old, rest, new);
+            } else if *i == items.len() {
+                items.push(update(tys, Const::Null, rest, new));
+            }
+            Const::Aggregate(items)
+        }
         (Sel::Elem(i), Const::Aggregate(mut items)) => {
             if *i < items.len() {
                 let old = std::mem::replace(&mut items[*i], Const::Null);
@@ -1692,7 +1719,7 @@ fn update(tys: &Types, v: Const, path: &[Sel], new: Const) -> Const {
             }
             Const::Aggregate(items)
         }
-        (Sel::Key(k), Const::Aggregate(mut items)) => {
+        (Sel::Key(k, et), Const::Aggregate(mut items)) => {
             // An associative array: pairs of key and value.
             let pos = items.chunks(2).position(|c| crate::design::ops::const_eq(&c[0], k));
             match pos {
@@ -1702,7 +1729,7 @@ fn update(tys: &Types, v: Const, path: &[Sel], new: Const) -> Const {
                 }
                 None => {
                     items.push(k.clone());
-                    items.push(update(tys, Const::Null, rest, new));
+                    items.push(update(tys, crate::design::ops::default_value(tys, *et), rest, new));
                 }
             }
             Const::Aggregate(items)

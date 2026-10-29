@@ -156,6 +156,9 @@ pub struct Types {
     pub list: Vec<Type>,
     map: HashMap<Type, TypeId>,
     next_uid: u32,
+    /// Default values of unpacked struct members, by struct and member
+    /// (7.2.2); not part of the type's identity.
+    pub member_defaults: HashMap<(TypeId, u32), super::Const>,
 }
 
 impl Default for Types {
@@ -183,7 +186,7 @@ impl Types {
     pub const SHORTREAL: TypeId = TypeId(15);
 
     pub fn new() -> Types {
-        let mut t = Types { list: Vec::new(), map: HashMap::new(), next_uid: 0 };
+        let mut t = Types { list: Vec::new(), map: HashMap::new(), next_uid: 0, member_defaults: HashMap::new() };
         let atom = |a: Atom| Type::Vector { atom: a, signed: a.default_signed(), dims: vec![] };
         for ty in [
             Type::Unknown,

@@ -42,18 +42,18 @@ pub fn convert(tys: &Types, v: &Const, t: TypeId) -> Const {
             _ => v.clone(),
         };
     }
+    // A bounded queue keeps its first n + 1 elements (7.10).
+    if let (Type::Unpacked { dim: UDim::Queue(Some(n)), .. }, Const::Aggregate(items)) = (ty.get(t), v)
+        && items.len() as i64 > n + 1
+    {
+        return Const::Aggregate(items[..(n + 1).max(0) as usize].to_vec());
+    }
     v.clone()
 }
 
 /// x and z become 0 (6.3.2.1).
 pub fn two_state(b: &Bits) -> Bits {
-    let mut r = b.clone();
-    for i in 0..b.width() {
-        if !b.bit(i).is_known() {
-            r.set_bit(i, Logic::Zero);
-        }
-    }
-    r
+    b.known_or_zero()
 }
 
 /// Equality for a generate `case` item: bit for bit (27.5).
@@ -94,9 +94,34 @@ pub fn default_value(tys: &Types, t: TypeId) -> Const {
             Const::Aggregate(vec![d; n.min(1 << 20)])
         }
         Type::Unpacked { .. } => Const::Aggregate(vec![]),
-        Type::Struct { members, .. } => Const::Aggregate(members.iter().map(|m| default_value(tys, m.ty)).collect()),
+        Type::Struct { members, .. } => Const::Aggregate(
+            members
+                .iter()
+                .enumerate()
+                .map(|(i, m)| match tys.member_defaults.get(&(t, i as u32)) {
+                    Some(c) => c.clone(),
+                    None => default_value(tys, m.ty),
+                })
+                .collect(),
+        ),
         Type::Class(_) | Type::Null | Type::Chandle => Const::Null,
         _ => Const::Bits(Bits::x(1)),
+    }
+}
+
+/// A net's value before anything drives it: z throughout, member
+/// defaults ignored (6.5, 7.2.2).
+pub fn net_default(tys: &Types, t: TypeId) -> Const {
+    if tys.is_integral(t) {
+        return Const::Bits(Bits::fill(tys.width(t), tys.is_signed(t), Logic::Z));
+    }
+    match tys.get(t) {
+        Type::Unpacked { elem, dim: UDim::Range(l, r) } => {
+            let n = (l - r).unsigned_abs() as usize + 1;
+            Const::Aggregate(vec![net_default(tys, *elem); n.min(1 << 20)])
+        }
+        Type::Struct { members, .. } => Const::Aggregate(members.iter().map(|m| net_default(tys, m.ty)).collect()),
+        _ => default_value(tys, t),
     }
 }
 

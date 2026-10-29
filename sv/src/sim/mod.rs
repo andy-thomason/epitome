@@ -1094,12 +1094,13 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
     fn watch_expr(&mut self, p: u32, cx: &Cx, x: ExprId) {
         let mut slots = Vec::new();
         self.reads(cx, x, &mut slots);
-        let epoch = self.procs[p as usize].epoch;
+        for s in slots.iter_mut() {
+            *s = self.find(*s);
+        }
+        slots.sort_unstable();
+        slots.dedup();
         for s in slots {
-            let s = self.find(s);
-            if !self.watch[s].contains(&(p, epoch)) {
-                self.watch[s].push((p, epoch));
-            }
+            self.watch_slot(p, s);
         }
     }
 
@@ -1116,9 +1117,9 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
             let procs = &self.procs;
             self.watch[s].retain(|&(q, e)| procs[q as usize].epoch == e && procs[q as usize].state == State::Waiting);
         }
-        if !self.watch[s].contains(&(p, epoch)) {
-            self.watch[s].push((p, epoch));
-        }
+        // Each wait has its own epoch, so the entry is new unless this
+        // same wait already added it, which would be the last one.
+        self.watch[s].push((p, epoch));
     }
 
     /// Watches, for good, what a driver reads: a constant element of an

@@ -167,7 +167,34 @@ both found with one generated block of 4,000 to 128,000 instructions:
   check is one lookup per segment. Calls are found by binary search.
 
 At 32,000 instructions selection went from 5,266 ms to 40 ms and allocation
-from 143 ms to 16 ms. The output is the same as before. The optimiser was
+from 143 ms to 16 ms. The output is the same as before.
+
+Blocks where many values are live at once (operands from the last couple
+of hundred values, as a simulator's `eval` has) found more, from 40,000 to
+640,000 instructions:
+
+- **Allocation, moving values out of a register.** Taking a value off a
+  register rebuilt the register's whole map of busy intervals, and the
+  search for values to move listed every value along a long one's range on
+  every register before judging any. A moved value's intervals are now
+  taken out by lookup, and a register is given up at the first value in
+  the way that cannot move.
+- **Preparation.** Three passes (`const_multiplies`, `constant_addresses`,
+  `promote_odd`) inserted instructions into the middle of a block's list,
+  and one replaced each value's uses with a pass over the function. Blocks
+  are now made again in one pass, and the replacements put in place
+  together (`Function::replace_many`).
+- **Frames.** Whether an offset fits an instruction is now cached
+  (`fits_cached`): a big frame asks it for every spill.
+
+At 640,000 instructions allocation went from 52.9 s to 4.1 s, preparation
+from 2.9 s to 0.5 s, and the whole compile from 50 s to 7.8 s; for a block
+four times bigger, allocation and preparation now take 4 to 5.5 times as
+long, where allocation took 20 times, and the output is the same as
+before. Frames still take a step up (about 11x from
+40,000 to 160,000) where the frame grows past what an instruction's offset
+reaches and accesses need their address made first; past that it is
+linear again. The optimiser was
 already linear on the same blocks, and on blocks of unoptimised code (locals
 in allocas) and of loads and stores through pointers that may alias.
 `tests/parallel.rs` checks every stage of code generation: a block four

@@ -122,7 +122,7 @@ pub fn lower(t: &Target, f: &mut MFunc) -> Result<(), String> {
             {
                 let values: Vec<Option<i64>> =
                     inst.ops.iter().map(|o| if let MOp::Imm(v) = o { Some(*v) } else { None }).collect();
-                if !t.instrs[i].fits(&values) {
+                if !t.fits_cached(i, values) {
                     // A spill scratch register free here, else the
                     // convention's far-scratch register.
                     let tmp = free_scratch(t, &f.abi.scratch, &inst, &old[j + 1..]).or(far).ok_or_else(|| {
@@ -375,7 +375,9 @@ fn adjust(t: &Target, out: &mut Vec<MInst>, dst: u8, src: u8, amount: i64, scrat
 fn constant(t: &Target, out: &mut Vec<MInst>, reg: u8, v: i64) -> Result<(), String> {
     let r = |n: u8| MOp::Reg(Reg::P(n));
     let wide = |ci: &usize| t.instrs[*ci].operands[0].bits == 64;
-    if let Some(&ci) = t.constants.iter().filter(|ci| wide(ci)).find(|&&ci| t.instrs[ci].fits(&[None, Some(v)])) {
+    // (Whether an instruction holds a value is cached: frames with many far
+    // slots ask it for each access.)
+    if let Some(&ci) = t.constants.iter().filter(|ci| wide(ci)).find(|&&ci| t.fits_cached(ci, vec![None, Some(v)])) {
         out.push(MInst::new(ci, vec![r(reg), MOp::Imm(v)]));
         return Ok(());
     }
@@ -402,7 +404,7 @@ fn constant(t: &Target, out: &mut Vec<MInst>, reg: u8, v: i64) -> Result<(), Str
         .iter()
         .copied()
         .filter(|ci| wide(ci))
-        .find(|&ci| t.instrs[ci].fits(&[None, Some(hi)]))
+        .find(|&ci| t.fits_cached(ci, vec![None, Some(hi)]))
         .ok_or_else(|| format!("no way to make the frame size {v}"))?;
     if !t.instrs[add].fits(&[None, None, Some(lo)]) {
         return Err(format!("no way to make the frame size {v}"));

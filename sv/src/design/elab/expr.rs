@@ -29,6 +29,22 @@ pub(crate) fn rvalue<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, target: T
         Kind::Concat if e.d.types.is_unpacked_array(target) => return unpacked_concat(e, sc, n, target),
         Kind::New => return new_expr(e, sc, n, Some(target)),
         Kind::Paren => return rvalue(e, sc, e.kids(n)[0], target),
+        Kind::Tagged => {
+            // `tagged M v`: member M of the target union, v as its type
+            // (11.9).
+            if let Type::Struct { tagged: true, members, .. } = e.d.types.get(target).clone() {
+                let kids = e.kids(n).to_vec();
+                let name = e.sym_of(kids[0]);
+                let Some(i) = members.iter().position(|m| m.name == name) else {
+                    return Err(e.err(kids[0], format!("the tagged union has no member `{}` (11.9)", e.name(name))));
+                };
+                let mut args = Vec::new();
+                if let Some(&v) = kids.get(1) {
+                    args.push(rvalue(e, sc, v, members[i].ty)?);
+                }
+                return Ok(e.new_expr(ExprKind::Tagged(i as u32), target, n, args));
+            }
+        }
         _ => {}
     }
     let x = bind(e, sc, n)?;

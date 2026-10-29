@@ -172,6 +172,23 @@ impl Sim<'_, '_, '_> {
             K::Member(i) => {
                 let base = self.eval(cx, e.args[0]);
                 let bt = self.d.expr(e.args[0]).ty;
+                // A tagged union's member can be read only while it is the
+                // one the tag names (7.3.2).
+                if let Type::Struct { tagged: true, members, .. } = tys.get(bt) {
+                    let tag = match &base {
+                        Const::Aggregate(items) => items.last().and_then(|t| t.to_i64()),
+                        Const::Bits(b) => {
+                            let maxw = members.iter().map(|m| tys.width(m.ty)).max().unwrap_or(0);
+                            b.slice(maxw, b.width() - maxw).to_i64()
+                        }
+                        _ => None,
+                    };
+                    if tag != Some(*i as i64) {
+                        let _ = writeln!(self.out, "error: reading member `{}` of a tagged union that holds another member", self.d.name(members[*i as usize].name));
+                        self.outcome.errors += 1;
+                        return ops::default_value(tys, ty);
+                    }
+                }
                 member(tys, base, bt, *i)
             }
             K::Field(o) => {
@@ -267,7 +284,34 @@ impl Sim<'_, '_, '_> {
                 Some(&n) => Const::Bits(Bits::from_i64(32, true, n)),
                 None => Const::Unbounded,
             },
-            K::Range | K::Tagged(_) | K::Opaque => {
+            K::Tagged(i) => {
+                let i = *i as usize;
+                let Type::Struct { members, .. } = tys.get(ty).clone() else { return ops::default_value(tys, ty) };
+                let val = match e.args.first() {
+                    Some(&a) => {
+                        let v = self.eval(cx, a);
+                        ops::convert(tys, &v, members[i].ty)
+                    }
+                    None => Const::Null,
+                };
+                if tys.is_integral(ty) {
+                    // Packed: the tag in the top bits, the value at the bottom.
+                    let w = tys.width(ty);
+                    let maxw = members.iter().map(|m| tys.width(m.ty)).max().unwrap_or(0);
+                    let mut b = Bits::zero(w, false);
+                    if let Const::Bits(v) = &val {
+                        b.set_slice(0, v);
+                    }
+                    b.set_slice(maxw, &Bits::from_u64(w - maxw, false, i as u64));
+                    Const::Bits(b)
+                } else {
+                    let mut items: Vec<Const> = members.iter().map(|m| ops::default_value(tys, m.ty)).collect();
+                    items[i] = val;
+                    items.push(Const::Bits(Bits::from_u64(32, false, i as u64)));
+                    Const::Aggregate(items)
+                }
+            }
+            K::Range | K::Opaque => {
                 let what = format!("{:?} `{}`", self.ast.kind(e.node), self.line_of(e.node));
                 self.unsupported(format!("expression kept as syntax: {what}"));
                 ops::default_value(tys, ty)

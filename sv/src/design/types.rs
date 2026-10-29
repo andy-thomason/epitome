@@ -257,9 +257,16 @@ impl Types {
                 dims.iter().fold(atom.width() as u64, |w, &(l, r)| w * ((l - r).unsigned_abs() + 1)) as u32
             }
             Type::PackedArray { elem, dim: (l, r), .. } => self.width(*elem) * ((l - r).unsigned_abs() as u32 + 1),
-            Type::Struct { packed: true, union, members, .. } => {
+            Type::Struct { packed: true, union, tagged, members, .. } => {
                 let ws = members.iter().map(|m| self.width(m.ty));
-                if *union { ws.max().unwrap_or(0) } else { ws.sum() }
+                if *union {
+                    // A packed tagged union adds the bits its tag needs
+                    // (7.3.2).
+                    let tag = if *tagged { (members.len().max(1) as u32).next_power_of_two().trailing_zeros() } else { 0 };
+                    ws.max().unwrap_or(0) + tag
+                } else {
+                    ws.sum()
+                }
             }
             Type::Enum { base, .. } => self.width(*base),
             Type::Real(RealKind::ShortReal) => 32,

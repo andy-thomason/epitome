@@ -52,7 +52,7 @@ pub fn convert(tys: &Types, v: &Const, t: TypeId) -> Const {
         (Type::Struct { packed: false, .. } | Type::Unpacked { dim: UDim::Range(..) | UDim::Dynamic | UDim::Queue(_), .. }, Const::Bits(_)) => {
             return restream(tys, v, t);
         }
-        (Type::Struct { packed: false, union: false, members, .. }, Const::Aggregate(items)) if items.len() != members.len() => {
+        (Type::Struct { packed: false, union: false, tagged: false, members, .. }, Const::Aggregate(items)) if items.len() != members.len() => {
             return restream(tys, v, t);
         }
         (Type::Unpacked { dim: UDim::Range(l, r), .. }, Const::Aggregate(items)) if items.len() as u64 != (l - r).unsigned_abs() + 1 => {
@@ -112,16 +112,21 @@ pub fn default_value(tys: &Types, t: TypeId) -> Const {
             Const::Aggregate(vec![d; n.min(1 << 20)])
         }
         Type::Unpacked { .. } => Const::Aggregate(vec![]),
-        Type::Struct { members, .. } => Const::Aggregate(
-            members
+        Type::Struct { members, tagged, .. } => {
+            let mut items: Vec<Const> = members
                 .iter()
                 .enumerate()
                 .map(|(i, m)| match tys.member_defaults.get(&(t, i as u32)) {
                     Some(c) => c.clone(),
                     None => default_value(tys, m.ty),
                 })
-                .collect(),
-        ),
+                .collect();
+            // An unpacked tagged union keeps its tag after the members.
+            if *tagged {
+                items.push(Const::Bits(Bits::zero(32, false)));
+            }
+            Const::Aggregate(items)
+        }
         Type::Class(_) | Type::Null | Type::Chandle => Const::Null,
         _ => Const::Bits(Bits::x(1)),
     }

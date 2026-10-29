@@ -46,7 +46,7 @@ pub(crate) fn type_of_const(e: &mut Elab, v: &Const) -> TypeId {
         Const::Type(_) => Types::TYPE,
         Const::Null => Types::NULL,
         Const::Unbounded => Types::INT,
-        Const::Aggregate(_) | Const::Handle(_) => Types::UNKNOWN,
+        Const::Aggregate(_) | Const::Handle(_) | Const::Inst(_) => Types::UNKNOWN,
     }
 }
 

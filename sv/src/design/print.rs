@@ -615,6 +615,7 @@ pub fn konst(d: &Design, c: &Const) -> String {
         Const::Null => "null".into(),
         Const::Unbounded => "$".into(),
         Const::Handle(h) => format!("handle#{h}"),
+        Const::Inst(i) => format!("instance#{i}"),
     }
 }
 

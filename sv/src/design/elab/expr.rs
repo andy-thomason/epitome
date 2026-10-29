@@ -698,7 +698,9 @@ fn name<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, ExprId> {
             let def = e.d.specs[spec.0 as usize].name;
             e.virtual_uses.insert(s);
             let t = e.d.types.intern(Type::Interface { spec: Some(spec), def, modport: None, virtual_: true });
-            Ok(e.new_expr(ExprKind::Hier { path: vec![s], object: None }, t, n, vec![]))
+            let x = e.new_expr(ExprKind::Hier { path: vec![s], object: None }, t, n, vec![]);
+            e.d.hops.insert(x, vec![Hop::Down(i)]);
+            Ok(x)
         }
         Some(Binding::Instance(_) | Binding::Instances(..) | Binding::Scope(_)) => {
             Err(e.err(n, format!("`{}` is {}, not a value", e.name(s), e.describe_binding(b.unwrap()))))
@@ -1163,6 +1165,24 @@ fn member<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, base: ExprId, m: Sym, n: NodeId
         Type::PackedArray { elem, .. } if matches!(e.d.types.get(elem), Type::Struct { .. }) => {
             Ok(e.new_expr(ExprKind::Opaque, Types::UNKNOWN, n, vec![base]))
         }
+        Type::Interface { spec, def, .. } => {
+            // A member of the interface a virtual interface points at
+            // (25.9): an object of the interface, found at run time
+            // through the handle.
+            let spec = spec
+                .or_else(|| {
+                    e.d.specs.iter().rposition(|sp| sp.name == def && sp.kind == DefKind::Interface).map(|i| SpecId(i as u32))
+                })
+                .or_else(|| e.default_spec(def));
+            let found = spec.and_then(|sp| e.scope(e.d.specs[sp.0 as usize].scope).names.get(&m).copied());
+            match found {
+                Some(Binding::Object(o)) => {
+                    let t = e.obj(o).ty;
+                    Ok(e.new_expr(ExprKind::Field(o), t, n, vec![base]))
+                }
+                _ => Ok(e.new_expr(ExprKind::Opaque, Types::UNKNOWN, n, vec![base])),
+            }
+        }
         Type::Class(c) => match lookup::class_member(e, c, m) {
             Some(Binding::Object(o)) => {
                 super::checks::member_access(e, sc, c, o, mn)?;
@@ -1191,10 +1211,6 @@ fn member<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, base: ExprId, m: Sym, n: NodeId
                 ))
             }
         },
-        Type::Interface { def, .. } => {
-            let _ = def;
-            Ok(e.new_expr(ExprKind::Opaque, Types::UNKNOWN, n, vec![base]))
-        }
         _ => {
             let t = builtin_method_type(e, bt, m, &[]);
             Ok(e.new_expr(ExprKind::Method(m), t, n, vec![base]))
@@ -1376,10 +1392,13 @@ pub(crate) fn hier<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, Op
                 at = Location::InterfacePort(m);
             }
             Some(Binding::Object(o)) if matches!(e.d.types.get(e.obj(o).ty), Type::Interface { .. }) => {
-                // Through a virtual interface: the member is not modelled.
+                // Through a virtual interface (25.9).
                 let t = e.obj(o).ty;
-                let base = e.new_expr(ExprKind::Object(o), t, steps[0].node, vec![]);
-                return Ok(Some(e.new_expr(ExprKind::Opaque, Types::UNKNOWN, n, vec![base])));
+                let mut x = e.new_expr(ExprKind::Object(o), t, steps[0].node, vec![]);
+                for s2 in &steps[1..] {
+                    x = member(e, sc, x, s2.name, n, s2.node)?;
+                }
+                return Ok(Some(x));
             }
             Some(_) => return Ok(None),
             None => {
@@ -1438,7 +1457,21 @@ pub(crate) fn hier<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, Op
             Location::Scope(s) => s,
             Location::InterfacePort(m) => {
                 super::checks::modport_access(e, m, step.name, step.node)?;
-                return Ok(Some(e.new_expr(ExprKind::Hier { path, object: None }, Types::UNKNOWN, n, vec![])));
+                // The interface the port names, as elaborated for an
+                // instance of it; at run time the reference follows the
+                // port's connection (25.3).
+                let port = e.d.specs.iter().rev().find_map(|sp| sp.ports.iter().find(|p| p.node == m).cloned());
+                let iface = port.as_ref().and_then(|p| p.interface).map(|(i, _)| i);
+                let spec = iface.and_then(|i| {
+                    e.d.specs.iter().rposition(|sp| sp.name == i && sp.kind == DefKind::Interface && sp.instances > 0)
+                });
+                match (port, spec) {
+                    (Some(p), Some(sp)) => {
+                        hops.push(Hop::Port(p.name));
+                        e.d.specs[sp].scope
+                    }
+                    _ => return Ok(Some(e.new_expr(ExprKind::Hier { path, object: None }, Types::UNKNOWN, n, vec![]))),
+                }
             }
         };
         let b = e.scope(scope).names.get(&step.name).copied();
@@ -1515,7 +1548,9 @@ pub(crate) fn hier<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, Op
             None => {
                 // `bind` adds instances to other scopes (23.11), which is not
                 // modelled yet: the path is kept unresolved.
-                if e.has_bind {
+                // Through an interface port, a task exported into a modport
+                // (25.7) is not in the interface itself.
+                if e.has_bind || matches!(hops.last(), Some(Hop::Port(_))) {
                     return Ok(Some(e.new_expr(ExprKind::Hier { path, object: None }, Types::UNKNOWN, n, vec![])));
                 }
                 return Err(e.err(step.node, format!("there is no `{}` there", e.name(step.name))));

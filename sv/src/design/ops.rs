@@ -127,7 +127,7 @@ pub fn default_value(tys: &Types, t: TypeId) -> Const {
             }
             Const::Aggregate(items)
         }
-        Type::Class(_) | Type::Null | Type::Chandle => Const::Null,
+        Type::Class(_) | Type::Null | Type::Chandle | Type::Interface { .. } => Const::Null,
         _ => Const::Bits(Bits::x(1)),
     }
 }

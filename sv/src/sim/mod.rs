@@ -746,6 +746,7 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
             at = match *h {
                 Hop::Down(c) => *self.kids.get(&(at, c))?,
                 Hop::Top(t) => self.insts.iter().position(|r| r.elab == t && r.parent.is_none())? as u32,
+                Hop::Port(name) => self.through_port(at, name)?,
                 Hop::Up(name) => {
                     let mut cur = Some(at);
                     let mut found = None;
@@ -762,6 +763,19 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
             };
         }
         Some(at)
+    }
+
+    /// The interface instance connected to an interface port of `inst`,
+    /// following ports passed down from parent to child (25.3).
+    fn through_port(&self, inst: u32, port: Sym) -> Option<u32> {
+        let r = &self.insts[inst as usize];
+        let parent = r.parent?;
+        let c = self.d.instance(r.elab).connections.iter().find(|c| c.port == port)?;
+        match (c.interface, c.via) {
+            (Some(i), _) => self.kids.get(&(parent, i)).copied(),
+            (None, Some(up)) => self.through_port(parent, up),
+            _ => None,
+        }
     }
 
     /// The hierarchical name of an instance, for `%m`.

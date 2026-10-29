@@ -1712,6 +1712,23 @@ impl<'a, 'x> Elab<'a, 'x> {
         Ok(id)
     }
 
+    /// The specialisation of a design element with no parameter overrides,
+    /// elaborated now if need be: for a virtual interface used before any
+    /// instance of its interface is elaborated (25.9).
+    pub(crate) fn default_spec(&mut self, name: Sym) -> Option<SpecId> {
+        let def = *self.defs.get(&name)?;
+        if !matches!(def.kind, DefKind2::Design(DefKind::Interface)) {
+            return None;
+        }
+        let key = (def.node, format!("{:?}", Vec::<(Option<Sym>, Over)>::new()));
+        if let Some(&s) = self.spec_cache.get(&key) {
+            return Some(s);
+        }
+        let s = self.elaborate_spec(def, &[]).ok()?;
+        self.spec_cache.insert(key, s);
+        Some(s)
+    }
+
     fn elaborate_spec(&mut self, def: Def, overrides: &[(Option<Sym>, Over)]) -> R<'a, SpecId> {
         let n = def.node;
         let DefKind2::Design(kind) = def.kind else { unreachable!() };
@@ -2151,10 +2168,10 @@ impl<'a, 'x> Elab<'a, 'x> {
                 // `.name` alone connects the same name in the parent.
                 let parens = self.ast.tokens_of(c).iter().any(|t| t.0 == "(");
                 let conn = match ck.get(1) {
-                    Some(&e) if self.kind(e) == Kind::Empty => Connection { port: pname, expr: None, interface: None },
+                    Some(&e) if self.kind(e) == Kind::Empty => Connection { port: pname, expr: None, interface: None, via: None },
                     Some(&e) => self.port_expr(sc, port, e)?,
                     // `.name()`: left open.
-                    None if parens => Connection { port: pname, expr: None, interface: None },
+                    None if parens => Connection { port: pname, expr: None, interface: None, via: None },
                     None => {
                         if lookup::lookup(self, sc, pname).is_none() {
                             return Err(self.err(
@@ -2225,7 +2242,7 @@ impl<'a, 'x> Elab<'a, 'x> {
                         let conn = self.port_expr(sc, port, e)?;
                         out.push(conn);
                     }
-                    _ => out.push(Connection { port: port.name, expr: None, interface: None }),
+                    _ => out.push(Connection { port: port.name, expr: None, interface: None, via: None }),
                 }
             }
         }
@@ -2251,10 +2268,10 @@ impl<'a, 'x> Elab<'a, 'x> {
     fn port_expr_named(&mut self, sc: ScopeId, port: &Port, at: NodeId) -> R<'a, Connection> {
         let b = lookup::lookup(self, sc, port.name);
         if let Some(Binding::Instance(i)) = b {
-            return Ok(Connection { port: port.name, expr: None, interface: Some(i) });
+            return Ok(Connection { port: port.name, expr: None, interface: Some(i), via: None });
         }
         if let Some(Binding::Other(_)) = b {
-            return Ok(Connection { port: port.name, expr: None, interface: None });
+            return Ok(Connection { port: port.name, expr: None, interface: None, via: None });
         }
         let Some(Binding::Object(o)) = b else {
             return Err(self.err(at, format!("`{}` cannot be connected to a port", self.name(port.name))));
@@ -2262,13 +2279,13 @@ impl<'a, 'x> Elab<'a, 'x> {
         let ty = self.obj(o).ty;
         let e = self.new_expr(ExprKind::Object(o), ty, at, vec![]);
         let e = self.port_conv(port, e, at)?;
-        Ok(Connection { port: port.name, expr: Some(e), interface: None })
+        Ok(Connection { port: port.name, expr: Some(e), interface: None, via: None })
     }
 
     fn port_expr(&mut self, sc: ScopeId, port: &Port, e: NodeId) -> R<'a, Connection> {
         if self.connecting_array {
             let x = expr::expr(self, sc, e)?;
-            return Ok(Connection { port: port.name, expr: Some(x), interface: None });
+            return Ok(Connection { port: port.name, expr: Some(x), interface: None, via: None });
         }
         if let Some((iname, _)) = port.interface {
             // An interface instance, or an interface port, passed on.
@@ -2304,9 +2321,17 @@ impl<'a, 'x> Elab<'a, 'x> {
                             ),
                         ));
                     }
-                    return Ok(Connection { port: port.name, expr: None, interface: Some(i) });
+                    return Ok(Connection { port: port.name, expr: None, interface: Some(i), via: None });
                 }
-                Some(_) => return Ok(Connection { port: port.name, expr: None, interface: None }),
+                Some(_) => {
+                    // The parent's own interface port, passed on.
+                    let mut head = e;
+                    while matches!(self.kind(head), Kind::Member | Kind::Index) {
+                        head = self.kids(head)[0];
+                    }
+                    let via = (self.kind(head) == Kind::Name).then(|| self.sym_of(head));
+                    return Ok(Connection { port: port.name, expr: None, interface: None, via });
+                }
                 None => {
                     return Err(self.err(e, format!("port `{}` needs an interface instance", self.name(port.name))));
                 }
@@ -2335,7 +2360,7 @@ impl<'a, 'x> Elab<'a, 'x> {
                 x
             }
         };
-        Ok(Connection { port: port.name, expr: Some(x), interface: None })
+        Ok(Connection { port: port.name, expr: Some(x), interface: None, via: None })
     }
 
     fn port_conv(&mut self, port: &Port, e: ExprId, _at: NodeId) -> R<'a, ExprId> {

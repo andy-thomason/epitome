@@ -22,6 +22,11 @@ impl Sim<'_, '_, '_> {
                 }
                 None => self.read_obj(cx, *o),
             },
+            // An interface instance as a virtual interface (25.9).
+            K::Hier { .. } if matches!(tys.get(ty), Type::Interface { .. }) => match self.hops(cx.inst, x) {
+                Some(i) => Const::Inst(i),
+                None => Const::Null,
+            },
             K::Hier { .. } => Const::Null,
             K::TypeRef(t) => Const::Type(*t),
             K::Convert => {
@@ -99,7 +104,7 @@ impl Sim<'_, '_, '_> {
                 let b = self.eval(cx, e.args[1]);
                 // Handles and null compare by identity.
                 if matches!(op, BinOp::Eq | BinOp::Ne | BinOp::CaseEq | BinOp::CaseNe)
-                    && (matches!(a, Const::Handle(_) | Const::Null) || matches!(b, Const::Handle(_) | Const::Null))
+                    && (matches!(a, Const::Handle(_) | Const::Inst(_) | Const::Null) || matches!(b, Const::Handle(_) | Const::Inst(_) | Const::Null))
                 {
                     let eq = a == b;
                     let r = if matches!(op, BinOp::Eq | BinOp::CaseEq) { eq } else { !eq };
@@ -219,6 +224,10 @@ impl Sim<'_, '_, '_> {
                 match (h, self.homes[o.0 as usize]) {
                     (Const::Handle(h), Home::Field(f)) => {
                         self.heap.get(h as usize).and_then(|ob| ob.fields.get(f as usize).cloned()).unwrap_or(Const::Null)
+                    }
+                    (Const::Inst(i), _) => {
+                        let c2 = Cx { inst: i, locals: Rc::default(), this: None };
+                        self.read_obj(&c2, *o)
                     }
                     (_, Home::Global(g)) => self.read_slot(g as usize),
                     _ => ops::default_value(tys, ty),
@@ -559,6 +568,10 @@ impl Sim<'_, '_, '_> {
                     Some(&b) => self.eval(cx, b),
                     None => cx.this.map_or(Const::Null, Const::Handle),
                 };
+                if let Const::Inst(i) = h {
+                    let c2 = Cx { inst: i, locals: Rc::default(), this: None };
+                    return self.target_obj(&c2, *o);
+                }
                 let place = match (h, self.homes[o.0 as usize]) {
                     (Const::Handle(h), Home::Field(f)) => Place::Field(h, f),
                     (_, Home::Global(g)) => Place::Slot(g as usize),

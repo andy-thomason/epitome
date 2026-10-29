@@ -80,6 +80,8 @@ pub enum Const {
     Unbounded,
     /// A class object, by its index in the simulator's heap.
     Handle(u32),
+    /// A virtual interface: the simulator's instance (25.9).
+    Inst(u32),
 }
 
 impl Const {
@@ -596,6 +598,8 @@ pub struct Connection {
     pub expr: Option<ExprId>,
     /// An interface instance bound to an interface port.
     pub interface: Option<InstId>,
+    /// Or the parent's own interface port, passed on.
+    pub via: Option<Sym>,
 }
 
 pub struct Instance {
@@ -762,6 +766,9 @@ pub enum Hop {
     Up(Sym),
     /// To a top-level instance.
     Top(InstId),
+    /// Through an interface port to the interface instance connected to
+    /// it (25.3).
+    Port(Sym),
 }
 
 impl<'a> Design<'a> {

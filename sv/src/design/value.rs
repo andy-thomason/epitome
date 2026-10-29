@@ -634,7 +634,8 @@ impl Bits {
     /// `**` (table 11-4). The result has the first operand's width.
     pub fn pow(&self, o: &Bits) -> Bits {
         let w = self.width;
-        let signed = self.signed && o.signed;
+        // The exponent is self-determined: the base sets the signedness.
+        let signed = self.signed;
         if !self.is_known() || !o.is_known() {
             return Bits::x(w).with_signed(signed);
         }

@@ -426,10 +426,18 @@ fn bind_inner<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, ExprId>
             let rhs = if op == "=" {
                 rvalue(e, sc, *ak.last().unwrap(), lt)?
             } else {
+                // `a op= b` is `a = a op b` (11.4.1).
+                let Some(b) = compound_op(op) else {
+                    return Err(e.err(ak[1], format!("`{op}` is not an assignment operator")));
+                };
                 let r = expr(e, sc, *ak.last().unwrap())?;
-                let l2 = e.new_expr(ExprKind::Object(ObjId(0)), lt, ak[0], vec![]);
-                let _ = l2;
-                r
+                let r = if matches!(b, BinOp::Shl | BinOp::Shr | BinOp::AShl | BinOp::AShr) {
+                    selfdet(e, r)
+                } else {
+                    let r = context_to(e, r, lt);
+                    assign_conv(e, r, lt)
+                };
+                e.new_expr(ExprKind::Binary(b), lt, n, vec![lhs, r])
             };
             Ok(e.new_expr(ExprKind::Assign, lt, n, vec![lhs, rhs]))
         }

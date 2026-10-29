@@ -170,6 +170,14 @@ pub fn lsb_offset(tys: &Types, t: TypeId, lo: i64, hi: i64) -> Option<i64> {
     Some(if l >= r { lo - r } else { r - hi })
 }
 
+/// Where a select from `lo` to `hi` starts, in elements from the least
+/// significant end, and how many it covers, in or out of range.
+pub fn select_span(tys: &Types, t: TypeId, lo: i64, hi: i64) -> (i64, i64) {
+    let (l, r) = tys.packed_range(t).unwrap_or((tys.width(t) as i64 - 1, 0));
+    let (lo, hi) = (lo.min(hi), lo.max(hi));
+    (if l >= r { lo - r } else { r - hi }, hi - lo + 1)
+}
+
 /// The range of dimension `dim` (1 is the outermost), unpacked first, for
 /// `$left` and the like (20.7).
 pub fn nth_range(tys: &Types, t: TypeId, dim: i64) -> Option<(i64, i64)> {
@@ -348,7 +356,9 @@ pub fn binary(tys: &Types, op: BinOp, a: Const, b: Const, ty: TypeId) -> Option<
     let y = bits_of(&b)?;
     let w = tys.width(ty).max(1);
     let s = tys.is_signed(ty);
-    let fit = |v: &Bits| v.resize(w, v.signed()).with_signed(s);
+    // Operands take the expression's signedness before they are extended
+    // (11.8.2).
+    let fit = |v: &Bits| v.resize(w, s && v.signed()).with_signed(s);
     let r = match op {
         Add => fit(&x).add(&fit(&y)),
         Sub => fit(&x).sub(&fit(&y)),
@@ -426,6 +436,8 @@ pub fn index(tys: &Types, base: &Const, bt: TypeId, i: &Const, ty: TypeId) -> Op
             let ew = tys.width(ty).max(1);
             match lsb_offset(tys, bt, idx, idx) {
                 Some(off) => Some(Const::Bits(b.slice(off as u32 * ew, ew))),
+                // Out of range: x, or 0 for a 2-state vector (11.5.1).
+                None if !tys.is_four_state(bt) => Some(Const::Bits(Bits::zero(ew, false))),
                 None => Some(Const::Bits(Bits::x(ew))),
             }
         }

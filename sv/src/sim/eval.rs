@@ -36,6 +36,15 @@ impl Sim<'_, '_, '_> {
                     let w = tys.width(ty);
                     return ops::convert(tys, &Const::Bits(b.resize(w, false).shl((w - b.width()) as u64)), ty);
                 }
+                // Widening extends by the target's signedness: the
+                // elaborator writes sext or zext as it means (11.8.2).
+                if tys.is_integral(ty)
+                    && let Const::Bits(b) = &v
+                    && tys.width(ty) > b.width()
+                {
+                    let w = tys.width(ty);
+                    return ops::convert(tys, &Const::Bits(b.resize(w, tys.is_signed(ty))), ty);
+                }
                 ops::convert(tys, &v, ty)
             }
             K::Unary(op @ (UnOp::PreInc | UnOp::PreDec | UnOp::PostInc | UnOp::PostDec)) => {
@@ -55,6 +64,15 @@ impl Sim<'_, '_, '_> {
             K::Unary(op) => {
                 let v = self.eval(cx, e.args[0]);
                 ops::unary(tys, *op, v, ty).unwrap_or_else(|| ops::default_value(tys, ty))
+            }
+            K::Binary(BinOp::Implies) => {
+                // `a -> b`: b only when a is not false (11.4.7).
+                let a = self.eval(cx, e.args[0]);
+                if truth(&a) == Some(false) {
+                    return Const::Bits(Bits::from_bool(true));
+                }
+                let b = self.eval(cx, e.args[1]);
+                ops::binary(tys, BinOp::Implies, a, b, ty).unwrap_or_else(|| ops::default_value(tys, ty))
             }
             K::Binary(op) => {
                 if matches!(op, BinOp::LogAnd | BinOp::LogOr) {
@@ -114,6 +132,8 @@ impl Sim<'_, '_, '_> {
                                 }
                                 Const::Bits(r)
                             }
+                            // Reals that differ give 0 (11.4.11).
+                            (Const::Real(x), Const::Real(y)) if x != y => Const::Real(0.0),
                             _ => a,
                         }
                     }
@@ -468,7 +488,16 @@ impl Sim<'_, '_, '_> {
                     None => {
                         // Partly out of range: the bits that are in range,
                         // x for the rest (11.5.1).
-                        Const::Bits(Bits::x(width * ew as u32))
+                        let ew = ew as u32;
+                        let (start, _) = ops::select_span(tys, bt, lo, hi);
+                        let start = start * ew as i64;
+                        let w = width * ew;
+                        let mut r = Bits::x(w);
+                        let (from, to) = (start.max(0), (start + w as i64).min(b.width() as i64));
+                        if from < to {
+                            r.set_slice((from - start) as u32, &b.slice(from as u32, (to - from) as u32));
+                        }
+                        Const::Bits(r)
                     }
                 }
             }
@@ -619,7 +648,20 @@ impl Sim<'_, '_, '_> {
                         t.path.push(Sel::Bits(off as u32 * ew, *width * ew));
                         t.ty = e.ty;
                     }
-                    None => t.place = Place::None,
+                    None => {
+                        // Partly out of range: only the bits in range are
+                        // written (11.5.1).
+                        let (start, _) = ops::select_span(tys, bt, lo, hi);
+                        let start = start * ew as i64;
+                        let w = (*width * ew) as i64;
+                        let (from, to) = (start.max(0), (start + w).min(tys.width(bt) as i64));
+                        if from < to {
+                            t.path.push(Sel::Clip(from as u32, (to - from) as u32, (from - start) as u32));
+                            t.ty = e.ty;
+                        } else {
+                            t.place = Place::None;
+                        }
+                    }
                 }
                 t
             }

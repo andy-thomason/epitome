@@ -206,6 +206,10 @@ enum Sel {
     QueueElem(usize),
     /// A character of a string (6.16).
     Char(usize),
+    /// Part of a select that is partly out of range: where the in-range
+    /// bits go, how many, and how many low bits of the value fall below
+    /// the vector.
+    Clip(u32, u32, u32),
     /// A key of an associative array, and the element type, whose default
     /// a new element starts from.
     Key(Const, TypeId),
@@ -790,6 +794,25 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
             },
         };
         Target { place, path: vec![], ty }
+    }
+
+    /// Reads the value a target names.
+    fn read_target(&self, cx: &Cx, t: &Target) -> Const {
+        let mut v = self.read_place(cx, &t.place);
+        for sel in &t.path {
+            v = match (sel, v) {
+                (Sel::Elem(i) | Sel::QueueElem(i), Const::Aggregate(items)) => items.get(*i).cloned().unwrap_or(Const::Null),
+                (Sel::Member(i), Const::Aggregate(items)) => items.get(*i as usize).cloned().unwrap_or(Const::Null),
+                (Sel::Key(k, et), Const::Aggregate(items)) => items
+                    .chunks(2)
+                    .find(|c| crate::design::ops::const_eq(&c[0], k))
+                    .map_or_else(|| crate::design::ops::default_value(self.types(), *et), |c| c[1].clone()),
+                (Sel::Bits(lo, w), Const::Bits(b)) => Const::Bits(b.slice(*lo, *w)),
+                (Sel::Char(i), Const::Str(s)) => Const::Bits(Bits::from_u64(8, false, s.get(*i).copied().unwrap_or(0) as u64)),
+                _ => return crate::design::ops::default_value(self.types(), t.ty),
+            };
+        }
+        crate::design::ops::convert(self.types(), &v, t.ty)
     }
 
     /// Reads the whole value at a place.
@@ -1621,16 +1644,17 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
     /// An assignment statement, with any intra-assignment timing (9.4.5).
     fn assign(&mut self, p: u32, cx: &Cx, s: StmtId) -> Flow {
         let StmtKind::Assign { kind, lhs, rhs, timing } = self.d.stmt(s).kind.clone() else { return Flow::Next };
+        // The target first, so its indices are evaluated once (11.4.1).
+        let t = self.target(cx, lhs);
         let v = match kind {
             AssignKind::Compound(op) => {
-                let old = self.eval(cx, lhs);
+                let old = self.read_target(cx, &t);
                 let r = self.eval(cx, rhs);
                 let lt = self.d.expr(lhs).ty;
                 crate::design::ops::binary(self.types(), op, old, r, lt).unwrap_or(Const::Null)
             }
             _ => self.eval(cx, rhs),
         };
-        let t = self.target(cx, lhs);
         match (kind, timing) {
             (AssignKind::NonBlocking, None) => {
                 self.nba.push((t, v, cx.clone()));
@@ -1769,6 +1793,12 @@ fn edge(e: Edge, old: &Const, new: &Const) -> bool {
 fn update(tys: &Types, v: Const, path: &[Sel], new: Const) -> Const {
     let Some((first, rest)) = path.split_first() else { return new };
     match (first, v) {
+        (Sel::Clip(lo, w, skip), Const::Bits(mut b)) => {
+            if let Some(nb) = crate::design::ops::bits_of(&new) {
+                b.set_slice(*lo, &nb.resize(*skip + *w, false).slice(*skip, *w));
+            }
+            Const::Bits(b)
+        }
         (Sel::Char(i), Const::Str(mut s)) => {
             // Out of range, or a NUL, leaves the string alone.
             let c = match &new {

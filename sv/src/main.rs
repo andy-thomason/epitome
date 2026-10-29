@@ -8,6 +8,8 @@
 //! - `--ast`: print the syntax tree.
 //! - `--design`: elaborate, and print the design.
 //! - `--parse-only`: stop after parsing; `--elab-only`: after elaborating.
+//! - `--top name`: elaborate `name` as a top-level instance (repeatable);
+//!   by default, every design element nothing instantiates.
 //! - `+name` or `+name=value`: plusargs for the simulation (21.6).
 //!
 //! Without these, the design is simulated by the interpreter. The exit
@@ -19,7 +21,6 @@
 //!
 //! Other options are ignored, so that test runners can pass their own.
 
-use epitome_sv::design::elab::elaborate;
 use epitome_sv::design::print::print as print_design;
 use epitome_sv::parse::parse;
 use epitome_sv::preprocess::{Options, preprocess_files};
@@ -46,6 +47,7 @@ fn run() -> ExitCode {
     let mut parse_only = false;
     let mut elab_only = false;
     let mut plusargs = Vec::new();
+    let mut tops = Vec::new();
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         if arg == "-E" {
@@ -58,6 +60,8 @@ fn run() -> ExitCode {
             parse_only = true;
         } else if arg == "--elab-only" {
             elab_only = true;
+        } else if arg == "--top" {
+            tops.push(args.next().unwrap_or_default());
         } else if let Some(dir) = arg.strip_prefix("-I") {
             let dir = if dir.is_empty() { args.next().unwrap_or_default() } else { dir.to_string() };
             options.include_dirs.push(dir.into());
@@ -92,7 +96,7 @@ fn run() -> ExitCode {
                 if parse_only {
                     return ExitCode::SUCCESS;
                 }
-                match elaborate(&tree, &out) {
+                match epitome_sv::design::elab::elaborate_tops(&tree, &out, &tops) {
                     Ok(d) => {
                         if design {
                             print!("{}", print_design(&d));

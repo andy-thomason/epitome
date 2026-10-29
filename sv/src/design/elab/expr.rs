@@ -384,7 +384,11 @@ fn bind_inner<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, ExprId>
             let a = bind(e, asc, kids[1])?;
             let b = bind(e, sc, kids[2])?;
             let (ta, tb) = (e.ex(a).ty, e.ex(b).ty);
-            let t = if e.d.types.is_integral(ta) && e.d.types.is_integral(tb)
+            // Both of one enum type: the result keeps it, so it can be
+            // assigned to that enum without a cast, as tools accept.
+            let t = if ta == tb && matches!(e.d.types.get(ta), Type::Enum { .. }) {
+                ta
+            } else if e.d.types.is_integral(ta) && e.d.types.is_integral(tb)
                 || e.d.types.is_real(ta)
                 || e.d.types.is_real(tb)
             {
@@ -930,6 +934,99 @@ fn unpacked_concat<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, target: Typ
     Ok(e.new_expr(ExprKind::Concat, target, n, args))
 }
 
+/// A pattern with keys, as the target's members or elements in order:
+/// each from its member name or index, else a key naming its type, else
+/// `default:`, which descends into unpacked members it does not fit
+/// (10.9.1, 10.9.2).
+fn keyed_pattern<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, t: TypeId, items: &[NodeId]) -> R<'a, Vec<ExprId>> {
+    let mut by_name: Vec<(Sym, NodeId)> = Vec::new();
+    let mut by_index: Vec<(i64, NodeId)> = Vec::new();
+    let mut by_type: Vec<(TypeId, NodeId)> = Vec::new();
+    let mut default = None;
+    let is_struct = matches!(e.d.types.get(t), Type::Struct { .. });
+    for &k in items {
+        if e.kind(k) != Kind::PatternKey {
+            continue;
+        }
+        let pk = e.kids(k).to_vec();
+        let (key, val) = (pk[0], pk[1]);
+        if e.kind(key) == Kind::Keyword && e.text(key) == "default" {
+            default = Some(val);
+        } else if is_struct && e.kind(key) == Kind::Name && {
+            let s = e.sym_of(key);
+            matches!(e.d.types.get(t), Type::Struct { members, .. } if members.iter().any(|m| m.name == s))
+        } {
+            by_name.push((e.sym_of(key), val));
+        } else if let Some(kt) = ty::maybe_type(e, sc, key)? {
+            by_type.push((kt, val));
+        } else {
+            let i = super::eval::const_expr(e, sc, key)?.to_i64().unwrap_or(-1);
+            by_index.push((i, val));
+        }
+    }
+    let fill = |e: &mut Elab<'a, '_>, et: TypeId, own: Option<NodeId>| -> R<'a, ExprId> {
+        if let Some(v) = own {
+            return rvalue(e, sc, v, et);
+        }
+        if let Some(&(_, v)) = by_type.iter().find(|(kt, _)| *kt == et) {
+            return rvalue(e, sc, v, et);
+        }
+        match default {
+            Some(d) => default_into(e, sc, et, d, &by_type),
+            None => {
+                let c = e.new_const(crate::design::ops::default_value(&e.d.types, et));
+                Ok(e.new_expr(ExprKind::Const(c), et, items[0], vec![]))
+            }
+        }
+    };
+    let mut args = Vec::new();
+    match e.d.types.get(t).clone() {
+        Type::Struct { members, .. } => {
+            for m in &members {
+                let own = by_name.iter().find(|(s, _)| *s == m.name).map(|&(_, v)| v);
+                args.push(fill(e, m.ty, own)?);
+            }
+        }
+        _ => {
+            let et = e.d.types.element(t).unwrap_or(Types::UNKNOWN);
+            let (l, r) = match e.d.types.get(t) {
+                Type::Unpacked { dim: UDim::Range(l, r), .. } => (*l, *r),
+                _ => e.d.types.packed_range(t).unwrap_or((0, 0)),
+            };
+            let n = (l - r).unsigned_abs() as i64 + 1;
+            for k in 0..n {
+                let idx = if l <= r { l + k } else { l - k };
+                let own = by_index.iter().find(|(i, _)| *i == idx).map(|&(_, v)| v);
+                args.push(fill(e, et, own)?);
+            }
+        }
+    }
+    Ok(args)
+}
+
+/// `default:` for one member or element: the value itself if it fits,
+/// else the same default throughout an unpacked struct or array.
+fn default_into<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, et: TypeId, d: NodeId, by_type: &[(TypeId, NodeId)]) -> R<'a, ExprId> {
+    let descend = matches!(e.d.types.get(et), Type::Struct { packed: false, .. } | Type::Unpacked { dim: UDim::Range(..), .. });
+    if !descend {
+        return rvalue(e, sc, d, et);
+    }
+    let mut args = Vec::new();
+    let tys: Vec<TypeId> = match e.d.types.get(et).clone() {
+        Type::Struct { members, .. } => members.iter().map(|m| m.ty).collect(),
+        Type::Unpacked { elem, dim: UDim::Range(l, r) } => vec![elem; (l - r).unsigned_abs() as usize + 1],
+        _ => vec![],
+    };
+    for mt in tys {
+        let x = match by_type.iter().find(|(kt, _)| *kt == mt) {
+            Some(&(_, v)) => rvalue(e, sc, v, mt)?,
+            None => default_into(e, sc, mt, d, by_type)?,
+        };
+        args.push(x);
+    }
+    Ok(e.new_expr(ExprKind::Pattern, et, d, args))
+}
+
 /// `'{...}`: elements in order, for the target's type (10.9).
 pub(crate) fn pattern<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, target: Option<TypeId>) -> R<'a, ExprId> {
     let kids = e.kids(n).to_vec();
@@ -954,6 +1051,28 @@ pub(crate) fn pattern<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, target: 
         _ => vec![],
     };
     let elem = e.d.types.element(t);
+    // An associative array's literal: its keys and values in pairs, as
+    // the simulator stores them (7.9.11).
+    if let Type::Unpacked { elem: et, dim: UDim::Assoc(kt) } = e.d.types.get(t).clone() {
+        let mut args = Vec::new();
+        for &k in items {
+            if e.kind(k) != Kind::PatternKey {
+                continue;
+            }
+            let pk = e.kids(k).to_vec();
+            if e.kind(pk[0]) == Kind::Keyword && e.text(pk[0]) == "default" {
+                continue;
+            }
+            args.push(rvalue(e, sc, pk[0], kt)?);
+            args.push(rvalue(e, sc, pk[1], et)?);
+        }
+        return Ok(e.new_expr(ExprKind::Pattern, t, n, args));
+    }
+    if items.iter().any(|&k| e.kind(k) == Kind::PatternKey) && t != Types::UNKNOWN {
+        super::checks::pattern_shape(e, sc, n, t, items)?;
+        let args = keyed_pattern(e, sc, t, items)?;
+        return Ok(e.new_expr(ExprKind::Pattern, t, n, args));
+    }
     for (i, &k) in items.iter().enumerate() {
         match e.kind(k) {
             Kind::PatternKey => {

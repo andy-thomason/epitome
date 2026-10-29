@@ -291,6 +291,8 @@ pub(crate) struct Sim<'d, 'a, 'o> {
     held: HashSet<u32>,
     /// The process running now.
     cur_proc: u32,
+    /// A zero-delay loop has been reported.
+    loop_reported: bool,
     /// Slots under `force` or procedural `assign`.
     pcont: HashMap<usize, Pcont>,
     /// The force or assign driver writing now, whose writes go through.
@@ -364,6 +366,7 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
             triggered: HashMap::new(),
             nets: HashMap::new(),
             pcont: HashMap::new(),
+            loop_reported: false,
             builtins: HashMap::new(),
             blocked: HashMap::new(),
             proc_obj: HashMap::new(),
@@ -763,6 +766,35 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
             };
         }
         Some(at)
+    }
+
+    /// The processes that ran most in a time step that would not settle.
+    fn report_loop(&mut self, counts: &HashMap<u32, u64>) {
+        let mut top: Vec<(u32, u64)> = counts.iter().map(|(&p, &n)| (p, n)).collect();
+        top.sort_by_key(|&(p, n)| (std::cmp::Reverse(n), p));
+        let _ = writeln!(self.out, "epitome-sv: time {} does not settle; the processes running most:", self.time);
+        for &(p, n) in top.iter().take(12) {
+            let pr = &self.procs[p as usize];
+            let inst = pr.frames.first().map_or(u32::MAX, |f| f.cx.inst);
+            let what = match pr.driver {
+                Some(Driven::Assign(id)) => format!("assign `{}`", self.line_of(self.d.drivers[id.0 as usize].node)),
+                Some(Driven::Port(child, k)) => {
+                    let conn = &self.d.instance(self.insts[child as usize].elab).connections[k];
+                    format!("port `{}` of {}", self.d.name(conn.port), self.inst_path(child))
+                }
+                Some(Driven::Cell(c)) => format!("gate `{}`", self.d.name(self.d.cells[c.0 as usize].kind)),
+                Some(Driven::Pcont(_)) => "force/assign".into(),
+                None => {
+                    let pc = pr.pc as usize;
+                    let at = self.proc_entry.iter().filter(|e| *e.1 as usize <= pc).max_by_key(|e| *e.1).map(|e| *e.0);
+                    match at {
+                        Some(id) => format!("process at `{}`", self.line_of(self.d.processes[id.0 as usize].node)),
+                        None => "process".into(),
+                    }
+                }
+            };
+            let _ = writeln!(self.out, "  {n:>8}  {}: {what}", self.inst_path(inst));
+        }
     }
 
     /// The interface instance connected to an interface port of `inst`,
@@ -1241,8 +1273,20 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
 
     /// One time slot's active, inactive and NBA regions, to quiescence.
     fn slot(&mut self) {
+        let start = self.steps;
+        let mut counts: HashMap<u32, u64> = HashMap::new();
         loop {
             while let Some(p) = self.active.pop_front() {
+                // A time step that will not settle: say which processes
+                // keep running, once (a zero-delay loop).
+                let spent = self.steps - start;
+                if spent > 1_000_000 {
+                    *counts.entry(p).or_default() += 1;
+                    if spent > 1_200_000 && !self.loop_reported {
+                        self.loop_reported = true;
+                        self.report_loop(&counts);
+                    }
+                }
                 self.step(p);
                 if self.finishing {
                     return;

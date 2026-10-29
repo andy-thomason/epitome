@@ -34,7 +34,14 @@ pub(crate) type R<'a, T = ()> = Result<T, Error<'a>>;
 
 /// Elaborates a parsed compilation unit.
 pub fn elaborate<'a>(ast: &Ast<'a>, out: &Output<'a>) -> Result<Design<'a>, Error<'a>> {
+    elaborate_tops(ast, out, &[])
+}
+
+/// As `elaborate`, with the top-level instances named; none means every
+/// design element nothing instantiates (23.3.1).
+pub fn elaborate_tops<'a>(ast: &Ast<'a>, out: &Output<'a>, tops: &[String]) -> Result<Design<'a>, Error<'a>> {
     let mut e = Elab::new(ast, out);
+    e.chosen_tops = tops.to_vec();
     e.run()?;
     Ok(e.d)
 }
@@ -73,6 +80,8 @@ pub(crate) struct Elab<'a, 'x> {
     pub defs: HashMap<Sym, Def>,
     pub packages: HashMap<Sym, ScopeId>,
     pub spec_cache: HashMap<(NodeId, String), SpecId>,
+    /// The top-level instances asked for, if any.
+    pub chosen_tops: Vec<String>,
     pub work: Vec<(Work, Vec<InstId>)>,
     /// The instances being elaborated, outermost first.
     pub inst_path: Vec<InstId>,
@@ -195,6 +204,7 @@ impl<'a, 'x> Elab<'a, 'x> {
             defs: HashMap::new(),
             packages: HashMap::new(),
             spec_cache: HashMap::new(),
+            chosen_tops: Vec::new(),
             work: Vec::new(),
             inst_path: Vec::new(),
             class_nodes: HashMap::new(),
@@ -473,6 +483,16 @@ impl<'a, 'x> Elab<'a, 'x> {
                     && !self.nested.contains(&item)
                 {
                     tops.push((s, def));
+                }
+            }
+        }
+        if !self.chosen_tops.is_empty() {
+            tops.clear();
+            for name in self.chosen_tops.clone() {
+                let s = self.sym_owned(name.clone());
+                match self.defs.get(&s) {
+                    Some(&def) => tops.push((s, def)),
+                    None => return Err(self.err(self.ast.root, format!("there is no design element `{name}` to be the top"))),
                 }
             }
         }
@@ -1032,10 +1052,10 @@ impl<'a, 'x> Elab<'a, 'x> {
         };
         let v = match over {
             Some(Over::Value(v)) => v,
-            Some(Over::Node(n2, psc)) => eval::const_expr(self, psc, n2)?,
+            Some(Over::Node(n2, psc)) => eval::const_expr_to(self, psc, n2, declared)?,
             Some(Over::Type(_)) => return Err(self.err(name, format!("parameter `{}` is given a type", self.name(s)))),
             None => match value_node {
-                Some(v) => eval::const_expr(self, sc, v)?,
+                Some(v) => eval::const_expr_to(self, sc, v, declared)?,
                 None => {
                     // A parameter with no default needs a value from every
                     // instance (6.20.1).

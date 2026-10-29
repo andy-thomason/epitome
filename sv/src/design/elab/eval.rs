@@ -25,6 +25,19 @@ pub(crate) fn const_expr<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<
     }
 }
 
+/// As `const_expr`, with the type the value is for, which a pattern needs
+/// (10.9).
+pub(crate) fn const_expr_to<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, t: Option<TypeId>) -> R<'a, Const> {
+    let Some(t) = t else { return const_expr(e, sc, n) };
+    let x = expr::rvalue(e, sc, n, t)?;
+    let mut ev = Eval { frames: Vec::new(), steps: 0, node: n };
+    match ev.expr(e, x) {
+        Ok(v) => Ok(v),
+        Err(Stop::Error(err)) => Err(err),
+        Err(_) => Err(e.err(n, "this is not a constant expression")),
+    }
+}
+
 /// The type a parameter takes from its value when declared without one
 /// (6.20.2).
 /// See `ops::convert`.

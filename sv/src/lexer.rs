@@ -275,7 +275,12 @@ impl<'a> Lexer<'a> {
             b'\'' => return self.apostrophe(),
             _ => {
                 let rest = self.rest();
-                let Some(op) = OPERATORS.iter().find(|op| rest.starts_with(**op)) else {
+                // An operator ending in `/` does not take the start of a
+                // comment: `3'b0://note` is `:` then a comment (5.4).
+                let Some(op) = OPERATORS
+                    .iter()
+                    .find(|op| rest.starts_with(**op) && !(op.len() > 1 && op.ends_with('/') && matches!(rest.as_bytes().get(op.len()), Some(b'/' | b'*'))))
+                else {
                     let len = rest.chars().next().map_or(1, char::len_utf8);
                     return Err(self.error(start, len, format!("unexpected character `{}`", &rest[..len])));
                 };

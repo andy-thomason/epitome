@@ -471,9 +471,14 @@ pub(crate) fn process<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a>
     let (reads, writes) = super::checks::read_write_sets(e, body);
     let sensitivity = match kind {
         ProcKind::AlwaysComb | ProcKind::AlwaysLatch => {
-            // What the process reads, less what it only uses locally
-            // (9.2.2.2).
-            reads.iter().copied().filter(|o| e.obj(*o).lifetime == Lifetime::Static && !local_to(e, *o, sc)).collect()
+            // What the process reads, less what it only uses locally and
+            // what it reads only where it writes (9.2.2.2.1).
+            let covered = super::checks::self_covered(e, body);
+            reads
+                .iter()
+                .copied()
+                .filter(|o| e.obj(*o).lifetime == Lifetime::Static && !local_to(e, *o, sc) && !covered.contains(o))
+                .collect()
         }
         _ => vec![],
     };

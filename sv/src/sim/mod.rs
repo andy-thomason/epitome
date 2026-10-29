@@ -192,6 +192,9 @@ enum Place {
     Field(u32, u32),
     /// The parts of a concatenation, most significant first.
     Concat(Vec<Target>),
+    /// The parts of a streaming concatenation, the direction and the
+    /// block size (11.4.14.3).
+    Stream(Vec<Target>, bool, u32),
     None,
 }
 
@@ -795,7 +798,7 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
             Place::Slot(s) => self.read_slot(*s),
             Place::Local(o) => self.read_local(cx, *o),
             Place::Field(h, f) => self.heap.get(*h as usize).and_then(|o| o.fields.get(*f as usize).cloned()).unwrap_or(Const::Null),
-            Place::Concat(_) | Place::None => Const::Null,
+            Place::Concat(_) | Place::Stream(..) | Place::None => Const::Null,
         }
     }
 
@@ -803,6 +806,29 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
     /// replaced, converted to the target's type. Watchers of a slot that
     /// changes are woken, unless `quiet`.
     fn write_cx(&mut self, cx: &Cx, t: &Target, v: Const, quiet: bool) {
+        if let Place::Stream(parts, left, slice) = &t.place {
+            // Unpacking: bits from the left of the source, as many as the
+            // parts take, re-ordered, then shared out in order.
+            let tys = &self.d.types;
+            let sizes: Vec<u32> = parts.iter().map(|p| crate::design::ops::fixed_bits(tys, p.ty)).collect();
+            let dynamic = parts.iter().any(|p| !tys.is_integral(p.ty) && matches!(tys.get(p.ty), Type::Unpacked { dim: UDim::Dynamic | UDim::Queue(_), .. } | Type::String));
+            let need: u32 = sizes.iter().sum();
+            let mut src = crate::design::ops::pack(&v);
+            if !dynamic && src.width() > need {
+                src = src.slice(src.width() - need, need);
+            }
+            if *left {
+                src = crate::design::ops::reverse_blocks(&src, *slice);
+            }
+            let mut top = src.width();
+            let mut greedy = false;
+            for (i, pt) in parts.iter().enumerate() {
+                let after: u32 = sizes[i + 1..].iter().sum();
+                let val = crate::design::ops::unpack(&self.d.types, &src, &mut top, pt.ty, after, &mut greedy);
+                self.write_cx(cx, pt, val, quiet);
+            }
+            return;
+        }
         let v = crate::design::ops::convert(self.types(), &v, t.ty);
         if let Place::Concat(parts) = &t.place {
             let Some(bits) = crate::design::ops::bits_of(&v) else { return };
@@ -860,7 +886,7 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
         let old = self.read_place(cx, &t.place);
         let new = if t.path.is_empty() { v } else { update(self.types(), old, &t.path, v) };
         match &t.place {
-            Place::Slot(_) | Place::Concat(_) => {}
+            Place::Slot(_) | Place::Concat(_) | Place::Stream(..) => {}
             Place::Local(o) => {
                 let mut l = cx.locals.borrow_mut();
                 match l.iter_mut().rev().find(|(k, _)| k == o) {

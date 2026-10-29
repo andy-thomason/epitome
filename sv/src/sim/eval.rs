@@ -26,6 +26,16 @@ impl Sim<'_, '_, '_> {
             K::TypeRef(t) => Const::Type(*t),
             K::Convert => {
                 let v = self.eval(cx, e.args[0]);
+                // A stream put into a wider vector is left-justified
+                // (11.4.14.3).
+                if matches!(self.d.expr(e.args[0]).kind, K::Streaming { .. })
+                    && tys.is_integral(ty)
+                    && let Const::Bits(b) = &v
+                    && tys.width(ty) > b.width()
+                {
+                    let w = tys.width(ty);
+                    return ops::convert(tys, &Const::Bits(b.resize(w, false).shl((w - b.width()) as u64)), ty);
+                }
                 ops::convert(tys, &v, ty)
             }
             K::Unary(op @ (UnOp::PreInc | UnOp::PreDec | UnOp::PostInc | UnOp::PostDec)) => {
@@ -422,13 +432,22 @@ impl Sim<'_, '_, '_> {
         }
     }
 
+    /// Whether an expression can name storage: the parts of a stream
+    /// rather than its block size.
+    fn is_lvalue_expr(&self, x: ExprId) -> bool {
+        matches!(
+            self.d.expr(x).kind,
+            ExprKind::Object(_) | ExprKind::Hier { .. } | ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_) | ExprKind::Field(_) | ExprKind::Concat
+        )
+    }
+
     fn stream(&mut self, cx: &Cx, e: &Expr, left: bool) -> Const {
         // `{>> {a, b}}` packs left to right; `{<< n {...}}` reverses the
         // order of n-bit slices (11.4.14).
         let mut args = e.args.clone();
         let mut slice = 1u32;
         if let Some(&first) = args.first()
-            && !matches!(self.d.expr(first).kind, ExprKind::Object(_) | ExprKind::Hier { .. } | ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_) | ExprKind::Field(_) | ExprKind::Concat)
+            && !self.is_lvalue_expr(first)
             && args.len() > 1
         {
             let v = self.eval(cx, first);
@@ -440,35 +459,11 @@ impl Sim<'_, '_, '_> {
         }
         let mut parts = Vec::new();
         for a in args {
-            match self.eval(cx, a) {
-                Const::Bits(b) => parts.push(b),
-                Const::Aggregate(items) => {
-                    for it in items {
-                        if let Const::Bits(b) = it {
-                            parts.push(b);
-                        }
-                    }
-                }
-                Const::Str(s) => parts.push(Bits::from_str_bytes(&s)),
-                _ => {}
-            }
+            let v = self.eval(cx, a);
+            parts.push(ops::pack(&v));
         }
         let all = Bits::concat(&parts);
-        if !left {
-            return Const::Bits(all);
-        }
-        let w = all.width();
-        let mut out = Bits::zero(w, false);
-        let n = w.div_ceil(slice);
-        for k in 0..n {
-            // Slice k from the top goes to slice k from the bottom.
-            let hi = w as i64 - (k * slice) as i64;
-            let lo = (hi - slice as i64).max(0);
-            let piece = all.slice(lo as u32, (hi - lo) as u32);
-            out.set_slice(k * slice, &piece);
-        }
-        // Slices of a width that does not divide are kept at the top.
-        Const::Bits(out)
+        Const::Bits(if left { ops::reverse_blocks(&all, slice) } else { all })
     }
 
     // ---- targets ----
@@ -502,6 +497,19 @@ impl Sim<'_, '_, '_> {
                 let mut t = self.target(cx, e.args[0]);
                 t.ty = self.d.expr(e.args[0]).ty;
                 t
+            }
+            ExprKind::Streaming { left } => {
+                let mut args = e.args.clone();
+                let mut slice = 1u32;
+                if args.len() > 1 && !self.is_lvalue_expr(args[0]) {
+                    slice = match self.eval(cx, args[0]) {
+                        Const::Type(t) => self.d.types.width(t).max(1),
+                        v => v.to_i64().unwrap_or(1).max(1) as u32,
+                    };
+                    args.remove(0);
+                }
+                let parts = args.iter().map(|&a| self.target(cx, a)).collect();
+                Target { place: Place::Stream(parts, *left, slice), path: vec![], ty: e.ty }
             }
             ExprKind::Concat => {
                 // `{a, b} = v`: the value split among the parts, the first

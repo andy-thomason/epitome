@@ -582,6 +582,12 @@ fn stmt_inner<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, StmtId>
                         expr::assign_conv(e, r, lt)
                     }
                 }
+                // Unpacking keeps the source's own width: extra bits are
+                // taken from its left (11.4.14.3).
+                _ if matches!(e.ex(lhs).kind, ExprKind::Streaming { .. }) => {
+                    let r = expr::bind(e, sc, rhs_node)?;
+                    expr::selfdet(e, r)
+                }
                 _ => expr::rvalue(e, sc, rhs_node, lt)?,
             };
             super::checks::instance_types(e, lhs, rhs, n)?;

@@ -127,7 +127,7 @@ fn rebuild(cx: &mut Ctx, s: &mut Seq, ty: TypeId, vals: &[Value], ls: &[Leaf], d
             let sub_ls: Vec<Leaf> = idx.iter().map(|&j| ls[j].clone()).collect();
             rebuild(cx, s, t, &sub_vals, &sub_ls, depth + 1)
         };
-        agg = s.op(Op::InsertValue { aggregate: agg, element: part, indices: vec![k as u32] }, ty);
+        agg = s.op(Op::InsertValue { aggregate: agg, element: part, indices: vec![k as u32].into() }, ty);
     }
     agg
 }
@@ -152,7 +152,7 @@ fn leaves_of(
                 let mut cty = ty;
                 for &k in &l.path {
                     let t = cx.m.types.member(cty, u64::from(k)).ok_or("a bad path")?;
-                    cur = s.op(Op::ExtractValue { aggregate: cur, indices: vec![k] }, t);
+                    cur = s.op(Op::ExtractValue { aggregate: cur, indices: vec![k].into() }, t);
                     cty = t;
                 }
                 out.push(cur);
@@ -254,15 +254,15 @@ pub fn scalarize(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
                             s.op(
                                 Op::Gep {
                                     flags: GepFlags::default(),
-                                    inrange: None,
                                     source_ty: i8t,
                                     ptr: p,
-                                    indices: vec![off],
+                                    indices: vec![off].into(),
                                 },
                                 ptr,
                             )
                         };
-                        let a = align.map(|a| if l.offset == 0 { a } else { a.min(1 << l.offset.trailing_zeros()) });
+                        let a =
+                            align.map(|a| if l.offset == 0 { a } else { a.at_most(1 << l.offset.trailing_zeros()) });
                         vals.push(s.op(Op::Load { volatile, atomic: None, ptr: at, align: a }, l.ty));
                     }
                     split.insert(res.unwrap(), vals);
@@ -279,15 +279,15 @@ pub fn scalarize(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
                             s.op(
                                 Op::Gep {
                                     flags: GepFlags::default(),
-                                    inrange: None,
                                     source_ty: i8t,
                                     ptr: p,
-                                    indices: vec![off],
+                                    indices: vec![off].into(),
                                 },
                                 ptr,
                             )
                         };
-                        let a = align.map(|a| if l.offset == 0 { a } else { a.min(1 << l.offset.trailing_zeros()) });
+                        let a =
+                            align.map(|a| if l.offset == 0 { a } else { a.at_most(1 << l.offset.trailing_zeros()) });
                         s.op_void(Op::Store { volatile, atomic: None, value: v, ptr: at, align: a });
                     }
                     keep = false;

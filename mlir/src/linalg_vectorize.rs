@@ -192,28 +192,32 @@ fn plan(src: &Module, op: OpId, width: u64) -> Option<Plan> {
     // Widths that divide the loop first; then the widest that fits, the
     // elements past the last whole vector one at a time.
     for tail in [false, true] {
-    for swap in std::iter::once(d).chain((0..d).rev().filter(|&k| !reduction[k])) {
-        let swapped = |k: usize| {
-            if k == swap {
-                d
-            } else if k == d {
-                swap
-            } else {
-                k
-            }
-        };
-        let maps: Vec<Map> = maps
-            .iter()
-            .map(|m| Map { dims: m.dims, syms: 0, results: m.results.iter().map(|e| rename(e, &swapped)).collect() })
-            .collect();
-        let mut reduction = reduction.clone();
-        reduction.swap(swap, d);
-        for &w in &widths {
-            if let Some(p) = plan_at(src, op, w, maps.clone(), &reduction, swap, tail) {
-                return Some(p);
+        for swap in std::iter::once(d).chain((0..d).rev().filter(|&k| !reduction[k])) {
+            let swapped = |k: usize| {
+                if k == swap {
+                    d
+                } else if k == d {
+                    swap
+                } else {
+                    k
+                }
+            };
+            let maps: Vec<Map> = maps
+                .iter()
+                .map(|m| Map {
+                    dims: m.dims,
+                    syms: 0,
+                    results: m.results.iter().map(|e| rename(e, &swapped)).collect(),
+                })
+                .collect();
+            let mut reduction = reduction.clone();
+            reduction.swap(swap, d);
+            for &w in &widths {
+                if let Some(p) = plan_at(src, op, w, maps.clone(), &reduction, swap, tail) {
+                    return Some(p);
+                }
             }
         }
-    }
     }
     None
 }

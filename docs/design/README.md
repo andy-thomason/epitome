@@ -55,6 +55,10 @@ short) has to do to work like LLVM. They are split into two halves:
   dialect descriptions written in LLVM IR, and compiling `hw`, `comb` and
   `seq` into cycle-based simulators; the paths from PyTorch and from
   Chisel. Its specification is in [`docs/mlir`](../mlir/README.md).
+- [SystemVerilog](sv.md): `epitome-sv`, a clean-room SystemVerilog
+  compiler written from IEEE 1800-2023 and measured against the
+  `test1800` conformance tests: lexing, preprocessing, parsing,
+  elaboration and compiled simulation.
 
 ## Clean-room rules
 
@@ -87,6 +91,7 @@ how they were found in
 | Braun et al., "Simple and Efficient Construction of Static Single Assignment Form", CC 2013 | Rebuilding SSA form in `parallel.md` |
 | Cooper, Harvey and Kennedy, "A Simple, Fast Dominance Algorithm", 2001 | The dominator tree |
 | Tarjan, "Depth-First Search and Linear Graph Algorithms", 1972 | Call-graph SCCs |
+| IEEE 1800-2023, *IEEE Standard for SystemVerilog* (copyright IEEE; cited by clause, never copied) and the [IEEE 1800-2023 conformance tests](https://github.com/andy-thomason/IEEE1800-2023-tests) | `sv.md` |
 | [MLIR's](https://mlir.llvm.org/docs/), [CIRCT's](https://circt.llvm.org/docs/) and torch-mlir's documentation, the FIRRTL specification; see [`docs/mlir`](../mlir/README.md) | `mlir.md` |
 
 The pass list on the Passes page says it may be incomplete. Where we learn

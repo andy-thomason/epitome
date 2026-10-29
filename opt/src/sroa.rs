@@ -584,10 +584,9 @@ fn split_copy(sh: &Shared, f: &mut Function, names: &mut Names, c: &Copy, delta:
         } else {
             let op = Op::Gep {
                 flags: GepFlags(0),
-                inrange: None,
                 source_ty: i8,
                 ptr: base,
-                indices: vec![sh.int(64, delta as i64)],
+                indices: vec![sh.int(64, delta as i64)].into(),
             };
             before(f, op, Some(ptr))
         }
@@ -595,13 +594,17 @@ fn split_copy(sh: &Shared, f: &mut Function, names: &mut Names, c: &Copy, delta:
     match c.role {
         Role::Into(src) => {
             let from = at(f, src, &mut before);
-            let v = before(f, Op::Load { volatile: false, atomic: None, ptr: from, align: Some(1) }, Some(piece_ty));
+            let v = before(
+                f,
+                Op::Load { volatile: false, atomic: None, ptr: from, align: Some(Align::of(1)) },
+                Some(piece_ty),
+            );
             before(f, Op::Store { volatile: false, atomic: None, value: v, ptr: piece, align: None }, None);
         }
         Role::OutOf(dst) => {
             let v = before(f, Op::Load { volatile: false, atomic: None, ptr: piece, align: None }, Some(piece_ty));
             let to = at(f, dst, &mut before);
-            before(f, Op::Store { volatile: false, atomic: None, value: v, ptr: to, align: Some(1) }, None);
+            before(f, Op::Store { volatile: false, atomic: None, value: v, ptr: to, align: Some(Align::of(1)) }, None);
         }
         Role::Set(byte) => {
             let is_int = matches!(sh.types().get(piece_ty), Type::Int(_));
@@ -717,18 +720,21 @@ fn split_aggregate_accesses(sh: &Shared, f: &mut Function) {
                 };
                 let at = emit(
                     f,
-                    Op::Gep { flags: GepFlags(GepFlags::INBOUNDS), inrange: None, source_ty: ty, ptr, indices },
+                    Op::Gep { flags: GepFlags(GepFlags::INBOUNDS), source_ty: ty, ptr, indices: indices.into() },
                     Some(ptr_ty),
                 );
                 match store_value {
                     Some(v) => {
-                        let part = emit(f, Op::ExtractValue { aggregate: v, indices: vec![k as u32] }, Some(e));
+                        let part = emit(f, Op::ExtractValue { aggregate: v, indices: vec![k as u32].into() }, Some(e));
                         emit(f, Op::Store { volatile: false, atomic: None, value: part, ptr: at, align: None }, None);
                     }
                     None => {
                         let part = emit(f, Op::Load { volatile: false, atomic: None, ptr: at, align: None }, Some(e));
-                        aggregate =
-                            emit(f, Op::InsertValue { aggregate, element: part, indices: vec![k as u32] }, Some(ty));
+                        aggregate = emit(
+                            f,
+                            Op::InsertValue { aggregate, element: part, indices: vec![k as u32].into() },
+                            Some(ty),
+                        );
                     }
                 }
             }

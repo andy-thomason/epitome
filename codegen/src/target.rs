@@ -1312,7 +1312,7 @@ impl Target {
             {
                 mk(Head::Gep, vec![ev(*ptr)?, ev(indices[0])?])
             }
-            Op::ExtractValue { aggregate, indices } => match (ev(*aggregate)?, indices.as_slice()) {
+            Op::ExtractValue { aggregate, indices } => match (ev(*aggregate)?, &indices[..]) {
                 (Tree::Flags(a, _), [0]) => *a,
                 (Tree::Flags(_, b), [1]) => *b,
                 (t, _) => return Err(format!("extractvalue from {t:?}")),
@@ -1324,7 +1324,7 @@ impl Target {
                     t => return Err(format!("insertvalue into {t:?}")),
                 };
                 let e = ev(*element)?;
-                match indices.as_slice() {
+                match &indices[..] {
                     [0] => Tree::Flags(Box::new(e), Box::new(b)),
                     [1] => Tree::Flags(Box::new(a), Box::new(e)),
                     _ => return Err("insertvalue index".into()),

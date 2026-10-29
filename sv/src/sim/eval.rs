@@ -1069,9 +1069,11 @@ impl Sim<'_, '_, '_> {
             }
             Type::Class(c) => {
                 if self.d.class(c).node == self.ast.root {
-                    // A built-in class: an empty object stands for it.
+                    // A built-in class: an empty object stands for it, its
+                    // state kept aside.
                     let h = self.heap.len() as u32;
                     self.heap.push(Object { class: c, fields: vec![] });
+                    self.builtin_new(cx, c, h, &e.args);
                     return Const::Handle(h);
                 }
                 let h = self.alloc(c);

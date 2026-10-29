@@ -709,6 +709,7 @@ pub fn expr(d: &Design, x: ExprId) -> String {
                 format!("{}({})", d.name(*s), all(0))
             }
         }
+        ExprKind::Method(m) if e.args.is_empty() => format!("{}()", d.name(*m)),
         ExprKind::Method(m) => format!("{}.{}({})", a(0), d.name(*m), all(1)),
         ExprKind::Pattern => format!("'{{{}}}", all(0)),
         ExprKind::Inside => format!("({} inside {{{}}})", a(0), all(1)),

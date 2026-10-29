@@ -10,6 +10,7 @@
 //! the active one for now.
 
 mod code;
+mod builtin;
 mod eval;
 mod net;
 mod sys;
@@ -20,7 +21,7 @@ use crate::design::value::{Bits, Logic};
 use crate::design::*;
 use code::{Compiler, Op};
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::io::Write;
 use std::rc::Rc;
 
@@ -278,6 +279,18 @@ pub(crate) struct Sim<'d, 'a, 'o> {
     watch: Vec<Vec<(u32, u32)>>,
     /// Nets that resolve several drivers or carry strengths, by slot.
     nets: HashMap<usize, net::Net>,
+    /// Semaphores, mailboxes and process objects, by handle.
+    builtins: HashMap<u32, builtin::Builtin>,
+    /// Processes waiting to retry a blocked call on an object, by handle.
+    blocked: HashMap<u32, Vec<u32>>,
+    /// The process object of each process that has one.
+    proc_obj: HashMap<u32, u32>,
+    killed: HashSet<u32>,
+    suspended: HashSet<u32>,
+    /// Suspended processes that would have run.
+    held: HashSet<u32>,
+    /// The process running now.
+    cur_proc: u32,
     /// Slots under `force` or procedural `assign`.
     pcont: HashMap<usize, Pcont>,
     /// The force or assign driver writing now, whose writes go through.
@@ -351,6 +364,13 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
             triggered: HashMap::new(),
             nets: HashMap::new(),
             pcont: HashMap::new(),
+            builtins: HashMap::new(),
+            blocked: HashMap::new(),
+            proc_obj: HashMap::new(),
+            killed: HashSet::new(),
+            suspended: HashSet::new(),
+            held: HashSet::new(),
+            cur_proc: 0,
             privileged: None,
             dollar: Vec::new(),
             udp_state: HashMap::new(),
@@ -478,7 +498,7 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
     // ---- code ----
 
     fn compile(&mut self) {
-        let mut c = Compiler::new(self.d);
+        let mut c = Compiler::new(self.d, self.ast.root);
         for (i, p) in self.d.processes.iter().enumerate() {
             let at = c.process(p);
             self.proc_entry.insert(ProcId(i as u32), at);
@@ -1322,6 +1342,11 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
             }
             return;
         }
+        if self.suspended.contains(&p) {
+            self.held.insert(p);
+            return;
+        }
+        self.cur_proc = p;
         loop {
             if self.over_limit() {
                 return;
@@ -1340,7 +1365,12 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
                     return;
                 }
             }
-            if self.finishing {
+            if self.finishing || self.procs[p as usize].state == State::Done {
+                return;
+            }
+            if !self.suspended.is_empty() && self.suspended.contains(&p) {
+                // It suspended itself (9.7).
+                self.held.insert(p);
                 return;
             }
         }
@@ -1349,6 +1379,7 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
     fn end_proc(&mut self, p: u32) {
         self.procs[p as usize].state = State::Done;
         self.procs[p as usize].epoch = self.procs[p as usize].epoch.wrapping_add(1);
+        self.ended(p);
         if let Some(parent) = self.procs[p as usize].parent {
             let pw = self.procs[parent as usize].wait.clone();
             match pw {
@@ -1388,6 +1419,19 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
         match op {
             Op::Expr(x) => {
                 self.eval(&cx, x);
+            }
+            Op::Blocking(x) => {
+                let ExprKind::Method(m) = self.d.expr(x).kind else { return Flow::Next };
+                let args = self.d.expr(x).args.clone();
+                let name = self.d.name(m);
+                if self.builtin_method(&cx, name, &args).is_none() {
+                    // Try again when the object changes.
+                    if let Const::Handle(h) = self.eval(&cx, args[0]) {
+                        self.blocked.entry(h).or_default().push(p);
+                    }
+                    self.procs[p as usize].pc = pc;
+                    return self.suspend(p, Wait::Change);
+                }
             }
             Op::Assign(s) => return self.assign(p, &cx, s),
             Op::Jump(t) => self.procs[p as usize].pc = t,
@@ -1564,6 +1608,8 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
         if self.procs[p as usize].state != State::Done {
             self.procs[p as usize].state = State::Done;
             self.procs[p as usize].epoch = self.procs[p as usize].epoch.wrapping_add(1);
+            self.killed.insert(p);
+            self.ended(p);
         }
     }
 

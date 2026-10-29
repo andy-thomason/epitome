@@ -1711,6 +1711,14 @@ fn call<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, kids: &[NodeId], with:
                 ty::ScopeTarget::Unit => e.scope(e.d.unit).names.get(&s).copied(),
                 ty::ScopeTarget::Unknown => None,
             };
+            // `process::self()` (9.7).
+            if let ty::ScopeTarget::Class(c) = target
+                && e.d.classes[c.0 as usize].node == e.ast.root
+                && e.name(s) == "self"
+            {
+                let t = e.d.types.intern(Type::Class(c));
+                return Ok(e.new_expr(ExprKind::Method(s), t, n, vec![]));
+            }
             // `C::new(args)`: a typed constructor call (8.7).
             if let ty::ScopeTarget::Class(c) = target
                 && e.name(s) == "new"
@@ -2166,7 +2174,12 @@ fn new_expr<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, target: Option<Typ
         if let Some(Binding::Subroutine(ctor)) = own {
             let call = call_sub(e, sc, ctor, n, &args, None)?;
             xs.push(call);
-        } else if args.iter().any(|&a| e.kind(a) != Kind::Empty) && e.d.classes[c.0 as usize].node != e.ast.root {
+        } else if e.d.classes[c.0 as usize].node == e.ast.root {
+            // A built-in class's constructor arguments (Annex G).
+            for &a in &args {
+                xs.push(arg_expr(e, sc, a)?);
+            }
+        } else if args.iter().any(|&a| e.kind(a) != Kind::Empty) {
             return Err(e.err(n, "the class has no constructor that takes arguments (8.7)"));
         }
     } else {

@@ -596,6 +596,33 @@ impl<'a, 'x> Elab<'a, 'x> {
                 implements: vec![],
             });
             self.scope_mut(sc).names.insert(n, Binding::Class(id));
+            if name == "process" {
+                // `typedef enum {FINISHED, RUNNING, WAITING, SUSPENDED,
+                // KILLED} state;` (9.7).
+                let names = ["FINISHED", "RUNNING", "WAITING", "SUSPENDED", "KILLED"];
+                let items: Vec<(Sym, Bits)> =
+                    names.iter().enumerate().map(|(i, k)| (self.sym(k), Bits::from_u64(32, true, i as u64))).collect();
+                let uid = self.d.types.uid();
+                let st = self.sym("state");
+                let t = self.d.types.intern(Type::Enum { base: Types::INT, items: items.clone(), name: Some(st), uid });
+                self.scope_mut(cs).names.insert(st, Binding::Type(t));
+                for (k, v) in items {
+                    let c = self.new_const(Const::Bits(v));
+                    let o = self.new_object(Object {
+                        name: k,
+                        kind: ObjKind::EnumConst,
+                        ty: t,
+                        scope: cs,
+                        node: root,
+                        lifetime: Lifetime::Static,
+                        dir: None,
+                        init: None,
+                        value: Some(c),
+                        qualifiers: vec![],
+                    });
+                    self.scope_mut(cs).names.insert(k, Binding::Object(o));
+                }
+            }
         }
         let n = self.sym("randomize");
         self.scope_mut(sc).names.insert(n, Binding::Other(root));

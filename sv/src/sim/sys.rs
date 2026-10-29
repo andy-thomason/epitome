@@ -623,7 +623,17 @@ impl Sim<'_, '_, '_> {
     pub(super) fn method(&mut self, cx: &Cx, m: Sym, args: &[ExprId], ty: TypeId, _x: ExprId) -> Const {
         let name = self.d.name(m);
         let int = |v: i64| Const::Bits(Bits::from_i64(32, true, v));
+        if args.is_empty() && name == "self" {
+            return self.builtin_method(cx, name, args).unwrap_or(Const::Null);
+        }
         let Some(&base) = args.first() else { return Const::Null };
+        if let Type::Class(c) = self.d.types.get(self.d.expr(base).ty)
+            && super::builtin::builtin_class(self.d, *c, self.ast.root).is_some_and(|k| k != "weak_reference")
+            && !matches!(name, "randomize" | "srandom" | "get_randstate" | "set_randstate" | "rand_mode" | "constraint_mode")
+        {
+            // Called as a function, a task that would block does nothing.
+            return self.builtin_method(cx, name, args).unwrap_or(Const::Null);
+        }
         // An array method's iterator index.
         if (name == "index" || self.iter_index.contains_key(&base_obj(self.d, base)))
             && let Some(&i) = self.iter_index.get(&base_obj(self.d, base)) {

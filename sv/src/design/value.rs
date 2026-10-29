@@ -818,9 +818,12 @@ impl Bits {
     /// The bytes of the value as text, skipping zero bytes (6.16).
     pub fn to_str_bytes(&self) -> Vec<u8> {
         let n = self.width.div_ceil(8);
+        // Zero-filled on the left to whole bytes.
+        let full = self.resize(n * 8, false);
+        let me = &full;
         let mut out = Vec::new();
         for k in (0..n).rev() {
-            let c = self.slice(k * 8, 8).to_u64().unwrap_or(0) as u8;
+            let c = me.slice(k * 8, 8).to_u64().unwrap_or(0) as u8;
             if c != 0 {
                 out.push(c);
             }

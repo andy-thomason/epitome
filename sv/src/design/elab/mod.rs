@@ -514,8 +514,8 @@ impl<'a, 'x> Elab<'a, 'x> {
                 let lhs = self.new_expr(ExprKind::Object(obj), ty, n, vec![]);
                 self.obj_mut(obj).init = Some(rhs);
                 let id = DriverId(self.d.drivers.len() as u32);
-                let delay = self.d.nets.get(&obj).map(|i| i.delay.clone()).unwrap_or_default();
-                self.d.drivers.push(Driver { lhs, rhs, strength, delay, node: n, scope: sc });
+                // The net's delay applies through the net (28.16).
+                self.d.drivers.push(Driver { lhs, rhs, strength, delay: vec![], node: n, scope: sc });
                 self.push_item(sc, Item::Driver(id));
                 Ok(())
             }

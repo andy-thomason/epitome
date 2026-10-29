@@ -363,7 +363,7 @@ impl Sim<'_, '_, '_> {
             let by_strength = match dr {
                 Driven::Cell(_) => true,
                 Driven::Assign(id) => self.d.drivers[id.0 as usize].strength.is_some(),
-                Driven::Port(..) => false,
+                Driven::Port(..) | Driven::Pcont(_) => false,
             };
             for (k, t) in self.driver_targets(p, dr).into_iter().enumerate() {
                 let Some(t) = t else { continue };
@@ -492,6 +492,7 @@ impl Sim<'_, '_, '_> {
                 let outs = cell_outputs(self.d.name(cell.kind), terms.len());
                 terms[outs].iter().map(|&t| lvalue(self, t).then(|| self.target(&cx, t))).collect()
             }
+            Driven::Pcont(_) => vec![],
         }
     }
 
@@ -499,29 +500,47 @@ impl Sim<'_, '_, '_> {
     /// its delay: rise for a 1, fall for a 0, turn-off for a z, and the
     /// least for an x (28.16).
     pub(super) fn emit(&mut self, p: u32, inst: u32, delay: &[ExprId], outs: Vec<(Const, Vec<Sig>)>) {
+        self.emit_with(p, inst, delay, &[], outs);
+    }
+
+    /// As `emit`, with a net's own delay added (28.16).
+    pub(super) fn emit_with(&mut self, p: u32, inst: u32, delay: &[ExprId], net_delay: &[ExprId], outs: Vec<(Const, Vec<Sig>)>) {
         let pr = &mut self.procs[p as usize];
         pr.round = pr.round.wrapping_add(1);
         let round = pr.round;
-        if delay.is_empty() {
+        if delay.is_empty() && net_delay.is_empty() {
             self.put_outputs(p, outs);
             return;
         }
-        let cx = Cx { inst, locals: Rc::default(), this: None };
-        let mut ds = Vec::new();
-        for &x in delay {
-            let v = self.eval(&cx, x);
-            ds.push(self.ticks(inst, &v));
-        }
-        let rise = ds[0];
-        let fall = ds.get(1).copied().unwrap_or(rise);
-        let off = ds.get(2).copied().unwrap_or(rise.min(fall));
-        let to = outs.first().and_then(|(_, s)| s.first()).map_or(Logic::X, |s| s.logic());
-        let ticks = match to {
-            Logic::One => rise,
-            Logic::Zero => fall,
-            Logic::Z => off,
-            Logic::X => rise.min(fall).min(off),
+        // A vector's change is a fall if it becomes all 0, a turn-off if
+        // all z, and a rise otherwise; x takes the least delay.
+        let to = match outs.first().map(|(_, s)| s) {
+            Some(s) if !s.is_empty() && s.iter().all(|b| b.logic() == Logic::Z) => Logic::Z,
+            Some(s) if !s.is_empty() && s.iter().all(|b| b.logic() == Logic::Zero) => Logic::Zero,
+            Some(s) if s.iter().any(|b| b.logic() == Logic::One) => Logic::One,
+            _ => Logic::X,
         };
+        let mut ticks = 0;
+        for list in [delay, net_delay] {
+            if list.is_empty() {
+                continue;
+            }
+            let cx = Cx { inst, locals: Rc::default(), this: None };
+            let mut ds = Vec::new();
+            for &x in list {
+                let v = self.eval(&cx, x);
+                ds.push(self.ticks(inst, &v));
+            }
+            let rise = ds[0];
+            let fall = ds.get(1).copied().unwrap_or(rise);
+            let off = ds.get(2).copied().unwrap_or(rise.min(fall));
+            ticks += match to {
+                Logic::One => rise,
+                Logic::Zero => fall,
+                Logic::Z => off,
+                Logic::X => rise.min(fall).min(off),
+            };
+        }
         if ticks == 0 {
             self.put_outputs(p, outs);
         } else {
@@ -579,6 +598,15 @@ impl Sim<'_, '_, '_> {
             }
         }
         self.write_net(o.slot);
+    }
+
+    pub(super) fn write_net_pub(&mut self, s: usize) {
+        self.write_net(s);
+    }
+
+    /// Whether a driver writes to a slot.
+    pub(super) fn drives_slot(&mut self, p: u32, dr: Driven, s: usize) -> bool {
+        self.driver_targets(p, dr).into_iter().flatten().any(|t| matches!(t.place, Place::Slot(x) if self.find(x) == s))
     }
 
     fn write_net(&mut self, s: usize) {

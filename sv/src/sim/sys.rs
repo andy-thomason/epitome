@@ -669,17 +669,29 @@ impl Sim<'_, '_, '_> {
                             "atobin" => 2,
                             _ => 10,
                         };
-                        let txt: String = String::from_utf8_lossy(&s).chars().filter(|&c| c != '_').collect();
-                        let txt = txt.trim();
-                        let digits: String = txt.chars().enumerate().take_while(|&(k, c)| c.is_digit(r) || (k == 0 && c == '-' && r == 10)).map(|(_, c)| c).collect();
+                        // Digits and underscores from the start; a sign or any
+                        // other character ends the scan (6.16.9).
+                        let digits: String =
+                            String::from_utf8_lossy(&s).chars().take_while(|&c| c.is_digit(r) || c == '_').filter(|&c| c != '_').collect();
                         int(i64::from_str_radix(&digits, r).unwrap_or(0))
                     }
-                    "atoreal" => Const::Real(String::from_utf8_lossy(&s).trim().parse().unwrap_or(0.0)),
+                    "atoreal" => {
+                        // The longest prefix that reads as a real number.
+                        let txt = String::from_utf8_lossy(&s).to_string();
+                        let r = (1..=txt.len()).rev().find_map(|n| txt.get(..n).and_then(|p| p.parse::<f64>().ok()).filter(|_| {
+                            txt.as_bytes()[..n].iter().all(|c| c.is_ascii_digit() || b".eE+-_".contains(c))
+                        }));
+                        Const::Real(r.unwrap_or(0.0))
+                    }
                     "putc" | "itoa" | "hextoa" | "octtoa" | "bintoa" | "realtoa" => {
                         let new = match name {
                             "putc" => {
                                 let i = arg(self, 0).and_then(|c| c.to_i64()).unwrap_or(-1);
-                                let c = arg(self, 1).and_then(|c| c.to_i64()).unwrap_or(0) as u8;
+                                let c = match arg(self, 1) {
+                                    Some(Const::Str(x)) => x.last().copied().unwrap_or(0),
+                                    Some(c) => c.to_i64().unwrap_or(0) as u8,
+                                    None => 0,
+                                };
                                 let mut s2 = s.clone();
                                 if i >= 0 && (i as usize) < s2.len() && c != 0 {
                                     s2[i as usize] = c;

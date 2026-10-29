@@ -171,6 +171,17 @@ enum Driven {
     Port(u32, usize),
     /// A gate.
     Cell(CellId),
+    /// A procedural `assign` or `force` while it is in effect (10.6).
+    Pcont(StmtId),
+}
+
+/// The procedural continuous assignments on a slot (10.6): the `force`
+/// driver and the bits it covers (all if `None`), and the `assign`
+/// driver.
+#[derive(Default)]
+struct Pcont {
+    force: Option<(u32, Option<(u32, u32)>)>,
+    assign: Option<u32>,
 }
 
 /// Where a write goes: a place and the path of selects within its value.
@@ -190,6 +201,8 @@ enum Sel {
     Elem(usize),
     /// An element of a queue; one just past the end appends (7.10.1).
     QueueElem(usize),
+    /// A character of a string (6.16).
+    Char(usize),
     /// A key of an associative array, and the element type, whose default
     /// a new element starts from.
     Key(Const, TypeId),
@@ -258,6 +271,10 @@ pub(crate) struct Sim<'d, 'a, 'o> {
     watch: Vec<Vec<(u32, u32)>>,
     /// Nets that resolve several drivers or carry strengths, by slot.
     nets: HashMap<usize, net::Net>,
+    /// Slots under `force` or procedural `assign`.
+    pcont: HashMap<usize, Pcont>,
+    /// The force or assign driver writing now, whose writes go through.
+    privileged: Option<u32>,
     /// What `$` stands for in the indices of the queues being indexed:
     /// the last index (7.10.1).
     dollar: Vec<i64>,
@@ -326,6 +343,8 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
             elems_of: HashMap::new(),
             triggered: HashMap::new(),
             nets: HashMap::new(),
+            pcont: HashMap::new(),
+            privileged: None,
             dollar: Vec::new(),
             udp_state: HashMap::new(),
             procs: Vec::new(),
@@ -799,6 +818,35 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
             // In place, so writing one element does not copy the array.
             let s = self.find(*s);
             let d = self.d;
+            // Under force or assign, other writes are dropped, or for a
+            // forced part-select, the forced bits are kept (10.6).
+            let mut keep = None;
+            if let Some(pc) = self.pcont.get(&s) {
+                match (pc.force, pc.assign) {
+                    (Some((fp, bits)), _) if self.privileged != Some(fp) => match bits {
+                        None => return,
+                        Some((lo, w)) => {
+                            if let Const::Bits(b) = &self.vals[s] {
+                                keep = Some((lo, b.slice(lo, w)));
+                            }
+                        }
+                    },
+                    (None, Some(ap)) if self.privileged != Some(ap) => return,
+                    _ => {}
+                }
+            }
+            if let Some((lo, kept)) = keep {
+                let mut changed = update_in_place(&d.types, &mut self.vals[s], &t.path, v);
+                if let Const::Bits(b) = &mut self.vals[s] {
+                    let before = b.slice(lo, kept.width());
+                    b.set_slice(lo, &kept);
+                    changed |= !before.case_eq(&kept);
+                }
+                if changed && !quiet {
+                    self.changed(s);
+                }
+                return;
+            }
             let changed = update_in_place(&d.types, &mut self.vals[s], &t.path, v);
             if changed && !quiet {
                 let elem = match t.path.first() {
@@ -1695,6 +1743,18 @@ fn edge(e: Edge, old: &Const, new: &Const) -> bool {
 fn update(tys: &Types, v: Const, path: &[Sel], new: Const) -> Const {
     let Some((first, rest)) = path.split_first() else { return new };
     match (first, v) {
+        (Sel::Char(i), Const::Str(mut s)) => {
+            // Out of range, or a NUL, leaves the string alone.
+            let c = match &new {
+                Const::Bits(b) => b.to_u64().unwrap_or(0) as u8,
+                Const::Str(x) => x.last().copied().unwrap_or(0),
+                _ => 0,
+            };
+            if *i < s.len() && c != 0 {
+                s[*i] = c;
+            }
+            Const::Str(s)
+        }
         (Sel::QueueElem(i), Const::Aggregate(mut items)) => {
             if *i < items.len() {
                 let old = std::mem::replace(&mut items[*i], Const::Null);

@@ -529,6 +529,7 @@ impl Sim<'_, '_, '_> {
                         (off >= 0 && off <= (l - r).abs()).then_some(Sel::Elem(off as usize))
                     }),
                     Type::Unpacked { dim: UDim::Queue(_), .. } => i.to_i64().filter(|&k| k >= 0).map(|k| Sel::QueueElem(k as usize)),
+                    Type::String => i.to_i64().filter(|&k| k >= 0).map(|k| Sel::Char(k as usize)),
                     Type::Unpacked { .. } => i.to_i64().filter(|&k| k >= 0).map(|k| Sel::Elem(k as usize)),
                     _ => {
                         let ew = tys.width(e.ty).max(1);
@@ -1067,7 +1068,12 @@ impl Sim<'_, '_, '_> {
                 let d = &self.d.drivers[id.0 as usize];
                 let (lhs, rhs, delay) = (d.lhs, d.rhs, d.delay.clone());
                 let v = self.eval(&cx, rhs);
-                if self.procs[p as usize].outs.first().is_some_and(Option::is_some) {
+                // A net's own delay adds to the assignment's (28.16).
+                let net_delay = match self.d.expr(lhs).kind {
+                    ExprKind::Object(o) => self.d.nets.get(&o).map(|i| i.delay.clone()).unwrap_or_default(),
+                    _ => vec![],
+                };
+                if self.procs[p as usize].outs.first().is_some_and(Option::is_some) || !delay.is_empty() || !net_delay.is_empty() {
                     // A resolved net: the value goes in with the driver's
                     // strength.
                     let names: Vec<&str> = match self.d.drivers[id.0 as usize].strength {
@@ -1076,7 +1082,7 @@ impl Sim<'_, '_, '_> {
                     };
                     let (s0, s1) = net::strengths(&names, (net::STRONG, net::STRONG));
                     let sig = net::sigs_of(&v, s0, s1);
-                    self.emit(p, inst, &delay, vec![(v, sig)]);
+                    self.emit_with(p, inst, &delay, &net_delay, vec![(v, sig)]);
                 } else if let Some(&dl) = delay.first() {
                     let t = self.target(&cx, lhs);
                     let dv = self.eval(&cx, dl);
@@ -1136,6 +1142,17 @@ impl Sim<'_, '_, '_> {
                     }
                 }
             }
+            Driven::Pcont(s) => {
+                let StmtKind::ProcContinuous { lhs, rhs: Some(rhs), .. } = self.d.stmt(s).kind.clone() else { return };
+                let v = self.eval(&cx, rhs);
+                let t = self.target(&cx, lhs);
+                self.privileged = Some(p);
+                self.write_cx(&cx, &t, v, false);
+                self.privileged = None;
+                if !armed {
+                    self.reads_elem(&cx, rhs, &mut reads);
+                }
+            }
             Driven::Cell(c) => {
                 let cell = &self.d.cells[c.0 as usize];
                 let kind = self.d.name(cell.kind).to_string();
@@ -1185,14 +1202,70 @@ impl Sim<'_, '_, '_> {
         }
     }
 
+    /// `assign`, `deassign`, `force` and `release` (10.6).
     pub(super) fn proc_cont(&mut self, cx: &Cx, s: StmtId) {
-        let StmtKind::ProcContinuous { keyword, lhs, rhs } = self.d.stmt(s).kind.clone() else { return };
-        if let ("assign" | "force", Some(r)) = (self.d.name(keyword), rhs) {
-            // Held only until the next write, not continuously: the
-            // full semantics of 10.6 are not modelled yet.
-            let v = self.eval(cx, r);
-            let t = self.target(cx, lhs);
-            self.write_cx(cx, &t, v, false);
+        let StmtKind::ProcContinuous { keyword, lhs, rhs: _ } = self.d.stmt(s).kind.clone() else { return };
+        let kw = self.d.name(keyword);
+        let t = self.target(cx, lhs);
+        let Place::Slot(slot) = t.place else {
+            self.unsupported(format!("`{kw}` of this target"));
+            return;
+        };
+        let slot = self.find(slot);
+        let bits = match t.path.as_slice() {
+            [Sel::Bits(lo, w)] => Some((*lo, *w)),
+            _ => None,
+        };
+        let pc = self.pcont.entry(slot).or_default();
+        let old = match kw {
+            "force" => pc.force.take().map(|(p, _)| p),
+            "assign" => pc.assign.take(),
+            "release" => pc.force.take().map(|(p, _)| p),
+            _ => pc.assign.take(),
+        };
+        if let Some(p) = old {
+            self.end_proc(p);
+        }
+        match kw {
+            "force" | "assign" => {
+                // A driver that keeps the target at the expression's value.
+                let p = self.new_proc(cx.inst, None, Some(Driven::Pcont(s)));
+                let pc = self.pcont.entry(slot).or_default();
+                if kw == "force" {
+                    pc.force = Some((p, bits));
+                } else {
+                    pc.assign = Some(p);
+                }
+            }
+            "release" => {
+                // The object at the root of the target's selects.
+                let mut root = lhs;
+                while matches!(self.d.expr(root).kind, ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_)) {
+                    root = self.d.expr(root).args[0];
+                }
+                let is_net = matches!(self.d.expr(root).kind, ExprKind::Object(o) if matches!(self.d.object(o).kind, ObjKind::Net(_)));
+                if is_net {
+                    // A net goes back to what its drivers drive.
+                    if self.nets.contains_key(&slot) {
+                        self.write_net_pub(slot);
+                    }
+                    for q in 0..self.procs.len() as u32 {
+                        if let Some(dr) = self.procs[q as usize].driver
+                            && !matches!(dr, Driven::Pcont(_))
+                            && self.drives_slot(q, dr, slot)
+                        {
+                            self.wake(q);
+                        }
+                    }
+                } else if let Some(ap) = self.pcont.get(&slot).and_then(|pc| pc.assign) {
+                    // A variable under `assign` goes back to it.
+                    self.wake(ap);
+                }
+            }
+            _ => {}
+        }
+        if self.pcont.get(&slot).is_some_and(|pc| pc.force.is_none() && pc.assign.is_none()) {
+            self.pcont.remove(&slot);
         }
     }
 }

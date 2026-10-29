@@ -37,8 +37,10 @@ pub fn convert(tys: &Types, v: &Const, t: TypeId) -> Const {
         };
     }
     if t == Types::STRING {
+        // A string holds no NUL characters (6.16).
         return match v {
             Const::Bits(b) => Const::Str(b.to_str_bytes()),
+            Const::Str(s) if s.contains(&0) => Const::Str(s.iter().copied().filter(|&c| c != 0).collect()),
             _ => v.clone(),
         };
     }

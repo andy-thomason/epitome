@@ -7,7 +7,9 @@
 //! - `-E`: print the preprocessed text, and stop.
 //! - `--ast`: print the syntax tree.
 //! - `--design`: elaborate, and print the design.
-//! - `--parse-only`: stop after parsing; `--elab-only`: after elaborating.
+//! - `--parse-only`: stop after parsing; `--elab-only`: after elaborating,
+//!   with a count of what the elaborator has not done yet.
+//! - `--gaps`: elaborate, and list those gaps by kind of syntax.
 //! - `--top name`: elaborate `name` as a top-level instance (repeatable);
 //!   by default, every design element nothing instantiates.
 //! - `+name` or `+name=value`: plusargs for the simulation (21.6).
@@ -46,6 +48,7 @@ fn run() -> ExitCode {
     let mut design = false;
     let mut parse_only = false;
     let mut elab_only = false;
+    let mut gaps = false;
     let mut plusargs = Vec::new();
     let mut tops = Vec::new();
     let mut args = std::env::args().skip(1);
@@ -60,6 +63,8 @@ fn run() -> ExitCode {
             parse_only = true;
         } else if arg == "--elab-only" {
             elab_only = true;
+        } else if arg == "--gaps" {
+            (elab_only, gaps) = (true, true);
         } else if arg == "--top" {
             tops.push(args.next().unwrap_or_default());
         } else if let Some(dir) = arg.strip_prefix("-I") {
@@ -102,6 +107,11 @@ fn run() -> ExitCode {
                             print!("{}", print_design(&d));
                         }
                         if design || elab_only {
+                            let (unknown, opaque) = d.gaps();
+                            eprintln!("epitome-sv: {unknown} expressions of unknown type, {opaque} items kept as syntax");
+                            if gaps {
+                                print_gaps(&d, &tree);
+                            }
                             return ExitCode::SUCCESS;
                         }
                         let opts = epitome_sv::sim::Options { plusargs, ..Default::default() };
@@ -127,5 +137,30 @@ fn run() -> ExitCode {
             eprint!("{e}");
             ExitCode::FAILURE
         }
+    }
+}
+
+/// The design's gaps, counted by the kind of syntax they came from.
+fn print_gaps(d: &epitome_sv::design::Design, tree: &epitome_sv::ast::Ast) {
+    use epitome_sv::design::types::Types;
+    use epitome_sv::design::{ExprKind, Item, StmtKind};
+    use std::collections::BTreeMap;
+    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+    let mut count = |what: &str, n| *counts.entry(format!("{what} {:?}", tree.kind(n))).or_default() += 1;
+    for e in d.exprs.iter().filter(|e| e.ty == Types::UNKNOWN) {
+        count(if matches!(e.kind, ExprKind::Opaque) { "expression kept as syntax:" } else { "expression of unknown type:" }, e.node);
+    }
+    for s in d.stmts.iter().filter(|s| matches!(s.kind, StmtKind::Opaque)) {
+        count("statement kept as syntax:", s.node);
+    }
+    for i in d.scopes.iter().flat_map(|s| &s.items) {
+        if let Item::Opaque(n) = i {
+            count("item kept as syntax:", *n);
+        }
+    }
+    let mut v: Vec<_> = counts.into_iter().collect();
+    v.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
+    for (k, n) in v {
+        eprintln!("{n:6} {k}");
     }
 }

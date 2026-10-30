@@ -11,4 +11,4 @@ epitome-codegen = { path = "codegen" }
 epitome-mlir = { path = "mlir" }
 
 [workspace]
-members = ["ir", "opt", "codegen", "mlir"]
+members = ["ir", "opt", "codegen", "mlir", "sv"]

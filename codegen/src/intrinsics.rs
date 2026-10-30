@@ -306,7 +306,7 @@ fn rewrite(
             for (q, n) in names.into_iter().enumerate() {
                 let n = if float { format!("{n}f") } else { n.to_string() };
                 let v = call_intrinsic(cx, s, &n, vec![args[0]], fty);
-                agg = s.op(Op::InsertValue { aggregate: agg, element: v, indices: vec![q as u32] }, ty);
+                agg = s.op(Op::InsertValue { aggregate: agg, element: v, indices: vec![q as u32].into() }, ty);
             }
             Some(Done::Final(agg))
         }
@@ -528,7 +528,7 @@ fn rewrite(
             let i32t = cx.m.types.int(32);
             let i64t = cx.m.types.int(64);
             let gep = |s: &mut Seq, p: Value, off: Value| {
-                s.op(Op::Gep { flags: GepFlags(0), inrange: None, source_ty: i8t, ptr: p, indices: vec![off] }, ty)
+                s.op(Op::Gep { flags: GepFlags(0), source_ty: i8t, ptr: p, indices: vec![off].into() }, ty)
             };
             let at = gep(s, args[0], args[1]);
             let rel = s.op(Op::Load { ptr: at, align: None, volatile: false, atomic: None }, i32t);
@@ -579,7 +579,7 @@ fn slot(cx: &mut Ctx, s: &mut Seq, ty: TypeId, slots: &mut Vec<InstId>) -> Value
 
 fn gep(cx: &mut Ctx, s: &mut Seq, elem: TypeId, p: Value, k: Value) -> Value {
     let ptr = cx.m.types.ptr(0);
-    s.op(Op::Gep { flags: GepFlags(0), inrange: None, source_ty: elem, ptr: p, indices: vec![k] }, ptr)
+    s.op(Op::Gep { flags: GepFlags(0), source_ty: elem, ptr: p, indices: vec![k].into() }, ptr)
 }
 
 /// Masked loads and stores, lane by lane: each lane's address that of its
@@ -622,9 +622,9 @@ fn masked_memory(
         let a = s.op(Op::Select { cond: on, then_value: addr, else_value: dummy, fmf: FastMath::default() }, ptr);
         if let Some(v) = value {
             let x = s.op(Op::ExtractElement { vector: v, index: idx }, elem);
-            s.op_void(Op::Store { volatile: false, atomic: None, value: x, ptr: a, align: Some(1) });
+            s.op_void(Op::Store { volatile: false, atomic: None, value: x, ptr: a, align: Some(Align::of(1)) });
         } else {
-            let x = s.op(Op::Load { ptr: a, align: Some(1), volatile: false, atomic: None }, elem);
+            let x = s.op(Op::Load { ptr: a, align: Some(Align::of(1)), volatile: false, atomic: None }, elem);
             let p = s.op(Op::ExtractElement { vector: pass?, index: idx }, elem);
             let lane = s.op(Op::Select { cond: on, then_value: x, else_value: p, fmf: FastMath::default() }, elem);
             out = Some(s.op(Op::InsertElement { vector: out?, element: lane, index: idx }, ty));
@@ -646,7 +646,7 @@ fn compress(cx: &mut Ctx, s: &mut Seq, args: &[Value], ty: TypeId, slots: &mut V
     let ptr = cx.m.types.ptr(0);
     let buf = slot(cx, s, ty, slots);
     let dummy = slot(cx, s, elem, slots);
-    s.op_void(Op::Store { volatile: false, atomic: None, value: args[2], ptr: buf, align: Some(1) });
+    s.op_void(Op::Store { volatile: false, atomic: None, value: args[2], ptr: buf, align: Some(Align::of(1)) });
     let mut count = cx.int(i64t, 0);
     for k in 0..n {
         let idx = cx.int(i64t, k as i64);
@@ -654,11 +654,11 @@ fn compress(cx: &mut Ctx, s: &mut Seq, args: &[Value], ty: TypeId, slots: &mut V
         let x = s.op(Op::ExtractElement { vector: args[0], index: idx }, elem);
         let place = gep(cx, s, elem, buf, count);
         let a = s.op(Op::Select { cond: on, then_value: place, else_value: dummy, fmf: FastMath::default() }, ptr);
-        s.op_void(Op::Store { volatile: false, atomic: None, value: x, ptr: a, align: Some(1) });
+        s.op_void(Op::Store { volatile: false, atomic: None, value: x, ptr: a, align: Some(Align::of(1)) });
         let one = s.cast(CastOp::ZExt, on, i64t);
         count = s.bin(BinOp::Add, count, one, i64t);
     }
-    s.op(Op::Load { ptr: buf, align: Some(1), volatile: false, atomic: None }, ty)
+    s.op(Op::Load { ptr: buf, align: Some(Align::of(1)), volatile: false, atomic: None }, ty)
 }
 
 /// A funnel shift of a width no register is (or of 128 bits, by a
@@ -782,8 +782,8 @@ fn mul_overflow(cx: &mut Ctx, s: &mut Seq, a: Value, b: Value, ty: TypeId, ity: 
     let back = s.cast(ext, r, i128t);
     let over = s.op(Op::ICmp { pred: ICmpPred::Ne, samesign: false, lhs: back, rhs: p }, i1);
     let undef = Value::Const(cx.m.consts.intern(Constant { ty, kind: ConstKind::Poison }));
-    let agg = s.op(Op::InsertValue { aggregate: undef, element: r, indices: vec![0] }, ty);
-    s.op(Op::InsertValue { aggregate: agg, element: over, indices: vec![1] }, ty)
+    let agg = s.op(Op::InsertValue { aggregate: undef, element: r, indices: vec![0].into() }, ty);
+    s.op(Op::InsertValue { aggregate: agg, element: over, indices: vec![1].into() }, ty)
 }
 
 /// `llvm.frexp` or `llvm.modf` of a float or a double: the C library's
@@ -822,8 +822,8 @@ fn libm_pair(cx: &mut Ctx, s: &mut Seq, base: &str, x: Value, ty: TypeId, slots:
         (r, other)
     };
     let undef = Value::Const(cx.m.consts.intern(Constant { ty, kind: ConstKind::Poison }));
-    let agg = s.op(Op::InsertValue { aggregate: undef, element: r, indices: vec![0] }, ty);
-    Some(s.op(Op::InsertValue { aggregate: agg, element: other, indices: vec![1] }, ty))
+    let agg = s.op(Op::InsertValue { aggregate: undef, element: r, indices: vec![0].into() }, ty);
+    Some(s.op(Op::InsertValue { aggregate: agg, element: other, indices: vec![1].into() }, ty))
 }
 
 /// A reduction of halves: lane by lane, each step an operation on halves
@@ -1117,7 +1117,7 @@ fn deinterleave(cx: &mut Ctx, s: &mut Seq, v: Value, k: u32, ty: TypeId) -> Valu
     for q in 0..k {
         let lanes: Vec<u32> = (0..n).map(|j| j * k + q).collect();
         let part = shuffle(cx, s, v, v, &lanes, fields[q as usize]);
-        agg = s.op(Op::InsertValue { aggregate: agg, element: part, indices: vec![q] }, ty);
+        agg = s.op(Op::InsertValue { aggregate: agg, element: part, indices: vec![q].into() }, ty);
     }
     agg
 }
@@ -1342,7 +1342,7 @@ fn lanes(cx: &mut Ctx, s: &mut Seq, name: &str, args: &[Value], ty: TypeId) -> V
         for (n, &fty) in fields.iter().enumerate() {
             let Type::Vector { elem, .. } = *cx.m.types.get(fty) else { unreachable!() };
             let mut e = if matches!(cx.m.types.get(ty), Type::Struct { .. }) {
-                s.op(Op::ExtractValue { aggregate: y, indices: vec![n as u32] }, elem)
+                s.op(Op::ExtractValue { aggregate: y, indices: vec![n as u32].into() }, elem)
             } else {
                 y
             };
@@ -1364,7 +1364,7 @@ fn lanes(cx: &mut Ctx, s: &mut Seq, name: &str, args: &[Value], ty: TypeId) -> V
     }
     let mut agg = Value::Const(cx.m.consts.intern(Constant { ty, kind: ConstKind::Poison }));
     for (n, v) in outs.into_iter().enumerate() {
-        agg = s.op(Op::InsertValue { aggregate: agg, element: v, indices: vec![n as u32] }, ty);
+        agg = s.op(Op::InsertValue { aggregate: agg, element: v, indices: vec![n as u32].into() }, ty);
     }
     agg
 }

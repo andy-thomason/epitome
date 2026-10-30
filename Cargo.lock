@@ -39,3 +39,7 @@ version = "0.1.0"
 dependencies = [
  "epitome-ir",
 ]
+
+[[package]]
+name = "epitome-sv"
+version = "0.1.0"

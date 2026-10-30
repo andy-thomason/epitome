@@ -188,7 +188,7 @@ struct Lanes {
 impl Lanes {
     fn slot(&mut self, cx: &mut Ctx, s: &mut Seq, vty: TypeId) -> Value {
         let ptr = cx.m.types.ptr(0);
-        let align = Some(cx.size_of(vty).unwrap_or(16).next_power_of_two().clamp(1, 16));
+        let align = Some(Align::of(cx.size_of(vty).unwrap_or(16).next_power_of_two().clamp(1, 16)));
         let a = s
             .f
             .add_inst(Op::Alloca { inalloca: false, ty: vty, count: None, align, addrspace: None }, Some((None, ptr)));
@@ -276,7 +276,7 @@ fn gep(cx: &mut Ctx, s: &mut Seq, p: Value, off: i64) -> Value {
         return p;
     }
     let k = cx.int(i64t, off);
-    s.op(Op::Gep { flags: GepFlags::default(), inrange: None, source_ty: i8t, ptr: p, indices: vec![k] }, ptr)
+    s.op(Op::Gep { flags: GepFlags::default(), source_ty: i8t, ptr: p, indices: vec![k].into() }, ptr)
 }
 
 /// The width of a mask's lanes, from what made it (or 8).

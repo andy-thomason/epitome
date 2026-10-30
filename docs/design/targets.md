@@ -606,3 +606,95 @@ Not yet: the other memory exports, fetches other than `VTX_READ_32`,
 `LDS_IDX_OP`, the extended ALU clause (`CF_ALU_WORD0_EXT`), and
 instruction selection, which needs groups and clauses
 ([partial-machines.md](partial-machines.md), section 5).
+
+## AMD gfx1151 (RDNA 3.5)
+
+`codegen/targets/gfx1151` describes AMD's RDNA 3.5 GPUs (gfx1151, Strix
+Halo's Radeon 8060S) for assembly and disassembly, in wave32.
+`gen_gfx1151.py` writes it from AMD's machine-readable ISA specification of
+RDNA 3.5 (`amdgpu_isa_rdna3_5.xml`, from AMD GPUOpen's "Machine-Readable GPU
+ISA", MIT). That gives every encoding's fields and every instruction's
+opcode in each encoding it has, with its operands' fields, types and sizes,
+but no assembly syntax. The syntax is LLVM's (`llvm-mc
+-triple=amdgcn-amd-amdhsa -mcpu=gfx1151`), and the generator finds it with
+llvm-mc, as RISC-V's does with rustc:
+
+- each operand's values are put in a word one at a time, the others held,
+  and what llvm-mc's disassembler writes for each value is its name (so a
+  source's 512 values are `s0` to `s105`, `vcc_lo`, `ttmp0`, `null`, `m0`,
+  `exec_lo`, the inline constants `0` to `64`, `-1` to `-16`, `0.5` and
+  the like, `src_scc`, and `v0` to `v255`; and `v0.l` and `v0.h` in a
+  16-bit operand);
+- where in the line those names are written makes the template;
+- values llvm-mc writes but does not read back as the same word are left
+  out: odd register pairs (`s5` read as `s[4:5]`), names its assembler does
+  not take (`src_flat_scratch_base_lo`), a literal it writes `lit(...)`
+  because an inline constant could hold it;
+- each entry is then checked on random operand values: the line llvm-mc
+  writes for each must be the one the template writes.
+
+It writes 15,796 entries, with 79 enums. It leaves out MIMG's 168 forms and
+255 others, which it lists: most are VOP3 forms with a literal and op_sel or
+source modifiers, which llvm-mc writes in ways the generator does not yet
+follow, or does not read back.
+
+It is a partial machine ([partial-machines.md](partial-machines.md)), like
+R600: `!target.lacks` says it has no stack, calls, globals, indirect
+branches or traps. Its instructions are multiples of 32 bits
+(`instruction-unit` 4), with a 32-bit literal after some.
+
+An operand is one or more fields. A VOP3 source is its 9-bit field, its
+negation and absolute-value bits (`-|v2|`, `neg(2)`) and its op_sel bit
+(`v2.h`); a destination is its register and op_sel bit. The clamp and
+output modifier are one operand (` clamp mul:2`), and so are VOP3P's
+modifiers, and the cache flags (` glc slc dlc`). A 16-bit VOP3 operation
+writes its op_sel bits twice, in its operands' halves and again after them
+(`v_add_f16_e64 v1.l, v2.h, v3.l op_sel:[1,0,0]`); its entry writes the
+second from the first, `op_sel:[{=(src0>>11)&1},...]`, a computed hole the
+assembler checks against the operands it has read. Some fields have
+entries of their own for each way of writing them:
+
+- an offset, which is not written when 0 (`offset:16`), and wait counts,
+  which are not written at their most (`s_waitcnt vmcnt(0) lgkmcnt(0)`);
+- flags that change the operands as well as being written: `idxen` and
+  `offen` (the address is `off` without them), `tfe` (one more data
+  register), `sve`, and `glc` in atomics (which then return a value);
+- a global access's address register, 64-bit without `saddr` and 32-bit
+  with it;
+- an immediate llvm-mc writes in decimal up to 64 and in hex above
+  (`s_movk_i32 s0, 64`, `s_movk_i32 s0, 0x41`), and `hwreg(id)` beside
+  `hwreg(id, offset, size)`.
+
+Three ways of writing a line are read but not written (`"nodecode"`
+entries), as clang writes them: a branch to a label (`s_cbranch_execz
+.LBB0_2`; the field is the distance in words from the next instruction,
+which llvm-mc writes as a number); a scalar load's zero offset written
+`0x0`, where llvm-mc's disassembler writes `null`; and a 16-bit operation's
+halves written only in its operands' names (`v_cmp_gt_f16_e64 s0, v2.h,
+v3.h`), without the op_sel after them.
+
+An enum is written once for the operands that share it: an operand whose
+names are a larger table's, but for a few runs of values (a source without
+`vcc_lo`, say), uses that table, with guards leaving the others out.
+
+A VOPD (dual-issue) entry is an X and a Y operation together, for each
+parity of the first destination: the second's low bit is not held, but is
+the other of the first's. The register banks the two halves' sources must
+be in are guards. So is the constant bus, in VOPD and VOP3 alike: at most
+two scalar values (a register read twice is one, and the literal is one),
+and one in the 64-bit shifts.
+
+`tests/gfx1151.rs` assembles every entry's sample lines with `epitome-as`
+and with llvm-mc, which must give the same bytes, and disassembles each of
+llvm-mc's instructions, which must be read as llvm-mc's disassembler writes
+it (34,597 lines; llvm-mc's disassembler crashes on a few words, which the
+test lists and leaves out). It is skipped where there is no llvm-mc 22 or
+later with the AMDGPU target (the syntax is LLVM 22's; LLVM 18's assembler
+refuses some of it).
+
+Not yet: images (MIMG), whose data and address registers' sizes depend on
+`dmask`, `d16`, `tfe`, `dim` and `a16` together; `s_version`, which
+llvm-mc writes but does not read back; buffer stores with `tfe`, which
+llvm-mc writes but does not take; `ds_swizzle_b32`'s offset, which
+llvm-mc writes as a pattern (`offset:swizzle(BITMASK_PERM,"ppppp")`), but
+for 0; wave64; and instruction selection.

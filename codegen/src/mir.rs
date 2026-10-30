@@ -475,6 +475,10 @@ pub fn fill_template(t: &Target, abi: Option<&crate::abi::Abi>, i: usize, value:
                 Some("h64") => {
                     let _ = write!(out, "0x{:x}", v as u64);
                 }
+                // Signed hex: -0x8 (gfx1151's scalar memory offsets).
+                Some("sx") => {
+                    let _ = write!(out, "{}0x{:x}", if v < 0 { "-" } else { "" }, v.unsigned_abs());
+                }
                 // A floating-point immediate's bits, as the number, the
                 // way assemblers print fmov's (eight decimals hold every
                 // value it can).

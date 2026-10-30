@@ -235,6 +235,20 @@ impl<'t> Assembler<'t> {
                         Some(e) => pos + e,
                         None => return false,
                     },
+                    // Before an enum's hole (gfx1151's `offset:{offset}{cpol}`,
+                    // cpol ` glc` or nothing): each end up to the next space,
+                    // the shortest first, until the rest matches.
+                    Some(Part::Hole(next)) if self.enum_of(tpl.instr, next).is_some() => {
+                        let stop = line[pos..].find(' ').map_or(line.len(), |e| pos + e);
+                        for end in (pos + 1..=stop).filter(|&e| line.is_char_boundary(e)) {
+                            out.push((inner.clone(), &line[pos..end]));
+                            if self.holes_from(tpl, k + 1, line, end, out) {
+                                return true;
+                            }
+                            out.pop();
+                        }
+                        return false;
+                    }
                     Some(Part::Hole(_)) => return false,
                     None => line.len(),
                 };
@@ -269,9 +283,33 @@ impl<'t> Assembler<'t> {
                 _ => Some(()),
             }
         };
-        for (inner, text) in holes {
+        // Computed holes last: one whose operands the others have given is
+        // checked against them (gfx1151's `op_sel:[{=(src0>>11)&1},...]`,
+        // its sources' halves written again); any other gives its operand.
+        let (computed, plain): (Vec<_>, Vec<_>) = holes.iter().partition(|(inner, _)| inner.starts_with('='));
+        let mut enum_texts: HashMap<&str, (&crate::machine::EnumDef, &str)> = HashMap::new();
+        for (inner, text) in plain.into_iter().chain(computed) {
             if let Some(expr) = inner.strip_prefix('=') {
                 let e = enc::parse_expr(expr).ok()?;
+                if let Some(v) = enc::eval(&e, &r.env) {
+                    let want = parse_int(text)?;
+                    if want != v {
+                        // An operand two of whose values are written alike
+                        // (gfx1151's `v4` for its register with or without
+                        // its op_sel bit): the other, if it agrees.
+                        let mut names = Vec::new();
+                        enc::names_in(&e, &mut names);
+                        let [n] = names.as_slice() else { return None };
+                        let (ed, written) = enum_texts.get(n.as_str())?;
+                        let other = ed.names.iter().filter(|(m, _)| m == written).map(|&(_, x)| x).find(|&x| {
+                            let mut env = r.env.clone();
+                            env.insert(n.clone(), x);
+                            enc::eval(&e, &env) == Some(want)
+                        })?;
+                        r.env.insert(n.clone(), other);
+                    }
+                    continue;
+                }
                 let mut x = parse_int(text)?;
                 // A value written masked to n bits (`{=(imm>>12)&1048575}`,
                 // as RISC-V's lui is written) is read as n bits, signed.
@@ -311,7 +349,11 @@ impl<'t> Assembler<'t> {
                     set(&mut r.env, name, text.parse::<f32>().ok()?.to_bits() as i64)?
                 }
                 Kind::Imm => set(&mut r.env, name, parse_int(text)?)?,
-                Kind::Enum(e) => set(&mut r.env, name, self.t.machine.enums[e as usize].value(text)?)?,
+                Kind::Enum(e) => {
+                    let ed = &self.t.machine.enums[e as usize];
+                    set(&mut r.env, name, ed.value(text)?)?;
+                    enum_texts.insert(name, (ed, *text));
+                }
                 Kind::Cond => {
                     // (In either case: `NE` is `ne`.)
                     let c = self.t.conds.iter().find(|c| c.asm.eq_ignore_ascii_case(text))?;

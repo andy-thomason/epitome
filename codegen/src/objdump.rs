@@ -426,7 +426,9 @@ pub fn disassemble(t: &Target, img: &Image, show_relocs: bool) -> String {
                 next += 1;
             }
             let rest = &s.data[off as usize..];
-            if rest.len() < unit {
+            // (Less than an instruction's usual length left may still be a
+            // shorter one: RISC-V's compressed.)
+            if rest.len() < unit && (is_data(off) || mir::decode(t, rest).is_none()) {
                 let bytes: Vec<String> = rest.iter().map(|b| format!("{b:02x}")).collect();
                 let _ = writeln!(out, "{addr:>8x}: {:<8}     \t.byte {}", bytes.join(""), bytes.join(", "));
                 break;
@@ -455,10 +457,13 @@ pub fn disassemble(t: &Target, img: &Image, show_relocs: bool) -> String {
                 };
                 instruction(t, rest, addr, relocs.first().copied(), img.macho, &label, &named)
             };
-            // A word as a word, as other disassemblers show one; other
-            // lengths as their bytes.
+            // A word as a word, as other disassemblers show one, and RISC-V's
+            // compressed instructions as halfwords; other lengths as their
+            // bytes.
             let hex = if unit == 4 && len == 4 {
                 format!("{:08x}", enc::word(&rest[..4]))
+            } else if unit == 4 && len == 2 {
+                format!("{:04x}", u16::from_le_bytes([rest[0], rest[1]]))
             } else {
                 rest[..len].iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ")
             };

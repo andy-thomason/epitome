@@ -154,6 +154,10 @@ pub enum RelocUse {
     /// A 32-bit PC-relative reference to a symbol's GOT entry: unwind and
     /// exception tables' personality routines and types caught.
     GotPcRel32,
+    /// The low part of a PC-relative address, whose symbol is the
+    /// instruction with the high part (RISC-V's `%pcrel_lo`): kept against
+    /// that symbol, as linkers look for it there.
+    PcRelLo,
 }
 
 #[derive(Clone, Debug)]
@@ -359,6 +363,19 @@ pub struct Machine {
     /// (`!target.asm-aliases`: `[{r}]` is `[{r}, #0]`), for assembly that
     /// other compilers or people write.
     pub asm_aliases: Vec<(String, String)>,
+    /// Names of numbers in the operands of instructions whose mnemonic
+    /// starts so (`!target.asm-names`: `csr`, `mstatus`, `0x300`).
+    pub asm_names: Vec<(String, String, i64)>,
+    /// The pseudo-instructions of several instructions assembly may use
+    /// (`asm-pseudos`: `riscv`, `asm_text`'s).
+    pub asm_pseudos: String,
+    /// Registers' other names, as the templates name them (a class's
+    /// `names-of`: RISC-V's `x10` is `a0`).
+    pub asm_register_names: Vec<(String, String)>,
+    /// Longer forms of instructions that do not fit, as `asm_aliases`
+    /// write them, their statements separated by `;` (`!target.asm-relax`:
+    /// a branch too far, over a jump).
+    pub asm_relax: Vec<(String, String)>,
     /// Sets of named values (`!target.enums`).
     pub enums: Vec<EnumDef>,
     /// What the machine does not have (`!target.lacks`; see
@@ -566,6 +583,10 @@ impl Machine {
             seq_cst_swap: false,
             cfi_data_align: (-8, -8),
             asm_aliases: Vec::new(),
+            asm_names: Vec::new(),
+            asm_pseudos: String::new(),
+            asm_register_names: Vec::new(),
+            asm_relax: Vec::new(),
             enums: Vec::new(),
             lacks: Vec::new(),
         };
@@ -716,6 +737,27 @@ impl Machine {
                 mc.asm_aliases.push((from.clone(), to.clone()));
             }
         }
+        for t in tuples(m, "target.asm-relax") {
+            if let [from, to] = &t[..] {
+                mc.asm_relax.push((from.clone(), to.clone()));
+            }
+        }
+        for t in tuples(m, "target.asm-names") {
+            if let [prefix, name, value] = &t[..] {
+                let v = crate::asm_text::eval(value).ok_or_else(|| format!("!target.asm-names: {name} = {value}"))?;
+                mc.asm_names.push((prefix.clone(), name.clone(), v));
+            }
+        }
+        mc.asm_pseudos = params.get("asm-pseudos").cloned().unwrap_or_default();
+        for t in tuples(m, "target.classes") {
+            let Some(k) = t.iter().position(|x| x == "names-of") else { continue };
+            let (Some(from), Some(to)) = (mc.class(&t[0]), t.get(k + 1).and_then(|c| mc.class(c))) else {
+                return Err(format!("register class {}: names-of", t[0]));
+            };
+            let pairs = mc.def(from).names.iter().zip(&mc.def(to).names);
+            let pairs: Vec<(String, String)> = pairs.map(|(a, b)| (a.clone(), b.clone())).collect();
+            mc.asm_register_names.extend(pairs);
+        }
         for t in tuples(m, "target.enums") {
             let Some((name, pairs)) = t.split_first() else { continue };
             let mut names = Vec::new();
@@ -765,6 +807,7 @@ impl Machine {
                     Some("got-pcrel32") => RelocUse::GotPcRel32,
                     Some("got") => RelocUse::Got,
                     Some("tls") => RelocUse::Tls,
+                    Some("pcrel-lo") => RelocUse::PcRelLo,
                     Some(d) if d.starts_with("data") => RelocUse::Data(
                         d.trim_start_matches("data").parse().map_err(|_| format!("relocation {name}: use {d}"))?,
                     ),

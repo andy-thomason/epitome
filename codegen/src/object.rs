@@ -119,6 +119,9 @@ pub struct Symbol {
 pub struct Object {
     pub sections: Vec<Section>,
     pub symbols: Vec<Symbol>,
+    /// The global symbols that are weak (ELF's `.weak`): another
+    /// definition may take their place, and they need none.
+    pub weak: Vec<String>,
 }
 
 /// A piece of a global's initial value.
@@ -491,7 +494,7 @@ pub fn resolve(t: &Target, obj: &mut Object, pending: Vec<Pending>, macho: bool)
             continue;
         }
         let (target, addend) = match def.section {
-            Some(s) if !macho && !def.global && !matches!(usage, RelocUse::Got | RelocUse::Tls) => {
+            Some(s) if !macho && !def.global && !matches!(usage, RelocUse::Got | RelocUse::Tls | RelocUse::PcRelLo) => {
                 (RelocTarget::Section(s), p.addend + def.value as i64)
             }
             _ => (RelocTarget::Symbol(sym), p.addend),

@@ -163,7 +163,11 @@ pub fn write(obj: &Object, m: &Machine) -> Result<Vec<u8>, String> {
             SymbolKind::Object => STT_OBJECT,
             SymbolKind::NoType => STT_NOTYPE,
         };
-        let bind = if s.global { STB_GLOBAL } else { STB_LOCAL };
+        let bind = match (s.global, obj.weak.contains(&s.name)) {
+            (true, true) => STB_WEAK,
+            (true, false) => STB_GLOBAL,
+            (false, _) => STB_LOCAL,
+        };
         let shndx = s.section.map_or(0, index_of);
         sym(strtab.add(&s.name), bind, ty, shndx, s.value, s.size)
     };

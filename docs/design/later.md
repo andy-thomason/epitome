@@ -115,6 +115,11 @@ these are for after.
   again after each branch changed, which is quadratic in a function with
   many far branches. Better: one pass, adjusting the positions after the
   change.
+- **RISC-V's `li`** (`asm_text.rs`, `li`): the value's upper bits, then
+  shifts and 12-bit `addi`s, which is sometimes longer than it need be
+  (`(1 << 53) - 1` is `li 1; slli 53; addi -1` where `li -1; srli 11`
+  does). Better: also try the forms of a run of ones shifted, and of the
+  value's trailing zeros shifted out first, and take the shortest.
 - **`llvm.global_ctors` priorities on ELF**: one `.init_array` in
   priority order within the object, where `.init_array.N` sections would
   order them across objects.
@@ -194,8 +199,9 @@ these are for after.
 - **Registers chosen for encodings' size**: x86's r8-r15 need a REX
   prefix, and some instructions have shorter forms for rax (the
   descriptions' `acc:0=d` alternatives, already there); RISC-V's
-  compressed forms (not yet described) need x8-x15 and two-address
-  shapes. The allocator could weigh each register by the bytes its uses
+  compressed forms (described for assembly only) need x8-x15 and
+  two-address shapes, and the assembler could choose them for
+  uncompressed instructions that fit, as LLVM's does with C on. The allocator could weigh each register by the bytes its uses
   and definitions would take in it, from the encodings, preferring the
   cheaper for the values used most.
 - **Small memsets and memcpys with AVX-512 BW** (`prepare.rs`,

@@ -194,7 +194,7 @@ pub fn operands(s: &str) -> Vec<String> {
 }
 
 /// The labels a statement starts with, and the rest.
-fn labels(s: &str) -> (Vec<&str>, &str) {
+pub fn labels(s: &str) -> (Vec<&str>, &str) {
     let mut out = Vec::new();
     let mut rest = s.trim();
     while let Some((name, after)) = rest.split_once(':')

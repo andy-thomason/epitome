@@ -279,9 +279,7 @@ impl<'t> Assembler<'t> {
                     // the shortest first, until the rest matches.
                     Some(Part::Hole(next)) if self.enum_of(tpl.instr, next).is_some() => {
                         let stop = line[pos..].find(' ').map_or(line.len(), |e| pos + e);
-                        (pos + 1..=stop)
-                            .filter(|&e| line.is_char_boundary(e))
-                            .any(|end| take(end, out) == Some(true))
+                        (pos + 1..=stop).filter(|&e| line.is_char_boundary(e)).any(|end| take(end, out) == Some(true))
                     }
                     Some(Part::Hole(_)) => false,
                     Some(Part::Lit(l)) => {
@@ -662,23 +660,34 @@ impl<'t> Assembler<'t> {
         // Instructions with their operands' expressions as numbers, and the
         // pseudo-instructions of several instructions as those
         // (`asm_text::instruction`).
+        // An instruction folding changed is also kept as written, by its
+        // statement's number, to be read so where the folded one is not
+        // (gfx1151's templates write `0x0`, where RISC-V's CSRs are read
+        // as numbers).
         let mut pcrel = 0;
-        let stmts: Vec<(usize, String)> = stmts
-            .into_iter()
-            .flat_map(|(n, s)| {
-                let body = s.trim_start().rsplit_once(':').map_or(s.trim_start(), |(_, b)| b).trim_start();
-                let directive = body.starts_with('.') && body[1..].starts_with(|c: char| c.is_ascii_alphabetic());
-                let label_only = s.trim_end().ends_with(':');
-                if directive || label_only || body.is_empty() || body.contains('"') {
-                    return vec![(n, s)];
-                }
-                let mut fresh = || {
-                    pcrel += 1;
-                    format!(".Lpcrel_hi{pcrel}")
-                };
-                crate::asm_text::instruction(&self.t.machine, &s, &mut fresh).into_iter().map(|t| (n, t)).collect()
-            })
-            .collect();
+        let mut asis: HashMap<usize, String> = HashMap::new();
+        let mut folded: Vec<(usize, String)> = Vec::new();
+        for (n, s) in stmts {
+            let body = s.trim_start().rsplit_once(':').map_or(s.trim_start(), |(_, b)| b).trim_start();
+            let directive = body.starts_with('.') && body[1..].starts_with(|c: char| c.is_ascii_alphabetic());
+            let label_only = s.trim_end().ends_with(':');
+            if directive || label_only || body.is_empty() || body.contains('"') {
+                folded.push((n, s));
+                continue;
+            }
+            let mut fresh = || {
+                pcrel += 1;
+                format!(".Lpcrel_hi{pcrel}")
+            };
+            let out = crate::asm_text::instruction(&self.t.machine, &s, &mut fresh);
+            if let [one] = out.as_slice()
+                && *one != s
+            {
+                asis.insert(folded.len(), crate::asm_text::labels(&s).1.to_string());
+            }
+            folded.extend(out.into_iter().map(|t| (n, t)));
+        }
+        let stmts = folded;
         for (k_stmt, (n, stmt)) in stmts.iter().enumerate() {
             let n = *n;
             let mut line = stmt.trim();
@@ -1007,7 +1016,13 @@ impl<'t> Assembler<'t> {
                     };
                     // As written, or as the description's aliases write it
                     // the way its templates do.
-                    let read = self.encode(&text, offset, syntax, &find).or_else(|e| {
+                    let read = self.encode(&text, offset, syntax, &find);
+                    // As written, before its operands were folded.
+                    let read = read.or_else(|e| match asis.get(&stmt) {
+                        Some(w) => self.encode(&normalise(w), offset, syntax, &find).map_err(|_| e),
+                        None => Err(e),
+                    });
+                    let read = read.or_else(|e| {
                         let canonical =
                             self.t.machine.asm_aliases.iter().fold(text.clone(), |l, (a, b)| rewrite(&l, a, b));
                         if canonical == text { Err(e) } else { self.encode(&canonical, offset, syntax, &find) }

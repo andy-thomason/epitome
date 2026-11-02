@@ -78,11 +78,10 @@ enum Key {
     Gep {
         source: TypeId,
         ty: TypeId,
-        inrange: Option<(i64, i64)>,
         operands: Vec<Value>,
     },
-    ExtractValue(TypeId, Value, Vec<u32>),
-    InsertValue(TypeId, Value, Value, Vec<u32>),
+    ExtractValue(TypeId, Value, Box<[u32]>),
+    InsertValue(TypeId, Value, Value, Box<[u32]>),
     ExtractElement(TypeId, Value, Value),
     InsertElement(TypeId, Value, Value, Value),
     Shuffle(TypeId, Value, Value, ConstId),
@@ -147,10 +146,9 @@ fn key(op: &Op, ty: TypeId, block: BlockId) -> Option<Key> {
         Op::Select { cond, then_value, else_value, .. } => Key::Select(ty, *cond, *then_value, *else_value),
         Op::Cast { op, value, .. } => Key::Cast(*op, ty, *value),
         Op::FNeg { value, .. } => Key::FNeg(ty, *value),
-        Op::Gep { source_ty, ptr, indices, inrange, .. } => Key::Gep {
+        Op::Gep { source_ty, ptr, indices, .. } => Key::Gep {
             source: *source_ty,
             ty,
-            inrange: *inrange,
             operands: std::iter::once(*ptr).chain(indices.iter().copied()).collect(),
         },
         Op::ExtractValue { aggregate, indices } => Key::ExtractValue(ty, *aggregate, indices.clone()),

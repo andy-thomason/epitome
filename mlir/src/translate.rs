@@ -1417,7 +1417,7 @@ impl<'a> Translator<'a> {
                 if self.unit_attr(op, "inbounds") {
                     flags |= GepFlags::INBOUNDS;
                 }
-                let gep = Op::Gep { flags: GepFlags(flags), inrange: None, source_ty, ptr: args[0], indices };
+                let gep = Op::Gep { flags: GepFlags(flags), source_ty, ptr: args[0], indices: indices.into() };
                 self.value(body, gep, ty, r)?;
             }
             "load" => {
@@ -1448,7 +1448,7 @@ impl<'a> Translator<'a> {
                     inalloca: self.unit_attr(op, "inalloca"),
                     ty: elem,
                     count: Some(args[0]),
-                    align: self.int_attr(op, "alignment").filter(|&a| a > 0).map(|a| a as u64),
+                    align: self.alignment(op)?,
                     addrspace,
                 };
                 let v = self.push(body, a, Some(ty))?.unwrap();
@@ -1464,13 +1464,18 @@ impl<'a> Translator<'a> {
                 need(1)?;
                 let (ty, r) = res()?;
                 let indices = self.position(op)?;
-                self.value(body, Op::ExtractValue { aggregate: args[0], indices }, ty, r)?;
+                self.value(body, Op::ExtractValue { aggregate: args[0], indices: indices.into() }, ty, r)?;
             }
             "insertvalue" => {
                 need(2)?;
                 let (ty, r) = res()?;
                 let indices = self.position(op)?;
-                self.value(body, Op::InsertValue { aggregate: args[0], element: args[1], indices }, ty, r)?;
+                self.value(
+                    body,
+                    Op::InsertValue { aggregate: args[0], element: args[1], indices: indices.into() },
+                    ty,
+                    r,
+                )?;
             }
             "extractelement" => {
                 need(2)?;
@@ -1540,11 +1545,19 @@ impl<'a> Translator<'a> {
                     let to = self.edge(body, dest, list, &mut seen)?;
                     cases.push((self.int_const(vt, k as u64), to));
                 }
-                self.push(body, Op::Switch { value: args[0], default, cases }, None)?;
+                self.push(body, Op::Switch { value: args[0], default, cases: cases.into() }, None)?;
             }
             _ => return Err("not supported yet".into()),
         }
         Ok(())
+    }
+
+    /// `alignment`, where 0 means none given.
+    fn alignment(&self, op: OpId) -> Result<Option<ll::Align>> {
+        match self.int_attr(op, "alignment").filter(|&a| a > 0) {
+            None => Ok(None),
+            Some(a) => ll::Align::new(a as u64).map(Some).ok_or_else(|| format!("alignment {a} is not a power of two")),
+        }
     }
 
     /// `position` of `extractvalue` and `insertvalue`.
@@ -1554,8 +1567,8 @@ impl<'a> Translator<'a> {
     }
 
     /// The atomic ordering and alignment of a load or store of type `ty`.
-    fn atomic(&self, op: OpId, ty: LTypeId) -> Result<(Option<ll::Atomic>, Option<u64>)> {
-        let mut align = self.int_attr(op, "alignment").filter(|&a| a > 0).map(|a| a as u64);
+    fn atomic(&self, op: OpId, ty: LTypeId) -> Result<(Option<ll::Atomic>, Option<ll::Align>)> {
+        let mut align = self.alignment(op)?;
         let ordering = match self.int_attr(op, "ordering").unwrap_or(0) {
             0 => return Ok((None, align)),
             1 => ll::Ordering::Unordered,
@@ -1567,10 +1580,10 @@ impl<'a> Translator<'a> {
             n => return Err(format!("unknown ordering {n}")),
         };
         if align.is_none() {
-            align = self.dl.abi_align(&self.out.types, ty);
+            align = self.dl.abi_align(&self.out.types, ty).and_then(ll::Align::new);
         }
         let scope = self.str_attr(op, "syncscope").map(String::into_bytes);
-        Ok((Some(ll::Atomic { elementwise: false, scope, ordering }), align))
+        Ok((Some(ll::Atomic { elementwise: false, scope: scope.map(Into::into), ordering }), align))
     }
 
     fn call(

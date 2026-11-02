@@ -592,9 +592,7 @@ fn tiles(
             let f = set
                 .m
                 .top_ops()
-                .find(|&f| {
-                    set.m.op_attr(f, "sym_name").and_then(|a| set.m.string_of(a)).as_deref() == Some(&function)
-                })
+                .find(|&f| set.m.op_attr(f, "sym_name").and_then(|a| set.m.string_of(a)).as_deref() == Some(&function))
                 .ok_or_else(|| format!("no function @{function} in the kernels"))?;
             out.import_op(&set.m, f, Some(module_block), &mut HashMap::new())?;
             // Before the functions that call it, as upstream places them.
@@ -760,8 +758,22 @@ fn tiles(
         if nk < n {
             edge_columns(src, op, [a, b, c], props, out, block, map, full, nk, zeroed)?;
         }
-        return rest_rows(src, op, [a, b, c], props, out, block, module_block, cx, &ks[ki + 1..], map, full, at, zeroed)
-            .map(|()| true);
+        return rest_rows(
+            src,
+            op,
+            [a, b, c],
+            props,
+            out,
+            block,
+            module_block,
+            cx,
+            &ks[ki + 1..],
+            map,
+            full,
+            at,
+            zeroed,
+        )
+        .map(|()| true);
     }
     let inner = OpSpec::new("scf.for").operands(&[zero, nend, cols]).regions(1).build(out, Some(ob));
     OpSpec::new("scf.yield").build(out, Some(ob));

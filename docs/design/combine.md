@@ -314,6 +314,59 @@ cases are checked against the model of memory in `tests/combine_rules.rs`,
 widened to bytes, so that a load sees the bytes the last stores to them
 wrote.
 
+### Three-input bit functions (planned)
+
+Any function of three bits is described by its truth table, eight bits
+long. AVX-512's `vpternlogd` and `vpternlogq` compute any of the 256 in
+one instruction, the table in its immediate; SVE2 has a few of them as
+fixed instructions (`eor3`, `bcax`, and `bsl`, `bsl1n`, `bsl2n` and
+`nbsl`). A chain of `and`, `or`, `xor` and `not` that reads only three
+values can therefore be one instruction where it is now several. Code
+that does logic a bit plane at a time (the simulators of
+[SystemVerilog](sv.md) section 8.3, bit-sliced hashing and ciphers)
+is made of such chains: a full adder's sum and carry, a multiplexer, the
+majority of three.
+
+**Finding them.** From a root `and`, `or` or `xor` on integers or integer
+vectors, walk down through `and`, `or`, `xor` (a `not` is an `xor` with
+all ones) and constants of all zeros or all ones, collecting the other
+operands as leaves, and stop if a fourth distinct leaf appears. The table
+is the tree evaluated on the bytes `0xf0`, `0xcc` and `0xaa` in place of
+the three leaves: bit `k` of the result is the function's value when the
+inputs are bits `k` of those three bytes. A table that ignores one
+input is a two-input function and is left to the rules above.
+
+**The canonical form** is a call:
+
+```llvm
+%r = call <16 x i32> @llvm.epitome.bitfn3.v16i32(i8 150, <16 x i32> %a, <16 x i32> %b, <16 x i32> %c)  ; a ^ b ^ c
+```
+
+The rewrite is made when the description has an instruction for that
+table at that type, as `has_shuffle` asks for shuffles, and when it
+removes at least one instruction (intermediate values with other uses
+stay). It is an elective change (autochop). Two `bitfn3` calls where
+one feeds the other with no other use, together reading at most three
+values, fold into one.
+
+**Selection.** In the x86 description, `VPTERNLOGD` and `VPTERNLOGQ` are
+`"asmonly"` today. Their bodies become the call above with the immediate
+as the table, so every table selects; with AVX-512VL the same holds at
+128 and 256 bits. The masked forms (`{k}`, `{z}`) come later, with the
+rest of AVX-512's mask selection. On AArch64, SVE2's entries each give
+their fixed table; a table with no entry is not formed, so nothing needs
+expanding back. (The AArch64 description has no SVE2 entries yet.)
+
+**Checking.** As for the rules above: random trees of the bitwise
+operations over three leaves, at widths up to 512 bits, evaluated on
+random inputs before and after the rewrite. Each instruction that
+claims a table is checked exhaustively: on the three bytes `0xf0`,
+`0xcc` and `0xaa` it must give the table back.
+
+**Later:** a function of four inputs is two `bitfn3` and a select on the
+fourth (`f = d ? f1 : f0`, which is itself a `bitfn3`), so three
+instructions; four-state logic has many of these.
+
 ### Loads from constant globals
 
 This is the local part of LLVM's `globalopt` (`combine/constload.rs`). A

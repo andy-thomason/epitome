@@ -262,7 +262,7 @@ fn struct_field(cx: &mut Ctx, s: &mut Seq, v: Value, k: usize, fty: TypeId) -> R
             };
             Value::Const(cx.m.consts.intern(Constant { ty: fty, kind }))
         }
-        _ => s.op(Op::ExtractValue { aggregate: v, indices: vec![k as u32] }, fty),
+        _ => s.op(Op::ExtractValue { aggregate: v, indices: vec![k as u32].into() }, fty),
     })
 }
 
@@ -304,7 +304,7 @@ fn split_struct_selects(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
                 let a = struct_field(cx, &mut s, then_value, n, fty)?;
                 let c = struct_field(cx, &mut s, else_value, n, fty)?;
                 let v = s.op(Op::Select { fmf, cond, then_value: a, else_value: c }, fty);
-                agg = s.op(Op::InsertValue { aggregate: agg, element: v, indices: vec![n as u32] }, ty);
+                agg = s.op(Op::InsertValue { aggregate: agg, element: v, indices: vec![n as u32].into() }, ty);
             }
             s.f.replace_uses(Value::Local(r), agg);
             let new = std::mem::take(&mut s.new);
@@ -352,10 +352,8 @@ fn memset_patterns(cx: &mut Ctx, f: &mut Function) {
                 let sz = cx.int(i64t, size);
                 s.bin(BinOp::Mul, n, sz, i64t)
             };
-            let at = s.op(
-                Op::Gep { flags: GepFlags::default(), inrange: None, source_ty: i8t, ptr: dst, indices: vec![off] },
-                ptr,
-            );
+            let at =
+                s.op(Op::Gep { flags: GepFlags::default(), source_ty: i8t, ptr: dst, indices: vec![off].into() }, ptr);
             s.op_void(Op::Store { volatile, atomic: None, value: pat, ptr: at, align: None });
             let one = cx.int(i64t, 1);
             let next = s.bin(BinOp::Add, n, one, i64t);
@@ -447,7 +445,7 @@ fn split_struct_phis(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
                                 return Err("a phi of a struct an invoke returns".into());
                             }
                             let e = f.add_inst(
-                                Op::ExtractValue { aggregate: v, indices: vec![k as u32] },
+                                Op::ExtractValue { aggregate: v, indices: vec![k as u32].into() },
                                 Some((None, fty)),
                             );
                             let n = f.blocks[pred.index()].insts.len();
@@ -473,7 +471,7 @@ fn split_struct_phis(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
             for (k, &p) in parts.iter().enumerate() {
                 new_phis.push(p);
                 let pv = s.f.result(p);
-                agg = s.op(Op::InsertValue { aggregate: agg, element: pv, indices: vec![k as u32] }, *ty);
+                agg = s.op(Op::InsertValue { aggregate: agg, element: pv, indices: vec![k as u32].into() }, *ty);
             }
             after.extend(std::mem::take(&mut s.new));
             f.replace_uses(Value::Local(*r), agg);
@@ -837,10 +835,8 @@ fn thread_locals(cx: &mut Ctx, f: &mut Function) {
                 let off = call_intrinsic(cx, &mut s, how, vec![var], i64t);
                 let tp = call_intrinsic(cx, &mut s, "llvm.thread.pointer.p0", vec![], ptr);
                 let i8t = cx.m.types.int(8);
-                let addr = s.op(
-                    Op::Gep { flags: Default::default(), inrange: None, source_ty: i8t, ptr: tp, indices: vec![off] },
-                    ptr,
-                );
+                let addr = s
+                    .op(Op::Gep { flags: Default::default(), source_ty: i8t, ptr: tp, indices: vec![off].into() }, ptr);
                 s.f.replace_uses(Value::Local(r), addr);
                 let new = std::mem::take(&mut s.new);
                 let n = new.len();
@@ -849,7 +845,7 @@ fn thread_locals(cx: &mut Ctx, f: &mut Function) {
                 continue;
             }
             let desc = call_intrinsic(cx, &mut s, "llvm.epitome.tlv", vec![var], ptr);
-            let get = s.op(Op::Load { volatile: false, atomic: None, ptr: desc, align: Some(8) }, ptr);
+            let get = s.op(Op::Load { volatile: false, atomic: None, ptr: desc, align: Some(Align::of(8)) }, ptr);
             let fn_ty = cx.m.types.intern(Type::Function { ret: ptr, params: vec![ptr], varargs: false });
             let addr = s.op(
                 Op::Call(Box::new(Call {
@@ -1232,7 +1228,8 @@ fn vector_arguments(cx: &mut Ctx, f: &mut Function) {
                         let st = abi_result_ty(cx, a);
                         let mut agg = Value::Const(cx.m.consts.intern(Constant { ty: st, kind: ConstKind::Poison }));
                         for (n, p) in parts.into_iter().enumerate() {
-                            agg = s.op(Op::InsertValue { aggregate: agg, element: p, indices: vec![n as u32] }, st);
+                            agg = s
+                                .op(Op::InsertValue { aggregate: agg, element: p, indices: vec![n as u32].into() }, st);
                         }
                         agg
                     };
@@ -1311,7 +1308,7 @@ fn call_vectors(cx: &mut Ctx, f: &mut Function, b: BlockId, k: usize) -> usize {
         vec![Value::Local(new_r)]
     } else {
         (0..a.parts as u32)
-            .map(|n| s.op(Op::ExtractValue { aggregate: Value::Local(new_r), indices: vec![n] }, a.part))
+            .map(|n| s.op(Op::ExtractValue { aggregate: Value::Local(new_r), indices: vec![n].into() }, a.part))
             .collect()
     };
     let v = from_abi_parts(cx, &mut s, parts, orig_ty, &a);
@@ -2162,7 +2159,7 @@ fn variable_lanes(cx: &mut Ctx, f: &mut Function) {
                 None => (vector, element, vty, elem),
             };
             let esize = cx.size_of(elem).unwrap_or(1) as i64;
-            let align = Some(cx.size_of(vty).unwrap_or(16).next_power_of_two().clamp(1, 16));
+            let align = Some(Align::of(cx.size_of(vty).unwrap_or(16).next_power_of_two().clamp(1, 16)));
             let slot = s.f.add_inst(
                 Op::Alloca { inalloca: false, ty: vty, count: None, align, addrspace: None },
                 Some((None, ptr)),
@@ -2180,11 +2177,9 @@ fn variable_lanes(cx: &mut Ctx, f: &mut Function) {
                 let sz = cx.int(i64t, esize);
                 s.bin(BinOp::Mul, idx, sz, i64t)
             };
-            let lane = s.op(
-                Op::Gep { flags: GepFlags::default(), inrange: None, source_ty: i8t, ptr: at, indices: vec![off] },
-                ptr,
-            );
-            let ealign = Some(esize as u64);
+            let lane =
+                s.op(Op::Gep { flags: GepFlags::default(), source_ty: i8t, ptr: at, indices: vec![off].into() }, ptr);
+            let ealign = Align::new(esize as u64);
             let v = match element {
                 None => s.op(Op::Load { volatile: false, atomic: None, ptr: lane, align: ealign }, elem),
                 Some(e) => {
@@ -2363,10 +2358,11 @@ fn materialize(cx: &mut Ctx, s: &mut Seq, c: ConstId) -> Value {
             let v = materialize(cx, s, value);
             s.cast(op, v, k.ty)
         }
-        ConstKind::Expr(ConstExpr::Gep { flags, inrange, source_ty, ptr, indices }) => {
+        ConstKind::Expr(ConstExpr::Gep { flags, source_ty, ptr, indices, .. }) => {
             let p = materialize(cx, s, ptr);
             let idx: Vec<Value> = indices.iter().map(|&i| materialize(cx, s, i)).collect();
-            s.op(Op::Gep { flags, inrange, source_ty, ptr: p, indices: idx }, k.ty)
+            // `inrange` is for constants only; leaving it off promises less.
+            s.op(Op::Gep { flags, source_ty, ptr: p, indices: idx.into() }, k.ty)
         }
         _ => Value::Const(c),
     }
@@ -3189,7 +3185,7 @@ fn vector_int_bitcasts(cx: &mut Ctx, f: &mut Function) {
                 let x = s.cast(CastOp::BitCast, value, it);
                 s.cast(CastOp::BitCast, x, to)
             } else {
-                let align = Some(size.next_power_of_two().clamp(1, 16));
+                let align = Some(Align::of(size.next_power_of_two().clamp(1, 16)));
                 let slot = s.f.add_inst(
                     Op::Alloca { inalloca: false, ty: from, count: None, align, addrspace: None },
                     Some((None, ptr)),
@@ -3351,7 +3347,8 @@ fn expand_small_mem_ops(cx: &mut Ctx, f: &mut Function) {
                             let lane = cx.int(i64t, (0..8).fold(0u64, |acc, _| (acc << 8) | b as u64) as i64);
                             let Value::Const(lane) = lane else { unreachable!() };
                             Value::Const(
-                                cx.m.consts.intern(Constant { ty, kind: ConstKind::Vector(vec![lane; (w / 8) as usize]) }),
+                                cx.m.consts
+                                    .intern(Constant { ty, kind: ConstKind::Vector(vec![lane; (w / 8) as usize]) }),
                             )
                         }
                         Some(b) => {
@@ -3365,7 +3362,7 @@ fn expand_small_mem_ops(cx: &mut Ctx, f: &mut Function) {
                                     volatile: false,
                                     atomic: None,
                                     ptr: from,
-                                    align: Some(real(src_align).min(w)),
+                                    align: Some(Align::of(real(src_align).min(w))),
                                 },
                                 ty,
                             )
@@ -3382,7 +3379,7 @@ fn expand_small_mem_ops(cx: &mut Ctx, f: &mut Function) {
                             atomic: None,
                             value,
                             ptr: to,
-                            align: Some(real(dst_align).min(w)),
+                            align: Some(Align::of(real(dst_align).min(w))),
                         },
                         None,
                     );
@@ -3676,7 +3673,7 @@ fn lower_dynamic_allocas(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
                 inalloca,
                 ty: i8t,
                 count: Some(rounded),
-                align: Some(align.unwrap_or(16).max(16)),
+                align: Some(align.unwrap_or(Align::of(16)).max(Align::of(16))),
                 addrspace,
             };
             let n = new.len();
@@ -3831,9 +3828,9 @@ fn unreachable_edges(f: &mut Function) {
                 (false, true) => Op::Br(then_dest),
                 (false, false) => continue,
             },
-            Op::Switch { value, mut default, mut cases } => {
+            Op::Switch { value, mut default, cases } => {
                 let n = cases.len();
-                cases.retain(|&(_, to)| !dead(f, to));
+                let mut cases: Vec<_> = cases.iter().copied().filter(|&(_, to)| !dead(f, to)).collect();
                 if dead(f, default)
                     && let Some((_, last)) = cases.pop()
                 {
@@ -3842,7 +3839,7 @@ fn unreachable_edges(f: &mut Function) {
                 if cases.len() == n && !dead(f, default) {
                     continue;
                 }
-                if cases.is_empty() { Op::Br(default) } else { Op::Switch { value, default, cases } }
+                if cases.is_empty() { Op::Br(default) } else { Op::Switch { value, default, cases: cases.into() } }
             }
             _ => continue,
         };
@@ -4250,7 +4247,7 @@ fn promote_odd(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
                                     atomic: None,
                                     value: v,
                                     ptr: p,
-                                    align: align.map(|a| a.min(size as u64)),
+                                    align: align.map(|a| a.at_most(size as u64)),
                                 };
                                 if n + 1 == pieces.len() {
                                     last = Some(st);
@@ -4271,7 +4268,7 @@ fn promote_odd(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
                                         volatile: false,
                                         atomic: None,
                                         ptr: p,
-                                        align: align.map(|a| a.min(size as u64)),
+                                        align: align.map(|a| a.at_most(size as u64)),
                                     },
                                     Some(pt),
                                 );
@@ -4408,11 +4405,17 @@ fn split_aggregate_memory(cx: &mut Ctx, f: &mut Function) {
                         Some(n) => {
                             let ptr_ty = cx.m.types.ptr(0);
                             for part in 0..n {
-                                let e = s.op(Op::ExtractValue { aggregate: value, indices: vec![part] }, i64t);
+                                let e = s.op(Op::ExtractValue { aggregate: value, indices: vec![part].into() }, i64t);
                                 let off = cx.int(i64t, 8 * part as i64);
                                 let p = s.op(gep8(i8t, ptr, off), ptr_ty);
                                 let st = s.f.add_inst(
-                                    Op::Store { volatile: false, atomic: None, value: e, ptr: p, align: Some(8) },
+                                    Op::Store {
+                                        volatile: false,
+                                        atomic: None,
+                                        value: e,
+                                        ptr: p,
+                                        align: Some(Align::of(8)),
+                                    },
                                     None,
                                 );
                                 s.new.push(st);
@@ -4432,8 +4435,12 @@ fn split_aggregate_memory(cx: &mut Ctx, f: &mut Function) {
                             for part in 0..n {
                                 let off = cx.int(i64t, 8 * part as i64);
                                 let p = s.op(gep8(i8t, ptr, off), ptr_ty);
-                                let v = s.op(Op::Load { volatile: false, atomic: None, ptr: p, align: Some(8) }, i64t);
-                                agg = s.op(Op::InsertValue { aggregate: agg, element: v, indices: vec![part] }, ty);
+                                let v = s.op(
+                                    Op::Load { volatile: false, atomic: None, ptr: p, align: Some(Align::of(8)) },
+                                    i64t,
+                                );
+                                agg = s
+                                    .op(Op::InsertValue { aggregate: agg, element: v, indices: vec![part].into() }, ty);
                             }
                             s.f.replace_uses(Value::Local(r), agg);
                             true
@@ -4618,8 +4625,8 @@ pub(crate) fn replace_pair(cx: &mut Ctx, s: &mut Seq, r: LocalId, sty: TypeId, a
     }
     if others {
         let poison = Value::Const(cx.m.consts.intern(Constant { ty: sty, kind: ConstKind::Poison }));
-        let x = s.op(Op::InsertValue { aggregate: poison, element: a, indices: vec![0] }, sty);
-        let y = s.op(Op::InsertValue { aggregate: x, element: b, indices: vec![1] }, sty);
+        let x = s.op(Op::InsertValue { aggregate: poison, element: a, indices: vec![0].into() }, sty);
+        let y = s.op(Op::InsertValue { aggregate: x, element: b, indices: vec![1].into() }, sty);
         s.f.replace_uses(Value::Local(r), y);
     }
 }
@@ -5010,13 +5017,10 @@ fn expand_intrinsics(cx: &mut Ctx, f: &mut Function) {
             if name.starts_with("llvm.load.relative.") {
                 let (i8t, i32t, i64t) = (cx.m.types.int(8), cx.m.types.int(32), cx.m.types.int(64));
                 let gep = |s: &mut Seq, p: Value, k: Value| {
-                    s.op(
-                        Op::Gep { flags: Default::default(), inrange: None, source_ty: i8t, ptr: p, indices: vec![k] },
-                        ty,
-                    )
+                    s.op(Op::Gep { flags: Default::default(), source_ty: i8t, ptr: p, indices: vec![k].into() }, ty)
                 };
                 let at = gep(&mut s, args[0], args[1]);
-                let rel = s.op(Op::Load { volatile: false, atomic: None, ptr: at, align: Some(4) }, i32t);
+                let rel = s.op(Op::Load { volatile: false, atomic: None, ptr: at, align: Some(Align::of(4)) }, i32t);
                 let rel = s.cast(CastOp::SExt, rel, i64t);
                 let v = gep(&mut s, args[0], rel);
                 let new = std::mem::take(&mut s.new);
@@ -6288,7 +6292,7 @@ fn widen_narrow(cx: &mut Ctx, f: &mut Function) {
 }
 
 fn gep8(i8t: TypeId, ptr: Value, off: Value) -> Op {
-    Op::Gep { flags: GepFlags::default(), inrange: None, source_ty: i8t, ptr, indices: vec![off] }
+    Op::Gep { flags: GepFlags::default(), source_ty: i8t, ptr, indices: vec![off].into() }
 }
 
 pub fn struct_fields(cx: &Ctx, ty: TypeId) -> Result<(Vec<TypeId>, bool), String> {

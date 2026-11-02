@@ -338,6 +338,94 @@ define ptr @ADDIsym(ptr "reg"="x" %n, ptr "sym" %s) "enc"="imm:12=s n:5 000 d:5 
   ret ptr %n
 }
 
+; An address PC-relative: auipc's high part, then the low part, whose symbol
+; is the auipc's label (la, lla).
+define ptr @AUIPCpcrel(ptr "sym" %s) "enc"="imm20:20=s>>12 d:5 0010111" "asm"="auipc {d}, {s}" "reloc"="pcrel_hi20" "nomatch" "nodecode" {
+  ret ptr %s
+}
+
+define ptr @ADDIpcrel(ptr "reg"="x" %n, ptr "sym" %s) "enc"="imm:12=s n:5 000 d:5 0010011" "asm"="addi {d}, {n}, {s}" "reloc"="pcrel_lo12_i" "nomatch" "nodecode" {
+  ret ptr %n
+}
+
+; Loads and stores at a PC-relative address's low part, after its auipc
+; (`lw a0, sym` and `sw a0, sym, t0`).
+define void @LBpcrel(i64 "reg"="x" %rd, i64 "reg"="x" %n, ptr "sym" %s) "enc"="imm:12=s n:5 000 rd:5 0000011" "asm"="lb {rd}, {s}({n})" "reloc"="pcrel_lo12_i" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @LHpcrel(i64 "reg"="x" %rd, i64 "reg"="x" %n, ptr "sym" %s) "enc"="imm:12=s n:5 001 rd:5 0000011" "asm"="lh {rd}, {s}({n})" "reloc"="pcrel_lo12_i" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @LWpcrel(i64 "reg"="x" %rd, i64 "reg"="x" %n, ptr "sym" %s) "enc"="imm:12=s n:5 010 rd:5 0000011" "asm"="lw {rd}, {s}({n})" "reloc"="pcrel_lo12_i" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @LDpcrel(i64 "reg"="x" %rd, i64 "reg"="x" %n, ptr "sym" %s) "enc"="imm:12=s n:5 011 rd:5 0000011" "asm"="ld {rd}, {s}({n})" "reloc"="pcrel_lo12_i" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @LBUpcrel(i64 "reg"="x" %rd, i64 "reg"="x" %n, ptr "sym" %s) "enc"="imm:12=s n:5 100 rd:5 0000011" "asm"="lbu {rd}, {s}({n})" "reloc"="pcrel_lo12_i" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @LHUpcrel(i64 "reg"="x" %rd, i64 "reg"="x" %n, ptr "sym" %s) "enc"="imm:12=s n:5 101 rd:5 0000011" "asm"="lhu {rd}, {s}({n})" "reloc"="pcrel_lo12_i" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @LWUpcrel(i64 "reg"="x" %rd, i64 "reg"="x" %n, ptr "sym" %s) "enc"="imm:12=s n:5 110 rd:5 0000011" "asm"="lwu {rd}, {s}({n})" "reloc"="pcrel_lo12_i" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @FLHpcrel(i64 "reg"="d" %rd, i64 "reg"="x" %n, ptr "sym" %s) "enc"="imm:12=s n:5 001 rd:5 0000111" "asm"="flh {rd}, {s}({n})" "reloc"="pcrel_lo12_i" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @FLWpcrel(i64 "reg"="d" %rd, i64 "reg"="x" %n, ptr "sym" %s) "enc"="imm:12=s n:5 010 rd:5 0000111" "asm"="flw {rd}, {s}({n})" "reloc"="pcrel_lo12_i" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @FLDpcrel(i64 "reg"="d" %rd, i64 "reg"="x" %n, ptr "sym" %s) "enc"="imm:12=s n:5 011 rd:5 0000111" "asm"="fld {rd}, {s}({n})" "reloc"="pcrel_lo12_i" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @FLQpcrel(i64 "reg"="d" %rd, i64 "reg"="x" %n, ptr "sym" %s) "enc"="imm:12=s n:5 100 rd:5 0000111" "asm"="flq {rd}, {s}({n})" "reloc"="pcrel_lo12_i" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @SBpcrel(i64 "reg"="x" %rs2, i64 "reg"="x" %n, ptr "sym" %s) "enc"="hi:7=s>>5 rs2:5 n:5 000 lo:5=s&31 0100011" "asm"="sb {rs2}, {s}({n})" "reloc"="pcrel_lo12_s" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @SHpcrel(i64 "reg"="x" %rs2, i64 "reg"="x" %n, ptr "sym" %s) "enc"="hi:7=s>>5 rs2:5 n:5 001 lo:5=s&31 0100011" "asm"="sh {rs2}, {s}({n})" "reloc"="pcrel_lo12_s" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @SWpcrel(i64 "reg"="x" %rs2, i64 "reg"="x" %n, ptr "sym" %s) "enc"="hi:7=s>>5 rs2:5 n:5 010 lo:5=s&31 0100011" "asm"="sw {rs2}, {s}({n})" "reloc"="pcrel_lo12_s" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @SDpcrel(i64 "reg"="x" %rs2, i64 "reg"="x" %n, ptr "sym" %s) "enc"="hi:7=s>>5 rs2:5 n:5 011 lo:5=s&31 0100011" "asm"="sd {rs2}, {s}({n})" "reloc"="pcrel_lo12_s" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @FSHpcrel(i64 "reg"="d" %rs2, i64 "reg"="x" %n, ptr "sym" %s) "enc"="hi:7=s>>5 rs2:5 n:5 001 lo:5=s&31 0100111" "asm"="fsh {rs2}, {s}({n})" "reloc"="pcrel_lo12_s" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @FSWpcrel(i64 "reg"="d" %rs2, i64 "reg"="x" %n, ptr "sym" %s) "enc"="hi:7=s>>5 rs2:5 n:5 010 lo:5=s&31 0100111" "asm"="fsw {rs2}, {s}({n})" "reloc"="pcrel_lo12_s" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @FSDpcrel(i64 "reg"="d" %rs2, i64 "reg"="x" %n, ptr "sym" %s) "enc"="hi:7=s>>5 rs2:5 n:5 011 lo:5=s&31 0100111" "asm"="fsd {rs2}, {s}({n})" "reloc"="pcrel_lo12_s" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @FSQpcrel(i64 "reg"="d" %rs2, i64 "reg"="x" %n, ptr "sym" %s) "enc"="hi:7=s>>5 rs2:5 n:5 100 lo:5=s&31 0100111" "asm"="fsq {rs2}, {s}({n})" "reloc"="pcrel_lo12_s" "asmonly" "nodecode" {
+  ret void
+}
+
 ; A thread-local variable's address: the thread pointer plus its offset
 ; (see `prepare::thread_locals`).
 define ptr @LUItprel(ptr "sym" %s) "enc"="imm20:20=s>>12 d:5 0110111" "asm"="lui {d}, {s}" "reloc"="tprel_hi20" "role"="tprel.hi" "nomatch" "nodecode" {

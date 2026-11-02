@@ -3202,7 +3202,7 @@ impl<'a, 'b> Sel<'a, 'b> {
                     }
                     let n = count.and_then(|c| self.cx.const_int(c)).unwrap_or(1) as u64;
                     let size = self.cx.size_of(*ty)? * n;
-                    let align = align.unwrap_or(8).max(1);
+                    let align = align.map_or(8, Align::bytes);
                     self.mf.slots.push(Slot { size: size.max(1), align, offset: 0 });
                     let slot = self.mf.slots.len() - 1;
                     let d = self.vreg_of(r);

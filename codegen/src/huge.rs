@@ -165,9 +165,8 @@ fn split_inst(
             let mut ls = Vec::new();
             for (k, &t) in tys.iter().enumerate() {
                 let off = cx.int(i64t, 8 * k as i64);
-                let at = s
-                    .op(Op::Gep { flags: GepFlags(0), inrange: None, source_ty: i8t, ptr: p, indices: vec![off] }, ptr);
-                let a = align.map(|a| a.min(8));
+                let at = s.op(Op::Gep { flags: GepFlags(0), source_ty: i8t, ptr: p, indices: vec![off].into() }, ptr);
+                let a = align.map(|a| a.min(Align::of(8)));
                 ls.push(s.op(Op::Load { volatile, atomic: None, ptr: at, align: a }, t));
             }
             set(limbs, ls);
@@ -178,9 +177,14 @@ fn split_inst(
             let ls = limbs_of(cx, limbs, s.f, value, bits)?;
             for (k, &l) in ls.iter().enumerate() {
                 let off = cx.int(i64t, 8 * k as i64);
-                let at = s
-                    .op(Op::Gep { flags: GepFlags(0), inrange: None, source_ty: i8t, ptr: p, indices: vec![off] }, ptr);
-                s.op_void(Op::Store { volatile, atomic: None, value: l, ptr: at, align: align.map(|a| a.min(8)) });
+                let at = s.op(Op::Gep { flags: GepFlags(0), source_ty: i8t, ptr: p, indices: vec![off].into() }, ptr);
+                s.op_void(Op::Store {
+                    volatile,
+                    atomic: None,
+                    value: l,
+                    ptr: at,
+                    align: align.map(|a| a.min(Align::of(8))),
+                });
             }
             Ok(None)
         }

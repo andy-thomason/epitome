@@ -62,7 +62,7 @@ impl Lower<'_, '_> {
         let i64t = self.cx.m.types.int(64);
         let n = self.cx.int(i64t, size as i64);
         let ptr = self.ptr();
-        let op = Op::Alloca { inalloca: false, ty: i8t, count: Some(n), align: Some(16), addrspace: None };
+        let op = Op::Alloca { inalloca: false, ty: i8t, count: Some(n), align: Some(Align::of(16)), addrspace: None };
         let i = f.add_inst(op, Some((None, ptr)));
         self.prologue.push(i);
         f.result(i)
@@ -113,7 +113,7 @@ fn gep(cx: &mut Ctx, s: &mut Seq, p: Value, off: i64, ptr: TypeId) -> Value {
     let i8t = cx.m.types.int(8);
     let i64t = cx.m.types.int(64);
     let k = cx.int(i64t, off);
-    s.op(Op::Gep { flags: Default::default(), inrange: None, source_ty: i8t, ptr: p, indices: vec![k] }, ptr)
+    s.op(Op::Gep { flags: Default::default(), source_ty: i8t, ptr: p, indices: vec![k].into() }, ptr)
 }
 
 /// An x87 instruction: `llvm.epitome.x87.NAME(args)`.

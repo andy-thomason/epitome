@@ -1,5 +1,6 @@
-//! A block of a model written in JAX, compiled by Epitome into a Mach-O
-//! executable that checks itself against JAX.
+//! A block of a model written in JAX, compiled by Epitome into an
+//! executable that checks itself against JAX: for AArch64 macOS (Mach-O) or
+//! x86-64 Linux (ELF), whichever this runs on.
 //!
 //! `examples/jax/export.py` exports the block (attention over 64
 //! positions: a projection, GELU, a leaky ReLU, four heads, a causal
@@ -13,7 +14,7 @@
 //!    `outline-linalg`, `linalg-vectorize=4`, `linalg-to-loops`,
 //!    `math-polynomial-approximation` and `to-llvm`;
 //! 3. translation to LLVM IR, `epitome-opt`'s pipeline, and code generation
-//!    for AArch64, to a Mach-O object, `block.o`;
+//!    for AArch64 or x86-64, to an object, `block.o`;
 //!
 //! then links it with the Rust program in `examples/jax/driver.rs`, which
 //! runs it and prints how far its output is from JAX's.
@@ -23,13 +24,20 @@
 //! `apple-m4`; `--weights=bf16` stores the constant weights in BF16 for the
 //! kernels that take them so. `--dump` writes each stage next to the block.
 //!
+//! On x86-64, as in `examples/llm.rs`, the code generator targets AVX2 and
+//! FMA, vectors of eight (`linalg-vectorize=8`), and `--avx512` is
+//! `--sme`'s counterpart: matrix products by the kernels of
+//! `mlir/targets/x86-avx512.mlir`, which need AVX-512 and AVX512-BF16 and
+//! so `--weights=bf16`.
+//!
 //! ```sh
 //! python examples/jax/export.py target/jax      # with JAX installed
 //! cargo run --release --example jax -- target/jax --sme
 //! target/jax/jax
 //! ```
 //!
-//! On an AArch64 Mac, with `rustc` to build the driver.
+//! On an AArch64 Mac or an x86-64 Linux machine, with `rustc` to build the
+//! driver.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -40,7 +48,7 @@ use epitome_codegen::{Options, compile};
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let dump = args.iter().any(|a| a == "--dump");
-    let sme = args.iter().any(|a| a == "--sme");
+    let sme = args.iter().any(|a| a == "--sme" || a == "--avx512");
     let weights = args.iter().find_map(|a| a.strip_prefix("--weights=")).map(str::to_string);
     let dir = args
         .iter()
@@ -60,21 +68,24 @@ fn main() -> ExitCode {
 }
 
 /// The passes from StableHLO to the `llvm` dialect, with the SME kernels
-/// (of the format `weights`, if given) when `sme` is set.
+/// (AVX-512's on x86-64; of the format `weights`, if given) when `sme` is
+/// set.
 pub fn passes(sme: bool, weights: Option<&str>) -> Vec<String> {
+    let x86 = cfg!(target_arch = "x86_64");
+    let set = if x86 { "x86-avx512" } else { "aarch64-sme" };
     let mut passes = vec!["stablehlo-to-linalg".to_string()];
     passes.extend(epitome_mlir::LINALG_TO_LLVM.iter().map(|p| p.to_string()));
     let mut at = passes.iter().position(|p| p == "bufferize").unwrap() + 1;
     if sme {
         let kernels = match weights {
-            Some(w) => format!("linalg-to-kernels=aarch64-sme:{w}"),
-            None => "linalg-to-kernels=aarch64-sme".to_string(),
+            Some(w) => format!("linalg-to-kernels={set}:{w}"),
+            None => format!("linalg-to-kernels={set}"),
         };
         passes.insert(at, kernels);
         at += 1;
     }
     passes.insert(at, "outline-linalg".into());
-    passes.insert(at + 1, "linalg-vectorize=4".into());
+    passes.insert(at + 1, if x86 { "linalg-vectorize=8" } else { "linalg-vectorize=4" }.into());
     let at = passes.iter().position(|p| p == "to-llvm").unwrap();
     passes.insert(at, "math-polynomial-approximation".into());
     passes
@@ -95,14 +106,18 @@ fn build(dir: &Path, dump: bool, sme: bool, weights: Option<&str>) -> Result<Pat
         }
     }
     let mut ir = epitome_mlir::translate::translate(&m).map_err(|e| format!("translate: {e}"))?;
-    ir.triple = Some(b"arm64-apple-macosx14.0.0".to_vec());
+    let x86 = cfg!(target_arch = "x86_64");
+    ir.triple = Some(if x86 { b"x86_64-unknown-linux-gnu".to_vec() } else { b"arm64-apple-macosx14.0.0".to_vec() });
     epitome_opt::pipeline::run(&mut ir, &epitome_opt::pipeline::Options::default());
     if dump {
         let out = dir.join("block.ll");
         std::fs::write(&out, ir.to_string()).map_err(|e| format!("{}: {e}", out.display()))?;
     }
-    let t = Target::aarch64();
-    let opts = Options { mcpu: sme.then(|| "apple-m4".to_string()), ..Options::default() };
+    let (t, opts) = if x86 {
+        (Target::x86_64(), Options { mattr: vec!["+avx2,+fma".to_string()], ..Options::default() })
+    } else {
+        (Target::aarch64(), Options { mcpu: sme.then(|| "apple-m4".to_string()), ..Options::default() })
+    };
     let compiled = compile(&t, &mut ir, &opts)?;
     let suffix = weights.map(|w| format!("-{w}")).unwrap_or_default();
     let object = dir.join(format!("block{suffix}.o"));

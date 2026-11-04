@@ -1478,19 +1478,19 @@ impl<'a, 'b> Sel<'a, 'b> {
         // `vec.join.d`: a second word into the high half; x86's).
         if let (Some(from), false) = (self.t.role("vec.from.x"), lanes.iter().all(|&l| l == 0)) {
             let mask = if ebits >= 64 { u64::MAX } else { (1u64 << ebits) - 1 };
-            let mut words = [0u64; 4];
+            let n = (len * ebits).div_ceil(64) as usize;
+            let mut words = vec![0u64; n.max(1)];
             for (k, &l) in lanes.iter().enumerate() {
                 let at = k as u32 * ebits;
                 words[(at / 64) as usize] |= (l as u64 & mask) << (at % 64);
             }
-            let n = (len * ebits).div_ceil(64) as usize;
             // Each 128 bits: a word, the next joined above it.
-            let half = |this: &mut Self, w: &[u64], into: VReg| -> Result<(), String> {
+            let half = |this: &mut Self, w: &[u64], into: VReg, c: Class| -> Result<(), String> {
                 let lo = this.int_reg(w[0] as i64, true, false)?;
                 this.push(MInst::new(from, vec![MOp::Reg(Reg::V(into)), MOp::Reg(lo)]));
                 if w.len() > 1 && w[1] != 0 {
                     let join = this.t.by_role("vec.join.d");
-                    let t = this.mf.new_vreg(class);
+                    let t = this.mf.new_vreg(c);
                     let hi = this.int_reg(w[1] as i64, true, false)?;
                     this.push(MInst::new(from, vec![MOp::Reg(Reg::V(t)), MOp::Reg(hi)]));
                     this.push(MInst::new(
@@ -1500,13 +1500,34 @@ impl<'a, 'b> Sel<'a, 'b> {
                 }
                 Ok(())
             };
-            half(self, &words[..n.min(2)], d)?;
             // Wider (256 bits): the high 128 inserted (`vec.join.q`).
-            if n > 2 {
-                let t = self.mf.new_vreg(class);
-                half(self, &words[2..n], t)?;
-                let join = self.t.by_role("vec.join.q");
-                self.push(MInst::new(join, vec![MOp::Reg(Reg::V(d)), MOp::Reg(Reg::V(d)), MOp::Reg(Reg::V(t))]));
+            let wide = |this: &mut Self, w: &[u64], into: VReg, c: Class| -> Result<(), String> {
+                half(this, &w[..w.len().min(2)], into, c)?;
+                if w.len() > 2 {
+                    let t = this.mf.new_vreg(c);
+                    half(this, &w[2..], t, c)?;
+                    let join = this.t.by_role("vec.join.q");
+                    this.push(MInst::new(
+                        join,
+                        vec![MOp::Reg(Reg::V(into)), MOp::Reg(Reg::V(into)), MOp::Reg(Reg::V(t))],
+                    ));
+                }
+                Ok(())
+            };
+            // Wider still (512 bits): two of those, in the class the
+            // join takes them in, the high one inserted (`vec.join.y`).
+            if n > 4 {
+                let join = self.t.role("vec.join.y").ok_or("no instruction has role vec.join.y")?;
+                let Kind::Reg(c) = self.t.instrs[join].operands[2].kind else {
+                    return self.err("vec.join.y's operand is not a register");
+                };
+                let (lo, hi) = (self.mf.new_vreg(c), self.mf.new_vreg(c));
+                wide(self, &words[..4], lo, c)?;
+                wide(self, &words[4..], hi, c)?;
+                self.push(MInst::copy(Reg::V(d), Reg::V(lo)));
+                self.push(MInst::new(join, vec![MOp::Reg(Reg::V(d)), MOp::Reg(Reg::V(d)), MOp::Reg(Reg::V(hi))]));
+            } else {
+                wide(self, &words[..n], d, class)?;
             }
             return Ok(Reg::V(d));
         }

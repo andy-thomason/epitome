@@ -1347,6 +1347,11 @@ def avx512():
     enc, _ = xed('vmovaps {o0}, {o1}', (Z, Z))
     entry('<16 x i32>', 'VMOVAPSzv', ['<16 x i32> "reg"="zv" %n'], renamed(enc, {'o0': 'n', 'o1': 'd'}), 'vmovaps {n}, {d}',
           ['ret <16 x i32> %n'], ' "copy"="zv" "dclass"="zv"' + feat)
+    # The high 256 bits of a constant, inserted.
+    enc, _ = xed('vinserti64x4 ${c}, {o0}, {o1}, {o2}', ('ye', Z, Z))
+    entry('<8 x i64>', 'VINSERTI64X4hi', ['<8 x i64> "reg"="zv" "tied" %n', '<4 x i64> "reg"="yv" %h'],
+          renamed(enc, {'c': '1', 'o0': 'h', 'o1': 'n', 'o2': 'd'}).replace('i1:8=1', '00000001'),
+          'vinserti64x4 $1, {h}, {d}, {d}', ['ret <8 x i64> %n'], ' "dclass"="zv" "role"="vec.join.y" "nomatch"' + feat)
     enc, _ = xed('vpxord {o0}, {o1}, {o2}', (Z, Z, Z))
     for ty in ('<16 x float>', '<16 x i32>'):
         T = ty.strip('<>').replace(' x ', 'x').replace('float', 'f32')

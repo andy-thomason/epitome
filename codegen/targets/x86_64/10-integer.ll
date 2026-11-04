@@ -6168,6 +6168,10 @@ define <16 x i32> @VMOVAPSzv(<16 x i32> "reg"="zv" %n) "enc"="{ evexr(d, n, 1, 0
   ret <16 x i32> %n
 }
 
+define <8 x i64> @VINSERTI64X4hi(<8 x i64> "reg"="zv" "tied" %n, <4 x i64> "reg"="yv" %h) "enc"="evexr(d, h, 3, 1, n, 2, 1, 0, 0, 0) | 00111010 | 11 reg:3=d&7 rm:3=h&7 | 00000001" "asm"="vinserti64x4 $1, {h}, {d}, {d}" "dclass"="zv" "role"="vec.join.y" "nomatch" "feature"="avx512f" "nodecode" {
+  ret <8 x i64> %n
+}
+
 define <16 x float> @VPXORDzero.16xf32() "enc"="evexr(d, d, 1, 0, d, 2, 1, 0, 0, 0) | 11101111 | 11 reg:3=d&7 rm:3=d&7" "asm"="vpxord {d}, {d}, {d}" "dclass"="zv" "feature"="avx512f" "nodecode" {
   ret <16 x float> zeroinitializer
 }

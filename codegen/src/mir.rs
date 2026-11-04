@@ -96,6 +96,9 @@ pub struct AsmBlock {
     /// The outputs written before every input is read (`=&r`), which must
     /// not share a register with one.
     pub early: Vec<bool>,
+    /// In Intel's syntax (x86's, as Rust's `asm!` writes it): its operands
+    /// are written so, and it is read as AT&T's (`intel.rs`).
+    pub intel: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -257,6 +260,10 @@ impl MFunc {
 pub fn render_asm(t: &Target, f: &MFunc, inst: &MInst, block: &AsmBlock) -> String {
     let m = &t.machine;
     let reg = |r: Reg, c: Class| reg_name(t, r, c);
+    // (Intel's syntax writes registers without `%`, memory in brackets
+    // and immediates bare.)
+    let intel = |s: String| if block.intel { s.trim_start_matches('%').to_string() } else { s };
+    let reg = |r: Reg, c: Class| intel(reg(r, c));
     let operand = |n: usize, modifier: Option<char>| -> String {
         let Some((k, print)) = block.operands.get(n) else { return format!("${n}?") };
         let modifier = modifier.map(|c| (c, m.asm_modifiers.get(&c)));
@@ -266,8 +273,10 @@ pub fn render_asm(t: &Target, f: &MFunc, inst: &MInst, block: &AsmBlock) -> Stri
                 Some(('z', None)) if *v == 0 => m.zero.map_or("0".into(), |z| m.lookup_name(z)),
                 Some((_, Some(crate::machine::AsmModifier::IfImm(text)))) => text.clone(),
                 Some(('c', None)) => format!("{v}"),
+                _ if block.intel => format!("{v}"),
                 _ => m.asm_imm.replace("{i}", &v.to_string()),
             },
+            (MOp::Reg(r), AsmPrint::Mem(_, c)) if block.intel => format!("[{}]", reg(*r, *c)),
             (MOp::Reg(r), AsmPrint::Mem(tpl, c)) => tpl.replace("{r}", &reg(*r, *c)),
             (MOp::Reg(r), AsmPrint::Reg(c)) => match modifier {
                 Some((_, Some(crate::machine::AsmModifier::Class(mc)))) => reg(*r, *mc),
@@ -318,6 +327,9 @@ pub fn render_asm(t: &Target, f: &MFunc, inst: &MInst, block: &AsmBlock) -> Stri
             }
             _ => out.push('$'),
         }
+    }
+    if block.intel {
+        out = crate::intel::to_att(&out);
     }
     let c = &m.asm_comment;
     format!("{c}APP\n\t{out}\n\t{c}NO_APP")

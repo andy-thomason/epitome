@@ -2407,7 +2407,7 @@ impl<'a, 'b> Sel<'a, 'b> {
             * 1000
             + id as u64;
         let statements = statements(&template, &m.asm_comment);
-        self.mf.asms.push(AsmBlock { template, operands, uid, statements, early });
+        self.mf.asms.push(AsmBlock { template, operands, uid, statements, early, intel: a.intel_dialect });
         let mut asm = MInst { op: Opcode::Asm { id: id as u32, outs: n_outs as u16 }, ..MInst::new(0, ops) };
         asm.imp_defs = clobbers;
         self.push(asm);

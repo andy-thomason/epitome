@@ -17,6 +17,7 @@ pub mod enc;
 pub mod features;
 pub mod frame;
 pub mod huge;
+pub mod intel;
 pub mod intrinsics;
 pub mod isel;
 pub mod lanewise;

@@ -3207,9 +3207,20 @@ fn vector_int_bitcasts(cx: &mut Ctx, f: &mut Function) {
 }
 
 /// An `i1` in memory is a byte, 0 or 1: its stores store it zero-extended,
-/// and its loads truncate the byte.
+/// and its loads truncate the byte. A vector of them (`<16 x i1>`, a
+/// comparison's lanes) is packed bits, lane k bit k, in as many bytes as
+/// they fill: its stores store it cast to an integer of its bits,
+/// zero-extended to whole bytes, and its loads cast such an integer back.
 fn bool_memory(cx: &mut Ctx, f: &mut Function) {
     let (i1, i8t) = (cx.m.types.int(1), cx.m.types.int(8));
+    // The integers a vector of booleans is in memory: its bits', and its
+    // bytes'.
+    let packed = |cx: &mut Ctx, t| match *cx.m.types.get(t) {
+        Type::Vector { len, elem, scalable: false } if elem == i1 => {
+            Some((cx.m.types.int(len), cx.m.types.int(len.div_ceil(8) * 8)))
+        }
+        _ => None,
+    };
     let blocks: Vec<BlockId> = f.layout.clone();
     for b in blocks {
         let mut k = 0;
@@ -3227,6 +3238,27 @@ fn bool_memory(cx: &mut Ctx, f: &mut Function) {
                     let r = s.f.insts[i.index()].result.unwrap();
                     let v = s.op(Op::Load { volatile, atomic, ptr, align }, i8t);
                     let t = s.cast(CastOp::Trunc, v, i1);
+                    s.f.replace_uses(Value::Local(r), t);
+                }
+                Op::Store { volatile, atomic, value, ptr, align } if packed(cx, cx.value_ty(s.f, value)).is_some() => {
+                    let (bits, bytes) = packed(cx, cx.value_ty(s.f, value)).unwrap();
+                    let mut v = s.cast(CastOp::BitCast, value, bits);
+                    if bytes != bits {
+                        v = s.cast(CastOp::ZExt, v, bytes);
+                    }
+                    s.op_void(Op::Store { volatile, atomic, value: v, ptr, align });
+                }
+                Op::Load { volatile, atomic, ptr, align }
+                    if s.f.insts[i.index()].result.is_some_and(|r| packed(cx, s.f.locals[r.index()].ty).is_some()) =>
+                {
+                    let r = s.f.insts[i.index()].result.unwrap();
+                    let vty = s.f.locals[r.index()].ty;
+                    let (bits, bytes) = packed(cx, vty).unwrap();
+                    let mut v = s.op(Op::Load { volatile, atomic, ptr, align }, bytes);
+                    if bytes != bits {
+                        v = s.cast(CastOp::Trunc, v, bits);
+                    }
+                    let t = s.cast(CastOp::BitCast, v, vty);
                     s.f.replace_uses(Value::Local(r), t);
                 }
                 _ => {

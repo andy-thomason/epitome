@@ -1198,6 +1198,21 @@ impl<'a, 'b> Sel<'a, 'b> {
 
     /// A register holding value `v`, made in the current block if `v` is a
     /// constant. `class` says whether the zero register will do for 0.
+    /// `r`, or, if it is of another register file than `class`, a copy of
+    /// it in a register of `class` (a mask, as AVX-512 takes them, from an
+    /// integer register).
+    fn in_file_of(&mut self, r: Reg, class: Class) -> Reg {
+        let m = &self.t.machine;
+        if let Reg::V(x) = r
+            && m.def(self.mf.vclass[x as usize]).file != m.def(class).file
+        {
+            let d = self.mf.new_vreg(class);
+            self.push(MInst::copy(Reg::V(d), r));
+            return Reg::V(d);
+        }
+        r
+    }
+
     fn reg_for(&mut self, v: Value, class: Class) -> Result<Reg, String> {
         match v {
             Value::Local(x) => Ok(Reg::V(self.vreg_of(x))),
@@ -1757,7 +1772,10 @@ impl<'a, 'b> Sel<'a, 'b> {
         for (i, pp) in p.params.iter().enumerate() {
             let Some(t) = m.params[i] else { continue };
             vals[i] = Some(match (pp.kind, t) {
-                (Kind::Reg(class), Term::V(v)) => MOp::Reg(self.reg_for(v, class)?),
+                (Kind::Reg(class), Term::V(v)) => {
+                    let r = self.reg_for(v, class)?;
+                    MOp::Reg(self.in_file_of(r, class))
+                }
                 (Kind::Imm, t) => MOp::Imm(self.imm_of(t, pp.bits).unwrap()),
                 (Kind::Sym, Term::V(Value::Const(c))) => {
                     let (g, _) = prepare::const_address(self.cx, c).ok_or("a symbol operand that is not a global")?;
@@ -1810,6 +1828,18 @@ impl<'a, 'b> Sel<'a, 'b> {
                     ops[operand] = MOp::Reg(Reg::V(rx));
                 }
             }
+            // A result written to a register of another file than its
+            // value's (an AVX-512 comparison's mask, in k): copied after.
+            let mut moved = None;
+            if ins.has_result
+                && let MOp::Reg(Reg::V(res)) = ops[0]
+                && let Kind::Reg(c) = ins.operands[0].kind
+                && self.t.machine.def(self.mf.vclass[res as usize]).file != self.t.machine.def(c).file
+            {
+                let w = self.mf.new_vreg(c);
+                ops[0] = MOp::Reg(Reg::V(w));
+                moved = Some((res, w));
+            }
             // A tied operand shares the result's register: copied there
             // first, then updated in place.
             if ins.has_result
@@ -1833,6 +1863,9 @@ impl<'a, 'b> Sel<'a, 'b> {
                 self.set_zbits(r, z);
             }
             self.push_fixed(e.instr, ops);
+            if let Some((res, w)) = moved {
+                self.push(MInst::copy(Reg::V(res), Reg::V(w)));
+            }
         }
         // An `and` alone with a constant whose top bit (in its type) is
         // clear: the bits above the constant's are zero, however the

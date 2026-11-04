@@ -231,6 +231,9 @@ def reg(name):
     m = re.fullmatch(r'%([xyz])mm(\d+)', name)
     if m:
         return 'v', int(m.group(2)), m.group(1)
+    m = re.fullmatch(r'%k([0-7])', name)
+    if m:
+        return 'k', int(m.group(1)), 'k'
     for k, names in enumerate(GPRS):
         if name[1:] in names:
             return 'r', k, GPR_CLASS[names.index(name[1:])]
@@ -303,7 +306,7 @@ def xed_forms(xed_dir):
 IGNORED = {'XED_REG_MXCSR', 'XED_REG_XCR0', 'XED_REG_TSC', 'XED_REG_TSCAUX'}
 FLAGS = {'XED_REG_RFLAGS', 'XED_REG_EFLAGS', 'rFLAGS()', 'XED_REG_FLAGS'}
 CLASSES = {'x': ('x', 'xe'), 'y': ('y', 'ye'), 'z': ('z',), 'r64': ('r64',), 'r32': ('r32',), 'r16': ('r16',),
-           'r8': ('r8',)}
+           'r8': ('r8',), 'k': ('k',)}
 
 
 def match(code, ret, args, consts, entries, forms):
@@ -312,29 +315,51 @@ def match(code, ret, args, consts, entries, forms):
     if place is None:
         return 'skip', 'types'
     where, res = place
-    body = [c for c in code if c not in ('retq', 'vzeroupper')]
+    # (llc ends what uses ymm or zmm registers with a vzeroupper.)
+    body = [c for c in code if c != 'retq']
+    if any(c != 'vzeroupper' for c in body):
+        body = [c for c in body if c != 'vzeroupper']
+    # Masks come in integer registers, moved to mask registers first (and
+    # are then where their argument is), and go back so.
+    alias = {}
+    while len(body) > 1:
+        mn, ops = operands(body[0])
+        if not (re.fullmatch(r'kmov[bwdq]', mn) and reg(ops[0]) and reg(ops[1]) and reg(ops[1])[0] == 'k'):
+            break
+        alias[reg(ops[1])[:2]] = reg(ops[0])[:2]
+        body = body[1:]
+    at = lambda r: alias.get(r[:2], r[:2])
     # The result moved to where it is returned.
     moved = None
     if len(body) == 2 and res:
         mn, ops = operands(body[1])
-        if re.fullmatch(r'v?mov(aps|apd|ups|dqa|dqa64|dqu|q|d|l)', mn) and len(ops) == 2 and reg(ops[1]) \
-                and reg(ops[1])[:2] == res:
+        if re.fullmatch(r'v?mov(aps|apd|ups|dqa|dqa64|dqu|q|d|l)|kmov[bwdq]', mn) and len(ops) == 2 and reg(ops[1]) \
+                and reg(ops[1])[:2] == res and reg(ops[0]):
             moved = reg(ops[0])
             body = body[:1]
     if len(body) != 1:
         return 'skip', f'{len(body)} instructions'
     mn, ops = operands(body[0].removeprefix('{vex} '))
-    if any('{' in o for o in ops):
-        return 'skip', 'masks, rounding or broadcasts'
     if mn not in entries:
         return 'skip', 'mnemonic not in 02-xed.ll'
+    pieces = [o.split(' ') for o in ops]
+    if any(p.startswith('{') and not re.fullmatch(r'\{%k\d\}|\{z\}', p) for o in pieces for p in o):
+        return 'skip', 'rounding or broadcasts'
     const_args = list(consts)
     for name, tmpl, tops, params in entries[mn]:
-        if len(tops) != len(ops):
+        tpieces = [t.split(' ') for t in tops]
+        if [len(t) for t in tpieces] != [len(o) for o in pieces]:
             continue
-        names, ok = {}, True
-        for o, t in zip(ops, tops):
-            if t.startswith('%') or t.startswith('$') and not t.startswith('${'):
+        names, ok, mask = {}, True, None
+        for o, t in zip([p for o in pieces for p in o], [p for t in tpieces for p in t]):
+            if t.startswith('{lb}{o') and t.endswith('{rb}'):
+                r = reg(o[1:-1])
+                mask = t[5:-5]
+                ok = r is not None and r[0] == 'k' and params.get(mask) == 'k'
+                names[mask] = r
+            elif t == '{lb}z{rb}':
+                ok = o == '{z}'
+            elif t.startswith('%') or t.startswith('$') and not t.startswith('${'):
                 ok = o == t
             elif t.startswith('{o') and t.endswith('}'):
                 r = reg(o)
@@ -355,15 +380,19 @@ def match(code, ret, args, consts, entries, forms):
                 break
         if not ok:
             continue
-        # Intel's order is AT&T's reversed.
+        # Intel's order is AT&T's reversed (but for the mask, written by the
+        # destination; k0, as an unmasked form's, not at all).
         n = int(re.search(r'_(\d+)(?:_[a-z]+)*$', name).group(1))
         expl, impl = forms[n]
-        # (An unmasked form's mask, k0, is not written.)
-        if name.endswith('_u'):
+        if name.endswith(('_u', '_merge', '_zero')):
             expl = [(v, a) for v, a in expl if 'MASK' not in v]
         if len(expl) != len(tops):
             return 'skip', f'{name}: XED operands'
         access = list(reversed([a for _, a in expl]))
+        # (Merging: what the mask leaves is the destination's.)
+        if name.endswith('_merge'):
+            access[-1] = 'rw'
+        main = [t[0] for t in tpieces]
         extra = []
         for r, a in impl:
             if r in FLAGS or 'FLAGS' in r:
@@ -374,7 +403,7 @@ def match(code, ret, args, consts, entries, forms):
         mapping = {}
         dst = None
         if res:
-            last = tops[-1]
+            last = main[-1]
             if not (last.startswith('{o') and 'w' in access[-1]):
                 return 'skip', f'{name}: no register result'
             dst = last[1:-1]
@@ -383,7 +412,7 @@ def match(code, ret, args, consts, entries, forms):
                 return 'skip', f'{name}: result elsewhere'
             mapping[dst] = 'd'
             if 'r' in access[-1]:
-                tied = [k for k, w in where.items() if w == r[:2]]
+                tied = [k for k, w in where.items() if w == at(r)]
                 if len(tied) != 1:
                     return 'skip', f'{name}: written over no argument'
                 extra.insert(0, f'tied=a{tied[0]}')
@@ -401,20 +430,20 @@ def match(code, ret, args, consts, entries, forms):
                 mapping[t] = f'a{k}'
                 used.add(k)
             else:
-                k = [k for k, w in where.items() if w == r[:2]]
+                k = [k for k, w in where.items() if w == at(r)]
                 if len(k) != 1:
                     return 'skip', f'{name}: an operand no argument is in'
                 mapping[t] = f'a{k[0]}'
                 used.add(k[0])
-                if 'w' in access[tops.index('{' + t + '}')] if '{' + t + '}' in tops else False:
+                if '{' + t + '}' in main and 'w' in access[main.index('{' + t + '}')]:
                     return 'skip', f'{name}: writes an argument'
-        if res is None and any('w' in a for a, t in zip(access, tops) if t.startswith('{o')):
+        if res is None and any('w' in a for a, t in zip(access, main) if t.startswith('{o')):
             return 'skip', f'{name}: writes a register'
         tied = [e for e in extra if e.startswith('tied=')]
         unused = set(range(len(args))) - used - {int(t[6:]) for t in tied}
         if unused:
             return 'skip', 'arguments the instruction does not take: ' + ','.join(map(str, sorted(unused)))
-        classes = ' '.join(params[t[1:-1]] for t in tops if t.startswith('{o'))
+        classes = ' '.join(params[o] for o in re.findall(r'\{(o\d+)\}', tmpl))
         ops_s = ' '.join(f'{k}={v}' for k, v in sorted(mapping.items()))
         return 'entry', f'{tmpl} ; {classes} ; {ops_s} ; {" ".join(extra)}'
     return 'skip', 'no 02-xed.ll entry is written so'

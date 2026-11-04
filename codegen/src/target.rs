@@ -225,18 +225,22 @@ impl Instr {
     /// survive an encode and decode. `None` values are registers, labels or
     /// symbols, and are given placeholders.
     pub fn fits(&self, values: &[Option<i64>]) -> bool {
-        let mut env = Env::new();
-        for (o, v) in self.operands.iter().zip(values) {
-            env.insert(o.name.clone(), v.unwrap_or(0));
-        }
-        let Some(bytes) = self.encode(&env) else { return false };
-        let Some((back, _)) = self.decode(&bytes) else { return false };
-        self.operands.iter().zip(values).all(|(o, v)| match (o.kind, v) {
-            (Kind::Imm, Some(v)) => {
-                let m = if o.bits >= 64 { u64::MAX } else { (1u64 << o.bits) - 1 };
-                (back[&o.name] as u64) & m == (*v as u64) & m
+        // (The registers not given are any: 0, or else 1, as an AVX-512
+        // mask, which k0 cannot be.)
+        [0, 1].into_iter().any(|r| {
+            let mut env = Env::new();
+            for (o, v) in self.operands.iter().zip(values) {
+                env.insert(o.name.clone(), v.unwrap_or(if matches!(o.kind, Kind::Reg(_)) { r } else { 0 }));
             }
-            _ => true,
+            let Some(bytes) = self.encode(&env) else { return false };
+            let Some((back, _)) = self.decode(&bytes) else { return false };
+            self.operands.iter().zip(values).all(|(o, v)| match (o.kind, v) {
+                (Kind::Imm, Some(v)) => {
+                    let m = if o.bits >= 64 { u64::MAX } else { (1u64 << o.bits) - 1 };
+                    (back[&o.name] as u64) & m == (*v as u64) & m
+                }
+                _ => true,
+            })
         })
     }
 }

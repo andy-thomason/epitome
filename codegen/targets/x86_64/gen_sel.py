@@ -1330,8 +1330,10 @@ def avx512():
     feat = ' "feature"="avx512f"'
     bf = ' "feature"="avx512f,avx512bf16"'
     Z = 'z'
-    for ty in ('<16 x float>', '<16 x i32>'):
-        T = ty.strip('<>').replace(' x ', 'x').replace('float', 'f32')
+    # (Memory of every 512-bit vector: the intrinsics take them all.)
+    for ty in ('<16 x float>', '<16 x i32>', '<64 x i8>', '<32 x i16>', '<8 x i64>', '<8 x double>',
+               '<32 x half>', '<32 x bfloat>'):
+        T = ty.strip('<>').replace(' x ', 'x').replace('float', 'f32').replace('double', 'f64')
         role = ty == '<16 x i32>'
         enc, _ = xed('vmovups {m.disp}({m.base}), {o0}', (Z,))
         entry(ty, f'VLDZ.{T}', ['ptr "reg"="r64" %n', 'i64 "imm" %off'], renamed(enc, {'o0': 'd', 'm.disp': 'off', 'm.base': 'n'}),
@@ -1555,6 +1557,23 @@ def vector_copies():
           'vmovaps {n}, {d}', ['ret <8 x i64> %n'], ' "copy"="z" "dclass"="z"')
     entry('i64', 'KMOVQ', ['i64 "reg"="k" %n'], 'vex(d, 0, n, 1, 1, 0, 0, 0) | 10010000 | rr(d, n)', 'kmovq {n}, {d}',
           ['ret i64 %n'], ' "copy"="k" "dclass"="k"')
+    # AVX-512's masks (k1-k7) to and from the integer registers, and their
+    # spills: kmovq, all 64 bits (AVX512BW's; every machine with AVX-512
+    # but the Xeon Phi has it). Only for the allocator.
+    enc, _ = xed('kmovq {o0}, {o1}', ('r64', 'k'))
+    entry('i64', 'KMOVQkr', ['i64 "reg"="r64" %n'], renamed(enc, {'o0': 'n', 'o1': 'd'}), 'kmovq {n}, {d}', ['ret i64 %n'],
+          ' "dclass"="k" "role"="move.k.r64" "nomatch"')
+    enc, _ = xed('kmovq {o0}, {o1}', ('k', 'r64'))
+    entry('i64', 'KMOVQrk', ['i64 "reg"="k" %n'], renamed(enc, {'o0': 'n', 'o1': 'd'}), 'kmovq {n}, {d}', ['ret i64 %n'],
+          ' "dclass"="r64" "role"="move.r64.k" "nomatch"')
+    enc, _ = xed('kmovq {m.disp}({m.base}), {o0}', ('k',))
+    entry('i64', 'KMOVQld', ['ptr "reg"="r64" %n', 'i64 "imm" %off'], renamed(enc, {'o0': 'd', 'm.disp': 'off', 'm.base': 'n'}),
+          'kmovq {off}({n}), {d}', ['%a = getelementptr i8, ptr %n, i64 %off', '%r = load i64, ptr %a', 'ret i64 %r'],
+          ' "dclass"="k" "role"="load.k" "nomatch"')
+    enc, _ = xed('kmovq {o0}, {m.disp}({m.base})', ('k',))
+    entry('void', 'KMOVQst', ['i64 "reg"="k" %t', 'ptr "reg"="r64" %n', 'i64 "imm" %off'],
+          renamed(enc, {'o0': 't', 'm.disp': 'off', 'm.base': 'n'}), 'kmovq {t}, {off}({n})',
+          ['%a = getelementptr i8, ptr %n, i64 %off', 'store i64 %t, ptr %a', 'ret void'], ' "role"="store.k" "nomatch"')
 
 
 def intrinsics():
@@ -1581,6 +1600,9 @@ def intrinsics():
     for line in open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'intrinsics.txt')):
         f = line.rstrip('\n').split(' ; ')
         if line.startswith('#') or len(f) < 9 or f[3] != 'entry' or f[0] in declared:
+            continue
+        # (Not yet those of half: x86 has no half values yet.)
+        if 'half' in f[1]:
             continue
         name, sig, feats, _, asm, classes, operands, extra = f[:8]
         ret, args = sig[:-1].split('(', 1)

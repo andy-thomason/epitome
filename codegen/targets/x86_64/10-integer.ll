@@ -6092,6 +6092,78 @@ define void @VSTZ.16xi32(<16 x i32> "reg"="zv" %t, ptr "reg"="r64" %n, i64 "imm"
   ret void
 }
 
+define <64 x i8> @VLDZ.64xi8(ptr "reg"="r64" %n, i64 "imm" %off) "enc"="evexm(d, n, 4, 1, 0, 0, 2, 0, 0, 0, 0) | 00010000 | rm(d, n, 4, 1, off, 0, 64)" "asm"="vmovups {off}({n}), {d}" "dclass"="zv" "feature"="avx512f" "nodecode" {
+  %a = getelementptr i8, ptr %n, i64 %off
+  %r = load <64 x i8>, ptr %a
+  ret <64 x i8> %r
+}
+
+define void @VSTZ.64xi8(<64 x i8> "reg"="zv" %t, ptr "reg"="r64" %n, i64 "imm" %off) "enc"="evexm(t, n, 4, 1, 0, 0, 2, 0, 0, 0, 0) | 00010001 | rm(t, n, 4, 1, off, 0, 64)" "asm"="vmovups {t}, {off}({n})" "feature"="avx512f" "nodecode" {
+  %a = getelementptr i8, ptr %n, i64 %off
+  store <64 x i8> %t, ptr %a
+  ret void
+}
+
+define <32 x i16> @VLDZ.32xi16(ptr "reg"="r64" %n, i64 "imm" %off) "enc"="evexm(d, n, 4, 1, 0, 0, 2, 0, 0, 0, 0) | 00010000 | rm(d, n, 4, 1, off, 0, 64)" "asm"="vmovups {off}({n}), {d}" "dclass"="zv" "feature"="avx512f" "nodecode" {
+  %a = getelementptr i8, ptr %n, i64 %off
+  %r = load <32 x i16>, ptr %a
+  ret <32 x i16> %r
+}
+
+define void @VSTZ.32xi16(<32 x i16> "reg"="zv" %t, ptr "reg"="r64" %n, i64 "imm" %off) "enc"="evexm(t, n, 4, 1, 0, 0, 2, 0, 0, 0, 0) | 00010001 | rm(t, n, 4, 1, off, 0, 64)" "asm"="vmovups {t}, {off}({n})" "feature"="avx512f" "nodecode" {
+  %a = getelementptr i8, ptr %n, i64 %off
+  store <32 x i16> %t, ptr %a
+  ret void
+}
+
+define <8 x i64> @VLDZ.8xi64(ptr "reg"="r64" %n, i64 "imm" %off) "enc"="evexm(d, n, 4, 1, 0, 0, 2, 0, 0, 0, 0) | 00010000 | rm(d, n, 4, 1, off, 0, 64)" "asm"="vmovups {off}({n}), {d}" "dclass"="zv" "feature"="avx512f" "nodecode" {
+  %a = getelementptr i8, ptr %n, i64 %off
+  %r = load <8 x i64>, ptr %a
+  ret <8 x i64> %r
+}
+
+define void @VSTZ.8xi64(<8 x i64> "reg"="zv" %t, ptr "reg"="r64" %n, i64 "imm" %off) "enc"="evexm(t, n, 4, 1, 0, 0, 2, 0, 0, 0, 0) | 00010001 | rm(t, n, 4, 1, off, 0, 64)" "asm"="vmovups {t}, {off}({n})" "feature"="avx512f" "nodecode" {
+  %a = getelementptr i8, ptr %n, i64 %off
+  store <8 x i64> %t, ptr %a
+  ret void
+}
+
+define <8 x double> @VLDZ.8xf64(ptr "reg"="r64" %n, i64 "imm" %off) "enc"="evexm(d, n, 4, 1, 0, 0, 2, 0, 0, 0, 0) | 00010000 | rm(d, n, 4, 1, off, 0, 64)" "asm"="vmovups {off}({n}), {d}" "dclass"="zv" "feature"="avx512f" "nodecode" {
+  %a = getelementptr i8, ptr %n, i64 %off
+  %r = load <8 x double>, ptr %a
+  ret <8 x double> %r
+}
+
+define void @VSTZ.8xf64(<8 x double> "reg"="zv" %t, ptr "reg"="r64" %n, i64 "imm" %off) "enc"="evexm(t, n, 4, 1, 0, 0, 2, 0, 0, 0, 0) | 00010001 | rm(t, n, 4, 1, off, 0, 64)" "asm"="vmovups {t}, {off}({n})" "feature"="avx512f" "nodecode" {
+  %a = getelementptr i8, ptr %n, i64 %off
+  store <8 x double> %t, ptr %a
+  ret void
+}
+
+define <32 x half> @VLDZ.32xhalf(ptr "reg"="r64" %n, i64 "imm" %off) "enc"="evexm(d, n, 4, 1, 0, 0, 2, 0, 0, 0, 0) | 00010000 | rm(d, n, 4, 1, off, 0, 64)" "asm"="vmovups {off}({n}), {d}" "dclass"="zv" "feature"="avx512f" "nodecode" {
+  %a = getelementptr i8, ptr %n, i64 %off
+  %r = load <32 x half>, ptr %a
+  ret <32 x half> %r
+}
+
+define void @VSTZ.32xhalf(<32 x half> "reg"="zv" %t, ptr "reg"="r64" %n, i64 "imm" %off) "enc"="evexm(t, n, 4, 1, 0, 0, 2, 0, 0, 0, 0) | 00010001 | rm(t, n, 4, 1, off, 0, 64)" "asm"="vmovups {t}, {off}({n})" "feature"="avx512f" "nodecode" {
+  %a = getelementptr i8, ptr %n, i64 %off
+  store <32 x half> %t, ptr %a
+  ret void
+}
+
+define <32 x bfloat> @VLDZ.32xbf32(ptr "reg"="r64" %n, i64 "imm" %off) "enc"="evexm(d, n, 4, 1, 0, 0, 2, 0, 0, 0, 0) | 00010000 | rm(d, n, 4, 1, off, 0, 64)" "asm"="vmovups {off}({n}), {d}" "dclass"="zv" "feature"="avx512f" "nodecode" {
+  %a = getelementptr i8, ptr %n, i64 %off
+  %r = load <32 x bfloat>, ptr %a
+  ret <32 x bfloat> %r
+}
+
+define void @VSTZ.32xbf32(<32 x bfloat> "reg"="zv" %t, ptr "reg"="r64" %n, i64 "imm" %off) "enc"="evexm(t, n, 4, 1, 0, 0, 2, 0, 0, 0, 0) | 00010001 | rm(t, n, 4, 1, off, 0, 64)" "asm"="vmovups {t}, {off}({n})" "feature"="avx512f" "nodecode" {
+  %a = getelementptr i8, ptr %n, i64 %off
+  store <32 x bfloat> %t, ptr %a
+  ret void
+}
+
 define <16 x i32> @VMOVAPSzv(<16 x i32> "reg"="zv" %n) "enc"="{ evexr(d, n, 1, 0, 0, 2, 0, 0, 0, 0) | 00101000 | 11 reg:3=d&7 rm:3=n&7 ; evexr(n, d, 1, 0, 0, 2, 0, 0, 0, 0) | 00101001 | 11 reg:3=n&7 rm:3=d&7 }" "asm"="vmovaps {n}, {d}" "copy"="zv" "dclass"="zv" "feature"="avx512f" "nodecode" {
   ret <16 x i32> %n
 }
@@ -7101,6 +7173,26 @@ define i64 @KMOVQ(i64 "reg"="k" %n) "enc"="vex(d, 0, n, 1, 1, 0, 0, 0) | 1001000
   ret i64 %n
 }
 
+define i64 @KMOVQkr(i64 "reg"="r64" %n) "enc"="vex(d, 0, n, 1, 1, 0, 0, 3) | 10010010 | 11 reg:3=d&7 rm:3=n&7" "asm"="kmovq {n}, {d}" "dclass"="k" "role"="move.k.r64" "nomatch" "nodecode" {
+  ret i64 %n
+}
+
+define i64 @KMOVQrk(i64 "reg"="k" %n) "enc"="vex(d, 0, n, 1, 1, 0, 0, 3) | 10010011 | 11 reg:3=d&7 rm:3=n&7" "asm"="kmovq {n}, {d}" "dclass"="r64" "role"="move.r64.k" "nomatch" "nodecode" {
+  ret i64 %n
+}
+
+define i64 @KMOVQld(ptr "reg"="r64" %n, i64 "imm" %off) "enc"="vexm(d, n, 4, 1, 1, 0, 0, 0) | 10010000 | rm(d, n, 4, 1, off, 0, 1)" "asm"="kmovq {off}({n}), {d}" "dclass"="k" "role"="load.k" "nomatch" "nodecode" {
+  %a = getelementptr i8, ptr %n, i64 %off
+  %r = load i64, ptr %a
+  ret i64 %r
+}
+
+define void @KMOVQst(i64 "reg"="k" %t, ptr "reg"="r64" %n, i64 "imm" %off) "enc"="vexm(t, n, 4, 1, 1, 0, 0, 0) | 10010001 | rm(t, n, 4, 1, off, 0, 1)" "asm"="kmovq {t}, {off}({n})" "role"="store.k" "nomatch" "nodecode" {
+  %a = getelementptr i8, ptr %n, i64 %off
+  store i64 %t, ptr %a
+  ret void
+}
+
 define <2 x i64> @X86.aesni.aesdec(<2 x i64> "reg"="xv" "tied" %a0, <2 x i64> "reg"="xv" %a1) "enc"="01100110 | rex(0, d, 0, a1) | 00001111 | 00111000 | 11011110 | 11 reg:3=d&7 rm:3=a1&7" "asm"="aesdec {a1}, {d}" "dclass"="xv" "feature"="aes" "nodecode" {
   %r = call <2 x i64> @llvm.x86.aesni.aesdec(<2 x i64> %a0, <2 x i64> %a1)
   ret <2 x i64> %r
@@ -7275,6 +7367,13 @@ define void @X86.avx.vzeroall() "enc"="vex(0, 0, 0, 1, 0, 0, 1, 0) | 01110111" "
 }
 
 declare void @llvm.x86.avx.vzeroall()
+
+define void @X86.avx.vzeroupper() "enc"="vex(0, 0, 0, 1, 0, 0, 0, 0) | 01110111" "asm"="vzeroupper" "feature"="avx" "nodecode" {
+  call void @llvm.x86.avx.vzeroupper()
+  ret void
+}
+
+declare void @llvm.x86.avx.vzeroupper()
 
 define <16 x i16> @X86.avx2.packssdw(<8 x i32> "reg"="yv" %a0, <8 x i32> "reg"="yv" %a1) "enc"="{ vex(d, 0, a1, 1, 0, a0, 1, 1) | 01101011 | 11 reg:3=d&7 rm:3=a1&7 ; evexr(d, a1, 1, 0, a0, 1, 1, 0, 0, 0) | 01101011 | 11 reg:3=d&7 rm:3=a1&7 }" "asm"="vpackssdw {a1}, {a0}, {d}" "dclass"="yv" "feature"="avx2" "nodecode" {
   %r = call <16 x i16> @llvm.x86.avx2.packssdw(<8 x i32> %a0, <8 x i32> %a1)
@@ -7492,6 +7591,1574 @@ define <32 x i16> @X86.avx512.dbpsadbw.512(<64 x i8> "reg"="zv" %a0, <64 x i8> "
 }
 
 declare <32 x i16> @llvm.x86.avx512.dbpsadbw.512(<64 x i8>, <64 x i8>, i32)
+
+define <16 x i8> @X86.avx512.mask.compress.b.128(<16 x i8> "reg"="xv" %a0, <16 x i8> "reg"="xv" "tied" %a1, i16 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 0, 1, 0, a2, 0) | 01100011 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpcompressb {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512vbmi2,avx512vl" "nodecode" {
+  %r = call <16 x i8> @llvm.x86.avx512.mask.compress.b.128(<16 x i8> %a0, <16 x i8> %a1, i16 %a2)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.x86.avx512.mask.compress.b.128(<16 x i8>, <16 x i8>, i16)
+
+define <32 x i8> @X86.avx512.mask.compress.b.256(<32 x i8> "reg"="yv" %a0, <32 x i8> "reg"="yv" "tied" %a1, i32 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 1, 1, 0, a2, 0) | 01100011 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpcompressb {a0}, {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512vbmi2,avx512vl" "nodecode" {
+  %r = call <32 x i8> @llvm.x86.avx512.mask.compress.b.256(<32 x i8> %a0, <32 x i8> %a1, i32 %a2)
+  ret <32 x i8> %r
+}
+
+declare <32 x i8> @llvm.x86.avx512.mask.compress.b.256(<32 x i8>, <32 x i8>, i32)
+
+define <64 x i8> @X86.avx512.mask.compress.b.512(<64 x i8> "reg"="zv" %a0, <64 x i8> "reg"="zv" "tied" %a1, i64 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 2, 1, 0, a2, 0) | 01100011 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpcompressb {a0}, {d} {lb}{a2}{rb}" "dclass"="zv" "feature"="avx512vbmi2" "nodecode" {
+  %r = call <64 x i8> @llvm.x86.avx512.mask.compress.b.512(<64 x i8> %a0, <64 x i8> %a1, i64 %a2)
+  ret <64 x i8> %r
+}
+
+declare <64 x i8> @llvm.x86.avx512.mask.compress.b.512(<64 x i8>, <64 x i8>, i64)
+
+define <4 x i32> @X86.avx512.mask.compress.d.128(<4 x i32> "reg"="xv" %a0, <4 x i32> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 0, 1, 0, a2, 0) | 10001011 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpcompressd {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x i32> @llvm.x86.avx512.mask.compress.d.128(<4 x i32> %a0, <4 x i32> %a1, i8 %a2)
+  ret <4 x i32> %r
+}
+
+declare <4 x i32> @llvm.x86.avx512.mask.compress.d.128(<4 x i32>, <4 x i32>, i8)
+
+define <8 x i32> @X86.avx512.mask.compress.d.256(<8 x i32> "reg"="yv" %a0, <8 x i32> "reg"="yv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 1, 1, 0, a2, 0) | 10001011 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpcompressd {a0}, {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <8 x i32> @llvm.x86.avx512.mask.compress.d.256(<8 x i32> %a0, <8 x i32> %a1, i8 %a2)
+  ret <8 x i32> %r
+}
+
+declare <8 x i32> @llvm.x86.avx512.mask.compress.d.256(<8 x i32>, <8 x i32>, i8)
+
+define <16 x i32> @X86.avx512.mask.compress.d.512(<16 x i32> "reg"="zv" %a0, <16 x i32> "reg"="zv" "tied" %a1, i16 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 2, 1, 0, a2, 0) | 10001011 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpcompressd {a0}, {d} {lb}{a2}{rb}" "dclass"="zv" "feature"="avx512f" "nodecode" {
+  %r = call <16 x i32> @llvm.x86.avx512.mask.compress.d.512(<16 x i32> %a0, <16 x i32> %a1, i16 %a2)
+  ret <16 x i32> %r
+}
+
+declare <16 x i32> @llvm.x86.avx512.mask.compress.d.512(<16 x i32>, <16 x i32>, i16)
+
+define <2 x double> @X86.avx512.mask.compress.pd.128(<2 x double> "reg"="xv" %a0, <2 x double> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 1, 0, 0, 1, 0, a2, 0) | 10001010 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vcompresspd {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <2 x double> @llvm.x86.avx512.mask.compress.pd.128(<2 x double> %a0, <2 x double> %a1, i8 %a2)
+  ret <2 x double> %r
+}
+
+declare <2 x double> @llvm.x86.avx512.mask.compress.pd.128(<2 x double>, <2 x double>, i8)
+
+define <4 x double> @X86.avx512.mask.compress.pd.256(<4 x double> "reg"="yv" %a0, <4 x double> "reg"="yv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 1, 0, 1, 1, 0, a2, 0) | 10001010 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vcompresspd {a0}, {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x double> @llvm.x86.avx512.mask.compress.pd.256(<4 x double> %a0, <4 x double> %a1, i8 %a2)
+  ret <4 x double> %r
+}
+
+declare <4 x double> @llvm.x86.avx512.mask.compress.pd.256(<4 x double>, <4 x double>, i8)
+
+define <8 x double> @X86.avx512.mask.compress.pd.512(<8 x double> "reg"="zv" %a0, <8 x double> "reg"="zv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 1, 0, 2, 1, 0, a2, 0) | 10001010 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vcompresspd {a0}, {d} {lb}{a2}{rb}" "dclass"="zv" "feature"="avx512f" "nodecode" {
+  %r = call <8 x double> @llvm.x86.avx512.mask.compress.pd.512(<8 x double> %a0, <8 x double> %a1, i8 %a2)
+  ret <8 x double> %r
+}
+
+declare <8 x double> @llvm.x86.avx512.mask.compress.pd.512(<8 x double>, <8 x double>, i8)
+
+define <4 x float> @X86.avx512.mask.compress.ps.128(<4 x float> "reg"="xv" %a0, <4 x float> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 0, 1, 0, a2, 0) | 10001010 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vcompressps {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x float> @llvm.x86.avx512.mask.compress.ps.128(<4 x float> %a0, <4 x float> %a1, i8 %a2)
+  ret <4 x float> %r
+}
+
+declare <4 x float> @llvm.x86.avx512.mask.compress.ps.128(<4 x float>, <4 x float>, i8)
+
+define <8 x float> @X86.avx512.mask.compress.ps.256(<8 x float> "reg"="yv" %a0, <8 x float> "reg"="yv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 1, 1, 0, a2, 0) | 10001010 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vcompressps {a0}, {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <8 x float> @llvm.x86.avx512.mask.compress.ps.256(<8 x float> %a0, <8 x float> %a1, i8 %a2)
+  ret <8 x float> %r
+}
+
+declare <8 x float> @llvm.x86.avx512.mask.compress.ps.256(<8 x float>, <8 x float>, i8)
+
+define <16 x float> @X86.avx512.mask.compress.ps.512(<16 x float> "reg"="zv" %a0, <16 x float> "reg"="zv" "tied" %a1, i16 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 2, 1, 0, a2, 0) | 10001010 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vcompressps {a0}, {d} {lb}{a2}{rb}" "dclass"="zv" "feature"="avx512f" "nodecode" {
+  %r = call <16 x float> @llvm.x86.avx512.mask.compress.ps.512(<16 x float> %a0, <16 x float> %a1, i16 %a2)
+  ret <16 x float> %r
+}
+
+declare <16 x float> @llvm.x86.avx512.mask.compress.ps.512(<16 x float>, <16 x float>, i16)
+
+define <2 x i64> @X86.avx512.mask.compress.q.128(<2 x i64> "reg"="xv" %a0, <2 x i64> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 1, 0, 0, 1, 0, a2, 0) | 10001011 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpcompressq {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <2 x i64> @llvm.x86.avx512.mask.compress.q.128(<2 x i64> %a0, <2 x i64> %a1, i8 %a2)
+  ret <2 x i64> %r
+}
+
+declare <2 x i64> @llvm.x86.avx512.mask.compress.q.128(<2 x i64>, <2 x i64>, i8)
+
+define <4 x i64> @X86.avx512.mask.compress.q.256(<4 x i64> "reg"="yv" %a0, <4 x i64> "reg"="yv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 1, 0, 1, 1, 0, a2, 0) | 10001011 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpcompressq {a0}, {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x i64> @llvm.x86.avx512.mask.compress.q.256(<4 x i64> %a0, <4 x i64> %a1, i8 %a2)
+  ret <4 x i64> %r
+}
+
+declare <4 x i64> @llvm.x86.avx512.mask.compress.q.256(<4 x i64>, <4 x i64>, i8)
+
+define <8 x i64> @X86.avx512.mask.compress.q.512(<8 x i64> "reg"="zv" %a0, <8 x i64> "reg"="zv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 1, 0, 2, 1, 0, a2, 0) | 10001011 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpcompressq {a0}, {d} {lb}{a2}{rb}" "dclass"="zv" "feature"="avx512f" "nodecode" {
+  %r = call <8 x i64> @llvm.x86.avx512.mask.compress.q.512(<8 x i64> %a0, <8 x i64> %a1, i8 %a2)
+  ret <8 x i64> %r
+}
+
+declare <8 x i64> @llvm.x86.avx512.mask.compress.q.512(<8 x i64>, <8 x i64>, i8)
+
+define void @X86.avx512.mask.compress.store.b.128(ptr "reg"="r64" %a0, <16 x i8> "reg"="xv" %a1, i16 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 0, 1, 0, a2, 0) | 01100011 | rm(a1, a0, 4, 1, 0, 0, 1) }" "asm"="vpcompressb {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512vbmi2,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.compress.store.b.128(ptr %a0, <16 x i8> %a1, i16 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.compress.store.b.128(ptr, <16 x i8>, i16)
+
+define void @X86.avx512.mask.compress.store.b.256(ptr "reg"="r64" %a0, <32 x i8> "reg"="yv" %a1, i32 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 1, 1, 0, a2, 0) | 01100011 | rm(a1, a0, 4, 1, 0, 0, 1) }" "asm"="vpcompressb {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512vbmi2,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.compress.store.b.256(ptr %a0, <32 x i8> %a1, i32 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.compress.store.b.256(ptr, <32 x i8>, i32)
+
+define void @X86.avx512.mask.compress.store.b.512(ptr "reg"="r64" %a0, <64 x i8> "reg"="zv" %a1, i64 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 2, 1, 0, a2, 0) | 01100011 | rm(a1, a0, 4, 1, 0, 0, 1) }" "asm"="vpcompressb {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512vbmi2" "nodecode" {
+  call void @llvm.x86.avx512.mask.compress.store.b.512(ptr %a0, <64 x i8> %a1, i64 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.compress.store.b.512(ptr, <64 x i8>, i64)
+
+define void @X86.avx512.mask.compress.store.d.128(ptr "reg"="r64" %a0, <4 x i32> "reg"="xv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 0, 1, 0, a2, 0) | 10001011 | rm(a1, a0, 4, 1, 0, 0, 4) }" "asm"="vpcompressd {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.compress.store.d.128(ptr %a0, <4 x i32> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.compress.store.d.128(ptr, <4 x i32>, i8)
+
+define void @X86.avx512.mask.compress.store.d.256(ptr "reg"="r64" %a0, <8 x i32> "reg"="yv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 1, 1, 0, a2, 0) | 10001011 | rm(a1, a0, 4, 1, 0, 0, 4) }" "asm"="vpcompressd {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.compress.store.d.256(ptr %a0, <8 x i32> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.compress.store.d.256(ptr, <8 x i32>, i8)
+
+define void @X86.avx512.mask.compress.store.d.512(ptr "reg"="r64" %a0, <16 x i32> "reg"="zv" %a1, i16 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 2, 1, 0, a2, 0) | 10001011 | rm(a1, a0, 4, 1, 0, 0, 4) }" "asm"="vpcompressd {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f" "nodecode" {
+  call void @llvm.x86.avx512.mask.compress.store.d.512(ptr %a0, <16 x i32> %a1, i16 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.compress.store.d.512(ptr, <16 x i32>, i16)
+
+define void @X86.avx512.mask.compress.store.pd.128(ptr "reg"="r64" %a0, <2 x double> "reg"="xv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 1, 0, 0, 1, 0, a2, 0) | 10001010 | rm(a1, a0, 4, 1, 0, 0, 8) }" "asm"="vcompresspd {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.compress.store.pd.128(ptr %a0, <2 x double> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.compress.store.pd.128(ptr, <2 x double>, i8)
+
+define void @X86.avx512.mask.compress.store.pd.256(ptr "reg"="r64" %a0, <4 x double> "reg"="yv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 1, 0, 1, 1, 0, a2, 0) | 10001010 | rm(a1, a0, 4, 1, 0, 0, 8) }" "asm"="vcompresspd {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.compress.store.pd.256(ptr %a0, <4 x double> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.compress.store.pd.256(ptr, <4 x double>, i8)
+
+define void @X86.avx512.mask.compress.store.pd.512(ptr "reg"="r64" %a0, <8 x double> "reg"="zv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 1, 0, 2, 1, 0, a2, 0) | 10001010 | rm(a1, a0, 4, 1, 0, 0, 8) }" "asm"="vcompresspd {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f" "nodecode" {
+  call void @llvm.x86.avx512.mask.compress.store.pd.512(ptr %a0, <8 x double> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.compress.store.pd.512(ptr, <8 x double>, i8)
+
+define void @X86.avx512.mask.compress.store.ps.128(ptr "reg"="r64" %a0, <4 x float> "reg"="xv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 0, 1, 0, a2, 0) | 10001010 | rm(a1, a0, 4, 1, 0, 0, 4) }" "asm"="vcompressps {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.compress.store.ps.128(ptr %a0, <4 x float> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.compress.store.ps.128(ptr, <4 x float>, i8)
+
+define void @X86.avx512.mask.compress.store.ps.256(ptr "reg"="r64" %a0, <8 x float> "reg"="yv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 1, 1, 0, a2, 0) | 10001010 | rm(a1, a0, 4, 1, 0, 0, 4) }" "asm"="vcompressps {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.compress.store.ps.256(ptr %a0, <8 x float> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.compress.store.ps.256(ptr, <8 x float>, i8)
+
+define void @X86.avx512.mask.compress.store.ps.512(ptr "reg"="r64" %a0, <16 x float> "reg"="zv" %a1, i16 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 2, 1, 0, a2, 0) | 10001010 | rm(a1, a0, 4, 1, 0, 0, 4) }" "asm"="vcompressps {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f" "nodecode" {
+  call void @llvm.x86.avx512.mask.compress.store.ps.512(ptr %a0, <16 x float> %a1, i16 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.compress.store.ps.512(ptr, <16 x float>, i16)
+
+define void @X86.avx512.mask.compress.store.q.128(ptr "reg"="r64" %a0, <2 x i64> "reg"="xv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 1, 0, 0, 1, 0, a2, 0) | 10001011 | rm(a1, a0, 4, 1, 0, 0, 8) }" "asm"="vpcompressq {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.compress.store.q.128(ptr %a0, <2 x i64> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.compress.store.q.128(ptr, <2 x i64>, i8)
+
+define void @X86.avx512.mask.compress.store.q.256(ptr "reg"="r64" %a0, <4 x i64> "reg"="yv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 1, 0, 1, 1, 0, a2, 0) | 10001011 | rm(a1, a0, 4, 1, 0, 0, 8) }" "asm"="vpcompressq {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.compress.store.q.256(ptr %a0, <4 x i64> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.compress.store.q.256(ptr, <4 x i64>, i8)
+
+define void @X86.avx512.mask.compress.store.q.512(ptr "reg"="r64" %a0, <8 x i64> "reg"="zv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 1, 0, 2, 1, 0, a2, 0) | 10001011 | rm(a1, a0, 4, 1, 0, 0, 8) }" "asm"="vpcompressq {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f" "nodecode" {
+  call void @llvm.x86.avx512.mask.compress.store.q.512(ptr %a0, <8 x i64> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.compress.store.q.512(ptr, <8 x i64>, i8)
+
+define void @X86.avx512.mask.compress.store.w.128(ptr "reg"="r64" %a0, <8 x i16> "reg"="xv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 1, 0, 0, 1, 0, a2, 0) | 01100011 | rm(a1, a0, 4, 1, 0, 0, 2) }" "asm"="vpcompressw {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512vbmi2,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.compress.store.w.128(ptr %a0, <8 x i16> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.compress.store.w.128(ptr, <8 x i16>, i8)
+
+define void @X86.avx512.mask.compress.store.w.256(ptr "reg"="r64" %a0, <16 x i16> "reg"="yv" %a1, i16 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 1, 0, 1, 1, 0, a2, 0) | 01100011 | rm(a1, a0, 4, 1, 0, 0, 2) }" "asm"="vpcompressw {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512vbmi2,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.compress.store.w.256(ptr %a0, <16 x i16> %a1, i16 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.compress.store.w.256(ptr, <16 x i16>, i16)
+
+define void @X86.avx512.mask.compress.store.w.512(ptr "reg"="r64" %a0, <32 x i16> "reg"="zv" %a1, i32 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 1, 0, 2, 1, 0, a2, 0) | 01100011 | rm(a1, a0, 4, 1, 0, 0, 2) }" "asm"="vpcompressw {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512vbmi2" "nodecode" {
+  call void @llvm.x86.avx512.mask.compress.store.w.512(ptr %a0, <32 x i16> %a1, i32 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.compress.store.w.512(ptr, <32 x i16>, i32)
+
+define <8 x i16> @X86.avx512.mask.compress.w.128(<8 x i16> "reg"="xv" %a0, <8 x i16> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 1, 0, 0, 1, 0, a2, 0) | 01100011 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpcompressw {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512vbmi2,avx512vl" "nodecode" {
+  %r = call <8 x i16> @llvm.x86.avx512.mask.compress.w.128(<8 x i16> %a0, <8 x i16> %a1, i8 %a2)
+  ret <8 x i16> %r
+}
+
+declare <8 x i16> @llvm.x86.avx512.mask.compress.w.128(<8 x i16>, <8 x i16>, i8)
+
+define <16 x i16> @X86.avx512.mask.compress.w.256(<16 x i16> "reg"="yv" %a0, <16 x i16> "reg"="yv" "tied" %a1, i16 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 1, 0, 1, 1, 0, a2, 0) | 01100011 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpcompressw {a0}, {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512vbmi2,avx512vl" "nodecode" {
+  %r = call <16 x i16> @llvm.x86.avx512.mask.compress.w.256(<16 x i16> %a0, <16 x i16> %a1, i16 %a2)
+  ret <16 x i16> %r
+}
+
+declare <16 x i16> @llvm.x86.avx512.mask.compress.w.256(<16 x i16>, <16 x i16>, i16)
+
+define <32 x i16> @X86.avx512.mask.compress.w.512(<32 x i16> "reg"="zv" %a0, <32 x i16> "reg"="zv" "tied" %a1, i32 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 1, 0, 2, 1, 0, a2, 0) | 01100011 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpcompressw {a0}, {d} {lb}{a2}{rb}" "dclass"="zv" "feature"="avx512vbmi2" "nodecode" {
+  %r = call <32 x i16> @llvm.x86.avx512.mask.compress.w.512(<32 x i16> %a0, <32 x i16> %a1, i32 %a2)
+  ret <32 x i16> %r
+}
+
+declare <32 x i16> @llvm.x86.avx512.mask.compress.w.512(<32 x i16>, <32 x i16>, i32)
+
+define <4 x i32> @X86.avx512.mask.cvtpd2dq.128(<2 x double> "reg"="xv" %a0, <4 x i32> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 1, 1, 0, 0, 3, 0, a2, 0) | 11100110 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vcvtpd2dq {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x i32> @llvm.x86.avx512.mask.cvtpd2dq.128(<2 x double> %a0, <4 x i32> %a1, i8 %a2)
+  ret <4 x i32> %r
+}
+
+declare <4 x i32> @llvm.x86.avx512.mask.cvtpd2dq.128(<2 x double>, <4 x i32>, i8)
+
+define <4 x float> @X86.avx512.mask.cvtpd2ps(<2 x double> "reg"="xv" %a0, <4 x float> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 1, 1, 0, 0, 1, 0, a2, 0) | 01011010 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vcvtpd2ps {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x float> @llvm.x86.avx512.mask.cvtpd2ps(<2 x double> %a0, <4 x float> %a1, i8 %a2)
+  ret <4 x float> %r
+}
+
+declare <4 x float> @llvm.x86.avx512.mask.cvtpd2ps(<2 x double>, <4 x float>, i8)
+
+define <2 x i64> @X86.avx512.mask.cvtpd2qq.128(<2 x double> "reg"="xv" %a0, <2 x i64> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 1, 1, 0, 0, 1, 0, a2, 0) | 01111011 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vcvtpd2qq {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512dq,avx512vl" "nodecode" {
+  %r = call <2 x i64> @llvm.x86.avx512.mask.cvtpd2qq.128(<2 x double> %a0, <2 x i64> %a1, i8 %a2)
+  ret <2 x i64> %r
+}
+
+declare <2 x i64> @llvm.x86.avx512.mask.cvtpd2qq.128(<2 x double>, <2 x i64>, i8)
+
+define <4 x i64> @X86.avx512.mask.cvtpd2qq.256(<4 x double> "reg"="yv" %a0, <4 x i64> "reg"="yv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 1, 1, 0, 1, 1, 0, a2, 0) | 01111011 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vcvtpd2qq {a0}, {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512dq,avx512vl" "nodecode" {
+  %r = call <4 x i64> @llvm.x86.avx512.mask.cvtpd2qq.256(<4 x double> %a0, <4 x i64> %a1, i8 %a2)
+  ret <4 x i64> %r
+}
+
+declare <4 x i64> @llvm.x86.avx512.mask.cvtpd2qq.256(<4 x double>, <4 x i64>, i8)
+
+define <4 x i32> @X86.avx512.mask.cvtpd2udq.128(<2 x double> "reg"="xv" %a0, <4 x i32> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 1, 1, 0, 0, 0, 0, a2, 0) | 01111001 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vcvtpd2udq {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x i32> @llvm.x86.avx512.mask.cvtpd2udq.128(<2 x double> %a0, <4 x i32> %a1, i8 %a2)
+  ret <4 x i32> %r
+}
+
+declare <4 x i32> @llvm.x86.avx512.mask.cvtpd2udq.128(<2 x double>, <4 x i32>, i8)
+
+define <4 x i32> @X86.avx512.mask.cvtpd2udq.256(<4 x double> "reg"="yv" %a0, <4 x i32> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 1, 1, 0, 1, 0, 0, a2, 0) | 01111001 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vcvtpd2udq {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x i32> @llvm.x86.avx512.mask.cvtpd2udq.256(<4 x double> %a0, <4 x i32> %a1, i8 %a2)
+  ret <4 x i32> %r
+}
+
+declare <4 x i32> @llvm.x86.avx512.mask.cvtpd2udq.256(<4 x double>, <4 x i32>, i8)
+
+define <2 x i64> @X86.avx512.mask.cvtpd2uqq.128(<2 x double> "reg"="xv" %a0, <2 x i64> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 1, 1, 0, 0, 1, 0, a2, 0) | 01111001 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vcvtpd2uqq {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512dq,avx512vl" "nodecode" {
+  %r = call <2 x i64> @llvm.x86.avx512.mask.cvtpd2uqq.128(<2 x double> %a0, <2 x i64> %a1, i8 %a2)
+  ret <2 x i64> %r
+}
+
+declare <2 x i64> @llvm.x86.avx512.mask.cvtpd2uqq.128(<2 x double>, <2 x i64>, i8)
+
+define <4 x i64> @X86.avx512.mask.cvtpd2uqq.256(<4 x double> "reg"="yv" %a0, <4 x i64> "reg"="yv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 1, 1, 0, 1, 1, 0, a2, 0) | 01111001 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vcvtpd2uqq {a0}, {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512dq,avx512vl" "nodecode" {
+  %r = call <4 x i64> @llvm.x86.avx512.mask.cvtpd2uqq.256(<4 x double> %a0, <4 x i64> %a1, i8 %a2)
+  ret <4 x i64> %r
+}
+
+declare <4 x i64> @llvm.x86.avx512.mask.cvtpd2uqq.256(<4 x double>, <4 x i64>, i8)
+
+define <2 x i64> @X86.avx512.mask.cvtps2qq.128(<4 x float> "reg"="xv" %a0, <2 x i64> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 1, 0, 0, 0, 1, 0, a2, 0) | 01111011 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vcvtps2qq {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512dq,avx512vl" "nodecode" {
+  %r = call <2 x i64> @llvm.x86.avx512.mask.cvtps2qq.128(<4 x float> %a0, <2 x i64> %a1, i8 %a2)
+  ret <2 x i64> %r
+}
+
+declare <2 x i64> @llvm.x86.avx512.mask.cvtps2qq.128(<4 x float>, <2 x i64>, i8)
+
+define <4 x i64> @X86.avx512.mask.cvtps2qq.256(<4 x float> "reg"="xv" %a0, <4 x i64> "reg"="yv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 1, 0, 0, 1, 1, 0, a2, 0) | 01111011 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vcvtps2qq {a0}, {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512dq,avx512vl" "nodecode" {
+  %r = call <4 x i64> @llvm.x86.avx512.mask.cvtps2qq.256(<4 x float> %a0, <4 x i64> %a1, i8 %a2)
+  ret <4 x i64> %r
+}
+
+declare <4 x i64> @llvm.x86.avx512.mask.cvtps2qq.256(<4 x float>, <4 x i64>, i8)
+
+define <4 x i32> @X86.avx512.mask.cvtps2udq.128(<4 x float> "reg"="xv" %a0, <4 x i32> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 1, 0, 0, 0, 0, 0, a2, 0) | 01111001 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vcvtps2udq {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x i32> @llvm.x86.avx512.mask.cvtps2udq.128(<4 x float> %a0, <4 x i32> %a1, i8 %a2)
+  ret <4 x i32> %r
+}
+
+declare <4 x i32> @llvm.x86.avx512.mask.cvtps2udq.128(<4 x float>, <4 x i32>, i8)
+
+define <8 x i32> @X86.avx512.mask.cvtps2udq.256(<8 x float> "reg"="yv" %a0, <8 x i32> "reg"="yv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 1, 0, 0, 1, 0, 0, a2, 0) | 01111001 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vcvtps2udq {a0}, {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <8 x i32> @llvm.x86.avx512.mask.cvtps2udq.256(<8 x float> %a0, <8 x i32> %a1, i8 %a2)
+  ret <8 x i32> %r
+}
+
+declare <8 x i32> @llvm.x86.avx512.mask.cvtps2udq.256(<8 x float>, <8 x i32>, i8)
+
+define <2 x i64> @X86.avx512.mask.cvtps2uqq.128(<4 x float> "reg"="xv" %a0, <2 x i64> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 1, 0, 0, 0, 1, 0, a2, 0) | 01111001 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vcvtps2uqq {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512dq,avx512vl" "nodecode" {
+  %r = call <2 x i64> @llvm.x86.avx512.mask.cvtps2uqq.128(<4 x float> %a0, <2 x i64> %a1, i8 %a2)
+  ret <2 x i64> %r
+}
+
+declare <2 x i64> @llvm.x86.avx512.mask.cvtps2uqq.128(<4 x float>, <2 x i64>, i8)
+
+define <4 x i64> @X86.avx512.mask.cvtps2uqq.256(<4 x float> "reg"="xv" %a0, <4 x i64> "reg"="yv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 1, 0, 0, 1, 1, 0, a2, 0) | 01111001 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vcvtps2uqq {a0}, {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512dq,avx512vl" "nodecode" {
+  %r = call <4 x i64> @llvm.x86.avx512.mask.cvtps2uqq.256(<4 x float> %a0, <4 x i64> %a1, i8 %a2)
+  ret <4 x i64> %r
+}
+
+declare <4 x i64> @llvm.x86.avx512.mask.cvtps2uqq.256(<4 x float>, <4 x i64>, i8)
+
+define <4 x float> @X86.avx512.mask.cvtqq2ps.128(<2 x i64> "reg"="xv" %a0, <4 x float> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 1, 1, 0, 0, 0, 0, a2, 0) | 01011011 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vcvtqq2ps {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512dq,avx512vl" "nodecode" {
+  %r = call <4 x float> @llvm.x86.avx512.mask.cvtqq2ps.128(<2 x i64> %a0, <4 x float> %a1, i8 %a2)
+  ret <4 x float> %r
+}
+
+declare <4 x float> @llvm.x86.avx512.mask.cvtqq2ps.128(<2 x i64>, <4 x float>, i8)
+
+define <4 x i32> @X86.avx512.mask.cvttpd2dq.128(<2 x double> "reg"="xv" %a0, <4 x i32> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 1, 1, 0, 0, 1, 0, a2, 0) | 11100110 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vcvttpd2dq {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x i32> @llvm.x86.avx512.mask.cvttpd2dq.128(<2 x double> %a0, <4 x i32> %a1, i8 %a2)
+  ret <4 x i32> %r
+}
+
+declare <4 x i32> @llvm.x86.avx512.mask.cvttpd2dq.128(<2 x double>, <4 x i32>, i8)
+
+define <2 x i64> @X86.avx512.mask.cvttpd2qq.128(<2 x double> "reg"="xv" %a0, <2 x i64> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 1, 1, 0, 0, 1, 0, a2, 0) | 01111010 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vcvttpd2qq {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512dq,avx512vl" "nodecode" {
+  %r = call <2 x i64> @llvm.x86.avx512.mask.cvttpd2qq.128(<2 x double> %a0, <2 x i64> %a1, i8 %a2)
+  ret <2 x i64> %r
+}
+
+declare <2 x i64> @llvm.x86.avx512.mask.cvttpd2qq.128(<2 x double>, <2 x i64>, i8)
+
+define <4 x i64> @X86.avx512.mask.cvttpd2qq.256(<4 x double> "reg"="yv" %a0, <4 x i64> "reg"="yv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 1, 1, 0, 1, 1, 0, a2, 0) | 01111010 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vcvttpd2qq {a0}, {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512dq,avx512vl" "nodecode" {
+  %r = call <4 x i64> @llvm.x86.avx512.mask.cvttpd2qq.256(<4 x double> %a0, <4 x i64> %a1, i8 %a2)
+  ret <4 x i64> %r
+}
+
+declare <4 x i64> @llvm.x86.avx512.mask.cvttpd2qq.256(<4 x double>, <4 x i64>, i8)
+
+define <4 x i32> @X86.avx512.mask.cvttpd2udq.128(<2 x double> "reg"="xv" %a0, <4 x i32> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 1, 1, 0, 0, 0, 0, a2, 0) | 01111000 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vcvttpd2udq {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x i32> @llvm.x86.avx512.mask.cvttpd2udq.128(<2 x double> %a0, <4 x i32> %a1, i8 %a2)
+  ret <4 x i32> %r
+}
+
+declare <4 x i32> @llvm.x86.avx512.mask.cvttpd2udq.128(<2 x double>, <4 x i32>, i8)
+
+define <4 x i32> @X86.avx512.mask.cvttpd2udq.256(<4 x double> "reg"="yv" %a0, <4 x i32> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 1, 1, 0, 1, 0, 0, a2, 0) | 01111000 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vcvttpd2udq {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x i32> @llvm.x86.avx512.mask.cvttpd2udq.256(<4 x double> %a0, <4 x i32> %a1, i8 %a2)
+  ret <4 x i32> %r
+}
+
+declare <4 x i32> @llvm.x86.avx512.mask.cvttpd2udq.256(<4 x double>, <4 x i32>, i8)
+
+define <2 x i64> @X86.avx512.mask.cvttpd2uqq.128(<2 x double> "reg"="xv" %a0, <2 x i64> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 1, 1, 0, 0, 1, 0, a2, 0) | 01111000 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vcvttpd2uqq {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512dq,avx512vl" "nodecode" {
+  %r = call <2 x i64> @llvm.x86.avx512.mask.cvttpd2uqq.128(<2 x double> %a0, <2 x i64> %a1, i8 %a2)
+  ret <2 x i64> %r
+}
+
+declare <2 x i64> @llvm.x86.avx512.mask.cvttpd2uqq.128(<2 x double>, <2 x i64>, i8)
+
+define <4 x i64> @X86.avx512.mask.cvttpd2uqq.256(<4 x double> "reg"="yv" %a0, <4 x i64> "reg"="yv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 1, 1, 0, 1, 1, 0, a2, 0) | 01111000 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vcvttpd2uqq {a0}, {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512dq,avx512vl" "nodecode" {
+  %r = call <4 x i64> @llvm.x86.avx512.mask.cvttpd2uqq.256(<4 x double> %a0, <4 x i64> %a1, i8 %a2)
+  ret <4 x i64> %r
+}
+
+declare <4 x i64> @llvm.x86.avx512.mask.cvttpd2uqq.256(<4 x double>, <4 x i64>, i8)
+
+define <2 x i64> @X86.avx512.mask.cvttps2qq.128(<4 x float> "reg"="xv" %a0, <2 x i64> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 1, 0, 0, 0, 1, 0, a2, 0) | 01111010 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vcvttps2qq {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512dq,avx512vl" "nodecode" {
+  %r = call <2 x i64> @llvm.x86.avx512.mask.cvttps2qq.128(<4 x float> %a0, <2 x i64> %a1, i8 %a2)
+  ret <2 x i64> %r
+}
+
+declare <2 x i64> @llvm.x86.avx512.mask.cvttps2qq.128(<4 x float>, <2 x i64>, i8)
+
+define <4 x i64> @X86.avx512.mask.cvttps2qq.256(<4 x float> "reg"="xv" %a0, <4 x i64> "reg"="yv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 1, 0, 0, 1, 1, 0, a2, 0) | 01111010 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vcvttps2qq {a0}, {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512dq,avx512vl" "nodecode" {
+  %r = call <4 x i64> @llvm.x86.avx512.mask.cvttps2qq.256(<4 x float> %a0, <4 x i64> %a1, i8 %a2)
+  ret <4 x i64> %r
+}
+
+declare <4 x i64> @llvm.x86.avx512.mask.cvttps2qq.256(<4 x float>, <4 x i64>, i8)
+
+define <4 x i32> @X86.avx512.mask.cvttps2udq.128(<4 x float> "reg"="xv" %a0, <4 x i32> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 1, 0, 0, 0, 0, 0, a2, 0) | 01111000 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vcvttps2udq {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x i32> @llvm.x86.avx512.mask.cvttps2udq.128(<4 x float> %a0, <4 x i32> %a1, i8 %a2)
+  ret <4 x i32> %r
+}
+
+declare <4 x i32> @llvm.x86.avx512.mask.cvttps2udq.128(<4 x float>, <4 x i32>, i8)
+
+define <8 x i32> @X86.avx512.mask.cvttps2udq.256(<8 x float> "reg"="yv" %a0, <8 x i32> "reg"="yv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 1, 0, 0, 1, 0, 0, a2, 0) | 01111000 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vcvttps2udq {a0}, {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <8 x i32> @llvm.x86.avx512.mask.cvttps2udq.256(<8 x float> %a0, <8 x i32> %a1, i8 %a2)
+  ret <8 x i32> %r
+}
+
+declare <8 x i32> @llvm.x86.avx512.mask.cvttps2udq.256(<8 x float>, <8 x i32>, i8)
+
+define <2 x i64> @X86.avx512.mask.cvttps2uqq.128(<4 x float> "reg"="xv" %a0, <2 x i64> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 1, 0, 0, 0, 1, 0, a2, 0) | 01111000 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vcvttps2uqq {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512dq,avx512vl" "nodecode" {
+  %r = call <2 x i64> @llvm.x86.avx512.mask.cvttps2uqq.128(<4 x float> %a0, <2 x i64> %a1, i8 %a2)
+  ret <2 x i64> %r
+}
+
+declare <2 x i64> @llvm.x86.avx512.mask.cvttps2uqq.128(<4 x float>, <2 x i64>, i8)
+
+define <4 x i64> @X86.avx512.mask.cvttps2uqq.256(<4 x float> "reg"="xv" %a0, <4 x i64> "reg"="yv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 1, 0, 0, 1, 1, 0, a2, 0) | 01111000 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vcvttps2uqq {a0}, {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512dq,avx512vl" "nodecode" {
+  %r = call <4 x i64> @llvm.x86.avx512.mask.cvttps2uqq.256(<4 x float> %a0, <4 x i64> %a1, i8 %a2)
+  ret <4 x i64> %r
+}
+
+declare <4 x i64> @llvm.x86.avx512.mask.cvttps2uqq.256(<4 x float>, <4 x i64>, i8)
+
+define <4 x float> @X86.avx512.mask.cvtuqq2ps.128(<2 x i64> "reg"="xv" %a0, <4 x float> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 1, 1, 0, 0, 3, 0, a2, 0) | 01111010 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vcvtuqq2ps {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512dq,avx512vl" "nodecode" {
+  %r = call <4 x float> @llvm.x86.avx512.mask.cvtuqq2ps.128(<2 x i64> %a0, <4 x float> %a1, i8 %a2)
+  ret <4 x float> %r
+}
+
+declare <4 x float> @llvm.x86.avx512.mask.cvtuqq2ps.128(<2 x i64>, <4 x float>, i8)
+
+define <16 x i8> @X86.avx512.mask.expand.b.128(<16 x i8> "reg"="xv" %a0, <16 x i8> "reg"="xv" "tied" %a1, i16 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 2, 0, 0, 0, 1, 0, a2, 0) | 01100010 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vpexpandb {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512vbmi2,avx512vl" "nodecode" {
+  %r = call <16 x i8> @llvm.x86.avx512.mask.expand.b.128(<16 x i8> %a0, <16 x i8> %a1, i16 %a2)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.x86.avx512.mask.expand.b.128(<16 x i8>, <16 x i8>, i16)
+
+define <32 x i8> @X86.avx512.mask.expand.b.256(<32 x i8> "reg"="yv" %a0, <32 x i8> "reg"="yv" "tied" %a1, i32 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 2, 0, 0, 1, 1, 0, a2, 0) | 01100010 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vpexpandb {a0}, {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512vbmi2,avx512vl" "nodecode" {
+  %r = call <32 x i8> @llvm.x86.avx512.mask.expand.b.256(<32 x i8> %a0, <32 x i8> %a1, i32 %a2)
+  ret <32 x i8> %r
+}
+
+declare <32 x i8> @llvm.x86.avx512.mask.expand.b.256(<32 x i8>, <32 x i8>, i32)
+
+define <64 x i8> @X86.avx512.mask.expand.b.512(<64 x i8> "reg"="zv" %a0, <64 x i8> "reg"="zv" "tied" %a1, i64 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 2, 0, 0, 2, 1, 0, a2, 0) | 01100010 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vpexpandb {a0}, {d} {lb}{a2}{rb}" "dclass"="zv" "feature"="avx512vbmi2" "nodecode" {
+  %r = call <64 x i8> @llvm.x86.avx512.mask.expand.b.512(<64 x i8> %a0, <64 x i8> %a1, i64 %a2)
+  ret <64 x i8> %r
+}
+
+declare <64 x i8> @llvm.x86.avx512.mask.expand.b.512(<64 x i8>, <64 x i8>, i64)
+
+define <4 x i32> @X86.avx512.mask.expand.d.128(<4 x i32> "reg"="xv" %a0, <4 x i32> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 2, 0, 0, 0, 1, 0, a2, 0) | 10001001 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vpexpandd {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x i32> @llvm.x86.avx512.mask.expand.d.128(<4 x i32> %a0, <4 x i32> %a1, i8 %a2)
+  ret <4 x i32> %r
+}
+
+declare <4 x i32> @llvm.x86.avx512.mask.expand.d.128(<4 x i32>, <4 x i32>, i8)
+
+define <8 x i32> @X86.avx512.mask.expand.d.256(<8 x i32> "reg"="yv" %a0, <8 x i32> "reg"="yv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 2, 0, 0, 1, 1, 0, a2, 0) | 10001001 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vpexpandd {a0}, {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <8 x i32> @llvm.x86.avx512.mask.expand.d.256(<8 x i32> %a0, <8 x i32> %a1, i8 %a2)
+  ret <8 x i32> %r
+}
+
+declare <8 x i32> @llvm.x86.avx512.mask.expand.d.256(<8 x i32>, <8 x i32>, i8)
+
+define <16 x i32> @X86.avx512.mask.expand.d.512(<16 x i32> "reg"="zv" %a0, <16 x i32> "reg"="zv" "tied" %a1, i16 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 2, 0, 0, 2, 1, 0, a2, 0) | 10001001 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vpexpandd {a0}, {d} {lb}{a2}{rb}" "dclass"="zv" "feature"="avx512f" "nodecode" {
+  %r = call <16 x i32> @llvm.x86.avx512.mask.expand.d.512(<16 x i32> %a0, <16 x i32> %a1, i16 %a2)
+  ret <16 x i32> %r
+}
+
+declare <16 x i32> @llvm.x86.avx512.mask.expand.d.512(<16 x i32>, <16 x i32>, i16)
+
+define <16 x i8> @X86.avx512.mask.expand.load.b.128(ptr "reg"="r64" %a0, <16 x i8> "reg"="xv" "tied" %a1, i16 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(d, a0, 4, 2, 0, 0, 0, 1, 0, a2, 0) | 01100010 | rm(d, a0, 4, 1, 0, 0, 1) }" "asm"="vpexpandb 0({a0}), {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512vbmi2,avx512vl" "nodecode" {
+  %r = call <16 x i8> @llvm.x86.avx512.mask.expand.load.b.128(ptr %a0, <16 x i8> %a1, i16 %a2)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.x86.avx512.mask.expand.load.b.128(ptr, <16 x i8>, i16)
+
+define <32 x i8> @X86.avx512.mask.expand.load.b.256(ptr "reg"="r64" %a0, <32 x i8> "reg"="yv" "tied" %a1, i32 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(d, a0, 4, 2, 0, 0, 1, 1, 0, a2, 0) | 01100010 | rm(d, a0, 4, 1, 0, 0, 1) }" "asm"="vpexpandb 0({a0}), {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512vbmi2,avx512vl" "nodecode" {
+  %r = call <32 x i8> @llvm.x86.avx512.mask.expand.load.b.256(ptr %a0, <32 x i8> %a1, i32 %a2)
+  ret <32 x i8> %r
+}
+
+declare <32 x i8> @llvm.x86.avx512.mask.expand.load.b.256(ptr, <32 x i8>, i32)
+
+define <64 x i8> @X86.avx512.mask.expand.load.b.512(ptr "reg"="r64" %a0, <64 x i8> "reg"="zv" "tied" %a1, i64 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(d, a0, 4, 2, 0, 0, 2, 1, 0, a2, 0) | 01100010 | rm(d, a0, 4, 1, 0, 0, 1) }" "asm"="vpexpandb 0({a0}), {d} {lb}{a2}{rb}" "dclass"="zv" "feature"="avx512vbmi2" "nodecode" {
+  %r = call <64 x i8> @llvm.x86.avx512.mask.expand.load.b.512(ptr %a0, <64 x i8> %a1, i64 %a2)
+  ret <64 x i8> %r
+}
+
+declare <64 x i8> @llvm.x86.avx512.mask.expand.load.b.512(ptr, <64 x i8>, i64)
+
+define <4 x i32> @X86.avx512.mask.expand.load.d.128(ptr "reg"="r64" %a0, <4 x i32> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(d, a0, 4, 2, 0, 0, 0, 1, 0, a2, 0) | 10001001 | rm(d, a0, 4, 1, 0, 0, 4) }" "asm"="vpexpandd 0({a0}), {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x i32> @llvm.x86.avx512.mask.expand.load.d.128(ptr %a0, <4 x i32> %a1, i8 %a2)
+  ret <4 x i32> %r
+}
+
+declare <4 x i32> @llvm.x86.avx512.mask.expand.load.d.128(ptr, <4 x i32>, i8)
+
+define <8 x i32> @X86.avx512.mask.expand.load.d.256(ptr "reg"="r64" %a0, <8 x i32> "reg"="yv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(d, a0, 4, 2, 0, 0, 1, 1, 0, a2, 0) | 10001001 | rm(d, a0, 4, 1, 0, 0, 4) }" "asm"="vpexpandd 0({a0}), {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <8 x i32> @llvm.x86.avx512.mask.expand.load.d.256(ptr %a0, <8 x i32> %a1, i8 %a2)
+  ret <8 x i32> %r
+}
+
+declare <8 x i32> @llvm.x86.avx512.mask.expand.load.d.256(ptr, <8 x i32>, i8)
+
+define <16 x i32> @X86.avx512.mask.expand.load.d.512(ptr "reg"="r64" %a0, <16 x i32> "reg"="zv" "tied" %a1, i16 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(d, a0, 4, 2, 0, 0, 2, 1, 0, a2, 0) | 10001001 | rm(d, a0, 4, 1, 0, 0, 4) }" "asm"="vpexpandd 0({a0}), {d} {lb}{a2}{rb}" "dclass"="zv" "feature"="avx512f" "nodecode" {
+  %r = call <16 x i32> @llvm.x86.avx512.mask.expand.load.d.512(ptr %a0, <16 x i32> %a1, i16 %a2)
+  ret <16 x i32> %r
+}
+
+declare <16 x i32> @llvm.x86.avx512.mask.expand.load.d.512(ptr, <16 x i32>, i16)
+
+define <2 x double> @X86.avx512.mask.expand.load.pd.128(ptr "reg"="r64" %a0, <2 x double> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(d, a0, 4, 2, 1, 0, 0, 1, 0, a2, 0) | 10001000 | rm(d, a0, 4, 1, 0, 0, 8) }" "asm"="vexpandpd 0({a0}), {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <2 x double> @llvm.x86.avx512.mask.expand.load.pd.128(ptr %a0, <2 x double> %a1, i8 %a2)
+  ret <2 x double> %r
+}
+
+declare <2 x double> @llvm.x86.avx512.mask.expand.load.pd.128(ptr, <2 x double>, i8)
+
+define <4 x double> @X86.avx512.mask.expand.load.pd.256(ptr "reg"="r64" %a0, <4 x double> "reg"="yv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(d, a0, 4, 2, 1, 0, 1, 1, 0, a2, 0) | 10001000 | rm(d, a0, 4, 1, 0, 0, 8) }" "asm"="vexpandpd 0({a0}), {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x double> @llvm.x86.avx512.mask.expand.load.pd.256(ptr %a0, <4 x double> %a1, i8 %a2)
+  ret <4 x double> %r
+}
+
+declare <4 x double> @llvm.x86.avx512.mask.expand.load.pd.256(ptr, <4 x double>, i8)
+
+define <8 x double> @X86.avx512.mask.expand.load.pd.512(ptr "reg"="r64" %a0, <8 x double> "reg"="zv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(d, a0, 4, 2, 1, 0, 2, 1, 0, a2, 0) | 10001000 | rm(d, a0, 4, 1, 0, 0, 8) }" "asm"="vexpandpd 0({a0}), {d} {lb}{a2}{rb}" "dclass"="zv" "feature"="avx512f" "nodecode" {
+  %r = call <8 x double> @llvm.x86.avx512.mask.expand.load.pd.512(ptr %a0, <8 x double> %a1, i8 %a2)
+  ret <8 x double> %r
+}
+
+declare <8 x double> @llvm.x86.avx512.mask.expand.load.pd.512(ptr, <8 x double>, i8)
+
+define <4 x float> @X86.avx512.mask.expand.load.ps.128(ptr "reg"="r64" %a0, <4 x float> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(d, a0, 4, 2, 0, 0, 0, 1, 0, a2, 0) | 10001000 | rm(d, a0, 4, 1, 0, 0, 4) }" "asm"="vexpandps 0({a0}), {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x float> @llvm.x86.avx512.mask.expand.load.ps.128(ptr %a0, <4 x float> %a1, i8 %a2)
+  ret <4 x float> %r
+}
+
+declare <4 x float> @llvm.x86.avx512.mask.expand.load.ps.128(ptr, <4 x float>, i8)
+
+define <8 x float> @X86.avx512.mask.expand.load.ps.256(ptr "reg"="r64" %a0, <8 x float> "reg"="yv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(d, a0, 4, 2, 0, 0, 1, 1, 0, a2, 0) | 10001000 | rm(d, a0, 4, 1, 0, 0, 4) }" "asm"="vexpandps 0({a0}), {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <8 x float> @llvm.x86.avx512.mask.expand.load.ps.256(ptr %a0, <8 x float> %a1, i8 %a2)
+  ret <8 x float> %r
+}
+
+declare <8 x float> @llvm.x86.avx512.mask.expand.load.ps.256(ptr, <8 x float>, i8)
+
+define <16 x float> @X86.avx512.mask.expand.load.ps.512(ptr "reg"="r64" %a0, <16 x float> "reg"="zv" "tied" %a1, i16 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(d, a0, 4, 2, 0, 0, 2, 1, 0, a2, 0) | 10001000 | rm(d, a0, 4, 1, 0, 0, 4) }" "asm"="vexpandps 0({a0}), {d} {lb}{a2}{rb}" "dclass"="zv" "feature"="avx512f" "nodecode" {
+  %r = call <16 x float> @llvm.x86.avx512.mask.expand.load.ps.512(ptr %a0, <16 x float> %a1, i16 %a2)
+  ret <16 x float> %r
+}
+
+declare <16 x float> @llvm.x86.avx512.mask.expand.load.ps.512(ptr, <16 x float>, i16)
+
+define <2 x i64> @X86.avx512.mask.expand.load.q.128(ptr "reg"="r64" %a0, <2 x i64> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(d, a0, 4, 2, 1, 0, 0, 1, 0, a2, 0) | 10001001 | rm(d, a0, 4, 1, 0, 0, 8) }" "asm"="vpexpandq 0({a0}), {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <2 x i64> @llvm.x86.avx512.mask.expand.load.q.128(ptr %a0, <2 x i64> %a1, i8 %a2)
+  ret <2 x i64> %r
+}
+
+declare <2 x i64> @llvm.x86.avx512.mask.expand.load.q.128(ptr, <2 x i64>, i8)
+
+define <4 x i64> @X86.avx512.mask.expand.load.q.256(ptr "reg"="r64" %a0, <4 x i64> "reg"="yv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(d, a0, 4, 2, 1, 0, 1, 1, 0, a2, 0) | 10001001 | rm(d, a0, 4, 1, 0, 0, 8) }" "asm"="vpexpandq 0({a0}), {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x i64> @llvm.x86.avx512.mask.expand.load.q.256(ptr %a0, <4 x i64> %a1, i8 %a2)
+  ret <4 x i64> %r
+}
+
+declare <4 x i64> @llvm.x86.avx512.mask.expand.load.q.256(ptr, <4 x i64>, i8)
+
+define <8 x i64> @X86.avx512.mask.expand.load.q.512(ptr "reg"="r64" %a0, <8 x i64> "reg"="zv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(d, a0, 4, 2, 1, 0, 2, 1, 0, a2, 0) | 10001001 | rm(d, a0, 4, 1, 0, 0, 8) }" "asm"="vpexpandq 0({a0}), {d} {lb}{a2}{rb}" "dclass"="zv" "feature"="avx512f" "nodecode" {
+  %r = call <8 x i64> @llvm.x86.avx512.mask.expand.load.q.512(ptr %a0, <8 x i64> %a1, i8 %a2)
+  ret <8 x i64> %r
+}
+
+declare <8 x i64> @llvm.x86.avx512.mask.expand.load.q.512(ptr, <8 x i64>, i8)
+
+define <8 x i16> @X86.avx512.mask.expand.load.w.128(ptr "reg"="r64" %a0, <8 x i16> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(d, a0, 4, 2, 1, 0, 0, 1, 0, a2, 0) | 01100010 | rm(d, a0, 4, 1, 0, 0, 2) }" "asm"="vpexpandw 0({a0}), {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512vbmi2,avx512vl" "nodecode" {
+  %r = call <8 x i16> @llvm.x86.avx512.mask.expand.load.w.128(ptr %a0, <8 x i16> %a1, i8 %a2)
+  ret <8 x i16> %r
+}
+
+declare <8 x i16> @llvm.x86.avx512.mask.expand.load.w.128(ptr, <8 x i16>, i8)
+
+define <16 x i16> @X86.avx512.mask.expand.load.w.256(ptr "reg"="r64" %a0, <16 x i16> "reg"="yv" "tied" %a1, i16 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(d, a0, 4, 2, 1, 0, 1, 1, 0, a2, 0) | 01100010 | rm(d, a0, 4, 1, 0, 0, 2) }" "asm"="vpexpandw 0({a0}), {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512vbmi2,avx512vl" "nodecode" {
+  %r = call <16 x i16> @llvm.x86.avx512.mask.expand.load.w.256(ptr %a0, <16 x i16> %a1, i16 %a2)
+  ret <16 x i16> %r
+}
+
+declare <16 x i16> @llvm.x86.avx512.mask.expand.load.w.256(ptr, <16 x i16>, i16)
+
+define <32 x i16> @X86.avx512.mask.expand.load.w.512(ptr "reg"="r64" %a0, <32 x i16> "reg"="zv" "tied" %a1, i32 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(d, a0, 4, 2, 1, 0, 2, 1, 0, a2, 0) | 01100010 | rm(d, a0, 4, 1, 0, 0, 2) }" "asm"="vpexpandw 0({a0}), {d} {lb}{a2}{rb}" "dclass"="zv" "feature"="avx512vbmi2" "nodecode" {
+  %r = call <32 x i16> @llvm.x86.avx512.mask.expand.load.w.512(ptr %a0, <32 x i16> %a1, i32 %a2)
+  ret <32 x i16> %r
+}
+
+declare <32 x i16> @llvm.x86.avx512.mask.expand.load.w.512(ptr, <32 x i16>, i32)
+
+define <2 x double> @X86.avx512.mask.expand.pd.128(<2 x double> "reg"="xv" %a0, <2 x double> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 2, 1, 0, 0, 1, 0, a2, 0) | 10001000 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vexpandpd {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <2 x double> @llvm.x86.avx512.mask.expand.pd.128(<2 x double> %a0, <2 x double> %a1, i8 %a2)
+  ret <2 x double> %r
+}
+
+declare <2 x double> @llvm.x86.avx512.mask.expand.pd.128(<2 x double>, <2 x double>, i8)
+
+define <4 x double> @X86.avx512.mask.expand.pd.256(<4 x double> "reg"="yv" %a0, <4 x double> "reg"="yv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 2, 1, 0, 1, 1, 0, a2, 0) | 10001000 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vexpandpd {a0}, {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x double> @llvm.x86.avx512.mask.expand.pd.256(<4 x double> %a0, <4 x double> %a1, i8 %a2)
+  ret <4 x double> %r
+}
+
+declare <4 x double> @llvm.x86.avx512.mask.expand.pd.256(<4 x double>, <4 x double>, i8)
+
+define <8 x double> @X86.avx512.mask.expand.pd.512(<8 x double> "reg"="zv" %a0, <8 x double> "reg"="zv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 2, 1, 0, 2, 1, 0, a2, 0) | 10001000 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vexpandpd {a0}, {d} {lb}{a2}{rb}" "dclass"="zv" "feature"="avx512f" "nodecode" {
+  %r = call <8 x double> @llvm.x86.avx512.mask.expand.pd.512(<8 x double> %a0, <8 x double> %a1, i8 %a2)
+  ret <8 x double> %r
+}
+
+declare <8 x double> @llvm.x86.avx512.mask.expand.pd.512(<8 x double>, <8 x double>, i8)
+
+define <4 x float> @X86.avx512.mask.expand.ps.128(<4 x float> "reg"="xv" %a0, <4 x float> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 2, 0, 0, 0, 1, 0, a2, 0) | 10001000 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vexpandps {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x float> @llvm.x86.avx512.mask.expand.ps.128(<4 x float> %a0, <4 x float> %a1, i8 %a2)
+  ret <4 x float> %r
+}
+
+declare <4 x float> @llvm.x86.avx512.mask.expand.ps.128(<4 x float>, <4 x float>, i8)
+
+define <8 x float> @X86.avx512.mask.expand.ps.256(<8 x float> "reg"="yv" %a0, <8 x float> "reg"="yv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 2, 0, 0, 1, 1, 0, a2, 0) | 10001000 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vexpandps {a0}, {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <8 x float> @llvm.x86.avx512.mask.expand.ps.256(<8 x float> %a0, <8 x float> %a1, i8 %a2)
+  ret <8 x float> %r
+}
+
+declare <8 x float> @llvm.x86.avx512.mask.expand.ps.256(<8 x float>, <8 x float>, i8)
+
+define <16 x float> @X86.avx512.mask.expand.ps.512(<16 x float> "reg"="zv" %a0, <16 x float> "reg"="zv" "tied" %a1, i16 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 2, 0, 0, 2, 1, 0, a2, 0) | 10001000 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vexpandps {a0}, {d} {lb}{a2}{rb}" "dclass"="zv" "feature"="avx512f" "nodecode" {
+  %r = call <16 x float> @llvm.x86.avx512.mask.expand.ps.512(<16 x float> %a0, <16 x float> %a1, i16 %a2)
+  ret <16 x float> %r
+}
+
+declare <16 x float> @llvm.x86.avx512.mask.expand.ps.512(<16 x float>, <16 x float>, i16)
+
+define <2 x i64> @X86.avx512.mask.expand.q.128(<2 x i64> "reg"="xv" %a0, <2 x i64> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 2, 1, 0, 0, 1, 0, a2, 0) | 10001001 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vpexpandq {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <2 x i64> @llvm.x86.avx512.mask.expand.q.128(<2 x i64> %a0, <2 x i64> %a1, i8 %a2)
+  ret <2 x i64> %r
+}
+
+declare <2 x i64> @llvm.x86.avx512.mask.expand.q.128(<2 x i64>, <2 x i64>, i8)
+
+define <4 x i64> @X86.avx512.mask.expand.q.256(<4 x i64> "reg"="yv" %a0, <4 x i64> "reg"="yv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 2, 1, 0, 1, 1, 0, a2, 0) | 10001001 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vpexpandq {a0}, {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x i64> @llvm.x86.avx512.mask.expand.q.256(<4 x i64> %a0, <4 x i64> %a1, i8 %a2)
+  ret <4 x i64> %r
+}
+
+declare <4 x i64> @llvm.x86.avx512.mask.expand.q.256(<4 x i64>, <4 x i64>, i8)
+
+define <8 x i64> @X86.avx512.mask.expand.q.512(<8 x i64> "reg"="zv" %a0, <8 x i64> "reg"="zv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 2, 1, 0, 2, 1, 0, a2, 0) | 10001001 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vpexpandq {a0}, {d} {lb}{a2}{rb}" "dclass"="zv" "feature"="avx512f" "nodecode" {
+  %r = call <8 x i64> @llvm.x86.avx512.mask.expand.q.512(<8 x i64> %a0, <8 x i64> %a1, i8 %a2)
+  ret <8 x i64> %r
+}
+
+declare <8 x i64> @llvm.x86.avx512.mask.expand.q.512(<8 x i64>, <8 x i64>, i8)
+
+define <8 x i16> @X86.avx512.mask.expand.w.128(<8 x i16> "reg"="xv" %a0, <8 x i16> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 2, 1, 0, 0, 1, 0, a2, 0) | 01100010 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vpexpandw {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512vbmi2,avx512vl" "nodecode" {
+  %r = call <8 x i16> @llvm.x86.avx512.mask.expand.w.128(<8 x i16> %a0, <8 x i16> %a1, i8 %a2)
+  ret <8 x i16> %r
+}
+
+declare <8 x i16> @llvm.x86.avx512.mask.expand.w.128(<8 x i16>, <8 x i16>, i8)
+
+define <16 x i16> @X86.avx512.mask.expand.w.256(<16 x i16> "reg"="yv" %a0, <16 x i16> "reg"="yv" "tied" %a1, i16 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 2, 1, 0, 1, 1, 0, a2, 0) | 01100010 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vpexpandw {a0}, {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512vbmi2,avx512vl" "nodecode" {
+  %r = call <16 x i16> @llvm.x86.avx512.mask.expand.w.256(<16 x i16> %a0, <16 x i16> %a1, i16 %a2)
+  ret <16 x i16> %r
+}
+
+declare <16 x i16> @llvm.x86.avx512.mask.expand.w.256(<16 x i16>, <16 x i16>, i16)
+
+define <32 x i16> @X86.avx512.mask.expand.w.512(<32 x i16> "reg"="zv" %a0, <32 x i16> "reg"="zv" "tied" %a1, i32 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 2, 1, 0, 2, 1, 0, a2, 0) | 01100010 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vpexpandw {a0}, {d} {lb}{a2}{rb}" "dclass"="zv" "feature"="avx512vbmi2" "nodecode" {
+  %r = call <32 x i16> @llvm.x86.avx512.mask.expand.w.512(<32 x i16> %a0, <32 x i16> %a1, i32 %a2)
+  ret <32 x i16> %r
+}
+
+declare <32 x i16> @llvm.x86.avx512.mask.expand.w.512(<32 x i16>, <32 x i16>, i32)
+
+define <2 x double> @X86.avx512.mask.fixupimm.pd.128(<2 x double> "reg"="xv" "tied" %a0, <2 x double> "reg"="xv" %a1, <2 x i64> "reg"="xv" %a2, i32 "imm" %a3, i8 "reg"="k" %a4) "enc"="{ if(a4!=0) evexr(d, a2, 3, 1, a1, 0, 1, 0, a4, 0) | 01010100 | 11 reg:3=d&7 rm:3=a2&7 | i1:8=a3 }" "asm"="vfixupimmpd ${a3}, {a2}, {a1}, {d} {lb}{a4}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <2 x double> @llvm.x86.avx512.mask.fixupimm.pd.128(<2 x double> %a0, <2 x double> %a1, <2 x i64> %a2, i32 %a3, i8 %a4)
+  ret <2 x double> %r
+}
+
+declare <2 x double> @llvm.x86.avx512.mask.fixupimm.pd.128(<2 x double>, <2 x double>, <2 x i64>, i32, i8)
+
+define <4 x double> @X86.avx512.mask.fixupimm.pd.256(<4 x double> "reg"="yv" "tied" %a0, <4 x double> "reg"="yv" %a1, <4 x i64> "reg"="yv" %a2, i32 "imm" %a3, i8 "reg"="k" %a4) "enc"="{ if(a4!=0) evexr(d, a2, 3, 1, a1, 1, 1, 0, a4, 0) | 01010100 | 11 reg:3=d&7 rm:3=a2&7 | i1:8=a3 }" "asm"="vfixupimmpd ${a3}, {a2}, {a1}, {d} {lb}{a4}{rb}" "dclass"="yv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x double> @llvm.x86.avx512.mask.fixupimm.pd.256(<4 x double> %a0, <4 x double> %a1, <4 x i64> %a2, i32 %a3, i8 %a4)
+  ret <4 x double> %r
+}
+
+declare <4 x double> @llvm.x86.avx512.mask.fixupimm.pd.256(<4 x double>, <4 x double>, <4 x i64>, i32, i8)
+
+define <4 x float> @X86.avx512.mask.fixupimm.ps.128(<4 x float> "reg"="xv" "tied" %a0, <4 x float> "reg"="xv" %a1, <4 x i32> "reg"="xv" %a2, i32 "imm" %a3, i8 "reg"="k" %a4) "enc"="{ if(a4!=0) evexr(d, a2, 3, 0, a1, 0, 1, 0, a4, 0) | 01010100 | 11 reg:3=d&7 rm:3=a2&7 | i1:8=a3 }" "asm"="vfixupimmps ${a3}, {a2}, {a1}, {d} {lb}{a4}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x float> @llvm.x86.avx512.mask.fixupimm.ps.128(<4 x float> %a0, <4 x float> %a1, <4 x i32> %a2, i32 %a3, i8 %a4)
+  ret <4 x float> %r
+}
+
+declare <4 x float> @llvm.x86.avx512.mask.fixupimm.ps.128(<4 x float>, <4 x float>, <4 x i32>, i32, i8)
+
+define <8 x float> @X86.avx512.mask.fixupimm.ps.256(<8 x float> "reg"="yv" "tied" %a0, <8 x float> "reg"="yv" %a1, <8 x i32> "reg"="yv" %a2, i32 "imm" %a3, i8 "reg"="k" %a4) "enc"="{ if(a4!=0) evexr(d, a2, 3, 0, a1, 1, 1, 0, a4, 0) | 01010100 | 11 reg:3=d&7 rm:3=a2&7 | i1:8=a3 }" "asm"="vfixupimmps ${a3}, {a2}, {a1}, {d} {lb}{a4}{rb}" "dclass"="yv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <8 x float> @llvm.x86.avx512.mask.fixupimm.ps.256(<8 x float> %a0, <8 x float> %a1, <8 x i32> %a2, i32 %a3, i8 %a4)
+  ret <8 x float> %r
+}
+
+declare <8 x float> @llvm.x86.avx512.mask.fixupimm.ps.256(<8 x float>, <8 x float>, <8 x i32>, i32, i8)
+
+define <2 x double> @X86.avx512.mask.getexp.pd.128(<2 x double> "reg"="xv" %a0, <2 x double> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 2, 1, 0, 0, 1, 0, a2, 0) | 01000010 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vgetexppd {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <2 x double> @llvm.x86.avx512.mask.getexp.pd.128(<2 x double> %a0, <2 x double> %a1, i8 %a2)
+  ret <2 x double> %r
+}
+
+declare <2 x double> @llvm.x86.avx512.mask.getexp.pd.128(<2 x double>, <2 x double>, i8)
+
+define <4 x double> @X86.avx512.mask.getexp.pd.256(<4 x double> "reg"="yv" %a0, <4 x double> "reg"="yv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 2, 1, 0, 1, 1, 0, a2, 0) | 01000010 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vgetexppd {a0}, {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x double> @llvm.x86.avx512.mask.getexp.pd.256(<4 x double> %a0, <4 x double> %a1, i8 %a2)
+  ret <4 x double> %r
+}
+
+declare <4 x double> @llvm.x86.avx512.mask.getexp.pd.256(<4 x double>, <4 x double>, i8)
+
+define <4 x float> @X86.avx512.mask.getexp.ps.128(<4 x float> "reg"="xv" %a0, <4 x float> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 2, 0, 0, 0, 1, 0, a2, 0) | 01000010 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vgetexpps {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x float> @llvm.x86.avx512.mask.getexp.ps.128(<4 x float> %a0, <4 x float> %a1, i8 %a2)
+  ret <4 x float> %r
+}
+
+declare <4 x float> @llvm.x86.avx512.mask.getexp.ps.128(<4 x float>, <4 x float>, i8)
+
+define <8 x float> @X86.avx512.mask.getexp.ps.256(<8 x float> "reg"="yv" %a0, <8 x float> "reg"="yv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 2, 0, 0, 1, 1, 0, a2, 0) | 01000010 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vgetexpps {a0}, {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <8 x float> @llvm.x86.avx512.mask.getexp.ps.256(<8 x float> %a0, <8 x float> %a1, i8 %a2)
+  ret <8 x float> %r
+}
+
+declare <8 x float> @llvm.x86.avx512.mask.getexp.ps.256(<8 x float>, <8 x float>, i8)
+
+define <2 x double> @X86.avx512.mask.getmant.pd.128(<2 x double> "reg"="xv" %a0, i32 "imm" %a1, <2 x double> "reg"="xv" "tied" %a2, i8 "reg"="k" %a3) "enc"="{ if(a3!=0) evexr(d, a0, 3, 1, 0, 0, 1, 0, a3, 0) | 00100110 | 11 reg:3=d&7 rm:3=a0&7 | i1:8=a1 }" "asm"="vgetmantpd ${a1}, {a0}, {d} {lb}{a3}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <2 x double> @llvm.x86.avx512.mask.getmant.pd.128(<2 x double> %a0, i32 %a1, <2 x double> %a2, i8 %a3)
+  ret <2 x double> %r
+}
+
+declare <2 x double> @llvm.x86.avx512.mask.getmant.pd.128(<2 x double>, i32, <2 x double>, i8)
+
+define <4 x double> @X86.avx512.mask.getmant.pd.256(<4 x double> "reg"="yv" %a0, i32 "imm" %a1, <4 x double> "reg"="yv" "tied" %a2, i8 "reg"="k" %a3) "enc"="{ if(a3!=0) evexr(d, a0, 3, 1, 0, 1, 1, 0, a3, 0) | 00100110 | 11 reg:3=d&7 rm:3=a0&7 | i1:8=a1 }" "asm"="vgetmantpd ${a1}, {a0}, {d} {lb}{a3}{rb}" "dclass"="yv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x double> @llvm.x86.avx512.mask.getmant.pd.256(<4 x double> %a0, i32 %a1, <4 x double> %a2, i8 %a3)
+  ret <4 x double> %r
+}
+
+declare <4 x double> @llvm.x86.avx512.mask.getmant.pd.256(<4 x double>, i32, <4 x double>, i8)
+
+define <4 x float> @X86.avx512.mask.getmant.ps.128(<4 x float> "reg"="xv" %a0, i32 "imm" %a1, <4 x float> "reg"="xv" "tied" %a2, i8 "reg"="k" %a3) "enc"="{ if(a3!=0) evexr(d, a0, 3, 0, 0, 0, 1, 0, a3, 0) | 00100110 | 11 reg:3=d&7 rm:3=a0&7 | i1:8=a1 }" "asm"="vgetmantps ${a1}, {a0}, {d} {lb}{a3}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x float> @llvm.x86.avx512.mask.getmant.ps.128(<4 x float> %a0, i32 %a1, <4 x float> %a2, i8 %a3)
+  ret <4 x float> %r
+}
+
+declare <4 x float> @llvm.x86.avx512.mask.getmant.ps.128(<4 x float>, i32, <4 x float>, i8)
+
+define <8 x float> @X86.avx512.mask.getmant.ps.256(<8 x float> "reg"="yv" %a0, i32 "imm" %a1, <8 x float> "reg"="yv" "tied" %a2, i8 "reg"="k" %a3) "enc"="{ if(a3!=0) evexr(d, a0, 3, 0, 0, 1, 1, 0, a3, 0) | 00100110 | 11 reg:3=d&7 rm:3=a0&7 | i1:8=a1 }" "asm"="vgetmantps ${a1}, {a0}, {d} {lb}{a3}{rb}" "dclass"="yv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <8 x float> @llvm.x86.avx512.mask.getmant.ps.256(<8 x float> %a0, i32 %a1, <8 x float> %a2, i8 %a3)
+  ret <8 x float> %r
+}
+
+declare <8 x float> @llvm.x86.avx512.mask.getmant.ps.256(<8 x float>, i32, <8 x float>, i8)
+
+define <16 x i8> @X86.avx512.mask.pmov.db.128(<4 x i32> "reg"="xv" %a0, <16 x i8> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 0, 2, 0, a2, 0) | 00110001 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovdb {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <16 x i8> @llvm.x86.avx512.mask.pmov.db.128(<4 x i32> %a0, <16 x i8> %a1, i8 %a2)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.x86.avx512.mask.pmov.db.128(<4 x i32>, <16 x i8>, i8)
+
+define <16 x i8> @X86.avx512.mask.pmov.db.256(<8 x i32> "reg"="yv" %a0, <16 x i8> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 1, 2, 0, a2, 0) | 00110001 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovdb {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <16 x i8> @llvm.x86.avx512.mask.pmov.db.256(<8 x i32> %a0, <16 x i8> %a1, i8 %a2)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.x86.avx512.mask.pmov.db.256(<8 x i32>, <16 x i8>, i8)
+
+define void @X86.avx512.mask.pmov.db.mem.128(ptr "reg"="r64" %a0, <4 x i32> "reg"="xv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 0, 2, 0, a2, 0) | 00110001 | rm(a1, a0, 4, 1, 0, 0, 4) }" "asm"="vpmovdb {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmov.db.mem.128(ptr %a0, <4 x i32> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmov.db.mem.128(ptr, <4 x i32>, i8)
+
+define void @X86.avx512.mask.pmov.db.mem.256(ptr "reg"="r64" %a0, <8 x i32> "reg"="yv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 1, 2, 0, a2, 0) | 00110001 | rm(a1, a0, 4, 1, 0, 0, 8) }" "asm"="vpmovdb {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmov.db.mem.256(ptr %a0, <8 x i32> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmov.db.mem.256(ptr, <8 x i32>, i8)
+
+define void @X86.avx512.mask.pmov.db.mem.512(ptr "reg"="r64" %a0, <16 x i32> "reg"="zv" %a1, i16 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 2, 2, 0, a2, 0) | 00110001 | rm(a1, a0, 4, 1, 0, 0, 16) }" "asm"="vpmovdb {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmov.db.mem.512(ptr %a0, <16 x i32> %a1, i16 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmov.db.mem.512(ptr, <16 x i32>, i16)
+
+define <8 x i16> @X86.avx512.mask.pmov.dw.128(<4 x i32> "reg"="xv" %a0, <8 x i16> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 0, 2, 0, a2, 0) | 00110011 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovdw {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <8 x i16> @llvm.x86.avx512.mask.pmov.dw.128(<4 x i32> %a0, <8 x i16> %a1, i8 %a2)
+  ret <8 x i16> %r
+}
+
+declare <8 x i16> @llvm.x86.avx512.mask.pmov.dw.128(<4 x i32>, <8 x i16>, i8)
+
+define void @X86.avx512.mask.pmov.dw.mem.128(ptr "reg"="r64" %a0, <4 x i32> "reg"="xv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 0, 2, 0, a2, 0) | 00110011 | rm(a1, a0, 4, 1, 0, 0, 8) }" "asm"="vpmovdw {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmov.dw.mem.128(ptr %a0, <4 x i32> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmov.dw.mem.128(ptr, <4 x i32>, i8)
+
+define void @X86.avx512.mask.pmov.dw.mem.256(ptr "reg"="r64" %a0, <8 x i32> "reg"="yv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 1, 2, 0, a2, 0) | 00110011 | rm(a1, a0, 4, 1, 0, 0, 16) }" "asm"="vpmovdw {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmov.dw.mem.256(ptr %a0, <8 x i32> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmov.dw.mem.256(ptr, <8 x i32>, i8)
+
+define void @X86.avx512.mask.pmov.dw.mem.512(ptr "reg"="r64" %a0, <16 x i32> "reg"="zv" %a1, i16 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 2, 2, 0, a2, 0) | 00110011 | rm(a1, a0, 4, 1, 0, 0, 32) }" "asm"="vpmovdw {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmov.dw.mem.512(ptr %a0, <16 x i32> %a1, i16 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmov.dw.mem.512(ptr, <16 x i32>, i16)
+
+define <16 x i8> @X86.avx512.mask.pmov.qb.128(<2 x i64> "reg"="xv" %a0, <16 x i8> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 0, 2, 0, a2, 0) | 00110010 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovqb {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <16 x i8> @llvm.x86.avx512.mask.pmov.qb.128(<2 x i64> %a0, <16 x i8> %a1, i8 %a2)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.x86.avx512.mask.pmov.qb.128(<2 x i64>, <16 x i8>, i8)
+
+define <16 x i8> @X86.avx512.mask.pmov.qb.256(<4 x i64> "reg"="yv" %a0, <16 x i8> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 1, 2, 0, a2, 0) | 00110010 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovqb {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <16 x i8> @llvm.x86.avx512.mask.pmov.qb.256(<4 x i64> %a0, <16 x i8> %a1, i8 %a2)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.x86.avx512.mask.pmov.qb.256(<4 x i64>, <16 x i8>, i8)
+
+define <16 x i8> @X86.avx512.mask.pmov.qb.512(<8 x i64> "reg"="zv" %a0, <16 x i8> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 2, 2, 0, a2, 0) | 00110010 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovqb {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f" "nodecode" {
+  %r = call <16 x i8> @llvm.x86.avx512.mask.pmov.qb.512(<8 x i64> %a0, <16 x i8> %a1, i8 %a2)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.x86.avx512.mask.pmov.qb.512(<8 x i64>, <16 x i8>, i8)
+
+define void @X86.avx512.mask.pmov.qb.mem.128(ptr "reg"="r64" %a0, <2 x i64> "reg"="xv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 0, 2, 0, a2, 0) | 00110010 | rm(a1, a0, 4, 1, 0, 0, 2) }" "asm"="vpmovqb {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmov.qb.mem.128(ptr %a0, <2 x i64> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmov.qb.mem.128(ptr, <2 x i64>, i8)
+
+define void @X86.avx512.mask.pmov.qb.mem.256(ptr "reg"="r64" %a0, <4 x i64> "reg"="yv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 1, 2, 0, a2, 0) | 00110010 | rm(a1, a0, 4, 1, 0, 0, 4) }" "asm"="vpmovqb {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmov.qb.mem.256(ptr %a0, <4 x i64> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmov.qb.mem.256(ptr, <4 x i64>, i8)
+
+define void @X86.avx512.mask.pmov.qb.mem.512(ptr "reg"="r64" %a0, <8 x i64> "reg"="zv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 2, 2, 0, a2, 0) | 00110010 | rm(a1, a0, 4, 1, 0, 0, 8) }" "asm"="vpmovqb {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmov.qb.mem.512(ptr %a0, <8 x i64> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmov.qb.mem.512(ptr, <8 x i64>, i8)
+
+define <4 x i32> @X86.avx512.mask.pmov.qd.128(<2 x i64> "reg"="xv" %a0, <4 x i32> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 0, 2, 0, a2, 0) | 00110101 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovqd {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x i32> @llvm.x86.avx512.mask.pmov.qd.128(<2 x i64> %a0, <4 x i32> %a1, i8 %a2)
+  ret <4 x i32> %r
+}
+
+declare <4 x i32> @llvm.x86.avx512.mask.pmov.qd.128(<2 x i64>, <4 x i32>, i8)
+
+define void @X86.avx512.mask.pmov.qd.mem.128(ptr "reg"="r64" %a0, <2 x i64> "reg"="xv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 0, 2, 0, a2, 0) | 00110101 | rm(a1, a0, 4, 1, 0, 0, 8) }" "asm"="vpmovqd {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmov.qd.mem.128(ptr %a0, <2 x i64> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmov.qd.mem.128(ptr, <2 x i64>, i8)
+
+define void @X86.avx512.mask.pmov.qd.mem.256(ptr "reg"="r64" %a0, <4 x i64> "reg"="yv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 1, 2, 0, a2, 0) | 00110101 | rm(a1, a0, 4, 1, 0, 0, 16) }" "asm"="vpmovqd {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmov.qd.mem.256(ptr %a0, <4 x i64> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmov.qd.mem.256(ptr, <4 x i64>, i8)
+
+define void @X86.avx512.mask.pmov.qd.mem.512(ptr "reg"="r64" %a0, <8 x i64> "reg"="zv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 2, 2, 0, a2, 0) | 00110101 | rm(a1, a0, 4, 1, 0, 0, 32) }" "asm"="vpmovqd {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmov.qd.mem.512(ptr %a0, <8 x i64> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmov.qd.mem.512(ptr, <8 x i64>, i8)
+
+define <8 x i16> @X86.avx512.mask.pmov.qw.128(<2 x i64> "reg"="xv" %a0, <8 x i16> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 0, 2, 0, a2, 0) | 00110100 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovqw {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <8 x i16> @llvm.x86.avx512.mask.pmov.qw.128(<2 x i64> %a0, <8 x i16> %a1, i8 %a2)
+  ret <8 x i16> %r
+}
+
+declare <8 x i16> @llvm.x86.avx512.mask.pmov.qw.128(<2 x i64>, <8 x i16>, i8)
+
+define <8 x i16> @X86.avx512.mask.pmov.qw.256(<4 x i64> "reg"="yv" %a0, <8 x i16> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 1, 2, 0, a2, 0) | 00110100 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovqw {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <8 x i16> @llvm.x86.avx512.mask.pmov.qw.256(<4 x i64> %a0, <8 x i16> %a1, i8 %a2)
+  ret <8 x i16> %r
+}
+
+declare <8 x i16> @llvm.x86.avx512.mask.pmov.qw.256(<4 x i64>, <8 x i16>, i8)
+
+define void @X86.avx512.mask.pmov.qw.mem.128(ptr "reg"="r64" %a0, <2 x i64> "reg"="xv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 0, 2, 0, a2, 0) | 00110100 | rm(a1, a0, 4, 1, 0, 0, 4) }" "asm"="vpmovqw {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmov.qw.mem.128(ptr %a0, <2 x i64> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmov.qw.mem.128(ptr, <2 x i64>, i8)
+
+define void @X86.avx512.mask.pmov.qw.mem.256(ptr "reg"="r64" %a0, <4 x i64> "reg"="yv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 1, 2, 0, a2, 0) | 00110100 | rm(a1, a0, 4, 1, 0, 0, 8) }" "asm"="vpmovqw {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmov.qw.mem.256(ptr %a0, <4 x i64> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmov.qw.mem.256(ptr, <4 x i64>, i8)
+
+define void @X86.avx512.mask.pmov.qw.mem.512(ptr "reg"="r64" %a0, <8 x i64> "reg"="zv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 2, 2, 0, a2, 0) | 00110100 | rm(a1, a0, 4, 1, 0, 0, 16) }" "asm"="vpmovqw {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmov.qw.mem.512(ptr %a0, <8 x i64> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmov.qw.mem.512(ptr, <8 x i64>, i8)
+
+define <16 x i8> @X86.avx512.mask.pmovs.db.128(<4 x i32> "reg"="xv" %a0, <16 x i8> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 0, 2, 0, a2, 0) | 00100001 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovsdb {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <16 x i8> @llvm.x86.avx512.mask.pmovs.db.128(<4 x i32> %a0, <16 x i8> %a1, i8 %a2)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.x86.avx512.mask.pmovs.db.128(<4 x i32>, <16 x i8>, i8)
+
+define <16 x i8> @X86.avx512.mask.pmovs.db.256(<8 x i32> "reg"="yv" %a0, <16 x i8> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 1, 2, 0, a2, 0) | 00100001 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovsdb {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <16 x i8> @llvm.x86.avx512.mask.pmovs.db.256(<8 x i32> %a0, <16 x i8> %a1, i8 %a2)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.x86.avx512.mask.pmovs.db.256(<8 x i32>, <16 x i8>, i8)
+
+define <16 x i8> @X86.avx512.mask.pmovs.db.512(<16 x i32> "reg"="zv" %a0, <16 x i8> "reg"="xv" "tied" %a1, i16 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 2, 2, 0, a2, 0) | 00100001 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovsdb {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f" "nodecode" {
+  %r = call <16 x i8> @llvm.x86.avx512.mask.pmovs.db.512(<16 x i32> %a0, <16 x i8> %a1, i16 %a2)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.x86.avx512.mask.pmovs.db.512(<16 x i32>, <16 x i8>, i16)
+
+define void @X86.avx512.mask.pmovs.db.mem.128(ptr "reg"="r64" %a0, <4 x i32> "reg"="xv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 0, 2, 0, a2, 0) | 00100001 | rm(a1, a0, 4, 1, 0, 0, 4) }" "asm"="vpmovsdb {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmovs.db.mem.128(ptr %a0, <4 x i32> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmovs.db.mem.128(ptr, <4 x i32>, i8)
+
+define void @X86.avx512.mask.pmovs.db.mem.256(ptr "reg"="r64" %a0, <8 x i32> "reg"="yv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 1, 2, 0, a2, 0) | 00100001 | rm(a1, a0, 4, 1, 0, 0, 8) }" "asm"="vpmovsdb {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmovs.db.mem.256(ptr %a0, <8 x i32> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmovs.db.mem.256(ptr, <8 x i32>, i8)
+
+define void @X86.avx512.mask.pmovs.db.mem.512(ptr "reg"="r64" %a0, <16 x i32> "reg"="zv" %a1, i16 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 2, 2, 0, a2, 0) | 00100001 | rm(a1, a0, 4, 1, 0, 0, 16) }" "asm"="vpmovsdb {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmovs.db.mem.512(ptr %a0, <16 x i32> %a1, i16 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmovs.db.mem.512(ptr, <16 x i32>, i16)
+
+define <8 x i16> @X86.avx512.mask.pmovs.dw.128(<4 x i32> "reg"="xv" %a0, <8 x i16> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 0, 2, 0, a2, 0) | 00100011 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovsdw {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <8 x i16> @llvm.x86.avx512.mask.pmovs.dw.128(<4 x i32> %a0, <8 x i16> %a1, i8 %a2)
+  ret <8 x i16> %r
+}
+
+declare <8 x i16> @llvm.x86.avx512.mask.pmovs.dw.128(<4 x i32>, <8 x i16>, i8)
+
+define <8 x i16> @X86.avx512.mask.pmovs.dw.256(<8 x i32> "reg"="yv" %a0, <8 x i16> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 1, 2, 0, a2, 0) | 00100011 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovsdw {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <8 x i16> @llvm.x86.avx512.mask.pmovs.dw.256(<8 x i32> %a0, <8 x i16> %a1, i8 %a2)
+  ret <8 x i16> %r
+}
+
+declare <8 x i16> @llvm.x86.avx512.mask.pmovs.dw.256(<8 x i32>, <8 x i16>, i8)
+
+define <16 x i16> @X86.avx512.mask.pmovs.dw.512(<16 x i32> "reg"="zv" %a0, <16 x i16> "reg"="yv" "tied" %a1, i16 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 2, 2, 0, a2, 0) | 00100011 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovsdw {a0}, {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512f" "nodecode" {
+  %r = call <16 x i16> @llvm.x86.avx512.mask.pmovs.dw.512(<16 x i32> %a0, <16 x i16> %a1, i16 %a2)
+  ret <16 x i16> %r
+}
+
+declare <16 x i16> @llvm.x86.avx512.mask.pmovs.dw.512(<16 x i32>, <16 x i16>, i16)
+
+define void @X86.avx512.mask.pmovs.dw.mem.128(ptr "reg"="r64" %a0, <4 x i32> "reg"="xv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 0, 2, 0, a2, 0) | 00100011 | rm(a1, a0, 4, 1, 0, 0, 8) }" "asm"="vpmovsdw {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmovs.dw.mem.128(ptr %a0, <4 x i32> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmovs.dw.mem.128(ptr, <4 x i32>, i8)
+
+define void @X86.avx512.mask.pmovs.dw.mem.256(ptr "reg"="r64" %a0, <8 x i32> "reg"="yv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 1, 2, 0, a2, 0) | 00100011 | rm(a1, a0, 4, 1, 0, 0, 16) }" "asm"="vpmovsdw {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmovs.dw.mem.256(ptr %a0, <8 x i32> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmovs.dw.mem.256(ptr, <8 x i32>, i8)
+
+define void @X86.avx512.mask.pmovs.dw.mem.512(ptr "reg"="r64" %a0, <16 x i32> "reg"="zv" %a1, i16 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 2, 2, 0, a2, 0) | 00100011 | rm(a1, a0, 4, 1, 0, 0, 32) }" "asm"="vpmovsdw {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmovs.dw.mem.512(ptr %a0, <16 x i32> %a1, i16 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmovs.dw.mem.512(ptr, <16 x i32>, i16)
+
+define <16 x i8> @X86.avx512.mask.pmovs.qb.128(<2 x i64> "reg"="xv" %a0, <16 x i8> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 0, 2, 0, a2, 0) | 00100010 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovsqb {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <16 x i8> @llvm.x86.avx512.mask.pmovs.qb.128(<2 x i64> %a0, <16 x i8> %a1, i8 %a2)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.x86.avx512.mask.pmovs.qb.128(<2 x i64>, <16 x i8>, i8)
+
+define <16 x i8> @X86.avx512.mask.pmovs.qb.256(<4 x i64> "reg"="yv" %a0, <16 x i8> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 1, 2, 0, a2, 0) | 00100010 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovsqb {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <16 x i8> @llvm.x86.avx512.mask.pmovs.qb.256(<4 x i64> %a0, <16 x i8> %a1, i8 %a2)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.x86.avx512.mask.pmovs.qb.256(<4 x i64>, <16 x i8>, i8)
+
+define <16 x i8> @X86.avx512.mask.pmovs.qb.512(<8 x i64> "reg"="zv" %a0, <16 x i8> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 2, 2, 0, a2, 0) | 00100010 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovsqb {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f" "nodecode" {
+  %r = call <16 x i8> @llvm.x86.avx512.mask.pmovs.qb.512(<8 x i64> %a0, <16 x i8> %a1, i8 %a2)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.x86.avx512.mask.pmovs.qb.512(<8 x i64>, <16 x i8>, i8)
+
+define void @X86.avx512.mask.pmovs.qb.mem.128(ptr "reg"="r64" %a0, <2 x i64> "reg"="xv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 0, 2, 0, a2, 0) | 00100010 | rm(a1, a0, 4, 1, 0, 0, 2) }" "asm"="vpmovsqb {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmovs.qb.mem.128(ptr %a0, <2 x i64> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmovs.qb.mem.128(ptr, <2 x i64>, i8)
+
+define void @X86.avx512.mask.pmovs.qb.mem.256(ptr "reg"="r64" %a0, <4 x i64> "reg"="yv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 1, 2, 0, a2, 0) | 00100010 | rm(a1, a0, 4, 1, 0, 0, 4) }" "asm"="vpmovsqb {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmovs.qb.mem.256(ptr %a0, <4 x i64> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmovs.qb.mem.256(ptr, <4 x i64>, i8)
+
+define void @X86.avx512.mask.pmovs.qb.mem.512(ptr "reg"="r64" %a0, <8 x i64> "reg"="zv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 2, 2, 0, a2, 0) | 00100010 | rm(a1, a0, 4, 1, 0, 0, 8) }" "asm"="vpmovsqb {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmovs.qb.mem.512(ptr %a0, <8 x i64> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmovs.qb.mem.512(ptr, <8 x i64>, i8)
+
+define <4 x i32> @X86.avx512.mask.pmovs.qd.128(<2 x i64> "reg"="xv" %a0, <4 x i32> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 0, 2, 0, a2, 0) | 00100101 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovsqd {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x i32> @llvm.x86.avx512.mask.pmovs.qd.128(<2 x i64> %a0, <4 x i32> %a1, i8 %a2)
+  ret <4 x i32> %r
+}
+
+declare <4 x i32> @llvm.x86.avx512.mask.pmovs.qd.128(<2 x i64>, <4 x i32>, i8)
+
+define <4 x i32> @X86.avx512.mask.pmovs.qd.256(<4 x i64> "reg"="yv" %a0, <4 x i32> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 1, 2, 0, a2, 0) | 00100101 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovsqd {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x i32> @llvm.x86.avx512.mask.pmovs.qd.256(<4 x i64> %a0, <4 x i32> %a1, i8 %a2)
+  ret <4 x i32> %r
+}
+
+declare <4 x i32> @llvm.x86.avx512.mask.pmovs.qd.256(<4 x i64>, <4 x i32>, i8)
+
+define <8 x i32> @X86.avx512.mask.pmovs.qd.512(<8 x i64> "reg"="zv" %a0, <8 x i32> "reg"="yv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 2, 2, 0, a2, 0) | 00100101 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovsqd {a0}, {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512f" "nodecode" {
+  %r = call <8 x i32> @llvm.x86.avx512.mask.pmovs.qd.512(<8 x i64> %a0, <8 x i32> %a1, i8 %a2)
+  ret <8 x i32> %r
+}
+
+declare <8 x i32> @llvm.x86.avx512.mask.pmovs.qd.512(<8 x i64>, <8 x i32>, i8)
+
+define void @X86.avx512.mask.pmovs.qd.mem.128(ptr "reg"="r64" %a0, <2 x i64> "reg"="xv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 0, 2, 0, a2, 0) | 00100101 | rm(a1, a0, 4, 1, 0, 0, 8) }" "asm"="vpmovsqd {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmovs.qd.mem.128(ptr %a0, <2 x i64> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmovs.qd.mem.128(ptr, <2 x i64>, i8)
+
+define void @X86.avx512.mask.pmovs.qd.mem.256(ptr "reg"="r64" %a0, <4 x i64> "reg"="yv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 1, 2, 0, a2, 0) | 00100101 | rm(a1, a0, 4, 1, 0, 0, 16) }" "asm"="vpmovsqd {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmovs.qd.mem.256(ptr %a0, <4 x i64> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmovs.qd.mem.256(ptr, <4 x i64>, i8)
+
+define void @X86.avx512.mask.pmovs.qd.mem.512(ptr "reg"="r64" %a0, <8 x i64> "reg"="zv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 2, 2, 0, a2, 0) | 00100101 | rm(a1, a0, 4, 1, 0, 0, 32) }" "asm"="vpmovsqd {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmovs.qd.mem.512(ptr %a0, <8 x i64> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmovs.qd.mem.512(ptr, <8 x i64>, i8)
+
+define <8 x i16> @X86.avx512.mask.pmovs.qw.128(<2 x i64> "reg"="xv" %a0, <8 x i16> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 0, 2, 0, a2, 0) | 00100100 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovsqw {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <8 x i16> @llvm.x86.avx512.mask.pmovs.qw.128(<2 x i64> %a0, <8 x i16> %a1, i8 %a2)
+  ret <8 x i16> %r
+}
+
+declare <8 x i16> @llvm.x86.avx512.mask.pmovs.qw.128(<2 x i64>, <8 x i16>, i8)
+
+define <8 x i16> @X86.avx512.mask.pmovs.qw.256(<4 x i64> "reg"="yv" %a0, <8 x i16> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 1, 2, 0, a2, 0) | 00100100 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovsqw {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <8 x i16> @llvm.x86.avx512.mask.pmovs.qw.256(<4 x i64> %a0, <8 x i16> %a1, i8 %a2)
+  ret <8 x i16> %r
+}
+
+declare <8 x i16> @llvm.x86.avx512.mask.pmovs.qw.256(<4 x i64>, <8 x i16>, i8)
+
+define <8 x i16> @X86.avx512.mask.pmovs.qw.512(<8 x i64> "reg"="zv" %a0, <8 x i16> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 2, 2, 0, a2, 0) | 00100100 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovsqw {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f" "nodecode" {
+  %r = call <8 x i16> @llvm.x86.avx512.mask.pmovs.qw.512(<8 x i64> %a0, <8 x i16> %a1, i8 %a2)
+  ret <8 x i16> %r
+}
+
+declare <8 x i16> @llvm.x86.avx512.mask.pmovs.qw.512(<8 x i64>, <8 x i16>, i8)
+
+define void @X86.avx512.mask.pmovs.qw.mem.128(ptr "reg"="r64" %a0, <2 x i64> "reg"="xv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 0, 2, 0, a2, 0) | 00100100 | rm(a1, a0, 4, 1, 0, 0, 4) }" "asm"="vpmovsqw {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmovs.qw.mem.128(ptr %a0, <2 x i64> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmovs.qw.mem.128(ptr, <2 x i64>, i8)
+
+define void @X86.avx512.mask.pmovs.qw.mem.256(ptr "reg"="r64" %a0, <4 x i64> "reg"="yv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 1, 2, 0, a2, 0) | 00100100 | rm(a1, a0, 4, 1, 0, 0, 8) }" "asm"="vpmovsqw {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmovs.qw.mem.256(ptr %a0, <4 x i64> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmovs.qw.mem.256(ptr, <4 x i64>, i8)
+
+define void @X86.avx512.mask.pmovs.qw.mem.512(ptr "reg"="r64" %a0, <8 x i64> "reg"="zv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 2, 2, 0, a2, 0) | 00100100 | rm(a1, a0, 4, 1, 0, 0, 16) }" "asm"="vpmovsqw {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmovs.qw.mem.512(ptr %a0, <8 x i64> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmovs.qw.mem.512(ptr, <8 x i64>, i8)
+
+define <16 x i8> @X86.avx512.mask.pmovs.wb.128(<8 x i16> "reg"="xv" %a0, <16 x i8> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 0, 2, 0, a2, 0) | 00100000 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovswb {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512bw,avx512vl" "nodecode" {
+  %r = call <16 x i8> @llvm.x86.avx512.mask.pmovs.wb.128(<8 x i16> %a0, <16 x i8> %a1, i8 %a2)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.x86.avx512.mask.pmovs.wb.128(<8 x i16>, <16 x i8>, i8)
+
+define void @X86.avx512.mask.pmovs.wb.mem.512(ptr "reg"="r64" %a0, <32 x i16> "reg"="zv" %a1, i32 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 2, 2, 0, a2, 0) | 00100000 | rm(a1, a0, 4, 1, 0, 0, 32) }" "asm"="vpmovswb {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512bw" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmovs.wb.mem.512(ptr %a0, <32 x i16> %a1, i32 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmovs.wb.mem.512(ptr, <32 x i16>, i32)
+
+define <16 x i8> @X86.avx512.mask.pmovus.db.128(<4 x i32> "reg"="xv" %a0, <16 x i8> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 0, 2, 0, a2, 0) | 00010001 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovusdb {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <16 x i8> @llvm.x86.avx512.mask.pmovus.db.128(<4 x i32> %a0, <16 x i8> %a1, i8 %a2)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.x86.avx512.mask.pmovus.db.128(<4 x i32>, <16 x i8>, i8)
+
+define <16 x i8> @X86.avx512.mask.pmovus.db.256(<8 x i32> "reg"="yv" %a0, <16 x i8> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 1, 2, 0, a2, 0) | 00010001 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovusdb {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <16 x i8> @llvm.x86.avx512.mask.pmovus.db.256(<8 x i32> %a0, <16 x i8> %a1, i8 %a2)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.x86.avx512.mask.pmovus.db.256(<8 x i32>, <16 x i8>, i8)
+
+define <16 x i8> @X86.avx512.mask.pmovus.db.512(<16 x i32> "reg"="zv" %a0, <16 x i8> "reg"="xv" "tied" %a1, i16 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 2, 2, 0, a2, 0) | 00010001 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovusdb {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f" "nodecode" {
+  %r = call <16 x i8> @llvm.x86.avx512.mask.pmovus.db.512(<16 x i32> %a0, <16 x i8> %a1, i16 %a2)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.x86.avx512.mask.pmovus.db.512(<16 x i32>, <16 x i8>, i16)
+
+define void @X86.avx512.mask.pmovus.db.mem.128(ptr "reg"="r64" %a0, <4 x i32> "reg"="xv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 0, 2, 0, a2, 0) | 00010001 | rm(a1, a0, 4, 1, 0, 0, 4) }" "asm"="vpmovusdb {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmovus.db.mem.128(ptr %a0, <4 x i32> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmovus.db.mem.128(ptr, <4 x i32>, i8)
+
+define void @X86.avx512.mask.pmovus.db.mem.256(ptr "reg"="r64" %a0, <8 x i32> "reg"="yv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 1, 2, 0, a2, 0) | 00010001 | rm(a1, a0, 4, 1, 0, 0, 8) }" "asm"="vpmovusdb {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmovus.db.mem.256(ptr %a0, <8 x i32> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmovus.db.mem.256(ptr, <8 x i32>, i8)
+
+define void @X86.avx512.mask.pmovus.db.mem.512(ptr "reg"="r64" %a0, <16 x i32> "reg"="zv" %a1, i16 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 2, 2, 0, a2, 0) | 00010001 | rm(a1, a0, 4, 1, 0, 0, 16) }" "asm"="vpmovusdb {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmovus.db.mem.512(ptr %a0, <16 x i32> %a1, i16 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmovus.db.mem.512(ptr, <16 x i32>, i16)
+
+define <8 x i16> @X86.avx512.mask.pmovus.dw.128(<4 x i32> "reg"="xv" %a0, <8 x i16> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 0, 2, 0, a2, 0) | 00010011 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovusdw {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <8 x i16> @llvm.x86.avx512.mask.pmovus.dw.128(<4 x i32> %a0, <8 x i16> %a1, i8 %a2)
+  ret <8 x i16> %r
+}
+
+declare <8 x i16> @llvm.x86.avx512.mask.pmovus.dw.128(<4 x i32>, <8 x i16>, i8)
+
+define <8 x i16> @X86.avx512.mask.pmovus.dw.256(<8 x i32> "reg"="yv" %a0, <8 x i16> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 1, 2, 0, a2, 0) | 00010011 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovusdw {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <8 x i16> @llvm.x86.avx512.mask.pmovus.dw.256(<8 x i32> %a0, <8 x i16> %a1, i8 %a2)
+  ret <8 x i16> %r
+}
+
+declare <8 x i16> @llvm.x86.avx512.mask.pmovus.dw.256(<8 x i32>, <8 x i16>, i8)
+
+define <16 x i16> @X86.avx512.mask.pmovus.dw.512(<16 x i32> "reg"="zv" %a0, <16 x i16> "reg"="yv" "tied" %a1, i16 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 2, 2, 0, a2, 0) | 00010011 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovusdw {a0}, {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512f" "nodecode" {
+  %r = call <16 x i16> @llvm.x86.avx512.mask.pmovus.dw.512(<16 x i32> %a0, <16 x i16> %a1, i16 %a2)
+  ret <16 x i16> %r
+}
+
+declare <16 x i16> @llvm.x86.avx512.mask.pmovus.dw.512(<16 x i32>, <16 x i16>, i16)
+
+define void @X86.avx512.mask.pmovus.dw.mem.128(ptr "reg"="r64" %a0, <4 x i32> "reg"="xv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 0, 2, 0, a2, 0) | 00010011 | rm(a1, a0, 4, 1, 0, 0, 8) }" "asm"="vpmovusdw {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmovus.dw.mem.128(ptr %a0, <4 x i32> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmovus.dw.mem.128(ptr, <4 x i32>, i8)
+
+define void @X86.avx512.mask.pmovus.dw.mem.256(ptr "reg"="r64" %a0, <8 x i32> "reg"="yv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 1, 2, 0, a2, 0) | 00010011 | rm(a1, a0, 4, 1, 0, 0, 16) }" "asm"="vpmovusdw {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmovus.dw.mem.256(ptr %a0, <8 x i32> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmovus.dw.mem.256(ptr, <8 x i32>, i8)
+
+define void @X86.avx512.mask.pmovus.dw.mem.512(ptr "reg"="r64" %a0, <16 x i32> "reg"="zv" %a1, i16 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 2, 2, 0, a2, 0) | 00010011 | rm(a1, a0, 4, 1, 0, 0, 32) }" "asm"="vpmovusdw {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmovus.dw.mem.512(ptr %a0, <16 x i32> %a1, i16 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmovus.dw.mem.512(ptr, <16 x i32>, i16)
+
+define <16 x i8> @X86.avx512.mask.pmovus.qb.128(<2 x i64> "reg"="xv" %a0, <16 x i8> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 0, 2, 0, a2, 0) | 00010010 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovusqb {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <16 x i8> @llvm.x86.avx512.mask.pmovus.qb.128(<2 x i64> %a0, <16 x i8> %a1, i8 %a2)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.x86.avx512.mask.pmovus.qb.128(<2 x i64>, <16 x i8>, i8)
+
+define <16 x i8> @X86.avx512.mask.pmovus.qb.256(<4 x i64> "reg"="yv" %a0, <16 x i8> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 1, 2, 0, a2, 0) | 00010010 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovusqb {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <16 x i8> @llvm.x86.avx512.mask.pmovus.qb.256(<4 x i64> %a0, <16 x i8> %a1, i8 %a2)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.x86.avx512.mask.pmovus.qb.256(<4 x i64>, <16 x i8>, i8)
+
+define <16 x i8> @X86.avx512.mask.pmovus.qb.512(<8 x i64> "reg"="zv" %a0, <16 x i8> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 2, 2, 0, a2, 0) | 00010010 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovusqb {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f" "nodecode" {
+  %r = call <16 x i8> @llvm.x86.avx512.mask.pmovus.qb.512(<8 x i64> %a0, <16 x i8> %a1, i8 %a2)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.x86.avx512.mask.pmovus.qb.512(<8 x i64>, <16 x i8>, i8)
+
+define void @X86.avx512.mask.pmovus.qb.mem.128(ptr "reg"="r64" %a0, <2 x i64> "reg"="xv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 0, 2, 0, a2, 0) | 00010010 | rm(a1, a0, 4, 1, 0, 0, 2) }" "asm"="vpmovusqb {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmovus.qb.mem.128(ptr %a0, <2 x i64> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmovus.qb.mem.128(ptr, <2 x i64>, i8)
+
+define void @X86.avx512.mask.pmovus.qb.mem.256(ptr "reg"="r64" %a0, <4 x i64> "reg"="yv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 1, 2, 0, a2, 0) | 00010010 | rm(a1, a0, 4, 1, 0, 0, 4) }" "asm"="vpmovusqb {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmovus.qb.mem.256(ptr %a0, <4 x i64> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmovus.qb.mem.256(ptr, <4 x i64>, i8)
+
+define void @X86.avx512.mask.pmovus.qb.mem.512(ptr "reg"="r64" %a0, <8 x i64> "reg"="zv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 2, 2, 0, a2, 0) | 00010010 | rm(a1, a0, 4, 1, 0, 0, 8) }" "asm"="vpmovusqb {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmovus.qb.mem.512(ptr %a0, <8 x i64> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmovus.qb.mem.512(ptr, <8 x i64>, i8)
+
+define <4 x i32> @X86.avx512.mask.pmovus.qd.128(<2 x i64> "reg"="xv" %a0, <4 x i32> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 0, 2, 0, a2, 0) | 00010101 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovusqd {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x i32> @llvm.x86.avx512.mask.pmovus.qd.128(<2 x i64> %a0, <4 x i32> %a1, i8 %a2)
+  ret <4 x i32> %r
+}
+
+declare <4 x i32> @llvm.x86.avx512.mask.pmovus.qd.128(<2 x i64>, <4 x i32>, i8)
+
+define <4 x i32> @X86.avx512.mask.pmovus.qd.256(<4 x i64> "reg"="yv" %a0, <4 x i32> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 1, 2, 0, a2, 0) | 00010101 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovusqd {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x i32> @llvm.x86.avx512.mask.pmovus.qd.256(<4 x i64> %a0, <4 x i32> %a1, i8 %a2)
+  ret <4 x i32> %r
+}
+
+declare <4 x i32> @llvm.x86.avx512.mask.pmovus.qd.256(<4 x i64>, <4 x i32>, i8)
+
+define <8 x i32> @X86.avx512.mask.pmovus.qd.512(<8 x i64> "reg"="zv" %a0, <8 x i32> "reg"="yv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 2, 2, 0, a2, 0) | 00010101 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovusqd {a0}, {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512f" "nodecode" {
+  %r = call <8 x i32> @llvm.x86.avx512.mask.pmovus.qd.512(<8 x i64> %a0, <8 x i32> %a1, i8 %a2)
+  ret <8 x i32> %r
+}
+
+declare <8 x i32> @llvm.x86.avx512.mask.pmovus.qd.512(<8 x i64>, <8 x i32>, i8)
+
+define void @X86.avx512.mask.pmovus.qd.mem.128(ptr "reg"="r64" %a0, <2 x i64> "reg"="xv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 0, 2, 0, a2, 0) | 00010101 | rm(a1, a0, 4, 1, 0, 0, 8) }" "asm"="vpmovusqd {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmovus.qd.mem.128(ptr %a0, <2 x i64> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmovus.qd.mem.128(ptr, <2 x i64>, i8)
+
+define void @X86.avx512.mask.pmovus.qd.mem.256(ptr "reg"="r64" %a0, <4 x i64> "reg"="yv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 1, 2, 0, a2, 0) | 00010101 | rm(a1, a0, 4, 1, 0, 0, 16) }" "asm"="vpmovusqd {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmovus.qd.mem.256(ptr %a0, <4 x i64> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmovus.qd.mem.256(ptr, <4 x i64>, i8)
+
+define void @X86.avx512.mask.pmovus.qd.mem.512(ptr "reg"="r64" %a0, <8 x i64> "reg"="zv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 2, 2, 0, a2, 0) | 00010101 | rm(a1, a0, 4, 1, 0, 0, 32) }" "asm"="vpmovusqd {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmovus.qd.mem.512(ptr %a0, <8 x i64> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmovus.qd.mem.512(ptr, <8 x i64>, i8)
+
+define <8 x i16> @X86.avx512.mask.pmovus.qw.128(<2 x i64> "reg"="xv" %a0, <8 x i16> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 0, 2, 0, a2, 0) | 00010100 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovusqw {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <8 x i16> @llvm.x86.avx512.mask.pmovus.qw.128(<2 x i64> %a0, <8 x i16> %a1, i8 %a2)
+  ret <8 x i16> %r
+}
+
+declare <8 x i16> @llvm.x86.avx512.mask.pmovus.qw.128(<2 x i64>, <8 x i16>, i8)
+
+define <8 x i16> @X86.avx512.mask.pmovus.qw.256(<4 x i64> "reg"="yv" %a0, <8 x i16> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 1, 2, 0, a2, 0) | 00010100 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovusqw {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <8 x i16> @llvm.x86.avx512.mask.pmovus.qw.256(<4 x i64> %a0, <8 x i16> %a1, i8 %a2)
+  ret <8 x i16> %r
+}
+
+declare <8 x i16> @llvm.x86.avx512.mask.pmovus.qw.256(<4 x i64>, <8 x i16>, i8)
+
+define <8 x i16> @X86.avx512.mask.pmovus.qw.512(<8 x i64> "reg"="zv" %a0, <8 x i16> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 2, 2, 0, a2, 0) | 00010100 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovusqw {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f" "nodecode" {
+  %r = call <8 x i16> @llvm.x86.avx512.mask.pmovus.qw.512(<8 x i64> %a0, <8 x i16> %a1, i8 %a2)
+  ret <8 x i16> %r
+}
+
+declare <8 x i16> @llvm.x86.avx512.mask.pmovus.qw.512(<8 x i64>, <8 x i16>, i8)
+
+define void @X86.avx512.mask.pmovus.qw.mem.128(ptr "reg"="r64" %a0, <2 x i64> "reg"="xv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 0, 2, 0, a2, 0) | 00010100 | rm(a1, a0, 4, 1, 0, 0, 4) }" "asm"="vpmovusqw {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmovus.qw.mem.128(ptr %a0, <2 x i64> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmovus.qw.mem.128(ptr, <2 x i64>, i8)
+
+define void @X86.avx512.mask.pmovus.qw.mem.256(ptr "reg"="r64" %a0, <4 x i64> "reg"="yv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 1, 2, 0, a2, 0) | 00010100 | rm(a1, a0, 4, 1, 0, 0, 8) }" "asm"="vpmovusqw {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f,avx512vl" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmovus.qw.mem.256(ptr %a0, <4 x i64> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmovus.qw.mem.256(ptr, <4 x i64>, i8)
+
+define void @X86.avx512.mask.pmovus.qw.mem.512(ptr "reg"="r64" %a0, <8 x i64> "reg"="zv" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 2, 2, 0, a2, 0) | 00010100 | rm(a1, a0, 4, 1, 0, 0, 16) }" "asm"="vpmovusqw {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512f" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmovus.qw.mem.512(ptr %a0, <8 x i64> %a1, i8 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmovus.qw.mem.512(ptr, <8 x i64>, i8)
+
+define <16 x i8> @X86.avx512.mask.pmovus.wb.128(<8 x i16> "reg"="xv" %a0, <16 x i8> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(a0, d, 2, 0, 0, 0, 2, 0, a2, 0) | 00010000 | 11 reg:3=a0&7 rm:3=d&7 }" "asm"="vpmovuswb {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512bw,avx512vl" "nodecode" {
+  %r = call <16 x i8> @llvm.x86.avx512.mask.pmovus.wb.128(<8 x i16> %a0, <16 x i8> %a1, i8 %a2)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.x86.avx512.mask.pmovus.wb.128(<8 x i16>, <16 x i8>, i8)
+
+define void @X86.avx512.mask.pmovus.wb.mem.512(ptr "reg"="r64" %a0, <32 x i16> "reg"="zv" %a1, i32 "reg"="k" %a2) "enc"="{ if(a2!=0) evexm(a1, a0, 4, 2, 0, 0, 2, 2, 0, a2, 0) | 00010000 | rm(a1, a0, 4, 1, 0, 0, 32) }" "asm"="vpmovuswb {a1}, 0({a0}) {lb}{a2}{rb}" "feature"="avx512bw" "nodecode" {
+  call void @llvm.x86.avx512.mask.pmovus.wb.mem.512(ptr %a0, <32 x i16> %a1, i32 %a2)
+  ret void
+}
+
+declare void @llvm.x86.avx512.mask.pmovus.wb.mem.512(ptr, <32 x i16>, i32)
+
+define <2 x double> @X86.avx512.mask.range.pd.128(<2 x double> "reg"="xv" %a0, <2 x double> "reg"="xv" %a1, i32 "imm" %a2, <2 x double> "reg"="xv" "tied" %a3, i8 "reg"="k" %a4) "enc"="{ if(a4!=0) evexr(d, a1, 3, 1, a0, 0, 1, 0, a4, 0) | 01010000 | 11 reg:3=d&7 rm:3=a1&7 | i1:8=a2 }" "asm"="vrangepd ${a2}, {a1}, {a0}, {d} {lb}{a4}{rb}" "dclass"="xv" "feature"="avx512dq,avx512vl" "nodecode" {
+  %r = call <2 x double> @llvm.x86.avx512.mask.range.pd.128(<2 x double> %a0, <2 x double> %a1, i32 %a2, <2 x double> %a3, i8 %a4)
+  ret <2 x double> %r
+}
+
+declare <2 x double> @llvm.x86.avx512.mask.range.pd.128(<2 x double>, <2 x double>, i32, <2 x double>, i8)
+
+define <4 x double> @X86.avx512.mask.range.pd.256(<4 x double> "reg"="yv" %a0, <4 x double> "reg"="yv" %a1, i32 "imm" %a2, <4 x double> "reg"="yv" "tied" %a3, i8 "reg"="k" %a4) "enc"="{ if(a4!=0) evexr(d, a1, 3, 1, a0, 1, 1, 0, a4, 0) | 01010000 | 11 reg:3=d&7 rm:3=a1&7 | i1:8=a2 }" "asm"="vrangepd ${a2}, {a1}, {a0}, {d} {lb}{a4}{rb}" "dclass"="yv" "feature"="avx512dq,avx512vl" "nodecode" {
+  %r = call <4 x double> @llvm.x86.avx512.mask.range.pd.256(<4 x double> %a0, <4 x double> %a1, i32 %a2, <4 x double> %a3, i8 %a4)
+  ret <4 x double> %r
+}
+
+declare <4 x double> @llvm.x86.avx512.mask.range.pd.256(<4 x double>, <4 x double>, i32, <4 x double>, i8)
+
+define <4 x float> @X86.avx512.mask.range.ps.128(<4 x float> "reg"="xv" %a0, <4 x float> "reg"="xv" %a1, i32 "imm" %a2, <4 x float> "reg"="xv" "tied" %a3, i8 "reg"="k" %a4) "enc"="{ if(a4!=0) evexr(d, a1, 3, 0, a0, 0, 1, 0, a4, 0) | 01010000 | 11 reg:3=d&7 rm:3=a1&7 | i1:8=a2 }" "asm"="vrangeps ${a2}, {a1}, {a0}, {d} {lb}{a4}{rb}" "dclass"="xv" "feature"="avx512dq,avx512vl" "nodecode" {
+  %r = call <4 x float> @llvm.x86.avx512.mask.range.ps.128(<4 x float> %a0, <4 x float> %a1, i32 %a2, <4 x float> %a3, i8 %a4)
+  ret <4 x float> %r
+}
+
+declare <4 x float> @llvm.x86.avx512.mask.range.ps.128(<4 x float>, <4 x float>, i32, <4 x float>, i8)
+
+define <8 x float> @X86.avx512.mask.range.ps.256(<8 x float> "reg"="yv" %a0, <8 x float> "reg"="yv" %a1, i32 "imm" %a2, <8 x float> "reg"="yv" "tied" %a3, i8 "reg"="k" %a4) "enc"="{ if(a4!=0) evexr(d, a1, 3, 0, a0, 1, 1, 0, a4, 0) | 01010000 | 11 reg:3=d&7 rm:3=a1&7 | i1:8=a2 }" "asm"="vrangeps ${a2}, {a1}, {a0}, {d} {lb}{a4}{rb}" "dclass"="yv" "feature"="avx512dq,avx512vl" "nodecode" {
+  %r = call <8 x float> @llvm.x86.avx512.mask.range.ps.256(<8 x float> %a0, <8 x float> %a1, i32 %a2, <8 x float> %a3, i8 %a4)
+  ret <8 x float> %r
+}
+
+declare <8 x float> @llvm.x86.avx512.mask.range.ps.256(<8 x float>, <8 x float>, i32, <8 x float>, i8)
+
+define <2 x double> @X86.avx512.mask.reduce.pd.128(<2 x double> "reg"="xv" %a0, i32 "imm" %a1, <2 x double> "reg"="xv" "tied" %a2, i8 "reg"="k" %a3) "enc"="{ if(a3!=0) evexr(d, a0, 3, 1, 0, 0, 1, 0, a3, 0) | 01010110 | 11 reg:3=d&7 rm:3=a0&7 | i1:8=a1 }" "asm"="vreducepd ${a1}, {a0}, {d} {lb}{a3}{rb}" "dclass"="xv" "feature"="avx512dq,avx512vl" "nodecode" {
+  %r = call <2 x double> @llvm.x86.avx512.mask.reduce.pd.128(<2 x double> %a0, i32 %a1, <2 x double> %a2, i8 %a3)
+  ret <2 x double> %r
+}
+
+declare <2 x double> @llvm.x86.avx512.mask.reduce.pd.128(<2 x double>, i32, <2 x double>, i8)
+
+define <4 x double> @X86.avx512.mask.reduce.pd.256(<4 x double> "reg"="yv" %a0, i32 "imm" %a1, <4 x double> "reg"="yv" "tied" %a2, i8 "reg"="k" %a3) "enc"="{ if(a3!=0) evexr(d, a0, 3, 1, 0, 1, 1, 0, a3, 0) | 01010110 | 11 reg:3=d&7 rm:3=a0&7 | i1:8=a1 }" "asm"="vreducepd ${a1}, {a0}, {d} {lb}{a3}{rb}" "dclass"="yv" "feature"="avx512dq,avx512vl" "nodecode" {
+  %r = call <4 x double> @llvm.x86.avx512.mask.reduce.pd.256(<4 x double> %a0, i32 %a1, <4 x double> %a2, i8 %a3)
+  ret <4 x double> %r
+}
+
+declare <4 x double> @llvm.x86.avx512.mask.reduce.pd.256(<4 x double>, i32, <4 x double>, i8)
+
+define <4 x float> @X86.avx512.mask.reduce.ps.128(<4 x float> "reg"="xv" %a0, i32 "imm" %a1, <4 x float> "reg"="xv" "tied" %a2, i8 "reg"="k" %a3) "enc"="{ if(a3!=0) evexr(d, a0, 3, 0, 0, 0, 1, 0, a3, 0) | 01010110 | 11 reg:3=d&7 rm:3=a0&7 | i1:8=a1 }" "asm"="vreduceps ${a1}, {a0}, {d} {lb}{a3}{rb}" "dclass"="xv" "feature"="avx512dq,avx512vl" "nodecode" {
+  %r = call <4 x float> @llvm.x86.avx512.mask.reduce.ps.128(<4 x float> %a0, i32 %a1, <4 x float> %a2, i8 %a3)
+  ret <4 x float> %r
+}
+
+declare <4 x float> @llvm.x86.avx512.mask.reduce.ps.128(<4 x float>, i32, <4 x float>, i8)
+
+define <8 x float> @X86.avx512.mask.reduce.ps.256(<8 x float> "reg"="yv" %a0, i32 "imm" %a1, <8 x float> "reg"="yv" "tied" %a2, i8 "reg"="k" %a3) "enc"="{ if(a3!=0) evexr(d, a0, 3, 0, 0, 1, 1, 0, a3, 0) | 01010110 | 11 reg:3=d&7 rm:3=a0&7 | i1:8=a1 }" "asm"="vreduceps ${a1}, {a0}, {d} {lb}{a3}{rb}" "dclass"="yv" "feature"="avx512dq,avx512vl" "nodecode" {
+  %r = call <8 x float> @llvm.x86.avx512.mask.reduce.ps.256(<8 x float> %a0, i32 %a1, <8 x float> %a2, i8 %a3)
+  ret <8 x float> %r
+}
+
+declare <8 x float> @llvm.x86.avx512.mask.reduce.ps.256(<8 x float>, i32, <8 x float>, i8)
+
+define <2 x double> @X86.avx512.mask.rndscale.pd.128(<2 x double> "reg"="xv" %a0, i32 "imm" %a1, <2 x double> "reg"="xv" "tied" %a2, i8 "reg"="k" %a3) "enc"="{ if(a3!=0) evexr(d, a0, 3, 1, 0, 0, 1, 0, a3, 0) | 00001001 | 11 reg:3=d&7 rm:3=a0&7 | i1:8=a1 }" "asm"="vrndscalepd ${a1}, {a0}, {d} {lb}{a3}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <2 x double> @llvm.x86.avx512.mask.rndscale.pd.128(<2 x double> %a0, i32 %a1, <2 x double> %a2, i8 %a3)
+  ret <2 x double> %r
+}
+
+declare <2 x double> @llvm.x86.avx512.mask.rndscale.pd.128(<2 x double>, i32, <2 x double>, i8)
+
+define <4 x double> @X86.avx512.mask.rndscale.pd.256(<4 x double> "reg"="yv" %a0, i32 "imm" %a1, <4 x double> "reg"="yv" "tied" %a2, i8 "reg"="k" %a3) "enc"="{ if(a3!=0) evexr(d, a0, 3, 1, 0, 1, 1, 0, a3, 0) | 00001001 | 11 reg:3=d&7 rm:3=a0&7 | i1:8=a1 }" "asm"="vrndscalepd ${a1}, {a0}, {d} {lb}{a3}{rb}" "dclass"="yv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x double> @llvm.x86.avx512.mask.rndscale.pd.256(<4 x double> %a0, i32 %a1, <4 x double> %a2, i8 %a3)
+  ret <4 x double> %r
+}
+
+declare <4 x double> @llvm.x86.avx512.mask.rndscale.pd.256(<4 x double>, i32, <4 x double>, i8)
+
+define <4 x float> @X86.avx512.mask.rndscale.ps.128(<4 x float> "reg"="xv" %a0, i32 "imm" %a1, <4 x float> "reg"="xv" "tied" %a2, i8 "reg"="k" %a3) "enc"="{ if(a3!=0) evexr(d, a0, 3, 0, 0, 0, 1, 0, a3, 0) | 00001000 | 11 reg:3=d&7 rm:3=a0&7 | i1:8=a1 }" "asm"="vrndscaleps ${a1}, {a0}, {d} {lb}{a3}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x float> @llvm.x86.avx512.mask.rndscale.ps.128(<4 x float> %a0, i32 %a1, <4 x float> %a2, i8 %a3)
+  ret <4 x float> %r
+}
+
+declare <4 x float> @llvm.x86.avx512.mask.rndscale.ps.128(<4 x float>, i32, <4 x float>, i8)
+
+define <8 x float> @X86.avx512.mask.rndscale.ps.256(<8 x float> "reg"="yv" %a0, i32 "imm" %a1, <8 x float> "reg"="yv" "tied" %a2, i8 "reg"="k" %a3) "enc"="{ if(a3!=0) evexr(d, a0, 3, 0, 0, 1, 1, 0, a3, 0) | 00001000 | 11 reg:3=d&7 rm:3=a0&7 | i1:8=a1 }" "asm"="vrndscaleps ${a1}, {a0}, {d} {lb}{a3}{rb}" "dclass"="yv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <8 x float> @llvm.x86.avx512.mask.rndscale.ps.256(<8 x float> %a0, i32 %a1, <8 x float> %a2, i8 %a3)
+  ret <8 x float> %r
+}
+
+declare <8 x float> @llvm.x86.avx512.mask.rndscale.ps.256(<8 x float>, i32, <8 x float>, i8)
+
+define <2 x double> @X86.avx512.mask.scalef.pd.128(<2 x double> "reg"="xv" %a0, <2 x double> "reg"="xv" %a1, <2 x double> "reg"="xv" "tied" %a2, i8 "reg"="k" %a3) "enc"="{ if(a3!=0) evexr(d, a1, 2, 1, a0, 0, 1, 0, a3, 0) | 00101100 | 11 reg:3=d&7 rm:3=a1&7 }" "asm"="vscalefpd {a1}, {a0}, {d} {lb}{a3}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <2 x double> @llvm.x86.avx512.mask.scalef.pd.128(<2 x double> %a0, <2 x double> %a1, <2 x double> %a2, i8 %a3)
+  ret <2 x double> %r
+}
+
+declare <2 x double> @llvm.x86.avx512.mask.scalef.pd.128(<2 x double>, <2 x double>, <2 x double>, i8)
+
+define <4 x double> @X86.avx512.mask.scalef.pd.256(<4 x double> "reg"="yv" %a0, <4 x double> "reg"="yv" %a1, <4 x double> "reg"="yv" "tied" %a2, i8 "reg"="k" %a3) "enc"="{ if(a3!=0) evexr(d, a1, 2, 1, a0, 1, 1, 0, a3, 0) | 00101100 | 11 reg:3=d&7 rm:3=a1&7 }" "asm"="vscalefpd {a1}, {a0}, {d} {lb}{a3}{rb}" "dclass"="yv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x double> @llvm.x86.avx512.mask.scalef.pd.256(<4 x double> %a0, <4 x double> %a1, <4 x double> %a2, i8 %a3)
+  ret <4 x double> %r
+}
+
+declare <4 x double> @llvm.x86.avx512.mask.scalef.pd.256(<4 x double>, <4 x double>, <4 x double>, i8)
+
+define <4 x float> @X86.avx512.mask.scalef.ps.128(<4 x float> "reg"="xv" %a0, <4 x float> "reg"="xv" %a1, <4 x float> "reg"="xv" "tied" %a2, i8 "reg"="k" %a3) "enc"="{ if(a3!=0) evexr(d, a1, 2, 0, a0, 0, 1, 0, a3, 0) | 00101100 | 11 reg:3=d&7 rm:3=a1&7 }" "asm"="vscalefps {a1}, {a0}, {d} {lb}{a3}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x float> @llvm.x86.avx512.mask.scalef.ps.128(<4 x float> %a0, <4 x float> %a1, <4 x float> %a2, i8 %a3)
+  ret <4 x float> %r
+}
+
+declare <4 x float> @llvm.x86.avx512.mask.scalef.ps.128(<4 x float>, <4 x float>, <4 x float>, i8)
+
+define <8 x float> @X86.avx512.mask.scalef.ps.256(<8 x float> "reg"="yv" %a0, <8 x float> "reg"="yv" %a1, <8 x float> "reg"="yv" "tied" %a2, i8 "reg"="k" %a3) "enc"="{ if(a3!=0) evexr(d, a1, 2, 0, a0, 1, 1, 0, a3, 0) | 00101100 | 11 reg:3=d&7 rm:3=a1&7 }" "asm"="vscalefps {a1}, {a0}, {d} {lb}{a3}{rb}" "dclass"="yv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <8 x float> @llvm.x86.avx512.mask.scalef.ps.256(<8 x float> %a0, <8 x float> %a1, <8 x float> %a2, i8 %a3)
+  ret <8 x float> %r
+}
+
+declare <8 x float> @llvm.x86.avx512.mask.scalef.ps.256(<8 x float>, <8 x float>, <8 x float>, i8)
+
+define <8 x i16> @X86.avx512.mask.vcvtps2ph.128(<4 x float> "reg"="xv" %a0, i32 "imm" %a1, <8 x i16> "reg"="xv" "tied" %a2, i8 "reg"="k" %a3) "enc"="{ if(a3!=0) evexr(a0, d, 3, 0, 0, 0, 1, 0, a3, 0) | 00011101 | 11 reg:3=a0&7 rm:3=d&7 | i1:8=a1 }" "asm"="vcvtps2ph ${a1}, {a0}, {d} {lb}{a3}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <8 x i16> @llvm.x86.avx512.mask.vcvtps2ph.128(<4 x float> %a0, i32 %a1, <8 x i16> %a2, i8 %a3)
+  ret <8 x i16> %r
+}
+
+declare <8 x i16> @llvm.x86.avx512.mask.vcvtps2ph.128(<4 x float>, i32, <8 x i16>, i8)
+
+define <8 x i16> @X86.avx512.mask.vcvtps2ph.256(<8 x float> "reg"="yv" %a0, i32 "imm" %a1, <8 x i16> "reg"="xv" "tied" %a2, i8 "reg"="k" %a3) "enc"="{ if(a3!=0) evexr(a0, d, 3, 0, 0, 1, 1, 0, a3, 0) | 00011101 | 11 reg:3=a0&7 rm:3=d&7 | i1:8=a1 }" "asm"="vcvtps2ph ${a1}, {a0}, {d} {lb}{a3}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <8 x i16> @llvm.x86.avx512.mask.vcvtps2ph.256(<8 x float> %a0, i32 %a1, <8 x i16> %a2, i8 %a3)
+  ret <8 x i16> %r
+}
+
+declare <8 x i16> @llvm.x86.avx512.mask.vcvtps2ph.256(<8 x float>, i32, <8 x i16>, i8)
+
+define <16 x i16> @X86.avx512.mask.vcvtps2ph.512(<16 x float> "reg"="zv" %a0, i32 "imm" %a1, <16 x i16> "reg"="yv" "tied" %a2, i16 "reg"="k" %a3) "enc"="{ if(a3!=0) evexr(a0, d, 3, 0, 0, 2, 1, 0, a3, 0) | 00011101 | 11 reg:3=a0&7 rm:3=d&7 | i1:8=a1 }" "asm"="vcvtps2ph ${a1}, {a0}, {d} {lb}{a3}{rb}" "dclass"="yv" "feature"="avx512f" "nodecode" {
+  %r = call <16 x i16> @llvm.x86.avx512.mask.vcvtps2ph.512(<16 x float> %a0, i32 %a1, <16 x i16> %a2, i16 %a3)
+  ret <16 x i16> %r
+}
+
+declare <16 x i16> @llvm.x86.avx512.mask.vcvtps2ph.512(<16 x float>, i32, <16 x i16>, i16)
+
+define <2 x double> @X86.avx512.maskz.fixupimm.pd.128(<2 x double> "reg"="xv" "tied" %a0, <2 x double> "reg"="xv" %a1, <2 x i64> "reg"="xv" %a2, i32 "imm" %a3, i8 "reg"="k" %a4) "enc"="{ if(a4!=0) evexr(d, a2, 3, 1, a1, 0, 1, 0, a4, 1) | 01010100 | 11 reg:3=d&7 rm:3=a2&7 | i1:8=a3 }" "asm"="vfixupimmpd ${a3}, {a2}, {a1}, {d} {lb}{a4}{rb} {lb}z{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <2 x double> @llvm.x86.avx512.maskz.fixupimm.pd.128(<2 x double> %a0, <2 x double> %a1, <2 x i64> %a2, i32 %a3, i8 %a4)
+  ret <2 x double> %r
+}
+
+declare <2 x double> @llvm.x86.avx512.maskz.fixupimm.pd.128(<2 x double>, <2 x double>, <2 x i64>, i32, i8)
+
+define <4 x double> @X86.avx512.maskz.fixupimm.pd.256(<4 x double> "reg"="yv" "tied" %a0, <4 x double> "reg"="yv" %a1, <4 x i64> "reg"="yv" %a2, i32 "imm" %a3, i8 "reg"="k" %a4) "enc"="{ if(a4!=0) evexr(d, a2, 3, 1, a1, 1, 1, 0, a4, 1) | 01010100 | 11 reg:3=d&7 rm:3=a2&7 | i1:8=a3 }" "asm"="vfixupimmpd ${a3}, {a2}, {a1}, {d} {lb}{a4}{rb} {lb}z{rb}" "dclass"="yv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x double> @llvm.x86.avx512.maskz.fixupimm.pd.256(<4 x double> %a0, <4 x double> %a1, <4 x i64> %a2, i32 %a3, i8 %a4)
+  ret <4 x double> %r
+}
+
+declare <4 x double> @llvm.x86.avx512.maskz.fixupimm.pd.256(<4 x double>, <4 x double>, <4 x i64>, i32, i8)
+
+define <4 x float> @X86.avx512.maskz.fixupimm.ps.128(<4 x float> "reg"="xv" "tied" %a0, <4 x float> "reg"="xv" %a1, <4 x i32> "reg"="xv" %a2, i32 "imm" %a3, i8 "reg"="k" %a4) "enc"="{ if(a4!=0) evexr(d, a2, 3, 0, a1, 0, 1, 0, a4, 1) | 01010100 | 11 reg:3=d&7 rm:3=a2&7 | i1:8=a3 }" "asm"="vfixupimmps ${a3}, {a2}, {a1}, {d} {lb}{a4}{rb} {lb}z{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x float> @llvm.x86.avx512.maskz.fixupimm.ps.128(<4 x float> %a0, <4 x float> %a1, <4 x i32> %a2, i32 %a3, i8 %a4)
+  ret <4 x float> %r
+}
+
+declare <4 x float> @llvm.x86.avx512.maskz.fixupimm.ps.128(<4 x float>, <4 x float>, <4 x i32>, i32, i8)
+
+define <8 x float> @X86.avx512.maskz.fixupimm.ps.256(<8 x float> "reg"="yv" "tied" %a0, <8 x float> "reg"="yv" %a1, <8 x i32> "reg"="yv" %a2, i32 "imm" %a3, i8 "reg"="k" %a4) "enc"="{ if(a4!=0) evexr(d, a2, 3, 0, a1, 1, 1, 0, a4, 1) | 01010100 | 11 reg:3=d&7 rm:3=a2&7 | i1:8=a3 }" "asm"="vfixupimmps ${a3}, {a2}, {a1}, {d} {lb}{a4}{rb} {lb}z{rb}" "dclass"="yv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <8 x float> @llvm.x86.avx512.maskz.fixupimm.ps.256(<8 x float> %a0, <8 x float> %a1, <8 x i32> %a2, i32 %a3, i8 %a4)
+  ret <8 x float> %r
+}
+
+declare <8 x float> @llvm.x86.avx512.maskz.fixupimm.ps.256(<8 x float>, <8 x float>, <8 x i32>, i32, i8)
 
 define <32 x i16> @X86.avx512.packssdw.512(<16 x i32> "reg"="zv" %a0, <16 x i32> "reg"="zv" %a1) "enc"="evexr(d, a1, 1, 0, a0, 2, 1, 0, 0, 0) | 01101011 | 11 reg:3=d&7 rm:3=a1&7" "asm"="vpackssdw {a1}, {a0}, {d}" "dclass"="zv" "feature"="avx512bw" "nodecode" {
   %r = call <32 x i16> @llvm.x86.avx512.packssdw.512(<16 x i32> %a0, <16 x i32> %a1)
@@ -7779,6 +9446,118 @@ define <8 x i64> @X86.avx512.pternlog.q.512(<8 x i64> "reg"="zv" "tied" %a0, <8 
 }
 
 declare <8 x i64> @llvm.x86.avx512.pternlog.q.512(<8 x i64>, <8 x i64>, <8 x i64>, i32)
+
+define <2 x double> @X86.avx512.rcp14.pd.128(<2 x double> "reg"="xv" %a0, <2 x double> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 2, 1, 0, 0, 1, 0, a2, 0) | 01001100 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vrcp14pd {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <2 x double> @llvm.x86.avx512.rcp14.pd.128(<2 x double> %a0, <2 x double> %a1, i8 %a2)
+  ret <2 x double> %r
+}
+
+declare <2 x double> @llvm.x86.avx512.rcp14.pd.128(<2 x double>, <2 x double>, i8)
+
+define <4 x double> @X86.avx512.rcp14.pd.256(<4 x double> "reg"="yv" %a0, <4 x double> "reg"="yv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 2, 1, 0, 1, 1, 0, a2, 0) | 01001100 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vrcp14pd {a0}, {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x double> @llvm.x86.avx512.rcp14.pd.256(<4 x double> %a0, <4 x double> %a1, i8 %a2)
+  ret <4 x double> %r
+}
+
+declare <4 x double> @llvm.x86.avx512.rcp14.pd.256(<4 x double>, <4 x double>, i8)
+
+define <8 x double> @X86.avx512.rcp14.pd.512(<8 x double> "reg"="zv" %a0, <8 x double> "reg"="zv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 2, 1, 0, 2, 1, 0, a2, 0) | 01001100 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vrcp14pd {a0}, {d} {lb}{a2}{rb}" "dclass"="zv" "feature"="avx512f" "nodecode" {
+  %r = call <8 x double> @llvm.x86.avx512.rcp14.pd.512(<8 x double> %a0, <8 x double> %a1, i8 %a2)
+  ret <8 x double> %r
+}
+
+declare <8 x double> @llvm.x86.avx512.rcp14.pd.512(<8 x double>, <8 x double>, i8)
+
+define <4 x float> @X86.avx512.rcp14.ps.128(<4 x float> "reg"="xv" %a0, <4 x float> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 2, 0, 0, 0, 1, 0, a2, 0) | 01001100 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vrcp14ps {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x float> @llvm.x86.avx512.rcp14.ps.128(<4 x float> %a0, <4 x float> %a1, i8 %a2)
+  ret <4 x float> %r
+}
+
+declare <4 x float> @llvm.x86.avx512.rcp14.ps.128(<4 x float>, <4 x float>, i8)
+
+define <8 x float> @X86.avx512.rcp14.ps.256(<8 x float> "reg"="yv" %a0, <8 x float> "reg"="yv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 2, 0, 0, 1, 1, 0, a2, 0) | 01001100 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vrcp14ps {a0}, {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <8 x float> @llvm.x86.avx512.rcp14.ps.256(<8 x float> %a0, <8 x float> %a1, i8 %a2)
+  ret <8 x float> %r
+}
+
+declare <8 x float> @llvm.x86.avx512.rcp14.ps.256(<8 x float>, <8 x float>, i8)
+
+define <16 x float> @X86.avx512.rcp14.ps.512(<16 x float> "reg"="zv" %a0, <16 x float> "reg"="zv" "tied" %a1, i16 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 2, 0, 0, 2, 1, 0, a2, 0) | 01001100 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vrcp14ps {a0}, {d} {lb}{a2}{rb}" "dclass"="zv" "feature"="avx512f" "nodecode" {
+  %r = call <16 x float> @llvm.x86.avx512.rcp14.ps.512(<16 x float> %a0, <16 x float> %a1, i16 %a2)
+  ret <16 x float> %r
+}
+
+declare <16 x float> @llvm.x86.avx512.rcp14.ps.512(<16 x float>, <16 x float>, i16)
+
+define <2 x double> @X86.avx512.rcp14.sd(<2 x double> "reg"="xv" %a0, <2 x double> "reg"="xv" %a1, <2 x double> "reg"="xv" "tied" %a2, i8 "reg"="k" %a3) "enc"="{ if(a3!=0) evexr(d, a1, 2, 1, a0, 0, 1, 0, a3, 0) | 01001101 | 11 reg:3=d&7 rm:3=a1&7 }" "asm"="vrcp14sd {a1}, {a0}, {d} {lb}{a3}{rb}" "dclass"="xv" "feature"="avx512f" "nodecode" {
+  %r = call <2 x double> @llvm.x86.avx512.rcp14.sd(<2 x double> %a0, <2 x double> %a1, <2 x double> %a2, i8 %a3)
+  ret <2 x double> %r
+}
+
+declare <2 x double> @llvm.x86.avx512.rcp14.sd(<2 x double>, <2 x double>, <2 x double>, i8)
+
+define <4 x float> @X86.avx512.rcp14.ss(<4 x float> "reg"="xv" %a0, <4 x float> "reg"="xv" %a1, <4 x float> "reg"="xv" "tied" %a2, i8 "reg"="k" %a3) "enc"="{ if(a3!=0) evexr(d, a1, 2, 0, a0, 0, 1, 0, a3, 0) | 01001101 | 11 reg:3=d&7 rm:3=a1&7 }" "asm"="vrcp14ss {a1}, {a0}, {d} {lb}{a3}{rb}" "dclass"="xv" "feature"="avx512f" "nodecode" {
+  %r = call <4 x float> @llvm.x86.avx512.rcp14.ss(<4 x float> %a0, <4 x float> %a1, <4 x float> %a2, i8 %a3)
+  ret <4 x float> %r
+}
+
+declare <4 x float> @llvm.x86.avx512.rcp14.ss(<4 x float>, <4 x float>, <4 x float>, i8)
+
+define <2 x double> @X86.avx512.rsqrt14.pd.128(<2 x double> "reg"="xv" %a0, <2 x double> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 2, 1, 0, 0, 1, 0, a2, 0) | 01001110 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vrsqrt14pd {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <2 x double> @llvm.x86.avx512.rsqrt14.pd.128(<2 x double> %a0, <2 x double> %a1, i8 %a2)
+  ret <2 x double> %r
+}
+
+declare <2 x double> @llvm.x86.avx512.rsqrt14.pd.128(<2 x double>, <2 x double>, i8)
+
+define <4 x double> @X86.avx512.rsqrt14.pd.256(<4 x double> "reg"="yv" %a0, <4 x double> "reg"="yv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 2, 1, 0, 1, 1, 0, a2, 0) | 01001110 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vrsqrt14pd {a0}, {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x double> @llvm.x86.avx512.rsqrt14.pd.256(<4 x double> %a0, <4 x double> %a1, i8 %a2)
+  ret <4 x double> %r
+}
+
+declare <4 x double> @llvm.x86.avx512.rsqrt14.pd.256(<4 x double>, <4 x double>, i8)
+
+define <8 x double> @X86.avx512.rsqrt14.pd.512(<8 x double> "reg"="zv" %a0, <8 x double> "reg"="zv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 2, 1, 0, 2, 1, 0, a2, 0) | 01001110 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vrsqrt14pd {a0}, {d} {lb}{a2}{rb}" "dclass"="zv" "feature"="avx512f" "nodecode" {
+  %r = call <8 x double> @llvm.x86.avx512.rsqrt14.pd.512(<8 x double> %a0, <8 x double> %a1, i8 %a2)
+  ret <8 x double> %r
+}
+
+declare <8 x double> @llvm.x86.avx512.rsqrt14.pd.512(<8 x double>, <8 x double>, i8)
+
+define <4 x float> @X86.avx512.rsqrt14.ps.128(<4 x float> "reg"="xv" %a0, <4 x float> "reg"="xv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 2, 0, 0, 0, 1, 0, a2, 0) | 01001110 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vrsqrt14ps {a0}, {d} {lb}{a2}{rb}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x float> @llvm.x86.avx512.rsqrt14.ps.128(<4 x float> %a0, <4 x float> %a1, i8 %a2)
+  ret <4 x float> %r
+}
+
+declare <4 x float> @llvm.x86.avx512.rsqrt14.ps.128(<4 x float>, <4 x float>, i8)
+
+define <8 x float> @X86.avx512.rsqrt14.ps.256(<8 x float> "reg"="yv" %a0, <8 x float> "reg"="yv" "tied" %a1, i8 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 2, 0, 0, 1, 1, 0, a2, 0) | 01001110 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vrsqrt14ps {a0}, {d} {lb}{a2}{rb}" "dclass"="yv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <8 x float> @llvm.x86.avx512.rsqrt14.ps.256(<8 x float> %a0, <8 x float> %a1, i8 %a2)
+  ret <8 x float> %r
+}
+
+declare <8 x float> @llvm.x86.avx512.rsqrt14.ps.256(<8 x float>, <8 x float>, i8)
+
+define <16 x float> @X86.avx512.rsqrt14.ps.512(<16 x float> "reg"="zv" %a0, <16 x float> "reg"="zv" "tied" %a1, i16 "reg"="k" %a2) "enc"="{ if(a2!=0) evexr(d, a0, 2, 0, 0, 2, 1, 0, a2, 0) | 01001110 | 11 reg:3=d&7 rm:3=a0&7 }" "asm"="vrsqrt14ps {a0}, {d} {lb}{a2}{rb}" "dclass"="zv" "feature"="avx512f" "nodecode" {
+  %r = call <16 x float> @llvm.x86.avx512.rsqrt14.ps.512(<16 x float> %a0, <16 x float> %a1, i16 %a2)
+  ret <16 x float> %r
+}
+
+declare <16 x float> @llvm.x86.avx512.rsqrt14.ps.512(<16 x float>, <16 x float>, i16)
+
+define <2 x double> @X86.avx512.rsqrt14.sd(<2 x double> "reg"="xv" %a0, <2 x double> "reg"="xv" %a1, <2 x double> "reg"="xv" "tied" %a2, i8 "reg"="k" %a3) "enc"="{ if(a3!=0) evexr(d, a1, 2, 1, a0, 0, 1, 0, a3, 0) | 01001111 | 11 reg:3=d&7 rm:3=a1&7 }" "asm"="vrsqrt14sd {a1}, {a0}, {d} {lb}{a3}{rb}" "dclass"="xv" "feature"="avx512f" "nodecode" {
+  %r = call <2 x double> @llvm.x86.avx512.rsqrt14.sd(<2 x double> %a0, <2 x double> %a1, <2 x double> %a2, i8 %a3)
+  ret <2 x double> %r
+}
+
+declare <2 x double> @llvm.x86.avx512.rsqrt14.sd(<2 x double>, <2 x double>, <2 x double>, i8)
+
+define <4 x float> @X86.avx512.rsqrt14.ss(<4 x float> "reg"="xv" %a0, <4 x float> "reg"="xv" %a1, <4 x float> "reg"="xv" "tied" %a2, i8 "reg"="k" %a3) "enc"="{ if(a3!=0) evexr(d, a1, 2, 0, a0, 0, 1, 0, a3, 0) | 01001111 | 11 reg:3=d&7 rm:3=a1&7 }" "asm"="vrsqrt14ss {a1}, {a0}, {d} {lb}{a3}{rb}" "dclass"="xv" "feature"="avx512f" "nodecode" {
+  %r = call <4 x float> @llvm.x86.avx512.rsqrt14.ss(<4 x float> %a0, <4 x float> %a1, <4 x float> %a2, i8 %a3)
+  ret <4 x float> %r
+}
+
+declare <4 x float> @llvm.x86.avx512.rsqrt14.ss(<4 x float>, <4 x float>, <4 x float>, i8)
 
 define <4 x i32> @X86.avx512.vpdpbusd.128(<4 x i32> "reg"="xv" "tied" %a0, <16 x i8> "reg"="xv" %a1, <16 x i8> "reg"="xv" %a2) "enc"="evexr(d, a2, 2, 0, a1, 0, 1, 0, 0, 0) | 01010000 | 11 reg:3=d&7 rm:3=a2&7" "asm"="vpdpbusd {a2}, {a1}, {d}" "dclass"="xv" "feature"="avxvnni" "nodecode" {
   %r = call <4 x i32> @llvm.x86.avx512.vpdpbusd.128(<4 x i32> %a0, <16 x i8> %a1, <16 x i8> %a2)
@@ -8102,33 +9881,89 @@ define <16 x float> @X86.avx512bf16.dpbf16ps.512(<16 x float> "reg"="zv" "tied" 
 
 declare <16 x float> @llvm.x86.avx512bf16.dpbf16ps.512(<16 x float>, <32 x i16>, <32 x i16>)
 
-define <8 x half> @X86.avx512fp16.max.ph.128(<8 x half> "reg"="xv" %a0, <8 x half> "reg"="xv" %a1) "enc"="evexr(d, a1, 5, 0, a0, 0, 0, 0, 0, 0) | 01011111 | 11 reg:3=d&7 rm:3=a1&7" "asm"="vmaxph {a1}, {a0}, {d}" "dclass"="xv" "feature"="avx512fp16,avx512vl" "nodecode" {
-  %r = call <8 x half> @llvm.x86.avx512fp16.max.ph.128(<8 x half> %a0, <8 x half> %a1)
-  ret <8 x half> %r
+define <4 x float> @X86.avx512fp16.mask.vfcmadd.cph.128(<4 x float> "reg"="xv" %a0, <4 x float> "reg"="xv" %a1, <4 x float> "reg"="xv" "tied" %a2, i8 "reg"="k" %a3) "enc"="{ if(a3!=0) evexr(d, a1, 6, 0, a0, 0, 3, 0, a3, 0) | 01010110 | 11 reg:3=d&7 rm:3=a1&7 }" "asm"="vfcmaddcph {a1}, {a0}, {d} {lb}{a3}{rb}" "dclass"="xv" "feature"="avx512fp16,avx512vl" "nodecode" {
+  %r = call <4 x float> @llvm.x86.avx512fp16.mask.vfcmadd.cph.128(<4 x float> %a0, <4 x float> %a1, <4 x float> %a2, i8 %a3)
+  ret <4 x float> %r
 }
 
-declare <8 x half> @llvm.x86.avx512fp16.max.ph.128(<8 x half>, <8 x half>)
+declare <4 x float> @llvm.x86.avx512fp16.mask.vfcmadd.cph.128(<4 x float>, <4 x float>, <4 x float>, i8)
 
-define <16 x half> @X86.avx512fp16.max.ph.256(<16 x half> "reg"="yv" %a0, <16 x half> "reg"="yv" %a1) "enc"="evexr(d, a1, 5, 0, a0, 1, 0, 0, 0, 0) | 01011111 | 11 reg:3=d&7 rm:3=a1&7" "asm"="vmaxph {a1}, {a0}, {d}" "dclass"="yv" "feature"="avx512fp16,avx512vl" "nodecode" {
-  %r = call <16 x half> @llvm.x86.avx512fp16.max.ph.256(<16 x half> %a0, <16 x half> %a1)
-  ret <16 x half> %r
+define <8 x float> @X86.avx512fp16.mask.vfcmadd.cph.256(<8 x float> "reg"="yv" %a0, <8 x float> "reg"="yv" %a1, <8 x float> "reg"="yv" "tied" %a2, i8 "reg"="k" %a3) "enc"="{ if(a3!=0) evexr(d, a1, 6, 0, a0, 1, 3, 0, a3, 0) | 01010110 | 11 reg:3=d&7 rm:3=a1&7 }" "asm"="vfcmaddcph {a1}, {a0}, {d} {lb}{a3}{rb}" "dclass"="yv" "feature"="avx512fp16,avx512vl" "nodecode" {
+  %r = call <8 x float> @llvm.x86.avx512fp16.mask.vfcmadd.cph.256(<8 x float> %a0, <8 x float> %a1, <8 x float> %a2, i8 %a3)
+  ret <8 x float> %r
 }
 
-declare <16 x half> @llvm.x86.avx512fp16.max.ph.256(<16 x half>, <16 x half>)
+declare <8 x float> @llvm.x86.avx512fp16.mask.vfcmadd.cph.256(<8 x float>, <8 x float>, <8 x float>, i8)
 
-define <8 x half> @X86.avx512fp16.min.ph.128(<8 x half> "reg"="xv" %a0, <8 x half> "reg"="xv" %a1) "enc"="evexr(d, a1, 5, 0, a0, 0, 0, 0, 0, 0) | 01011101 | 11 reg:3=d&7 rm:3=a1&7" "asm"="vminph {a1}, {a0}, {d}" "dclass"="xv" "feature"="avx512fp16,avx512vl" "nodecode" {
-  %r = call <8 x half> @llvm.x86.avx512fp16.min.ph.128(<8 x half> %a0, <8 x half> %a1)
-  ret <8 x half> %r
+define <4 x float> @X86.avx512fp16.mask.vfcmul.cph.128(<4 x float> "reg"="xv" %a0, <4 x float> "reg"="xv" %a1, <4 x float> "reg"="xv" "tied" %a2, i8 "reg"="k" %a3) "enc"="{ if(a3!=0) evexr(d, a1, 6, 0, a0, 0, 3, 0, a3, 0) | 11010110 | 11 reg:3=d&7 rm:3=a1&7 }" "asm"="vfcmulcph {a1}, {a0}, {d} {lb}{a3}{rb}" "dclass"="xv" "feature"="avx512fp16,avx512vl" "nodecode" {
+  %r = call <4 x float> @llvm.x86.avx512fp16.mask.vfcmul.cph.128(<4 x float> %a0, <4 x float> %a1, <4 x float> %a2, i8 %a3)
+  ret <4 x float> %r
 }
 
-declare <8 x half> @llvm.x86.avx512fp16.min.ph.128(<8 x half>, <8 x half>)
+declare <4 x float> @llvm.x86.avx512fp16.mask.vfcmul.cph.128(<4 x float>, <4 x float>, <4 x float>, i8)
 
-define <16 x half> @X86.avx512fp16.min.ph.256(<16 x half> "reg"="yv" %a0, <16 x half> "reg"="yv" %a1) "enc"="evexr(d, a1, 5, 0, a0, 1, 0, 0, 0, 0) | 01011101 | 11 reg:3=d&7 rm:3=a1&7" "asm"="vminph {a1}, {a0}, {d}" "dclass"="yv" "feature"="avx512fp16,avx512vl" "nodecode" {
-  %r = call <16 x half> @llvm.x86.avx512fp16.min.ph.256(<16 x half> %a0, <16 x half> %a1)
-  ret <16 x half> %r
+define <8 x float> @X86.avx512fp16.mask.vfcmul.cph.256(<8 x float> "reg"="yv" %a0, <8 x float> "reg"="yv" %a1, <8 x float> "reg"="yv" "tied" %a2, i8 "reg"="k" %a3) "enc"="{ if(a3!=0) evexr(d, a1, 6, 0, a0, 1, 3, 0, a3, 0) | 11010110 | 11 reg:3=d&7 rm:3=a1&7 }" "asm"="vfcmulcph {a1}, {a0}, {d} {lb}{a3}{rb}" "dclass"="yv" "feature"="avx512fp16,avx512vl" "nodecode" {
+  %r = call <8 x float> @llvm.x86.avx512fp16.mask.vfcmul.cph.256(<8 x float> %a0, <8 x float> %a1, <8 x float> %a2, i8 %a3)
+  ret <8 x float> %r
 }
 
-declare <16 x half> @llvm.x86.avx512fp16.min.ph.256(<16 x half>, <16 x half>)
+declare <8 x float> @llvm.x86.avx512fp16.mask.vfcmul.cph.256(<8 x float>, <8 x float>, <8 x float>, i8)
+
+define <4 x float> @X86.avx512fp16.mask.vfmadd.cph.128(<4 x float> "reg"="xv" %a0, <4 x float> "reg"="xv" %a1, <4 x float> "reg"="xv" "tied" %a2, i8 "reg"="k" %a3) "enc"="{ if(a3!=0) evexr(d, a1, 6, 0, a0, 0, 2, 0, a3, 0) | 01010110 | 11 reg:3=d&7 rm:3=a1&7 }" "asm"="vfmaddcph {a1}, {a0}, {d} {lb}{a3}{rb}" "dclass"="xv" "feature"="avx512fp16,avx512vl" "nodecode" {
+  %r = call <4 x float> @llvm.x86.avx512fp16.mask.vfmadd.cph.128(<4 x float> %a0, <4 x float> %a1, <4 x float> %a2, i8 %a3)
+  ret <4 x float> %r
+}
+
+declare <4 x float> @llvm.x86.avx512fp16.mask.vfmadd.cph.128(<4 x float>, <4 x float>, <4 x float>, i8)
+
+define <8 x float> @X86.avx512fp16.mask.vfmadd.cph.256(<8 x float> "reg"="yv" %a0, <8 x float> "reg"="yv" %a1, <8 x float> "reg"="yv" "tied" %a2, i8 "reg"="k" %a3) "enc"="{ if(a3!=0) evexr(d, a1, 6, 0, a0, 1, 2, 0, a3, 0) | 01010110 | 11 reg:3=d&7 rm:3=a1&7 }" "asm"="vfmaddcph {a1}, {a0}, {d} {lb}{a3}{rb}" "dclass"="yv" "feature"="avx512fp16,avx512vl" "nodecode" {
+  %r = call <8 x float> @llvm.x86.avx512fp16.mask.vfmadd.cph.256(<8 x float> %a0, <8 x float> %a1, <8 x float> %a2, i8 %a3)
+  ret <8 x float> %r
+}
+
+declare <8 x float> @llvm.x86.avx512fp16.mask.vfmadd.cph.256(<8 x float>, <8 x float>, <8 x float>, i8)
+
+define <4 x float> @X86.avx512fp16.mask.vfmul.cph.128(<4 x float> "reg"="xv" %a0, <4 x float> "reg"="xv" %a1, <4 x float> "reg"="xv" "tied" %a2, i8 "reg"="k" %a3) "enc"="{ if(a3!=0) evexr(d, a1, 6, 0, a0, 0, 2, 0, a3, 0) | 11010110 | 11 reg:3=d&7 rm:3=a1&7 }" "asm"="vfmulcph {a1}, {a0}, {d} {lb}{a3}{rb}" "dclass"="xv" "feature"="avx512fp16,avx512vl" "nodecode" {
+  %r = call <4 x float> @llvm.x86.avx512fp16.mask.vfmul.cph.128(<4 x float> %a0, <4 x float> %a1, <4 x float> %a2, i8 %a3)
+  ret <4 x float> %r
+}
+
+declare <4 x float> @llvm.x86.avx512fp16.mask.vfmul.cph.128(<4 x float>, <4 x float>, <4 x float>, i8)
+
+define <8 x float> @X86.avx512fp16.mask.vfmul.cph.256(<8 x float> "reg"="yv" %a0, <8 x float> "reg"="yv" %a1, <8 x float> "reg"="yv" "tied" %a2, i8 "reg"="k" %a3) "enc"="{ if(a3!=0) evexr(d, a1, 6, 0, a0, 1, 2, 0, a3, 0) | 11010110 | 11 reg:3=d&7 rm:3=a1&7 }" "asm"="vfmulcph {a1}, {a0}, {d} {lb}{a3}{rb}" "dclass"="yv" "feature"="avx512fp16,avx512vl" "nodecode" {
+  %r = call <8 x float> @llvm.x86.avx512fp16.mask.vfmul.cph.256(<8 x float> %a0, <8 x float> %a1, <8 x float> %a2, i8 %a3)
+  ret <8 x float> %r
+}
+
+declare <8 x float> @llvm.x86.avx512fp16.mask.vfmul.cph.256(<8 x float>, <8 x float>, <8 x float>, i8)
+
+define <4 x float> @X86.avx512fp16.maskz.vfcmadd.cph.128(<4 x float> "reg"="xv" %a0, <4 x float> "reg"="xv" %a1, <4 x float> "reg"="xv" "tied" %a2, i8 "reg"="k" %a3) "enc"="{ if(a3!=0) evexr(d, a1, 6, 0, a0, 0, 3, 0, a3, 1) | 01010110 | 11 reg:3=d&7 rm:3=a1&7 }" "asm"="vfcmaddcph {a1}, {a0}, {d} {lb}{a3}{rb} {lb}z{rb}" "dclass"="xv" "feature"="avx512fp16,avx512vl" "nodecode" {
+  %r = call <4 x float> @llvm.x86.avx512fp16.maskz.vfcmadd.cph.128(<4 x float> %a0, <4 x float> %a1, <4 x float> %a2, i8 %a3)
+  ret <4 x float> %r
+}
+
+declare <4 x float> @llvm.x86.avx512fp16.maskz.vfcmadd.cph.128(<4 x float>, <4 x float>, <4 x float>, i8)
+
+define <8 x float> @X86.avx512fp16.maskz.vfcmadd.cph.256(<8 x float> "reg"="yv" %a0, <8 x float> "reg"="yv" %a1, <8 x float> "reg"="yv" "tied" %a2, i8 "reg"="k" %a3) "enc"="{ if(a3!=0) evexr(d, a1, 6, 0, a0, 1, 3, 0, a3, 1) | 01010110 | 11 reg:3=d&7 rm:3=a1&7 }" "asm"="vfcmaddcph {a1}, {a0}, {d} {lb}{a3}{rb} {lb}z{rb}" "dclass"="yv" "feature"="avx512fp16,avx512vl" "nodecode" {
+  %r = call <8 x float> @llvm.x86.avx512fp16.maskz.vfcmadd.cph.256(<8 x float> %a0, <8 x float> %a1, <8 x float> %a2, i8 %a3)
+  ret <8 x float> %r
+}
+
+declare <8 x float> @llvm.x86.avx512fp16.maskz.vfcmadd.cph.256(<8 x float>, <8 x float>, <8 x float>, i8)
+
+define <4 x float> @X86.avx512fp16.maskz.vfmadd.cph.128(<4 x float> "reg"="xv" %a0, <4 x float> "reg"="xv" %a1, <4 x float> "reg"="xv" "tied" %a2, i8 "reg"="k" %a3) "enc"="{ if(a3!=0) evexr(d, a1, 6, 0, a0, 0, 2, 0, a3, 1) | 01010110 | 11 reg:3=d&7 rm:3=a1&7 }" "asm"="vfmaddcph {a1}, {a0}, {d} {lb}{a3}{rb} {lb}z{rb}" "dclass"="xv" "feature"="avx512fp16,avx512vl" "nodecode" {
+  %r = call <4 x float> @llvm.x86.avx512fp16.maskz.vfmadd.cph.128(<4 x float> %a0, <4 x float> %a1, <4 x float> %a2, i8 %a3)
+  ret <4 x float> %r
+}
+
+declare <4 x float> @llvm.x86.avx512fp16.maskz.vfmadd.cph.128(<4 x float>, <4 x float>, <4 x float>, i8)
+
+define <8 x float> @X86.avx512fp16.maskz.vfmadd.cph.256(<8 x float> "reg"="yv" %a0, <8 x float> "reg"="yv" %a1, <8 x float> "reg"="yv" "tied" %a2, i8 "reg"="k" %a3) "enc"="{ if(a3!=0) evexr(d, a1, 6, 0, a0, 1, 2, 0, a3, 1) | 01010110 | 11 reg:3=d&7 rm:3=a1&7 }" "asm"="vfmaddcph {a1}, {a0}, {d} {lb}{a3}{rb} {lb}z{rb}" "dclass"="yv" "feature"="avx512fp16,avx512vl" "nodecode" {
+  %r = call <8 x float> @llvm.x86.avx512fp16.maskz.vfmadd.cph.256(<8 x float> %a0, <8 x float> %a1, <8 x float> %a2, i8 %a3)
+  ret <8 x float> %r
+}
+
+declare <8 x float> @llvm.x86.avx512fp16.maskz.vfmadd.cph.256(<8 x float>, <8 x float>, <8 x float>, i8)
 
 define i32 @X86.bmi.bextr.32(i32 "reg"="r32" %a0, i32 "reg"="r32" %a1) "enc"="vex(d, 0, a0, 2, 0, a1, 0, 0) | 11110111 | 11 reg:3=d&7 rm:3=a0&7" "asm"="bextrl {a1}, {a0}, {d}" "dclass"="r32" "feature"="bmi" "nodecode" {
   %r = call i32 @llvm.x86.bmi.bextr.32(i32 %a0, i32 %a1)

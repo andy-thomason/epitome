@@ -107,6 +107,10 @@ def declarations(src):
         for m in re.finditer(r'((?:#\[(?:[^\[\]]|\[[^\]]*\])*\]|//[^\n]*\n|\s)*)pub (?:const )?(?:unsafe )?fn \w+[^{]*\{'
                              r'(.*?)\n\}\n', s, re.S):
             callers.append((m.group(1), m.group(2), f))
+    # (Declared in several files, an intrinsic is its family's: sse.rs's
+    # llvm.x86.sse.cmp.ps, which avx.rs declares too.)
+    family = lambda e: os.path.basename(e[4]) == e[0].split('.')[2] + '.rs'
+    externs.sort(key=lambda e: not family(e))
     seen = set()
     for name, rust, args, ret, home in externs:
         if name in seen:
@@ -350,6 +354,10 @@ def match(code, ret, args, consts, entries, forms):
     if len(body) != 1:
         return 'skip', f'{len(body)} instructions'
     mn, ops = operands(body[0].removeprefix('{vex} '))
+    # (llc writes a comparison with predicate 4 by its name: vcmpneqps.)
+    m = re.fullmatch(r'(v?cmp)neq(ps|pd|ss|sd|ph|sh)', mn)
+    if m:
+        mn, ops = m.group(1) + m.group(2), ['$4'] + ops
     if mn not in entries:
         return 'skip', 'mnemonic not in 02-xed.ll'
     pieces = [o.split(' ') for o in ops]
@@ -392,7 +400,7 @@ def match(code, ret, args, consts, entries, forms):
             continue
         # Intel's order is AT&T's reversed (but for the mask, written by the
         # destination; k0, as an unmasked form's, not at all).
-        n = int(re.search(r'_(\d+)(?:_[a-z]+)*$', name).group(1))
+        n = int(re.match(r'X_.*?_(\d+)(?:_|$)', name).group(1))
         expl, impl = forms[n]
         if name.endswith(('_u', '_merge', '_zero')):
             expl = [(v, a) for v, a in expl if 'MASK' not in v]
@@ -477,6 +485,11 @@ def match(code, ret, args, consts, entries, forms):
             return 'skip', f'{name}: writes a register'
         tied = [e for e in extra if e.startswith('tied=')]
         unused = set(range(len(args))) - used - {int(t[6:]) for t in tied}
+        # A constant the instruction does not take (an AVX-512 rounding of
+        # 4, the current direction): the entry is for that value alone.
+        for k in sorted(unused & set(consts)):
+            extra.append(f'const=a{k}:4')
+        unused -= set(consts)
         if unused:
             return 'skip', 'arguments the instruction does not take: ' + ','.join(map(str, sorted(unused)))
         classes = ' '.join(params[o] for o in re.findall(r'\{(o\d+)\}', tmpl))

@@ -1615,6 +1615,8 @@ def intrinsics():
         fixed = dict(e[6:].split(':') for e in extra if e.startswith('fixed='))
         clobbers = [c for e in extra if e.startswith('clobbers=') for c in e[9:].split(',')]
         clobbers += ['flags'] if 'flags' in extra else []
+        # Constants the instruction is for one value of (a rounding).
+        consts = dict(e[6:].split(':') for e in extra if e.startswith('const='))
         # The class of each register operand, by its name in the template.
         regs = re.findall(r'\{(o\d+)\}', asm)
         cls = dict(zip(regs, classes.split()))
@@ -1622,6 +1624,9 @@ def intrinsics():
         params, call = [], []
         for k, a in enumerate(args):
             ty, imm = (a[:-4], True) if a.endswith(' imm') else (a, False)
+            if f'a{k}' in consts:
+                call.append(f'{ty} {consts[f"a{k}"]}')
+                continue
             call.append(f'{ty} %a{k}')
             if imm:
                 params.append(f'{ty} "imm" %a{k}')

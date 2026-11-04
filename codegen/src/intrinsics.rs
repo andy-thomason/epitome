@@ -55,7 +55,9 @@
 //! - x86's add and subtract with a carry (`llvm.x86.addcarry.64`...) in
 //!   integers of twice the width; its reads of the time-stamp counter and
 //!   of XCR0 (`llvm.x86.rdtsc`, `rdtscp`, `xgetbv`), which give edx:eax,
-//!   as inline assembly joining the halves.
+//!   as inline assembly joining the halves; its comparisons of first lanes
+//!   (`comi`, `ucomi`) and tests of bits (`ptest`, `vtest`), which set
+//!   flags, as `fcmp` and as the bits' logic.
 //! - `llvm.minnum` and `llvm.maxnum` of halves, which are done in single
 //!   precision (`prepare::half_as_int`), where the conversion quiets a
 //!   signalling NaN: NaN where either operand is one, as the half
@@ -182,6 +184,11 @@ fn rewrite(
         }
         "llvm.x86.rdtsc" | "llvm.x86.rdtscp" | "llvm.x86.xgetbv" => {
             return Some(Done::Value(edx_eax(cx, s, base, args, ty?)));
+        }
+        n if n.starts_with("llvm.x86.") && (n.contains("comi") || n.contains(".ptest") || n.contains(".vtest")) => {
+            if let Some(v) = x86_flag_test(cx, s, n, args, ty?) {
+                return Some(Done::Value(v));
+            }
         }
         _ => {}
     }
@@ -1443,6 +1450,80 @@ fn edx_eax(cx: &mut Ctx, s: &mut Seq, base: &str, args: &[Value], ty: TypeId) ->
         })),
         ty,
     )
+}
+
+/// x86's comparisons of the first lanes (`llvm.x86.sse.comilt.ss`,
+/// `ucomi`; without traps the two are the same) and tests of bits (SSE4.1's
+/// `ptestz`, `ptestc` and `ptestnzc`, AVX's `vtestz.ps`... of the lanes'
+/// signs), which give 0 or 1 from the flags: as `fcmp`, and as whether the
+/// bits of `a & b` (z) and of `!a & b` (c) are all zero.
+fn x86_flag_test(cx: &mut Ctx, s: &mut Seq, name: &str, args: &[Value], ty: TypeId) -> Option<Value> {
+    let i1 = cx.m.types.int(1);
+    let i64t = cx.m.types.int(64);
+    let rest = name.strip_prefix("llvm.x86.")?;
+    let one = if let Some(at) = rest.find("comi") {
+        let pred = match rest[at + 4..].split('.').next()? {
+            "eq" => FCmpPred::Oeq,
+            "lt" => FCmpPred::Olt,
+            "le" => FCmpPred::Ole,
+            "gt" => FCmpPred::Ogt,
+            "ge" => FCmpPred::Oge,
+            "neq" => FCmpPred::Une,
+            _ => return None,
+        };
+        if !rest.starts_with("sse") {
+            return None;
+        }
+        let Type::Vector { elem, .. } = *cx.m.types.get(cx.value_ty(s.f, args[0])) else { return None };
+        let zero = cx.int(i64t, 0);
+        let a = s.op(Op::ExtractElement { vector: args[0], index: zero }, elem);
+        let b = s.op(Op::ExtractElement { vector: args[1], index: zero }, elem);
+        s.op(Op::FCmp { pred, fmf: FastMath::default(), lhs: a, rhs: b }, i1)
+    } else {
+        let (sign, kind) = match rest.split_once(".ptest").or_else(|| rest.split_once(".vtest")) {
+            Some((_, k)) => (rest.contains(".vtest"), k.split('.').next()?),
+            None => return None,
+        };
+        // The lanes as integers: of the floats' widths (vtest), or of 64 bits.
+        let vty = cx.value_ty(s.f, args[0]);
+        let bits = match *cx.m.types.get(vty) {
+            Type::Vector { len, elem, .. } => len * crate::target::type_bits(cx.m, elem),
+            _ => return None,
+        };
+        let (n, w) = match *cx.m.types.get(vty) {
+            Type::Vector { len, elem, .. } if sign => (len, crate::target::type_bits(cx.m, elem)),
+            _ => (bits / 64, 64),
+        };
+        let wt = cx.m.types.int(w);
+        let ity = cx.m.types.intern(Type::Vector { scalable: false, len: n, elem: wt });
+        let mty = cx.m.types.intern(Type::Vector { scalable: false, len: n, elem: i1 });
+        let (a, b) = (s.cast(CastOp::BitCast, args[0], ity), s.cast(CastOp::BitCast, args[1], ity));
+        // Whether every bit (or sign) of `x` is zero.
+        let none = |cx: &mut Ctx, s: &mut Seq, x: Value| {
+            let zero = splat_int(cx, ity, 0);
+            let pred = if sign { ICmpPred::Slt } else { ICmpPred::Ne };
+            let on = s.op(Op::ICmp { pred, samesign: false, lhs: x, rhs: zero }, mty);
+            let any = call_intrinsic(cx, s, &format!("llvm.vector.reduce.or.v{n}i1"), vec![on], i1);
+            let t = cx.int(i1, 1);
+            s.bin(BinOp::Xor, any, t, i1)
+        };
+        let z = s.bin(BinOp::And, a, b, ity);
+        let ones = splat_int(cx, ity, -1);
+        let na = s.bin(BinOp::Xor, a, ones, ity);
+        let c = s.bin(BinOp::And, na, b, ity);
+        match kind {
+            "z" => none(cx, s, z),
+            "c" => none(cx, s, c),
+            "nzc" => {
+                let (zf, cf) = (none(cx, s, z), none(cx, s, c));
+                let either = s.bin(BinOp::Or, zf, cf, i1);
+                let t = cx.int(i1, 1);
+                s.bin(BinOp::Xor, either, t, i1)
+            }
+            _ => return None,
+        }
+    };
+    Some(s.cast(CastOp::ZExt, one, ty))
 }
 
 fn int_bits(cx: &Ctx, ty: TypeId) -> u32 {

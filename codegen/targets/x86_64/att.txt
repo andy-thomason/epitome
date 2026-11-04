@@ -40540,3 +40540,295 @@ X_XRSTORS_8380_p	xrstors {m.sym}(%rip)	7
 X_XRSTORS64_8381_64_m	xrstors64 {m.disp}({m.base})	5
 X_XRSTORS64_8381_64_x	xrstors64 {m.disp}({m.base},{m.index},{m.scale})	6
 X_XRSTORS64_8381_64_p	xrstors64 {m.sym}(%rip)	8
+X_GF2P8AFFINEINVQB_8382	gf2p8affineinvqb ${c}, {b}, {r}	6
+X_GF2P8AFFINEINVQB_8383_m	gf2p8affineinvqb ${c}, {m.disp}({m.base}), {r}	7
+X_GF2P8AFFINEINVQB_8383_x	gf2p8affineinvqb ${c}, {m.disp}({m.base},{m.index},{m.scale}), {r}	8
+X_GF2P8AFFINEINVQB_8383_p	gf2p8affineinvqb ${c}, {m.sym}(%rip), {r}	10
+X_GF2P8AFFINEQB_8384	gf2p8affineqb ${c}, {b}, {r}	6
+X_GF2P8AFFINEQB_8385_m	gf2p8affineqb ${c}, {m.disp}({m.base}), {r}	7
+X_GF2P8AFFINEQB_8385_x	gf2p8affineqb ${c}, {m.disp}({m.base},{m.index},{m.scale}), {r}	8
+X_GF2P8AFFINEQB_8385_p	gf2p8affineqb ${c}, {m.sym}(%rip), {r}	10
+X_GF2P8MULB_8386	gf2p8mulb {b}, {r}	5
+X_GF2P8MULB_8387_m	gf2p8mulb {m.disp}({m.base}), {r}	6
+X_GF2P8MULB_8387_x	gf2p8mulb {m.disp}({m.base},{m.index},{m.scale}), {r}	7
+X_GF2P8MULB_8387_p	gf2p8mulb {m.sym}(%rip), {r}	9
+X_VGF2P8AFFINEINVQB_8388	vgf2p8affineinvqb ${c}, {b}, {n}, {r}	6
+X_VGF2P8AFFINEINVQB_8389_m	vgf2p8affineinvqb ${c}, {m.disp}({m.base}), {n}, {r}	7
+X_VGF2P8AFFINEINVQB_8389_x	vgf2p8affineinvqb ${c}, {m.disp}({m.base},{m.index},{m.scale}), {n}, {r}	8
+X_VGF2P8AFFINEINVQB_8389_p	vgf2p8affineinvqb ${c}, {m.sym}(%rip), {n}, {r}	10
+X_VGF2P8AFFINEINVQB_8390	vgf2p8affineinvqb ${c}, {b}, {n}, {r}	6
+X_VGF2P8AFFINEINVQB_8391_m	vgf2p8affineinvqb ${c}, {m.disp}({m.base}), {n}, {r}	7
+X_VGF2P8AFFINEINVQB_8391_x	vgf2p8affineinvqb ${c}, {m.disp}({m.base},{m.index},{m.scale}), {n}, {r}	8
+X_VGF2P8AFFINEINVQB_8391_p	vgf2p8affineinvqb ${c}, {m.sym}(%rip), {n}, {r}	10
+X_VGF2P8AFFINEQB_8392	vgf2p8affineqb ${c}, {b}, {n}, {r}	6
+X_VGF2P8AFFINEQB_8393_m	vgf2p8affineqb ${c}, {m.disp}({m.base}), {n}, {r}	7
+X_VGF2P8AFFINEQB_8393_x	vgf2p8affineqb ${c}, {m.disp}({m.base},{m.index},{m.scale}), {n}, {r}	8
+X_VGF2P8AFFINEQB_8393_p	vgf2p8affineqb ${c}, {m.sym}(%rip), {n}, {r}	10
+X_VGF2P8AFFINEQB_8394	vgf2p8affineqb ${c}, {b}, {n}, {r}	6
+X_VGF2P8AFFINEQB_8395_m	vgf2p8affineqb ${c}, {m.disp}({m.base}), {n}, {r}	7
+X_VGF2P8AFFINEQB_8395_x	vgf2p8affineqb ${c}, {m.disp}({m.base},{m.index},{m.scale}), {n}, {r}	8
+X_VGF2P8AFFINEQB_8395_p	vgf2p8affineqb ${c}, {m.sym}(%rip), {n}, {r}	10
+X_VGF2P8MULB_8396	vgf2p8mulb {b}, {n}, {r}	5
+X_VGF2P8MULB_8397_m	vgf2p8mulb {m.disp}({m.base}), {n}, {r}	6
+X_VGF2P8MULB_8397_x	vgf2p8mulb {m.disp}({m.base},{m.index},{m.scale}), {n}, {r}	7
+X_VGF2P8MULB_8397_p	vgf2p8mulb {m.sym}(%rip), {n}, {r}	9
+X_VGF2P8MULB_8398	vgf2p8mulb {b}, {n}, {r}	5
+X_VGF2P8MULB_8399_m	vgf2p8mulb {m.disp}({m.base}), {n}, {r}	6
+X_VGF2P8MULB_8399_x	vgf2p8mulb {m.disp}({m.base},{m.index},{m.scale}), {n}, {r}	7
+X_VGF2P8MULB_8399_p	vgf2p8mulb {m.sym}(%rip), {n}, {r}	9
+X_VGF2P8AFFINEINVQB_8400_u	vgf2p8affineinvqb ${c}, {b}, {n}, {r}	7
+X_VGF2P8AFFINEINVQB_8400_merge	vgf2p8affineinvqb ${c}, {b}, {n}, {r} {lb}{k}{rb}	7
+X_VGF2P8AFFINEINVQB_8400_zero	vgf2p8affineinvqb ${c}, {b}, {n}, {r} {lb}{k}{rb} {lb}z{rb}	7
+X_VGF2P8AFFINEINVQB_8401_m_u	vgf2p8affineinvqb ${c}, {m.disp}({m.base}), {n}, {r}	8
+X_VGF2P8AFFINEINVQB_8401_x_u	vgf2p8affineinvqb ${c}, {m.disp}({m.base},{m.index},{m.scale}), {n}, {r}	9
+X_VGF2P8AFFINEINVQB_8401_p_u	vgf2p8affineinvqb ${c}, {m.sym}(%rip), {n}, {r}	11
+X_VGF2P8AFFINEINVQB_8401_m_u_b	vgf2p8affineinvqb ${c}, {m.disp}({m.base}){lb}1to2{rb}, {n}, {r}	8
+X_VGF2P8AFFINEINVQB_8401_x_u_b	vgf2p8affineinvqb ${c}, {m.disp}({m.base},{m.index},{m.scale}){lb}1to2{rb}, {n}, {r}	9
+X_VGF2P8AFFINEINVQB_8401_p_u_b	vgf2p8affineinvqb ${c}, {m.sym}(%rip){lb}1to2{rb}, {n}, {r}	11
+X_VGF2P8AFFINEINVQB_8401_m_merge	vgf2p8affineinvqb ${c}, {m.disp}({m.base}), {n}, {r} {lb}{k}{rb}	8
+X_VGF2P8AFFINEINVQB_8401_x_merge	vgf2p8affineinvqb ${c}, {m.disp}({m.base},{m.index},{m.scale}), {n}, {r} {lb}{k}{rb}	9
+X_VGF2P8AFFINEINVQB_8401_p_merge	vgf2p8affineinvqb ${c}, {m.sym}(%rip), {n}, {r} {lb}{k}{rb}	11
+X_VGF2P8AFFINEINVQB_8401_m_merge_b	vgf2p8affineinvqb ${c}, {m.disp}({m.base}){lb}1to2{rb}, {n}, {r} {lb}{k}{rb}	8
+X_VGF2P8AFFINEINVQB_8401_x_merge_b	vgf2p8affineinvqb ${c}, {m.disp}({m.base},{m.index},{m.scale}){lb}1to2{rb}, {n}, {r} {lb}{k}{rb}	9
+X_VGF2P8AFFINEINVQB_8401_p_merge_b	vgf2p8affineinvqb ${c}, {m.sym}(%rip){lb}1to2{rb}, {n}, {r} {lb}{k}{rb}	11
+X_VGF2P8AFFINEINVQB_8401_m_zero	vgf2p8affineinvqb ${c}, {m.disp}({m.base}), {n}, {r} {lb}{k}{rb} {lb}z{rb}	8
+X_VGF2P8AFFINEINVQB_8401_x_zero	vgf2p8affineinvqb ${c}, {m.disp}({m.base},{m.index},{m.scale}), {n}, {r} {lb}{k}{rb} {lb}z{rb}	9
+X_VGF2P8AFFINEINVQB_8401_p_zero	vgf2p8affineinvqb ${c}, {m.sym}(%rip), {n}, {r} {lb}{k}{rb} {lb}z{rb}	11
+X_VGF2P8AFFINEINVQB_8401_m_zero_b	vgf2p8affineinvqb ${c}, {m.disp}({m.base}){lb}1to2{rb}, {n}, {r} {lb}{k}{rb} {lb}z{rb}	8
+X_VGF2P8AFFINEINVQB_8401_x_zero_b	vgf2p8affineinvqb ${c}, {m.disp}({m.base},{m.index},{m.scale}){lb}1to2{rb}, {n}, {r} {lb}{k}{rb} {lb}z{rb}	9
+X_VGF2P8AFFINEINVQB_8401_p_zero_b	vgf2p8affineinvqb ${c}, {m.sym}(%rip){lb}1to2{rb}, {n}, {r} {lb}{k}{rb} {lb}z{rb}	11
+X_VGF2P8AFFINEINVQB_8402_u	vgf2p8affineinvqb ${c}, {b}, {n}, {r}	7
+X_VGF2P8AFFINEINVQB_8402_merge	vgf2p8affineinvqb ${c}, {b}, {n}, {r} {lb}{k}{rb}	7
+X_VGF2P8AFFINEINVQB_8402_zero	vgf2p8affineinvqb ${c}, {b}, {n}, {r} {lb}{k}{rb} {lb}z{rb}	7
+X_VGF2P8AFFINEINVQB_8403_m_u	vgf2p8affineinvqb ${c}, {m.disp}({m.base}), {n}, {r}	8
+X_VGF2P8AFFINEINVQB_8403_x_u	vgf2p8affineinvqb ${c}, {m.disp}({m.base},{m.index},{m.scale}), {n}, {r}	9
+X_VGF2P8AFFINEINVQB_8403_p_u	vgf2p8affineinvqb ${c}, {m.sym}(%rip), {n}, {r}	11
+X_VGF2P8AFFINEINVQB_8403_m_u_b	vgf2p8affineinvqb ${c}, {m.disp}({m.base}){lb}1to4{rb}, {n}, {r}	8
+X_VGF2P8AFFINEINVQB_8403_x_u_b	vgf2p8affineinvqb ${c}, {m.disp}({m.base},{m.index},{m.scale}){lb}1to4{rb}, {n}, {r}	9
+X_VGF2P8AFFINEINVQB_8403_p_u_b	vgf2p8affineinvqb ${c}, {m.sym}(%rip){lb}1to4{rb}, {n}, {r}	11
+X_VGF2P8AFFINEINVQB_8403_m_merge	vgf2p8affineinvqb ${c}, {m.disp}({m.base}), {n}, {r} {lb}{k}{rb}	8
+X_VGF2P8AFFINEINVQB_8403_x_merge	vgf2p8affineinvqb ${c}, {m.disp}({m.base},{m.index},{m.scale}), {n}, {r} {lb}{k}{rb}	9
+X_VGF2P8AFFINEINVQB_8403_p_merge	vgf2p8affineinvqb ${c}, {m.sym}(%rip), {n}, {r} {lb}{k}{rb}	11
+X_VGF2P8AFFINEINVQB_8403_m_merge_b	vgf2p8affineinvqb ${c}, {m.disp}({m.base}){lb}1to4{rb}, {n}, {r} {lb}{k}{rb}	8
+X_VGF2P8AFFINEINVQB_8403_x_merge_b	vgf2p8affineinvqb ${c}, {m.disp}({m.base},{m.index},{m.scale}){lb}1to4{rb}, {n}, {r} {lb}{k}{rb}	9
+X_VGF2P8AFFINEINVQB_8403_p_merge_b	vgf2p8affineinvqb ${c}, {m.sym}(%rip){lb}1to4{rb}, {n}, {r} {lb}{k}{rb}	11
+X_VGF2P8AFFINEINVQB_8403_m_zero	vgf2p8affineinvqb ${c}, {m.disp}({m.base}), {n}, {r} {lb}{k}{rb} {lb}z{rb}	8
+X_VGF2P8AFFINEINVQB_8403_x_zero	vgf2p8affineinvqb ${c}, {m.disp}({m.base},{m.index},{m.scale}), {n}, {r} {lb}{k}{rb} {lb}z{rb}	9
+X_VGF2P8AFFINEINVQB_8403_p_zero	vgf2p8affineinvqb ${c}, {m.sym}(%rip), {n}, {r} {lb}{k}{rb} {lb}z{rb}	11
+X_VGF2P8AFFINEINVQB_8403_m_zero_b	vgf2p8affineinvqb ${c}, {m.disp}({m.base}){lb}1to4{rb}, {n}, {r} {lb}{k}{rb} {lb}z{rb}	8
+X_VGF2P8AFFINEINVQB_8403_x_zero_b	vgf2p8affineinvqb ${c}, {m.disp}({m.base},{m.index},{m.scale}){lb}1to4{rb}, {n}, {r} {lb}{k}{rb} {lb}z{rb}	9
+X_VGF2P8AFFINEINVQB_8403_p_zero_b	vgf2p8affineinvqb ${c}, {m.sym}(%rip){lb}1to4{rb}, {n}, {r} {lb}{k}{rb} {lb}z{rb}	11
+X_VGF2P8AFFINEINVQB_8404_u	vgf2p8affineinvqb ${c}, {b}, {n}, {r}	7
+X_VGF2P8AFFINEINVQB_8404_merge	vgf2p8affineinvqb ${c}, {b}, {n}, {r} {lb}{k}{rb}	7
+X_VGF2P8AFFINEINVQB_8404_zero	vgf2p8affineinvqb ${c}, {b}, {n}, {r} {lb}{k}{rb} {lb}z{rb}	7
+X_VGF2P8AFFINEINVQB_8405_m_u	vgf2p8affineinvqb ${c}, {m.disp}({m.base}), {n}, {r}	8
+X_VGF2P8AFFINEINVQB_8405_x_u	vgf2p8affineinvqb ${c}, {m.disp}({m.base},{m.index},{m.scale}), {n}, {r}	9
+X_VGF2P8AFFINEINVQB_8405_p_u	vgf2p8affineinvqb ${c}, {m.sym}(%rip), {n}, {r}	11
+X_VGF2P8AFFINEINVQB_8405_m_u_b	vgf2p8affineinvqb ${c}, {m.disp}({m.base}){lb}1to8{rb}, {n}, {r}	8
+X_VGF2P8AFFINEINVQB_8405_x_u_b	vgf2p8affineinvqb ${c}, {m.disp}({m.base},{m.index},{m.scale}){lb}1to8{rb}, {n}, {r}	9
+X_VGF2P8AFFINEINVQB_8405_p_u_b	vgf2p8affineinvqb ${c}, {m.sym}(%rip){lb}1to8{rb}, {n}, {r}	11
+X_VGF2P8AFFINEINVQB_8405_m_merge	vgf2p8affineinvqb ${c}, {m.disp}({m.base}), {n}, {r} {lb}{k}{rb}	8
+X_VGF2P8AFFINEINVQB_8405_x_merge	vgf2p8affineinvqb ${c}, {m.disp}({m.base},{m.index},{m.scale}), {n}, {r} {lb}{k}{rb}	9
+X_VGF2P8AFFINEINVQB_8405_p_merge	vgf2p8affineinvqb ${c}, {m.sym}(%rip), {n}, {r} {lb}{k}{rb}	11
+X_VGF2P8AFFINEINVQB_8405_m_merge_b	vgf2p8affineinvqb ${c}, {m.disp}({m.base}){lb}1to8{rb}, {n}, {r} {lb}{k}{rb}	8
+X_VGF2P8AFFINEINVQB_8405_x_merge_b	vgf2p8affineinvqb ${c}, {m.disp}({m.base},{m.index},{m.scale}){lb}1to8{rb}, {n}, {r} {lb}{k}{rb}	9
+X_VGF2P8AFFINEINVQB_8405_p_merge_b	vgf2p8affineinvqb ${c}, {m.sym}(%rip){lb}1to8{rb}, {n}, {r} {lb}{k}{rb}	11
+X_VGF2P8AFFINEINVQB_8405_m_zero	vgf2p8affineinvqb ${c}, {m.disp}({m.base}), {n}, {r} {lb}{k}{rb} {lb}z{rb}	8
+X_VGF2P8AFFINEINVQB_8405_x_zero	vgf2p8affineinvqb ${c}, {m.disp}({m.base},{m.index},{m.scale}), {n}, {r} {lb}{k}{rb} {lb}z{rb}	9
+X_VGF2P8AFFINEINVQB_8405_p_zero	vgf2p8affineinvqb ${c}, {m.sym}(%rip), {n}, {r} {lb}{k}{rb} {lb}z{rb}	11
+X_VGF2P8AFFINEINVQB_8405_m_zero_b	vgf2p8affineinvqb ${c}, {m.disp}({m.base}){lb}1to8{rb}, {n}, {r} {lb}{k}{rb} {lb}z{rb}	8
+X_VGF2P8AFFINEINVQB_8405_x_zero_b	vgf2p8affineinvqb ${c}, {m.disp}({m.base},{m.index},{m.scale}){lb}1to8{rb}, {n}, {r} {lb}{k}{rb} {lb}z{rb}	9
+X_VGF2P8AFFINEINVQB_8405_p_zero_b	vgf2p8affineinvqb ${c}, {m.sym}(%rip){lb}1to8{rb}, {n}, {r} {lb}{k}{rb} {lb}z{rb}	11
+X_VGF2P8AFFINEQB_8406_u	vgf2p8affineqb ${c}, {b}, {n}, {r}	7
+X_VGF2P8AFFINEQB_8406_merge	vgf2p8affineqb ${c}, {b}, {n}, {r} {lb}{k}{rb}	7
+X_VGF2P8AFFINEQB_8406_zero	vgf2p8affineqb ${c}, {b}, {n}, {r} {lb}{k}{rb} {lb}z{rb}	7
+X_VGF2P8AFFINEQB_8407_m_u	vgf2p8affineqb ${c}, {m.disp}({m.base}), {n}, {r}	8
+X_VGF2P8AFFINEQB_8407_x_u	vgf2p8affineqb ${c}, {m.disp}({m.base},{m.index},{m.scale}), {n}, {r}	9
+X_VGF2P8AFFINEQB_8407_p_u	vgf2p8affineqb ${c}, {m.sym}(%rip), {n}, {r}	11
+X_VGF2P8AFFINEQB_8407_m_u_b	vgf2p8affineqb ${c}, {m.disp}({m.base}){lb}1to2{rb}, {n}, {r}	8
+X_VGF2P8AFFINEQB_8407_x_u_b	vgf2p8affineqb ${c}, {m.disp}({m.base},{m.index},{m.scale}){lb}1to2{rb}, {n}, {r}	9
+X_VGF2P8AFFINEQB_8407_p_u_b	vgf2p8affineqb ${c}, {m.sym}(%rip){lb}1to2{rb}, {n}, {r}	11
+X_VGF2P8AFFINEQB_8407_m_merge	vgf2p8affineqb ${c}, {m.disp}({m.base}), {n}, {r} {lb}{k}{rb}	8
+X_VGF2P8AFFINEQB_8407_x_merge	vgf2p8affineqb ${c}, {m.disp}({m.base},{m.index},{m.scale}), {n}, {r} {lb}{k}{rb}	9
+X_VGF2P8AFFINEQB_8407_p_merge	vgf2p8affineqb ${c}, {m.sym}(%rip), {n}, {r} {lb}{k}{rb}	11
+X_VGF2P8AFFINEQB_8407_m_merge_b	vgf2p8affineqb ${c}, {m.disp}({m.base}){lb}1to2{rb}, {n}, {r} {lb}{k}{rb}	8
+X_VGF2P8AFFINEQB_8407_x_merge_b	vgf2p8affineqb ${c}, {m.disp}({m.base},{m.index},{m.scale}){lb}1to2{rb}, {n}, {r} {lb}{k}{rb}	9
+X_VGF2P8AFFINEQB_8407_p_merge_b	vgf2p8affineqb ${c}, {m.sym}(%rip){lb}1to2{rb}, {n}, {r} {lb}{k}{rb}	11
+X_VGF2P8AFFINEQB_8407_m_zero	vgf2p8affineqb ${c}, {m.disp}({m.base}), {n}, {r} {lb}{k}{rb} {lb}z{rb}	8
+X_VGF2P8AFFINEQB_8407_x_zero	vgf2p8affineqb ${c}, {m.disp}({m.base},{m.index},{m.scale}), {n}, {r} {lb}{k}{rb} {lb}z{rb}	9
+X_VGF2P8AFFINEQB_8407_p_zero	vgf2p8affineqb ${c}, {m.sym}(%rip), {n}, {r} {lb}{k}{rb} {lb}z{rb}	11
+X_VGF2P8AFFINEQB_8407_m_zero_b	vgf2p8affineqb ${c}, {m.disp}({m.base}){lb}1to2{rb}, {n}, {r} {lb}{k}{rb} {lb}z{rb}	8
+X_VGF2P8AFFINEQB_8407_x_zero_b	vgf2p8affineqb ${c}, {m.disp}({m.base},{m.index},{m.scale}){lb}1to2{rb}, {n}, {r} {lb}{k}{rb} {lb}z{rb}	9
+X_VGF2P8AFFINEQB_8407_p_zero_b	vgf2p8affineqb ${c}, {m.sym}(%rip){lb}1to2{rb}, {n}, {r} {lb}{k}{rb} {lb}z{rb}	11
+X_VGF2P8AFFINEQB_8408_u	vgf2p8affineqb ${c}, {b}, {n}, {r}	7
+X_VGF2P8AFFINEQB_8408_merge	vgf2p8affineqb ${c}, {b}, {n}, {r} {lb}{k}{rb}	7
+X_VGF2P8AFFINEQB_8408_zero	vgf2p8affineqb ${c}, {b}, {n}, {r} {lb}{k}{rb} {lb}z{rb}	7
+X_VGF2P8AFFINEQB_8409_m_u	vgf2p8affineqb ${c}, {m.disp}({m.base}), {n}, {r}	8
+X_VGF2P8AFFINEQB_8409_x_u	vgf2p8affineqb ${c}, {m.disp}({m.base},{m.index},{m.scale}), {n}, {r}	9
+X_VGF2P8AFFINEQB_8409_p_u	vgf2p8affineqb ${c}, {m.sym}(%rip), {n}, {r}	11
+X_VGF2P8AFFINEQB_8409_m_u_b	vgf2p8affineqb ${c}, {m.disp}({m.base}){lb}1to4{rb}, {n}, {r}	8
+X_VGF2P8AFFINEQB_8409_x_u_b	vgf2p8affineqb ${c}, {m.disp}({m.base},{m.index},{m.scale}){lb}1to4{rb}, {n}, {r}	9
+X_VGF2P8AFFINEQB_8409_p_u_b	vgf2p8affineqb ${c}, {m.sym}(%rip){lb}1to4{rb}, {n}, {r}	11
+X_VGF2P8AFFINEQB_8409_m_merge	vgf2p8affineqb ${c}, {m.disp}({m.base}), {n}, {r} {lb}{k}{rb}	8
+X_VGF2P8AFFINEQB_8409_x_merge	vgf2p8affineqb ${c}, {m.disp}({m.base},{m.index},{m.scale}), {n}, {r} {lb}{k}{rb}	9
+X_VGF2P8AFFINEQB_8409_p_merge	vgf2p8affineqb ${c}, {m.sym}(%rip), {n}, {r} {lb}{k}{rb}	11
+X_VGF2P8AFFINEQB_8409_m_merge_b	vgf2p8affineqb ${c}, {m.disp}({m.base}){lb}1to4{rb}, {n}, {r} {lb}{k}{rb}	8
+X_VGF2P8AFFINEQB_8409_x_merge_b	vgf2p8affineqb ${c}, {m.disp}({m.base},{m.index},{m.scale}){lb}1to4{rb}, {n}, {r} {lb}{k}{rb}	9
+X_VGF2P8AFFINEQB_8409_p_merge_b	vgf2p8affineqb ${c}, {m.sym}(%rip){lb}1to4{rb}, {n}, {r} {lb}{k}{rb}	11
+X_VGF2P8AFFINEQB_8409_m_zero	vgf2p8affineqb ${c}, {m.disp}({m.base}), {n}, {r} {lb}{k}{rb} {lb}z{rb}	8
+X_VGF2P8AFFINEQB_8409_x_zero	vgf2p8affineqb ${c}, {m.disp}({m.base},{m.index},{m.scale}), {n}, {r} {lb}{k}{rb} {lb}z{rb}	9
+X_VGF2P8AFFINEQB_8409_p_zero	vgf2p8affineqb ${c}, {m.sym}(%rip), {n}, {r} {lb}{k}{rb} {lb}z{rb}	11
+X_VGF2P8AFFINEQB_8409_m_zero_b	vgf2p8affineqb ${c}, {m.disp}({m.base}){lb}1to4{rb}, {n}, {r} {lb}{k}{rb} {lb}z{rb}	8
+X_VGF2P8AFFINEQB_8409_x_zero_b	vgf2p8affineqb ${c}, {m.disp}({m.base},{m.index},{m.scale}){lb}1to4{rb}, {n}, {r} {lb}{k}{rb} {lb}z{rb}	9
+X_VGF2P8AFFINEQB_8409_p_zero_b	vgf2p8affineqb ${c}, {m.sym}(%rip){lb}1to4{rb}, {n}, {r} {lb}{k}{rb} {lb}z{rb}	11
+X_VGF2P8AFFINEQB_8410_u	vgf2p8affineqb ${c}, {b}, {n}, {r}	7
+X_VGF2P8AFFINEQB_8410_merge	vgf2p8affineqb ${c}, {b}, {n}, {r} {lb}{k}{rb}	7
+X_VGF2P8AFFINEQB_8410_zero	vgf2p8affineqb ${c}, {b}, {n}, {r} {lb}{k}{rb} {lb}z{rb}	7
+X_VGF2P8AFFINEQB_8411_m_u	vgf2p8affineqb ${c}, {m.disp}({m.base}), {n}, {r}	8
+X_VGF2P8AFFINEQB_8411_x_u	vgf2p8affineqb ${c}, {m.disp}({m.base},{m.index},{m.scale}), {n}, {r}	9
+X_VGF2P8AFFINEQB_8411_p_u	vgf2p8affineqb ${c}, {m.sym}(%rip), {n}, {r}	11
+X_VGF2P8AFFINEQB_8411_m_u_b	vgf2p8affineqb ${c}, {m.disp}({m.base}){lb}1to8{rb}, {n}, {r}	8
+X_VGF2P8AFFINEQB_8411_x_u_b	vgf2p8affineqb ${c}, {m.disp}({m.base},{m.index},{m.scale}){lb}1to8{rb}, {n}, {r}	9
+X_VGF2P8AFFINEQB_8411_p_u_b	vgf2p8affineqb ${c}, {m.sym}(%rip){lb}1to8{rb}, {n}, {r}	11
+X_VGF2P8AFFINEQB_8411_m_merge	vgf2p8affineqb ${c}, {m.disp}({m.base}), {n}, {r} {lb}{k}{rb}	8
+X_VGF2P8AFFINEQB_8411_x_merge	vgf2p8affineqb ${c}, {m.disp}({m.base},{m.index},{m.scale}), {n}, {r} {lb}{k}{rb}	9
+X_VGF2P8AFFINEQB_8411_p_merge	vgf2p8affineqb ${c}, {m.sym}(%rip), {n}, {r} {lb}{k}{rb}	11
+X_VGF2P8AFFINEQB_8411_m_merge_b	vgf2p8affineqb ${c}, {m.disp}({m.base}){lb}1to8{rb}, {n}, {r} {lb}{k}{rb}	8
+X_VGF2P8AFFINEQB_8411_x_merge_b	vgf2p8affineqb ${c}, {m.disp}({m.base},{m.index},{m.scale}){lb}1to8{rb}, {n}, {r} {lb}{k}{rb}	9
+X_VGF2P8AFFINEQB_8411_p_merge_b	vgf2p8affineqb ${c}, {m.sym}(%rip){lb}1to8{rb}, {n}, {r} {lb}{k}{rb}	11
+X_VGF2P8AFFINEQB_8411_m_zero	vgf2p8affineqb ${c}, {m.disp}({m.base}), {n}, {r} {lb}{k}{rb} {lb}z{rb}	8
+X_VGF2P8AFFINEQB_8411_x_zero	vgf2p8affineqb ${c}, {m.disp}({m.base},{m.index},{m.scale}), {n}, {r} {lb}{k}{rb} {lb}z{rb}	9
+X_VGF2P8AFFINEQB_8411_p_zero	vgf2p8affineqb ${c}, {m.sym}(%rip), {n}, {r} {lb}{k}{rb} {lb}z{rb}	11
+X_VGF2P8AFFINEQB_8411_m_zero_b	vgf2p8affineqb ${c}, {m.disp}({m.base}){lb}1to8{rb}, {n}, {r} {lb}{k}{rb} {lb}z{rb}	8
+X_VGF2P8AFFINEQB_8411_x_zero_b	vgf2p8affineqb ${c}, {m.disp}({m.base},{m.index},{m.scale}){lb}1to8{rb}, {n}, {r} {lb}{k}{rb} {lb}z{rb}	9
+X_VGF2P8AFFINEQB_8411_p_zero_b	vgf2p8affineqb ${c}, {m.sym}(%rip){lb}1to8{rb}, {n}, {r} {lb}{k}{rb} {lb}z{rb}	11
+X_VGF2P8MULB_8412_u	vgf2p8mulb {b}, {n}, {r}	6
+X_VGF2P8MULB_8412_merge	vgf2p8mulb {b}, {n}, {r} {lb}{k}{rb}	6
+X_VGF2P8MULB_8412_zero	vgf2p8mulb {b}, {n}, {r} {lb}{k}{rb} {lb}z{rb}	6
+X_VGF2P8MULB_8413_m_u	vgf2p8mulb {m.disp}({m.base}), {n}, {r}	7
+X_VGF2P8MULB_8413_x_u	vgf2p8mulb {m.disp}({m.base},{m.index},{m.scale}), {n}, {r}	8
+X_VGF2P8MULB_8413_p_u	vgf2p8mulb {m.sym}(%rip), {n}, {r}	10
+X_VGF2P8MULB_8413_m_merge	vgf2p8mulb {m.disp}({m.base}), {n}, {r} {lb}{k}{rb}	7
+X_VGF2P8MULB_8413_x_merge	vgf2p8mulb {m.disp}({m.base},{m.index},{m.scale}), {n}, {r} {lb}{k}{rb}	8
+X_VGF2P8MULB_8413_p_merge	vgf2p8mulb {m.sym}(%rip), {n}, {r} {lb}{k}{rb}	10
+X_VGF2P8MULB_8413_m_zero	vgf2p8mulb {m.disp}({m.base}), {n}, {r} {lb}{k}{rb} {lb}z{rb}	7
+X_VGF2P8MULB_8413_x_zero	vgf2p8mulb {m.disp}({m.base},{m.index},{m.scale}), {n}, {r} {lb}{k}{rb} {lb}z{rb}	8
+X_VGF2P8MULB_8413_p_zero	vgf2p8mulb {m.sym}(%rip), {n}, {r} {lb}{k}{rb} {lb}z{rb}	10
+X_VGF2P8MULB_8414_u	vgf2p8mulb {b}, {n}, {r}	6
+X_VGF2P8MULB_8414_merge	vgf2p8mulb {b}, {n}, {r} {lb}{k}{rb}	6
+X_VGF2P8MULB_8414_zero	vgf2p8mulb {b}, {n}, {r} {lb}{k}{rb} {lb}z{rb}	6
+X_VGF2P8MULB_8415_m_u	vgf2p8mulb {m.disp}({m.base}), {n}, {r}	7
+X_VGF2P8MULB_8415_x_u	vgf2p8mulb {m.disp}({m.base},{m.index},{m.scale}), {n}, {r}	8
+X_VGF2P8MULB_8415_p_u	vgf2p8mulb {m.sym}(%rip), {n}, {r}	10
+X_VGF2P8MULB_8415_m_merge	vgf2p8mulb {m.disp}({m.base}), {n}, {r} {lb}{k}{rb}	7
+X_VGF2P8MULB_8415_x_merge	vgf2p8mulb {m.disp}({m.base},{m.index},{m.scale}), {n}, {r} {lb}{k}{rb}	8
+X_VGF2P8MULB_8415_p_merge	vgf2p8mulb {m.sym}(%rip), {n}, {r} {lb}{k}{rb}	10
+X_VGF2P8MULB_8415_m_zero	vgf2p8mulb {m.disp}({m.base}), {n}, {r} {lb}{k}{rb} {lb}z{rb}	7
+X_VGF2P8MULB_8415_x_zero	vgf2p8mulb {m.disp}({m.base},{m.index},{m.scale}), {n}, {r} {lb}{k}{rb} {lb}z{rb}	8
+X_VGF2P8MULB_8415_p_zero	vgf2p8mulb {m.sym}(%rip), {n}, {r} {lb}{k}{rb} {lb}z{rb}	10
+X_VGF2P8MULB_8416_u	vgf2p8mulb {b}, {n}, {r}	6
+X_VGF2P8MULB_8416_merge	vgf2p8mulb {b}, {n}, {r} {lb}{k}{rb}	6
+X_VGF2P8MULB_8416_zero	vgf2p8mulb {b}, {n}, {r} {lb}{k}{rb} {lb}z{rb}	6
+X_VGF2P8MULB_8417_m_u	vgf2p8mulb {m.disp}({m.base}), {n}, {r}	7
+X_VGF2P8MULB_8417_x_u	vgf2p8mulb {m.disp}({m.base},{m.index},{m.scale}), {n}, {r}	8
+X_VGF2P8MULB_8417_p_u	vgf2p8mulb {m.sym}(%rip), {n}, {r}	10
+X_VGF2P8MULB_8417_m_merge	vgf2p8mulb {m.disp}({m.base}), {n}, {r} {lb}{k}{rb}	7
+X_VGF2P8MULB_8417_x_merge	vgf2p8mulb {m.disp}({m.base},{m.index},{m.scale}), {n}, {r} {lb}{k}{rb}	8
+X_VGF2P8MULB_8417_p_merge	vgf2p8mulb {m.sym}(%rip), {n}, {r} {lb}{k}{rb}	10
+X_VGF2P8MULB_8417_m_zero	vgf2p8mulb {m.disp}({m.base}), {n}, {r} {lb}{k}{rb} {lb}z{rb}	7
+X_VGF2P8MULB_8417_x_zero	vgf2p8mulb {m.disp}({m.base},{m.index},{m.scale}), {n}, {r} {lb}{k}{rb} {lb}z{rb}	8
+X_VGF2P8MULB_8417_p_zero	vgf2p8mulb {m.sym}(%rip), {n}, {r} {lb}{k}{rb} {lb}z{rb}	10
+X_VAESDEC_8418	vaesdec {b}, {n}, {r}	5
+X_VAESDEC_8419_m	vaesdec {m.disp}({m.base}), {n}, {r}	6
+X_VAESDEC_8419_x	vaesdec {m.disp}({m.base},{m.index},{m.scale}), {n}, {r}	7
+X_VAESDEC_8419_p	vaesdec {m.sym}(%rip), {n}, {r}	9
+X_VAESDECLAST_8420	vaesdeclast {b}, {n}, {r}	5
+X_VAESDECLAST_8421_m	vaesdeclast {m.disp}({m.base}), {n}, {r}	6
+X_VAESDECLAST_8421_x	vaesdeclast {m.disp}({m.base},{m.index},{m.scale}), {n}, {r}	7
+X_VAESDECLAST_8421_p	vaesdeclast {m.sym}(%rip), {n}, {r}	9
+X_VAESENC_8422	vaesenc {b}, {n}, {r}	5
+X_VAESENC_8423_m	vaesenc {m.disp}({m.base}), {n}, {r}	6
+X_VAESENC_8423_x	vaesenc {m.disp}({m.base},{m.index},{m.scale}), {n}, {r}	7
+X_VAESENC_8423_p	vaesenc {m.sym}(%rip), {n}, {r}	9
+X_VAESENCLAST_8424	vaesenclast {b}, {n}, {r}	5
+X_VAESENCLAST_8425_m	vaesenclast {m.disp}({m.base}), {n}, {r}	6
+X_VAESENCLAST_8425_x	vaesenclast {m.disp}({m.base},{m.index},{m.scale}), {n}, {r}	7
+X_VAESENCLAST_8425_p	vaesenclast {m.sym}(%rip), {n}, {r}	9
+X_VPCLMULQDQ_8426	vpclmulqdq ${c}, {b}, {n}, {r}	6
+X_VPCLMULQDQ_8427_m	vpclmulqdq ${c}, {m.disp}({m.base}), {n}, {r}	7
+X_VPCLMULQDQ_8427_x	vpclmulqdq ${c}, {m.disp}({m.base},{m.index},{m.scale}), {n}, {r}	8
+X_VPCLMULQDQ_8427_p	vpclmulqdq ${c}, {m.sym}(%rip), {n}, {r}	10
+X_VAESDEC_8428_u	vaesdec {b}, {n}, {r}	6
+X_VAESDEC_8429_m_u	vaesdec {m.disp}({m.base}), {n}, {r}	7
+X_VAESDEC_8429_x_u	vaesdec {m.disp}({m.base},{m.index},{m.scale}), {n}, {r}	8
+X_VAESDEC_8429_p_u	vaesdec {m.sym}(%rip), {n}, {r}	10
+X_VAESDEC_8430_u	vaesdec {b}, {n}, {r}	6
+X_VAESDEC_8431_m_u	vaesdec {m.disp}({m.base}), {n}, {r}	7
+X_VAESDEC_8431_x_u	vaesdec {m.disp}({m.base},{m.index},{m.scale}), {n}, {r}	8
+X_VAESDEC_8431_p_u	vaesdec {m.sym}(%rip), {n}, {r}	10
+X_VAESDEC_8432_u	vaesdec {b}, {n}, {r}	6
+X_VAESDEC_8433_m_u	vaesdec {m.disp}({m.base}), {n}, {r}	7
+X_VAESDEC_8433_x_u	vaesdec {m.disp}({m.base},{m.index},{m.scale}), {n}, {r}	8
+X_VAESDEC_8433_p_u	vaesdec {m.sym}(%rip), {n}, {r}	10
+X_VAESDECLAST_8434_u	vaesdeclast {b}, {n}, {r}	6
+X_VAESDECLAST_8435_m_u	vaesdeclast {m.disp}({m.base}), {n}, {r}	7
+X_VAESDECLAST_8435_x_u	vaesdeclast {m.disp}({m.base},{m.index},{m.scale}), {n}, {r}	8
+X_VAESDECLAST_8435_p_u	vaesdeclast {m.sym}(%rip), {n}, {r}	10
+X_VAESDECLAST_8436_u	vaesdeclast {b}, {n}, {r}	6
+X_VAESDECLAST_8437_m_u	vaesdeclast {m.disp}({m.base}), {n}, {r}	7
+X_VAESDECLAST_8437_x_u	vaesdeclast {m.disp}({m.base},{m.index},{m.scale}), {n}, {r}	8
+X_VAESDECLAST_8437_p_u	vaesdeclast {m.sym}(%rip), {n}, {r}	10
+X_VAESDECLAST_8438_u	vaesdeclast {b}, {n}, {r}	6
+X_VAESDECLAST_8439_m_u	vaesdeclast {m.disp}({m.base}), {n}, {r}	7
+X_VAESDECLAST_8439_x_u	vaesdeclast {m.disp}({m.base},{m.index},{m.scale}), {n}, {r}	8
+X_VAESDECLAST_8439_p_u	vaesdeclast {m.sym}(%rip), {n}, {r}	10
+X_VAESENC_8440_u	vaesenc {b}, {n}, {r}	6
+X_VAESENC_8441_m_u	vaesenc {m.disp}({m.base}), {n}, {r}	7
+X_VAESENC_8441_x_u	vaesenc {m.disp}({m.base},{m.index},{m.scale}), {n}, {r}	8
+X_VAESENC_8441_p_u	vaesenc {m.sym}(%rip), {n}, {r}	10
+X_VAESENC_8442_u	vaesenc {b}, {n}, {r}	6
+X_VAESENC_8443_m_u	vaesenc {m.disp}({m.base}), {n}, {r}	7
+X_VAESENC_8443_x_u	vaesenc {m.disp}({m.base},{m.index},{m.scale}), {n}, {r}	8
+X_VAESENC_8443_p_u	vaesenc {m.sym}(%rip), {n}, {r}	10
+X_VAESENC_8444_u	vaesenc {b}, {n}, {r}	6
+X_VAESENC_8445_m_u	vaesenc {m.disp}({m.base}), {n}, {r}	7
+X_VAESENC_8445_x_u	vaesenc {m.disp}({m.base},{m.index},{m.scale}), {n}, {r}	8
+X_VAESENC_8445_p_u	vaesenc {m.sym}(%rip), {n}, {r}	10
+X_VAESENCLAST_8446_u	vaesenclast {b}, {n}, {r}	6
+X_VAESENCLAST_8447_m_u	vaesenclast {m.disp}({m.base}), {n}, {r}	7
+X_VAESENCLAST_8447_x_u	vaesenclast {m.disp}({m.base},{m.index},{m.scale}), {n}, {r}	8
+X_VAESENCLAST_8447_p_u	vaesenclast {m.sym}(%rip), {n}, {r}	10
+X_VAESENCLAST_8448_u	vaesenclast {b}, {n}, {r}	6
+X_VAESENCLAST_8449_m_u	vaesenclast {m.disp}({m.base}), {n}, {r}	7
+X_VAESENCLAST_8449_x_u	vaesenclast {m.disp}({m.base},{m.index},{m.scale}), {n}, {r}	8
+X_VAESENCLAST_8449_p_u	vaesenclast {m.sym}(%rip), {n}, {r}	10
+X_VAESENCLAST_8450_u	vaesenclast {b}, {n}, {r}	6
+X_VAESENCLAST_8451_m_u	vaesenclast {m.disp}({m.base}), {n}, {r}	7
+X_VAESENCLAST_8451_x_u	vaesenclast {m.disp}({m.base},{m.index},{m.scale}), {n}, {r}	8
+X_VAESENCLAST_8451_p_u	vaesenclast {m.sym}(%rip), {n}, {r}	10
+X_VPCLMULQDQ_8452_u	vpclmulqdq ${c}, {b}, {n}, {r}	7
+X_VPCLMULQDQ_8453_m_u	vpclmulqdq ${c}, {m.disp}({m.base}), {n}, {r}	8
+X_VPCLMULQDQ_8453_x_u	vpclmulqdq ${c}, {m.disp}({m.base},{m.index},{m.scale}), {n}, {r}	9
+X_VPCLMULQDQ_8453_p_u	vpclmulqdq ${c}, {m.sym}(%rip), {n}, {r}	11
+X_VPCLMULQDQ_8454_u	vpclmulqdq ${c}, {b}, {n}, {r}	7
+X_VPCLMULQDQ_8455_m_u	vpclmulqdq ${c}, {m.disp}({m.base}), {n}, {r}	8
+X_VPCLMULQDQ_8455_x_u	vpclmulqdq ${c}, {m.disp}({m.base},{m.index},{m.scale}), {n}, {r}	9
+X_VPCLMULQDQ_8455_p_u	vpclmulqdq ${c}, {m.sym}(%rip), {n}, {r}	11
+X_VPCLMULQDQ_8456_u	vpclmulqdq ${c}, {b}, {n}, {r}	7
+X_VPCLMULQDQ_8457_m_u	vpclmulqdq ${c}, {m.disp}({m.base}), {n}, {r}	8
+X_VPCLMULQDQ_8457_x_u	vpclmulqdq ${c}, {m.disp}({m.base},{m.index},{m.scale}), {n}, {r}	9
+X_VPCLMULQDQ_8457_p_u	vpclmulqdq ${c}, {m.sym}(%rip), {n}, {r}	11
+X_EXTRQ_8458	extrq ${c2}, ${c}, {b}	6
+X_EXTRQ_8459	extrq {b}, {r}	4
+X_INSERTQ_8460	insertq ${c2}, ${c}, {b}, {r}	6
+X_INSERTQ_8461	insertq {b}, {r}	4
+X_MOVNTSD_8462_m	movntsd {r}, {m.disp}({m.base})	5
+X_MOVNTSD_8462_x	movntsd {r}, {m.disp}({m.base},{m.index},{m.scale})	6
+X_MOVNTSD_8462_p	movntsd {r}, {m.sym}(%rip)	8
+X_MOVNTSS_8463_m	movntss {r}, {m.disp}({m.base})	5
+X_MOVNTSS_8463_x	movntss {r}, {m.disp}({m.base},{m.index},{m.scale})	6
+X_MOVNTSS_8463_p	movntss {r}, {m.sym}(%rip)	8
+X_CLZERO_8468	clzero	3
+X_MONITORX_8471	monitorx	3
+X_MWAITX_8473	mwaitx	3
+X_RDPRU_8474	rdpru	3

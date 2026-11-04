@@ -7200,12 +7200,40 @@ define <2 x i64> @X86.aesni.aesdec(<2 x i64> "reg"="xv" "tied" %a0, <2 x i64> "r
 
 declare <2 x i64> @llvm.x86.aesni.aesdec(<2 x i64>, <2 x i64>)
 
+define <4 x i64> @X86.aesni.aesdec.256(<4 x i64> "reg"="yv" %a0, <4 x i64> "reg"="yv" %a1) "enc"="{ vex(d, 0, a1, 2, 0, a0, 1, 1) | 11011110 | 11 reg:3=d&7 rm:3=a1&7 ; evexr(d, a1, 2, 0, a0, 1, 1, 0, 0, 0) | 11011110 | 11 reg:3=d&7 rm:3=a1&7 }" "asm"="vaesdec {a1}, {a0}, {d}" "dclass"="yv" "feature"="vaes" "nodecode" {
+  %r = call <4 x i64> @llvm.x86.aesni.aesdec.256(<4 x i64> %a0, <4 x i64> %a1)
+  ret <4 x i64> %r
+}
+
+declare <4 x i64> @llvm.x86.aesni.aesdec.256(<4 x i64>, <4 x i64>)
+
+define <8 x i64> @X86.aesni.aesdec.512(<8 x i64> "reg"="zv" %a0, <8 x i64> "reg"="zv" %a1) "enc"="evexr(d, a1, 2, 0, a0, 2, 1, 0, 0, 0) | 11011110 | 11 reg:3=d&7 rm:3=a1&7" "asm"="vaesdec {a1}, {a0}, {d}" "dclass"="zv" "feature"="vaes,avx512f" "nodecode" {
+  %r = call <8 x i64> @llvm.x86.aesni.aesdec.512(<8 x i64> %a0, <8 x i64> %a1)
+  ret <8 x i64> %r
+}
+
+declare <8 x i64> @llvm.x86.aesni.aesdec.512(<8 x i64>, <8 x i64>)
+
 define <2 x i64> @X86.aesni.aesdeclast(<2 x i64> "reg"="xv" "tied" %a0, <2 x i64> "reg"="xv" %a1) "enc"="01100110 | rex(0, d, 0, a1) | 00001111 | 00111000 | 11011111 | 11 reg:3=d&7 rm:3=a1&7" "asm"="aesdeclast {a1}, {d}" "dclass"="xv" "feature"="aes" "nodecode" {
   %r = call <2 x i64> @llvm.x86.aesni.aesdeclast(<2 x i64> %a0, <2 x i64> %a1)
   ret <2 x i64> %r
 }
 
 declare <2 x i64> @llvm.x86.aesni.aesdeclast(<2 x i64>, <2 x i64>)
+
+define <4 x i64> @X86.aesni.aesdeclast.256(<4 x i64> "reg"="yv" %a0, <4 x i64> "reg"="yv" %a1) "enc"="{ vex(d, 0, a1, 2, 0, a0, 1, 1) | 11011111 | 11 reg:3=d&7 rm:3=a1&7 ; evexr(d, a1, 2, 0, a0, 1, 1, 0, 0, 0) | 11011111 | 11 reg:3=d&7 rm:3=a1&7 }" "asm"="vaesdeclast {a1}, {a0}, {d}" "dclass"="yv" "feature"="vaes" "nodecode" {
+  %r = call <4 x i64> @llvm.x86.aesni.aesdeclast.256(<4 x i64> %a0, <4 x i64> %a1)
+  ret <4 x i64> %r
+}
+
+declare <4 x i64> @llvm.x86.aesni.aesdeclast.256(<4 x i64>, <4 x i64>)
+
+define <8 x i64> @X86.aesni.aesdeclast.512(<8 x i64> "reg"="zv" %a0, <8 x i64> "reg"="zv" %a1) "enc"="evexr(d, a1, 2, 0, a0, 2, 1, 0, 0, 0) | 11011111 | 11 reg:3=d&7 rm:3=a1&7" "asm"="vaesdeclast {a1}, {a0}, {d}" "dclass"="zv" "feature"="vaes,avx512f" "nodecode" {
+  %r = call <8 x i64> @llvm.x86.aesni.aesdeclast.512(<8 x i64> %a0, <8 x i64> %a1)
+  ret <8 x i64> %r
+}
+
+declare <8 x i64> @llvm.x86.aesni.aesdeclast.512(<8 x i64>, <8 x i64>)
 
 define <2 x i64> @X86.aesni.aesenc(<2 x i64> "reg"="xv" "tied" %a0, <2 x i64> "reg"="xv" %a1) "enc"="01100110 | rex(0, d, 0, a1) | 00001111 | 00111000 | 11011100 | 11 reg:3=d&7 rm:3=a1&7" "asm"="aesenc {a1}, {d}" "dclass"="xv" "feature"="aes" "nodecode" {
   %r = call <2 x i64> @llvm.x86.aesni.aesenc(<2 x i64> %a0, <2 x i64> %a1)
@@ -7214,12 +7242,40 @@ define <2 x i64> @X86.aesni.aesenc(<2 x i64> "reg"="xv" "tied" %a0, <2 x i64> "r
 
 declare <2 x i64> @llvm.x86.aesni.aesenc(<2 x i64>, <2 x i64>)
 
+define <4 x i64> @X86.aesni.aesenc.256(<4 x i64> "reg"="yv" %a0, <4 x i64> "reg"="yv" %a1) "enc"="{ vex(d, 0, a1, 2, 0, a0, 1, 1) | 11011100 | 11 reg:3=d&7 rm:3=a1&7 ; evexr(d, a1, 2, 0, a0, 1, 1, 0, 0, 0) | 11011100 | 11 reg:3=d&7 rm:3=a1&7 }" "asm"="vaesenc {a1}, {a0}, {d}" "dclass"="yv" "feature"="vaes" "nodecode" {
+  %r = call <4 x i64> @llvm.x86.aesni.aesenc.256(<4 x i64> %a0, <4 x i64> %a1)
+  ret <4 x i64> %r
+}
+
+declare <4 x i64> @llvm.x86.aesni.aesenc.256(<4 x i64>, <4 x i64>)
+
+define <8 x i64> @X86.aesni.aesenc.512(<8 x i64> "reg"="zv" %a0, <8 x i64> "reg"="zv" %a1) "enc"="evexr(d, a1, 2, 0, a0, 2, 1, 0, 0, 0) | 11011100 | 11 reg:3=d&7 rm:3=a1&7" "asm"="vaesenc {a1}, {a0}, {d}" "dclass"="zv" "feature"="vaes,avx512f" "nodecode" {
+  %r = call <8 x i64> @llvm.x86.aesni.aesenc.512(<8 x i64> %a0, <8 x i64> %a1)
+  ret <8 x i64> %r
+}
+
+declare <8 x i64> @llvm.x86.aesni.aesenc.512(<8 x i64>, <8 x i64>)
+
 define <2 x i64> @X86.aesni.aesenclast(<2 x i64> "reg"="xv" "tied" %a0, <2 x i64> "reg"="xv" %a1) "enc"="01100110 | rex(0, d, 0, a1) | 00001111 | 00111000 | 11011101 | 11 reg:3=d&7 rm:3=a1&7" "asm"="aesenclast {a1}, {d}" "dclass"="xv" "feature"="aes" "nodecode" {
   %r = call <2 x i64> @llvm.x86.aesni.aesenclast(<2 x i64> %a0, <2 x i64> %a1)
   ret <2 x i64> %r
 }
 
 declare <2 x i64> @llvm.x86.aesni.aesenclast(<2 x i64>, <2 x i64>)
+
+define <4 x i64> @X86.aesni.aesenclast.256(<4 x i64> "reg"="yv" %a0, <4 x i64> "reg"="yv" %a1) "enc"="{ vex(d, 0, a1, 2, 0, a0, 1, 1) | 11011101 | 11 reg:3=d&7 rm:3=a1&7 ; evexr(d, a1, 2, 0, a0, 1, 1, 0, 0, 0) | 11011101 | 11 reg:3=d&7 rm:3=a1&7 }" "asm"="vaesenclast {a1}, {a0}, {d}" "dclass"="yv" "feature"="vaes" "nodecode" {
+  %r = call <4 x i64> @llvm.x86.aesni.aesenclast.256(<4 x i64> %a0, <4 x i64> %a1)
+  ret <4 x i64> %r
+}
+
+declare <4 x i64> @llvm.x86.aesni.aesenclast.256(<4 x i64>, <4 x i64>)
+
+define <8 x i64> @X86.aesni.aesenclast.512(<8 x i64> "reg"="zv" %a0, <8 x i64> "reg"="zv" %a1) "enc"="evexr(d, a1, 2, 0, a0, 2, 1, 0, 0, 0) | 11011101 | 11 reg:3=d&7 rm:3=a1&7" "asm"="vaesenclast {a1}, {a0}, {d}" "dclass"="zv" "feature"="vaes,avx512f" "nodecode" {
+  %r = call <8 x i64> @llvm.x86.aesni.aesenclast.512(<8 x i64> %a0, <8 x i64> %a1)
+  ret <8 x i64> %r
+}
+
+declare <8 x i64> @llvm.x86.aesni.aesenclast.512(<8 x i64>, <8 x i64>)
 
 define <2 x i64> @X86.aesni.aesimc(<2 x i64> "reg"="xv" %a0) "enc"="01100110 | rex(0, d, 0, a0) | 00001111 | 00111000 | 11011011 | 11 reg:3=d&7 rm:3=a0&7" "asm"="aesimc {a0}, {d}" "dclass"="xv" "feature"="aes" "nodecode" {
   %r = call <2 x i64> @llvm.x86.aesni.aesimc(<2 x i64> %a0)
@@ -10994,6 +11050,20 @@ define <2 x i64> @X86.pclmulqdq(<2 x i64> "reg"="xv" "tied" %a0, <2 x i64> "reg"
 
 declare <2 x i64> @llvm.x86.pclmulqdq(<2 x i64>, <2 x i64>, i8)
 
+define <4 x i64> @X86.pclmulqdq.256(<4 x i64> "reg"="yv" %a0, <4 x i64> "reg"="yv" %a1, i8 "imm" %a2) "enc"="{ vex(d, 0, a1, 3, 0, a0, 1, 1) | 01000100 | 11 reg:3=d&7 rm:3=a1&7 | { i1:8=a2 ; i1:s8=a2 } ; evexr(d, a1, 3, 0, a0, 1, 1, 0, 0, 0) | 01000100 | 11 reg:3=d&7 rm:3=a1&7 | { i1:8=a2 ; i1:s8=a2 } }" "asm"="vpclmulqdq ${a2}, {a1}, {a0}, {d}" "dclass"="yv" "feature"="vpclmulqdq" "nodecode" {
+  %r = call <4 x i64> @llvm.x86.pclmulqdq.256(<4 x i64> %a0, <4 x i64> %a1, i8 %a2)
+  ret <4 x i64> %r
+}
+
+declare <4 x i64> @llvm.x86.pclmulqdq.256(<4 x i64>, <4 x i64>, i8)
+
+define <8 x i64> @X86.pclmulqdq.512(<8 x i64> "reg"="zv" %a0, <8 x i64> "reg"="zv" %a1, i8 "imm" %a2) "enc"="evexr(d, a1, 3, 0, a0, 2, 1, 0, 0, 0) | 01000100 | 11 reg:3=d&7 rm:3=a1&7 | { i1:8=a2 ; i1:s8=a2 }" "asm"="vpclmulqdq ${a2}, {a1}, {a0}, {d}" "dclass"="zv" "feature"="vpclmulqdq,avx512f" "nodecode" {
+  %r = call <8 x i64> @llvm.x86.pclmulqdq.512(<8 x i64> %a0, <8 x i64> %a1, i8 %a2)
+  ret <8 x i64> %r
+}
+
+declare <8 x i64> @llvm.x86.pclmulqdq.512(<8 x i64>, <8 x i64>, i8)
+
 define <4 x i32> @X86.sha1msg1(<4 x i32> "reg"="xv" "tied" %a0, <4 x i32> "reg"="xv" %a1) "enc"="rex(0, d, 0, a1) | 00001111 | 00111000 | 11001001 | 11 reg:3=d&7 rm:3=a1&7" "asm"="sha1msg1 {a1}, {d}" "dclass"="xv" "feature"="sha" "nodecode" {
   %r = call <4 x i32> @llvm.x86.sha1msg1(<4 x i32> %a0, <4 x i32> %a1)
   ret <4 x i32> %r
@@ -11623,6 +11693,48 @@ define <8 x i16> @X86.vcvtps2ph.256(<8 x float> "reg"="yv" %a0, i32 "imm" %a1) "
 }
 
 declare <8 x i16> @llvm.x86.vcvtps2ph.256(<8 x float>, i32)
+
+define <16 x i8> @X86.vgf2p8affineinvqb.128(<16 x i8> "reg"="xv" "tied" %a0, <16 x i8> "reg"="xv" %a1, i8 "imm" %a2) "enc"="01100110 | rex(0, d, 0, a1) | 00001111 | 00111010 | 11001111 | 11 reg:3=d&7 rm:3=a1&7 | { i1:8=a2 ; i1:s8=a2 }" "asm"="gf2p8affineinvqb ${a2}, {a1}, {d}" "dclass"="xv" "feature"="gfni" "nodecode" {
+  %r = call <16 x i8> @llvm.x86.vgf2p8affineinvqb.128(<16 x i8> %a0, <16 x i8> %a1, i8 %a2)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.x86.vgf2p8affineinvqb.128(<16 x i8>, <16 x i8>, i8)
+
+define <32 x i8> @X86.vgf2p8affineinvqb.256(<32 x i8> "reg"="yv" %a0, <32 x i8> "reg"="yv" %a1, i8 "imm" %a2) "enc"="vex(d, 0, a1, 3, 1, a0, 1, 1) | 11001111 | 11 reg:3=d&7 rm:3=a1&7 | { i1:8=a2 ; i1:s8=a2 }" "asm"="vgf2p8affineinvqb ${a2}, {a1}, {a0}, {d}" "dclass"="yv" "feature"="gfni,avx" "nodecode" {
+  %r = call <32 x i8> @llvm.x86.vgf2p8affineinvqb.256(<32 x i8> %a0, <32 x i8> %a1, i8 %a2)
+  ret <32 x i8> %r
+}
+
+declare <32 x i8> @llvm.x86.vgf2p8affineinvqb.256(<32 x i8>, <32 x i8>, i8)
+
+define <16 x i8> @X86.vgf2p8affineqb.128(<16 x i8> "reg"="xv" "tied" %a0, <16 x i8> "reg"="xv" %a1, i8 "imm" %a2) "enc"="01100110 | rex(0, d, 0, a1) | 00001111 | 00111010 | 11001110 | 11 reg:3=d&7 rm:3=a1&7 | { i1:8=a2 ; i1:s8=a2 }" "asm"="gf2p8affineqb ${a2}, {a1}, {d}" "dclass"="xv" "feature"="gfni" "nodecode" {
+  %r = call <16 x i8> @llvm.x86.vgf2p8affineqb.128(<16 x i8> %a0, <16 x i8> %a1, i8 %a2)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.x86.vgf2p8affineqb.128(<16 x i8>, <16 x i8>, i8)
+
+define <32 x i8> @X86.vgf2p8affineqb.256(<32 x i8> "reg"="yv" %a0, <32 x i8> "reg"="yv" %a1, i8 "imm" %a2) "enc"="vex(d, 0, a1, 3, 1, a0, 1, 1) | 11001110 | 11 reg:3=d&7 rm:3=a1&7 | { i1:8=a2 ; i1:s8=a2 }" "asm"="vgf2p8affineqb ${a2}, {a1}, {a0}, {d}" "dclass"="yv" "feature"="gfni,avx" "nodecode" {
+  %r = call <32 x i8> @llvm.x86.vgf2p8affineqb.256(<32 x i8> %a0, <32 x i8> %a1, i8 %a2)
+  ret <32 x i8> %r
+}
+
+declare <32 x i8> @llvm.x86.vgf2p8affineqb.256(<32 x i8>, <32 x i8>, i8)
+
+define <16 x i8> @X86.vgf2p8mulb.128(<16 x i8> "reg"="xv" "tied" %a0, <16 x i8> "reg"="xv" %a1) "enc"="01100110 | rex(0, d, 0, a1) | 00001111 | 00111000 | 11001111 | 11 reg:3=d&7 rm:3=a1&7" "asm"="gf2p8mulb {a1}, {d}" "dclass"="xv" "feature"="gfni" "nodecode" {
+  %r = call <16 x i8> @llvm.x86.vgf2p8mulb.128(<16 x i8> %a0, <16 x i8> %a1)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.x86.vgf2p8mulb.128(<16 x i8>, <16 x i8>)
+
+define <32 x i8> @X86.vgf2p8mulb.256(<32 x i8> "reg"="yv" %a0, <32 x i8> "reg"="yv" %a1) "enc"="vex(d, 0, a1, 2, 0, a0, 1, 1) | 11001111 | 11 reg:3=d&7 rm:3=a1&7" "asm"="vgf2p8mulb {a1}, {a0}, {d}" "dclass"="yv" "feature"="gfni,avx" "nodecode" {
+  %r = call <32 x i8> @llvm.x86.vgf2p8mulb.256(<32 x i8> %a0, <32 x i8> %a1)
+  ret <32 x i8> %r
+}
+
+declare <32 x i8> @llvm.x86.vgf2p8mulb.256(<32 x i8>, <32 x i8>)
 
 define <4 x i64> @X86.vsha512msg1(<4 x i64> "reg"="yv" "tied" %a0, <2 x i64> "reg"="xv" %a1) "enc"="vex(d, 0, a1, 2, 0, 0, 1, 3) | 11001100 | 11 reg:3=d&7 rm:3=a1&7" "asm"="vsha512msg1 {a1}, {d}" "dclass"="yv" "feature"="sha512,avx" "nodecode" {
   %r = call <4 x i64> @llvm.x86.vsha512msg1(<4 x i64> %a0, <2 x i64> %a1)

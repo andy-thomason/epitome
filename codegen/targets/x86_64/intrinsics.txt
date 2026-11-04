@@ -10,17 +10,17 @@ llvm.x86.aesenc256kl ; ? ; kl ; skip ; Rust's types for it are not LLVM's (AMX t
 llvm.x86.aesencwide128kl ; ? ; widekl ; skip ; Rust's types for it are not LLVM's (AMX tiles, Key Locker)
 llvm.x86.aesencwide256kl ; ? ; widekl ; skip ; Rust's types for it are not LLVM's (AMX tiles, Key Locker)
 llvm.x86.aesni.aesdec ; <2 x i64>(<2 x i64>, <2 x i64>) ; aes ; entry ; aesdec {o0}, {o1} ; x x ; o0=a1 o1=d ; tied=a0 ; llc: aesdec %xmm1, %xmm0 / retq
-llvm.x86.aesni.aesdec.256 ; <4 x i64>(<4 x i64>, <4 x i64>) ; vaes ; skip ; no 02-xed.ll entry is written so ; llc: vaesdec %ymm1, %ymm0, %ymm0 / retq
-llvm.x86.aesni.aesdec.512 ; <8 x i64>(<8 x i64>, <8 x i64>) ; vaes,avx512f ; skip ; no 02-xed.ll entry is written so ; llc: vaesdec %zmm1, %zmm0, %zmm0 / retq
+llvm.x86.aesni.aesdec.256 ; <4 x i64>(<4 x i64>, <4 x i64>) ; vaes ; entry ; vaesdec {o0}, {o1}, {o2} ; ye ye ye ; o0=a1 o1=a0 o2=d ;  ; llc: vaesdec %ymm1, %ymm0, %ymm0 / retq
+llvm.x86.aesni.aesdec.512 ; <8 x i64>(<8 x i64>, <8 x i64>) ; vaes,avx512f ; entry ; vaesdec {o0}, {o1}, {o2} ; z z z ; o0=a1 o1=a0 o2=d ;  ; llc: vaesdec %zmm1, %zmm0, %zmm0 / retq
 llvm.x86.aesni.aesdeclast ; <2 x i64>(<2 x i64>, <2 x i64>) ; aes ; entry ; aesdeclast {o0}, {o1} ; x x ; o0=a1 o1=d ; tied=a0 ; llc: aesdeclast %xmm1, %xmm0 / retq
-llvm.x86.aesni.aesdeclast.256 ; <4 x i64>(<4 x i64>, <4 x i64>) ; vaes ; skip ; no 02-xed.ll entry is written so ; llc: vaesdeclast %ymm1, %ymm0, %ymm0 / retq
-llvm.x86.aesni.aesdeclast.512 ; <8 x i64>(<8 x i64>, <8 x i64>) ; vaes,avx512f ; skip ; no 02-xed.ll entry is written so ; llc: vaesdeclast %zmm1, %zmm0, %zmm0 / retq
+llvm.x86.aesni.aesdeclast.256 ; <4 x i64>(<4 x i64>, <4 x i64>) ; vaes ; entry ; vaesdeclast {o0}, {o1}, {o2} ; ye ye ye ; o0=a1 o1=a0 o2=d ;  ; llc: vaesdeclast %ymm1, %ymm0, %ymm0 / retq
+llvm.x86.aesni.aesdeclast.512 ; <8 x i64>(<8 x i64>, <8 x i64>) ; vaes,avx512f ; entry ; vaesdeclast {o0}, {o1}, {o2} ; z z z ; o0=a1 o1=a0 o2=d ;  ; llc: vaesdeclast %zmm1, %zmm0, %zmm0 / retq
 llvm.x86.aesni.aesenc ; <2 x i64>(<2 x i64>, <2 x i64>) ; aes ; entry ; aesenc {o0}, {o1} ; x x ; o0=a1 o1=d ; tied=a0 ; llc: aesenc %xmm1, %xmm0 / retq
-llvm.x86.aesni.aesenc.256 ; <4 x i64>(<4 x i64>, <4 x i64>) ; vaes ; skip ; no 02-xed.ll entry is written so ; llc: vaesenc %ymm1, %ymm0, %ymm0 / retq
-llvm.x86.aesni.aesenc.512 ; <8 x i64>(<8 x i64>, <8 x i64>) ; vaes,avx512f ; skip ; no 02-xed.ll entry is written so ; llc: vaesenc %zmm1, %zmm0, %zmm0 / retq
+llvm.x86.aesni.aesenc.256 ; <4 x i64>(<4 x i64>, <4 x i64>) ; vaes ; entry ; vaesenc {o0}, {o1}, {o2} ; ye ye ye ; o0=a1 o1=a0 o2=d ;  ; llc: vaesenc %ymm1, %ymm0, %ymm0 / retq
+llvm.x86.aesni.aesenc.512 ; <8 x i64>(<8 x i64>, <8 x i64>) ; vaes,avx512f ; entry ; vaesenc {o0}, {o1}, {o2} ; z z z ; o0=a1 o1=a0 o2=d ;  ; llc: vaesenc %zmm1, %zmm0, %zmm0 / retq
 llvm.x86.aesni.aesenclast ; <2 x i64>(<2 x i64>, <2 x i64>) ; aes ; entry ; aesenclast {o0}, {o1} ; x x ; o0=a1 o1=d ; tied=a0 ; llc: aesenclast %xmm1, %xmm0 / retq
-llvm.x86.aesni.aesenclast.256 ; <4 x i64>(<4 x i64>, <4 x i64>) ; vaes ; skip ; no 02-xed.ll entry is written so ; llc: vaesenclast %ymm1, %ymm0, %ymm0 / retq
-llvm.x86.aesni.aesenclast.512 ; <8 x i64>(<8 x i64>, <8 x i64>) ; vaes,avx512f ; skip ; no 02-xed.ll entry is written so ; llc: vaesenclast %zmm1, %zmm0, %zmm0 / retq
+llvm.x86.aesni.aesenclast.256 ; <4 x i64>(<4 x i64>, <4 x i64>) ; vaes ; entry ; vaesenclast {o0}, {o1}, {o2} ; ye ye ye ; o0=a1 o1=a0 o2=d ;  ; llc: vaesenclast %ymm1, %ymm0, %ymm0 / retq
+llvm.x86.aesni.aesenclast.512 ; <8 x i64>(<8 x i64>, <8 x i64>) ; vaes,avx512f ; entry ; vaesenclast {o0}, {o1}, {o2} ; z z z ; o0=a1 o1=a0 o2=d ;  ; llc: vaesenclast %zmm1, %zmm0, %zmm0 / retq
 llvm.x86.aesni.aesimc ; <2 x i64>(<2 x i64>) ; aes ; entry ; aesimc {o0}, {o1} ; x x ; o0=a0 o1=d ;  ; llc: aesimc %xmm0, %xmm0 / retq
 llvm.x86.aesni.aeskeygenassist ; <2 x i64>(<2 x i64>, i8 imm) ; aes ; entry ; aeskeygenassist ${c}, {o0}, {o1} ; x x ; c=a1 o0=a0 o1=d ;  ; llc: aeskeygenassist $4, %xmm0, %xmm0 / retq
 llvm.x86.avx.cmp.pd.256 ; <4 x double>(<4 x double>, <4 x double>, i8 imm) ; avx ; entry ; vcmppd ${c}, {o0}, {o1}, {o2} ; y y y ; c=a2 o0=a1 o1=a0 o2=d ;  ; llc: vcmpneqpd %ymm1, %ymm0, %ymm0 / retq
@@ -836,8 +836,8 @@ llvm.x86.movrshi ; i16(ptr) ; movrs ; skip ; mnemonic not in 02-xed.ll ; llc: mo
 llvm.x86.movrsqi ; i8(ptr) ; movrs ; skip ; mnemonic not in 02-xed.ll ; llc: movrsb (%rdi), %al / retq
 llvm.x86.movrssi ; i32(ptr) ; movrs ; skip ; mnemonic not in 02-xed.ll ; llc: movrsl (%rdi), %eax / retq
 llvm.x86.pclmulqdq ; <2 x i64>(<2 x i64>, <2 x i64>, i8 imm) ; pclmul ; entry ; pclmulqdq ${c}, {o0}, {o1} ; x x ; c=a2 o0=a1 o1=d ; tied=a0 ; llc: pclmulqdq $0, %xmm1, %xmm0 / retq
-llvm.x86.pclmulqdq.256 ; <4 x i64>(<4 x i64>, <4 x i64>, i8 imm) ; vpclmulqdq ; skip ; no 02-xed.ll entry is written so ; llc: vpclmulqdq $0, %ymm1, %ymm0, %ymm0 / retq
-llvm.x86.pclmulqdq.512 ; <8 x i64>(<8 x i64>, <8 x i64>, i8 imm) ; vpclmulqdq,avx512f ; skip ; no 02-xed.ll entry is written so ; llc: vpclmulqdq $0, %zmm1, %zmm0, %zmm0 / retq
+llvm.x86.pclmulqdq.256 ; <4 x i64>(<4 x i64>, <4 x i64>, i8 imm) ; vpclmulqdq ; entry ; vpclmulqdq ${c}, {o0}, {o1}, {o2} ; ye ye ye ; c=a2 o0=a1 o1=a0 o2=d ;  ; llc: vpclmulqdq $0, %ymm1, %ymm0, %ymm0 / retq
+llvm.x86.pclmulqdq.512 ; <8 x i64>(<8 x i64>, <8 x i64>, i8 imm) ; vpclmulqdq,avx512f ; entry ; vpclmulqdq ${c}, {o0}, {o1}, {o2} ; z z z ; c=a2 o0=a1 o1=a0 o2=d ;  ; llc: vpclmulqdq $0, %zmm1, %zmm0, %zmm0 / retq
 llvm.x86.prefetchrs ; void(ptr) ; movrs ; skip ; mnemonic not in 02-xed.ll ; llc: prefetchrst2 (%rdi) / retq
 llvm.x86.rdrand.16 ; { i16, i32 }() ; rdrnd ; skip ; types ; llc: rdrandw %ax / movzwl %ax, %eax / movl $1, %edx / cmovael %eax, %edx / retq
 llvm.x86.rdrand.32 ; { i32, i32 }() ; rdrnd ; skip ; types ; llc: rdrandl %eax / movl $1, %edx / cmovael %eax, %edx / retq
@@ -958,10 +958,10 @@ llvm.x86.sse42.pcmpistrio128 ; i32(<16 x i8>, <16 x i8>, i8 imm) ; sse4.2 ; skip
 llvm.x86.sse42.pcmpistris128 ; i32(<16 x i8>, <16 x i8>, i8 imm) ; sse4.2 ; skip ; 3 instructions ; llc: xorl %eax, %eax / pcmpistri $4, %xmm1, %xmm0 / sets %al / retq
 llvm.x86.sse42.pcmpistriz128 ; i32(<16 x i8>, <16 x i8>, i8 imm) ; sse4.2 ; skip ; 3 instructions ; llc: xorl %eax, %eax / pcmpistri $4, %xmm1, %xmm0 / sete %al / retq
 llvm.x86.sse42.pcmpistrm128 ; <16 x i8>(<16 x i8>, <16 x i8>, i8 imm) ; sse4.2 ; entry ; pcmpistrm ${c}, {o0}, {o1} ; x x ; c=a2 o0=a1 o1=a0 ; fixed=d:xmm0 ; llc: pcmpistrm $4, %xmm1, %xmm0 / retq
-llvm.x86.sse4a.extrq ; <2 x i64>(<2 x i64>, <16 x i8>) ; sse4a ; skip ; mnemonic not in 02-xed.ll ; llc: extrq %xmm1, %xmm0 / retq
-llvm.x86.sse4a.extrqi ; <2 x i64>(<2 x i64>, i8 imm, i8 imm) ; sse4a ; skip ; mnemonic not in 02-xed.ll ; llc: extrq $4, $4, %xmm0 / retq
-llvm.x86.sse4a.insertq ; <2 x i64>(<2 x i64>, <2 x i64>) ; sse4a ; skip ; mnemonic not in 02-xed.ll ; llc: insertq %xmm1, %xmm0 / retq
-llvm.x86.sse4a.insertqi ; <2 x i64>(<2 x i64>, <2 x i64>, i8 imm, i8 imm) ; sse4a ; skip ; mnemonic not in 02-xed.ll ; llc: insertq $4, $4, %xmm1, %xmm0 / retq
+llvm.x86.sse4a.extrq ; <2 x i64>(<2 x i64>, <16 x i8>) ; sse4a ; skip ; arguments the instruction does not take: 0 ; llc: extrq %xmm1, %xmm0 / retq
+llvm.x86.sse4a.extrqi ; <2 x i64>(<2 x i64>, i8 imm, i8 imm) ; sse4a ; skip ; arguments the instruction does not take: 0 ; llc: extrq $4, $4, %xmm0 / retq
+llvm.x86.sse4a.insertq ; <2 x i64>(<2 x i64>, <2 x i64>) ; sse4a ; skip ; arguments the instruction does not take: 0 ; llc: insertq %xmm1, %xmm0 / retq
+llvm.x86.sse4a.insertqi ; <2 x i64>(<2 x i64>, <2 x i64>, i8 imm, i8 imm) ; sse4a ; skip ; arguments the instruction does not take: 0 ; llc: insertq $4, $4, %xmm1, %xmm0 / retq
 llvm.x86.ssse3.pmadd.ub.sw.128 ; <8 x i16>(<16 x i8>, <16 x i8>) ; ssse3 ; entry ; pmaddubsw {o0}, {o1} ; x x ; o0=a1 o1=d ; tied=a0 ; llc: pmaddubsw %xmm1, %xmm0 / retq
 llvm.x86.ssse3.pmul.hr.sw.128 ; <8 x i16>(<8 x i16>, <8 x i16>) ; ssse3 ; entry ; pmulhrsw {o0}, {o1} ; x x ; o0=a1 o1=d ; tied=a0 ; llc: pmulhrsw %xmm1, %xmm0 / retq
 llvm.x86.ssse3.pshuf.b.128 ; <16 x i8>(<16 x i8>, <16 x i8>) ; ssse3 ; entry ; pshufb {o0}, {o1} ; x x ; o0=a1 o1=d ; tied=a0 ; llc: pshufb %xmm1, %xmm0 / retq
@@ -1044,15 +1044,15 @@ llvm.x86.vcvtneps2bf16128 ; <8 x bfloat>(<4 x float>) ; avxneconvert ; entry ; v
 llvm.x86.vcvtneps2bf16256 ; <8 x bfloat>(<8 x float>) ; avxneconvert ; entry ; vcvtneps2bf16 {o0}, {o1} ; ye xe ; o0=a0 o1=d ;  ; llc: {vex} vcvtneps2bf16 %ymm0, %xmm0 / vzeroupper / retq
 llvm.x86.vcvtps2ph.128 ; <8 x i16>(<4 x float>, i32 imm) ; f16c ; entry ; vcvtps2ph ${c}, {o0}, {o1} ; xe xe ; c=a1 o0=a0 o1=d ;  ; llc: vcvtps2ph $4, %xmm0, %xmm0 / retq
 llvm.x86.vcvtps2ph.256 ; <8 x i16>(<8 x float>, i32 imm) ; f16c ; entry ; vcvtps2ph ${c}, {o0}, {o1} ; ye xe ; c=a1 o0=a0 o1=d ;  ; llc: vcvtps2ph $4, %ymm0, %xmm0 / vzeroupper / retq
-llvm.x86.vgf2p8affineinvqb.128 ; <16 x i8>(<16 x i8>, <16 x i8>, i8 imm) ; gfni ; skip ; mnemonic not in 02-xed.ll ; llc: gf2p8affineinvqb $4, %xmm1, %xmm0 / retq
-llvm.x86.vgf2p8affineinvqb.256 ; <32 x i8>(<32 x i8>, <32 x i8>, i8 imm) ; gfni,avx ; skip ; mnemonic not in 02-xed.ll ; llc: vgf2p8affineinvqb $4, %ymm1, %ymm0, %ymm0 / retq
-llvm.x86.vgf2p8affineinvqb.512 ; <64 x i8>(<64 x i8>, <64 x i8>, i8 imm) ; gfni,avx512f ; skip ; mnemonic not in 02-xed.ll ; llc: vgf2p8affineinvqb $4, %zmm1, %zmm0, %zmm0 / retq
-llvm.x86.vgf2p8affineqb.128 ; <16 x i8>(<16 x i8>, <16 x i8>, i8 imm) ; gfni ; skip ; mnemonic not in 02-xed.ll ; llc: gf2p8affineqb $4, %xmm1, %xmm0 / retq
-llvm.x86.vgf2p8affineqb.256 ; <32 x i8>(<32 x i8>, <32 x i8>, i8 imm) ; gfni,avx ; skip ; mnemonic not in 02-xed.ll ; llc: vgf2p8affineqb $4, %ymm1, %ymm0, %ymm0 / retq
-llvm.x86.vgf2p8affineqb.512 ; <64 x i8>(<64 x i8>, <64 x i8>, i8 imm) ; gfni,avx512f ; skip ; mnemonic not in 02-xed.ll ; llc: vgf2p8affineqb $4, %zmm1, %zmm0, %zmm0 / retq
-llvm.x86.vgf2p8mulb.128 ; <16 x i8>(<16 x i8>, <16 x i8>) ; gfni ; skip ; mnemonic not in 02-xed.ll ; llc: gf2p8mulb %xmm1, %xmm0 / retq
-llvm.x86.vgf2p8mulb.256 ; <32 x i8>(<32 x i8>, <32 x i8>) ; gfni,avx ; skip ; mnemonic not in 02-xed.ll ; llc: vgf2p8mulb %ymm1, %ymm0, %ymm0 / retq
-llvm.x86.vgf2p8mulb.512 ; <64 x i8>(<64 x i8>, <64 x i8>) ; gfni,avx512f ; skip ; mnemonic not in 02-xed.ll ; llc: vgf2p8mulb %zmm1, %zmm0, %zmm0 / retq
+llvm.x86.vgf2p8affineinvqb.128 ; <16 x i8>(<16 x i8>, <16 x i8>, i8 imm) ; gfni ; entry ; gf2p8affineinvqb ${c}, {o0}, {o1} ; x x ; c=a2 o0=a1 o1=d ; tied=a0 ; llc: gf2p8affineinvqb $4, %xmm1, %xmm0 / retq
+llvm.x86.vgf2p8affineinvqb.256 ; <32 x i8>(<32 x i8>, <32 x i8>, i8 imm) ; gfni,avx ; entry ; vgf2p8affineinvqb ${c}, {o0}, {o1}, {o2} ; y y y ; c=a2 o0=a1 o1=a0 o2=d ;  ; llc: vgf2p8affineinvqb $4, %ymm1, %ymm0, %ymm0 / retq
+llvm.x86.vgf2p8affineinvqb.512 ; <64 x i8>(<64 x i8>, <64 x i8>, i8 imm) ; gfni,avx512f ; skip ; no 02-xed.ll entry is written so ; llc: vgf2p8affineinvqb $4, %zmm1, %zmm0, %zmm0 / retq
+llvm.x86.vgf2p8affineqb.128 ; <16 x i8>(<16 x i8>, <16 x i8>, i8 imm) ; gfni ; entry ; gf2p8affineqb ${c}, {o0}, {o1} ; x x ; c=a2 o0=a1 o1=d ; tied=a0 ; llc: gf2p8affineqb $4, %xmm1, %xmm0 / retq
+llvm.x86.vgf2p8affineqb.256 ; <32 x i8>(<32 x i8>, <32 x i8>, i8 imm) ; gfni,avx ; entry ; vgf2p8affineqb ${c}, {o0}, {o1}, {o2} ; y y y ; c=a2 o0=a1 o1=a0 o2=d ;  ; llc: vgf2p8affineqb $4, %ymm1, %ymm0, %ymm0 / retq
+llvm.x86.vgf2p8affineqb.512 ; <64 x i8>(<64 x i8>, <64 x i8>, i8 imm) ; gfni,avx512f ; skip ; no 02-xed.ll entry is written so ; llc: vgf2p8affineqb $4, %zmm1, %zmm0, %zmm0 / retq
+llvm.x86.vgf2p8mulb.128 ; <16 x i8>(<16 x i8>, <16 x i8>) ; gfni ; entry ; gf2p8mulb {o0}, {o1} ; x x ; o0=a1 o1=d ; tied=a0 ; llc: gf2p8mulb %xmm1, %xmm0 / retq
+llvm.x86.vgf2p8mulb.256 ; <32 x i8>(<32 x i8>, <32 x i8>) ; gfni,avx ; entry ; vgf2p8mulb {o0}, {o1}, {o2} ; y y y ; o0=a1 o1=a0 o2=d ;  ; llc: vgf2p8mulb %ymm1, %ymm0, %ymm0 / retq
+llvm.x86.vgf2p8mulb.512 ; <64 x i8>(<64 x i8>, <64 x i8>) ; gfni,avx512f ; skip ; no 02-xed.ll entry is written so ; llc: vgf2p8mulb %zmm1, %zmm0, %zmm0 / retq
 llvm.x86.vsha512msg1 ; <4 x i64>(<4 x i64>, <2 x i64>) ; sha512,avx ; entry ; vsha512msg1 {o0}, {o1} ; x y ; o0=a1 o1=d ; tied=a0 ; llc: vsha512msg1 %xmm1, %ymm0 / retq
 llvm.x86.vsha512msg2 ; <4 x i64>(<4 x i64>, <4 x i64>) ; sha512,avx ; entry ; vsha512msg2 {o0}, {o1} ; y y ; o0=a1 o1=d ; tied=a0 ; llc: vsha512msg2 %ymm1, %ymm0 / retq
 llvm.x86.vsha512rnds2 ; <4 x i64>(<4 x i64>, <4 x i64>, <2 x i64>) ; sha512,avx ; entry ; vsha512rnds2 {o0}, {o1}, {o2} ; x y y ; o0=a2 o1=a1 o2=d ; tied=a0 ; llc: vsha512rnds2 %xmm2, %ymm1, %ymm0 / retq

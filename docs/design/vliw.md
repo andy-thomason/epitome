@@ -22,74 +22,90 @@ status labels, see the [index](README.md).
 
 ## 1. Bundles
 
-`!target.bundles` lists the bundle formats, as property pairs:
+`!target.bundles` lists the bundle formats, as property pairs
+(`codegen/src/bundle.rs`):
 
 ```llvm
-!target.bundles = !{!1300}
-!1300 = !{!"name", !"b", !"bytes", !"16",
-          !"header", !"template:5",
-          !"slot", !"0", !"5", !"41", !"M",
-          !"slot", !"1", !"46", !"41", !"M,I",
-          !"slot", !"2", !"87", !"41", !"I,B"}
+!target.bundles = !{!20}
+!20 = !{!"name", !"toy", !"section", !".text.toy", !"bytes", !"8",
+        !"lanes", !"::", !"end", !"last=1",
+        !"field", !"rep", !"0:1", !"field", !"last", !"1:1", !"field", !"len", !"2:3",
+        !"field", !"port", !"5:3 8:3", !"field", !"rot", !"11:1 12:1",
+        !"slot", !"16:16", !"X", !"slot", !"32:16", !"Y", !"slot", !"48:16", !"X,Y",
+        !"prefix", !"{len}:L", !"rep=1 last=1", !"prefix", !"{len}", !"rep=1"}
 ```
 
 | Property | Meaning |
 | --- | --- |
-| `name` | the format's name, used by `"bundle"` on entries and by sections |
-| `bytes` | the bundle's size; bytes after its last field are zero |
-| `header` | an encoding, from bit 0, of the bundle's own fields |
-| `slot` | a slot's number, its lowest bit, its width and the units whose entries may go in it |
-| `fill` | for each unit, the entry put in a slot of that unit that has nothing in it (a `nop`); else zeros |
-| `group` | `last=<operand>`: a bundle is not a fixed word but a run of instructions, the last with that operand set (R600's groups) |
+| `name` | the format's name |
+| `section` | the sections whose code is in bundles of this format, by name; a name ending `*` is a prefix (`.text.b .b.text*`) |
+| `bytes` | the bundle's size; bits no field or slot holds are zero |
+| `field` | a header field, `lsb:width`; several places (`5:3 8:3`) make a family, `port[0]` and `port[1]` |
+| `slot` | a slot, `lsb:width`, and the units whose entries may go in it |
+| `prefix` | a way of writing header fields before a bundle's `{`: a template of fields, and fields it sets besides |
+| `end` | fields the last bundle of a section sets (a program's end) |
+| `lanes` | the text between an instruction line's lanes: `a :: b` is `a` in lane 0 and `b` in lane 1 |
 
-An entry says which units can issue it with `"unit"="M,I"`. An entry with
-no `"unit"` is not part of any bundle; on a machine with bundles it is
-an instruction of a stream that has none (section 6).
+Bits are numbered from bit 0 of byte 0. An entry goes in bundles when it
+has `"unit"` (a list); `"lane"` says which lane it is written in (either,
+when absent). Such an entry is assembled and disassembled only inside a
+bundle, so it may share a mnemonic with an instruction of another stream.
 
-### Header fields
+### Header fields set by operands
 
-A header field is one of three things:
+An entry's `"header"` sets header fields from its operands:
 
-- **A bundle operand**, written in the assembly before the bundle: a
-  repeat count, the end of a program. The header encoding names it, and
-  `"prefix"` gives its template (`{len}:{count}`).
-- **A template**: a field computed from which unit each slot holds
-  (Itanium's 5-bit template). The field's expression may use `unit0`,
-  `unit1`, ... (the index, in the slot's list, of the unit used) and
-  `stop0`, `stop1`, ... (whether a stop follows the slot).
-- **A port**: a register file read through one port per bundle. The
-  header holds the register read; the slots that read the file name only
-  the file. An entry's operand with `"port"="p"` is encoded in the header
-  field `p`, not in the slot, and every slot in the bundle reading the
-  port must read the same register. A port can also carry a mode, such
-  as whether the register is rotating (section 4): `"port-mode"="pm"`.
+```llvm
+"header"="port[s>>4]=s&7; rot[s>>4]=1 if (s>>3)&1"
+```
+
+Each assignment is `field[index]=value`, with an optional `if guard`,
+in the expressions encodings use. Every assignment to a field in a bundle
+must give it the same value, and fields nothing sets are zero. This is how
+a register file read through one port per bundle is described: the
+operand is an enum whose values carry the file, the register and whether
+it is the rotating one; the slot holds only which file
+(`s:1=s>>4`), and the header holds the register. Two slots reading
+different registers of one file in a bundle is an error, as the hardware
+cannot do it.
+
+The disassembler decodes the header and each slot that is not zero, by
+the entries of the slot's units. An operand that the slot holds only
+part of is found from its enum: of the values that encode the same slot,
+the one whose header assignments agree with the header and explain most
+of it.
 
 ### Assembly
 
-A bundle is written between `{` and `}`, one instruction per line or
-separated by `;`, its prefix (if any) before the `{`:
+A bundle is written between `{` and `}`, its prefix (if any) before the
+`{`, one instruction per line, or a line's lanes separated:
 
 ```
-3:7 {
-    add r1 = r2, r3
-    ld8 r4 = [r5]
+3:L {
+    add a1, a2, b3 :: add a3, a2, b3
+    mov a0, bR
 }
 ```
 
-Slots are filled in the order the instructions are written, each going in
-the first free slot whose units include its own. A bundle with no
-instruction for a slot gets the slot's `fill`. The disassembler decodes
-the header, then each slot by the entries of the unit the slot (and the
-template) says it holds, and writes the bundle the same way.
+Each instruction goes in the first free slot of its unit. A bundle's
+prefix is not read as a label (`1:` is one in GNU's syntax). Comments may
+start with any of the description's `asm-comment` markers (`// ;`).
+Names of numbers (`.set n, 4`, `.equ n, 4`) are put in where they are
+used, in prefixes as well as operands.
 
 ### Checking
 
-`--check-target` checks each format: slots inside `bytes` and not
-overlapping the header or each other; every unit in a slot list having
-entries; every entry's encoding the width of its slots; ports naming
-header fields; a `fill` for each unit, or zeros decoding as nothing.
-The encodings check encodes and decodes whole bundles: each entry in each
-slot it can go in, the others filled.
+`--check-target` checks each entry of a bundle in a bundle of its own:
+each sample of its operands, every value of its enums among them, is put
+in its slot, and the bundle must decode as the entry (or as another
+writing the same bundle: an alias, or a register written two ways). The
+assembly check leaves such entries to that.
+
+`tests/bundles.rs` does this for a made-up machine (`tests/bundles/toy.ll`):
+bytes worked out by hand, a port's conflict, and disassembly read back.
+
+Not yet: groups whose last instruction is marked (R600's), and fields
+computed from which units the slots hold (Itanium's templates).
 
 ## 2. Scheduling into bundles
 
@@ -241,11 +257,13 @@ relocation can resolve to a bundle number.
 
 | Item | Status |
 | --- | --- |
-| `!target.bundles`: fixed bundles, header, slots, units, fill | **Planned** |
-| Bundle operands, templates and ports in the header | **Planned** |
-| Assembly and disassembly of bundles | **Planned** |
-| Bundle checks in `--check-target` | **Planned** |
-| Groups (R600) | **Later** |
+| `!target.bundles`: fixed bundles, header fields and families, slots, units, lanes | **Done** |
+| Header fields set by operands (`"header"`), ports | **Done** |
+| Prefixes and the last bundle's fields | **Done** |
+| Assembly and disassembly of bundles | **Done** |
+| Bundle checks in `--check-target` | **Done**: entries in bundles; not yet the format itself (overlaps) |
+| Numeric `.set` and `.equ` | **Done** |
+| Groups (R600), templates (Itanium) | **Later** |
 | `"latency"` and list scheduling into bundles | **Planned** |
 | Repeat loops (`!target.loops`) | **Planned** |
 | Rotating registers and modulo scheduling | **Later** |

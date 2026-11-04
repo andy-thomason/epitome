@@ -130,6 +130,9 @@ pub struct Instr {
     /// It reads or writes memory, or calls: its body loads, stores, calls,
     /// fences or makes an atomic access.
     pub memory: bool,
+    /// Where it goes in bundles, if the machine has them (`bundle.rs`):
+    /// such an entry is written and read only inside a bundle.
+    pub slot: Option<crate::bundle::SlotUse>,
     pub func: GlobalId,
 }
 
@@ -1210,6 +1213,18 @@ impl Target {
                 clobbers_flags: attr(&f.fn_attrs, "clobbers")
                     .flatten()
                     .is_some_and(|c| c.split(',').any(|x| x.trim() == "flags")),
+                slot: match attr(&f.fn_attrs, "unit").flatten() {
+                    None => None,
+                    Some(units) => Some(crate::bundle::SlotUse {
+                        units: units.split(',').map(|u| u.trim().to_string()).collect(),
+                        lane: match attr(&f.fn_attrs, "lane").flatten() {
+                            None => None,
+                            Some(l) => Some(l.parse().map_err(|_| format!("@{name}: \"lane\"={l}: not a number"))?),
+                        },
+                        header: crate::bundle::parse_assigns(attr(&f.fn_attrs, "header").flatten().unwrap_or(""))
+                            .map_err(|e| format!("@{name}: {e}"))?,
+                    }),
+                },
                 func: g,
             });
         }

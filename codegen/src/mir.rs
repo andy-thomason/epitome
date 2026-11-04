@@ -710,7 +710,8 @@ pub fn decode(t: &Target, bytes: &[u8]) -> Option<(usize, Env, usize)> {
     let cands = t.decode_candidates(bytes);
     for (i, alt) in cands {
         let ins = &t.instrs[i];
-        if !ins.decode {
+        // (An entry of a bundle's slot is read only in its bundle.)
+        if !ins.decode || ins.slot.is_some() {
             continue;
         }
         let Some((env, len)) = ins.decode_alt(bytes, alt) else { continue };

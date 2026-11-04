@@ -384,6 +384,10 @@ pub fn disassemble(t: &Target, img: &Image, show_relocs: bool) -> String {
         }
         let _ = writeln!(out, "\nDisassembly of section {}:", s.name);
         let here: Vec<&(u64, usize, String)> = named.iter().filter(|x| x.1 == k).collect();
+        if let Some(f) = t.machine.bundles.iter().find(|f| f.holds(&s.name)) {
+            bundles(t, f, s, &here, &mut out);
+            continue;
+        }
         // Where code and data start, by the mapping symbols.
         let mut mapping: Vec<(u64, bool)> = img
             .symbols
@@ -477,6 +481,151 @@ pub fn disassemble(t: &Target, img: &Image, show_relocs: bool) -> String {
         }
     }
     out
+}
+
+/// A section of bundles of format `f`, each written as the assembler
+/// reads it: its prefix and `{`, an instruction for each slot that is not
+/// zero (`:: ` before one of lane 1), then `}`.
+fn bundles(t: &Target, f: &crate::bundle::Format, s: &ImageSection, here: &[&(u64, usize, String)], out: &mut String) {
+    let size = f.bytes as usize;
+    let count = s.data.len() / size;
+    for b in 0..count {
+        let addr = s.addr + (b * size) as u64;
+        for (_, _, name) in here.iter().filter(|x| x.0 == addr) {
+            let _ = writeln!(out, "\n{addr:016x} <{name}>:");
+        }
+        let bytes = &s.data[b * size..(b + 1) * size];
+        let mut explained: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+        if b + 1 == count {
+            explained.extend(f.end.iter().cloned());
+        }
+        let mut lines = Vec::new();
+        for slot in &f.slots {
+            let word = crate::bundle::get(bytes, slot.lsb, slot.width);
+            if word == 0 {
+                continue;
+            }
+            let wb = word.to_le_bytes();
+            let wb = &wb[..(slot.width / 8) as usize];
+            match decode_slot(t, f, slot, wb, bytes) {
+                Some((i, env, sets)) => {
+                    explained.extend(sets);
+                    let ins = &t.instrs[i];
+                    let text = mir::fill_template(t, None, i, |k| Operand::Imm(env[&ins.operands[k].name]));
+                    let lane = ins.slot.as_ref().and_then(|u| u.lane).unwrap_or(0);
+                    let sep = f.lanes.as_deref().filter(|_| lane == 1).map_or(String::new(), |l| format!("{l} "));
+                    lines.push(format!("{sep}{text}"));
+                }
+                None => {
+                    lines.push(format!("{} .word {word:#x} (slot {})", t.machine.asm_comment, slot.units.join(",")))
+                }
+            }
+        }
+        let prefix = match f.write_prefix(bytes, &explained) {
+            Some(p) if p.is_empty() => String::new(),
+            Some(p) => format!("{p} "),
+            None => format!("{} header not written by any prefix: ", t.machine.asm_comment),
+        };
+        let _ = writeln!(out, "{addr:>8x}: {prefix}{{");
+        for l in lines {
+            let _ = writeln!(out, "\t\t{l}");
+        }
+        let _ = writeln!(out, "\t}}");
+    }
+}
+
+/// The entry in `slot` of a bundle whose bytes are `bundle`, its operands,
+/// and the header fields they explain. Where the slot alone does not give
+/// an operand (a register whose number is in the header), each value of its
+/// enum that encodes the same is tried, and the one whose header fields
+/// agree with the header, and explain most of it, taken.
+pub fn decode_slot(
+    t: &Target,
+    f: &crate::bundle::Format,
+    slot: &crate::bundle::SlotDef,
+    word: &[u8],
+    bundle: &[u8],
+) -> Option<(usize, Env, Vec<(String, i64)>)> {
+    let header = |name: &str| f.field(name).map(|x| crate::bundle::get(bundle, x.lsb, x.width) as i64);
+    for (i, ins) in t.instrs.iter().enumerate() {
+        let Some(u) = &ins.slot else { continue };
+        if !ins.decode || !u.units.iter().any(|x| slot.units.contains(x)) {
+            continue;
+        }
+        let Some((mut env, len)) = ins.decode(word) else { continue };
+        if len != word.len() {
+            continue;
+        }
+        // Each enum operand the header fields depend on.
+        let mut names = Vec::new();
+        for a in &u.header {
+            for e in a.index.iter().chain([&a.value]).chain(a.guard.iter()) {
+                enc::names_in(e, &mut names);
+            }
+        }
+        // The header fields an assignment sets, with those of `only` (when
+        // given) the operand it is worked out from alone.
+        let mentions = |a: &crate::bundle::Assign| {
+            let mut m = Vec::new();
+            for e in a.index.iter().chain([&a.value]).chain(a.guard.iter()) {
+                enc::names_in(e, &mut m);
+            }
+            m
+        };
+        let score_of = |env: &Env, only: Option<&String>| -> Option<(usize, Vec<(String, i64)>)> {
+            let mut sets = Vec::new();
+            for a in &u.header {
+                if let Some(n) = only
+                    && mentions(a).iter().any(|m| m != n && names.contains(m))
+                {
+                    continue;
+                }
+                if let Some((n, v)) = a.eval(env)? {
+                    if header(&n)? != v {
+                        return None;
+                    }
+                    sets.push((n, v));
+                }
+            }
+            Some((sets.len(), sets))
+        };
+        let score = |env: &Env| score_of(env, None);
+        let mut ok = true;
+        for n in &names {
+            let Some(o) = ins.operands.iter().find(|o| &o.name == n) else { continue };
+            let Kind::Enum(e) = o.kind else { continue };
+            let mut best: Option<(usize, i64)> = None;
+            let mut seen = std::collections::HashSet::new();
+            for &(_, v) in &t.machine.enums[e as usize].names {
+                if !seen.insert(v) {
+                    continue;
+                }
+                let mut try_env = env.clone();
+                try_env.insert(n.clone(), v);
+                if ins.encode(&try_env).as_deref() != Some(word) {
+                    continue;
+                }
+                if let Some((k, _)) = score_of(&try_env, Some(n))
+                    && best.is_none_or(|b| k > b.0)
+                {
+                    best = Some((k, v));
+                }
+            }
+            match best {
+                Some((_, v)) => {
+                    env.insert(n.clone(), v);
+                }
+                None => ok = false,
+            }
+        }
+        if !ok {
+            continue;
+        }
+        if let Some((_, sets)) = score(&env) {
+            return Some((i, env, sets));
+        }
+    }
+    None
 }
 
 impl ImageSymbol {

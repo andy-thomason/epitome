@@ -393,6 +393,11 @@ fn encodings(t: &Target) -> Section {
         if ins.enc.is_empty() {
             continue; // A recipe, or a pseudo-instruction.
         }
+        // An entry of a bundle's slot: in a bundle of its own.
+        if let Some(u) = &ins.slot {
+            bundle_samples(t, i, u, &mut s);
+            continue;
+        }
         let (mut fitted, mut encoded) = (0, 0);
         for env in samples(t, i) {
             fitted += 1;
@@ -487,6 +492,111 @@ fn encodings(t: &Target) -> Section {
     s
 }
 
+/// Checks an entry of a bundle's slot: each sample, put alone in a bundle
+/// of a format with a slot for its unit, must decode from the bundle (the
+/// slot, and the header for operands the header holds) as itself, or as an
+/// entry writing it the same.
+fn bundle_samples(t: &Target, i: usize, u: &crate::bundle::SlotUse, s: &mut Section) {
+    let ins = &t.instrs[i];
+    let Some(f) =
+        t.machine.bundles.iter().find(|f| f.slots.iter().any(|x| x.units.iter().any(|n| u.units.contains(n))))
+    else {
+        s.errors.push(format!("{}: no bundle format has a slot for unit {}", ins.name, u.units.join(" or ")));
+        return;
+    };
+    let in_header = u.header_names();
+    let (mut tried, mut placed) = (0, 0);
+    for env in all_samples(t, i) {
+        tried += 1;
+        let Some(word) = ins.encode(&env) else { continue };
+        let mut b = crate::bundle::Builder::new(f);
+        let Some(k) = b.free_slot(&u.units, word.len()) else {
+            s.errors.push(format!("{}: no slot of bundle {} is {} bytes for its unit", ins.name, f.name, word.len()));
+            return;
+        };
+        // (Two operands one port cannot carry: not a sample.)
+        if b.place(k, &word, &u.header, &env).is_err() {
+            continue;
+        }
+        placed += 1;
+        s.checked += 1;
+        let bytes = b.finish();
+        let slot = &f.slots[k];
+        if word.iter().all(|&x| x == 0) {
+            continue; // An empty slot: nothing to read back.
+        }
+        let decoded = crate::objdump::decode_slot(t, f, slot, &word, &bytes);
+        // Read as another way of writing the same bundle (an alias, or
+        // `$m0` written `$mR` where the file rotates anyway): fine.
+        if let Some((j, back, _)) = &decoded
+            && let Some(again) = t.instrs[*j].encode(back)
+            && again == word
+        {
+            let mut b2 = crate::bundle::Builder::new(f);
+            let u2 = t.instrs[*j].slot.as_ref().expect("decoded from a slot");
+            if b2.place(k, &again, &u2.header, back).is_ok() && b2.finish() == bytes {
+                continue;
+            }
+        }
+        match decoded {
+            None => {
+                s.errors.push(format!("{}: {} in a bundle does not decode", ins.name, hex(&word)));
+                return;
+            }
+            Some((j, back, _)) if j == i => {
+                if let Some(o) = ins.operands.iter().find(|o| back.get(&o.name) != env.get(&o.name)) {
+                    s.errors.push(format!(
+                        "{}: operand {} = {} in a bundle decodes as {:?}{}",
+                        ins.name,
+                        o.name,
+                        env[&o.name],
+                        back.get(&o.name),
+                        if in_header.contains(&o.name) { " (with the header)" } else { "" }
+                    ));
+                    return;
+                }
+            }
+            Some((j, back, _)) => {
+                let text = |k: usize, e: &Env| {
+                    mir::fill_template(t, None, k, |x| Operand::Imm(e[&t.instrs[k].operands[x].name]))
+                };
+                if text(i, &env) != text(j, &back) {
+                    s.errors.push(format!(
+                        "{}: `{}` in a bundle decodes as {}, `{}`",
+                        ins.name,
+                        text(i, &env),
+                        t.instrs[j].name,
+                        text(j, &back)
+                    ));
+                    return;
+                }
+            }
+        }
+    }
+    if tried > 0 && placed == 0 {
+        s.errors.push(format!("{}: none of its samples go in a bundle", ins.name));
+    }
+}
+
+/// Samples of entry `i`, with each value of its enum operands at least once
+/// (for entries of bundles, whose enums are what the header depends on).
+fn all_samples(t: &Target, i: usize) -> Vec<Env> {
+    let ins = &t.instrs[i];
+    let mut out: Vec<Env> = samples(t, i).collect();
+    let Some(base) = out.first().cloned() else { return out };
+    for o in &ins.operands {
+        let Kind::Enum(e) = o.kind else { continue };
+        for &(_, v) in &t.machine.enums[e as usize].names {
+            let mut env = base.clone();
+            env.insert(o.name.clone(), v);
+            if ins.encode(&env).is_some() {
+                out.push(env);
+            }
+        }
+    }
+    out
+}
+
 /// An encoding, for messages: a word as a word, other lengths as bytes.
 fn hex(b: &[u8]) -> String {
     match b.len() {
@@ -533,7 +643,9 @@ fn assembly(t: &Target) -> Section {
             if ins.format.is_some_and(|f| f != abi.syntax) {
                 continue;
             }
-            if ins.enc.is_empty() || ins.asm.is_empty() {
+            // (Entries of bundles are read only in bundles: the encodings
+            // check reads them back there.)
+            if ins.enc.is_empty() || ins.asm.is_empty() || ins.slot.is_some() {
                 continue;
             }
             // Each operand with bits of its own is written, or assembly

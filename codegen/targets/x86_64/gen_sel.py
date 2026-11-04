@@ -1557,6 +1557,68 @@ def vector_copies():
           ['ret i64 %n'], ' "copy"="k" "dclass"="k"')
 
 
+def intrinsics():
+    """x86's own intrinsics (llvm.x86.*) that are one instruction of
+    02-xed.ll's, as discover_intrinsics.py found them (intrinsics.txt): the
+    body calls the intrinsic, and the instruction's operands are its
+    arguments and result; the features are those Rust's core::arch asks
+    for it."""
+    import re
+    sel = {'x': 'xv', 'xe': 'xv', 'y': 'yv', 'ye': 'yv', 'z': 'zv'}
+    declared = set(re.findall(r'declare [^@]*@([\w.]+)\(', ''.join(out)))
+
+    def split_top(s):
+        parts, depth, cur = [], 0, ''
+        for ch in s:
+            depth += ch in '<{('
+            depth -= ch in '>})'
+            if ch == ',' and depth == 0:
+                parts.append(cur.strip())
+                cur = ''
+            else:
+                cur += ch
+        return parts + ([cur.strip()] if cur.strip() else [])
+    for line in open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'intrinsics.txt')):
+        f = line.rstrip('\n').split(' ; ')
+        if line.startswith('#') or len(f) < 9 or f[3] != 'entry' or f[0] in declared:
+            continue
+        name, sig, feats, _, asm, classes, operands, extra = f[:8]
+        ret, args = sig[:-1].split('(', 1)
+        args = split_top(args)
+        enc, _ = xed(asm, classes.split())
+        names = dict(o.split('=') for o in operands.split())
+        extra = extra.split()
+        tied = next((e[5:] for e in extra if e.startswith('tied=')), None)
+        # The class of each register operand, by its name in the template.
+        regs = re.findall(r'\{(o\d+)\}', asm)
+        cls = dict(zip(regs, classes.split()))
+        of = {v: k for k, v in names.items()}
+        params, call = [], []
+        for k, a in enumerate(args):
+            ty, imm = (a[:-4], True) if a.endswith(' imm') else (a, False)
+            call.append(f'{ty} %a{k}')
+            if imm:
+                params.append(f'{ty} "imm" %a{k}')
+            elif of.get(f'a{k}') == 'm.base':
+                params.append(f'{ty} "reg"="r64" %a{k}')
+            else:
+                o = of.get(f'a{k}') or of['d']
+                params.append(f'{ty} "reg"="{sel.get(cls[o], cls[o])}"' + (' "tied"' if tied == f'a{k}' else '') + f' %a{k}')
+        attrs = (f' "dclass"="{sel.get(cls[of["d"]], cls[of["d"]])}"' if 'd' in of else '') + f' "feature"="{feats}"'
+        attrs += FLAGS if 'flags' in extra else ''
+        template = asm.replace('{m.disp}({m.base})', '0({m.base})')
+        for o, v in names.items():
+            template = template.replace('${' + o + '}', '${' + v + '}').replace('{' + o + '}', '{' + v + '}')
+        if ret == 'void':
+            body = [f'call void @{name}({", ".join(call)})', 'ret void']
+        else:
+            body = [f'%r = call {ret} @{name}({", ".join(call)})', f'ret {ret} %r']
+        entry(ret, 'X86.' + name[len('llvm.x86.'):], params, renamed(enc, names), template, body, attrs)
+        types = ', '.join(a.removesuffix(' imm') for a in args)
+        out.append(f'declare {ret} @{name}({types})\n')
+        declared.add(name)
+
+
 def main():
     out.append("""; x86-64's integer instructions for selection. Written by gen_sel.py; do
 ; not edit. The conventions are those of codegen/targets/aarch64/00-base.ll,
@@ -1584,6 +1646,7 @@ def main():
     more_compares()
     float_minmax()
     vector_copies()
+    intrinsics()
     sys.stdout.write('\n'.join(out))
 
 

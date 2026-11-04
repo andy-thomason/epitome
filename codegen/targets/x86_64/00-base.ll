@@ -255,7 +255,9 @@
 !1192 = !{!"g", !"class", !"z"}
 
 !target.cpus = !{!1150}
-!1150 = !{!"x86-64"}
+; x86-64 itself has SSE and SSE2, by LLVM's names (which rustc and clang write
+; in "target-features", with those they imply).
+!1150 = !{!"x86-64", !"sse", !"sse2"}
 
 ; No-ops to pad code with, by length, as llvm-mc pads: nop, and nopw and nopl
 ; of a memory operand with prefixes.

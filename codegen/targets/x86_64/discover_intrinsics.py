@@ -305,6 +305,12 @@ def xed_forms(xed_dir):
 # (beyond the flags, which it says).
 IGNORED = {'XED_REG_MXCSR', 'XED_REG_XCR0', 'XED_REG_TSC', 'XED_REG_TSCAUX'}
 FLAGS = {'XED_REG_RFLAGS', 'XED_REG_EFLAGS', 'rFLAGS()', 'XED_REG_FLAGS'}
+# The registers instructions take unnamed that the description has a class
+# of their own for.
+FIXED = {**{n: (('r', 0), 'rax') for n in ('RAX', 'EAX', 'AX', 'AL')},
+         **{n: (('r', 1), 'rcx') for n in ('RCX', 'ECX', 'CX', 'CL')},
+         **{n: (('r', 2), 'rdx') for n in ('RDX', 'EDX', 'DX', 'DL')},
+         'XMM0': (('v', 0), 'xmm0')}
 CLASSES = {'x': ('x', 'xe'), 'y': ('y', 'ye'), 'z': ('z',), 'r64': ('r64',), 'r32': ('r32',), 'r16': ('r16',),
            'r8': ('r8',), 'k': ('k',)}
 
@@ -319,24 +325,28 @@ def match(code, ret, args, consts, entries, forms):
     body = [c for c in code if c != 'retq']
     if any(c != 'vzeroupper' for c in body):
         body = [c for c in body if c != 'vzeroupper']
-    # Masks come in integer registers, moved to mask registers first (and
-    # are then where their argument is), and go back so.
-    alias = {}
-    while len(body) > 1:
-        mn, ops = operands(body[0])
-        if not (re.fullmatch(r'kmov[bwdq]', mn) and reg(ops[0]) and reg(ops[1]) and reg(ops[1])[0] == 'k'):
-            break
-        alias[reg(ops[1])[:2]] = reg(ops[0])[:2]
+    # What each register holds: the arguments, where they come, then as
+    # moves before the instruction leave them (masks moved from integer
+    # registers to mask registers, arguments to the registers an
+    # instruction takes fixed).
+    holds = {loc: k for k, loc in where.items()}
+
+    def move(text):
+        mn, ops = operands(text)
+        if re.fullmatch(r'v?mov(aps|apd|ups|dqa|dqa64|dqu|q|d|l)|kmov[bwdq]', mn) and len(ops) == 2 \
+                and reg(ops[0]) and reg(ops[1]):
+            return reg(ops[0]), reg(ops[1])
+        return None
+    while len(body) > 1 and move(body[0]):
+        src, dst = move(body[0])
+        holds[dst[:2]] = holds.get(src[:2])
         body = body[1:]
-    at = lambda r: alias.get(r[:2], r[:2])
+    arg_in = lambda r: holds.get(r[:2])
     # The result moved to where it is returned.
     moved = None
-    if len(body) == 2 and res:
-        mn, ops = operands(body[1])
-        if re.fullmatch(r'v?mov(aps|apd|ups|dqa|dqa64|dqu|q|d|l)|kmov[bwdq]', mn) and len(ops) == 2 and reg(ops[1]) \
-                and reg(ops[1])[:2] == res and reg(ops[0]):
-            moved = reg(ops[0])
-            body = body[:1]
+    if len(body) == 2 and res and move(body[1]) and move(body[1])[1][:2] == res:
+        moved = move(body[1])[0]
+        body = body[:1]
     if len(body) != 1:
         return 'skip', f'{len(body)} instructions'
     mn, ops = operands(body[0].removeprefix('{vex} '))
@@ -386,7 +396,12 @@ def match(code, ret, args, consts, entries, forms):
         expl, impl = forms[n]
         if name.endswith(('_u', '_merge', '_zero')):
             expl = [(v, a) for v, a in expl if 'MASK' not in v]
-        if len(expl) != len(tops):
+        # (A fixed register written in the template, %xmm0 or %cl, is one
+        # it takes unnamed, whether XED shows it or not.)
+        impl = impl + [(v, a) for v, a in expl if v.startswith('XED_REG_')]
+        expl = [(v, a) for v, a in expl if not v.startswith('XED_REG_')]
+        tpieces = [t for t in tpieces if not t[0].startswith('%')]
+        if len(expl) != len(tpieces):
             return 'skip', f'{name}: XED operands'
         access = list(reversed([a for _, a in expl]))
         # (Merging: what the mask leaves is the destination's.)
@@ -394,16 +409,37 @@ def match(code, ret, args, consts, entries, forms):
             access[-1] = 'rw'
         main = [t[0] for t in tpieces]
         extra = []
+        used = set()
+        # The registers it takes unnamed: an argument's, the result's, or
+        # changed.
+        implicit_result = None
+        clobbers = []
         for r, a in impl:
+            fixed = FIXED.get(r.removeprefix('XED_REG_'))
             if r in FLAGS or 'FLAGS' in r:
                 if 'w' in a:
                     extra.append('flags')
+            elif fixed:
+                loc, cls = fixed
+                if 'r' in a:
+                    if arg_in(loc) is None:
+                        return 'skip', f'{name}: reads {r}, which no argument is in'
+                    extra.append(f'fixed=a{arg_in(loc)}:{cls}')
+                    used.add(arg_in(loc))
+                if 'w' in a:
+                    named_result = main and main[-1].startswith('{o') and 'w' in access[-1]
+                    if res and not named_result and loc == (moved[:2] if moved else res):
+                        implicit_result = cls
+                    else:
+                        clobbers.append('%' + cls)
             elif r not in IGNORED:
                 return 'skip', f'{name}: uses {r} unnamed'
         mapping = {}
         dst = None
-        if res:
-            last = main[-1]
+        if res and implicit_result:
+            extra.append(f'fixed=d:{implicit_result}')
+        elif res:
+            last = main[-1] if main else ''
             if not (last.startswith('{o') and 'w' in access[-1]):
                 return 'skip', f'{name}: no register result'
             dst = last[1:-1]
@@ -412,12 +448,12 @@ def match(code, ret, args, consts, entries, forms):
                 return 'skip', f'{name}: result elsewhere'
             mapping[dst] = 'd'
             if 'r' in access[-1]:
-                tied = [k for k, w in where.items() if w == at(r)]
-                if len(tied) != 1:
+                if arg_in(r) is None:
                     return 'skip', f'{name}: written over no argument'
-                extra.insert(0, f'tied=a{tied[0]}')
+                extra.insert(0, f'tied=a{arg_in(r)}')
+        if clobbers:
+            extra.append('clobbers=' + ','.join(clobbers))
         imms = iter(const_args)
-        used = set()
         for t, r in names.items():
             if t == dst:
                 continue
@@ -430,11 +466,11 @@ def match(code, ret, args, consts, entries, forms):
                 mapping[t] = f'a{k}'
                 used.add(k)
             else:
-                k = [k for k, w in where.items() if w == at(r)]
-                if len(k) != 1:
+                k = arg_in(r)
+                if k is None:
                     return 'skip', f'{name}: an operand no argument is in'
-                mapping[t] = f'a{k[0]}'
-                used.add(k[0])
+                mapping[t] = f'a{k}'
+                used.add(k)
                 if '{' + t + '}' in main and 'w' in access[main.index('{' + t + '}')]:
                     return 'skip', f'{name}: writes an argument'
         if res is None and any('w' in a for a, t in zip(access, main) if t.startswith('{o')):

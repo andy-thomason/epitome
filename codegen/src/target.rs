@@ -206,7 +206,16 @@ impl Instr {
 
     fn decode_with(&self, bytes: &[u8], alt: Option<usize>) -> Option<(Env, usize)> {
         let free = self.free();
-        let names: Vec<String> = self.operands.iter().filter(|o| !o.tied).map(|o| o.name.clone()).collect();
+        // (Not a register no field holds: one in a fixed register, as
+        // pcmpistri's result in ecx.)
+        let names: Vec<String> = self
+            .operands
+            .iter()
+            .filter(|o| {
+                !o.tied && (!matches!(o.kind, Kind::Reg(_)) || self.enc.fields().any(|f| f.names.contains(&o.name)))
+            })
+            .map(|o| o.name.clone())
+            .collect();
         let (mut env, len) = match alt {
             Some(k) => {
                 let a = &self.enc.alts[k];

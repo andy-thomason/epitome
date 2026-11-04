@@ -1611,6 +1611,10 @@ def intrinsics():
         names = dict(o.split('=') for o in operands.split())
         extra = extra.split()
         tied = next((e[5:] for e in extra if e.startswith('tied=')), None)
+        # Operands in registers the instruction takes unnamed (eax, xmm0).
+        fixed = dict(e[6:].split(':') for e in extra if e.startswith('fixed='))
+        clobbers = [c for e in extra if e.startswith('clobbers=') for c in e[9:].split(',')]
+        clobbers += ['flags'] if 'flags' in extra else []
         # The class of each register operand, by its name in the template.
         regs = re.findall(r'\{(o\d+)\}', asm)
         cls = dict(zip(regs, classes.split()))
@@ -1621,13 +1625,18 @@ def intrinsics():
             call.append(f'{ty} %a{k}')
             if imm:
                 params.append(f'{ty} "imm" %a{k}')
+            elif f'a{k}' in fixed:
+                params.append(f'{ty} "reg"="{fixed[f"a{k}"]}" %a{k}')
             elif of.get(f'a{k}') == 'm.base':
                 params.append(f'{ty} "reg"="r64" %a{k}')
             else:
                 o = of.get(f'a{k}') or of['d']
                 params.append(f'{ty} "reg"="{sel.get(cls[o], cls[o])}"' + (' "tied"' if tied == f'a{k}' else '') + f' %a{k}')
-        attrs = (f' "dclass"="{sel.get(cls[of["d"]], cls[of["d"]])}"' if 'd' in of else '') + f' "feature"="{feats}"'
-        attrs += FLAGS if 'flags' in extra else ''
+        if 'd' in fixed:
+            attrs = f' "dclass"="{fixed["d"]}"'
+        else:
+            attrs = f' "dclass"="{sel.get(cls[of["d"]], cls[of["d"]])}"' if 'd' in of else ''
+        attrs += f' "feature"="{feats}"' + (f' "clobbers"="{",".join(clobbers)}"' if clobbers else '')
         template = asm.replace('{m.disp}({m.base})', '0({m.base})')
         for o, v in names.items():
             template = template.replace('${' + o + '}', '${' + v + '}').replace('{' + o + '}', '{' + v + '}')

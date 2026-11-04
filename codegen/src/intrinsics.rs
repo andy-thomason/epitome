@@ -52,6 +52,10 @@
 //!   `fesetenv`; traps with a kind (`llvm.debugtrap`, `llvm.ubsantrap`) as
 //!   AArch64's breakpoints; `llvm.ptrauth.blend` and `.resign` as
 //!   arithmetic and the instructions for the others.
+//! - x86's add and subtract with a carry (`llvm.x86.addcarry.64`...) in
+//!   integers of twice the width; its reads of the time-stamp counter and
+//!   of XCR0 (`llvm.x86.rdtsc`, `rdtscp`, `xgetbv`), which give edx:eax,
+//!   as inline assembly joining the halves.
 //! - `llvm.minnum` and `llvm.maxnum` of halves, which are done in single
 //!   precision (`prepare::half_as_int`), where the conversion quiets a
 //!   signalling NaN: NaN where either operand is one, as the half
@@ -172,6 +176,12 @@ fn rewrite(
         "llvm.allow.runtime.check" | "llvm.allow.ubsan.check" => {
             let i1 = cx.m.types.int(1);
             return Some(Done::Value(cx.int(i1, 1)));
+        }
+        n if n.starts_with("llvm.x86.addcarry.") || n.starts_with("llvm.x86.subborrow.") => {
+            return Some(Done::Value(carry(cx, s, n.starts_with("llvm.x86.subborrow."), args, ty?)));
+        }
+        "llvm.x86.rdtsc" | "llvm.x86.rdtscp" | "llvm.x86.xgetbv" => {
+            return Some(Done::Value(edx_eax(cx, s, base, args, ty?)));
         }
         _ => {}
     }
@@ -1367,6 +1377,72 @@ fn lanes(cx: &mut Ctx, s: &mut Seq, name: &str, args: &[Value], ty: TypeId) -> V
         agg = s.op(Op::InsertValue { aggregate: agg, element: v, indices: vec![n as u32].into() }, ty);
     }
     agg
+}
+
+/// x86's add and subtract with a carry in and out (`llvm.x86.addcarry.64`,
+/// `subborrow`: `{ carry, value }` of a carry, as an i8, and two values),
+/// in integers of 128 bits: the carry out is whether anything is left above
+/// the width.
+fn carry(cx: &mut Ctx, s: &mut Seq, sub: bool, args: &[Value], ty: TypeId) -> Value {
+    let (i1, i8t, i128t) = (cx.m.types.int(1), cx.m.types.int(8), cx.m.types.int(128));
+    let ity = cx.value_ty(s.f, args[1]);
+    let zero = cx.int(i8t, 0);
+    let c = s.op(Op::ICmp { pred: ICmpPred::Ne, samesign: false, lhs: args[0], rhs: zero }, i1);
+    let c = s.cast(CastOp::ZExt, c, i128t);
+    let (a, b) = (s.cast(CastOp::ZExt, args[1], i128t), s.cast(CastOp::ZExt, args[2], i128t));
+    let op = if sub { BinOp::Sub } else { BinOp::Add };
+    let t = s.bin(op, a, b, i128t);
+    let t = s.bin(op, t, c, i128t);
+    let r = s.cast(CastOp::Trunc, t, ity);
+    let width = cx.int(i128t, int_bits(cx, ity) as i64);
+    let above = s.bin(BinOp::LShr, t, width, i128t);
+    let none = cx.int(i128t, 0);
+    let out = s.op(Op::ICmp { pred: ICmpPred::Ne, samesign: false, lhs: above, rhs: none }, i1);
+    let out = s.cast(CastOp::ZExt, out, i8t);
+    let undef = Value::Const(cx.m.consts.intern(Constant { ty, kind: ConstKind::Poison }));
+    let agg = s.op(Op::InsertValue { aggregate: undef, element: out, indices: vec![0].into() }, ty);
+    s.op(Op::InsertValue { aggregate: agg, element: r, indices: vec![1].into() }, ty)
+}
+
+/// x86's reads of the time-stamp counter and of an extended control
+/// register (`llvm.x86.rdtsc`, `rdtscp`, `xgetbv`), which give it in
+/// edx:eax: as inline assembly that joins the two halves (and gives
+/// rdtscp's ecx too), so that the counter is read once.
+fn edx_eax(cx: &mut Ctx, s: &mut Seq, base: &str, args: &[Value], ty: TypeId) -> Value {
+    let (op, outs) = match base {
+        "llvm.x86.rdtsc" => ("rdtsc", "={rax}"),
+        "llvm.x86.rdtscp" => ("rdtscp", "={rax},={ecx}"),
+        _ => ("xgetbv", "={rax}"),
+    };
+    let ins = if args.is_empty() { "" } else { ",{ecx}" };
+    let params: Vec<TypeId> = args.iter().map(|&a| cx.value_ty(s.f, a)).collect();
+    let fn_ty = cx.m.types.intern(Type::Function { ret: ty, params, varargs: false });
+    let asm = InlineAsm {
+        fn_ty,
+        side_effect: true,
+        align_stack: false,
+        intel_dialect: false,
+        unwind: false,
+        asm: format!("{op}\n\tshlq $$32, %rdx\n\torq %rdx, %rax").into_bytes(),
+        constraints: format!("{outs}{ins},~{{rdx}},~{{flags}}").into_bytes(),
+    };
+    let ptr = cx.m.types.ptr(0);
+    let callee = Value::Const(cx.m.consts.intern(Constant { ty: ptr, kind: ConstKind::InlineAsm(asm) }));
+    s.op(
+        Op::Call(Box::new(Call {
+            tail: TailKind::None,
+            fmf: FastMath::default(),
+            cconv: CallConv::default(),
+            ret_attrs: vec![],
+            addrspace: None,
+            fn_ty,
+            callee,
+            args: args.iter().map(|&value| CallArg { value, attrs: vec![] }).collect(),
+            fn_attrs: vec![],
+            bundles: vec![],
+        })),
+        ty,
+    )
 }
 
 fn int_bits(cx: &Ctx, ty: TypeId) -> u32 {

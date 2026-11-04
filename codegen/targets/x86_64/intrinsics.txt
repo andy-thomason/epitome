@@ -830,7 +830,7 @@ llvm.x86.fxrstor64 ; void(ptr) ; fxsr ; skip ; X_FXRSTOR64_6933_64_m: XED operan
 llvm.x86.fxsave ; void(ptr) ; fxsr ; skip ; X_FXSAVE_6930_m: uses XED_REG_X87CONTROL unnamed ; llc: fxsave (%rdi) / retq
 llvm.x86.fxsave64 ; void(ptr) ; fxsr ; skip ; X_FXSAVE64_6932_64_m: XED operands ; llc: fxsave64 (%rdi) / retq
 llvm.x86.ldtilecfg ; void(ptr) ; amx-tile ; entry ; ldtilecfg {m.disp}({m.base}) ;  ; m.base=a0 m.disp=0 ;  ; llc: ldtilecfg (%rdi) / retq
-llvm.x86.loadiwkey ; void(<2 x i64>, <2 x i64>, <2 x i64>, i32) ; kl ; skip ; 2 instructions ; llc: movl %edi, %eax / loadiwkey %xmm2, %xmm1 / retq
+llvm.x86.loadiwkey ; void(<2 x i64>, <2 x i64>, <2 x i64>, i32) ; kl ; entry ; loadiwkey {o0}, {o1} ; x x ; o0=a2 o1=a1 ; fixed=a3:rax fixed=a0:xmm0 ; llc: movl %edi, %eax / loadiwkey %xmm2, %xmm1 / retq
 llvm.x86.movrsdi ; i64(ptr) ; movrs ; skip ; mnemonic not in 02-xed.ll ; llc: movrsq (%rdi), %rax / retq
 llvm.x86.movrshi ; i16(ptr) ; movrs ; skip ; mnemonic not in 02-xed.ll ; llc: movrsw (%rdi), %ax / retq
 llvm.x86.movrsqi ; i8(ptr) ; movrs ; skip ; mnemonic not in 02-xed.ll ; llc: movrsb (%rdi), %al / retq
@@ -853,7 +853,7 @@ llvm.x86.sha1nexte ; <4 x i32>(<4 x i32>, <4 x i32>) ; sha ; entry ; sha1nexte {
 llvm.x86.sha1rnds4 ; <4 x i32>(<4 x i32>, <4 x i32>, i8 imm) ; sha ; entry ; sha1rnds4 ${c}, {o0}, {o1} ; x x ; c=a2 o0=a1 o1=d ; tied=a0 ; llc: sha1rnds4 $4, %xmm1, %xmm0 / retq
 llvm.x86.sha256msg1 ; <4 x i32>(<4 x i32>, <4 x i32>) ; sha ; entry ; sha256msg1 {o0}, {o1} ; x x ; o0=a1 o1=d ; tied=a0 ; llc: sha256msg1 %xmm1, %xmm0 / retq
 llvm.x86.sha256msg2 ; <4 x i32>(<4 x i32>, <4 x i32>) ; sha ; entry ; sha256msg2 {o0}, {o1} ; x x ; o0=a1 o1=d ; tied=a0 ; llc: sha256msg2 %xmm1, %xmm0 / retq
-llvm.x86.sha256rnds2 ; <4 x i32>(<4 x i32>, <4 x i32>, <4 x i32>) ; sha ; skip ; 4 instructions ; llc: movaps %xmm0, %xmm3 / movaps %xmm2, %xmm0 / sha256rnds2 %xmm0, %xmm1, %xmm3 / movaps %xmm3, %xmm0 / retq
+llvm.x86.sha256rnds2 ; <4 x i32>(<4 x i32>, <4 x i32>, <4 x i32>) ; sha ; entry ; sha256rnds2 %xmm0, {o0}, {o1} ; x x ; o0=a1 o1=d ; tied=a0 fixed=a2:xmm0 ; llc: movaps %xmm0, %xmm3 / movaps %xmm2, %xmm0 / sha256rnds2 %xmm0, %xmm1, %xmm3 / movaps %xmm3, %xmm0 / retq
 llvm.x86.sse.cmp.ps ; <4 x float>(<4 x float>, <4 x float>, i8 imm) ; avx ; skip ; mnemonic not in 02-xed.ll ; llc: vcmpneqps %xmm1, %xmm0, %xmm0 / retq
 llvm.x86.sse.cmp.ss ; <4 x float>(<4 x float>, <4 x float>, i8 imm) ; avx ; skip ; mnemonic not in 02-xed.ll ; llc: vcmpneqss %xmm1, %xmm0, %xmm0 / retq
 llvm.x86.sse.comieq.ss ; i32(<4 x float>, <4 x float>) ; sse ; skip ; 5 instructions ; llc: comiss %xmm1, %xmm0 / setnp %al / sete %cl / andb %al, %cl / movzbl %cl, %eax / retq
@@ -944,20 +944,20 @@ llvm.x86.sse42.crc32.32.16 ; i32(i32, i16) ; sse4.2 ; skip ; llc: LLVM ERROR: Ca
 llvm.x86.sse42.crc32.32.32 ; i32(i32, i32) ; sse4.2 ; skip ; llc: LLVM ERROR: Cannot select: intrinsic %llvm.x86.sse42.crc32.32.32
 llvm.x86.sse42.crc32.32.8 ; i32(i32, i8) ; sse4.2 ; skip ; llc: LLVM ERROR: Cannot select: intrinsic %llvm.x86.sse42.crc32.32.8
 llvm.x86.sse42.crc32.64.64 ; i64(i64, i64) ; sse4.2 ; skip ; llc: LLVM ERROR: Cannot select: intrinsic %llvm.x86.sse42.crc32.64.64
-llvm.x86.sse42.pcmpestri128 ; i32(<16 x i8>, i32, <16 x i8>, i32, i8 imm) ; sse4.2 ; skip ; 4 instructions ; llc: movl %esi, %edx / movl %edi, %eax / pcmpestri $4, %xmm1, %xmm0 / movl %ecx, %eax / retq
-llvm.x86.sse42.pcmpestria128 ; i32(<16 x i8>, i32, <16 x i8>, i32, i8 imm) ; sse4.2 ; skip ; 6 instructions ; llc: movl %esi, %edx / movl %edi, %eax / xorl %esi, %esi / pcmpestri $4, %xmm1, %xmm0 / seta %sil / movl %esi, %eax / retq
-llvm.x86.sse42.pcmpestric128 ; i32(<16 x i8>, i32, <16 x i8>, i32, i8 imm) ; sse4.2 ; skip ; 6 instructions ; llc: movl %esi, %edx / movl %edi, %eax / xorl %esi, %esi / pcmpestri $4, %xmm1, %xmm0 / setb %sil / movl %esi, %eax / retq
-llvm.x86.sse42.pcmpestrio128 ; i32(<16 x i8>, i32, <16 x i8>, i32, i8 imm) ; sse4.2 ; skip ; 6 instructions ; llc: movl %esi, %edx / movl %edi, %eax / xorl %esi, %esi / pcmpestri $4, %xmm1, %xmm0 / seto %sil / movl %esi, %eax / retq
-llvm.x86.sse42.pcmpestris128 ; i32(<16 x i8>, i32, <16 x i8>, i32, i8 imm) ; sse4.2 ; skip ; 6 instructions ; llc: movl %esi, %edx / movl %edi, %eax / xorl %esi, %esi / pcmpestri $4, %xmm1, %xmm0 / sets %sil / movl %esi, %eax / retq
-llvm.x86.sse42.pcmpestriz128 ; i32(<16 x i8>, i32, <16 x i8>, i32, i8 imm) ; sse4.2 ; skip ; 6 instructions ; llc: movl %esi, %edx / movl %edi, %eax / xorl %esi, %esi / pcmpestri $4, %xmm1, %xmm0 / sete %sil / movl %esi, %eax / retq
-llvm.x86.sse42.pcmpestrm128 ; <16 x i8>(<16 x i8>, i32, <16 x i8>, i32, i8 imm) ; sse4.2 ; skip ; 3 instructions ; llc: movl %esi, %edx / movl %edi, %eax / pcmpestrm $4, %xmm1, %xmm0 / retq
-llvm.x86.sse42.pcmpistri128 ; i32(<16 x i8>, <16 x i8>, i8 imm) ; sse4.2 ; skip ; X_PCMPISTRI_8336: uses XED_REG_ECX unnamed ; llc: pcmpistri $4, %xmm1, %xmm0 / movl %ecx, %eax / retq
+llvm.x86.sse42.pcmpestri128 ; i32(<16 x i8>, i32, <16 x i8>, i32, i8 imm) ; sse4.2 ; entry ; pcmpestri ${c}, {o0}, {o1} ; x x ; c=a4 o0=a2 o1=a0 ; fixed=a1:rax fixed=a3:rdx fixed=d:rcx ; llc: movl %esi, %edx / movl %edi, %eax / pcmpestri $4, %xmm1, %xmm0 / movl %ecx, %eax / retq
+llvm.x86.sse42.pcmpestria128 ; i32(<16 x i8>, i32, <16 x i8>, i32, i8 imm) ; sse4.2 ; skip ; 4 instructions ; llc: movl %esi, %edx / movl %edi, %eax / xorl %esi, %esi / pcmpestri $4, %xmm1, %xmm0 / seta %sil / movl %esi, %eax / retq
+llvm.x86.sse42.pcmpestric128 ; i32(<16 x i8>, i32, <16 x i8>, i32, i8 imm) ; sse4.2 ; skip ; 4 instructions ; llc: movl %esi, %edx / movl %edi, %eax / xorl %esi, %esi / pcmpestri $4, %xmm1, %xmm0 / setb %sil / movl %esi, %eax / retq
+llvm.x86.sse42.pcmpestrio128 ; i32(<16 x i8>, i32, <16 x i8>, i32, i8 imm) ; sse4.2 ; skip ; 4 instructions ; llc: movl %esi, %edx / movl %edi, %eax / xorl %esi, %esi / pcmpestri $4, %xmm1, %xmm0 / seto %sil / movl %esi, %eax / retq
+llvm.x86.sse42.pcmpestris128 ; i32(<16 x i8>, i32, <16 x i8>, i32, i8 imm) ; sse4.2 ; skip ; 4 instructions ; llc: movl %esi, %edx / movl %edi, %eax / xorl %esi, %esi / pcmpestri $4, %xmm1, %xmm0 / sets %sil / movl %esi, %eax / retq
+llvm.x86.sse42.pcmpestriz128 ; i32(<16 x i8>, i32, <16 x i8>, i32, i8 imm) ; sse4.2 ; skip ; 4 instructions ; llc: movl %esi, %edx / movl %edi, %eax / xorl %esi, %esi / pcmpestri $4, %xmm1, %xmm0 / sete %sil / movl %esi, %eax / retq
+llvm.x86.sse42.pcmpestrm128 ; <16 x i8>(<16 x i8>, i32, <16 x i8>, i32, i8 imm) ; sse4.2 ; entry ; pcmpestrm ${c}, {o0}, {o1} ; x x ; c=a4 o0=a2 o1=a0 ; fixed=a1:rax fixed=a3:rdx fixed=d:xmm0 ; llc: movl %esi, %edx / movl %edi, %eax / pcmpestrm $4, %xmm1, %xmm0 / retq
+llvm.x86.sse42.pcmpistri128 ; i32(<16 x i8>, <16 x i8>, i8 imm) ; sse4.2 ; entry ; pcmpistri ${c}, {o0}, {o1} ; x x ; c=a2 o0=a1 o1=a0 ; fixed=d:rcx ; llc: pcmpistri $4, %xmm1, %xmm0 / movl %ecx, %eax / retq
 llvm.x86.sse42.pcmpistria128 ; i32(<16 x i8>, <16 x i8>, i8 imm) ; sse4.2 ; skip ; 3 instructions ; llc: xorl %eax, %eax / pcmpistri $4, %xmm1, %xmm0 / seta %al / retq
 llvm.x86.sse42.pcmpistric128 ; i32(<16 x i8>, <16 x i8>, i8 imm) ; sse4.2 ; skip ; 3 instructions ; llc: xorl %eax, %eax / pcmpistri $4, %xmm1, %xmm0 / setb %al / retq
 llvm.x86.sse42.pcmpistrio128 ; i32(<16 x i8>, <16 x i8>, i8 imm) ; sse4.2 ; skip ; 3 instructions ; llc: xorl %eax, %eax / pcmpistri $4, %xmm1, %xmm0 / seto %al / retq
 llvm.x86.sse42.pcmpistris128 ; i32(<16 x i8>, <16 x i8>, i8 imm) ; sse4.2 ; skip ; 3 instructions ; llc: xorl %eax, %eax / pcmpistri $4, %xmm1, %xmm0 / sets %al / retq
 llvm.x86.sse42.pcmpistriz128 ; i32(<16 x i8>, <16 x i8>, i8 imm) ; sse4.2 ; skip ; 3 instructions ; llc: xorl %eax, %eax / pcmpistri $4, %xmm1, %xmm0 / sete %al / retq
-llvm.x86.sse42.pcmpistrm128 ; <16 x i8>(<16 x i8>, <16 x i8>, i8 imm) ; sse4.2 ; skip ; X_PCMPISTRM_8346: uses XED_REG_XMM0 unnamed ; llc: pcmpistrm $4, %xmm1, %xmm0 / retq
+llvm.x86.sse42.pcmpistrm128 ; <16 x i8>(<16 x i8>, <16 x i8>, i8 imm) ; sse4.2 ; entry ; pcmpistrm ${c}, {o0}, {o1} ; x x ; c=a2 o0=a1 o1=a0 ; fixed=d:xmm0 ; llc: pcmpistrm $4, %xmm1, %xmm0 / retq
 llvm.x86.sse4a.extrq ; <2 x i64>(<2 x i64>, <16 x i8>) ; sse4a ; skip ; mnemonic not in 02-xed.ll ; llc: extrq %xmm1, %xmm0 / retq
 llvm.x86.sse4a.extrqi ; <2 x i64>(<2 x i64>, i8 imm, i8 imm) ; sse4a ; skip ; mnemonic not in 02-xed.ll ; llc: extrq $4, $4, %xmm0 / retq
 llvm.x86.sse4a.insertq ; <2 x i64>(<2 x i64>, <2 x i64>) ; sse4a ; skip ; mnemonic not in 02-xed.ll ; llc: insertq %xmm1, %xmm0 / retq
@@ -1063,21 +1063,21 @@ llvm.x86.vsm4key4128 ; <4 x i32>(<4 x i32>, <4 x i32>) ; sm4,avx ; skip ; mnemon
 llvm.x86.vsm4key4256 ; <8 x i32>(<8 x i32>, <8 x i32>) ; sm4,avx ; skip ; mnemonic not in 02-xed.ll ; llc: vsm4key4 %ymm1, %ymm0, %ymm0 / retq
 llvm.x86.vsm4rnds4128 ; <4 x i32>(<4 x i32>, <4 x i32>) ; sm4,avx ; skip ; mnemonic not in 02-xed.ll ; llc: vsm4rnds4 %xmm1, %xmm0, %xmm0 / retq
 llvm.x86.vsm4rnds4256 ; <8 x i32>(<8 x i32>, <8 x i32>) ; sm4,avx ; skip ; mnemonic not in 02-xed.ll ; llc: vsm4rnds4 %ymm1, %ymm0, %ymm0 / retq
-llvm.x86.xabort ; void(i8 imm) ; rtm ; skip ; X_XABORT_5498: uses XED_REG_EAX unnamed ; llc: xabort $4 / retq
+llvm.x86.xabort ; void(i8 imm) ; rtm ; skip ; X_XABORT_5498: reads XED_REG_EAX, which no argument is in ; llc: xabort $4 / retq
 llvm.x86.xbegin ; i32() ; rtm ; skip ; 2 instructions ; llc: xbegin .LBB0_2 / movl $-1, %eax / retq / retq
 llvm.x86.xend ; void() ; rtm ; entry ; xend ;  ;  ;  ; llc: xend / retq
-llvm.x86.xgetbv ; i64(i32) ; xsave ; skip ; 4 instructions ; llc: movl %edi, %ecx / xgetbv / shlq $32, %rdx / orq %rdx, %rax / retq
-llvm.x86.xrstor ; void(ptr, i32, i32) ; xsave ; skip ; 3 instructions ; llc: movl %edx, %eax / movl %esi, %edx / xrstor (%rdi) / retq
-llvm.x86.xrstor64 ; void(ptr, i32, i32) ; xsave ; skip ; 3 instructions ; llc: movl %edx, %eax / movl %esi, %edx / xrstor64 (%rdi) / retq
-llvm.x86.xrstors ; void(ptr, i32, i32) ; xsave,xsaves ; skip ; 3 instructions ; llc: movl %edx, %eax / movl %esi, %edx / xrstors (%rdi) / retq
-llvm.x86.xrstors64 ; void(ptr, i32, i32) ; xsave,xsaves ; skip ; 3 instructions ; llc: movl %edx, %eax / movl %esi, %edx / xrstors64 (%rdi) / retq
-llvm.x86.xsave ; void(ptr, i32, i32) ; xsave ; skip ; 3 instructions ; llc: movl %edx, %eax / movl %esi, %edx / xsave (%rdi) / retq
-llvm.x86.xsave64 ; void(ptr, i32, i32) ; xsave ; skip ; 3 instructions ; llc: movl %edx, %eax / movl %esi, %edx / xsave64 (%rdi) / retq
-llvm.x86.xsavec ; void(ptr, i32, i32) ; xsave,xsavec ; skip ; 3 instructions ; llc: movl %edx, %eax / movl %esi, %edx / xsavec (%rdi) / retq
-llvm.x86.xsavec64 ; void(ptr, i32, i32) ; xsave,xsavec ; skip ; 3 instructions ; llc: movl %edx, %eax / movl %esi, %edx / xsavec64 (%rdi) / retq
-llvm.x86.xsaveopt ; void(ptr, i32, i32) ; xsave,xsaveopt ; skip ; 3 instructions ; llc: movl %edx, %eax / movl %esi, %edx / xsaveopt (%rdi) / retq
-llvm.x86.xsaveopt64 ; void(ptr, i32, i32) ; xsave,xsaveopt ; skip ; 3 instructions ; llc: movl %edx, %eax / movl %esi, %edx / xsaveopt64 (%rdi) / retq
-llvm.x86.xsaves ; void(ptr, i32, i32) ; xsave,xsaves ; skip ; 3 instructions ; llc: movl %edx, %eax / movl %esi, %edx / xsaves (%rdi) / retq
-llvm.x86.xsaves64 ; void(ptr, i32, i32) ; xsave,xsaves ; skip ; 3 instructions ; llc: movl %edx, %eax / movl %esi, %edx / xsaves64 (%rdi) / retq
-llvm.x86.xsetbv ; void(i32, i32, i32) ; xsave ; skip ; 4 instructions ; llc: movl %edx, %eax / movl %esi, %edx / movl %edi, %ecx / xsetbv / retq
+llvm.x86.xgetbv ; i64(i32) ; xsave ; skip ; 3 instructions ; llc: movl %edi, %ecx / xgetbv / shlq $32, %rdx / orq %rdx, %rax / retq
+llvm.x86.xrstor ; void(ptr, i32, i32) ; xsave ; entry ; xrstor {m.disp}({m.base}) ;  ; m.base=a0 m.disp=0 ; fixed=a1:rdx fixed=a2:rax ; llc: movl %edx, %eax / movl %esi, %edx / xrstor (%rdi) / retq
+llvm.x86.xrstor64 ; void(ptr, i32, i32) ; xsave ; skip ; X_XRSTOR64_8352_64_m: XED operands ; llc: movl %edx, %eax / movl %esi, %edx / xrstor64 (%rdi) / retq
+llvm.x86.xrstors ; void(ptr, i32, i32) ; xsave,xsaves ; entry ; xrstors {m.disp}({m.base}) ;  ; m.base=a0 m.disp=0 ; fixed=a1:rdx fixed=a2:rax ; llc: movl %edx, %eax / movl %esi, %edx / xrstors (%rdi) / retq
+llvm.x86.xrstors64 ; void(ptr, i32, i32) ; xsave,xsaves ; skip ; X_XRSTORS64_8381_64_m: XED operands ; llc: movl %edx, %eax / movl %esi, %edx / xrstors64 (%rdi) / retq
+llvm.x86.xsave ; void(ptr, i32, i32) ; xsave ; entry ; xsave {m.disp}({m.base}) ;  ; m.base=a0 m.disp=0 ; fixed=a1:rdx fixed=a2:rax ; llc: movl %edx, %eax / movl %esi, %edx / xsave (%rdi) / retq
+llvm.x86.xsave64 ; void(ptr, i32, i32) ; xsave ; skip ; X_XSAVE64_8351_64_m: XED operands ; llc: movl %edx, %eax / movl %esi, %edx / xsave64 (%rdi) / retq
+llvm.x86.xsavec ; void(ptr, i32, i32) ; xsave,xsavec ; entry ; xsavec {m.disp}({m.base}) ;  ; m.base=a0 m.disp=0 ; fixed=a1:rdx fixed=a2:rax ; llc: movl %edx, %eax / movl %esi, %edx / xsavec (%rdi) / retq
+llvm.x86.xsavec64 ; void(ptr, i32, i32) ; xsave,xsavec ; skip ; X_XSAVEC64_8375_64_m: XED operands ; llc: movl %edx, %eax / movl %esi, %edx / xsavec64 (%rdi) / retq
+llvm.x86.xsaveopt ; void(ptr, i32, i32) ; xsave,xsaveopt ; entry ; xsaveopt {m.disp}({m.base}) ;  ; m.base=a0 m.disp=0 ; fixed=a1:rdx fixed=a2:rax ; llc: movl %edx, %eax / movl %esi, %edx / xsaveopt (%rdi) / retq
+llvm.x86.xsaveopt64 ; void(ptr, i32, i32) ; xsave,xsaveopt ; skip ; X_XSAVEOPT64_8377_64_m: XED operands ; llc: movl %edx, %eax / movl %esi, %edx / xsaveopt64 (%rdi) / retq
+llvm.x86.xsaves ; void(ptr, i32, i32) ; xsave,xsaves ; entry ; xsaves {m.disp}({m.base}) ;  ; m.base=a0 m.disp=0 ; fixed=a1:rdx fixed=a2:rax ; llc: movl %edx, %eax / movl %esi, %edx / xsaves (%rdi) / retq
+llvm.x86.xsaves64 ; void(ptr, i32, i32) ; xsave,xsaves ; skip ; X_XSAVES64_8379_64_m: XED operands ; llc: movl %edx, %eax / movl %esi, %edx / xsaves64 (%rdi) / retq
+llvm.x86.xsetbv ; void(i32, i32, i32) ; xsave ; entry ; xsetbv ;  ;  ; fixed=a0:rcx fixed=a1:rdx fixed=a2:rax ; llc: movl %edx, %eax / movl %esi, %edx / movl %edi, %ecx / xsetbv / retq
 llvm.x86.xtest ; i32() ; rtm ; skip ; 3 instructions ; llc: xorl %eax, %eax / xtest / setne %al / retq

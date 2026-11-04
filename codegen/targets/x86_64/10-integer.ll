@@ -10035,6 +10035,13 @@ define void @X86.ldtilecfg(ptr "reg"="r64" %a0) "enc"="vexm(0, a0, 4, 2, 0, 0, 0
 
 declare void @llvm.x86.ldtilecfg(ptr)
 
+define void @X86.loadiwkey(<2 x i64> "reg"="xmm0" %a0, <2 x i64> "reg"="xv" %a1, <2 x i64> "reg"="xv" %a2, i32 "reg"="rax" %a3) "enc"="11110011 | rex(0, a1, 0, a2) | 00001111 | 00111000 | 11011100 | 11 reg:3=a1&7 rm:3=a2&7" "asm"="loadiwkey {a2}, {a1}" "feature"="kl" "nodecode" {
+  call void @llvm.x86.loadiwkey(<2 x i64> %a0, <2 x i64> %a1, <2 x i64> %a2, i32 %a3)
+  ret void
+}
+
+declare void @llvm.x86.loadiwkey(<2 x i64>, <2 x i64>, <2 x i64>, i32)
+
 define <2 x i64> @X86.pclmulqdq(<2 x i64> "reg"="xv" "tied" %a0, <2 x i64> "reg"="xv" %a1, i8 "imm" %a2) "enc"="01100110 | rex(0, d, 0, a1) | 00001111 | 00111010 | 01000100 | 11 reg:3=d&7 rm:3=a1&7 | i1:8=a2" "asm"="pclmulqdq ${a2}, {a1}, {d}" "dclass"="xv" "feature"="pclmul" "nodecode" {
   %r = call <2 x i64> @llvm.x86.pclmulqdq(<2 x i64> %a0, <2 x i64> %a1, i8 %a2)
   ret <2 x i64> %r
@@ -10083,6 +10090,13 @@ define <4 x i32> @X86.sha256msg2(<4 x i32> "reg"="xv" "tied" %a0, <4 x i32> "reg
 }
 
 declare <4 x i32> @llvm.x86.sha256msg2(<4 x i32>, <4 x i32>)
+
+define <4 x i32> @X86.sha256rnds2(<4 x i32> "reg"="xv" "tied" %a0, <4 x i32> "reg"="xv" %a1, <4 x i32> "reg"="xmm0" %a2) "enc"="rex(0, d, 0, a1) | 00001111 | 00111000 | 11001011 | 11 reg:3=d&7 rm:3=a1&7" "asm"="sha256rnds2 %xmm0, {a1}, {d}" "dclass"="xv" "feature"="sha" "nodecode" {
+  %r = call <4 x i32> @llvm.x86.sha256rnds2(<4 x i32> %a0, <4 x i32> %a1, <4 x i32> %a2)
+  ret <4 x i32> %r
+}
+
+declare <4 x i32> @llvm.x86.sha256rnds2(<4 x i32>, <4 x i32>, <4 x i32>)
 
 define i32 @X86.sse.cvtss2si(<4 x float> "reg"="xv" %a0) "enc"="11110011 | rex(0, d, 0, a0) | 00001111 | 00101101 | 11 reg:3=d&7 rm:3=a0&7" "asm"="cvtss2si {a0}, {d}" "dclass"="r32" "feature"="sse" "nodecode" {
   %r = call i32 @llvm.x86.sse.cvtss2si(<4 x float> %a0)
@@ -10441,6 +10455,34 @@ define <4 x float> @X86.sse41.round.ss(<4 x float> "reg"="xv" "tied" %a0, <4 x f
 
 declare <4 x float> @llvm.x86.sse41.round.ss(<4 x float>, <4 x float>, i32)
 
+define i32 @X86.sse42.pcmpestri128(<16 x i8> "reg"="xv" %a0, i32 "reg"="rax" %a1, <16 x i8> "reg"="xv" %a2, i32 "reg"="rdx" %a3, i8 "imm" %a4) "enc"="{ 01100110 | rex(0, a0, 0, a2) | 00001111 | 00111010 | 01100001 | 11 reg:3=a0&7 rm:3=a2&7 | i1:8=a4 ; 01100110 | rex(1, a0, 0, a2) | 00001111 | 00111010 | 01100001 | 11 reg:3=a0&7 rm:3=a2&7 | i1:8=a4 }" "asm"="pcmpestri ${a4}, {a2}, {a0}" "dclass"="rcx" "feature"="sse4.2" "nodecode" {
+  %r = call i32 @llvm.x86.sse42.pcmpestri128(<16 x i8> %a0, i32 %a1, <16 x i8> %a2, i32 %a3, i8 %a4)
+  ret i32 %r
+}
+
+declare i32 @llvm.x86.sse42.pcmpestri128(<16 x i8>, i32, <16 x i8>, i32, i8)
+
+define <16 x i8> @X86.sse42.pcmpestrm128(<16 x i8> "reg"="xv" %a0, i32 "reg"="rax" %a1, <16 x i8> "reg"="xv" %a2, i32 "reg"="rdx" %a3, i8 "imm" %a4) "enc"="{ 01100110 | rex(0, a0, 0, a2) | 00001111 | 00111010 | 01100000 | 11 reg:3=a0&7 rm:3=a2&7 | i1:8=a4 ; 01100110 | rex(1, a0, 0, a2) | 00001111 | 00111010 | 01100000 | 11 reg:3=a0&7 rm:3=a2&7 | i1:8=a4 }" "asm"="pcmpestrm ${a4}, {a2}, {a0}" "dclass"="xmm0" "feature"="sse4.2" "nodecode" {
+  %r = call <16 x i8> @llvm.x86.sse42.pcmpestrm128(<16 x i8> %a0, i32 %a1, <16 x i8> %a2, i32 %a3, i8 %a4)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.x86.sse42.pcmpestrm128(<16 x i8>, i32, <16 x i8>, i32, i8)
+
+define i32 @X86.sse42.pcmpistri128(<16 x i8> "reg"="xv" %a0, <16 x i8> "reg"="xv" %a1, i8 "imm" %a2) "enc"="{ 01100110 | rex(0, a0, 0, a1) | 00001111 | 00111010 | 01100011 | 11 reg:3=a0&7 rm:3=a1&7 | i1:8=a2 ; 01100110 | rex(1, a0, 0, a1) | 00001111 | 00111010 | 01100011 | 11 reg:3=a0&7 rm:3=a1&7 | i1:8=a2 }" "asm"="pcmpistri ${a2}, {a1}, {a0}" "dclass"="rcx" "feature"="sse4.2" "nodecode" {
+  %r = call i32 @llvm.x86.sse42.pcmpistri128(<16 x i8> %a0, <16 x i8> %a1, i8 %a2)
+  ret i32 %r
+}
+
+declare i32 @llvm.x86.sse42.pcmpistri128(<16 x i8>, <16 x i8>, i8)
+
+define <16 x i8> @X86.sse42.pcmpistrm128(<16 x i8> "reg"="xv" %a0, <16 x i8> "reg"="xv" %a1, i8 "imm" %a2) "enc"="01100110 | rex(0, a0, 0, a1) | 00001111 | 00111010 | 01100010 | 11 reg:3=a0&7 rm:3=a1&7 | i1:8=a2" "asm"="pcmpistrm ${a2}, {a1}, {a0}" "dclass"="xmm0" "feature"="sse4.2" "nodecode" {
+  %r = call <16 x i8> @llvm.x86.sse42.pcmpistrm128(<16 x i8> %a0, <16 x i8> %a1, i8 %a2)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.x86.sse42.pcmpistrm128(<16 x i8>, <16 x i8>, i8)
+
 define <8 x i16> @X86.ssse3.pmadd.ub.sw.128(<16 x i8> "reg"="xv" "tied" %a0, <16 x i8> "reg"="xv" %a1) "enc"="01100110 | rex(0, d, 0, a1) | 00001111 | 00111000 | 00000100 | 11 reg:3=d&7 rm:3=a1&7" "asm"="pmaddubsw {a1}, {d}" "dclass"="xv" "feature"="ssse3" "nodecode" {
   %r = call <8 x i16> @llvm.x86.ssse3.pmadd.ub.sw.128(<16 x i8> %a0, <16 x i8> %a1)
   ret <8 x i16> %r
@@ -10629,3 +10671,52 @@ define void @X86.xend() "enc"="rex(0, 0, 0, 0) | 00001111 | 00000001 | 11 010 10
 }
 
 declare void @llvm.x86.xend()
+
+define void @X86.xrstor(ptr "reg"="r64" %a0, i32 "reg"="rdx" %a1, i32 "reg"="rax" %a2) "enc"="rex(0, 0, 4, a0) | 00001111 | 10101110 | rm(5, a0, 4, 1, 0, 0, 1)" "asm"="xrstor 0({a0})" "feature"="xsave" "nodecode" {
+  call void @llvm.x86.xrstor(ptr %a0, i32 %a1, i32 %a2)
+  ret void
+}
+
+declare void @llvm.x86.xrstor(ptr, i32, i32)
+
+define void @X86.xrstors(ptr "reg"="r64" %a0, i32 "reg"="rdx" %a1, i32 "reg"="rax" %a2) "enc"="rex(0, 0, 4, a0) | 00001111 | 11000111 | rm(3, a0, 4, 1, 0, 0, 1)" "asm"="xrstors 0({a0})" "feature"="xsave,xsaves" "nodecode" {
+  call void @llvm.x86.xrstors(ptr %a0, i32 %a1, i32 %a2)
+  ret void
+}
+
+declare void @llvm.x86.xrstors(ptr, i32, i32)
+
+define void @X86.xsave(ptr "reg"="r64" %a0, i32 "reg"="rdx" %a1, i32 "reg"="rax" %a2) "enc"="rex(0, 0, 4, a0) | 00001111 | 10101110 | rm(4, a0, 4, 1, 0, 0, 1)" "asm"="xsave 0({a0})" "feature"="xsave" "nodecode" {
+  call void @llvm.x86.xsave(ptr %a0, i32 %a1, i32 %a2)
+  ret void
+}
+
+declare void @llvm.x86.xsave(ptr, i32, i32)
+
+define void @X86.xsavec(ptr "reg"="r64" %a0, i32 "reg"="rdx" %a1, i32 "reg"="rax" %a2) "enc"="rex(0, 0, 4, a0) | 00001111 | 11000111 | rm(4, a0, 4, 1, 0, 0, 1)" "asm"="xsavec 0({a0})" "feature"="xsave,xsavec" "nodecode" {
+  call void @llvm.x86.xsavec(ptr %a0, i32 %a1, i32 %a2)
+  ret void
+}
+
+declare void @llvm.x86.xsavec(ptr, i32, i32)
+
+define void @X86.xsaveopt(ptr "reg"="r64" %a0, i32 "reg"="rdx" %a1, i32 "reg"="rax" %a2) "enc"="rex(0, 0, 4, a0) | 00001111 | 10101110 | rm(6, a0, 4, 1, 0, 0, 1)" "asm"="xsaveopt 0({a0})" "feature"="xsave,xsaveopt" "nodecode" {
+  call void @llvm.x86.xsaveopt(ptr %a0, i32 %a1, i32 %a2)
+  ret void
+}
+
+declare void @llvm.x86.xsaveopt(ptr, i32, i32)
+
+define void @X86.xsaves(ptr "reg"="r64" %a0, i32 "reg"="rdx" %a1, i32 "reg"="rax" %a2) "enc"="rex(0, 0, 4, a0) | 00001111 | 11000111 | rm(5, a0, 4, 1, 0, 0, 1)" "asm"="xsaves 0({a0})" "feature"="xsave,xsaves" "nodecode" {
+  call void @llvm.x86.xsaves(ptr %a0, i32 %a1, i32 %a2)
+  ret void
+}
+
+declare void @llvm.x86.xsaves(ptr, i32, i32)
+
+define void @X86.xsetbv(i32 "reg"="rcx" %a0, i32 "reg"="rdx" %a1, i32 "reg"="rax" %a2) "enc"="rex(0, 0, 0, 0) | 00001111 | 00000001 | 11 010 001" "asm"="xsetbv" "feature"="xsave" "nodecode" {
+  call void @llvm.x86.xsetbv(i32 %a0, i32 %a1, i32 %a2)
+  ret void
+}
+
+declare void @llvm.x86.xsetbv(i32, i32, i32)

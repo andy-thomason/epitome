@@ -873,9 +873,15 @@ impl<'a, 'b> Sel<'a, 'b> {
                     // class of vectors holds it.)
                     let mask = matches!(self.cx.m.types.get(ty), Type::Vector { elem, .. }
                         if matches!(self.cx.m.types.get(*elem), Type::Int(1)));
+                    // (A fixed register, as xmm0 for SSE4.1's blends, holds
+                    // what its file's classes do, of any width.)
+                    let m = &self.t.machine;
+                    let fixed = def.fixed.is_some();
+                    let held = m.holds_of(class) == Some(holds)
+                        || fixed && m.classes.iter().any(|c| c.file == def.file && c.holds == Some(holds));
                     if bits == 0
-                        || self.t.machine.holds_of(class) != Some(holds)
-                        || (holds == Holds::Vector && bits != def.bits && !mask)
+                        || !held
+                        || (holds == Holds::Vector && bits != def.bits && !mask && !fixed)
                         || (holds != Holds::Vector && (bits > 64 || (bits > 32) != (pp.bits > 32)))
                     {
                         return None;

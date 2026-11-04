@@ -1649,7 +1649,13 @@ def intrinsics():
             body = [f'call void @{name}({", ".join(call)})', 'ret void']
         else:
             body = [f'%r = call {ret} @{name}({", ".join(call)})', f'ret {ret} %r']
-        entry(ret, 'X86.' + name[len('llvm.x86.'):], params, renamed(enc, names), template, body, attrs)
+        # (A byte immediate is read either way, as an i8 is written: Rust's
+        # 0x80 is -128.)
+        enc = renamed(enc, names)
+        for k, a in enumerate(args):
+            if a.endswith(' imm'):
+                enc = re.sub(rf'\bi(\d):8=a{k}\b', rf'{{ i\1:8=a{k} ; i\1:s8=a{k} }}', enc)
+        entry(ret, 'X86.' + name[len('llvm.x86.'):], params, enc, template, body, attrs)
         types = ', '.join(a.removesuffix(' imm') for a in args)
         out.append(f'declare {ret} @{name}({types})\n')
         declared.add(name)

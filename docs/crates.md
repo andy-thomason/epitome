@@ -13,7 +13,7 @@ Progress towards building the 1,000 most downloaded crates on crates.io
   changes were made for them.
 - So far **274** of the top 1,000 are known to build and pass: the 224, and
   batch 1's 50 (32 that pass and 18 with no tests).
-- **Next**: batch 1's failures below, then the next 100 by rank.
+- **Next**: work through [To fix](#to-fix), then the next 100 by rank.
 
 | Result | Crates |
 |---|---|
@@ -32,67 +32,61 @@ crates deny warnings that new rustc gives). A crate passes when its test
 counts match rustc's (its own failing tests are its own) and the
 `epitome-rustc` log shows no `ours failed` for any crate in the build.
 
-## Epitome's failures
+## To fix
 
-What stopped Epitome compiling a crate (it kept rustc's object), with the
-crates of the batch whose builds hit it.
+The crates Epitome could not compile in batch 1 (each kept rustc's object),
+by cause, so that one fix can close several. For each: the versions seen
+in the batch's lock files, the function Epitome stopped at, and the crates
+of the batch whose builds included it. Tick a crate off when its IR
+compiles and the batch crates that use it still pass.
 
-- **store of <16 x i1>**
-  - `clap`, in: tracing
-  - `criterion`, in: generic-array, litemap, tracing, unicode-ident
-  - `darling_core`, in: darling, darling_core
-  - `futures`, in: futures, futures-util
-  - `hashbrown`, in: generic-array, h2, hyper-rustls, regex, regex-automata, reqwest, rustix, syn
-  - `http`, in: h2, http, http-body, hyper, hyper-rustls, reqwest, syn, tower, tower-service
-  - `oid_registry`, in: rustls, webpki-roots
-  - `similar`, in: chrono, clap_builder, toml_datetime
-  - `similar_asserts`, in: chrono
-  - `snapbox`, in: clap_builder, toml_datetime
-  - `tester`, in: idna
-  - `tokio`, in: h2, hyper, hyper-rustls, reqwest, syn, tokio, tokio-rustls, tokio-util, tower, webpki-roots
-- **intrinsic llvm.x86.avx.vzeroupper**
-  - `rand_chacha`, in: generic-array, h2, litemap, mio, nix, nom, time, tokio, tower
-- **vector of pointers to globals**
-  - `akamai`, in: h2
-  - `client`, in: h2
-  - `hyper_util`, in: hyper-rustls, reqwest, syn
-  - `rcgen`, in: rustls
-  - `reqwest`, in: reqwest
-  - `server`, in: h2
-- **intrinsic llvm.x86.avx2.pshuf.b**
-  - `aho_corasick`, in: time, tower, zerocopy
-  - `base64`, in: reqwest, syn
-  - `simdutf8`, in: litemap
-- **intrinsic llvm.x86.ssse3.pshuf.b.128**
-  - `aho_corasick`, in: http, hyper, regex, regex-automata, reqwest, rustls
-- **intrinsic llvm.x86.xgetbv**
-  - `chacha20`, in: http, tokio, unicode-ident
-  - `core_detect`, in: reqwest, syn, tokio
-- **intrinsic llvm.x86.pclmulqdq**
-  - `crc32fast`, in: proc-macro2, reqwest, rustix, syn
-- **intrinsic llvm.x86.sse2.psad.bw**
-  - `simd_adler32`, in: proc-macro2, reqwest, rustix, syn
-- **intrinsic llvm.x86.avx.ldu.dq.256**
-  - `httparse`, in: hyper-rustls, reqwest, syn
-- **0 objects for the crate in the archive**
-  - `tests`, in: idna
-  - `wrappers`, in: autocfg
-- **cast of a narrow vector to a split one**
-  - `encoding_rs`, in: reqwest, syn
-- **intrinsic (name cut off in the log; divan reads the clock with `rdtscp`)**
-  - `divan`, in: anstream, anstyle-parse
-- **intrinsic llvm.x86.subborrow.64**
-  - `num_bigint`, in: rustls, webpki-roots
-- **Intel-syntax inline asm written with AT&T registers**
-  - `x86`, in: cpufeatures
-- **intrinsic llvm.x86.aesni.aeskeygenassist**
-  - `aes`, in: generic-array
-- **intrinsic llvm.x86.sha256rnds2**
-  - `sha2`, in: digest
+### 1. Storing a `<16 x i1>`
 
-Tests that differ:
+`no instruction for the store in … (v16i1 …)`. The most widespread: every
+tokio, http and hashbrown build hits it.
 
-- **clap_builder 4.6.7**: its library tests die with SIGILL (81 pass under rustc).
+- [ ] `tokio` 1.42.0, 1.53.1, 1.53.2, 1.54.0, 1.54.1: `runtime::blocking::pool::BlockingPool::shutdown`. In: h2, hyper, hyper-rustls, reqwest, syn, tokio, tokio-rustls, tokio-util, tower, webpki-roots
+- [ ] `http` 0.2.12, 1.0.0, 1.2.0, 1.4.2, 1.5.0: `extensions::Extensions::extend`. In: h2, http, http-body, hyper, hyper-rustls, reqwest, syn, tower, tower-service
+- [ ] `hashbrown` 0.12.3, 0.14.5, 0.16.0, 0.17.0, 0.17.1: `raw::RawIterHashInner::new`, `raw::RawIterHashIndices::new`, `RawIterHashInner::next`. In: generic-array, h2, hyper-rustls, regex, regex-automata, reqwest, rustix, syn
+- [ ] `criterion` 0.3.6, 0.5.1, 0.8.2: `html::Html::final_summary`. In: generic-array, litemap, tracing, unicode-ident
+- [ ] `similar` 3.1.1, 3.2.0: `algorithms::utils::unique::<OffsetLookup>`, also inlined into `similar_asserts` 2.0.0 and `snapbox` 1.2.2. In: chrono, clap_builder, toml_datetime
+- [ ] `darling_core` 0.24.1: `codegen::trait_impl::TraitImpl::used_type_params`. In: darling, darling_core
+- [ ] `futures` 0.1.31, 0.3.34: `future::shared::Notifier::notify`. In: futures, futures-util
+- [ ] `oid_registry` 0.8.1: `OidRegistry::iter`. In: rustls, webpki-roots
+- [ ] `clap` 2.34.0: `args::arg_matcher::ArgMatcher::iter`. In: tracing
+- [ ] `tester` 0.9.1: `run_tests::get_timed_out_tests`. In: idna
+
+### 2. x86 intrinsics not supported yet
+
+- [ ] `rand_chacha` 0.3.1, 0.9.0: `llvm.x86.avx.vzeroupper`, in `guts::refill_wide::impl_avx`. In: generic-array, h2, litemap, mio, nix, nom, time, tokio, tower
+- [ ] `aho_corasick` 0.7.6, 0.7.20, 1.1.3, 1.1.4, 1.1.5: `llvm.x86.ssse3.pshuf.b.128` and `llvm.x86.avx2.pshuf.b`, in `packed::teddy` (Slim SSSE3 and AVX2 searchers). In: http, hyper, regex, regex-automata, reqwest, rustls, time, tower, zerocopy
+- [ ] `base64` 0.22.1, 0.23.1: `llvm.x86.avx2.pshuf.b`, in `engine::simd::avx2::decode_bulk`. In: reqwest, syn
+- [ ] `simdutf8` 0.1.5: `llvm.x86.avx2.pshuf.b`, in `implementation::x86::avx2::validate_utf8_basic`. In: litemap
+- [ ] `chacha20` 0.10.0, 0.10.2 and `core_detect` 1.0.0: `llvm.x86.xgetbv`, in `core::arch::x86::xsave::_xgetbv`. In: http, reqwest, syn, tokio, unicode-ident
+- [ ] `crc32fast` 1.5.0, 1.5.1, 1.5.2: `llvm.x86.pclmulqdq`, in `specialized::pclmulqdq::calculate`. In: proc-macro2, reqwest, rustix, syn
+- [ ] `simd_adler32` 0.3.10: `llvm.x86.sse2.psad.bw`, in `imp::sse2::update`. In: proc-macro2, reqwest, rustix, syn
+- [ ] `httparse` 1.10.1: `llvm.x86.avx.ldu.dq.256`, in `simd::avx2::match_uri_vectored`. In: hyper-rustls, reqwest, syn
+- [ ] `num_bigint` 0.4.8: `llvm.x86.subborrow.64`, in `BigUint::modpow`. In: rustls, webpki-roots
+- [ ] `sha2` 0.11.0: `llvm.x86.sha256rnds2`, in `sha256::x86_sha::compress`. In: digest
+- [ ] `aes` 0.8.4: `llvm.x86.aesni.aeskeygenassist`, in `_mm_aeskeygenassist_si128`. In: generic-array
+- [ ] `divan` 0.1.16: an intrinsic whose name the log cuts off (its timer reads the clock with `rdtscp`), in `FineDuration` initialisation for `Timer::sample_loop_overhead`. In: anstream, anstyle-parse
+
+### 3. A vector of pointers to globals
+
+- [ ] `h2` 0.4.20's examples and tests `akamai`, `client`, `server`: `proto::connection::DynConnection::recv_frame`. In: h2
+- [ ] `hyper_util` 0.1.20, 0.1.21: `client::legacy::client::origin_form`. In: hyper-rustls, reqwest, syn
+- [ ] `reqwest` 0.13.5: `get::<Url>` and `connect::with_timeout`. In: reqwest
+- [ ] `rcgen` 0.14.10: `KeyPair::try_from(PrivateKeyDer)`. In: rustls
+
+### 4. Others
+
+- [ ] `encoding_rs` 0.8.40, 0.8.42: a cast from a vector narrower than a register to a split one, in `iso_2022_jp::is_mapped_for_two_byte_encode`. In: reqwest, syn
+- [ ] cpufeatures 0.3.1's test `x86`: Intel-syntax inline assembly (core's `cpuid` sequence) is written with AT&T registers, `mov %r8, rbx` and `xchg %r8, rbx`, which do not assemble. In: cpufeatures
+- [ ] autocfg 1.5.1's test `wrappers` and idna 1.1.0's test `tests`: `0 objects for the crate in the archive, not one`. In: autocfg, idna
+
+### 5. Tests that differ
+
+- [ ] clap_builder 4.6.7: its library tests die with SIGILL under Epitome (81 pass under rustc).
 
 ## Batch 1
 

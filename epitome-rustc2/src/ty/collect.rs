@@ -10,29 +10,33 @@ use super::lower::{At, Env, Lower, is_type};
 use super::{Abi, Mutbl, TraitDef, TraitRef, Ty, TyCtxt, TyKind, VariantDef};
 use super::{AdtDef, AdtKind, CtorKind, FieldDef, FnSig, Generics, ImplDef, ParamDef, ParamId, Pred};
 use crate::ast::{Ast, Kind, NodeId};
-use crate::hash::{FastMap, FastSet};
+use crate::hash::FastSet;
 use crate::resolve::{DefId, DefKind, Ns, Res, Resolver};
 use crate::session::ParsedCrate;
 
 pub(super) fn collect<'s>(crates: &[ParsedCrate<'s>], r: &Resolver<'s>) -> TyCtxt<'s> {
     let mut tcx = TyCtxt::new(r.defs.len());
-    let mut env = Env {
-        r,
-        crates,
-        def_at: FastMap::default(),
-        param_at: FastMap::default(),
-        self_ty: FastMap::default(),
-        expanding: FastSet::default(),
-    };
+    let env = Env { r, crates };
     for (i, d) in r.defs.iter().enumerate() {
         if d.parent.is_some() {
-            env.def_at.insert((d.krate, d.file, d.node), DefId(i as u32));
+            tcx.def_at.insert((d.krate, d.file, d.node), DefId(i as u32));
+            // `#[lang = "name"]`.
+            let ast = env.ast(d.krate, d.file);
+            if let Some(name) = crate::session::attribute_value(ast, d.node, "lang") {
+                let name = ast.children(d.node).iter().find_map(|&a| {
+                    let v = *ast.children(a).last()?;
+                    (ast.kind(a) == Kind::Attribute && ast.kind(v) == Kind::Literal && crate::cfg::string_value(ast.token(v).0) == name)
+                        .then(|| crate::cfg::string_value(ast.token(v).0))
+                });
+                if let Some(name) = name {
+                    tcx.lang.insert(name, DefId(i as u32));
+                }
+            }
         }
     }
-    let defs: Vec<DefId> =
-        (0..r.defs.len() as u32).map(DefId).filter(|&d| r.defs[d.0 as usize].parent.is_some()).collect();
+    let defs: Vec<DefId> = (0..r.defs.len() as u32).map(DefId).filter(|&d| r.defs[d.0 as usize].parent.is_some()).collect();
     for &d in &defs {
-        generics(&mut tcx, &mut env, d);
+        generics(&mut tcx, &env, d);
     }
     // `Self`: of types and traits first, then of impls (whose self types
     // may name types).
@@ -42,27 +46,45 @@ pub(super) fn collect<'s>(crates: &[ParsedCrate<'s>], r: &Resolver<'s>) -> TyCtx
             DefKind::Struct | DefKind::Enum | DefKind::Union => {
                 let args = tcx.identity_args(d);
                 let t = tcx.mk(TyKind::Adt(d, args));
-                env.self_ty.insert(at, t);
+                tcx.self_ty.insert(at, t);
             }
             DefKind::Trait | DefKind::TraitAlias => {
                 let p = tcx.generics[d.0 as usize].own[0];
                 let t = tcx.mk(TyKind::Param(p));
-                env.self_ty.insert(at, t);
+                tcx.self_ty.insert(at, t);
             }
             _ => {}
         }
     }
     // Parameter defaults, which may name `Self` (`trait Add<Rhs = Self>`).
     for &d in &defs {
-        defaults(&mut tcx, &mut env, d);
+        let ds = defaults(&tcx, &env, d);
+        tcx.generics[d.0 as usize].defaults = ds;
     }
     for &d in &defs {
         if r.defs[d.0 as usize].kind == DefKind::Impl {
-            impl_header(&mut tcx, &mut env, d);
+            let (imp, failed) = impl_header(&tcx, &env, d);
+            tcx.self_ty.insert(env.at_of(d), imp.self_ty);
+            tcx.impl_index.insert(d, tcx.impls.len());
+            tcx.impls.push(imp);
+            tcx.sig_count += 1;
+            tcx.sig_errors += failed as usize;
         }
     }
     for &d in &defs {
-        signature(&mut tcx, &mut env, d);
+        let Some(out) = signature(&tcx, &env, d) else { continue };
+        tcx.predicates[d.0 as usize] = out.preds;
+        if let Some(a) = out.adt {
+            tcx.adts.insert(d, a);
+        }
+        if let Some(t) = out.trait_def {
+            tcx.traits.insert(d, t);
+        }
+        tcx.fn_sig[d.0 as usize] = out.fn_sig;
+        if out.counted {
+            tcx.sig_count += 1;
+            tcx.sig_errors += out.failed as usize;
+        }
     }
     tcx
 }
@@ -88,7 +110,6 @@ fn generics_parent(env: &Env, d: DefId) -> Option<DefId> {
 
 fn new_param<'s>(
     tcx: &mut TyCtxt<'s>,
-    env: &mut Env<'_, 's>,
     owner: DefId,
     index: u32,
     name: &'s str,
@@ -97,11 +118,11 @@ fn new_param<'s>(
 ) -> ParamId {
     let id = ParamId(tcx.params.len() as u32);
     tcx.params.push(ParamDef { owner, index, name, is_const, at });
-    env.param_at.insert(at, id);
+    tcx.param_at.insert(at, id);
     id
 }
 
-fn generics<'s>(tcx: &mut TyCtxt<'s>, env: &mut Env<'_, 's>, d: DefId) {
+fn generics<'s>(tcx: &mut TyCtxt<'s>, env: &Env<'_, 's>, d: DefId) {
     let parent = generics_parent(env, d);
     let parent_count = parent.map_or(0, |p| {
         let g = &tcx.generics[p.0 as usize];
@@ -112,7 +133,7 @@ fn generics<'s>(tcx: &mut TyCtxt<'s>, env: &mut Env<'_, 's>, d: DefId) {
     let mut index = parent_count;
     if matches!(env.r.defs[d.0 as usize].kind, DefKind::Trait | DefKind::TraitAlias) {
         // A trait's `Self` is its parameter 0.
-        own.push(new_param(tcx, env, d, index, "Self", false, at));
+        own.push(new_param(tcx, d, index, "Self", false, at));
         index += 1;
     }
     if env.r.defs[d.0 as usize].kind != DefKind::Variant
@@ -125,7 +146,7 @@ fn generics<'s>(tcx: &mut TyCtxt<'s>, env: &mut Env<'_, 's>, d: DefId) {
             }
             let Some(n) = ast.child(p, Kind::Name) else { continue };
             let name = ast.token(n).ident_name();
-            own.push(new_param(tcx, env, d, index, name, kind == Kind::ConstParam, (at.0, at.1, p)));
+            own.push(new_param(tcx, d, index, name, kind == Kind::ConstParam, (at.0, at.1, p)));
             index += 1;
         }
     }
@@ -133,43 +154,38 @@ fn generics<'s>(tcx: &mut TyCtxt<'s>, env: &mut Env<'_, 's>, d: DefId) {
     tcx.generics[d.0 as usize] = Generics { parent, parent_count, own, defaults: vec![None; n] };
 }
 
-/// The defaults of an item's type parameters.
-fn defaults<'s>(tcx: &mut TyCtxt<'s>, env: &mut Env<'_, 's>, d: DefId) {
+/// The defaults of an item's own parameters.
+fn defaults<'s>(tcx: &TyCtxt<'s>, env: &Env<'_, 's>, d: DefId) -> Vec<Option<Ty>> {
     let own = tcx.generics[d.0 as usize].own.clone();
+    let mut out = vec![None; own.len()];
     for (i, p) in own.into_iter().enumerate() {
         let at = tcx.params[p.0 as usize].at;
         let ast = env.ast(at.0, at.1);
-        let t = match ast.kind(at.2) {
-            Kind::TypeParam => {
-                let Some(t) = ast.children(at.2).iter().copied().find(|&c| is_type(ast.kind(c))) else { continue };
-                let mut l = Lower { tcx, env, k: at.0, file: at.1, owner: d, failed: false };
-                l.ty(t)
-            }
+        let mut l = Lower { tcx, env, expanding: FastSet::default(), impl_self: None, holes: false, k: at.0, file: at.1, owner: d, failed: false };
+        out[i] = match ast.kind(at.2) {
+            Kind::TypeParam => ast.children(at.2).iter().copied().find(|&c| is_type(ast.kind(c))).map(|t| l.ty(t)),
             // `const N: usize = 4`: the value after the type.
-            Kind::ConstParam => {
-                let kids: Vec<NodeId> = ast.children(at.2).to_vec();
-                let Some(&v) = kids.get(2) else { continue };
-                let mut l = Lower { tcx, env, k: at.0, file: at.1, owner: d, failed: false };
+            Kind::ConstParam => ast.children(at.2).get(2).map(|&v| {
                 let c = l.konst(v);
                 tcx.mk(TyKind::ConstArg(c))
-            }
-            _ => continue,
+            }),
+            _ => None,
         };
-        tcx.generics[d.0 as usize].defaults[i] = Some(t);
     }
+    out
 }
 
-/// An impl's self type and trait.
-fn impl_header<'s>(tcx: &mut TyCtxt<'s>, env: &mut Env<'_, 's>, d: DefId) {
+/// An impl's self type and trait, and whether either had an error.
+fn impl_header<'s>(tcx: &TyCtxt<'s>, env: &Env<'_, 's>, d: DefId) -> (ImplDef, bool) {
     let (at, ast) = node_of(env, d);
     let kids = ast.children(at.2).to_vec();
     let self_node = kids.iter().rev().copied().find(|&c| is_type(ast.kind(c)));
-    let mut l = Lower { tcx, env, k: at.0, file: at.1, owner: d, failed: false };
+    let mut l = Lower { tcx, env, expanding: FastSet::default(), impl_self: None, holes: false, k: at.0, file: at.1, owner: d, failed: false };
     let self_ty = match self_node {
         Some(t) => l.ty(t),
         None => l.tcx.error(),
     };
-    l.env.self_ty.insert(at, self_ty);
+    l.impl_self = Some((at, self_ty));
     let mut negative = false;
     let trait_ref = kids.iter().copied().find(|&c| ast.kind(c) == Kind::ImplTrait).and_then(|it| {
         negative = ast.children(it).iter().any(|&c| ast.kind(c) == Kind::Op);
@@ -178,17 +194,11 @@ fn impl_header<'s>(tcx: &mut TyCtxt<'s>, env: &mut Env<'_, 's>, d: DefId) {
         let t = l.trait_ref(path);
         if t.is_none() {
             l.failed = true;
-            *l.tcx.errors.entry("impl of something that is not a trait".into()).or_default() += 1;
+            l.tcx.note_error("impl of something that is not a trait");
         }
         t
     });
-    let failed = l.failed;
-    tcx.impl_index.insert(d, tcx.impls.len());
-    tcx.impls.push(ImplDef { def: d, self_ty, trait_ref, negative });
-    tcx.sig_count += 1;
-    if failed {
-        tcx.sig_errors += 1;
-    }
+    (ImplDef { def: d, self_ty, trait_ref, negative }, l.failed)
 }
 
 /// The predicates of an item's generic parameters and `where` clause.
@@ -199,7 +209,7 @@ fn predicates(l: &mut Lower, item: NodeId, preds: &mut Vec<Pred>) {
             if ast.kind(p) != Kind::TypeParam {
                 continue;
             }
-            let Some(&pid) = l.env.param_at.get(&(l.k, l.file, p)) else { continue };
+            let Some(&pid) = l.tcx.param_at.get(&(l.k, l.file, p)) else { continue };
             let t = l.tcx.mk(TyKind::Param(pid));
             if let Some(b) = ast.child(p, Kind::Bounds) {
                 for tr in l.bounds(b) {
@@ -277,40 +287,50 @@ fn self_param_ty(l: &mut Lower, p: NodeId, self_ty: Ty) -> Ty {
     if by_ref { l.tcx.mk(TyKind::Ref(if mutbl { Mutbl::Mut } else { Mutbl::Not }, self_ty)) } else { self_ty }
 }
 
-fn signature<'s>(tcx: &mut TyCtxt<'s>, env: &mut Env<'_, 's>, d: DefId) {
+/// What `signature` works out for one item.
+struct SigOut<'s> {
+    preds: Vec<Pred>,
+    adt: Option<AdtDef<'s>>,
+    trait_def: Option<TraitDef>,
+    fn_sig: Option<super::SigId>,
+    /// Whether it counts as a signature (an impl's is counted with its
+    /// header), and whether it had an error type.
+    counted: bool,
+    failed: bool,
+}
+
+fn signature<'s>(tcx: &TyCtxt<'s>, env: &Env<'_, 's>, d: DefId) -> Option<SigOut<'s>> {
     let kind = env.r.defs[d.0 as usize].kind;
     if matches!(kind, DefKind::Mod | DefKind::Macro | DefKind::Variant) {
-        return;
+        return None;
     }
     let (at, ast) = node_of(env, d);
     let node = at.2;
-    let mut preds = Vec::new();
-    let mut l = Lower { tcx, env, k: at.0, file: at.1, owner: d, failed: false };
-    predicates(&mut l, node, &mut preds);
+    let mut out = SigOut { preds: Vec::new(), adt: None, trait_def: None, fn_sig: None, counted: kind != DefKind::Impl, failed: false };
+    let mut l = Lower { tcx, env, expanding: FastSet::default(), impl_self: None, holes: false, k: at.0, file: at.1, owner: d, failed: false };
+    predicates(&mut l, node, &mut out.preds);
     match kind {
         DefKind::Struct | DefKind::Union => {
             let (ctor, fs) = fields(&mut l, node);
-            let adt = AdtDef {
+            out.adt = Some(AdtDef {
                 kind: if kind == DefKind::Struct { AdtKind::Struct } else { AdtKind::Union },
-                variants: vec![VariantDef { def: None, name: l.env.r.defs[d.0 as usize].name, kind: ctor, fields: fs }],
-            };
-            l.tcx.adts.insert(d, adt);
+                variants: vec![VariantDef { def: None, name: env.r.defs[d.0 as usize].name, kind: ctor, fields: fs }],
+            });
         }
         DefKind::Enum => {
-            let vs: Vec<NodeId> =
-                ast.children(node).iter().copied().filter(|&v| ast.kind(v) == Kind::Variant).collect();
+            let vs: Vec<NodeId> = ast.children(node).iter().copied().filter(|&v| ast.kind(v) == Kind::Variant).collect();
             let mut variants = Vec::new();
             for v in vs {
                 let (ctor, fs) = fields(&mut l, v);
-                let vdef = l.env.def_at.get(&(at.0, at.1, v)).copied();
+                let vdef = tcx.def_at.get(&(at.0, at.1, v)).copied();
                 let name = ast.child(v, Kind::Name).map_or("", |n| ast.token(n).ident_name());
                 variants.push(VariantDef { def: vdef, name, kind: ctor, fields: fs });
             }
-            l.tcx.adts.insert(d, AdtDef { kind: AdtKind::Enum, variants });
+            out.adt = Some(AdtDef { kind: AdtKind::Enum, variants });
         }
         DefKind::Fn | DefKind::AssocFn | DefKind::ForeignFn => {
-            let parent = l.tcx.generics[d.0 as usize].parent;
-            let self_ty = parent.and_then(|p| l.env.self_ty.get(&l.env.at_of(p)).copied());
+            let parent = tcx.generics[d.0 as usize].parent;
+            let self_ty = parent.and_then(|p| tcx.self_ty.get(&env.at_of(p)).copied());
             let mut inputs = Vec::new();
             let mut output = None;
             let mut variadic = false;
@@ -326,7 +346,7 @@ fn signature<'s>(tcx: &mut TyCtxt<'s>, env: &mut Env<'_, 's>, d: DefId) {
                         for &p in ast.children(c) {
                             match ast.kind(p) {
                                 Kind::SelfParam => {
-                                    let st = self_ty.unwrap_or_else(|| l.tcx.error());
+                                    let st = self_ty.unwrap_or_else(|| tcx.error());
                                     inputs.push(self_param_ty(&mut l, p, st));
                                 }
                                 Kind::Param => {
@@ -342,10 +362,9 @@ fn signature<'s>(tcx: &mut TyCtxt<'s>, env: &mut Env<'_, 's>, d: DefId) {
                     _ => {}
                 }
             }
-            let output = output.unwrap_or_else(|| l.tcx.unit());
-            let inputs = l.tcx.list(inputs);
-            let s = l.tcx.sig(FnSig { inputs, output, unsafety, variadic, abi });
-            l.tcx.fn_sig[d.0 as usize] = Some(s);
+            let output = output.unwrap_or_else(|| tcx.unit());
+            let inputs = tcx.list(inputs);
+            out.fn_sig = Some(tcx.sig(FnSig { inputs, output, unsafety, variadic, abi }));
         }
         DefKind::TypeAlias | DefKind::AssocType => {
             if kind == DefKind::AssocType
@@ -354,53 +373,49 @@ fn signature<'s>(tcx: &mut TyCtxt<'s>, env: &mut Env<'_, 's>, d: DefId) {
                 // `type Item: Bound;` in a trait: bounds on the projection.
                 let _ = l.bounds(b);
             }
-            let t = alias_ty(l.tcx, l.env, d);
-            l.failed |= l.tcx.has_error(t);
+            let t = alias_ty(tcx, env, &mut l.expanding, d);
+            l.failed |= tcx.has_error(t);
         }
         DefKind::Const | DefKind::Static | DefKind::AssocConst | DefKind::ForeignStatic => {
             if let Some(t) = ast.children(node).iter().copied().find(|&c| is_type(ast.kind(c))) {
                 let t = l.ty(t);
-                l.tcx.type_of[d.0 as usize] = Some(t);
+                tcx.set_type_of(d, t);
             }
         }
         DefKind::Trait | DefKind::TraitAlias => {
             let supertraits = ast.child(node, Kind::Bounds).map(|b| l.bounds(b)).unwrap_or_default();
-            let self_ty = l.env.self_ty[&at];
-            for s in &supertraits {
-                push_trait(l.tcx, &mut preds, self_ty, s.clone());
+            let self_ty = tcx.self_ty[&at];
+            for st in &supertraits {
+                push_trait(tcx, &mut out.preds, self_ty, st.clone());
             }
             let is_auto = ast.children(node).iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == "auto");
-            l.tcx.traits.insert(d, TraitDef { supertraits, is_auto });
+            out.trait_def = Some(TraitDef { supertraits, is_auto });
         }
         _ => {}
     }
-    let failed = l.failed;
-    tcx.predicates[d.0 as usize] = preds;
-    if kind != DefKind::Impl {
-        tcx.sig_count += 1;
-        if failed {
-            tcx.sig_errors += 1;
-        }
-    }
+    out.failed = l.failed;
+    Some(out)
 }
 
 /// The type an alias (or an impl's associated type) stands for, worked
 /// out when first needed. A trait's associated type is its projection on
 /// `Self` (or its default, if written).
-pub(super) fn alias_ty<'s>(tcx: &mut TyCtxt<'s>, env: &mut Env<'_, 's>, d: DefId) -> Ty {
-    if let Some(t) = tcx.type_of[d.0 as usize] {
+pub(crate) fn alias_ty<'s>(tcx: &TyCtxt<'s>, env: &Env<'_, 's>, expanding: &mut FastSet<DefId>, d: DefId) -> Ty {
+    if let Some(t) = tcx.type_of(d) {
         return t;
     }
-    if !env.expanding.insert(d) {
-        *tcx.errors.entry("type alias that refers to itself".into()).or_default() += 1;
+    if !expanding.insert(d) {
+        tcx.note_error("type alias that refers to itself");
         return tcx.error();
     }
     let (at, ast) = node_of(env, d);
     let value = ast.children(at.2).iter().copied().find(|&c| is_type(ast.kind(c)));
     let t = match value {
         Some(v) => {
-            let mut l = Lower { tcx, env, k: at.0, file: at.1, owner: d, failed: false };
-            l.ty(v)
+            let mut l = Lower { tcx, env, expanding: std::mem::take(expanding), impl_self: None, holes: false, k: at.0, file: at.1, owner: d, failed: false };
+            let t = l.ty(v);
+            *expanding = l.expanding;
+            t
         }
         None => {
             // A trait's associated type without a default: itself, as a
@@ -414,14 +429,13 @@ pub(super) fn alias_ty<'s>(tcx: &mut TyCtxt<'s>, env: &mut Env<'_, 's>, d: DefId
             }
         }
     };
-    env.expanding.remove(&d);
-    tcx.type_of[d.0 as usize] = Some(t);
-    t
+    expanding.remove(&d);
+    tcx.set_type_of(d, t)
 }
 
 /// The associated item `name` of trait `t` or one of its supertraits:
 /// the item and the trait it is in.
-pub(super) fn find_assoc(env: &Env, t: DefId, name: &str) -> Option<(DefId, DefId)> {
+pub(crate) fn find_assoc(env: &Env, t: DefId, name: &str) -> Option<(DefId, DefId)> {
     let mut seen = FastSet::default();
     find_assoc_in(env, t, name, &mut seen)
 }
@@ -453,7 +467,7 @@ fn find_assoc_in(env: &Env, t: DefId, name: &str, seen: &mut FastSet<DefId>) -> 
 }
 
 /// `t` with each of `params` replaced by the matching `args`.
-pub(super) fn subst(tcx: &TyCtxt, t: Ty, params: &[ParamId], args: &[Ty]) -> Ty {
+pub(crate) fn subst(tcx: &TyCtxt, t: Ty, params: &[ParamId], args: &[Ty]) -> Ty {
     if params.is_empty() {
         return t;
     }

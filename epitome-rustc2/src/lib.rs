@@ -21,3 +21,4 @@ pub mod resolve;
 pub mod session;
 pub mod source;
 pub mod ty;
+pub mod typeck;

@@ -15,8 +15,8 @@
 //! There are no lifetimes in types: they matter for borrow checking, which
 //! this compiler does not do, not for code generation.
 
-mod collect;
-mod lower;
+pub(crate) mod collect;
+pub(crate) mod lower;
 mod print;
 
 use crate::ast::NodeId;
@@ -39,6 +39,7 @@ id!(SigId);
 id!(DynId);
 id!(ParamId);
 id!(OpaqueId);
+id!(ClosureId);
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum IntTy {
@@ -101,6 +102,8 @@ pub enum TyKind {
     Projection(DefId, List),
     /// `impl Trait`.
     Opaque(OpaqueId),
+    /// A closure (by where it is written) and its signature.
+    Closure(ClosureId, SigId),
     /// A type from an `extern` block.
     Foreign(DefId),
     /// An inference variable (only while checking a body).
@@ -253,21 +256,30 @@ pub struct TyCtxt<'s> {
     consts: Interner<Const>,
     sigs: Interner<FnSig>,
     dyns: Interner<DynData>,
+    closures: Interner<(u32, u32, NodeId)>,
     pub params: Vec<ParamDef<'s>>,
     /// Per `DefId`: generics, predicates, and (where it has one) its type.
     pub generics: Vec<Generics>,
     pub predicates: Vec<Vec<Pred>>,
     /// Aliases (their target), constants, statics, and an impl's
-    /// associated types.
-    pub type_of: Vec<Option<Ty>>,
+    /// associated types; set once, when first worked out.
+    type_of: Vec<std::sync::OnceLock<Ty>>,
     pub fn_sig: Vec<Option<SigId>>,
     pub adts: FastMap<DefId, AdtDef<'s>>,
     pub traits: FastMap<DefId, TraitDef>,
     pub impls: Vec<ImplDef>,
+    /// Items by where they are (crate, file, node).
+    pub(crate) def_at: FastMap<lower::At, DefId>,
+    /// Generic parameters by where they are declared.
+    pub(crate) param_at: FastMap<lower::At, ParamId>,
+    /// `Self` of each impl, trait and type definition, by its node.
+    pub(crate) self_ty: FastMap<lower::At, Ty>,
+    /// Lang items: `#[lang = "name"]` on an item.
+    pub lang: FastMap<&'s str, DefId>,
     pub impl_index: FastMap<DefId, usize>,
-    pub opaques: Vec<OpaqueDef>,
-    /// Signatures that came out with an error type in them, by reason.
-    pub errors: FastMap<String, usize>,
+    opaques: std::sync::Mutex<Vec<OpaqueDef>>,
+    /// Why types came out as errors, with counts.
+    errors: std::sync::Mutex<FastMap<String, usize>>,
     /// How many items have a signature, and how many contain an error.
     pub sig_count: usize,
     pub sig_errors: usize,
@@ -281,20 +293,49 @@ impl<'s> TyCtxt<'s> {
             consts: Interner::default(),
             sigs: Interner::default(),
             dyns: Interner::default(),
+            closures: Interner::default(),
             params: Vec::new(),
             generics: vec![Generics::default(); defs],
             predicates: vec![Vec::new(); defs],
-            type_of: vec![None; defs],
+            type_of: (0..defs).map(|_| std::sync::OnceLock::new()).collect(),
             fn_sig: vec![None; defs],
             adts: FastMap::default(),
             traits: FastMap::default(),
             impls: Vec::new(),
+            def_at: FastMap::default(),
+            param_at: FastMap::default(),
+            self_ty: FastMap::default(),
+            lang: FastMap::default(),
             impl_index: FastMap::default(),
-            opaques: Vec::new(),
-            errors: FastMap::default(),
+            opaques: std::sync::Mutex::new(Vec::new()),
+            errors: std::sync::Mutex::new(FastMap::default()),
             sig_count: 0,
             sig_errors: 0,
         }
+    }
+
+    /// The type of an alias, constant or static, once worked out.
+    pub fn type_of(&self, d: DefId) -> Option<Ty> {
+        self.type_of[d.0 as usize].get().copied()
+    }
+
+    pub(crate) fn set_type_of(&self, d: DefId, t: Ty) -> Ty {
+        *self.type_of[d.0 as usize].get_or_init(|| t)
+    }
+
+    pub fn opaque(&self, o: OpaqueId) -> OpaqueDef {
+        self.opaques.lock().unwrap()[o.0 as usize].clone()
+    }
+
+    pub(crate) fn new_opaque(&self, o: OpaqueDef) -> OpaqueId {
+        let mut v = self.opaques.lock().unwrap();
+        v.push(o);
+        OpaqueId(v.len() as u32 - 1)
+    }
+
+    /// Counts a type that came out as an error, by reason.
+    pub(crate) fn note_error(&self, why: &str) {
+        *self.errors.lock().unwrap().entry(why.to_string()).or_default() += 1;
     }
 
     pub fn mk(&self, k: TyKind) -> Ty {
@@ -337,6 +378,15 @@ impl<'s> TyCtxt<'s> {
         self.dyns.get(d.0)
     }
 
+    /// The id of the closure written at node `at` (crate, file, node).
+    pub fn closure_id(&self, at: (u32, u32, NodeId)) -> ClosureId {
+        ClosureId(self.closures.intern(at))
+    }
+
+    pub fn closure_at(&self, c: ClosureId) -> (u32, u32, NodeId) {
+        self.closures.get(c.0)
+    }
+
     pub fn unit(&self) -> Ty {
         let empty = self.list(Vec::new());
         self.mk(TyKind::Tuple(empty))
@@ -360,7 +410,7 @@ impl<'s> TyCtxt<'s> {
             }
             TyKind::Ref(_, x) | TyKind::Ptr(_, x) | TyKind::Slice(x) => self.has_error(x),
             TyKind::Array(x, c) => self.has_error(x) || self.const_of(c) == Const::Error,
-            TyKind::FnPtr(s) => {
+            TyKind::FnPtr(s) | TyKind::Closure(_, s) => {
                 let s = self.sig_of(s);
                 self.has_error(s.output) || self.tys(s.inputs).into_iter().any(|x| self.has_error(x))
             }
@@ -408,7 +458,7 @@ impl Session {
 
 impl TyCtxt<'_> {
     pub fn stats(&self) -> TypeStats {
-        let mut reasons: Vec<(String, usize)> = self.errors.iter().map(|(k, v)| (k.clone(), *v)).collect();
+        let mut reasons: Vec<(String, usize)> = self.errors.lock().unwrap().iter().map(|(k, v)| (k.clone(), *v)).collect();
         reasons.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
         TypeStats {
             signatures: self.sig_count,

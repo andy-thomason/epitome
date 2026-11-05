@@ -28,6 +28,9 @@
 //!   resolved to.
 //! - `--dump-sigs`: work out every item's signature, and print them.
 //! - `--types-stats`: count signatures, and why any have error types.
+//! - `--dump-types`: type check every body, and print each expression's
+//!   and pattern's type.
+//! - `--typeck-stats`: type check every body, and count what failed and why.
 //! - `--parse-tree dir`: parse every `.rs` file under `dir` (each on its
 //!   own, not following modules), and report each that fails and a count.
 //!   Each file is read in the edition of the nearest `Cargo.toml` above it
@@ -54,6 +57,7 @@ fn main() -> ExitCode {
     let (mut no_expand, mut expand_stats) = (false, false);
     let (mut resolve_stats, mut dump_res) = (false, false);
     let (mut dump_sigs, mut types_stats) = (false, false);
+    let (mut dump_types, mut typeck_stats) = (false, false);
     let mut tree: Option<PathBuf> = None;
     let mut cfg = CfgSet::host();
     let mut externs: Vec<(String, PathBuf)> = Vec::new();
@@ -76,6 +80,8 @@ fn main() -> ExitCode {
             "--dump-res" => dump_res = true,
             "--dump-sigs" => dump_sigs = true,
             "--types-stats" => types_stats = true,
+            "--dump-types" => dump_types = true,
+            "--typeck-stats" => typeck_stats = true,
             _ if arg.starts_with("--cfg") => {
                 let v = value("--cfg").unwrap_or_default();
                 match v.split_once('=') {
@@ -168,7 +174,7 @@ fn main() -> ExitCode {
             }
         }
     }
-    if dump_sigs || types_stats {
+    if dump_sigs || types_stats || dump_types || typeck_stats {
         let r = session.resolve(&crates);
         let t = std::time::Instant::now();
         let tcx = session.collect_types(&crates, &r);
@@ -188,6 +194,29 @@ fn main() -> ExitCode {
             );
             for (why, n) in s.reasons.iter().take(20) {
                 eprintln!("  {n:6} {why}");
+            }
+        }
+        if dump_types || typeck_stats {
+            let t = std::time::Instant::now();
+            let res = session.typeck(&crates, &r, &tcx);
+            let elapsed = t.elapsed();
+            if dump_types {
+                print!("{}", res.dump(&crates, &r, &tcx, &session.sources));
+            }
+            if typeck_stats {
+                let s = &res.stats;
+                eprintln!(
+                    "typeck: {} bodies ({} clean), {} nodes typed, {} with error types, {} unknown, in {:.3} s",
+                    s.bodies,
+                    s.clean_bodies,
+                    s.nodes,
+                    s.error_nodes,
+                    s.unknown_nodes,
+                    elapsed.as_secs_f64()
+                );
+                for (why, n) in s.reasons.iter().take(25) {
+                    eprintln!("  {n:6} {why}");
+                }
             }
         }
     }

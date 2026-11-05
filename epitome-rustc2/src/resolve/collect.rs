@@ -2,8 +2,8 @@
 
 use super::{Binding, Def, DefId, DefKind, Import, ImportKind, ModId, Module, Ns, Res, Resolver, Vis};
 use crate::ast::{Ast, Kind, NodeId};
+use crate::hash::FastMap;
 use crate::session::{ParsedCrate, has_attribute};
-use std::collections::HashMap;
 
 /// Builds the definitions, modules and imports of every crate.
 pub(super) fn collect<'s>(crates: &[ParsedCrate<'s>]) -> Resolver<'s> {
@@ -15,7 +15,7 @@ pub(super) fn collect<'s>(crates: &[ParsedCrate<'s>]) -> Resolver<'s> {
         editions: crates.iter().map(|c| c.edition).collect(),
         preludes: vec![None; crates.len()],
         file_modules: Vec::new(),
-        module_of: HashMap::new(),
+        module_of: FastMap::default(),
         imports: Vec::new(),
         failed_imports: Vec::new(),
         prelude_imports: vec![None; crates.len()],
@@ -23,6 +23,7 @@ pub(super) fn collect<'s>(crates: &[ParsedCrate<'s>]) -> Resolver<'s> {
         no_std: vec![false; crates.len()],
         res: Vec::new(),
         def_site: Vec::new(),
+        macro_bodies: Vec::new(),
     };
     // Crate roots first, so that `extern crate` can name any of them.
     for (k, c) in crates.iter().enumerate() {
@@ -59,6 +60,7 @@ pub(super) fn collect<'s>(crates: &[ParsedCrate<'s>]) -> Resolver<'s> {
         r.file_modules.push(file_modules);
     }
     r.def_site.sort_by_key(|x| x.0);
+    r.macro_bodies.sort();
     r
 }
 
@@ -69,7 +71,15 @@ impl<'s> Resolver<'s> {
             Some(p) if block => self.modules[p.0 as usize].normal,
             _ => id,
         };
-        self.modules.push(Module { krate, def: None, parent, normal, block, names: HashMap::new(), globs: Vec::new() });
+        self.modules.push(Module {
+            krate,
+            def: None,
+            parent,
+            normal,
+            block,
+            names: FastMap::default(),
+            globs: Vec::new(),
+        });
         id
     }
 
@@ -154,9 +164,39 @@ impl<'c, 'r, 's> Collector<'c, 'r, 's> {
                 let p = self.r.modules[normal.0 as usize].parent.map(|p| self.r.modules[p.0 as usize].normal);
                 Vis::Restricted(p.unwrap_or(root))
             }
-            // `pub(in path)`: the crate, until such paths are resolved.
-            _ => Vis::Restricted(root),
+            // `pub(in path)`: an ancestor module, which already exists.
+            _ => Vis::Restricted(self.ancestor(&segs, normal).unwrap_or(root)),
         }
+    }
+
+    /// The module `pub(in a::b)` names, from module `normal`: `crate`,
+    /// `self` or `super`s, then module names (a 2015 path starts at the
+    /// crate root).
+    fn ancestor(&self, segs: &[&str], normal: ModId) -> Option<ModId> {
+        let root = self.r.roots[self.krate as usize];
+        let mut cur = root;
+        let mut rest = segs;
+        match *segs.first()? {
+            "crate" => rest = &segs[1..],
+            "self" => {
+                cur = normal;
+                rest = &segs[1..];
+            }
+            "super" => {
+                cur = normal;
+                while rest.first() == Some(&"super") {
+                    let p = self.r.modules[cur.0 as usize].parent?;
+                    cur = self.r.modules[p.0 as usize].normal;
+                    rest = &rest[1..];
+                }
+            }
+            _ => {}
+        }
+        for &seg in rest {
+            let res = self.r.lookup(cur, seg, Ns::Type, cur)?;
+            cur = self.r.module_of_res(&res)?;
+        }
+        Some(cur)
     }
 
     fn def(&mut self, kind: DefKind, name: &'s str, m: ModId, node: NodeId, vis: Vis, module: Option<ModId>) -> DefId {
@@ -300,7 +340,22 @@ impl<'c, 'r, 's> Collector<'c, 'r, 's> {
                 let mvis =
                     if kind == Kind::MacroDef { vis } else { Vis::Restricted(self.r.modules[m.0 as usize].normal) };
                 self.r.bind(m, name, Ns::Macro, Res::Def(d), mvis);
+                // Only macros written in a file have a body of their own:
+                // one a macro made is text of that macro's body, whose
+                // context it shares (and spans of copied tokens would not
+                // be one piece of text).
+                let written = self.ast.is_original(item);
+                for &tt in self.ast.children(item).iter().filter(|&&c| written && self.ast.kind(c) == Kind::TokenTree) {
+                    let toks = self.ast.tokens_of(tt);
+                    if let (Some(a), Some(b)) = (toks.first(), toks.last()) {
+                        let (start, end) = (a.0.as_ptr() as usize, b.0.as_ptr() as usize + b.0.len());
+                        if end > start {
+                            self.r.macro_bodies.push((start, end));
+                        }
+                    }
+                }
                 if kind == Kind::MacroDef
+                    && written
                     && let Some(&body) =
                         self.ast.children(item).iter().rev().find(|&&c| self.ast.kind(c) == Kind::TokenTree)
                 {

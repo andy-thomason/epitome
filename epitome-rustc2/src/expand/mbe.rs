@@ -15,10 +15,10 @@
 //! expression wherever it lands (`$e * 2`), as rustc keeps it one node.
 
 use crate::ast::Kind;
+use crate::hash::FastMap;
 use crate::lexer::{Edition, Token};
 use crate::parse::{FragKind, FragmentParser};
 use crate::source::Error;
-use std::collections::HashMap;
 
 /// A fragment specifier.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -103,7 +103,7 @@ enum Binding {
     Seq(Vec<Binding>),
 }
 
-type Bindings<'a> = HashMap<&'a str, Binding>;
+type Bindings<'a> = FastMap<&'a str, Binding>;
 
 fn close_of(open: &str) -> &'static str {
     match open {
@@ -192,10 +192,10 @@ impl<'a> Rules<'a> {
         cx: &mut Transcribe<'_, 'a>,
     ) -> Result<Vec<Token<'a>>, String> {
         let close = match_delims(input);
-        let mut parsers: HashMap<usize, FragmentParser<'a>> = HashMap::new();
+        let mut parsers: FastMap<usize, FragmentParser<'a>> = FastMap::default();
         for (matcher, transcriber) in &self.rules {
             let mut st = MatchState { input, close: &close, eof, edition: self.edition, parsers: &mut parsers };
-            let mut b = Bindings::new();
+            let mut b = Bindings::default();
             if st.go(matcher, 0, 0, input.len(), (0, input.len()), true, &mut b).is_some() {
                 let mut out = Vec::new();
                 transcribe(transcriber, &b, input, &mut Vec::new(), cx, &mut out)?;
@@ -365,7 +365,7 @@ struct MatchState<'s, 't, 'a> {
     edition: Edition,
     /// One parser per delimited group of the input, made when first
     /// needed: `(start, end)` of the group's contents to the parser.
-    parsers: &'s mut HashMap<usize, FragmentParser<'a>>,
+    parsers: &'s mut FastMap<usize, FragmentParser<'a>>,
 }
 
 impl<'s, 't, 'a> MatchState<'s, 't, 'a> {
@@ -435,7 +435,7 @@ impl<'s, 't, 'a> MatchState<'s, 't, 'a> {
                         }
                         at += sep.len();
                     }
-                    let mut ib = Bindings::new();
+                    let mut ib = Bindings::default();
                     match self.go(sub, 0, at, end, group, false, &mut ib) {
                         // An iteration that reads nothing would repeat for
                         // ever.

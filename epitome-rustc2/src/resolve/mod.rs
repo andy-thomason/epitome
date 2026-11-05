@@ -23,9 +23,9 @@ mod imports;
 mod paths;
 
 use crate::ast::NodeId;
+use crate::hash::FastMap;
 use crate::lexer::Edition;
 use crate::session::{ParsedCrate, Session};
-use std::collections::HashMap;
 
 /// The built-in types.
 pub(crate) const PRIMITIVES: &[&str] = &[
@@ -133,7 +133,7 @@ pub struct Module<'s> {
     pub normal: ModId,
     /// Whether this is a block (its names are seen only lexically).
     pub block: bool,
-    pub names: HashMap<(&'s str, Ns), Binding>,
+    pub names: FastMap<(&'s str, Ns), Binding>,
     /// Glob imports: the module, and the visibility the import gives.
     pub globs: Vec<(ModId, Vis)>,
 }
@@ -176,7 +176,7 @@ pub struct Resolver<'s> {
     /// The module each file's top level is: per crate, per file.
     pub file_modules: Vec<Vec<ModId>>,
     /// Modules made by `mod`, `enum`, `trait` and blocks, by where they are.
-    pub module_of: HashMap<(u32, u32, NodeId), ModId>,
+    pub module_of: FastMap<(u32, u32, NodeId), ModId>,
     pub imports: Vec<Import<'s>>,
     /// Imports that never resolved.
     pub failed_imports: Vec<usize>,
@@ -185,12 +185,15 @@ pub struct Resolver<'s> {
     /// Whether each crate has `#![no_core]` or `#![no_std]`.
     pub no_core: Vec<bool>,
     pub no_std: Vec<bool>,
-    /// What each path resolved to: per crate, per file, by path node.
-    pub res: Vec<Vec<HashMap<NodeId, Res>>>,
+    /// What each path resolved to: per crate, per file, indexed by node.
+    pub res: Vec<Vec<Vec<Option<Res>>>>,
     /// The text of each macro 2.0's body (start and end addresses) and the
     /// module it is defined in, sorted: a path whose first token is in such
     /// text resolves in that module (definition-site hygiene).
     pub def_site: Vec<(usize, usize, ModId)>,
+    /// The text of every macro body (`macro_rules!` and macro 2.0), sorted:
+    /// a token's syntax context for local variables is the body it is in.
+    pub macro_bodies: Vec<(usize, usize)>,
 }
 
 /// How many paths resolved, for progress reports.
@@ -228,6 +231,12 @@ impl Session {
 }
 
 impl<'s> Resolver<'s> {
+    /// What path (or pattern) `node` of file `file` of crate `krate`
+    /// resolved to.
+    pub fn res_of(&self, krate: usize, file: usize, node: NodeId) -> Option<&Res> {
+        self.res.get(krate)?.get(file)?.get(node.0 as usize)?.as_ref()
+    }
+
     /// A definition's path: `core::option::Option`.
     pub fn def_path(&self, d: DefId) -> String {
         let def = &self.defs[d.0 as usize];
@@ -336,6 +345,19 @@ impl<'s> Resolver<'s> {
         let i = self.def_site.partition_point(|r| r.0 <= p);
         let (s, e, m) = *self.def_site.get(i.checked_sub(1)?)?;
         (p >= s && p < e).then_some(m)
+    }
+
+    /// The syntax context of a token for local variables: 0 for code
+    /// written where it is, else 1 + the index of the macro body it was
+    /// written in. A local bound in one context is not seen from another
+    /// (rustc's hygiene for locals, in `macro_rules!` and macros 2.0).
+    pub fn ctx_of(&self, t: &str) -> u32 {
+        let p = t.as_ptr() as usize;
+        let i = self.macro_bodies.partition_point(|r| r.0 <= p);
+        match i.checked_sub(1).map(|j| (j, self.macro_bodies[j])) {
+            Some((j, (s, e))) if p >= s && p < e => j as u32 + 1,
+            _ => 0,
+        }
     }
 
     /// The macro a call `segs!` in module `m` of crate `krate` names, by
@@ -450,6 +472,35 @@ mod tests {
         assert!(d.lines().any(|l| l.starts_with("x -> local")), "{d}");
         assert!(d.lines().any(|l| l.starts_with("T -> generic")), "{d}");
         assert!(!d.contains("??"), "{d}");
+    }
+
+    #[test]
+    fn pub_in_path() {
+        let session = Session::new(Options { threads: 1, ..Default::default() });
+        let dir = std::env::temp_dir().join(format!("epitome-rustc2-vis-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("lib.rs");
+        std::fs::write(&file, "mod a { pub mod b { pub(in crate::a) fn f() {} pub(super) fn g() {} } }").unwrap();
+        let crates = session.parse_crates(vec![CrateRoot::new("t", &file)]);
+        let r = session.resolve(&crates);
+        let _ = std::fs::remove_dir_all(dir);
+        let def = |name: &str| r.defs.iter().find(|d| d.name == name).unwrap();
+        let module_named = |name: &str| def(name).module.unwrap();
+        let a = module_named("a");
+        assert_eq!(def("f").vis, super::Vis::Restricted(a));
+        assert_eq!(def("g").vis, super::Vis::Restricted(a));
+    }
+
+    #[test]
+    fn macro_locals_are_hygienic() {
+        let d = dump("macro_rules! m { ($e:expr) => {{ let x = 2; $e + x }} }\nfn f() -> i32 { let x = 1; m!(x) }");
+        // Uses of `x`: the argument (the caller's `x`) and the macro's own.
+        let xs: Vec<&str> = d.lines().filter(|l| l.starts_with("x -> local")).collect();
+        assert_eq!(xs.len(), 2, "{d}");
+        assert_ne!(xs[0], xs[1], "{d}");
+        // The caller's `x` is bound first, so it has the smaller node.
+        let node = |l: &str| l.rsplit('#').next().unwrap().parse::<u32>().unwrap();
+        assert!(node(xs[0]) < node(xs[1]), "the argument should be the caller's `x`:\n{d}");
     }
 
     #[test]

@@ -32,13 +32,14 @@ pub mod mbe;
 pub(crate) use mbe::match_delims as mbe_delims;
 
 use crate::ast::{Ast, Kind, NodeId};
+use crate::hash::FastMap;
 use crate::lexer::{Edition, Token, lex};
 use crate::parse::{Fragment, parse_fragment};
 use crate::pool;
 use crate::session::{ParsedCrate, ParsedFile, ScopeStep, Session, has_attribute, node_pos};
 use crate::source::Error;
 use mbe::{Rules, Transcribe};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::sync::Mutex;
 
 /// How deep expansions may nest, as rustc's default `recursion_limit`.
@@ -115,15 +116,15 @@ pub struct ExpandStats {
 struct Macros<'s> {
     defs: Vec<MacroDef<'s>>,
     /// Per crate: name to definitions, in text order.
-    by_name: Vec<HashMap<&'s str, Vec<usize>>>,
+    by_name: Vec<FastMap<&'s str, Vec<usize>>>,
     /// Per crate: exported name to definition (the last).
-    exported: Vec<HashMap<&'s str, usize>>,
+    exported: Vec<FastMap<&'s str, usize>>,
     /// Per crate: crates whose exported macros are in scope by name.
     prelude: Vec<Vec<usize>>,
     /// Per crate: the tokens `$crate` becomes in another crate (`::name`).
     crate_path: Vec<Vec<Token<'s>>>,
     /// Definitions by crate, file and item, to match name resolution's.
-    by_node: HashMap<(usize, u32, NodeId), usize>,
+    by_node: FastMap<(usize, u32, NodeId), usize>,
 }
 
 impl Session {
@@ -138,7 +139,7 @@ impl Session {
                 vec![synth(2..3), synth(3..4), Token(name)]
             })
             .collect();
-        let crate_index: HashMap<String, usize> = crates.iter().enumerate().map(|(i, c)| (c.name.clone(), i)).collect();
+        let crate_index: FastMap<String, usize> = crates.iter().enumerate().map(|(i, c)| (c.name.clone(), i)).collect();
         // Calls that fail are tried again each round (a later round may
         // define what they need), so only the last round's errors count.
         let mut round_errors: Vec<(usize, Error<'s>)> = Vec::new();
@@ -223,7 +224,7 @@ impl Session {
     fn collect_macros<'s>(
         &'s self,
         crates: &[ParsedCrate<'s>],
-        crate_index: &HashMap<String, usize>,
+        crate_index: &FastMap<String, usize>,
         crate_path: &[Vec<Token<'s>>],
     ) -> (Macros<'s>, Vec<(usize, Vec<Error<'s>>)>) {
         let found: Mutex<Vec<(usize, Vec<MacroDef<'s>>, Vec<Error<'s>>)>> = Mutex::new(Vec::new());
@@ -245,11 +246,11 @@ impl Session {
         found.sort_by(|a, b| (a.0, a.1.first().map(|d| &d.pos)).cmp(&(b.0, b.1.first().map(|d| &d.pos))));
         let mut m = Macros {
             defs: Vec::new(),
-            by_name: vec![HashMap::new(); crates.len()],
-            exported: vec![HashMap::new(); crates.len()],
+            by_name: vec![FastMap::default(); crates.len()],
+            exported: vec![FastMap::default(); crates.len()],
             prelude: crates.iter().map(|c| macro_prelude(c, crate_index)).collect(),
             crate_path: crate_path.to_vec(),
-            by_node: HashMap::new(),
+            by_node: FastMap::default(),
         };
         let mut errs = Vec::new();
         let mut all: Vec<MacroDef<'s>> = Vec::new();
@@ -303,7 +304,8 @@ impl Session {
         &'s self,
         crates: &mut [ParsedCrate<'s>],
     ) -> Vec<Vec<(&'s str, std::path::PathBuf, crate::proc_macro::ProcMacroKind)>> {
-        let mut cache: HashMap<std::path::PathBuf, Vec<(&'s str, crate::proc_macro::ProcMacroKind)>> = HashMap::new();
+        let mut cache: FastMap<std::path::PathBuf, Vec<(&'s str, crate::proc_macro::ProcMacroKind)>> =
+            FastMap::default();
         let mut out = Vec::new();
         for c in crates.iter_mut() {
             let mut list = Vec::new();
@@ -334,7 +336,7 @@ impl Session {
 
 /// The crates whose exported macros a crate can use by name: those of
 /// `#[macro_use] extern crate`, and `std` (or `core` with `no_std`).
-fn macro_prelude(c: &ParsedCrate, crate_index: &HashMap<String, usize>) -> Vec<usize> {
+fn macro_prelude(c: &ParsedCrate, crate_index: &FastMap<String, usize>) -> Vec<usize> {
     let mut out = Vec::new();
     let Some(root) = c.files.first() else { return out };
     let ast = &root.ast;

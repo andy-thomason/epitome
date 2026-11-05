@@ -9,6 +9,7 @@
 pub mod ast;
 pub mod cfg;
 pub mod expand;
+pub mod hash;
 pub mod json;
 pub mod lexer;
 pub mod parse;

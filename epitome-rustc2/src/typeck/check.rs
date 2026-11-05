@@ -1,6 +1,6 @@
 //! Checking one body.
 
-use super::BodyResult;
+use super::{Adjust, BindingMode, BodyResult};
 use super::infer::{Infer, VarKind};
 use super::traits::TraitImpls;
 use crate::ast::{Ast, Kind, NodeId};
@@ -123,6 +123,9 @@ pub(super) fn check_body<'s>(
         owner,
         types: FastMap::default(),
         methods: Vec::new(),
+        adjustments: FastMap::default(),
+        pat_derefs: FastMap::default(),
+        bindings: FastMap::default(),
         ret: tcx.unit(),
         loops: Vec::new(),
         errors: FastMap::default(),
@@ -245,7 +248,12 @@ pub(super) struct FnCtxt<'a, 's> {
     pub(super) owner: DefId,
     /// Types of expressions and patterns, unresolved until the end.
     types: FastMap<NodeId, Ty>,
-    methods: Vec<(NodeId, DefId)>,
+    /// What each method call (or overloaded operator) calls, and the
+    /// arguments, unresolved until the end.
+    pub(super) methods: Vec<(NodeId, DefId, Vec<Ty>)>,
+    adjustments: FastMap<NodeId, Vec<Adjust>>,
+    pat_derefs: FastMap<NodeId, u32>,
+    bindings: FastMap<NodeId, BindingMode>,
     ret: Ty,
     loops: Vec<Loop<'s>>,
     errors: FastMap<String, usize>,
@@ -282,11 +290,35 @@ impl<'a, 's> FnCtxt<'a, 's> {
             }
             types.push((n, t));
         }
+        let methods = std::mem::take(&mut self.methods);
+        let methods = methods
+            .into_iter()
+            .map(|(n, d, args)| {
+                let args: Vec<Ty> = args
+                    .into_iter()
+                    .map(|t| {
+                        let t = self.infer.resolve(t);
+                        let t = self.normalize(t, 1);
+                        self.infer.resolve(t)
+                    })
+                    .collect();
+                (n, d, self.tcx.list(args))
+            })
+            .collect();
+        let mut adjustments: Vec<(NodeId, Vec<Adjust>)> = self.adjustments.into_iter().collect();
+        adjustments.sort_by_key(|x| x.0);
+        let mut pat_derefs: Vec<(NodeId, u32)> = self.pat_derefs.into_iter().collect();
+        pat_derefs.sort_by_key(|x| x.0);
+        let mut bindings: Vec<(NodeId, BindingMode)> = self.bindings.into_iter().collect();
+        bindings.sort_by_key(|x| x.0);
         BodyResult {
             k: self.k,
             file: self.file,
             types,
-            methods: self.methods,
+            methods,
+            adjustments,
+            pat_derefs,
+            bindings,
             errors: self.errors,
             error_nodes,
             unknown_nodes,
@@ -395,7 +427,11 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let w = self.infer.shallow(want);
         let tcx = self.tcx;
         match (tcx.kind(g), tcx.kind(w)) {
-            (TyKind::Never, _) => return true,
+            (TyKind::Never, TyKind::Never) => return true,
+            (TyKind::Never, _) => {
+                self.adjust(n, vec![Adjust::NeverToAny]);
+                return true;
+            }
             // Reborrowing, unsizing (`&[T; N]` to `&[T]`, `&T` to
             // `&dyn Trait`), and deref coercion (`&String` to `&str`).
             (TyKind::Ref(m, x), TyKind::Ref(m2, y)) if m == m2 || m == Mutbl::Mut => {
@@ -405,17 +441,23 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 }
                 self.rollback(p);
                 if self.unsizes_to(x, y) {
+                    self.adjust(n, vec![Adjust::Unsize]);
                     return true;
                 }
                 self.rollback(p);
-                if self.deref_coerces(x, y) {
+                if let Some(adj) = self.deref_coerces(x, y, m2) {
+                    self.adjust(n, adj);
                     return true;
                 }
                 self.rollback(p);
             }
             (TyKind::Ref(m, x), TyKind::Ptr(m2, y)) | (TyKind::Ptr(m, x), TyKind::Ptr(m2, y)) if m == m2 || m == Mutbl::Mut => {
                 let p = self.probe();
-                if self.infer.unify(x, y) || self.unsizes_to(x, y) {
+                if self.infer.unify(x, y) {
+                    return true;
+                }
+                if self.unsizes_to(x, y) {
+                    self.adjust(n, vec![Adjust::Unsize]);
                     return true;
                 }
                 self.rollback(p);
@@ -423,7 +465,11 @@ impl<'a, 's> FnCtxt<'a, 's> {
             (TyKind::Adt(a, x), TyKind::Adt(b, y)) if a == b && Some(a) == self.lang("owned_box") => {
                 let (x, y) = (tcx.tys(x)[0], tcx.tys(y)[0]);
                 let p = self.probe();
-                if self.infer.unify(x, y) || self.unsizes_to(x, y) {
+                if self.infer.unify(x, y) {
+                    return true;
+                }
+                if self.unsizes_to(x, y) {
+                    self.adjust(n, vec![Adjust::Unsize]);
                     return true;
                 }
                 self.rollback(p);
@@ -432,14 +478,22 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 if let Some((inputs, output)) = self.callable_sig(d, l) {
                     let s = tcx.sig_of(s);
                     let want_in = tcx.tys(s.inputs);
-                    return inputs.len() == want_in.len()
+                    let ok = inputs.len() == want_in.len()
                         && inputs.iter().zip(&want_in).all(|(&a, &b)| self.infer.unify(a, b))
                         && self.infer.unify(output, s.output);
+                    if ok {
+                        self.adjust(n, vec![Adjust::ReifyFnPointer]);
+                    }
+                    return ok;
                 }
             }
             (TyKind::Closure(_, cs), TyKind::FnPtr(s)) => {
                 let (c, s) = (tcx.sig_of(cs), tcx.sig_of(s));
-                return self.infer.unify(self.mk(TyKind::FnPtr(tcx.sig(crate::ty::FnSig { unsafety: s.unsafety, abi: s.abi, ..c }))), w);
+                let ok = self.infer.unify(self.mk(TyKind::FnPtr(tcx.sig(crate::ty::FnSig { unsafety: s.unsafety, abi: s.abi, ..c }))), w);
+                if ok {
+                    self.adjust(n, vec![Adjust::ClosureFnPointer]);
+                }
+                return ok;
             }
             _ => {}
         }
@@ -448,6 +502,30 @@ impl<'a, 's> FnCtxt<'a, 's> {
         }
         self.err(n, "mismatched types");
         false
+    }
+
+    /// `recv.name::<A, B>(..)`: the written arguments for the method's own
+    /// parameters (the last ones of the arguments recorded for `n`).
+    fn method_turbofish(&mut self, n: NodeId, item: DefId, seg: NodeId) {
+        let ast = self.ast;
+        let Some(g) = ast.child(seg, Kind::GenericArgs) else { return };
+        let written: Vec<NodeId> = ast.children(g).iter().copied().filter(|&a| is_type(ast.kind(a))).collect();
+        let own = self.tcx.generics[item.0 as usize].own.len();
+        let Some(args) = self.methods.iter().rev().find(|m| m.0 == n).map(|m| m.2.clone()) else { return };
+        let start = args.len().saturating_sub(own);
+        for (i, a) in written.into_iter().enumerate() {
+            if let Some(&v) = args.get(start + i) {
+                let t = self.written_ty(a);
+                self.infer.unify(v, t);
+            }
+        }
+    }
+
+    /// Records adjustments of the expression `n`, after any it has.
+    fn adjust(&mut self, n: NodeId, adj: Vec<Adjust>) {
+        if !adj.is_empty() {
+            self.adjustments.entry(n).or_default().extend(adj);
+        }
     }
 
     /// The common type of two branches (`if`/`else`, match arms).
@@ -828,19 +906,24 @@ impl<'a, 's> FnCtxt<'a, 's> {
     /// `recv.name(args)`: for each type autoderef goes through, the
     /// receiver by value, then borrowed, then borrowed mutably; inherent
     /// methods before trait methods at each.
-    fn method_call(&mut self, n: NodeId, recv_ty: Ty, name: &str) -> Option<(DefId, Vec<Ty>, Ty)> {
+    fn method_call(&mut self, n: NodeId, recv_node: NodeId, recv_ty: Ty, name: &str) -> Option<(DefId, Vec<Ty>, Ty)> {
         let tcx = self.tcx;
         let steps = self.autoderef(recv_ty);
-        for t in steps {
+        for k in 0..steps.len() {
+            let t = steps[k].0;
             if self.infer.var_kind(t) == Some(VarKind::General) {
                 return None;
             }
             for form in 0..3 {
-                let recv = match form {
-                    0 => t,
-                    1 => self.mk_ref(Mutbl::Not, t),
-                    _ => self.mk_ref(Mutbl::Mut, t),
+                let (recv, borrow) = match form {
+                    0 => (t, None),
+                    1 => (self.mk_ref(Mutbl::Not, t), Some(Mutbl::Not)),
+                    _ => (self.mk_ref(Mutbl::Mut, t), Some(Mutbl::Mut)),
                 };
+                // An unsized slice is only reached through a borrow.
+                if borrow.is_none() && steps[k].1 == Some(Adjust::Unsize) {
+                    continue;
+                }
                 let s = self.probe();
                 if let Some((item, impl_args)) = self.inherent_item(t, name, Ns::Value)
                     && self.r.defs[item.0 as usize].kind == DefKind::AssocFn
@@ -849,17 +932,21 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     let mut args = impl_args;
                     let fresh = (0..own).map(|_| self.infer.fresh()).collect::<Vec<_>>();
                     args.extend(fresh);
-                    if let Some((inputs, output)) = self.callable_sig(item, tcx.list(args))
+                    if let Some((inputs, output)) = self.callable_sig(item, tcx.list(args.clone()))
                         && let Some(&sp) = inputs.first()
                         && self.infer.unify(sp, recv)
                     {
-                        self.methods.push((n, item));
+                        self.methods.push((n, item, args));
+                        let adj = Self::step_adjustments(&steps, k, borrow);
+                        self.adjust(recv_node, adj);
                         return Some((item, inputs[1..].to_vec(), output));
                     }
                 }
                 self.rollback(s);
-                if let Some((item, inputs, output)) = self.trait_method(recv, name) {
-                    self.methods.push((n, item));
+                if let Some((item, args, inputs, output)) = self.trait_method(recv, name) {
+                    self.methods.push((n, item, args));
+                    let adj = Self::step_adjustments(&steps, k, borrow);
+                    self.adjust(recv_node, adj);
                     return Some((item, inputs, output));
                 }
             }
@@ -944,8 +1031,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 let recv = self.expr(kids[0], None);
                 let name = ast.token(kids[1]).0;
                 let args = self.kids(kids[2]);
-                match self.method_call(n, recv, name) {
-                    Some((_, inputs, output)) => {
+                match self.method_call(n, kids[0], recv, name) {
+                    Some((item, inputs, output)) => {
+                        self.method_turbofish(n, item, kids[1]);
                         self.check_args(n, &args, &inputs);
                         output
                     }
@@ -960,12 +1048,12 @@ impl<'a, 's> FnCtxt<'a, 's> {
             Kind::Field => {
                 let base = self.expr(kids[0], None);
                 let name = ast.token(kids[1]).0;
-                self.field(n, base, name)
+                self.field(n, kids[0], base, name)
             }
             Kind::Index => {
                 let base = self.expr(kids[0], None);
                 let idx = self.expr(kids[1], None);
-                self.index(n, base, idx)
+                self.index(n, kids[0], base, idx)
             }
             Kind::StructExpr => self.struct_expr(n, &kids),
             Kind::If => {
@@ -1209,15 +1297,22 @@ impl<'a, 's> FnCtxt<'a, 's> {
             "*" => match tcx.kind(s) {
                 TyKind::Ptr(_, x) => x,
                 _ => match self.deref_once(s) {
-                    Some(x) => x,
+                    Some((x, how)) => {
+                        if how == Adjust::OverloadedDeref
+                            && let Some(tr) = self.lang("deref")
+                        {
+                            self.record_trait_method(n, tr, "deref", s, &[]);
+                        }
+                        x
+                    }
                     None => self.err(n, "dereference of something that does not implement `Deref`"),
                 },
             },
             "-" if self.infer.is_numeric(s) => t,
             "!" if self.infer.is_integral(s) || tcx.kind(s) == TyKind::Bool => t,
             _ => {
-                let lang = if op == "-" { "neg" } else { "not" };
-                match self.op_trait(lang, s, None) {
+                let (lang, method) = if op == "-" { ("neg", "neg") } else { ("not", "not") };
+                match self.op_trait(n, lang, method, s, None) {
                     Some(o) => o,
                     None => self.err(n, "unary operator on a type that does not implement it"),
                 }
@@ -1261,9 +1356,17 @@ impl<'a, 's> FnCtxt<'a, 's> {
             // `PartialEq<B> for A` or `PartialOrd<B> for A`; failing
             // that, the same type.
             let lang = if matches!(op.as_str(), "==" | "!=") { "eq" } else { "partial_ord" };
+            let method = match op.as_str() {
+                "==" => "eq",
+                "!=" => "ne",
+                "<" => "lt",
+                ">" => "gt",
+                "<=" => "le",
+                _ => "ge",
+            };
             let p = self.probe();
-            match self.lang(lang).map(|tr| self.select(sa, tr, &[sb], 0)) {
-                Some(super::traits::Select::Yes(_)) => {}
+            match self.lang(lang).map(|tr| (tr, self.select(sa, tr, &[sb], 0))) {
+                Some((tr, super::traits::Select::Yes(_))) => self.record_trait_method(n, tr, method, sa, &[sb]),
                 _ => {
                     self.rollback(p);
                     self.coerce(kids[2], b, a);
@@ -1302,10 +1405,16 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let (sa, sb) = (self.norm(a), self.norm(b));
         if assign {
             let name = format!("{lang}_assign");
-            let ok = self.lang(&name).is_some_and(|tr| self.select(sa, tr, &[sb], 0).holds());
+            let ok = match self.lang(&name) {
+                Some(tr) if self.select(sa, tr, &[sb], 0).holds() => {
+                    self.record_trait_method(n, tr, &name, sa, &[sb]);
+                    true
+                }
+                _ => false,
+            };
             return if ok { self.unit() } else { self.err(n, "operator on types that do not implement it") };
         }
-        match self.op_trait(lang, sa, Some(sb)) {
+        match self.op_trait(n, lang, lang, sa, Some(sb)) {
             Some(o) => o,
             None => self.err(n, "operator on types that do not implement it"),
         }
@@ -1376,7 +1485,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
         };
         let sig = match sig {
             Some(x) => Some(x),
-            None if self.infer.var_kind(s).is_none() => self.call_fn_traits(s, args.len()),
+            None if self.infer.var_kind(s).is_none() => self.call_fn_traits(n, s, args.len()),
             None => None,
         };
         match sig {
@@ -1403,11 +1512,13 @@ impl<'a, 's> FnCtxt<'a, 's> {
         }
     }
 
-    /// `base.name`, through references, `Box` and `Deref`.
-    fn field(&mut self, n: NodeId, base: Ty, name: &str) -> Ty {
+    /// `base.name`, through references, `Box` and `Deref`; the
+    /// dereferences are adjustments of `base_node`.
+    fn field(&mut self, n: NodeId, base_node: NodeId, base: Ty, name: &str) -> Ty {
         let tcx = self.tcx;
         let steps = self.autoderef(base);
-        for t in steps {
+        for k in 0..steps.len() {
+            let t = steps[k].0;
             match tcx.kind(t) {
                 TyKind::Adt(d, l) => {
                     if let Some(adt) = tcx.adts.get(&d)
@@ -1415,11 +1526,13 @@ impl<'a, 's> FnCtxt<'a, 's> {
                         && let Some(f) = adt.variants[0].fields.iter().find(|f| f.name == name)
                     {
                         let ft = subst(tcx, f.ty, &tcx.all_params(d), &tcx.tys(l));
+                        self.adjust(base_node, Self::step_adjustments(&steps, k, None));
                         return self.normalize(ft, 0);
                     }
                 }
                 TyKind::Tuple(l) => {
                     if let Some(x) = name.parse::<usize>().ok().and_then(|i| tcx.tys(l).get(i).copied()) {
+                        self.adjust(base_node, Self::step_adjustments(&steps, k, None));
                         return x;
                     }
                 }
@@ -1433,6 +1546,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
                         && let Some(f) = adt.variants[0].fields.iter().find(|f| f.name == name)
                     {
                         let ft = subst(tcx, f.ty, &tcx.all_params(d), &tcx.tys(l));
+                        let mut adj = Self::step_adjustments(&steps, k, None);
+                        adj.push(Adjust::Deref);
+                        self.adjust(base_node, adj);
                         return self.normalize(ft, 0);
                     }
                 }
@@ -1445,15 +1561,22 @@ impl<'a, 's> FnCtxt<'a, 's> {
 
     /// `base[idx]`: built in for arrays, slices and `str`, else `Index`,
     /// through autoderef.
-    fn index(&mut self, n: NodeId, base: Ty, idx: Ty) -> Ty {
+    /// The dereferences (and an array's unsizing, for `Index` on a slice)
+    /// are adjustments of `base_node`; an overloaded index records
+    /// `Index::index` on `n`.
+    fn index(&mut self, n: NodeId, base_node: NodeId, base: Ty, idx: Ty) -> Ty {
         let tcx = self.tcx;
         let steps = self.autoderef(base);
         let i = self.norm(idx);
-        for t in steps {
+        for k in 0..steps.len() {
+            let t = steps[k].0;
             match tcx.kind(t) {
                 TyKind::Array(e, _) | TyKind::Slice(e) if self.infer.is_integral(i) => {
                     let usize_ = self.mk(TyKind::Uint(UintTy::Usize));
                     self.infer.unify(i, usize_);
+                    // An array's own elements, not its slice's.
+                    let k = if steps[k].1 == Some(Adjust::Unsize) { k - 1 } else { k };
+                    self.adjust(base_node, Self::step_adjustments(&steps, k, None));
                     return e;
                 }
                 TyKind::Infer(_) => return self.err(n, "indexing a value whose type is not yet known"),
@@ -1463,6 +1586,8 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 && self.select(t, tr, &[i], 0).holds()
                 && let Some(out) = self.trait_item(tr, "Output", Ns::Type)
             {
+                self.adjust(base_node, Self::step_adjustments(&steps, k, None));
+                self.record_trait_method(n, tr, "index", t, &[i]);
                 return self.project_or_var(out, &[t, i]);
             }
         }
@@ -1795,6 +1920,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let t = if peels || kind == Kind::RefPat { self.norm(t) } else { t };
         if peels && let TyKind::Ref(m, inner) = tcx.kind(self.infer.shallow(t)) {
             let bm = if by_ref && bm == Mutbl::Not { Mutbl::Not } else { m };
+            *self.pat_derefs.entry(p).or_default() += 1;
             return self.pat(p, inner, bm, true);
         }
         let kids = self.kids(p);
@@ -1819,13 +1945,18 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 }
                 let has_ref = kids.iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == "ref");
                 let is_mut = kids.iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == "mut");
-                let bt = if has_ref {
-                    self.mk(TyKind::Ref(if is_mut { Mutbl::Mut } else { Mutbl::Not }, t))
+                let mode = if has_ref {
+                    BindingMode::Ref(if is_mut { Mutbl::Mut } else { Mutbl::Not })
                 } else if by_ref {
-                    self.mk(TyKind::Ref(bm, t))
+                    BindingMode::Ref(bm)
                 } else {
-                    t
+                    BindingMode::Value
                 };
+                let bt = match mode {
+                    BindingMode::Ref(m) => self.mk(TyKind::Ref(m, t)),
+                    BindingMode::Value => t,
+                };
+                self.bindings.insert(p, mode);
                 self.types.insert(p, bt);
                 if let Some(&sub) = kids.iter().find(|&&c| !matches!(ast.kind(c), Kind::Keyword | Kind::Name)) {
                     self.pat(sub, t, bm, by_ref);

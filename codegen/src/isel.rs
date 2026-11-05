@@ -1289,6 +1289,42 @@ impl<'a, 'b> Sel<'a, 'b> {
             self.push(MInst::new(ins, vec![MOp::Reg(Reg::V(d))]));
             return Ok(Reg::V(d));
         }
+        // A scalable vector of one value in every lane: the value, made in
+        // a register of its own, and duplicated (`splat.nxv4i32`'s role).
+        if holds == Some(Holds::Scalable) {
+            let Type::Vector { len, elem, .. } = *self.cx.m.types.get(k.ty) else {
+                return self.err("a scalable constant of a scalar type");
+            };
+            let e = match &k.kind {
+                ConstKind::Splat(e) => Some(*e),
+                ConstKind::Zero | ConstKind::Undef | ConstKind::Poison => None,
+                other => return self.err(format!("unsupported scalable constant {other:?}")),
+            };
+            let lane = match self.cx.m.types.get(elem) {
+                Type::Float => "f32".to_string(),
+                Type::Double => "f64".to_string(),
+                Type::Int(b) => format!("i{b}"),
+                other => return self.err(format!("a scalable constant of {other:?}")),
+            };
+            let role = format!("splat.nxv{len}{lane}");
+            let ins = self.t.role(&role).ok_or_else(|| format!("no instruction has role {role}"))?;
+            let Kind::Reg(sc) = self.t.instrs[ins].operands[1].kind else {
+                return self.err(format!("{role}: its operand is not a register"));
+            };
+            let x = match e {
+                Some(e) => self.const_reg_made(e, sc)?,
+                None if self.t.machine.def(sc).holds == Some(Holds::Float) => {
+                    let g = self.int_reg(0, true, true)?;
+                    let d = self.mf.new_vreg(sc);
+                    self.push(MInst::copy(Reg::V(d), g));
+                    Reg::V(d)
+                }
+                None => self.int_reg(0, self.t.machine.def(sc).bits > 32, false)?,
+            };
+            let d = self.mf.new_vreg(class);
+            self.push(MInst::new(ins, vec![MOp::Reg(Reg::V(d)), MOp::Reg(x)]));
+            return Ok(Reg::V(d));
+        }
         // A floating-point constant: its bits, made in an integer register
         // and moved across (zero from the zero register).
         if holds == Some(Holds::Float) {

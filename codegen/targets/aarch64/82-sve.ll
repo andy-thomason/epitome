@@ -1899,42 +1899,42 @@ define <vscale x 8 x i16> @SVE.dup.nxv8i16(<vscale x 8 x i16> "reg"="z" "tied" %
 
 declare <vscale x 8 x i16> @llvm.aarch64.sve.dup.nxv8i16(<vscale x 8 x i16>, <vscale x 8 x i1>, i16)
 
-define <vscale x 16 x i8> @SVE.dup.x.nxv16i8(i8 "reg"="wsp" %a0) "feature"="sve" "enc"="0000010100100000001110 a0:5 d:5" "asm"="mov {d}.b, {a0}" "dclass"="z" "nodecode" {
+define <vscale x 16 x i8> @SVE.dup.x.nxv16i8(i8 "reg"="wsp" %a0) "feature"="sve" "enc"="0000010100100000001110 a0:5 d:5" "asm"="mov {d}.b, {a0}" "dclass"="z" "role"="splat.nxv16i8" "nodecode" {
   %r = call <vscale x 16 x i8> @llvm.aarch64.sve.dup.x.nxv16i8(i8 %a0)
   ret <vscale x 16 x i8> %r
 }
 
 declare <vscale x 16 x i8> @llvm.aarch64.sve.dup.x.nxv16i8(i8)
 
-define <vscale x 2 x double> @SVE.dup.x.nxv2f64(double "reg"="d" %a0) "feature"="sve" "enc"="0000010100101000001000 a0:5 d:5" "asm"="mov {d}.d, {a0}" "dclass"="z" "nodecode" {
+define <vscale x 2 x double> @SVE.dup.x.nxv2f64(double "reg"="d" %a0) "feature"="sve" "enc"="0000010100101000001000 a0:5 d:5" "asm"="mov {d}.d, {a0}" "dclass"="z" "role"="splat.nxv2f64" "nodecode" {
   %r = call <vscale x 2 x double> @llvm.aarch64.sve.dup.x.nxv2f64(double %a0)
   ret <vscale x 2 x double> %r
 }
 
 declare <vscale x 2 x double> @llvm.aarch64.sve.dup.x.nxv2f64(double)
 
-define <vscale x 2 x i64> @SVE.dup.x.nxv2i64(i64 "reg"="xsp" %a0) "feature"="sve" "enc"="0000010111100000001110 a0:5 d:5" "asm"="mov {d}.d, {a0}" "dclass"="z" "nodecode" {
+define <vscale x 2 x i64> @SVE.dup.x.nxv2i64(i64 "reg"="xsp" %a0) "feature"="sve" "enc"="0000010111100000001110 a0:5 d:5" "asm"="mov {d}.d, {a0}" "dclass"="z" "role"="splat.nxv2i64" "nodecode" {
   %r = call <vscale x 2 x i64> @llvm.aarch64.sve.dup.x.nxv2i64(i64 %a0)
   ret <vscale x 2 x i64> %r
 }
 
 declare <vscale x 2 x i64> @llvm.aarch64.sve.dup.x.nxv2i64(i64)
 
-define <vscale x 4 x float> @SVE.dup.x.nxv4f32(float "reg"="s" %a0) "feature"="sve" "enc"="0000010100100100001000 a0:5 d:5" "asm"="mov {d}.s, {a0}" "dclass"="z" "nodecode" {
+define <vscale x 4 x float> @SVE.dup.x.nxv4f32(float "reg"="s" %a0) "feature"="sve" "enc"="0000010100100100001000 a0:5 d:5" "asm"="mov {d}.s, {a0}" "dclass"="z" "role"="splat.nxv4f32" "nodecode" {
   %r = call <vscale x 4 x float> @llvm.aarch64.sve.dup.x.nxv4f32(float %a0)
   ret <vscale x 4 x float> %r
 }
 
 declare <vscale x 4 x float> @llvm.aarch64.sve.dup.x.nxv4f32(float)
 
-define <vscale x 4 x i32> @SVE.dup.x.nxv4i32(i32 "reg"="wsp" %a0) "feature"="sve" "enc"="0000010110100000001110 a0:5 d:5" "asm"="mov {d}.s, {a0}" "dclass"="z" "nodecode" {
+define <vscale x 4 x i32> @SVE.dup.x.nxv4i32(i32 "reg"="wsp" %a0) "feature"="sve" "enc"="0000010110100000001110 a0:5 d:5" "asm"="mov {d}.s, {a0}" "dclass"="z" "role"="splat.nxv4i32" "nodecode" {
   %r = call <vscale x 4 x i32> @llvm.aarch64.sve.dup.x.nxv4i32(i32 %a0)
   ret <vscale x 4 x i32> %r
 }
 
 declare <vscale x 4 x i32> @llvm.aarch64.sve.dup.x.nxv4i32(i32)
 
-define <vscale x 8 x i16> @SVE.dup.x.nxv8i16(i16 "reg"="wsp" %a0) "feature"="sve" "enc"="0000010101100000001110 a0:5 d:5" "asm"="mov {d}.h, {a0}" "dclass"="z" "nodecode" {
+define <vscale x 8 x i16> @SVE.dup.x.nxv8i16(i16 "reg"="wsp" %a0) "feature"="sve" "enc"="0000010101100000001110 a0:5 d:5" "asm"="mov {d}.h, {a0}" "dclass"="z" "role"="splat.nxv8i16" "nodecode" {
   %r = call <vscale x 8 x i16> @llvm.aarch64.sve.dup.x.nxv8i16(i16 %a0)
   ret <vscale x 8 x i16> %r
 }
@@ -11607,3 +11607,1905 @@ define <vscale x 8 x i16> @SVE.zip2q.nxv8i16(<vscale x 8 x i16> "reg"="z" %a0, <
 }
 
 declare <vscale x 8 x i16> @llvm.aarch64.sve.zip2q.nxv8i16(<vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define <vscale x 16 x i8> @sve.mul.nxv16i8(<vscale x 16 x i8> "reg"="z" %a, <vscale x 16 x i8> "reg"="z" %b) "feature"="sve" "recipe"="sve.mul.nxv16i8.expand" {
+  %r = mul <vscale x 16 x i8> %a, %b
+  ret <vscale x 16 x i8> %r
+}
+
+define <vscale x 16 x i8> @sve.mul.nxv16i8.expand(<vscale x 16 x i8> %a, <vscale x 16 x i8> %b) {
+  %p = call <vscale x 16 x i1> @PTRUEb()
+  %r = call <vscale x 16 x i8> @SVE.mul.nxv16i8(<vscale x 16 x i1> %p, <vscale x 16 x i8> %a, <vscale x 16 x i8> %b)
+  ret <vscale x 16 x i8> %r
+}
+
+define <vscale x 16 x i8> @sve.shl.nxv16i8(<vscale x 16 x i8> "reg"="z" %a, <vscale x 16 x i8> "reg"="z" %b) "feature"="sve" "recipe"="sve.shl.nxv16i8.expand" {
+  %r = shl <vscale x 16 x i8> %a, %b
+  ret <vscale x 16 x i8> %r
+}
+
+define <vscale x 16 x i8> @sve.shl.nxv16i8.expand(<vscale x 16 x i8> %a, <vscale x 16 x i8> %b) {
+  %p = call <vscale x 16 x i1> @PTRUEb()
+  %r = call <vscale x 16 x i8> @SVE.lsl.nxv16i8(<vscale x 16 x i1> %p, <vscale x 16 x i8> %a, <vscale x 16 x i8> %b)
+  ret <vscale x 16 x i8> %r
+}
+
+define <vscale x 16 x i8> @sve.lshr.nxv16i8(<vscale x 16 x i8> "reg"="z" %a, <vscale x 16 x i8> "reg"="z" %b) "feature"="sve" "recipe"="sve.lshr.nxv16i8.expand" {
+  %r = lshr <vscale x 16 x i8> %a, %b
+  ret <vscale x 16 x i8> %r
+}
+
+define <vscale x 16 x i8> @sve.lshr.nxv16i8.expand(<vscale x 16 x i8> %a, <vscale x 16 x i8> %b) {
+  %p = call <vscale x 16 x i1> @PTRUEb()
+  %r = call <vscale x 16 x i8> @SVE.lsr.nxv16i8(<vscale x 16 x i1> %p, <vscale x 16 x i8> %a, <vscale x 16 x i8> %b)
+  ret <vscale x 16 x i8> %r
+}
+
+define <vscale x 16 x i8> @sve.ashr.nxv16i8(<vscale x 16 x i8> "reg"="z" %a, <vscale x 16 x i8> "reg"="z" %b) "feature"="sve" "recipe"="sve.ashr.nxv16i8.expand" {
+  %r = ashr <vscale x 16 x i8> %a, %b
+  ret <vscale x 16 x i8> %r
+}
+
+define <vscale x 16 x i8> @sve.ashr.nxv16i8.expand(<vscale x 16 x i8> %a, <vscale x 16 x i8> %b) {
+  %p = call <vscale x 16 x i1> @PTRUEb()
+  %r = call <vscale x 16 x i8> @SVE.asr.nxv16i8(<vscale x 16 x i1> %p, <vscale x 16 x i8> %a, <vscale x 16 x i8> %b)
+  ret <vscale x 16 x i8> %r
+}
+
+declare <vscale x 16 x i8> @llvm.smax.nxv16i8(<vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define <vscale x 16 x i8> @sve.smax.nxv16i8(<vscale x 16 x i8> "reg"="z" %a, <vscale x 16 x i8> "reg"="z" %b) "feature"="sve" "recipe"="sve.smax.nxv16i8.expand" {
+  %r = call <vscale x 16 x i8> @llvm.smax.nxv16i8(<vscale x 16 x i8> %a, <vscale x 16 x i8> %b)
+  ret <vscale x 16 x i8> %r
+}
+
+define <vscale x 16 x i8> @sve.smax.nxv16i8.expand(<vscale x 16 x i8> %a, <vscale x 16 x i8> %b) {
+  %p = call <vscale x 16 x i1> @PTRUEb()
+  %r = call <vscale x 16 x i8> @SVE.smax.nxv16i8(<vscale x 16 x i1> %p, <vscale x 16 x i8> %a, <vscale x 16 x i8> %b)
+  ret <vscale x 16 x i8> %r
+}
+
+declare <vscale x 16 x i8> @llvm.smin.nxv16i8(<vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define <vscale x 16 x i8> @sve.smin.nxv16i8(<vscale x 16 x i8> "reg"="z" %a, <vscale x 16 x i8> "reg"="z" %b) "feature"="sve" "recipe"="sve.smin.nxv16i8.expand" {
+  %r = call <vscale x 16 x i8> @llvm.smin.nxv16i8(<vscale x 16 x i8> %a, <vscale x 16 x i8> %b)
+  ret <vscale x 16 x i8> %r
+}
+
+define <vscale x 16 x i8> @sve.smin.nxv16i8.expand(<vscale x 16 x i8> %a, <vscale x 16 x i8> %b) {
+  %p = call <vscale x 16 x i1> @PTRUEb()
+  %r = call <vscale x 16 x i8> @SVE.smin.nxv16i8(<vscale x 16 x i1> %p, <vscale x 16 x i8> %a, <vscale x 16 x i8> %b)
+  ret <vscale x 16 x i8> %r
+}
+
+declare <vscale x 16 x i8> @llvm.umax.nxv16i8(<vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define <vscale x 16 x i8> @sve.umax.nxv16i8(<vscale x 16 x i8> "reg"="z" %a, <vscale x 16 x i8> "reg"="z" %b) "feature"="sve" "recipe"="sve.umax.nxv16i8.expand" {
+  %r = call <vscale x 16 x i8> @llvm.umax.nxv16i8(<vscale x 16 x i8> %a, <vscale x 16 x i8> %b)
+  ret <vscale x 16 x i8> %r
+}
+
+define <vscale x 16 x i8> @sve.umax.nxv16i8.expand(<vscale x 16 x i8> %a, <vscale x 16 x i8> %b) {
+  %p = call <vscale x 16 x i1> @PTRUEb()
+  %r = call <vscale x 16 x i8> @SVE.umax.nxv16i8(<vscale x 16 x i1> %p, <vscale x 16 x i8> %a, <vscale x 16 x i8> %b)
+  ret <vscale x 16 x i8> %r
+}
+
+declare <vscale x 16 x i8> @llvm.umin.nxv16i8(<vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define <vscale x 16 x i8> @sve.umin.nxv16i8(<vscale x 16 x i8> "reg"="z" %a, <vscale x 16 x i8> "reg"="z" %b) "feature"="sve" "recipe"="sve.umin.nxv16i8.expand" {
+  %r = call <vscale x 16 x i8> @llvm.umin.nxv16i8(<vscale x 16 x i8> %a, <vscale x 16 x i8> %b)
+  ret <vscale x 16 x i8> %r
+}
+
+define <vscale x 16 x i8> @sve.umin.nxv16i8.expand(<vscale x 16 x i8> %a, <vscale x 16 x i8> %b) {
+  %p = call <vscale x 16 x i1> @PTRUEb()
+  %r = call <vscale x 16 x i8> @SVE.umin.nxv16i8(<vscale x 16 x i1> %p, <vscale x 16 x i8> %a, <vscale x 16 x i8> %b)
+  ret <vscale x 16 x i8> %r
+}
+
+define <vscale x 16 x i1> @sve.icmp.eq.nxv16i8(<vscale x 16 x i8> "reg"="z" %a, <vscale x 16 x i8> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.eq.nxv16i8.expand" {
+  %r = icmp eq <vscale x 16 x i8> %a, %b
+  ret <vscale x 16 x i1> %r
+}
+
+define <vscale x 16 x i1> @sve.icmp.eq.nxv16i8.expand(<vscale x 16 x i8> %a, <vscale x 16 x i8> %b) {
+  %p = call <vscale x 16 x i1> @PTRUEb()
+  %r = call <vscale x 16 x i1> @SVE.cmpeq.nxv16i8(<vscale x 16 x i1> %p, <vscale x 16 x i8> %a, <vscale x 16 x i8> %b)
+  ret <vscale x 16 x i1> %r
+}
+
+define <vscale x 16 x i1> @sve.icmp.ne.nxv16i8(<vscale x 16 x i8> "reg"="z" %a, <vscale x 16 x i8> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.ne.nxv16i8.expand" {
+  %r = icmp ne <vscale x 16 x i8> %a, %b
+  ret <vscale x 16 x i1> %r
+}
+
+define <vscale x 16 x i1> @sve.icmp.ne.nxv16i8.expand(<vscale x 16 x i8> %a, <vscale x 16 x i8> %b) {
+  %p = call <vscale x 16 x i1> @PTRUEb()
+  %r = call <vscale x 16 x i1> @SVE.cmpne.nxv16i8(<vscale x 16 x i1> %p, <vscale x 16 x i8> %a, <vscale x 16 x i8> %b)
+  ret <vscale x 16 x i1> %r
+}
+
+define <vscale x 16 x i1> @sve.icmp.sgt.nxv16i8(<vscale x 16 x i8> "reg"="z" %a, <vscale x 16 x i8> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.sgt.nxv16i8.expand" {
+  %r = icmp sgt <vscale x 16 x i8> %a, %b
+  ret <vscale x 16 x i1> %r
+}
+
+define <vscale x 16 x i1> @sve.icmp.sgt.nxv16i8.expand(<vscale x 16 x i8> %a, <vscale x 16 x i8> %b) {
+  %p = call <vscale x 16 x i1> @PTRUEb()
+  %r = call <vscale x 16 x i1> @SVE.cmpgt.nxv16i8(<vscale x 16 x i1> %p, <vscale x 16 x i8> %a, <vscale x 16 x i8> %b)
+  ret <vscale x 16 x i1> %r
+}
+
+define <vscale x 16 x i1> @sve.icmp.sge.nxv16i8(<vscale x 16 x i8> "reg"="z" %a, <vscale x 16 x i8> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.sge.nxv16i8.expand" {
+  %r = icmp sge <vscale x 16 x i8> %a, %b
+  ret <vscale x 16 x i1> %r
+}
+
+define <vscale x 16 x i1> @sve.icmp.sge.nxv16i8.expand(<vscale x 16 x i8> %a, <vscale x 16 x i8> %b) {
+  %p = call <vscale x 16 x i1> @PTRUEb()
+  %r = call <vscale x 16 x i1> @SVE.cmpge.nxv16i8(<vscale x 16 x i1> %p, <vscale x 16 x i8> %a, <vscale x 16 x i8> %b)
+  ret <vscale x 16 x i1> %r
+}
+
+define <vscale x 16 x i1> @sve.icmp.ugt.nxv16i8(<vscale x 16 x i8> "reg"="z" %a, <vscale x 16 x i8> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.ugt.nxv16i8.expand" {
+  %r = icmp ugt <vscale x 16 x i8> %a, %b
+  ret <vscale x 16 x i1> %r
+}
+
+define <vscale x 16 x i1> @sve.icmp.ugt.nxv16i8.expand(<vscale x 16 x i8> %a, <vscale x 16 x i8> %b) {
+  %p = call <vscale x 16 x i1> @PTRUEb()
+  %r = call <vscale x 16 x i1> @SVE.cmphi.nxv16i8(<vscale x 16 x i1> %p, <vscale x 16 x i8> %a, <vscale x 16 x i8> %b)
+  ret <vscale x 16 x i1> %r
+}
+
+define <vscale x 16 x i1> @sve.icmp.uge.nxv16i8(<vscale x 16 x i8> "reg"="z" %a, <vscale x 16 x i8> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.uge.nxv16i8.expand" {
+  %r = icmp uge <vscale x 16 x i8> %a, %b
+  ret <vscale x 16 x i1> %r
+}
+
+define <vscale x 16 x i1> @sve.icmp.uge.nxv16i8.expand(<vscale x 16 x i8> %a, <vscale x 16 x i8> %b) {
+  %p = call <vscale x 16 x i1> @PTRUEb()
+  %r = call <vscale x 16 x i1> @SVE.cmphs.nxv16i8(<vscale x 16 x i1> %p, <vscale x 16 x i8> %a, <vscale x 16 x i8> %b)
+  ret <vscale x 16 x i1> %r
+}
+
+define <vscale x 16 x i1> @sve.icmp.slt.nxv16i8(<vscale x 16 x i8> "reg"="z" %a, <vscale x 16 x i8> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.slt.nxv16i8.expand" {
+  %r = icmp slt <vscale x 16 x i8> %a, %b
+  ret <vscale x 16 x i1> %r
+}
+
+define <vscale x 16 x i1> @sve.icmp.slt.nxv16i8.expand(<vscale x 16 x i8> %a, <vscale x 16 x i8> %b) {
+  %p = call <vscale x 16 x i1> @PTRUEb()
+  %r = call <vscale x 16 x i1> @SVE.cmpgt.nxv16i8(<vscale x 16 x i1> %p, <vscale x 16 x i8> %b, <vscale x 16 x i8> %a)
+  ret <vscale x 16 x i1> %r
+}
+
+define <vscale x 16 x i1> @sve.icmp.sle.nxv16i8(<vscale x 16 x i8> "reg"="z" %a, <vscale x 16 x i8> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.sle.nxv16i8.expand" {
+  %r = icmp sle <vscale x 16 x i8> %a, %b
+  ret <vscale x 16 x i1> %r
+}
+
+define <vscale x 16 x i1> @sve.icmp.sle.nxv16i8.expand(<vscale x 16 x i8> %a, <vscale x 16 x i8> %b) {
+  %p = call <vscale x 16 x i1> @PTRUEb()
+  %r = call <vscale x 16 x i1> @SVE.cmpge.nxv16i8(<vscale x 16 x i1> %p, <vscale x 16 x i8> %b, <vscale x 16 x i8> %a)
+  ret <vscale x 16 x i1> %r
+}
+
+define <vscale x 16 x i1> @sve.icmp.ult.nxv16i8(<vscale x 16 x i8> "reg"="z" %a, <vscale x 16 x i8> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.ult.nxv16i8.expand" {
+  %r = icmp ult <vscale x 16 x i8> %a, %b
+  ret <vscale x 16 x i1> %r
+}
+
+define <vscale x 16 x i1> @sve.icmp.ult.nxv16i8.expand(<vscale x 16 x i8> %a, <vscale x 16 x i8> %b) {
+  %p = call <vscale x 16 x i1> @PTRUEb()
+  %r = call <vscale x 16 x i1> @SVE.cmphi.nxv16i8(<vscale x 16 x i1> %p, <vscale x 16 x i8> %b, <vscale x 16 x i8> %a)
+  ret <vscale x 16 x i1> %r
+}
+
+define <vscale x 16 x i1> @sve.icmp.ule.nxv16i8(<vscale x 16 x i8> "reg"="z" %a, <vscale x 16 x i8> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.ule.nxv16i8.expand" {
+  %r = icmp ule <vscale x 16 x i8> %a, %b
+  ret <vscale x 16 x i1> %r
+}
+
+define <vscale x 16 x i1> @sve.icmp.ule.nxv16i8.expand(<vscale x 16 x i8> %a, <vscale x 16 x i8> %b) {
+  %p = call <vscale x 16 x i1> @PTRUEb()
+  %r = call <vscale x 16 x i1> @SVE.cmphs.nxv16i8(<vscale x 16 x i1> %p, <vscale x 16 x i8> %b, <vscale x 16 x i8> %a)
+  ret <vscale x 16 x i1> %r
+}
+
+define <vscale x 16 x i8> @SELz.nxv16i8(<vscale x 16 x i1> "reg"="p" %c, <vscale x 16 x i8> "reg"="z" %a, <vscale x 16 x i8> "reg"="z" %b) "feature"="sve" "enc"="00000101001 b:5 11 c:4 a:5 d:5" "asm"="sel {d}.b, {c}, {a}.b, {b}.b" "nodecode" {
+  %r = select <vscale x 16 x i1> %c, <vscale x 16 x i8> %a, <vscale x 16 x i8> %b
+  ret <vscale x 16 x i8> %r
+}
+
+declare i8 @llvm.vector.reduce.add.nxv16i8(<vscale x 16 x i8>)
+
+define i8 @sve.reduce.add.nxv16i8(<vscale x 16 x i8> "reg"="z" %a) "feature"="sve" "recipe"="sve.reduce.add.nxv16i8.expand" {
+  %r = call i8 @llvm.vector.reduce.add.nxv16i8(<vscale x 16 x i8> %a)
+  ret i8 %r
+}
+
+define i8 @sve.reduce.add.nxv16i8.expand(<vscale x 16 x i8> %a) {
+  %p = call <vscale x 16 x i1> @PTRUEb()
+  %v = call i64 @SVE.uaddv.nxv16i8(<vscale x 16 x i1> %p, <vscale x 16 x i8> %a)
+  %r = trunc i64 %v to i8
+  ret i8 %r
+}
+
+define i32 @SMAXVb(<vscale x 16 x i1> "reg"="pg" %p, <vscale x 16 x i8> "reg"="z" %a) "feature"="sve" "enc"="0000010000001000001 p:3 a:5 d:5" "asm"="smaxv {d:b}, {p}, {a}.b" "dclass"="s" "nomatch" "nodecode" {
+  ret i32 0
+}
+
+declare i8 @llvm.vector.reduce.smax.nxv16i8(<vscale x 16 x i8>)
+
+define i8 @sve.reduce.smax.nxv16i8(<vscale x 16 x i8> "reg"="z" %a) "feature"="sve" "recipe"="sve.reduce.smax.nxv16i8.expand" {
+  %r = call i8 @llvm.vector.reduce.smax.nxv16i8(<vscale x 16 x i8> %a)
+  ret i8 %r
+}
+
+define i8 @sve.reduce.smax.nxv16i8.expand(<vscale x 16 x i8> %a) {
+  %p = call <vscale x 16 x i1> @PTRUEb()
+  %v = call i32 @SMAXVb(<vscale x 16 x i1> %p, <vscale x 16 x i8> %a)
+  %r = trunc i32 %v to i8
+  ret i8 %r
+}
+
+define i32 @SMINVb(<vscale x 16 x i1> "reg"="pg" %p, <vscale x 16 x i8> "reg"="z" %a) "feature"="sve" "enc"="0000010000001010001 p:3 a:5 d:5" "asm"="sminv {d:b}, {p}, {a}.b" "dclass"="s" "nomatch" "nodecode" {
+  ret i32 0
+}
+
+declare i8 @llvm.vector.reduce.smin.nxv16i8(<vscale x 16 x i8>)
+
+define i8 @sve.reduce.smin.nxv16i8(<vscale x 16 x i8> "reg"="z" %a) "feature"="sve" "recipe"="sve.reduce.smin.nxv16i8.expand" {
+  %r = call i8 @llvm.vector.reduce.smin.nxv16i8(<vscale x 16 x i8> %a)
+  ret i8 %r
+}
+
+define i8 @sve.reduce.smin.nxv16i8.expand(<vscale x 16 x i8> %a) {
+  %p = call <vscale x 16 x i1> @PTRUEb()
+  %v = call i32 @SMINVb(<vscale x 16 x i1> %p, <vscale x 16 x i8> %a)
+  %r = trunc i32 %v to i8
+  ret i8 %r
+}
+
+define i32 @UMAXVb(<vscale x 16 x i1> "reg"="pg" %p, <vscale x 16 x i8> "reg"="z" %a) "feature"="sve" "enc"="0000010000001001001 p:3 a:5 d:5" "asm"="umaxv {d:b}, {p}, {a}.b" "dclass"="s" "nomatch" "nodecode" {
+  ret i32 0
+}
+
+declare i8 @llvm.vector.reduce.umax.nxv16i8(<vscale x 16 x i8>)
+
+define i8 @sve.reduce.umax.nxv16i8(<vscale x 16 x i8> "reg"="z" %a) "feature"="sve" "recipe"="sve.reduce.umax.nxv16i8.expand" {
+  %r = call i8 @llvm.vector.reduce.umax.nxv16i8(<vscale x 16 x i8> %a)
+  ret i8 %r
+}
+
+define i8 @sve.reduce.umax.nxv16i8.expand(<vscale x 16 x i8> %a) {
+  %p = call <vscale x 16 x i1> @PTRUEb()
+  %v = call i32 @UMAXVb(<vscale x 16 x i1> %p, <vscale x 16 x i8> %a)
+  %r = trunc i32 %v to i8
+  ret i8 %r
+}
+
+define i32 @UMINVb(<vscale x 16 x i1> "reg"="pg" %p, <vscale x 16 x i8> "reg"="z" %a) "feature"="sve" "enc"="0000010000001011001 p:3 a:5 d:5" "asm"="uminv {d:b}, {p}, {a}.b" "dclass"="s" "nomatch" "nodecode" {
+  ret i32 0
+}
+
+declare i8 @llvm.vector.reduce.umin.nxv16i8(<vscale x 16 x i8>)
+
+define i8 @sve.reduce.umin.nxv16i8(<vscale x 16 x i8> "reg"="z" %a) "feature"="sve" "recipe"="sve.reduce.umin.nxv16i8.expand" {
+  %r = call i8 @llvm.vector.reduce.umin.nxv16i8(<vscale x 16 x i8> %a)
+  ret i8 %r
+}
+
+define i8 @sve.reduce.umin.nxv16i8.expand(<vscale x 16 x i8> %a) {
+  %p = call <vscale x 16 x i1> @PTRUEb()
+  %v = call i32 @UMINVb(<vscale x 16 x i1> %p, <vscale x 16 x i8> %a)
+  %r = trunc i32 %v to i8
+  ret i8 %r
+}
+
+define i32 @ANDVb(<vscale x 16 x i1> "reg"="pg" %p, <vscale x 16 x i8> "reg"="z" %a) "feature"="sve" "enc"="0000010000011010001 p:3 a:5 d:5" "asm"="andv {d:b}, {p}, {a}.b" "dclass"="s" "nomatch" "nodecode" {
+  ret i32 0
+}
+
+declare i8 @llvm.vector.reduce.and.nxv16i8(<vscale x 16 x i8>)
+
+define i8 @sve.reduce.and.nxv16i8(<vscale x 16 x i8> "reg"="z" %a) "feature"="sve" "recipe"="sve.reduce.and.nxv16i8.expand" {
+  %r = call i8 @llvm.vector.reduce.and.nxv16i8(<vscale x 16 x i8> %a)
+  ret i8 %r
+}
+
+define i8 @sve.reduce.and.nxv16i8.expand(<vscale x 16 x i8> %a) {
+  %p = call <vscale x 16 x i1> @PTRUEb()
+  %v = call i32 @ANDVb(<vscale x 16 x i1> %p, <vscale x 16 x i8> %a)
+  %r = trunc i32 %v to i8
+  ret i8 %r
+}
+
+define i32 @ORVb(<vscale x 16 x i1> "reg"="pg" %p, <vscale x 16 x i8> "reg"="z" %a) "feature"="sve" "enc"="0000010000011000001 p:3 a:5 d:5" "asm"="orv {d:b}, {p}, {a}.b" "dclass"="s" "nomatch" "nodecode" {
+  ret i32 0
+}
+
+declare i8 @llvm.vector.reduce.or.nxv16i8(<vscale x 16 x i8>)
+
+define i8 @sve.reduce.or.nxv16i8(<vscale x 16 x i8> "reg"="z" %a) "feature"="sve" "recipe"="sve.reduce.or.nxv16i8.expand" {
+  %r = call i8 @llvm.vector.reduce.or.nxv16i8(<vscale x 16 x i8> %a)
+  ret i8 %r
+}
+
+define i8 @sve.reduce.or.nxv16i8.expand(<vscale x 16 x i8> %a) {
+  %p = call <vscale x 16 x i1> @PTRUEb()
+  %v = call i32 @ORVb(<vscale x 16 x i1> %p, <vscale x 16 x i8> %a)
+  %r = trunc i32 %v to i8
+  ret i8 %r
+}
+
+define i32 @EORVb(<vscale x 16 x i1> "reg"="pg" %p, <vscale x 16 x i8> "reg"="z" %a) "feature"="sve" "enc"="0000010000011001001 p:3 a:5 d:5" "asm"="eorv {d:b}, {p}, {a}.b" "dclass"="s" "nomatch" "nodecode" {
+  ret i32 0
+}
+
+declare i8 @llvm.vector.reduce.xor.nxv16i8(<vscale x 16 x i8>)
+
+define i8 @sve.reduce.xor.nxv16i8(<vscale x 16 x i8> "reg"="z" %a) "feature"="sve" "recipe"="sve.reduce.xor.nxv16i8.expand" {
+  %r = call i8 @llvm.vector.reduce.xor.nxv16i8(<vscale x 16 x i8> %a)
+  ret i8 %r
+}
+
+define i8 @sve.reduce.xor.nxv16i8.expand(<vscale x 16 x i8> %a) {
+  %p = call <vscale x 16 x i1> @PTRUEb()
+  %v = call i32 @EORVb(<vscale x 16 x i1> %p, <vscale x 16 x i8> %a)
+  %r = trunc i32 %v to i8
+  ret i8 %r
+}
+
+define <vscale x 8 x i16> @sve.mul.nxv8i16(<vscale x 8 x i16> "reg"="z" %a, <vscale x 8 x i16> "reg"="z" %b) "feature"="sve" "recipe"="sve.mul.nxv8i16.expand" {
+  %r = mul <vscale x 8 x i16> %a, %b
+  ret <vscale x 8 x i16> %r
+}
+
+define <vscale x 8 x i16> @sve.mul.nxv8i16.expand(<vscale x 8 x i16> %a, <vscale x 8 x i16> %b) {
+  %p = call <vscale x 8 x i1> @PTRUEh()
+  %r = call <vscale x 8 x i16> @SVE.mul.nxv8i16(<vscale x 8 x i1> %p, <vscale x 8 x i16> %a, <vscale x 8 x i16> %b)
+  ret <vscale x 8 x i16> %r
+}
+
+define <vscale x 8 x i16> @sve.shl.nxv8i16(<vscale x 8 x i16> "reg"="z" %a, <vscale x 8 x i16> "reg"="z" %b) "feature"="sve" "recipe"="sve.shl.nxv8i16.expand" {
+  %r = shl <vscale x 8 x i16> %a, %b
+  ret <vscale x 8 x i16> %r
+}
+
+define <vscale x 8 x i16> @sve.shl.nxv8i16.expand(<vscale x 8 x i16> %a, <vscale x 8 x i16> %b) {
+  %p = call <vscale x 8 x i1> @PTRUEh()
+  %r = call <vscale x 8 x i16> @SVE.lsl.nxv8i16(<vscale x 8 x i1> %p, <vscale x 8 x i16> %a, <vscale x 8 x i16> %b)
+  ret <vscale x 8 x i16> %r
+}
+
+define <vscale x 8 x i16> @sve.lshr.nxv8i16(<vscale x 8 x i16> "reg"="z" %a, <vscale x 8 x i16> "reg"="z" %b) "feature"="sve" "recipe"="sve.lshr.nxv8i16.expand" {
+  %r = lshr <vscale x 8 x i16> %a, %b
+  ret <vscale x 8 x i16> %r
+}
+
+define <vscale x 8 x i16> @sve.lshr.nxv8i16.expand(<vscale x 8 x i16> %a, <vscale x 8 x i16> %b) {
+  %p = call <vscale x 8 x i1> @PTRUEh()
+  %r = call <vscale x 8 x i16> @SVE.lsr.nxv8i16(<vscale x 8 x i1> %p, <vscale x 8 x i16> %a, <vscale x 8 x i16> %b)
+  ret <vscale x 8 x i16> %r
+}
+
+define <vscale x 8 x i16> @sve.ashr.nxv8i16(<vscale x 8 x i16> "reg"="z" %a, <vscale x 8 x i16> "reg"="z" %b) "feature"="sve" "recipe"="sve.ashr.nxv8i16.expand" {
+  %r = ashr <vscale x 8 x i16> %a, %b
+  ret <vscale x 8 x i16> %r
+}
+
+define <vscale x 8 x i16> @sve.ashr.nxv8i16.expand(<vscale x 8 x i16> %a, <vscale x 8 x i16> %b) {
+  %p = call <vscale x 8 x i1> @PTRUEh()
+  %r = call <vscale x 8 x i16> @SVE.asr.nxv8i16(<vscale x 8 x i1> %p, <vscale x 8 x i16> %a, <vscale x 8 x i16> %b)
+  ret <vscale x 8 x i16> %r
+}
+
+declare <vscale x 8 x i16> @llvm.smax.nxv8i16(<vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define <vscale x 8 x i16> @sve.smax.nxv8i16(<vscale x 8 x i16> "reg"="z" %a, <vscale x 8 x i16> "reg"="z" %b) "feature"="sve" "recipe"="sve.smax.nxv8i16.expand" {
+  %r = call <vscale x 8 x i16> @llvm.smax.nxv8i16(<vscale x 8 x i16> %a, <vscale x 8 x i16> %b)
+  ret <vscale x 8 x i16> %r
+}
+
+define <vscale x 8 x i16> @sve.smax.nxv8i16.expand(<vscale x 8 x i16> %a, <vscale x 8 x i16> %b) {
+  %p = call <vscale x 8 x i1> @PTRUEh()
+  %r = call <vscale x 8 x i16> @SVE.smax.nxv8i16(<vscale x 8 x i1> %p, <vscale x 8 x i16> %a, <vscale x 8 x i16> %b)
+  ret <vscale x 8 x i16> %r
+}
+
+declare <vscale x 8 x i16> @llvm.smin.nxv8i16(<vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define <vscale x 8 x i16> @sve.smin.nxv8i16(<vscale x 8 x i16> "reg"="z" %a, <vscale x 8 x i16> "reg"="z" %b) "feature"="sve" "recipe"="sve.smin.nxv8i16.expand" {
+  %r = call <vscale x 8 x i16> @llvm.smin.nxv8i16(<vscale x 8 x i16> %a, <vscale x 8 x i16> %b)
+  ret <vscale x 8 x i16> %r
+}
+
+define <vscale x 8 x i16> @sve.smin.nxv8i16.expand(<vscale x 8 x i16> %a, <vscale x 8 x i16> %b) {
+  %p = call <vscale x 8 x i1> @PTRUEh()
+  %r = call <vscale x 8 x i16> @SVE.smin.nxv8i16(<vscale x 8 x i1> %p, <vscale x 8 x i16> %a, <vscale x 8 x i16> %b)
+  ret <vscale x 8 x i16> %r
+}
+
+declare <vscale x 8 x i16> @llvm.umax.nxv8i16(<vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define <vscale x 8 x i16> @sve.umax.nxv8i16(<vscale x 8 x i16> "reg"="z" %a, <vscale x 8 x i16> "reg"="z" %b) "feature"="sve" "recipe"="sve.umax.nxv8i16.expand" {
+  %r = call <vscale x 8 x i16> @llvm.umax.nxv8i16(<vscale x 8 x i16> %a, <vscale x 8 x i16> %b)
+  ret <vscale x 8 x i16> %r
+}
+
+define <vscale x 8 x i16> @sve.umax.nxv8i16.expand(<vscale x 8 x i16> %a, <vscale x 8 x i16> %b) {
+  %p = call <vscale x 8 x i1> @PTRUEh()
+  %r = call <vscale x 8 x i16> @SVE.umax.nxv8i16(<vscale x 8 x i1> %p, <vscale x 8 x i16> %a, <vscale x 8 x i16> %b)
+  ret <vscale x 8 x i16> %r
+}
+
+declare <vscale x 8 x i16> @llvm.umin.nxv8i16(<vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define <vscale x 8 x i16> @sve.umin.nxv8i16(<vscale x 8 x i16> "reg"="z" %a, <vscale x 8 x i16> "reg"="z" %b) "feature"="sve" "recipe"="sve.umin.nxv8i16.expand" {
+  %r = call <vscale x 8 x i16> @llvm.umin.nxv8i16(<vscale x 8 x i16> %a, <vscale x 8 x i16> %b)
+  ret <vscale x 8 x i16> %r
+}
+
+define <vscale x 8 x i16> @sve.umin.nxv8i16.expand(<vscale x 8 x i16> %a, <vscale x 8 x i16> %b) {
+  %p = call <vscale x 8 x i1> @PTRUEh()
+  %r = call <vscale x 8 x i16> @SVE.umin.nxv8i16(<vscale x 8 x i1> %p, <vscale x 8 x i16> %a, <vscale x 8 x i16> %b)
+  ret <vscale x 8 x i16> %r
+}
+
+define <vscale x 8 x i1> @sve.icmp.eq.nxv8i16(<vscale x 8 x i16> "reg"="z" %a, <vscale x 8 x i16> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.eq.nxv8i16.expand" {
+  %r = icmp eq <vscale x 8 x i16> %a, %b
+  ret <vscale x 8 x i1> %r
+}
+
+define <vscale x 8 x i1> @sve.icmp.eq.nxv8i16.expand(<vscale x 8 x i16> %a, <vscale x 8 x i16> %b) {
+  %p = call <vscale x 8 x i1> @PTRUEh()
+  %r = call <vscale x 8 x i1> @SVE.cmpeq.nxv8i16(<vscale x 8 x i1> %p, <vscale x 8 x i16> %a, <vscale x 8 x i16> %b)
+  ret <vscale x 8 x i1> %r
+}
+
+define <vscale x 8 x i1> @sve.icmp.ne.nxv8i16(<vscale x 8 x i16> "reg"="z" %a, <vscale x 8 x i16> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.ne.nxv8i16.expand" {
+  %r = icmp ne <vscale x 8 x i16> %a, %b
+  ret <vscale x 8 x i1> %r
+}
+
+define <vscale x 8 x i1> @sve.icmp.ne.nxv8i16.expand(<vscale x 8 x i16> %a, <vscale x 8 x i16> %b) {
+  %p = call <vscale x 8 x i1> @PTRUEh()
+  %r = call <vscale x 8 x i1> @SVE.cmpne.nxv8i16(<vscale x 8 x i1> %p, <vscale x 8 x i16> %a, <vscale x 8 x i16> %b)
+  ret <vscale x 8 x i1> %r
+}
+
+define <vscale x 8 x i1> @sve.icmp.sgt.nxv8i16(<vscale x 8 x i16> "reg"="z" %a, <vscale x 8 x i16> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.sgt.nxv8i16.expand" {
+  %r = icmp sgt <vscale x 8 x i16> %a, %b
+  ret <vscale x 8 x i1> %r
+}
+
+define <vscale x 8 x i1> @sve.icmp.sgt.nxv8i16.expand(<vscale x 8 x i16> %a, <vscale x 8 x i16> %b) {
+  %p = call <vscale x 8 x i1> @PTRUEh()
+  %r = call <vscale x 8 x i1> @SVE.cmpgt.nxv8i16(<vscale x 8 x i1> %p, <vscale x 8 x i16> %a, <vscale x 8 x i16> %b)
+  ret <vscale x 8 x i1> %r
+}
+
+define <vscale x 8 x i1> @sve.icmp.sge.nxv8i16(<vscale x 8 x i16> "reg"="z" %a, <vscale x 8 x i16> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.sge.nxv8i16.expand" {
+  %r = icmp sge <vscale x 8 x i16> %a, %b
+  ret <vscale x 8 x i1> %r
+}
+
+define <vscale x 8 x i1> @sve.icmp.sge.nxv8i16.expand(<vscale x 8 x i16> %a, <vscale x 8 x i16> %b) {
+  %p = call <vscale x 8 x i1> @PTRUEh()
+  %r = call <vscale x 8 x i1> @SVE.cmpge.nxv8i16(<vscale x 8 x i1> %p, <vscale x 8 x i16> %a, <vscale x 8 x i16> %b)
+  ret <vscale x 8 x i1> %r
+}
+
+define <vscale x 8 x i1> @sve.icmp.ugt.nxv8i16(<vscale x 8 x i16> "reg"="z" %a, <vscale x 8 x i16> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.ugt.nxv8i16.expand" {
+  %r = icmp ugt <vscale x 8 x i16> %a, %b
+  ret <vscale x 8 x i1> %r
+}
+
+define <vscale x 8 x i1> @sve.icmp.ugt.nxv8i16.expand(<vscale x 8 x i16> %a, <vscale x 8 x i16> %b) {
+  %p = call <vscale x 8 x i1> @PTRUEh()
+  %r = call <vscale x 8 x i1> @SVE.cmphi.nxv8i16(<vscale x 8 x i1> %p, <vscale x 8 x i16> %a, <vscale x 8 x i16> %b)
+  ret <vscale x 8 x i1> %r
+}
+
+define <vscale x 8 x i1> @sve.icmp.uge.nxv8i16(<vscale x 8 x i16> "reg"="z" %a, <vscale x 8 x i16> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.uge.nxv8i16.expand" {
+  %r = icmp uge <vscale x 8 x i16> %a, %b
+  ret <vscale x 8 x i1> %r
+}
+
+define <vscale x 8 x i1> @sve.icmp.uge.nxv8i16.expand(<vscale x 8 x i16> %a, <vscale x 8 x i16> %b) {
+  %p = call <vscale x 8 x i1> @PTRUEh()
+  %r = call <vscale x 8 x i1> @SVE.cmphs.nxv8i16(<vscale x 8 x i1> %p, <vscale x 8 x i16> %a, <vscale x 8 x i16> %b)
+  ret <vscale x 8 x i1> %r
+}
+
+define <vscale x 8 x i1> @sve.icmp.slt.nxv8i16(<vscale x 8 x i16> "reg"="z" %a, <vscale x 8 x i16> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.slt.nxv8i16.expand" {
+  %r = icmp slt <vscale x 8 x i16> %a, %b
+  ret <vscale x 8 x i1> %r
+}
+
+define <vscale x 8 x i1> @sve.icmp.slt.nxv8i16.expand(<vscale x 8 x i16> %a, <vscale x 8 x i16> %b) {
+  %p = call <vscale x 8 x i1> @PTRUEh()
+  %r = call <vscale x 8 x i1> @SVE.cmpgt.nxv8i16(<vscale x 8 x i1> %p, <vscale x 8 x i16> %b, <vscale x 8 x i16> %a)
+  ret <vscale x 8 x i1> %r
+}
+
+define <vscale x 8 x i1> @sve.icmp.sle.nxv8i16(<vscale x 8 x i16> "reg"="z" %a, <vscale x 8 x i16> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.sle.nxv8i16.expand" {
+  %r = icmp sle <vscale x 8 x i16> %a, %b
+  ret <vscale x 8 x i1> %r
+}
+
+define <vscale x 8 x i1> @sve.icmp.sle.nxv8i16.expand(<vscale x 8 x i16> %a, <vscale x 8 x i16> %b) {
+  %p = call <vscale x 8 x i1> @PTRUEh()
+  %r = call <vscale x 8 x i1> @SVE.cmpge.nxv8i16(<vscale x 8 x i1> %p, <vscale x 8 x i16> %b, <vscale x 8 x i16> %a)
+  ret <vscale x 8 x i1> %r
+}
+
+define <vscale x 8 x i1> @sve.icmp.ult.nxv8i16(<vscale x 8 x i16> "reg"="z" %a, <vscale x 8 x i16> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.ult.nxv8i16.expand" {
+  %r = icmp ult <vscale x 8 x i16> %a, %b
+  ret <vscale x 8 x i1> %r
+}
+
+define <vscale x 8 x i1> @sve.icmp.ult.nxv8i16.expand(<vscale x 8 x i16> %a, <vscale x 8 x i16> %b) {
+  %p = call <vscale x 8 x i1> @PTRUEh()
+  %r = call <vscale x 8 x i1> @SVE.cmphi.nxv8i16(<vscale x 8 x i1> %p, <vscale x 8 x i16> %b, <vscale x 8 x i16> %a)
+  ret <vscale x 8 x i1> %r
+}
+
+define <vscale x 8 x i1> @sve.icmp.ule.nxv8i16(<vscale x 8 x i16> "reg"="z" %a, <vscale x 8 x i16> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.ule.nxv8i16.expand" {
+  %r = icmp ule <vscale x 8 x i16> %a, %b
+  ret <vscale x 8 x i1> %r
+}
+
+define <vscale x 8 x i1> @sve.icmp.ule.nxv8i16.expand(<vscale x 8 x i16> %a, <vscale x 8 x i16> %b) {
+  %p = call <vscale x 8 x i1> @PTRUEh()
+  %r = call <vscale x 8 x i1> @SVE.cmphs.nxv8i16(<vscale x 8 x i1> %p, <vscale x 8 x i16> %b, <vscale x 8 x i16> %a)
+  ret <vscale x 8 x i1> %r
+}
+
+define <vscale x 8 x i16> @SELz.nxv8i16(<vscale x 8 x i1> "reg"="p" %c, <vscale x 8 x i16> "reg"="z" %a, <vscale x 8 x i16> "reg"="z" %b) "feature"="sve" "enc"="00000101011 b:5 11 c:4 a:5 d:5" "asm"="sel {d}.h, {c}, {a}.h, {b}.h" "nodecode" {
+  %r = select <vscale x 8 x i1> %c, <vscale x 8 x i16> %a, <vscale x 8 x i16> %b
+  ret <vscale x 8 x i16> %r
+}
+
+declare i16 @llvm.vector.reduce.add.nxv8i16(<vscale x 8 x i16>)
+
+define i16 @sve.reduce.add.nxv8i16(<vscale x 8 x i16> "reg"="z" %a) "feature"="sve" "recipe"="sve.reduce.add.nxv8i16.expand" {
+  %r = call i16 @llvm.vector.reduce.add.nxv8i16(<vscale x 8 x i16> %a)
+  ret i16 %r
+}
+
+define i16 @sve.reduce.add.nxv8i16.expand(<vscale x 8 x i16> %a) {
+  %p = call <vscale x 8 x i1> @PTRUEh()
+  %v = call i64 @SVE.uaddv.nxv8i16(<vscale x 8 x i1> %p, <vscale x 8 x i16> %a)
+  %r = trunc i64 %v to i16
+  ret i16 %r
+}
+
+define i32 @SMAXVh(<vscale x 8 x i1> "reg"="pg" %p, <vscale x 8 x i16> "reg"="z" %a) "feature"="sve" "enc"="0000010001001000001 p:3 a:5 d:5" "asm"="smaxv {d:h}, {p}, {a}.h" "dclass"="s" "nomatch" "nodecode" {
+  ret i32 0
+}
+
+declare i16 @llvm.vector.reduce.smax.nxv8i16(<vscale x 8 x i16>)
+
+define i16 @sve.reduce.smax.nxv8i16(<vscale x 8 x i16> "reg"="z" %a) "feature"="sve" "recipe"="sve.reduce.smax.nxv8i16.expand" {
+  %r = call i16 @llvm.vector.reduce.smax.nxv8i16(<vscale x 8 x i16> %a)
+  ret i16 %r
+}
+
+define i16 @sve.reduce.smax.nxv8i16.expand(<vscale x 8 x i16> %a) {
+  %p = call <vscale x 8 x i1> @PTRUEh()
+  %v = call i32 @SMAXVh(<vscale x 8 x i1> %p, <vscale x 8 x i16> %a)
+  %r = trunc i32 %v to i16
+  ret i16 %r
+}
+
+define i32 @SMINVh(<vscale x 8 x i1> "reg"="pg" %p, <vscale x 8 x i16> "reg"="z" %a) "feature"="sve" "enc"="0000010001001010001 p:3 a:5 d:5" "asm"="sminv {d:h}, {p}, {a}.h" "dclass"="s" "nomatch" "nodecode" {
+  ret i32 0
+}
+
+declare i16 @llvm.vector.reduce.smin.nxv8i16(<vscale x 8 x i16>)
+
+define i16 @sve.reduce.smin.nxv8i16(<vscale x 8 x i16> "reg"="z" %a) "feature"="sve" "recipe"="sve.reduce.smin.nxv8i16.expand" {
+  %r = call i16 @llvm.vector.reduce.smin.nxv8i16(<vscale x 8 x i16> %a)
+  ret i16 %r
+}
+
+define i16 @sve.reduce.smin.nxv8i16.expand(<vscale x 8 x i16> %a) {
+  %p = call <vscale x 8 x i1> @PTRUEh()
+  %v = call i32 @SMINVh(<vscale x 8 x i1> %p, <vscale x 8 x i16> %a)
+  %r = trunc i32 %v to i16
+  ret i16 %r
+}
+
+define i32 @UMAXVh(<vscale x 8 x i1> "reg"="pg" %p, <vscale x 8 x i16> "reg"="z" %a) "feature"="sve" "enc"="0000010001001001001 p:3 a:5 d:5" "asm"="umaxv {d:h}, {p}, {a}.h" "dclass"="s" "nomatch" "nodecode" {
+  ret i32 0
+}
+
+declare i16 @llvm.vector.reduce.umax.nxv8i16(<vscale x 8 x i16>)
+
+define i16 @sve.reduce.umax.nxv8i16(<vscale x 8 x i16> "reg"="z" %a) "feature"="sve" "recipe"="sve.reduce.umax.nxv8i16.expand" {
+  %r = call i16 @llvm.vector.reduce.umax.nxv8i16(<vscale x 8 x i16> %a)
+  ret i16 %r
+}
+
+define i16 @sve.reduce.umax.nxv8i16.expand(<vscale x 8 x i16> %a) {
+  %p = call <vscale x 8 x i1> @PTRUEh()
+  %v = call i32 @UMAXVh(<vscale x 8 x i1> %p, <vscale x 8 x i16> %a)
+  %r = trunc i32 %v to i16
+  ret i16 %r
+}
+
+define i32 @UMINVh(<vscale x 8 x i1> "reg"="pg" %p, <vscale x 8 x i16> "reg"="z" %a) "feature"="sve" "enc"="0000010001001011001 p:3 a:5 d:5" "asm"="uminv {d:h}, {p}, {a}.h" "dclass"="s" "nomatch" "nodecode" {
+  ret i32 0
+}
+
+declare i16 @llvm.vector.reduce.umin.nxv8i16(<vscale x 8 x i16>)
+
+define i16 @sve.reduce.umin.nxv8i16(<vscale x 8 x i16> "reg"="z" %a) "feature"="sve" "recipe"="sve.reduce.umin.nxv8i16.expand" {
+  %r = call i16 @llvm.vector.reduce.umin.nxv8i16(<vscale x 8 x i16> %a)
+  ret i16 %r
+}
+
+define i16 @sve.reduce.umin.nxv8i16.expand(<vscale x 8 x i16> %a) {
+  %p = call <vscale x 8 x i1> @PTRUEh()
+  %v = call i32 @UMINVh(<vscale x 8 x i1> %p, <vscale x 8 x i16> %a)
+  %r = trunc i32 %v to i16
+  ret i16 %r
+}
+
+define i32 @ANDVh(<vscale x 8 x i1> "reg"="pg" %p, <vscale x 8 x i16> "reg"="z" %a) "feature"="sve" "enc"="0000010001011010001 p:3 a:5 d:5" "asm"="andv {d:h}, {p}, {a}.h" "dclass"="s" "nomatch" "nodecode" {
+  ret i32 0
+}
+
+declare i16 @llvm.vector.reduce.and.nxv8i16(<vscale x 8 x i16>)
+
+define i16 @sve.reduce.and.nxv8i16(<vscale x 8 x i16> "reg"="z" %a) "feature"="sve" "recipe"="sve.reduce.and.nxv8i16.expand" {
+  %r = call i16 @llvm.vector.reduce.and.nxv8i16(<vscale x 8 x i16> %a)
+  ret i16 %r
+}
+
+define i16 @sve.reduce.and.nxv8i16.expand(<vscale x 8 x i16> %a) {
+  %p = call <vscale x 8 x i1> @PTRUEh()
+  %v = call i32 @ANDVh(<vscale x 8 x i1> %p, <vscale x 8 x i16> %a)
+  %r = trunc i32 %v to i16
+  ret i16 %r
+}
+
+define i32 @ORVh(<vscale x 8 x i1> "reg"="pg" %p, <vscale x 8 x i16> "reg"="z" %a) "feature"="sve" "enc"="0000010001011000001 p:3 a:5 d:5" "asm"="orv {d:h}, {p}, {a}.h" "dclass"="s" "nomatch" "nodecode" {
+  ret i32 0
+}
+
+declare i16 @llvm.vector.reduce.or.nxv8i16(<vscale x 8 x i16>)
+
+define i16 @sve.reduce.or.nxv8i16(<vscale x 8 x i16> "reg"="z" %a) "feature"="sve" "recipe"="sve.reduce.or.nxv8i16.expand" {
+  %r = call i16 @llvm.vector.reduce.or.nxv8i16(<vscale x 8 x i16> %a)
+  ret i16 %r
+}
+
+define i16 @sve.reduce.or.nxv8i16.expand(<vscale x 8 x i16> %a) {
+  %p = call <vscale x 8 x i1> @PTRUEh()
+  %v = call i32 @ORVh(<vscale x 8 x i1> %p, <vscale x 8 x i16> %a)
+  %r = trunc i32 %v to i16
+  ret i16 %r
+}
+
+define i32 @EORVh(<vscale x 8 x i1> "reg"="pg" %p, <vscale x 8 x i16> "reg"="z" %a) "feature"="sve" "enc"="0000010001011001001 p:3 a:5 d:5" "asm"="eorv {d:h}, {p}, {a}.h" "dclass"="s" "nomatch" "nodecode" {
+  ret i32 0
+}
+
+declare i16 @llvm.vector.reduce.xor.nxv8i16(<vscale x 8 x i16>)
+
+define i16 @sve.reduce.xor.nxv8i16(<vscale x 8 x i16> "reg"="z" %a) "feature"="sve" "recipe"="sve.reduce.xor.nxv8i16.expand" {
+  %r = call i16 @llvm.vector.reduce.xor.nxv8i16(<vscale x 8 x i16> %a)
+  ret i16 %r
+}
+
+define i16 @sve.reduce.xor.nxv8i16.expand(<vscale x 8 x i16> %a) {
+  %p = call <vscale x 8 x i1> @PTRUEh()
+  %v = call i32 @EORVh(<vscale x 8 x i1> %p, <vscale x 8 x i16> %a)
+  %r = trunc i32 %v to i16
+  ret i16 %r
+}
+
+define <vscale x 4 x i32> @sve.mul.nxv4i32(<vscale x 4 x i32> "reg"="z" %a, <vscale x 4 x i32> "reg"="z" %b) "feature"="sve" "recipe"="sve.mul.nxv4i32.expand" {
+  %r = mul <vscale x 4 x i32> %a, %b
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i32> @sve.mul.nxv4i32.expand(<vscale x 4 x i32> %a, <vscale x 4 x i32> %b) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call <vscale x 4 x i32> @SVE.mul.nxv4i32(<vscale x 4 x i1> %p, <vscale x 4 x i32> %a, <vscale x 4 x i32> %b)
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i32> @sve.sdiv.nxv4i32(<vscale x 4 x i32> "reg"="z" %a, <vscale x 4 x i32> "reg"="z" %b) "feature"="sve" "recipe"="sve.sdiv.nxv4i32.expand" {
+  %r = sdiv <vscale x 4 x i32> %a, %b
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i32> @sve.sdiv.nxv4i32.expand(<vscale x 4 x i32> %a, <vscale x 4 x i32> %b) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call <vscale x 4 x i32> @SVE.sdiv.nxv4i32(<vscale x 4 x i1> %p, <vscale x 4 x i32> %a, <vscale x 4 x i32> %b)
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i32> @sve.udiv.nxv4i32(<vscale x 4 x i32> "reg"="z" %a, <vscale x 4 x i32> "reg"="z" %b) "feature"="sve" "recipe"="sve.udiv.nxv4i32.expand" {
+  %r = udiv <vscale x 4 x i32> %a, %b
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i32> @sve.udiv.nxv4i32.expand(<vscale x 4 x i32> %a, <vscale x 4 x i32> %b) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call <vscale x 4 x i32> @SVE.udiv.nxv4i32(<vscale x 4 x i1> %p, <vscale x 4 x i32> %a, <vscale x 4 x i32> %b)
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i32> @sve.shl.nxv4i32(<vscale x 4 x i32> "reg"="z" %a, <vscale x 4 x i32> "reg"="z" %b) "feature"="sve" "recipe"="sve.shl.nxv4i32.expand" {
+  %r = shl <vscale x 4 x i32> %a, %b
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i32> @sve.shl.nxv4i32.expand(<vscale x 4 x i32> %a, <vscale x 4 x i32> %b) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call <vscale x 4 x i32> @SVE.lsl.nxv4i32(<vscale x 4 x i1> %p, <vscale x 4 x i32> %a, <vscale x 4 x i32> %b)
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i32> @sve.lshr.nxv4i32(<vscale x 4 x i32> "reg"="z" %a, <vscale x 4 x i32> "reg"="z" %b) "feature"="sve" "recipe"="sve.lshr.nxv4i32.expand" {
+  %r = lshr <vscale x 4 x i32> %a, %b
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i32> @sve.lshr.nxv4i32.expand(<vscale x 4 x i32> %a, <vscale x 4 x i32> %b) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call <vscale x 4 x i32> @SVE.lsr.nxv4i32(<vscale x 4 x i1> %p, <vscale x 4 x i32> %a, <vscale x 4 x i32> %b)
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i32> @sve.ashr.nxv4i32(<vscale x 4 x i32> "reg"="z" %a, <vscale x 4 x i32> "reg"="z" %b) "feature"="sve" "recipe"="sve.ashr.nxv4i32.expand" {
+  %r = ashr <vscale x 4 x i32> %a, %b
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i32> @sve.ashr.nxv4i32.expand(<vscale x 4 x i32> %a, <vscale x 4 x i32> %b) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call <vscale x 4 x i32> @SVE.asr.nxv4i32(<vscale x 4 x i1> %p, <vscale x 4 x i32> %a, <vscale x 4 x i32> %b)
+  ret <vscale x 4 x i32> %r
+}
+
+declare <vscale x 4 x i32> @llvm.smax.nxv4i32(<vscale x 4 x i32>, <vscale x 4 x i32>)
+
+define <vscale x 4 x i32> @sve.smax.nxv4i32(<vscale x 4 x i32> "reg"="z" %a, <vscale x 4 x i32> "reg"="z" %b) "feature"="sve" "recipe"="sve.smax.nxv4i32.expand" {
+  %r = call <vscale x 4 x i32> @llvm.smax.nxv4i32(<vscale x 4 x i32> %a, <vscale x 4 x i32> %b)
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i32> @sve.smax.nxv4i32.expand(<vscale x 4 x i32> %a, <vscale x 4 x i32> %b) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call <vscale x 4 x i32> @SVE.smax.nxv4i32(<vscale x 4 x i1> %p, <vscale x 4 x i32> %a, <vscale x 4 x i32> %b)
+  ret <vscale x 4 x i32> %r
+}
+
+declare <vscale x 4 x i32> @llvm.smin.nxv4i32(<vscale x 4 x i32>, <vscale x 4 x i32>)
+
+define <vscale x 4 x i32> @sve.smin.nxv4i32(<vscale x 4 x i32> "reg"="z" %a, <vscale x 4 x i32> "reg"="z" %b) "feature"="sve" "recipe"="sve.smin.nxv4i32.expand" {
+  %r = call <vscale x 4 x i32> @llvm.smin.nxv4i32(<vscale x 4 x i32> %a, <vscale x 4 x i32> %b)
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i32> @sve.smin.nxv4i32.expand(<vscale x 4 x i32> %a, <vscale x 4 x i32> %b) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call <vscale x 4 x i32> @SVE.smin.nxv4i32(<vscale x 4 x i1> %p, <vscale x 4 x i32> %a, <vscale x 4 x i32> %b)
+  ret <vscale x 4 x i32> %r
+}
+
+declare <vscale x 4 x i32> @llvm.umax.nxv4i32(<vscale x 4 x i32>, <vscale x 4 x i32>)
+
+define <vscale x 4 x i32> @sve.umax.nxv4i32(<vscale x 4 x i32> "reg"="z" %a, <vscale x 4 x i32> "reg"="z" %b) "feature"="sve" "recipe"="sve.umax.nxv4i32.expand" {
+  %r = call <vscale x 4 x i32> @llvm.umax.nxv4i32(<vscale x 4 x i32> %a, <vscale x 4 x i32> %b)
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i32> @sve.umax.nxv4i32.expand(<vscale x 4 x i32> %a, <vscale x 4 x i32> %b) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call <vscale x 4 x i32> @SVE.umax.nxv4i32(<vscale x 4 x i1> %p, <vscale x 4 x i32> %a, <vscale x 4 x i32> %b)
+  ret <vscale x 4 x i32> %r
+}
+
+declare <vscale x 4 x i32> @llvm.umin.nxv4i32(<vscale x 4 x i32>, <vscale x 4 x i32>)
+
+define <vscale x 4 x i32> @sve.umin.nxv4i32(<vscale x 4 x i32> "reg"="z" %a, <vscale x 4 x i32> "reg"="z" %b) "feature"="sve" "recipe"="sve.umin.nxv4i32.expand" {
+  %r = call <vscale x 4 x i32> @llvm.umin.nxv4i32(<vscale x 4 x i32> %a, <vscale x 4 x i32> %b)
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i32> @sve.umin.nxv4i32.expand(<vscale x 4 x i32> %a, <vscale x 4 x i32> %b) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call <vscale x 4 x i32> @SVE.umin.nxv4i32(<vscale x 4 x i1> %p, <vscale x 4 x i32> %a, <vscale x 4 x i32> %b)
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i1> @sve.icmp.eq.nxv4i32(<vscale x 4 x i32> "reg"="z" %a, <vscale x 4 x i32> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.eq.nxv4i32.expand" {
+  %r = icmp eq <vscale x 4 x i32> %a, %b
+  ret <vscale x 4 x i1> %r
+}
+
+define <vscale x 4 x i1> @sve.icmp.eq.nxv4i32.expand(<vscale x 4 x i32> %a, <vscale x 4 x i32> %b) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call <vscale x 4 x i1> @SVE.cmpeq.nxv4i32(<vscale x 4 x i1> %p, <vscale x 4 x i32> %a, <vscale x 4 x i32> %b)
+  ret <vscale x 4 x i1> %r
+}
+
+define <vscale x 4 x i1> @sve.icmp.ne.nxv4i32(<vscale x 4 x i32> "reg"="z" %a, <vscale x 4 x i32> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.ne.nxv4i32.expand" {
+  %r = icmp ne <vscale x 4 x i32> %a, %b
+  ret <vscale x 4 x i1> %r
+}
+
+define <vscale x 4 x i1> @sve.icmp.ne.nxv4i32.expand(<vscale x 4 x i32> %a, <vscale x 4 x i32> %b) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call <vscale x 4 x i1> @SVE.cmpne.nxv4i32(<vscale x 4 x i1> %p, <vscale x 4 x i32> %a, <vscale x 4 x i32> %b)
+  ret <vscale x 4 x i1> %r
+}
+
+define <vscale x 4 x i1> @sve.icmp.sgt.nxv4i32(<vscale x 4 x i32> "reg"="z" %a, <vscale x 4 x i32> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.sgt.nxv4i32.expand" {
+  %r = icmp sgt <vscale x 4 x i32> %a, %b
+  ret <vscale x 4 x i1> %r
+}
+
+define <vscale x 4 x i1> @sve.icmp.sgt.nxv4i32.expand(<vscale x 4 x i32> %a, <vscale x 4 x i32> %b) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call <vscale x 4 x i1> @SVE.cmpgt.nxv4i32(<vscale x 4 x i1> %p, <vscale x 4 x i32> %a, <vscale x 4 x i32> %b)
+  ret <vscale x 4 x i1> %r
+}
+
+define <vscale x 4 x i1> @sve.icmp.sge.nxv4i32(<vscale x 4 x i32> "reg"="z" %a, <vscale x 4 x i32> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.sge.nxv4i32.expand" {
+  %r = icmp sge <vscale x 4 x i32> %a, %b
+  ret <vscale x 4 x i1> %r
+}
+
+define <vscale x 4 x i1> @sve.icmp.sge.nxv4i32.expand(<vscale x 4 x i32> %a, <vscale x 4 x i32> %b) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call <vscale x 4 x i1> @SVE.cmpge.nxv4i32(<vscale x 4 x i1> %p, <vscale x 4 x i32> %a, <vscale x 4 x i32> %b)
+  ret <vscale x 4 x i1> %r
+}
+
+define <vscale x 4 x i1> @sve.icmp.ugt.nxv4i32(<vscale x 4 x i32> "reg"="z" %a, <vscale x 4 x i32> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.ugt.nxv4i32.expand" {
+  %r = icmp ugt <vscale x 4 x i32> %a, %b
+  ret <vscale x 4 x i1> %r
+}
+
+define <vscale x 4 x i1> @sve.icmp.ugt.nxv4i32.expand(<vscale x 4 x i32> %a, <vscale x 4 x i32> %b) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call <vscale x 4 x i1> @SVE.cmphi.nxv4i32(<vscale x 4 x i1> %p, <vscale x 4 x i32> %a, <vscale x 4 x i32> %b)
+  ret <vscale x 4 x i1> %r
+}
+
+define <vscale x 4 x i1> @sve.icmp.uge.nxv4i32(<vscale x 4 x i32> "reg"="z" %a, <vscale x 4 x i32> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.uge.nxv4i32.expand" {
+  %r = icmp uge <vscale x 4 x i32> %a, %b
+  ret <vscale x 4 x i1> %r
+}
+
+define <vscale x 4 x i1> @sve.icmp.uge.nxv4i32.expand(<vscale x 4 x i32> %a, <vscale x 4 x i32> %b) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call <vscale x 4 x i1> @SVE.cmphs.nxv4i32(<vscale x 4 x i1> %p, <vscale x 4 x i32> %a, <vscale x 4 x i32> %b)
+  ret <vscale x 4 x i1> %r
+}
+
+define <vscale x 4 x i1> @sve.icmp.slt.nxv4i32(<vscale x 4 x i32> "reg"="z" %a, <vscale x 4 x i32> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.slt.nxv4i32.expand" {
+  %r = icmp slt <vscale x 4 x i32> %a, %b
+  ret <vscale x 4 x i1> %r
+}
+
+define <vscale x 4 x i1> @sve.icmp.slt.nxv4i32.expand(<vscale x 4 x i32> %a, <vscale x 4 x i32> %b) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call <vscale x 4 x i1> @SVE.cmpgt.nxv4i32(<vscale x 4 x i1> %p, <vscale x 4 x i32> %b, <vscale x 4 x i32> %a)
+  ret <vscale x 4 x i1> %r
+}
+
+define <vscale x 4 x i1> @sve.icmp.sle.nxv4i32(<vscale x 4 x i32> "reg"="z" %a, <vscale x 4 x i32> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.sle.nxv4i32.expand" {
+  %r = icmp sle <vscale x 4 x i32> %a, %b
+  ret <vscale x 4 x i1> %r
+}
+
+define <vscale x 4 x i1> @sve.icmp.sle.nxv4i32.expand(<vscale x 4 x i32> %a, <vscale x 4 x i32> %b) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call <vscale x 4 x i1> @SVE.cmpge.nxv4i32(<vscale x 4 x i1> %p, <vscale x 4 x i32> %b, <vscale x 4 x i32> %a)
+  ret <vscale x 4 x i1> %r
+}
+
+define <vscale x 4 x i1> @sve.icmp.ult.nxv4i32(<vscale x 4 x i32> "reg"="z" %a, <vscale x 4 x i32> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.ult.nxv4i32.expand" {
+  %r = icmp ult <vscale x 4 x i32> %a, %b
+  ret <vscale x 4 x i1> %r
+}
+
+define <vscale x 4 x i1> @sve.icmp.ult.nxv4i32.expand(<vscale x 4 x i32> %a, <vscale x 4 x i32> %b) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call <vscale x 4 x i1> @SVE.cmphi.nxv4i32(<vscale x 4 x i1> %p, <vscale x 4 x i32> %b, <vscale x 4 x i32> %a)
+  ret <vscale x 4 x i1> %r
+}
+
+define <vscale x 4 x i1> @sve.icmp.ule.nxv4i32(<vscale x 4 x i32> "reg"="z" %a, <vscale x 4 x i32> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.ule.nxv4i32.expand" {
+  %r = icmp ule <vscale x 4 x i32> %a, %b
+  ret <vscale x 4 x i1> %r
+}
+
+define <vscale x 4 x i1> @sve.icmp.ule.nxv4i32.expand(<vscale x 4 x i32> %a, <vscale x 4 x i32> %b) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call <vscale x 4 x i1> @SVE.cmphs.nxv4i32(<vscale x 4 x i1> %p, <vscale x 4 x i32> %b, <vscale x 4 x i32> %a)
+  ret <vscale x 4 x i1> %r
+}
+
+define <vscale x 4 x i32> @SELz.nxv4i32(<vscale x 4 x i1> "reg"="p" %c, <vscale x 4 x i32> "reg"="z" %a, <vscale x 4 x i32> "reg"="z" %b) "feature"="sve" "enc"="00000101101 b:5 11 c:4 a:5 d:5" "asm"="sel {d}.s, {c}, {a}.s, {b}.s" "nodecode" {
+  %r = select <vscale x 4 x i1> %c, <vscale x 4 x i32> %a, <vscale x 4 x i32> %b
+  ret <vscale x 4 x i32> %r
+}
+
+declare i32 @llvm.vector.reduce.add.nxv4i32(<vscale x 4 x i32>)
+
+define i32 @sve.reduce.add.nxv4i32(<vscale x 4 x i32> "reg"="z" %a) "feature"="sve" "recipe"="sve.reduce.add.nxv4i32.expand" {
+  %r = call i32 @llvm.vector.reduce.add.nxv4i32(<vscale x 4 x i32> %a)
+  ret i32 %r
+}
+
+define i32 @sve.reduce.add.nxv4i32.expand(<vscale x 4 x i32> %a) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %v = call i64 @SVE.uaddv.nxv4i32(<vscale x 4 x i1> %p, <vscale x 4 x i32> %a)
+  %r = trunc i64 %v to i32
+  ret i32 %r
+}
+
+declare i32 @llvm.vector.reduce.smax.nxv4i32(<vscale x 4 x i32>)
+
+define i32 @sve.reduce.smax.nxv4i32(<vscale x 4 x i32> "reg"="z" %a) "feature"="sve" "recipe"="sve.reduce.smax.nxv4i32.expand" {
+  %r = call i32 @llvm.vector.reduce.smax.nxv4i32(<vscale x 4 x i32> %a)
+  ret i32 %r
+}
+
+define i32 @sve.reduce.smax.nxv4i32.expand(<vscale x 4 x i32> %a) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call i32 @SVE.smaxv.nxv4i32(<vscale x 4 x i1> %p, <vscale x 4 x i32> %a)
+  ret i32 %r
+}
+
+declare i32 @llvm.vector.reduce.smin.nxv4i32(<vscale x 4 x i32>)
+
+define i32 @sve.reduce.smin.nxv4i32(<vscale x 4 x i32> "reg"="z" %a) "feature"="sve" "recipe"="sve.reduce.smin.nxv4i32.expand" {
+  %r = call i32 @llvm.vector.reduce.smin.nxv4i32(<vscale x 4 x i32> %a)
+  ret i32 %r
+}
+
+define i32 @sve.reduce.smin.nxv4i32.expand(<vscale x 4 x i32> %a) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call i32 @SVE.sminv.nxv4i32(<vscale x 4 x i1> %p, <vscale x 4 x i32> %a)
+  ret i32 %r
+}
+
+declare i32 @llvm.vector.reduce.umax.nxv4i32(<vscale x 4 x i32>)
+
+define i32 @sve.reduce.umax.nxv4i32(<vscale x 4 x i32> "reg"="z" %a) "feature"="sve" "recipe"="sve.reduce.umax.nxv4i32.expand" {
+  %r = call i32 @llvm.vector.reduce.umax.nxv4i32(<vscale x 4 x i32> %a)
+  ret i32 %r
+}
+
+define i32 @sve.reduce.umax.nxv4i32.expand(<vscale x 4 x i32> %a) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call i32 @SVE.umaxv.nxv4i32(<vscale x 4 x i1> %p, <vscale x 4 x i32> %a)
+  ret i32 %r
+}
+
+declare i32 @llvm.vector.reduce.umin.nxv4i32(<vscale x 4 x i32>)
+
+define i32 @sve.reduce.umin.nxv4i32(<vscale x 4 x i32> "reg"="z" %a) "feature"="sve" "recipe"="sve.reduce.umin.nxv4i32.expand" {
+  %r = call i32 @llvm.vector.reduce.umin.nxv4i32(<vscale x 4 x i32> %a)
+  ret i32 %r
+}
+
+define i32 @sve.reduce.umin.nxv4i32.expand(<vscale x 4 x i32> %a) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call i32 @SVE.uminv.nxv4i32(<vscale x 4 x i1> %p, <vscale x 4 x i32> %a)
+  ret i32 %r
+}
+
+declare i32 @llvm.vector.reduce.and.nxv4i32(<vscale x 4 x i32>)
+
+define i32 @sve.reduce.and.nxv4i32(<vscale x 4 x i32> "reg"="z" %a) "feature"="sve" "recipe"="sve.reduce.and.nxv4i32.expand" {
+  %r = call i32 @llvm.vector.reduce.and.nxv4i32(<vscale x 4 x i32> %a)
+  ret i32 %r
+}
+
+define i32 @sve.reduce.and.nxv4i32.expand(<vscale x 4 x i32> %a) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call i32 @SVE.andv.nxv4i32(<vscale x 4 x i1> %p, <vscale x 4 x i32> %a)
+  ret i32 %r
+}
+
+declare i32 @llvm.vector.reduce.or.nxv4i32(<vscale x 4 x i32>)
+
+define i32 @sve.reduce.or.nxv4i32(<vscale x 4 x i32> "reg"="z" %a) "feature"="sve" "recipe"="sve.reduce.or.nxv4i32.expand" {
+  %r = call i32 @llvm.vector.reduce.or.nxv4i32(<vscale x 4 x i32> %a)
+  ret i32 %r
+}
+
+define i32 @sve.reduce.or.nxv4i32.expand(<vscale x 4 x i32> %a) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call i32 @SVE.orv.nxv4i32(<vscale x 4 x i1> %p, <vscale x 4 x i32> %a)
+  ret i32 %r
+}
+
+declare i32 @llvm.vector.reduce.xor.nxv4i32(<vscale x 4 x i32>)
+
+define i32 @sve.reduce.xor.nxv4i32(<vscale x 4 x i32> "reg"="z" %a) "feature"="sve" "recipe"="sve.reduce.xor.nxv4i32.expand" {
+  %r = call i32 @llvm.vector.reduce.xor.nxv4i32(<vscale x 4 x i32> %a)
+  ret i32 %r
+}
+
+define i32 @sve.reduce.xor.nxv4i32.expand(<vscale x 4 x i32> %a) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call i32 @SVE.eorv.nxv4i32(<vscale x 4 x i1> %p, <vscale x 4 x i32> %a)
+  ret i32 %r
+}
+
+define <vscale x 4 x i32> @sve.splat.nxv4i32(i32 "reg"="w" %x) "feature"="sve" "recipe"="sve.splat.nxv4i32.expand" {
+  %i = insertelement <vscale x 4 x i32> poison, i32 %x, i64 0
+  %r = shufflevector <vscale x 4 x i32> %i, <vscale x 4 x i32> poison, <vscale x 4 x i32> zeroinitializer
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i32> @sve.splat.nxv4i32.expand(i32 %x) {
+  %r = call <vscale x 4 x i32> @SVE.dup.x.nxv4i32(i32 %x)
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 2 x i64> @sve.mul.nxv2i64(<vscale x 2 x i64> "reg"="z" %a, <vscale x 2 x i64> "reg"="z" %b) "feature"="sve" "recipe"="sve.mul.nxv2i64.expand" {
+  %r = mul <vscale x 2 x i64> %a, %b
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 2 x i64> @sve.mul.nxv2i64.expand(<vscale x 2 x i64> %a, <vscale x 2 x i64> %b) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call <vscale x 2 x i64> @SVE.mul.nxv2i64(<vscale x 2 x i1> %p, <vscale x 2 x i64> %a, <vscale x 2 x i64> %b)
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 2 x i64> @sve.sdiv.nxv2i64(<vscale x 2 x i64> "reg"="z" %a, <vscale x 2 x i64> "reg"="z" %b) "feature"="sve" "recipe"="sve.sdiv.nxv2i64.expand" {
+  %r = sdiv <vscale x 2 x i64> %a, %b
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 2 x i64> @sve.sdiv.nxv2i64.expand(<vscale x 2 x i64> %a, <vscale x 2 x i64> %b) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call <vscale x 2 x i64> @SVE.sdiv.nxv2i64(<vscale x 2 x i1> %p, <vscale x 2 x i64> %a, <vscale x 2 x i64> %b)
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 2 x i64> @sve.udiv.nxv2i64(<vscale x 2 x i64> "reg"="z" %a, <vscale x 2 x i64> "reg"="z" %b) "feature"="sve" "recipe"="sve.udiv.nxv2i64.expand" {
+  %r = udiv <vscale x 2 x i64> %a, %b
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 2 x i64> @sve.udiv.nxv2i64.expand(<vscale x 2 x i64> %a, <vscale x 2 x i64> %b) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call <vscale x 2 x i64> @SVE.udiv.nxv2i64(<vscale x 2 x i1> %p, <vscale x 2 x i64> %a, <vscale x 2 x i64> %b)
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 2 x i64> @sve.shl.nxv2i64(<vscale x 2 x i64> "reg"="z" %a, <vscale x 2 x i64> "reg"="z" %b) "feature"="sve" "recipe"="sve.shl.nxv2i64.expand" {
+  %r = shl <vscale x 2 x i64> %a, %b
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 2 x i64> @sve.shl.nxv2i64.expand(<vscale x 2 x i64> %a, <vscale x 2 x i64> %b) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call <vscale x 2 x i64> @SVE.lsl.nxv2i64(<vscale x 2 x i1> %p, <vscale x 2 x i64> %a, <vscale x 2 x i64> %b)
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 2 x i64> @sve.lshr.nxv2i64(<vscale x 2 x i64> "reg"="z" %a, <vscale x 2 x i64> "reg"="z" %b) "feature"="sve" "recipe"="sve.lshr.nxv2i64.expand" {
+  %r = lshr <vscale x 2 x i64> %a, %b
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 2 x i64> @sve.lshr.nxv2i64.expand(<vscale x 2 x i64> %a, <vscale x 2 x i64> %b) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call <vscale x 2 x i64> @SVE.lsr.nxv2i64(<vscale x 2 x i1> %p, <vscale x 2 x i64> %a, <vscale x 2 x i64> %b)
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 2 x i64> @sve.ashr.nxv2i64(<vscale x 2 x i64> "reg"="z" %a, <vscale x 2 x i64> "reg"="z" %b) "feature"="sve" "recipe"="sve.ashr.nxv2i64.expand" {
+  %r = ashr <vscale x 2 x i64> %a, %b
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 2 x i64> @sve.ashr.nxv2i64.expand(<vscale x 2 x i64> %a, <vscale x 2 x i64> %b) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call <vscale x 2 x i64> @SVE.asr.nxv2i64(<vscale x 2 x i1> %p, <vscale x 2 x i64> %a, <vscale x 2 x i64> %b)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.smax.nxv2i64(<vscale x 2 x i64>, <vscale x 2 x i64>)
+
+define <vscale x 2 x i64> @sve.smax.nxv2i64(<vscale x 2 x i64> "reg"="z" %a, <vscale x 2 x i64> "reg"="z" %b) "feature"="sve" "recipe"="sve.smax.nxv2i64.expand" {
+  %r = call <vscale x 2 x i64> @llvm.smax.nxv2i64(<vscale x 2 x i64> %a, <vscale x 2 x i64> %b)
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 2 x i64> @sve.smax.nxv2i64.expand(<vscale x 2 x i64> %a, <vscale x 2 x i64> %b) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call <vscale x 2 x i64> @SVE.smax.nxv2i64(<vscale x 2 x i1> %p, <vscale x 2 x i64> %a, <vscale x 2 x i64> %b)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.smin.nxv2i64(<vscale x 2 x i64>, <vscale x 2 x i64>)
+
+define <vscale x 2 x i64> @sve.smin.nxv2i64(<vscale x 2 x i64> "reg"="z" %a, <vscale x 2 x i64> "reg"="z" %b) "feature"="sve" "recipe"="sve.smin.nxv2i64.expand" {
+  %r = call <vscale x 2 x i64> @llvm.smin.nxv2i64(<vscale x 2 x i64> %a, <vscale x 2 x i64> %b)
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 2 x i64> @sve.smin.nxv2i64.expand(<vscale x 2 x i64> %a, <vscale x 2 x i64> %b) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call <vscale x 2 x i64> @SVE.smin.nxv2i64(<vscale x 2 x i1> %p, <vscale x 2 x i64> %a, <vscale x 2 x i64> %b)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.umax.nxv2i64(<vscale x 2 x i64>, <vscale x 2 x i64>)
+
+define <vscale x 2 x i64> @sve.umax.nxv2i64(<vscale x 2 x i64> "reg"="z" %a, <vscale x 2 x i64> "reg"="z" %b) "feature"="sve" "recipe"="sve.umax.nxv2i64.expand" {
+  %r = call <vscale x 2 x i64> @llvm.umax.nxv2i64(<vscale x 2 x i64> %a, <vscale x 2 x i64> %b)
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 2 x i64> @sve.umax.nxv2i64.expand(<vscale x 2 x i64> %a, <vscale x 2 x i64> %b) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call <vscale x 2 x i64> @SVE.umax.nxv2i64(<vscale x 2 x i1> %p, <vscale x 2 x i64> %a, <vscale x 2 x i64> %b)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.umin.nxv2i64(<vscale x 2 x i64>, <vscale x 2 x i64>)
+
+define <vscale x 2 x i64> @sve.umin.nxv2i64(<vscale x 2 x i64> "reg"="z" %a, <vscale x 2 x i64> "reg"="z" %b) "feature"="sve" "recipe"="sve.umin.nxv2i64.expand" {
+  %r = call <vscale x 2 x i64> @llvm.umin.nxv2i64(<vscale x 2 x i64> %a, <vscale x 2 x i64> %b)
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 2 x i64> @sve.umin.nxv2i64.expand(<vscale x 2 x i64> %a, <vscale x 2 x i64> %b) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call <vscale x 2 x i64> @SVE.umin.nxv2i64(<vscale x 2 x i1> %p, <vscale x 2 x i64> %a, <vscale x 2 x i64> %b)
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 2 x i1> @sve.icmp.eq.nxv2i64(<vscale x 2 x i64> "reg"="z" %a, <vscale x 2 x i64> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.eq.nxv2i64.expand" {
+  %r = icmp eq <vscale x 2 x i64> %a, %b
+  ret <vscale x 2 x i1> %r
+}
+
+define <vscale x 2 x i1> @sve.icmp.eq.nxv2i64.expand(<vscale x 2 x i64> %a, <vscale x 2 x i64> %b) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call <vscale x 2 x i1> @SVE.cmpeq.nxv2i64(<vscale x 2 x i1> %p, <vscale x 2 x i64> %a, <vscale x 2 x i64> %b)
+  ret <vscale x 2 x i1> %r
+}
+
+define <vscale x 2 x i1> @sve.icmp.ne.nxv2i64(<vscale x 2 x i64> "reg"="z" %a, <vscale x 2 x i64> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.ne.nxv2i64.expand" {
+  %r = icmp ne <vscale x 2 x i64> %a, %b
+  ret <vscale x 2 x i1> %r
+}
+
+define <vscale x 2 x i1> @sve.icmp.ne.nxv2i64.expand(<vscale x 2 x i64> %a, <vscale x 2 x i64> %b) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call <vscale x 2 x i1> @SVE.cmpne.nxv2i64(<vscale x 2 x i1> %p, <vscale x 2 x i64> %a, <vscale x 2 x i64> %b)
+  ret <vscale x 2 x i1> %r
+}
+
+define <vscale x 2 x i1> @sve.icmp.sgt.nxv2i64(<vscale x 2 x i64> "reg"="z" %a, <vscale x 2 x i64> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.sgt.nxv2i64.expand" {
+  %r = icmp sgt <vscale x 2 x i64> %a, %b
+  ret <vscale x 2 x i1> %r
+}
+
+define <vscale x 2 x i1> @sve.icmp.sgt.nxv2i64.expand(<vscale x 2 x i64> %a, <vscale x 2 x i64> %b) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call <vscale x 2 x i1> @SVE.cmpgt.nxv2i64(<vscale x 2 x i1> %p, <vscale x 2 x i64> %a, <vscale x 2 x i64> %b)
+  ret <vscale x 2 x i1> %r
+}
+
+define <vscale x 2 x i1> @sve.icmp.sge.nxv2i64(<vscale x 2 x i64> "reg"="z" %a, <vscale x 2 x i64> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.sge.nxv2i64.expand" {
+  %r = icmp sge <vscale x 2 x i64> %a, %b
+  ret <vscale x 2 x i1> %r
+}
+
+define <vscale x 2 x i1> @sve.icmp.sge.nxv2i64.expand(<vscale x 2 x i64> %a, <vscale x 2 x i64> %b) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call <vscale x 2 x i1> @SVE.cmpge.nxv2i64(<vscale x 2 x i1> %p, <vscale x 2 x i64> %a, <vscale x 2 x i64> %b)
+  ret <vscale x 2 x i1> %r
+}
+
+define <vscale x 2 x i1> @sve.icmp.ugt.nxv2i64(<vscale x 2 x i64> "reg"="z" %a, <vscale x 2 x i64> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.ugt.nxv2i64.expand" {
+  %r = icmp ugt <vscale x 2 x i64> %a, %b
+  ret <vscale x 2 x i1> %r
+}
+
+define <vscale x 2 x i1> @sve.icmp.ugt.nxv2i64.expand(<vscale x 2 x i64> %a, <vscale x 2 x i64> %b) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call <vscale x 2 x i1> @SVE.cmphi.nxv2i64(<vscale x 2 x i1> %p, <vscale x 2 x i64> %a, <vscale x 2 x i64> %b)
+  ret <vscale x 2 x i1> %r
+}
+
+define <vscale x 2 x i1> @sve.icmp.uge.nxv2i64(<vscale x 2 x i64> "reg"="z" %a, <vscale x 2 x i64> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.uge.nxv2i64.expand" {
+  %r = icmp uge <vscale x 2 x i64> %a, %b
+  ret <vscale x 2 x i1> %r
+}
+
+define <vscale x 2 x i1> @sve.icmp.uge.nxv2i64.expand(<vscale x 2 x i64> %a, <vscale x 2 x i64> %b) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call <vscale x 2 x i1> @SVE.cmphs.nxv2i64(<vscale x 2 x i1> %p, <vscale x 2 x i64> %a, <vscale x 2 x i64> %b)
+  ret <vscale x 2 x i1> %r
+}
+
+define <vscale x 2 x i1> @sve.icmp.slt.nxv2i64(<vscale x 2 x i64> "reg"="z" %a, <vscale x 2 x i64> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.slt.nxv2i64.expand" {
+  %r = icmp slt <vscale x 2 x i64> %a, %b
+  ret <vscale x 2 x i1> %r
+}
+
+define <vscale x 2 x i1> @sve.icmp.slt.nxv2i64.expand(<vscale x 2 x i64> %a, <vscale x 2 x i64> %b) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call <vscale x 2 x i1> @SVE.cmpgt.nxv2i64(<vscale x 2 x i1> %p, <vscale x 2 x i64> %b, <vscale x 2 x i64> %a)
+  ret <vscale x 2 x i1> %r
+}
+
+define <vscale x 2 x i1> @sve.icmp.sle.nxv2i64(<vscale x 2 x i64> "reg"="z" %a, <vscale x 2 x i64> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.sle.nxv2i64.expand" {
+  %r = icmp sle <vscale x 2 x i64> %a, %b
+  ret <vscale x 2 x i1> %r
+}
+
+define <vscale x 2 x i1> @sve.icmp.sle.nxv2i64.expand(<vscale x 2 x i64> %a, <vscale x 2 x i64> %b) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call <vscale x 2 x i1> @SVE.cmpge.nxv2i64(<vscale x 2 x i1> %p, <vscale x 2 x i64> %b, <vscale x 2 x i64> %a)
+  ret <vscale x 2 x i1> %r
+}
+
+define <vscale x 2 x i1> @sve.icmp.ult.nxv2i64(<vscale x 2 x i64> "reg"="z" %a, <vscale x 2 x i64> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.ult.nxv2i64.expand" {
+  %r = icmp ult <vscale x 2 x i64> %a, %b
+  ret <vscale x 2 x i1> %r
+}
+
+define <vscale x 2 x i1> @sve.icmp.ult.nxv2i64.expand(<vscale x 2 x i64> %a, <vscale x 2 x i64> %b) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call <vscale x 2 x i1> @SVE.cmphi.nxv2i64(<vscale x 2 x i1> %p, <vscale x 2 x i64> %b, <vscale x 2 x i64> %a)
+  ret <vscale x 2 x i1> %r
+}
+
+define <vscale x 2 x i1> @sve.icmp.ule.nxv2i64(<vscale x 2 x i64> "reg"="z" %a, <vscale x 2 x i64> "reg"="z" %b) "feature"="sve" "recipe"="sve.icmp.ule.nxv2i64.expand" {
+  %r = icmp ule <vscale x 2 x i64> %a, %b
+  ret <vscale x 2 x i1> %r
+}
+
+define <vscale x 2 x i1> @sve.icmp.ule.nxv2i64.expand(<vscale x 2 x i64> %a, <vscale x 2 x i64> %b) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call <vscale x 2 x i1> @SVE.cmphs.nxv2i64(<vscale x 2 x i1> %p, <vscale x 2 x i64> %b, <vscale x 2 x i64> %a)
+  ret <vscale x 2 x i1> %r
+}
+
+define <vscale x 2 x i64> @SELz.nxv2i64(<vscale x 2 x i1> "reg"="p" %c, <vscale x 2 x i64> "reg"="z" %a, <vscale x 2 x i64> "reg"="z" %b) "feature"="sve" "enc"="00000101111 b:5 11 c:4 a:5 d:5" "asm"="sel {d}.d, {c}, {a}.d, {b}.d" "nodecode" {
+  %r = select <vscale x 2 x i1> %c, <vscale x 2 x i64> %a, <vscale x 2 x i64> %b
+  ret <vscale x 2 x i64> %r
+}
+
+declare i64 @llvm.vector.reduce.add.nxv2i64(<vscale x 2 x i64>)
+
+define i64 @sve.reduce.add.nxv2i64(<vscale x 2 x i64> "reg"="z" %a) "feature"="sve" "recipe"="sve.reduce.add.nxv2i64.expand" {
+  %r = call i64 @llvm.vector.reduce.add.nxv2i64(<vscale x 2 x i64> %a)
+  ret i64 %r
+}
+
+define i64 @sve.reduce.add.nxv2i64.expand(<vscale x 2 x i64> %a) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call i64 @SVE.uaddv.nxv2i64(<vscale x 2 x i1> %p, <vscale x 2 x i64> %a)
+  ret i64 %r
+}
+
+declare i64 @llvm.vector.reduce.smax.nxv2i64(<vscale x 2 x i64>)
+
+define i64 @sve.reduce.smax.nxv2i64(<vscale x 2 x i64> "reg"="z" %a) "feature"="sve" "recipe"="sve.reduce.smax.nxv2i64.expand" {
+  %r = call i64 @llvm.vector.reduce.smax.nxv2i64(<vscale x 2 x i64> %a)
+  ret i64 %r
+}
+
+define i64 @sve.reduce.smax.nxv2i64.expand(<vscale x 2 x i64> %a) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call i64 @SVE.smaxv.nxv2i64(<vscale x 2 x i1> %p, <vscale x 2 x i64> %a)
+  ret i64 %r
+}
+
+declare i64 @llvm.vector.reduce.smin.nxv2i64(<vscale x 2 x i64>)
+
+define i64 @sve.reduce.smin.nxv2i64(<vscale x 2 x i64> "reg"="z" %a) "feature"="sve" "recipe"="sve.reduce.smin.nxv2i64.expand" {
+  %r = call i64 @llvm.vector.reduce.smin.nxv2i64(<vscale x 2 x i64> %a)
+  ret i64 %r
+}
+
+define i64 @sve.reduce.smin.nxv2i64.expand(<vscale x 2 x i64> %a) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call i64 @SVE.sminv.nxv2i64(<vscale x 2 x i1> %p, <vscale x 2 x i64> %a)
+  ret i64 %r
+}
+
+declare i64 @llvm.vector.reduce.umax.nxv2i64(<vscale x 2 x i64>)
+
+define i64 @sve.reduce.umax.nxv2i64(<vscale x 2 x i64> "reg"="z" %a) "feature"="sve" "recipe"="sve.reduce.umax.nxv2i64.expand" {
+  %r = call i64 @llvm.vector.reduce.umax.nxv2i64(<vscale x 2 x i64> %a)
+  ret i64 %r
+}
+
+define i64 @sve.reduce.umax.nxv2i64.expand(<vscale x 2 x i64> %a) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call i64 @SVE.umaxv.nxv2i64(<vscale x 2 x i1> %p, <vscale x 2 x i64> %a)
+  ret i64 %r
+}
+
+declare i64 @llvm.vector.reduce.umin.nxv2i64(<vscale x 2 x i64>)
+
+define i64 @sve.reduce.umin.nxv2i64(<vscale x 2 x i64> "reg"="z" %a) "feature"="sve" "recipe"="sve.reduce.umin.nxv2i64.expand" {
+  %r = call i64 @llvm.vector.reduce.umin.nxv2i64(<vscale x 2 x i64> %a)
+  ret i64 %r
+}
+
+define i64 @sve.reduce.umin.nxv2i64.expand(<vscale x 2 x i64> %a) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call i64 @SVE.uminv.nxv2i64(<vscale x 2 x i1> %p, <vscale x 2 x i64> %a)
+  ret i64 %r
+}
+
+declare i64 @llvm.vector.reduce.and.nxv2i64(<vscale x 2 x i64>)
+
+define i64 @sve.reduce.and.nxv2i64(<vscale x 2 x i64> "reg"="z" %a) "feature"="sve" "recipe"="sve.reduce.and.nxv2i64.expand" {
+  %r = call i64 @llvm.vector.reduce.and.nxv2i64(<vscale x 2 x i64> %a)
+  ret i64 %r
+}
+
+define i64 @sve.reduce.and.nxv2i64.expand(<vscale x 2 x i64> %a) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call i64 @SVE.andv.nxv2i64(<vscale x 2 x i1> %p, <vscale x 2 x i64> %a)
+  ret i64 %r
+}
+
+declare i64 @llvm.vector.reduce.or.nxv2i64(<vscale x 2 x i64>)
+
+define i64 @sve.reduce.or.nxv2i64(<vscale x 2 x i64> "reg"="z" %a) "feature"="sve" "recipe"="sve.reduce.or.nxv2i64.expand" {
+  %r = call i64 @llvm.vector.reduce.or.nxv2i64(<vscale x 2 x i64> %a)
+  ret i64 %r
+}
+
+define i64 @sve.reduce.or.nxv2i64.expand(<vscale x 2 x i64> %a) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call i64 @SVE.orv.nxv2i64(<vscale x 2 x i1> %p, <vscale x 2 x i64> %a)
+  ret i64 %r
+}
+
+declare i64 @llvm.vector.reduce.xor.nxv2i64(<vscale x 2 x i64>)
+
+define i64 @sve.reduce.xor.nxv2i64(<vscale x 2 x i64> "reg"="z" %a) "feature"="sve" "recipe"="sve.reduce.xor.nxv2i64.expand" {
+  %r = call i64 @llvm.vector.reduce.xor.nxv2i64(<vscale x 2 x i64> %a)
+  ret i64 %r
+}
+
+define i64 @sve.reduce.xor.nxv2i64.expand(<vscale x 2 x i64> %a) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call i64 @SVE.eorv.nxv2i64(<vscale x 2 x i1> %p, <vscale x 2 x i64> %a)
+  ret i64 %r
+}
+
+define <vscale x 2 x i64> @sve.splat.nxv2i64(i64 "reg"="x" %x) "feature"="sve" "recipe"="sve.splat.nxv2i64.expand" {
+  %i = insertelement <vscale x 2 x i64> poison, i64 %x, i64 0
+  %r = shufflevector <vscale x 2 x i64> %i, <vscale x 2 x i64> poison, <vscale x 2 x i32> zeroinitializer
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 2 x i64> @sve.splat.nxv2i64.expand(i64 %x) {
+  %r = call <vscale x 2 x i64> @SVE.dup.x.nxv2i64(i64 %x)
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 4 x float> @sve.fdiv.nxv4f32(<vscale x 4 x float> "reg"="z" %a, <vscale x 4 x float> "reg"="z" %b) "feature"="sve" "recipe"="sve.fdiv.nxv4f32.expand" {
+  %r = fdiv <vscale x 4 x float> %a, %b
+  ret <vscale x 4 x float> %r
+}
+
+define <vscale x 4 x float> @sve.fdiv.nxv4f32.expand(<vscale x 4 x float> %a, <vscale x 4 x float> %b) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call <vscale x 4 x float> @SVE.fdiv.nxv4f32(<vscale x 4 x i1> %p, <vscale x 4 x float> %a, <vscale x 4 x float> %b)
+  ret <vscale x 4 x float> %r
+}
+
+declare <vscale x 4 x float> @llvm.minnum.nxv4f32(<vscale x 4 x float>, <vscale x 4 x float>)
+
+define <vscale x 4 x float> @sve.minnum.nxv4f32(<vscale x 4 x float> "reg"="z" %a, <vscale x 4 x float> "reg"="z" %b) "feature"="sve" "recipe"="sve.minnum.nxv4f32.expand" {
+  %r = call <vscale x 4 x float> @llvm.minnum.nxv4f32(<vscale x 4 x float> %a, <vscale x 4 x float> %b)
+  ret <vscale x 4 x float> %r
+}
+
+define <vscale x 4 x float> @sve.minnum.nxv4f32.expand(<vscale x 4 x float> %a, <vscale x 4 x float> %b) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call <vscale x 4 x float> @SVE.fminnm.nxv4f32(<vscale x 4 x i1> %p, <vscale x 4 x float> %a, <vscale x 4 x float> %b)
+  ret <vscale x 4 x float> %r
+}
+
+declare <vscale x 4 x float> @llvm.maxnum.nxv4f32(<vscale x 4 x float>, <vscale x 4 x float>)
+
+define <vscale x 4 x float> @sve.maxnum.nxv4f32(<vscale x 4 x float> "reg"="z" %a, <vscale x 4 x float> "reg"="z" %b) "feature"="sve" "recipe"="sve.maxnum.nxv4f32.expand" {
+  %r = call <vscale x 4 x float> @llvm.maxnum.nxv4f32(<vscale x 4 x float> %a, <vscale x 4 x float> %b)
+  ret <vscale x 4 x float> %r
+}
+
+define <vscale x 4 x float> @sve.maxnum.nxv4f32.expand(<vscale x 4 x float> %a, <vscale x 4 x float> %b) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call <vscale x 4 x float> @SVE.fmaxnm.nxv4f32(<vscale x 4 x i1> %p, <vscale x 4 x float> %a, <vscale x 4 x float> %b)
+  ret <vscale x 4 x float> %r
+}
+
+define <vscale x 4 x float> @sve.fneg.nxv4f32(<vscale x 4 x float> "reg"="z" %a) "feature"="sve" "recipe"="sve.fneg.nxv4f32.expand" {
+  %r = fneg <vscale x 4 x float> %a
+  ret <vscale x 4 x float> %r
+}
+
+define <vscale x 4 x float> @sve.fneg.nxv4f32.expand(<vscale x 4 x float> %a) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call <vscale x 4 x float> @SVE.fneg.nxv4f32(<vscale x 4 x float> %a, <vscale x 4 x i1> %p, <vscale x 4 x float> %a)
+  ret <vscale x 4 x float> %r
+}
+
+declare <vscale x 4 x float> @llvm.fabs.nxv4f32(<vscale x 4 x float>)
+
+define <vscale x 4 x float> @sve.fabs.nxv4f32(<vscale x 4 x float> "reg"="z" %a) "feature"="sve" "recipe"="sve.fabs.nxv4f32.expand" {
+  %r = call <vscale x 4 x float> @llvm.fabs.nxv4f32(<vscale x 4 x float> %a)
+  ret <vscale x 4 x float> %r
+}
+
+define <vscale x 4 x float> @sve.fabs.nxv4f32.expand(<vscale x 4 x float> %a) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call <vscale x 4 x float> @SVE.fabs.nxv4f32(<vscale x 4 x float> %a, <vscale x 4 x i1> %p, <vscale x 4 x float> %a)
+  ret <vscale x 4 x float> %r
+}
+
+declare <vscale x 4 x float> @llvm.sqrt.nxv4f32(<vscale x 4 x float>)
+
+define <vscale x 4 x float> @sve.sqrt.nxv4f32(<vscale x 4 x float> "reg"="z" %a) "feature"="sve" "recipe"="sve.sqrt.nxv4f32.expand" {
+  %r = call <vscale x 4 x float> @llvm.sqrt.nxv4f32(<vscale x 4 x float> %a)
+  ret <vscale x 4 x float> %r
+}
+
+define <vscale x 4 x float> @sve.sqrt.nxv4f32.expand(<vscale x 4 x float> %a) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call <vscale x 4 x float> @SVE.fsqrt.nxv4f32(<vscale x 4 x float> %a, <vscale x 4 x i1> %p, <vscale x 4 x float> %a)
+  ret <vscale x 4 x float> %r
+}
+
+declare <vscale x 4 x float> @llvm.fmuladd.nxv4f32(<vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>)
+
+define <vscale x 4 x float> @sve.fmuladd.nxv4f32(<vscale x 4 x float> "reg"="z" %a, <vscale x 4 x float> "reg"="z" %b, <vscale x 4 x float> "reg"="z" %c) "feature"="sve" "recipe"="sve.fmuladd.nxv4f32.expand" {
+  %r = call <vscale x 4 x float> @llvm.fmuladd.nxv4f32(<vscale x 4 x float> %a, <vscale x 4 x float> %b, <vscale x 4 x float> %c)
+  ret <vscale x 4 x float> %r
+}
+
+define <vscale x 4 x float> @sve.fmuladd.nxv4f32.expand(<vscale x 4 x float> %a, <vscale x 4 x float> %b, <vscale x 4 x float> %c) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call <vscale x 4 x float> @SVE.fmla.nxv4f32(<vscale x 4 x i1> %p, <vscale x 4 x float> %c, <vscale x 4 x float> %a, <vscale x 4 x float> %b)
+  ret <vscale x 4 x float> %r
+}
+
+declare <vscale x 4 x float> @llvm.fma.nxv4f32(<vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>)
+
+define <vscale x 4 x float> @sve.fma.nxv4f32(<vscale x 4 x float> "reg"="z" %a, <vscale x 4 x float> "reg"="z" %b, <vscale x 4 x float> "reg"="z" %c) "feature"="sve" "recipe"="sve.fma.nxv4f32.expand" {
+  %r = call <vscale x 4 x float> @llvm.fma.nxv4f32(<vscale x 4 x float> %a, <vscale x 4 x float> %b, <vscale x 4 x float> %c)
+  ret <vscale x 4 x float> %r
+}
+
+define <vscale x 4 x float> @sve.fma.nxv4f32.expand(<vscale x 4 x float> %a, <vscale x 4 x float> %b, <vscale x 4 x float> %c) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call <vscale x 4 x float> @SVE.fmla.nxv4f32(<vscale x 4 x i1> %p, <vscale x 4 x float> %c, <vscale x 4 x float> %a, <vscale x 4 x float> %b)
+  ret <vscale x 4 x float> %r
+}
+
+define <vscale x 4 x i1> @sve.fcmp.oeq.nxv4f32(<vscale x 4 x float> "reg"="z" %a, <vscale x 4 x float> "reg"="z" %b) "feature"="sve" "recipe"="sve.fcmp.oeq.nxv4f32.expand" {
+  %r = fcmp oeq <vscale x 4 x float> %a, %b
+  ret <vscale x 4 x i1> %r
+}
+
+define <vscale x 4 x i1> @sve.fcmp.oeq.nxv4f32.expand(<vscale x 4 x float> %a, <vscale x 4 x float> %b) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call <vscale x 4 x i1> @SVE.fcmpeq.nxv4f32(<vscale x 4 x i1> %p, <vscale x 4 x float> %a, <vscale x 4 x float> %b)
+  ret <vscale x 4 x i1> %r
+}
+
+define <vscale x 4 x i1> @sve.fcmp.une.nxv4f32(<vscale x 4 x float> "reg"="z" %a, <vscale x 4 x float> "reg"="z" %b) "feature"="sve" "recipe"="sve.fcmp.une.nxv4f32.expand" {
+  %r = fcmp une <vscale x 4 x float> %a, %b
+  ret <vscale x 4 x i1> %r
+}
+
+define <vscale x 4 x i1> @sve.fcmp.une.nxv4f32.expand(<vscale x 4 x float> %a, <vscale x 4 x float> %b) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call <vscale x 4 x i1> @SVE.fcmpne.nxv4f32(<vscale x 4 x i1> %p, <vscale x 4 x float> %a, <vscale x 4 x float> %b)
+  ret <vscale x 4 x i1> %r
+}
+
+define <vscale x 4 x i1> @sve.fcmp.ogt.nxv4f32(<vscale x 4 x float> "reg"="z" %a, <vscale x 4 x float> "reg"="z" %b) "feature"="sve" "recipe"="sve.fcmp.ogt.nxv4f32.expand" {
+  %r = fcmp ogt <vscale x 4 x float> %a, %b
+  ret <vscale x 4 x i1> %r
+}
+
+define <vscale x 4 x i1> @sve.fcmp.ogt.nxv4f32.expand(<vscale x 4 x float> %a, <vscale x 4 x float> %b) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call <vscale x 4 x i1> @SVE.fcmpgt.nxv4f32(<vscale x 4 x i1> %p, <vscale x 4 x float> %a, <vscale x 4 x float> %b)
+  ret <vscale x 4 x i1> %r
+}
+
+define <vscale x 4 x i1> @sve.fcmp.oge.nxv4f32(<vscale x 4 x float> "reg"="z" %a, <vscale x 4 x float> "reg"="z" %b) "feature"="sve" "recipe"="sve.fcmp.oge.nxv4f32.expand" {
+  %r = fcmp oge <vscale x 4 x float> %a, %b
+  ret <vscale x 4 x i1> %r
+}
+
+define <vscale x 4 x i1> @sve.fcmp.oge.nxv4f32.expand(<vscale x 4 x float> %a, <vscale x 4 x float> %b) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call <vscale x 4 x i1> @SVE.fcmpge.nxv4f32(<vscale x 4 x i1> %p, <vscale x 4 x float> %a, <vscale x 4 x float> %b)
+  ret <vscale x 4 x i1> %r
+}
+
+define <vscale x 4 x i1> @sve.fcmp.olt.nxv4f32(<vscale x 4 x float> "reg"="z" %a, <vscale x 4 x float> "reg"="z" %b) "feature"="sve" "recipe"="sve.fcmp.olt.nxv4f32.expand" {
+  %r = fcmp olt <vscale x 4 x float> %a, %b
+  ret <vscale x 4 x i1> %r
+}
+
+define <vscale x 4 x i1> @sve.fcmp.olt.nxv4f32.expand(<vscale x 4 x float> %a, <vscale x 4 x float> %b) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call <vscale x 4 x i1> @SVE.fcmpgt.nxv4f32(<vscale x 4 x i1> %p, <vscale x 4 x float> %b, <vscale x 4 x float> %a)
+  ret <vscale x 4 x i1> %r
+}
+
+define <vscale x 4 x i1> @sve.fcmp.ole.nxv4f32(<vscale x 4 x float> "reg"="z" %a, <vscale x 4 x float> "reg"="z" %b) "feature"="sve" "recipe"="sve.fcmp.ole.nxv4f32.expand" {
+  %r = fcmp ole <vscale x 4 x float> %a, %b
+  ret <vscale x 4 x i1> %r
+}
+
+define <vscale x 4 x i1> @sve.fcmp.ole.nxv4f32.expand(<vscale x 4 x float> %a, <vscale x 4 x float> %b) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call <vscale x 4 x i1> @SVE.fcmpge.nxv4f32(<vscale x 4 x i1> %p, <vscale x 4 x float> %b, <vscale x 4 x float> %a)
+  ret <vscale x 4 x i1> %r
+}
+
+define <vscale x 4 x i1> @sve.fcmp.uno.nxv4f32(<vscale x 4 x float> "reg"="z" %a, <vscale x 4 x float> "reg"="z" %b) "feature"="sve" "recipe"="sve.fcmp.uno.nxv4f32.expand" {
+  %r = fcmp uno <vscale x 4 x float> %a, %b
+  ret <vscale x 4 x i1> %r
+}
+
+define <vscale x 4 x i1> @sve.fcmp.uno.nxv4f32.expand(<vscale x 4 x float> %a, <vscale x 4 x float> %b) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call <vscale x 4 x i1> @SVE.fcmpuo.nxv4f32(<vscale x 4 x i1> %p, <vscale x 4 x float> %a, <vscale x 4 x float> %b)
+  ret <vscale x 4 x i1> %r
+}
+
+define <vscale x 4 x float> @SELz.nxv4f32(<vscale x 4 x i1> "reg"="p" %c, <vscale x 4 x float> "reg"="z" %a, <vscale x 4 x float> "reg"="z" %b) "feature"="sve" "enc"="00000101101 b:5 11 c:4 a:5 d:5" "asm"="sel {d}.s, {c}, {a}.s, {b}.s" "nodecode" {
+  %r = select <vscale x 4 x i1> %c, <vscale x 4 x float> %a, <vscale x 4 x float> %b
+  ret <vscale x 4 x float> %r
+}
+
+declare float @llvm.vector.reduce.fadd.nxv4f32(float, <vscale x 4 x float>)
+
+define float @sve.reduce.fadd.nxv4f32(float "reg"="s" %s, <vscale x 4 x float> "reg"="z" %a) "feature"="sve" "recipe"="sve.reduce.fadd.nxv4f32.expand" {
+  %r = call float @llvm.vector.reduce.fadd.nxv4f32(float %s, <vscale x 4 x float> %a)
+  ret float %r
+}
+
+define float @sve.reduce.fadd.nxv4f32.expand(float %s, <vscale x 4 x float> %a) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %r = call float @SVE.fadda.nxv4f32(<vscale x 4 x i1> %p, float %s, <vscale x 4 x float> %a)
+  ret float %r
+}
+
+define <vscale x 4 x float> @sve.sitofp.nxv4f32(<vscale x 4 x i32> "reg"="z" %a) "feature"="sve" "recipe"="sve.sitofp.nxv4f32.expand" {
+  %r = sitofp <vscale x 4 x i32> %a to <vscale x 4 x float>
+  ret <vscale x 4 x float> %r
+}
+
+define <vscale x 4 x float> @sve.sitofp.nxv4f32.expand(<vscale x 4 x i32> %a) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %q = bitcast <vscale x 4 x i32> %a to <vscale x 4 x float>
+  %r = call <vscale x 4 x float> @SVE.scvtf.nxv4f32.nxv4i32(<vscale x 4 x float> %q, <vscale x 4 x i1> %p, <vscale x 4 x i32> %a)
+  ret <vscale x 4 x float> %r
+}
+
+define <vscale x 4 x float> @sve.uitofp.nxv4f32(<vscale x 4 x i32> "reg"="z" %a) "feature"="sve" "recipe"="sve.uitofp.nxv4f32.expand" {
+  %r = uitofp <vscale x 4 x i32> %a to <vscale x 4 x float>
+  ret <vscale x 4 x float> %r
+}
+
+define <vscale x 4 x float> @sve.uitofp.nxv4f32.expand(<vscale x 4 x i32> %a) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %q = bitcast <vscale x 4 x i32> %a to <vscale x 4 x float>
+  %r = call <vscale x 4 x float> @SVE.ucvtf.nxv4f32.nxv4i32(<vscale x 4 x float> %q, <vscale x 4 x i1> %p, <vscale x 4 x i32> %a)
+  ret <vscale x 4 x float> %r
+}
+
+define <vscale x 4 x i32> @sve.fptosi.nxv4f32(<vscale x 4 x float> "reg"="z" %a) "feature"="sve" "recipe"="sve.fptosi.nxv4f32.expand" {
+  %r = fptosi <vscale x 4 x float> %a to <vscale x 4 x i32>
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i32> @sve.fptosi.nxv4f32.expand(<vscale x 4 x float> %a) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %q = bitcast <vscale x 4 x float> %a to <vscale x 4 x i32>
+  %r = call <vscale x 4 x i32> @SVE.fcvtzs.nxv4i32.nxv4f32(<vscale x 4 x i32> %q, <vscale x 4 x i1> %p, <vscale x 4 x float> %a)
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i32> @sve.fptoui.nxv4f32(<vscale x 4 x float> "reg"="z" %a) "feature"="sve" "recipe"="sve.fptoui.nxv4f32.expand" {
+  %r = fptoui <vscale x 4 x float> %a to <vscale x 4 x i32>
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i32> @sve.fptoui.nxv4f32.expand(<vscale x 4 x float> %a) {
+  %p = call <vscale x 4 x i1> @PTRUEs()
+  %q = bitcast <vscale x 4 x float> %a to <vscale x 4 x i32>
+  %r = call <vscale x 4 x i32> @SVE.fcvtzu.nxv4i32.nxv4f32(<vscale x 4 x i32> %q, <vscale x 4 x i1> %p, <vscale x 4 x float> %a)
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 2 x double> @sve.fdiv.nxv2f64(<vscale x 2 x double> "reg"="z" %a, <vscale x 2 x double> "reg"="z" %b) "feature"="sve" "recipe"="sve.fdiv.nxv2f64.expand" {
+  %r = fdiv <vscale x 2 x double> %a, %b
+  ret <vscale x 2 x double> %r
+}
+
+define <vscale x 2 x double> @sve.fdiv.nxv2f64.expand(<vscale x 2 x double> %a, <vscale x 2 x double> %b) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call <vscale x 2 x double> @SVE.fdiv.nxv2f64(<vscale x 2 x i1> %p, <vscale x 2 x double> %a, <vscale x 2 x double> %b)
+  ret <vscale x 2 x double> %r
+}
+
+declare <vscale x 2 x double> @llvm.minnum.nxv2f64(<vscale x 2 x double>, <vscale x 2 x double>)
+
+define <vscale x 2 x double> @sve.minnum.nxv2f64(<vscale x 2 x double> "reg"="z" %a, <vscale x 2 x double> "reg"="z" %b) "feature"="sve" "recipe"="sve.minnum.nxv2f64.expand" {
+  %r = call <vscale x 2 x double> @llvm.minnum.nxv2f64(<vscale x 2 x double> %a, <vscale x 2 x double> %b)
+  ret <vscale x 2 x double> %r
+}
+
+define <vscale x 2 x double> @sve.minnum.nxv2f64.expand(<vscale x 2 x double> %a, <vscale x 2 x double> %b) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call <vscale x 2 x double> @SVE.fminnm.nxv2f64(<vscale x 2 x i1> %p, <vscale x 2 x double> %a, <vscale x 2 x double> %b)
+  ret <vscale x 2 x double> %r
+}
+
+declare <vscale x 2 x double> @llvm.maxnum.nxv2f64(<vscale x 2 x double>, <vscale x 2 x double>)
+
+define <vscale x 2 x double> @sve.maxnum.nxv2f64(<vscale x 2 x double> "reg"="z" %a, <vscale x 2 x double> "reg"="z" %b) "feature"="sve" "recipe"="sve.maxnum.nxv2f64.expand" {
+  %r = call <vscale x 2 x double> @llvm.maxnum.nxv2f64(<vscale x 2 x double> %a, <vscale x 2 x double> %b)
+  ret <vscale x 2 x double> %r
+}
+
+define <vscale x 2 x double> @sve.maxnum.nxv2f64.expand(<vscale x 2 x double> %a, <vscale x 2 x double> %b) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call <vscale x 2 x double> @SVE.fmaxnm.nxv2f64(<vscale x 2 x i1> %p, <vscale x 2 x double> %a, <vscale x 2 x double> %b)
+  ret <vscale x 2 x double> %r
+}
+
+define <vscale x 2 x double> @sve.fneg.nxv2f64(<vscale x 2 x double> "reg"="z" %a) "feature"="sve" "recipe"="sve.fneg.nxv2f64.expand" {
+  %r = fneg <vscale x 2 x double> %a
+  ret <vscale x 2 x double> %r
+}
+
+define <vscale x 2 x double> @sve.fneg.nxv2f64.expand(<vscale x 2 x double> %a) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call <vscale x 2 x double> @SVE.fneg.nxv2f64(<vscale x 2 x double> %a, <vscale x 2 x i1> %p, <vscale x 2 x double> %a)
+  ret <vscale x 2 x double> %r
+}
+
+declare <vscale x 2 x double> @llvm.fabs.nxv2f64(<vscale x 2 x double>)
+
+define <vscale x 2 x double> @sve.fabs.nxv2f64(<vscale x 2 x double> "reg"="z" %a) "feature"="sve" "recipe"="sve.fabs.nxv2f64.expand" {
+  %r = call <vscale x 2 x double> @llvm.fabs.nxv2f64(<vscale x 2 x double> %a)
+  ret <vscale x 2 x double> %r
+}
+
+define <vscale x 2 x double> @sve.fabs.nxv2f64.expand(<vscale x 2 x double> %a) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call <vscale x 2 x double> @SVE.fabs.nxv2f64(<vscale x 2 x double> %a, <vscale x 2 x i1> %p, <vscale x 2 x double> %a)
+  ret <vscale x 2 x double> %r
+}
+
+declare <vscale x 2 x double> @llvm.sqrt.nxv2f64(<vscale x 2 x double>)
+
+define <vscale x 2 x double> @sve.sqrt.nxv2f64(<vscale x 2 x double> "reg"="z" %a) "feature"="sve" "recipe"="sve.sqrt.nxv2f64.expand" {
+  %r = call <vscale x 2 x double> @llvm.sqrt.nxv2f64(<vscale x 2 x double> %a)
+  ret <vscale x 2 x double> %r
+}
+
+define <vscale x 2 x double> @sve.sqrt.nxv2f64.expand(<vscale x 2 x double> %a) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call <vscale x 2 x double> @SVE.fsqrt.nxv2f64(<vscale x 2 x double> %a, <vscale x 2 x i1> %p, <vscale x 2 x double> %a)
+  ret <vscale x 2 x double> %r
+}
+
+declare <vscale x 2 x double> @llvm.fmuladd.nxv2f64(<vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>)
+
+define <vscale x 2 x double> @sve.fmuladd.nxv2f64(<vscale x 2 x double> "reg"="z" %a, <vscale x 2 x double> "reg"="z" %b, <vscale x 2 x double> "reg"="z" %c) "feature"="sve" "recipe"="sve.fmuladd.nxv2f64.expand" {
+  %r = call <vscale x 2 x double> @llvm.fmuladd.nxv2f64(<vscale x 2 x double> %a, <vscale x 2 x double> %b, <vscale x 2 x double> %c)
+  ret <vscale x 2 x double> %r
+}
+
+define <vscale x 2 x double> @sve.fmuladd.nxv2f64.expand(<vscale x 2 x double> %a, <vscale x 2 x double> %b, <vscale x 2 x double> %c) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call <vscale x 2 x double> @SVE.fmla.nxv2f64(<vscale x 2 x i1> %p, <vscale x 2 x double> %c, <vscale x 2 x double> %a, <vscale x 2 x double> %b)
+  ret <vscale x 2 x double> %r
+}
+
+declare <vscale x 2 x double> @llvm.fma.nxv2f64(<vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>)
+
+define <vscale x 2 x double> @sve.fma.nxv2f64(<vscale x 2 x double> "reg"="z" %a, <vscale x 2 x double> "reg"="z" %b, <vscale x 2 x double> "reg"="z" %c) "feature"="sve" "recipe"="sve.fma.nxv2f64.expand" {
+  %r = call <vscale x 2 x double> @llvm.fma.nxv2f64(<vscale x 2 x double> %a, <vscale x 2 x double> %b, <vscale x 2 x double> %c)
+  ret <vscale x 2 x double> %r
+}
+
+define <vscale x 2 x double> @sve.fma.nxv2f64.expand(<vscale x 2 x double> %a, <vscale x 2 x double> %b, <vscale x 2 x double> %c) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call <vscale x 2 x double> @SVE.fmla.nxv2f64(<vscale x 2 x i1> %p, <vscale x 2 x double> %c, <vscale x 2 x double> %a, <vscale x 2 x double> %b)
+  ret <vscale x 2 x double> %r
+}
+
+define <vscale x 2 x i1> @sve.fcmp.oeq.nxv2f64(<vscale x 2 x double> "reg"="z" %a, <vscale x 2 x double> "reg"="z" %b) "feature"="sve" "recipe"="sve.fcmp.oeq.nxv2f64.expand" {
+  %r = fcmp oeq <vscale x 2 x double> %a, %b
+  ret <vscale x 2 x i1> %r
+}
+
+define <vscale x 2 x i1> @sve.fcmp.oeq.nxv2f64.expand(<vscale x 2 x double> %a, <vscale x 2 x double> %b) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call <vscale x 2 x i1> @SVE.fcmpeq.nxv2f64(<vscale x 2 x i1> %p, <vscale x 2 x double> %a, <vscale x 2 x double> %b)
+  ret <vscale x 2 x i1> %r
+}
+
+define <vscale x 2 x i1> @sve.fcmp.une.nxv2f64(<vscale x 2 x double> "reg"="z" %a, <vscale x 2 x double> "reg"="z" %b) "feature"="sve" "recipe"="sve.fcmp.une.nxv2f64.expand" {
+  %r = fcmp une <vscale x 2 x double> %a, %b
+  ret <vscale x 2 x i1> %r
+}
+
+define <vscale x 2 x i1> @sve.fcmp.une.nxv2f64.expand(<vscale x 2 x double> %a, <vscale x 2 x double> %b) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call <vscale x 2 x i1> @SVE.fcmpne.nxv2f64(<vscale x 2 x i1> %p, <vscale x 2 x double> %a, <vscale x 2 x double> %b)
+  ret <vscale x 2 x i1> %r
+}
+
+define <vscale x 2 x i1> @sve.fcmp.ogt.nxv2f64(<vscale x 2 x double> "reg"="z" %a, <vscale x 2 x double> "reg"="z" %b) "feature"="sve" "recipe"="sve.fcmp.ogt.nxv2f64.expand" {
+  %r = fcmp ogt <vscale x 2 x double> %a, %b
+  ret <vscale x 2 x i1> %r
+}
+
+define <vscale x 2 x i1> @sve.fcmp.ogt.nxv2f64.expand(<vscale x 2 x double> %a, <vscale x 2 x double> %b) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call <vscale x 2 x i1> @SVE.fcmpgt.nxv2f64(<vscale x 2 x i1> %p, <vscale x 2 x double> %a, <vscale x 2 x double> %b)
+  ret <vscale x 2 x i1> %r
+}
+
+define <vscale x 2 x i1> @sve.fcmp.oge.nxv2f64(<vscale x 2 x double> "reg"="z" %a, <vscale x 2 x double> "reg"="z" %b) "feature"="sve" "recipe"="sve.fcmp.oge.nxv2f64.expand" {
+  %r = fcmp oge <vscale x 2 x double> %a, %b
+  ret <vscale x 2 x i1> %r
+}
+
+define <vscale x 2 x i1> @sve.fcmp.oge.nxv2f64.expand(<vscale x 2 x double> %a, <vscale x 2 x double> %b) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call <vscale x 2 x i1> @SVE.fcmpge.nxv2f64(<vscale x 2 x i1> %p, <vscale x 2 x double> %a, <vscale x 2 x double> %b)
+  ret <vscale x 2 x i1> %r
+}
+
+define <vscale x 2 x i1> @sve.fcmp.olt.nxv2f64(<vscale x 2 x double> "reg"="z" %a, <vscale x 2 x double> "reg"="z" %b) "feature"="sve" "recipe"="sve.fcmp.olt.nxv2f64.expand" {
+  %r = fcmp olt <vscale x 2 x double> %a, %b
+  ret <vscale x 2 x i1> %r
+}
+
+define <vscale x 2 x i1> @sve.fcmp.olt.nxv2f64.expand(<vscale x 2 x double> %a, <vscale x 2 x double> %b) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call <vscale x 2 x i1> @SVE.fcmpgt.nxv2f64(<vscale x 2 x i1> %p, <vscale x 2 x double> %b, <vscale x 2 x double> %a)
+  ret <vscale x 2 x i1> %r
+}
+
+define <vscale x 2 x i1> @sve.fcmp.ole.nxv2f64(<vscale x 2 x double> "reg"="z" %a, <vscale x 2 x double> "reg"="z" %b) "feature"="sve" "recipe"="sve.fcmp.ole.nxv2f64.expand" {
+  %r = fcmp ole <vscale x 2 x double> %a, %b
+  ret <vscale x 2 x i1> %r
+}
+
+define <vscale x 2 x i1> @sve.fcmp.ole.nxv2f64.expand(<vscale x 2 x double> %a, <vscale x 2 x double> %b) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call <vscale x 2 x i1> @SVE.fcmpge.nxv2f64(<vscale x 2 x i1> %p, <vscale x 2 x double> %b, <vscale x 2 x double> %a)
+  ret <vscale x 2 x i1> %r
+}
+
+define <vscale x 2 x i1> @sve.fcmp.uno.nxv2f64(<vscale x 2 x double> "reg"="z" %a, <vscale x 2 x double> "reg"="z" %b) "feature"="sve" "recipe"="sve.fcmp.uno.nxv2f64.expand" {
+  %r = fcmp uno <vscale x 2 x double> %a, %b
+  ret <vscale x 2 x i1> %r
+}
+
+define <vscale x 2 x i1> @sve.fcmp.uno.nxv2f64.expand(<vscale x 2 x double> %a, <vscale x 2 x double> %b) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call <vscale x 2 x i1> @SVE.fcmpuo.nxv2f64(<vscale x 2 x i1> %p, <vscale x 2 x double> %a, <vscale x 2 x double> %b)
+  ret <vscale x 2 x i1> %r
+}
+
+define <vscale x 2 x double> @SELz.nxv2f64(<vscale x 2 x i1> "reg"="p" %c, <vscale x 2 x double> "reg"="z" %a, <vscale x 2 x double> "reg"="z" %b) "feature"="sve" "enc"="00000101111 b:5 11 c:4 a:5 d:5" "asm"="sel {d}.d, {c}, {a}.d, {b}.d" "nodecode" {
+  %r = select <vscale x 2 x i1> %c, <vscale x 2 x double> %a, <vscale x 2 x double> %b
+  ret <vscale x 2 x double> %r
+}
+
+declare double @llvm.vector.reduce.fadd.nxv2f64(double, <vscale x 2 x double>)
+
+define double @sve.reduce.fadd.nxv2f64(double "reg"="d" %s, <vscale x 2 x double> "reg"="z" %a) "feature"="sve" "recipe"="sve.reduce.fadd.nxv2f64.expand" {
+  %r = call double @llvm.vector.reduce.fadd.nxv2f64(double %s, <vscale x 2 x double> %a)
+  ret double %r
+}
+
+define double @sve.reduce.fadd.nxv2f64.expand(double %s, <vscale x 2 x double> %a) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %r = call double @SVE.fadda.nxv2f64(<vscale x 2 x i1> %p, double %s, <vscale x 2 x double> %a)
+  ret double %r
+}
+
+define <vscale x 2 x double> @sve.sitofp.nxv2f64(<vscale x 2 x i64> "reg"="z" %a) "feature"="sve" "recipe"="sve.sitofp.nxv2f64.expand" {
+  %r = sitofp <vscale x 2 x i64> %a to <vscale x 2 x double>
+  ret <vscale x 2 x double> %r
+}
+
+define <vscale x 2 x double> @sve.sitofp.nxv2f64.expand(<vscale x 2 x i64> %a) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %q = bitcast <vscale x 2 x i64> %a to <vscale x 2 x double>
+  %r = call <vscale x 2 x double> @SVE.scvtf.nxv2f64.nxv2i64(<vscale x 2 x double> %q, <vscale x 2 x i1> %p, <vscale x 2 x i64> %a)
+  ret <vscale x 2 x double> %r
+}
+
+define <vscale x 2 x double> @sve.uitofp.nxv2f64(<vscale x 2 x i64> "reg"="z" %a) "feature"="sve" "recipe"="sve.uitofp.nxv2f64.expand" {
+  %r = uitofp <vscale x 2 x i64> %a to <vscale x 2 x double>
+  ret <vscale x 2 x double> %r
+}
+
+define <vscale x 2 x double> @sve.uitofp.nxv2f64.expand(<vscale x 2 x i64> %a) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %q = bitcast <vscale x 2 x i64> %a to <vscale x 2 x double>
+  %r = call <vscale x 2 x double> @SVE.ucvtf.nxv2f64.nxv2i64(<vscale x 2 x double> %q, <vscale x 2 x i1> %p, <vscale x 2 x i64> %a)
+  ret <vscale x 2 x double> %r
+}
+
+define <vscale x 2 x i64> @sve.fptosi.nxv2f64(<vscale x 2 x double> "reg"="z" %a) "feature"="sve" "recipe"="sve.fptosi.nxv2f64.expand" {
+  %r = fptosi <vscale x 2 x double> %a to <vscale x 2 x i64>
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 2 x i64> @sve.fptosi.nxv2f64.expand(<vscale x 2 x double> %a) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %q = bitcast <vscale x 2 x double> %a to <vscale x 2 x i64>
+  %r = call <vscale x 2 x i64> @SVE.fcvtzs.nxv2i64.nxv2f64(<vscale x 2 x i64> %q, <vscale x 2 x i1> %p, <vscale x 2 x double> %a)
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 2 x i64> @sve.fptoui.nxv2f64(<vscale x 2 x double> "reg"="z" %a) "feature"="sve" "recipe"="sve.fptoui.nxv2f64.expand" {
+  %r = fptoui <vscale x 2 x double> %a to <vscale x 2 x i64>
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 2 x i64> @sve.fptoui.nxv2f64.expand(<vscale x 2 x double> %a) {
+  %p = call <vscale x 2 x i1> @PTRUEd()
+  %q = bitcast <vscale x 2 x double> %a to <vscale x 2 x i64>
+  %r = call <vscale x 2 x i64> @SVE.fcvtzu.nxv2i64.nxv2f64(<vscale x 2 x i64> %q, <vscale x 2 x i1> %p, <vscale x 2 x double> %a)
+  ret <vscale x 2 x i64> %r
+}
+
+define i64 @RDVL1() "feature"="sve" "enc"="000001001011111101010 000001 d:5" "asm"="rdvl {d}, #1" "dclass"="x" "nomatch" "nodecode" {
+  ret i64 16
+}
+
+declare i64 @llvm.vscale.i64()
+
+define i64 @sve.vscale() "feature"="sve" "recipe"="sve.vscale.expand" {
+  %r = call i64 @llvm.vscale.i64()
+  ret i64 %r
+}
+
+define i64 @sve.vscale.expand() {
+  %b = call i64 @RDVL1()
+  %r = call i64 @LSRXri(i64 %b, i64 4)
+  ret i64 %r
+}

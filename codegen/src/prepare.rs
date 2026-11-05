@@ -5027,7 +5027,7 @@ fn expand_intrinsics(cx: &mut Ctx, f: &mut Function) {
             // An ordered floating-point reduction: the start value, then
             // each lane added (or multiplied) in order, as written.
             if (name.starts_with("llvm.vector.reduce.fadd.") || name.starts_with("llvm.vector.reduce.fmul."))
-                && let Type::Vector { len, elem, .. } = cx.m.types.get(cx.value_ty(s.f, args[1])).clone()
+                && let Type::Vector { len, elem, scalable: false } = cx.m.types.get(cx.value_ty(s.f, args[1])).clone()
             {
                 let i64t = cx.m.types.int(64);
                 let op = if name.contains(".fadd.") { BinOp::FAdd } else { BinOp::FMul };

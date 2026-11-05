@@ -264,6 +264,182 @@ def split_top(s):
     return out + ([cur.strip()] if cur.strip() else [])
 
 
+def recipe(name, ret, params, body, expand):
+    """A recipe: IR (`body`, of `params`: (type, class, name)) that is no
+    one instruction, and the entries it is made of (`expand`)."""
+    ps = ', '.join(f'{t} "reg"="{c}" %{n}' for t, c, n in params)
+    plain = ', '.join(f'{t} %{n}' for t, _, n in params)
+    out.append(f'define {ret} @{name}({ps}) "feature"="sve" "recipe"="{name}.expand" {{\n'
+               + ''.join(f'  {line}\n' for line in body) + '}\n')
+    out.append(f'define {ret} @{name}.expand({plain}) {{\n' + ''.join(f'  {line}\n' for line in expand) + '}\n')
+
+
+def narrow_reduction(intr, ty, l, t, P):
+    """A reduction to a byte or half (orv b0): its result in the s register
+    of the same number, as b and h values have no class to be copied out
+    of, and the instruction clears the bits above them."""
+    for line in open(os.path.join(HERE, 'sve-intrinsics.txt')):
+        f = line.rstrip('\n').split(' ; ')
+        if f[0] == f'llvm.aarch64.sve.{intr}.{t}' and len(f) >= 8 and f[3] == 'entry':
+            break
+    else:
+        return
+    _, e, asm = entry_of(f[4])
+    names = dict(o.split('=') for o in f[5].split())
+    rename = {n: {'a0': 'p', 'a1': 'a', 'd': 'd'}[v] for n, v in names.items()}
+    e = re.sub(r'(?<![\w.])([a-z][a-z0-9_]*)(?![\w.(])', lambda m: rename.get(m.group(1), m.group(1)), e)
+    for n, v in rename.items():
+        asm = re.sub(r'\{' + re.escape(n) + r'\}', '{' + v + (':' + l if v == 'd' else '') + '}', asm)
+    entry('i32', f'{intr.upper()}{l}', [f'{P} "reg"="pg" %p', f'{ty} "reg"="z" %a'], e, asm, ['ret i32 0'],
+          ' "dclass"="s" "nomatch"')
+
+
+def generic():
+    """Generic IR of scalable vectors, as the vectoriser makes it: what has
+    no unpredicated instruction is the predicated one under an all-true
+    predicate of its lanes (ptrue), from SVE's intrinsics' entries."""
+    have = {line.split('@')[1].split('(')[0] for line in out if line.startswith('define') and '@SVE.' in line}
+    # dup.x makes scalable constants: a role for isel to find it by.
+    for i, line in enumerate(out):
+        if line.startswith('define') and '@SVE.dup.x.' in line:
+            t = line.split('@SVE.dup.x.')[1].split('(')[0]
+            out[i] = line.replace(' "nodecode"', f' "role"="splat.{t}" "nodecode"', 1)
+    lanes = {'b': 16, 'h': 8, 's': 4, 'd': 2}
+    INTS = [('<vscale x 16 x i8>', 'b', 'nxv16i8'), ('<vscale x 8 x i16>', 'h', 'nxv8i16'),
+            ('<vscale x 4 x i32>', 's', 'nxv4i32'), ('<vscale x 2 x i64>', 'd', 'nxv2i64')]
+    FLTS = [('<vscale x 4 x float>', 's', 'nxv4f32', 'float'), ('<vscale x 2 x double>', 'd', 'nxv2f64', 'double')]
+
+    def pred(lane):
+        return f'<vscale x {lanes[lane]} x i1>'
+
+    def predicated(name, ty, lane, intr, ir, args, call_args):
+        """`ir` (lines) as SVE's intrinsic `intr` under ptrue."""
+        if f'SVE.{intr}' not in have:
+            return
+        P = pred(lane)
+        recipe(name, ty, args, ir, [f'%p = call {P} @PTRUE{lane}()', f'%r = call {ty} @SVE.{intr}({call_args})',
+                                    f'ret {ty} %r'])
+
+    for ty, l, t in INTS:
+        P = pred(l)
+        two = [(ty, 'z', 'a'), (ty, 'z', 'b')]
+        for op, intr in [('mul', 'mul'), ('sdiv', 'sdiv'), ('udiv', 'udiv'), ('shl', 'lsl'), ('lshr', 'lsr'),
+                         ('ashr', 'asr')]:
+            predicated(f'sve.{op}.{t}', ty, l, f'{intr}.{t}', [f'%r = {op} {ty} %a, %b', f'ret {ty} %r'], two,
+                       f'{P} %p, {ty} %a, {ty} %b')
+        for op in ('smax', 'smin', 'umax', 'umin'):
+            out.append(f'declare {ty} @llvm.{op}.{t}({ty}, {ty})\n')
+            predicated(f'sve.{op}.{t}', ty, l, f'{op}.{t}', [f'%r = call {ty} @llvm.{op}.{t}({ty} %a, {ty} %b)',
+                                                           f'ret {ty} %r'], two, f'{P} %p, {ty} %a, {ty} %b')
+        # Comparisons, into a predicate; those SVE has not, the other way.
+        for pr, intr, swap in [('eq', 'cmpeq', False), ('ne', 'cmpne', False), ('sgt', 'cmpgt', False),
+                               ('sge', 'cmpge', False), ('ugt', 'cmphi', False), ('uge', 'cmphs', False),
+                               ('slt', 'cmpgt', True), ('sle', 'cmpge', True), ('ult', 'cmphi', True),
+                               ('ule', 'cmphs', True)]:
+            if f'SVE.{intr}.{t}' not in have:
+                continue
+            x, y = ('%b', '%a') if swap else ('%a', '%b')
+            recipe(f'sve.icmp.{pr}.{t}', P, two, [f'%r = icmp {pr} {ty} %a, %b', f'ret {P} %r'],
+                   [f'%p = call {P} @PTRUE{l}()', f'%r = call {P} @SVE.{intr}.{t}({P} %p, {ty} {x}, {ty} {y})',
+                    f'ret {P} %r'])
+        # Selects, lane by lane by a predicate.
+        size = format('bhsd'.index(l), '02b')
+        entry(ty, f'SELz.{t}', [f'{P} "reg"="p" %c', f'{ty} "reg"="z" %a', f'{ty} "reg"="z" %b'],
+              f'00000101{size}1 b:5 11 c:4 a:5 d:5', f'sel {{d}}.{l}, {{c}}, {{a}}.{l}, {{b}}.{l}',
+              [f'%r = select {P} %c, {ty} %a, {ty} %b', f'ret {ty} %r'])
+        # Reductions.
+        for red, intr, wide in [('add', 'uaddv', True), ('smax', 'smaxv', False), ('smin', 'sminv', False),
+                                ('umax', 'umaxv', False), ('umin', 'uminv', False), ('and', 'andv', False),
+                                ('or', 'orv', False), ('xor', 'eorv', False)]:
+            et = 'i' + str({'b': 8, 'h': 16, 's': 32, 'd': 64}[l])
+            if not wide and l in 'bh':
+                narrow_reduction(intr, ty, l, t, P)
+                tail = [f'%v = call i32 @{intr.upper()}{l}({P} %p, {ty} %a)', f'%r = trunc i32 %v to {et}']
+                out.append(f'declare {et} @llvm.vector.reduce.{red}.{t}({ty})\n')
+                recipe(f'sve.reduce.{red}.{t}', et, [(ty, 'z', 'a')],
+                       [f'%r = call {et} @llvm.vector.reduce.{red}.{t}({ty} %a)', f'ret {et} %r'],
+                       [f'%p = call {P} @PTRUE{l}()'] + tail + [f'ret {et} %r'])
+                continue
+            if f'SVE.{intr}.{t}' not in have:
+                continue
+            out.append(f'declare {et} @llvm.vector.reduce.{red}.{t}({ty})\n')
+            rt = 'i64' if wide else et
+            tail = [f'%v = call i64 @SVE.{intr}.{t}({P} %p, {ty} %a)', f'%r = trunc i64 %v to {et}'] if wide and et != 'i64' \
+                else [f'%r = call {rt} @SVE.{intr}.{t}({P} %p, {ty} %a)']
+            recipe(f'sve.reduce.{red}.{t}', et, [(ty, 'z', 'a')], [f'%r = call {et} @llvm.vector.reduce.{red}.{t}({ty} %a)',
+                                                                 f'ret {et} %r'],
+                   [f'%p = call {P} @PTRUE{l}()'] + tail + [f'ret {et} %r'])
+        # A splat of a scalar.
+        et = {'s': 'i32', 'd': 'i64'}.get(l)
+        if et and f'SVE.dup.x.{t}' in have:
+            recipe(f'sve.splat.{t}', ty, [(et, 'w' if l == 's' else 'x', 'x')],
+                   [f'%i = insertelement {ty} poison, {et} %x, i64 0',
+                    f'%r = shufflevector {ty} %i, {ty} poison, <vscale x {lanes[l]} x i32> zeroinitializer',
+                    f'ret {ty} %r'], [f'%r = call {ty} @SVE.dup.x.{t}({et} %x)', f'ret {ty} %r'])
+    for ty, l, t, et in FLTS:
+        P = pred(l)
+        two = [(ty, 'z', 'a'), (ty, 'z', 'b')]
+        predicated(f'sve.fdiv.{t}', ty, l, f'fdiv.{t}', [f'%r = fdiv {ty} %a, %b', f'ret {ty} %r'], two,
+                   f'{P} %p, {ty} %a, {ty} %b')
+        for op, intr in [('minnum', 'fminnm'), ('maxnum', 'fmaxnm')]:
+            out.append(f'declare {ty} @llvm.{op}.{t}({ty}, {ty})\n')
+            predicated(f'sve.{op}.{t}', ty, l, f'{intr}.{t}', [f'%r = call {ty} @llvm.{op}.{t}({ty} %a, {ty} %b)',
+                                                             f'ret {ty} %r'], two, f'{P} %p, {ty} %a, {ty} %b')
+        predicated(f'sve.fneg.{t}', ty, l, f'fneg.{t}', [f'%r = fneg {ty} %a', f'ret {ty} %r'], [(ty, 'z', 'a')],
+                   f'{ty} %a, {P} %p, {ty} %a')
+        for op, intr in [('fabs', 'fabs'), ('sqrt', 'fsqrt')]:
+            out.append(f'declare {ty} @llvm.{op}.{t}({ty})\n')
+            predicated(f'sve.{op}.{t}', ty, l, f'{intr}.{t}', [f'%r = call {ty} @llvm.{op}.{t}({ty} %a)', f'ret {ty} %r'],
+                       [(ty, 'z', 'a')], f'{ty} %a, {P} %p, {ty} %a')
+        # a * b + c: fmla, accumulating into c.
+        for op in ('fmuladd', 'fma'):
+            out.append(f'declare {ty} @llvm.{op}.{t}({ty}, {ty}, {ty})\n')
+            predicated(f'sve.{op}.{t}', ty, l, f'fmla.{t}',
+                       [f'%r = call {ty} @llvm.{op}.{t}({ty} %a, {ty} %b, {ty} %c)', f'ret {ty} %r'],
+                       [(ty, 'z', 'a'), (ty, 'z', 'b'), (ty, 'z', 'c')], f'{P} %p, {ty} %c, {ty} %a, {ty} %b')
+        for pr, intr, swap in [('oeq', 'fcmpeq', False), ('une', 'fcmpne', False), ('ogt', 'fcmpgt', False),
+                               ('oge', 'fcmpge', False), ('olt', 'fcmpgt', True), ('ole', 'fcmpge', True),
+                               ('uno', 'fcmpuo', False)]:
+            if f'SVE.{intr}.{t}' not in have:
+                continue
+            x, y = ('%b', '%a') if swap else ('%a', '%b')
+            recipe(f'sve.fcmp.{pr}.{t}', P, two, [f'%r = fcmp {pr} {ty} %a, %b', f'ret {P} %r'],
+                   [f'%p = call {P} @PTRUE{l}()', f'%r = call {P} @SVE.{intr}.{t}({P} %p, {ty} {x}, {ty} {y})',
+                    f'ret {P} %r'])
+        size = format('bhsd'.index(l), '02b')
+        entry(ty, f'SELz.{t}', [f'{P} "reg"="p" %c', f'{ty} "reg"="z" %a', f'{ty} "reg"="z" %b'],
+              f'00000101{size}1 b:5 11 c:4 a:5 d:5', f'sel {{d}}.{l}, {{c}}, {{a}}.{l}, {{b}}.{l}',
+              [f'%r = select {P} %c, {ty} %a, {ty} %b', f'ret {ty} %r'])
+        # Ordered sums (fadda), with their start.
+        if f'SVE.fadda.{t}' in have:
+            out.append(f'declare {et} @llvm.vector.reduce.fadd.{t}({et}, {ty})\n')
+            recipe(f'sve.reduce.fadd.{t}', et, [(et, l, 's'), (ty, 'z', 'a')],
+                   [f'%r = call {et} @llvm.vector.reduce.fadd.{t}({et} %s, {ty} %a)', f'ret {et} %r'],
+                   [f'%p = call {P} @PTRUE{l}()', f'%r = call {et} @SVE.fadda.{t}({P} %p, {et} %s, {ty} %a)',
+                    f'ret {et} %r'])
+        # Conversions of one width.
+        it = INTS['bhsd'.index(l)]
+        for op, intr in [('sitofp', f'scvtf.{t}.{it[2]}'), ('uitofp', f'ucvtf.{t}.{it[2]}')]:
+            if f'SVE.{intr}' not in have:
+                continue
+            # The passthru is never read under ptrue: the source's bits.
+            recipe(f'sve.{op}.{t}', ty, [(it[0], 'z', 'a')], [f'%r = {op} {it[0]} %a to {ty}', f'ret {ty} %r'],
+                   [f'%p = call {P} @PTRUE{l}()', f'%q = bitcast {it[0]} %a to {ty}',
+                    f'%r = call {ty} @SVE.{intr}({ty} %q, {P} %p, {it[0]} %a)', f'ret {ty} %r'])
+        for op, intr in [('fptosi', f'fcvtzs.{it[2]}.{t}'), ('fptoui', f'fcvtzu.{it[2]}.{t}')]:
+            if f'SVE.{intr}' not in have:
+                continue
+            recipe(f'sve.{op}.{t}', it[0], [(ty, 'z', 'a')], [f'%r = {op} {ty} %a to {it[0]}', f'ret {it[0]} %r'],
+                   [f'%p = call {P} @PTRUE{l}()', f'%q = bitcast {ty} %a to {it[0]}', f'%r = call {it[0]} @SVE.{intr}({it[0]} %q, {P} %p, {ty} %a)',
+                    f'ret {it[0]} %r'])
+    # The vector length in 128-bit granules (vscale): rdvl's bytes, over 16.
+    entry('i64', 'RDVL1', [], fixed(enc('rdvl {xd}, #{imm}', {'xd': 'd'}), 'imm', 1),
+          'rdvl {d}, #1', ['ret i64 16'], ' "dclass"="x" "nomatch"')
+    out.append('declare i64 @llvm.vscale.i64()\n')
+    recipe('sve.vscale', 'i64', [], ['%r = call i64 @llvm.vscale.i64()', 'ret i64 %r'],
+           ['%b = call i64 @RDVL1()', '%r = call i64 @LSRXri(i64 %b, i64 4)', 'ret i64 %r'])
+
+
 def main():
     out.append("""; SVE's instructions for selection. Written by gen_sve.py; do not edit.
 ; The conventions are those of 00-base.ll; docs/design/sve.md has the plan.
@@ -271,6 +447,7 @@ def main():
     copies_and_memory()
     arithmetic()
     intrinsics()
+    generic()
     sys.stdout.write('\n'.join(out))
 
 

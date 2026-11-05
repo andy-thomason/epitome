@@ -1667,7 +1667,7 @@ fn statements(
         }
         out.push((n, line[start..].to_string()));
     }
-    // (A bundle's prefix, `1:R:L {`, is not a label.)
+    // (A bundle's prefix, `2: {`, is not a label.)
     let prefix =
         |l: &str| l.split_once('{').is_some_and(|(p, _)| bundles.iter().any(|f| f.read_prefix(p.trim()).is_some()));
     let mut out = crate::asm_text::expand_with(out, &prefix)?;

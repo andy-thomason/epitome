@@ -246,7 +246,7 @@ pub fn expand(stmts: Vec<(usize, String)>) -> Result<Vec<(usize, String)>, (usiz
 }
 
 /// As `expand`, with `whole` saying which statements start with no
-/// labels, whatever their colons (a bundle's prefix, `1:R {`).
+/// labels, whatever their colons (a bundle's prefix, `2: {`).
 pub fn expand_with(
     stmts: Vec<(usize, String)>,
     whole: &dyn Fn(&str) -> bool,

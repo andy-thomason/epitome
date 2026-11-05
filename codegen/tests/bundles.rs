@@ -35,7 +35,7 @@ fn bundles_are_their_slots_and_header() {
          {
              add a1, a2, b3 :: add a3, a2, b3
          }
-         N:L {
+         rep N last {
              mov a0, a2
          }",
     )
@@ -43,12 +43,13 @@ fn bundles_are_their_slots_and_header() {
     assert_eq!(
         code,
         [
-            // Ports: a reads a2 (bits 5-7), b reads b3 (bits 8-10). X's add
+            // Ports: a reads a2 (bits 0-2), b reads b3 (bits 3-5). X's add
             // in slot 0, Y's in slot 1.
-            0x40, 0x03, 0x00, 0x13, 0x00, 0x17, 0x00, 0x00,
-            // rep, last and len 2 from the prefix (last again as the last
-            // bundle); a reads a2. The mov, of either unit, in X's slot.
-            0x4b, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00,
+            0x1a, 0x00, 0x00, 0x13, 0x00, 0x17, 0x00, 0x00,
+            // a reads a2; len 2 (bits 8-10), rep and last from the prefix
+            // (last again as the last bundle). The mov, of either unit, in
+            // X's slot.
+            0x02, 0x1a, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00,
         ]
     );
 }
@@ -67,11 +68,11 @@ fn a_port_reads_one_register() {
 #[test]
 fn bundles_disassemble_as_written() {
     let t = toy();
-    let src = ".section .text.toy\nf:\n{\n add a1, aR, b3 :: add a3, aR, b3\n}\n3:L {\n mov a0, bR\n}\n";
+    let src = ".section .text.toy\nf:\n{\n add a1, aR, b3 :: add a3, aR, b3\n}\nrep 3 last {\n mov a0, bR\n}\n";
     let (code, obj) = assemble(&t, src).unwrap();
     let text = objdump::disassemble(&t, &Image::read(&obj, &t.machine).unwrap(), false);
     assert!(text.contains("add a1, aR, b3") && text.contains(":: add a3, aR, b3"), "{text}");
-    assert!(text.contains("3:L {") && text.contains("mov a0, bR"), "{text}");
+    assert!(text.contains("rep 3 last {") && text.contains("mov a0, bR"), "{text}");
     // As assembly again: the same bytes.
     let again: String = text
         .lines()

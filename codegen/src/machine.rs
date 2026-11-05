@@ -339,7 +339,7 @@ pub struct Machine {
     /// How assembly starts a comment.
     pub asm_comment: String,
     /// Every way a comment starts, for reading (`asm-comment`, several
-    /// separated by spaces: `// ;`); the first is how one is written.
+    /// separated by spaces: `# ;`); the first is how one is written.
     pub asm_comments: Vec<String>,
     /// Bundle formats (`!target.bundles`, `bundle.rs`).
     pub bundles: Vec<crate::bundle::Format>,

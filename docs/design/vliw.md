@@ -31,10 +31,10 @@ status labels, see the [index](README.md).
 !target.bundles = !{!20}
 !20 = !{!"name", !"toy", !"section", !".text.toy", !"bytes", !"8",
         !"lanes", !"::", !"end", !"last=1",
-        !"field", !"rep", !"0:1", !"field", !"last", !"1:1", !"field", !"len", !"2:3",
-        !"field", !"port", !"5:3 8:3", !"field", !"rot", !"11:1 12:1",
+        !"field", !"port", !"0:3 3:3", !"field", !"rot", !"6:1 7:1", !"field", !"len", !"8:3",
+        !"field", !"rep", !"11:1", !"field", !"last", !"12:1",
         !"slot", !"16:16", !"X", !"slot", !"32:16", !"Y", !"slot", !"48:16", !"X,Y",
-        !"prefix", !"{len}:L", !"rep=1 last=1", !"prefix", !"{len}", !"rep=1"}
+        !"prefix", !"rep {len} last", !"rep=1 last=1", !"prefix", !"rep {len}", !"rep=1"}
 ```
 
 | Property | Meaning |
@@ -83,15 +83,16 @@ A bundle is written between `{` and `}`, its prefix (if any) before the
 `{`, one instruction per line, or a line's lanes separated:
 
 ```
-3:L {
+rep 3 last {
     add a1, a2, b3 :: add a3, a2, b3
     mov a0, bR
 }
 ```
 
 Each instruction goes in the first free slot of its unit. A bundle's
-prefix is not read as a label (`1:` is one in GNU's syntax). Comments may
-start with any of the description's `asm-comment` markers (`// ;`).
+prefix is not read as a label (a prefix written `2: {` would be one in
+GNU's syntax). Comments may start with any of the description's
+`asm-comment` markers (`# ;`).
 Names of numbers (`.set n, 4`, `.equ n, 4`) are put in where they are
 used, in prefixes as well as operands.
 
@@ -134,7 +135,7 @@ an empty bundle (all `fill`) is put where nothing else can go.
 
 ```llvm
 !target.loops = !{!1310}
-!1310 = !{!"kind", !"header", !"start", !"rpt", !"length", !"len",
+!1310 = !{!"kind", !"header", !"start", !"rep", !"length", !"len",
           !"count", !"count", !"count-from", !"cnt", !"count-reg", !"lc",
           !"count-bias", !"1"}
 ```
@@ -258,8 +259,8 @@ relocation can resolve to a bundle number.
 ## 7. Several machines in one object
 
 The streams of section 6 are units of one description. Sometimes they are
-different machines: a RISC-V core that launches the programs of a bundle
-machine, a host processor and a DSP. Each has a description of its own,
+different machines: a host processor and a DSP, or a control core and the
+accelerator whose programs it starts. Each has a description of its own,
 and one object holds the code of all of them.
 
 ### What LLVM does

@@ -527,7 +527,7 @@ fn bundle_samples(t: &Target, i: usize, u: &crate::bundle::SlotUse, s: &mut Sect
         }
         let decoded = crate::objdump::decode_slot(t, f, slot, &word, &bytes);
         // Read as another way of writing the same bundle (an alias, or
-        // `$m0` written `$mR` where the file rotates anyway): fine.
+        // `a0` written `aR` where the file rotates anyway): fine.
         if let Some((j, back, _)) = &decoded
             && let Some(again) = t.instrs[*j].encode(back)
             && again == word

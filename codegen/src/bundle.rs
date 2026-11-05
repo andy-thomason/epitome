@@ -7,7 +7,7 @@
 //! !1300 = !{!"name", !"b", !"section", !".text.b", !"bytes", !"16",
 //!           !"field", !"len", !"0:4", !"field", !"port", !"4:4 8:4",
 //!           !"slot", !"16:16", !"A", !"slot", !"32:16", !"B,C",
-//!           !"prefix", !"{len}:", !"rep=1", !"end", !"stop=1",
+//!           !"prefix", !"rep {len}", !"rep=1", !"end", !"stop=1",
 //!           !"lanes", !"::"}
 //! ```
 //!

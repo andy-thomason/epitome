@@ -20,6 +20,7 @@
 //! associated type is kept as a pending obligation, tried again later.
 
 use super::check::{FnCtxt, Head, head};
+use super::Adjust;
 use super::infer::VarKind;
 use crate::hash::FastMap;
 use crate::resolve::{DefId, DefKind, Ns, Res};
@@ -664,46 +665,70 @@ impl<'a, 's> FnCtxt<'a, 's> {
         self.tcx.lang.get(name).copied()
     }
 
-    /// `*t` through `Deref`, if `t` implements it.
-    pub(super) fn deref_once(&mut self, t: Ty) -> Option<Ty> {
+    /// `*t`, built in or through `Deref`, if `t` can be dereferenced: the
+    /// type, and which.
+    pub(super) fn deref_once(&mut self, t: Ty) -> Option<(Ty, Adjust)> {
         let tcx = self.tcx;
         let t = self.norm(t);
         match tcx.kind(t) {
-            TyKind::Ref(_, x) => return Some(x),
-            TyKind::Adt(d, l) if Some(d) == self.lang("owned_box") => return Some(tcx.tys(l)[0]),
+            TyKind::Ref(_, x) => return Some((x, Adjust::Deref)),
+            TyKind::Adt(d, l) if Some(d) == self.lang("owned_box") => return Some((tcx.tys(l)[0], Adjust::Deref)),
             TyKind::Infer(_) | TyKind::Error => return None,
             _ => {}
         }
         let deref = self.lang("deref")?;
         let target = self.lang("deref_target")?;
         match self.select(t, deref, &[], 0) {
-            Select::Yes(_) => Some(self.project_or_var(target, &[t])),
+            Select::Yes(_) => Some((self.project_or_var(target, &[t]), Adjust::OverloadedDeref)),
             _ => None,
         }
     }
 
-    /// `t`, `*t`, `**t`, ...: the types autoderef goes through, then an
-    /// array's slice.
-    pub(super) fn autoderef(&mut self, t: Ty) -> Vec<Ty> {
+    /// `t`, `*t`, `**t`, ...: the types autoderef goes through, each with
+    /// how it was reached from the one before (none for `t`), then an
+    /// array's slice (reached by `Unsize`).
+    pub(super) fn autoderef(&mut self, t: Ty) -> Vec<(Ty, Option<Adjust>)> {
         let tcx = self.tcx;
-        let mut steps = vec![self.norm(t)];
+        let mut steps = vec![(self.norm(t), None)];
         while steps.len() < 8 {
-            let last = *steps.last().unwrap();
+            let last = steps.last().unwrap().0;
             match self.deref_once(last) {
-                Some(n) => {
+                Some((n, how)) => {
                     let n = self.norm(n);
-                    if steps.contains(&n) {
+                    if steps.iter().any(|s| s.0 == n) {
                         break;
                     }
-                    steps.push(n);
+                    steps.push((n, Some(how)));
                 }
                 None => break,
             }
         }
-        if let TyKind::Array(e, _) = tcx.kind(*steps.last().unwrap()) {
-            steps.push(self.mk(TyKind::Slice(e)));
+        if let TyKind::Array(e, _) = tcx.kind(steps.last().unwrap().0) {
+            steps.push((self.mk(TyKind::Slice(e)), Some(Adjust::Unsize)));
         }
         steps
+    }
+
+    /// The adjustments that reach step `k` of `steps`, then `borrow` (an
+    /// autoref) if any. Unsizing an array comes after the borrow: it is
+    /// the pointer that is unsized.
+    pub(super) fn step_adjustments(steps: &[(Ty, Option<Adjust>)], k: usize, borrow: Option<Mutbl>) -> Vec<Adjust> {
+        let mut out = Vec::new();
+        let mut unsize = false;
+        for s in &steps[1..=k] {
+            match s.1 {
+                Some(Adjust::Unsize) => unsize = true,
+                Some(a) => out.push(a),
+                None => {}
+            }
+        }
+        if let Some(m) = borrow {
+            out.push(Adjust::Borrow(m));
+        }
+        if unsize {
+            out.push(Adjust::Unsize);
+        }
+        out
     }
 
     /// Traits with an item named `name`, those the body is more likely to
@@ -764,7 +789,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
 
     /// A trait method `name` whose receiver is `recv`: the method, the
     /// other parameters' types and the result.
-    pub(super) fn trait_method(&mut self, recv: Ty, name: &str) -> Option<(DefId, Vec<Ty>, Ty)> {
+    pub(super) fn trait_method(&mut self, recv: Ty, name: &str) -> Option<(DefId, Vec<Ty>, Vec<Ty>, Ty)> {
         let tcx = self.tcx;
         for (tr, item) in self.trait_candidates(name) {
             if self.r.defs[item.0 as usize].kind != DefKind::AssocFn {
@@ -776,7 +801,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
             let own = tcx.generics[item.0 as usize].own.len();
             let self_ty = args[0];
             let targs = args[1..params.len() - own].to_vec();
-            let (inputs, output) = match self.callable_sig(item, tcx.list(args)) {
+            let (inputs, output) = match self.callable_sig(item, tcx.list(args.clone())) {
                 Some(x) => x,
                 None => {
                     self.rollback(s);
@@ -787,7 +812,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 self.rollback(s);
                 continue;
             }
-            return Some((item, inputs[1..].to_vec(), output));
+            return Some((item, args, inputs[1..].to_vec(), output));
         }
         None
     }
@@ -823,22 +848,36 @@ impl<'a, 's> FnCtxt<'a, 's> {
     }
 
     /// An operator through its trait (lang item `lang`): `Output` of
-    /// `a: Trait<b>` (or of `a: Trait` for a unary operator).
-    pub(super) fn op_trait(&mut self, lang: &str, a: Ty, b: Option<Ty>) -> Option<Ty> {
+    /// `a: Trait<b>` (or of `a: Trait` for a unary operator). Records that
+    /// `n` calls the trait's method `method`.
+    pub(super) fn op_trait(&mut self, n: crate::ast::NodeId, lang: &str, method: &str, a: Ty, b: Option<Ty>) -> Option<Ty> {
         let tr = self.lang(lang)?;
         let targs: Vec<Ty> = b.into_iter().collect();
         if !self.select(a, tr, &targs, 0).holds() {
             return None;
         }
+        self.record_trait_method(n, tr, method, a, &targs);
         let Some(out) = self.trait_item(tr, "Output", Ns::Type) else { return Some(self.unit()) };
         let mut args = vec![a];
         args.extend(targs);
         Some(self.project_or_var(out, &args))
     }
 
+    /// Records that node `n` calls trait `tr`'s method `method` with
+    /// `Self` = `self_ty` and the trait's other arguments `targs`.
+    pub(super) fn record_trait_method(&mut self, n: crate::ast::NodeId, tr: DefId, method: &str, self_ty: Ty, targs: &[Ty]) {
+        if let Some(m) = self.trait_item(tr, method, Ns::Value) {
+            let mut args = vec![self_ty];
+            let full = self.full_trait_args(tr, self_ty, targs.to_vec());
+            args.extend(full);
+            self.methods.push((n, m, args));
+        }
+    }
+
     /// Calling a value of type `t` through the `Fn` traits with `n`
-    /// arguments: the parameter types and result.
-    pub(super) fn call_fn_traits(&mut self, t: Ty, n: usize) -> Option<(Vec<Ty>, Ty)> {
+    /// arguments: the parameter types and result. Records the trait
+    /// method the call node `call` calls.
+    pub(super) fn call_fn_traits(&mut self, call: crate::ast::NodeId, t: Ty, n: usize) -> Option<(Vec<Ty>, Ty)> {
         let tcx = self.tcx;
         let output = self.lang("fn_once_output")?;
         for l in ["fn", "fn_mut", "fn_once"] {
@@ -846,9 +885,18 @@ impl<'a, 's> FnCtxt<'a, 's> {
             let s = self.probe();
             let inputs: Vec<Ty> = (0..n).map(|_| self.infer.fresh()).collect();
             let tuple = self.mk(TyKind::Tuple(tcx.list(inputs.clone())));
+            let method = match l {
+                "fn" => "call",
+                "fn_mut" => "call_mut",
+                _ => "call_once",
+            };
             match self.select(t, tr, &[tuple], 0) {
-                Select::Yes(Source::Builtin(Some(out))) => return Some((inputs, out)),
+                Select::Yes(Source::Builtin(Some(out))) => {
+                    self.record_trait_method(call, tr, method, t, &[tuple]);
+                    return Some((inputs, out));
+                }
                 Select::Yes(_) => {
+                    self.record_trait_method(call, tr, method, t, &[tuple]);
                     let out = self.project_or_var(output, &[t, tuple]);
                     return Some((inputs, out));
                 }
@@ -935,17 +983,24 @@ impl<'a, 's> FnCtxt<'a, 's> {
         }
     }
 
-    /// Coercing `&x` to `&y` through `Deref`: `&String` to `&str`.
-    pub(super) fn deref_coerces(&mut self, x: Ty, y: Ty) -> bool {
+    /// Coercing `&x` to `&y` (or `&mut y`, `m`) through `Deref`: `&String`
+    /// to `&str`. The adjustments if so: the reference's `*`, the steps to
+    /// `y`, and a new borrow.
+    pub(super) fn deref_coerces(&mut self, x: Ty, y: Ty, m: Mutbl) -> Option<Vec<Adjust>> {
         let steps = self.autoderef(x);
-        for &s in &steps[1..] {
+        for k in 1..steps.len() {
+            if steps[k].1 == Some(Adjust::Unsize) {
+                break;
+            }
             let p = self.probe();
-            if self.infer.unify(s, y) {
-                return true;
+            if self.infer.unify(steps[k].0, y) {
+                let mut adj = vec![Adjust::Deref];
+                adj.extend(Self::step_adjustments(&steps, k, Some(m)));
+                return Some(adj);
             }
             self.rollback(p);
         }
-        false
+        None
     }
 
     /// `T::name` for an associated type `name` of a trait `T` implements

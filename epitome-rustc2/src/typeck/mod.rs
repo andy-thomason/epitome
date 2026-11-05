@@ -4,9 +4,14 @@
 //! A body is checked with fresh inference variables (`infer.rs`):
 //! expressions are checked with the type expected of them where it is
 //! known, patterns against the type they match, and the types of every
-//! expression and pattern go in a side table indexed by node. Method calls
-//! record the method they call. At the end, integer and float variables
-//! left free become `i32` and `f64`.
+//! expression and pattern go in a side table indexed by node. At the end,
+//! integer and float variables left free become `i32` and `f64`.
+//!
+//! Besides types, the tables keep what lowering needs to know of what
+//! checking decided: the function each method call and overloaded
+//! operator calls, with its generic arguments; the adjustments made to an
+//! expression (autoderef, autoref, coercions); and, for patterns, how many
+//! references each matched through and how each binding binds.
 
 mod check;
 pub mod infer;
@@ -17,7 +22,7 @@ use crate::hash::FastMap;
 use crate::pool;
 use crate::resolve::{DefId, DefKind, Resolver};
 use crate::session::{ParsedCrate, Session};
-use crate::ty::{Ty, TyCtxt, TyKind};
+use crate::ty::{List, Mutbl, Ty, TyCtxt, TyKind};
 use std::sync::Mutex;
 
 /// What type checking found.
@@ -25,8 +30,8 @@ pub struct TypeckResults {
     /// The type of every expression and pattern: per crate, per file, by
     /// node.
     pub types: Vec<Vec<Vec<Option<Ty>>>>,
-    /// The function each method call (and each overloaded operator) calls.
-    pub methods: Vec<Vec<FastMap<NodeId, DefId>>>,
+    /// Everything else, per crate, per file.
+    pub tables: Vec<Vec<Tables>>,
     /// The bodies checked, by owner.
     pub bodies: Vec<DefId>,
     pub stats: TypeckStats,
@@ -47,6 +52,67 @@ pub struct TypeckStats {
     pub reasons: Vec<(String, usize)>,
 }
 
+/// A step that turns an expression's value into what its use wants, in
+/// order. A method receiver `v` of `v.len()` (`v: &Vec<u8>`) is adjusted
+/// by `[Deref, OverloadedDeref, Borrow(Not)]`: `&*Deref::deref(&*v)`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Adjust {
+    /// `*` of a reference, raw pointer or `Box`.
+    Deref,
+    /// `*` through `Deref::deref` (or `DerefMut::deref_mut` for a mutable
+    /// use).
+    OverloadedDeref,
+    /// `&` or `&mut` (autoref, or the end of a deref coercion).
+    Borrow(Mutbl),
+    /// A pointer to something sized made a pointer to something unsized:
+    /// `&[T; N]` to `&[T]`, `&T` or `Box<T>` to `dyn Trait`.
+    Unsize,
+    /// `!` to any type (the value never exists).
+    NeverToAny,
+    /// A function item made a function pointer.
+    ReifyFnPointer,
+    /// A closure that captures nothing made a function pointer.
+    ClosureFnPointer,
+}
+
+impl std::fmt::Display for Adjust {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Adjust::Deref => "*",
+            Adjust::OverloadedDeref => "*Deref",
+            Adjust::Borrow(Mutbl::Not) => "&",
+            Adjust::Borrow(Mutbl::Mut) => "&mut",
+            Adjust::Unsize => "unsize",
+            Adjust::NeverToAny => "never",
+            Adjust::ReifyFnPointer => "fn-pointer",
+            Adjust::ClosureFnPointer => "closure-fn-pointer",
+        })
+    }
+}
+
+/// How a binding binds the value it matches.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum BindingMode {
+    Value,
+    Ref(Mutbl),
+}
+
+/// One file's tables, by node.
+#[derive(Default)]
+pub struct Tables {
+    /// The function a method call, overloaded operator (`+`, `==`, unary
+    /// `*`, `[]`) or call through the `Fn` traits calls, and its generic
+    /// arguments (a trait method's start with `Self`).
+    pub methods: FastMap<NodeId, (DefId, List)>,
+    /// The adjustments made to an expression's value.
+    pub adjustments: FastMap<NodeId, Vec<Adjust>>,
+    /// How many references a pattern matched through before matching
+    /// (default binding modes).
+    pub pat_derefs: FastMap<NodeId, u32>,
+    /// How each binding pattern binds.
+    pub bindings: FastMap<NodeId, BindingMode>,
+}
+
 /// One body to check.
 #[derive(Clone, Copy)]
 struct Body {
@@ -62,7 +128,10 @@ struct BodyResult {
     k: u32,
     file: u32,
     types: Vec<(NodeId, Ty)>,
-    methods: Vec<(NodeId, DefId)>,
+    methods: Vec<(NodeId, DefId, List)>,
+    adjustments: Vec<(NodeId, Vec<Adjust>)>,
+    pat_derefs: Vec<(NodeId, u32)>,
+    bindings: Vec<(NodeId, BindingMode)>,
     errors: FastMap<String, usize>,
     error_nodes: usize,
     unknown_nodes: usize,
@@ -97,8 +166,8 @@ impl Session {
         });
         let mut types: Vec<Vec<Vec<Option<Ty>>>> =
             crates.iter().map(|c| c.files.iter().map(|f| vec![None; f.ast.nodes.len()]).collect()).collect();
-        let mut methods: Vec<Vec<FastMap<NodeId, DefId>>> =
-            crates.iter().map(|c| c.files.iter().map(|_| FastMap::default()).collect()).collect();
+        let mut tables: Vec<Vec<Tables>> =
+            crates.iter().map(|c| c.files.iter().map(|_| Tables::default()).collect()).collect();
         let mut stats = TypeckStats::default();
         let mut reasons: FastMap<String, usize> = FastMap::default();
         for res in out.into_inner().unwrap() {
@@ -115,7 +184,11 @@ impl Session {
                     *slot = Some(t);
                 }
             }
-            methods[res.k as usize][res.file as usize].extend(res.methods);
+            let t = &mut tables[res.k as usize][res.file as usize];
+            t.methods.extend(res.methods.into_iter().map(|(n, d, l)| (n, (d, l))));
+            t.adjustments.extend(res.adjustments);
+            t.pat_derefs.extend(res.pat_derefs);
+            t.bindings.extend(res.bindings);
             for (k, v) in res.errors {
                 *reasons.entry(k).or_default() += v;
             }
@@ -125,7 +198,7 @@ impl Session {
         stats.reasons = reasons;
         let mut bodies = checked.into_inner().unwrap();
         bodies.sort();
-        TypeckResults { types, methods, bodies, stats }
+        TypeckResults { types, tables, bodies, stats }
     }
 }
 
@@ -171,8 +244,20 @@ impl TypeckResults {
                     text.truncate(cut);
                     text.push_str("...");
                 }
-                let method = self.methods[k][f].get(&n).map(|m| format!("  [{}]", r.def_path(*m))).unwrap_or_default();
-                let _ = writeln!(out, "  {:8} {text} : {}{method}", at.unwrap_or_default(), tcx.display(r, *t));
+                let tables = &self.tables[k][f];
+                let method = tables.methods.get(&n).map(|m| format!("  [{}]", r.def_path(m.0))).unwrap_or_default();
+                let mut extra = String::new();
+                if let Some(a) = tables.adjustments.get(&n) {
+                    let a: Vec<String> = a.iter().map(|x| x.to_string()).collect();
+                    let _ = write!(extra, "  {{{}}}", a.join(", "));
+                }
+                if let Some(&d) = tables.pat_derefs.get(&n) {
+                    let _ = write!(extra, "  {{through {d} &}}");
+                }
+                if let Some(BindingMode::Ref(m)) = tables.bindings.get(&n) {
+                    let _ = write!(extra, "  {{by {}}}", if *m == Mutbl::Mut { "ref mut" } else { "ref" });
+                }
+                let _ = writeln!(out, "  {:8} {text} : {}{method}{extra}", at.unwrap_or_default(), tcx.display(r, *t));
             }
         }
         out
@@ -240,7 +325,18 @@ mod tests {
     }
 
     fn dump(path: &str) -> String {
-        dump_with(path, "basic", None)
+        plain(&dump_with(path, "basic", None))
+    }
+
+    /// The dump without its `  {..}` notes (adjustments, binding modes).
+    fn plain(s: &str) -> String {
+        s.lines()
+            .map(|l| match l.find("  {") {
+                Some(i) => &l[..i],
+                None => l,
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     /// `core` from the toolchain's rust-src, if it is installed.
@@ -257,7 +353,19 @@ mod tests {
             eprintln!("no rust-src: skipped");
             return;
         };
-        let s = dump_with("tests/typeck/traits.rs", "traits", Some(core));
+        let full = dump_with("tests/typeck/traits.rs", "traits", Some(core));
+        // What lowering is told: adjustments, binding modes and the
+        // methods operators and calls through `Fn` call.
+        for want in [
+            "a : &str  {*, &}",
+            "Shape::Circle(r) : Shape  {through 1 &}",
+            "r : &u32  {by ref}",
+            "3 * r : u32  [core::ops::arith::Mul::mul]",
+            "seen(x) : ()  [core::ops::function::FnMut::call_mut]",
+        ] {
+            assert!(full.lines().any(|l| l == want), "no `{want}` in:\n{full}");
+        }
+        let s = plain(&full);
         // Only this crate's bodies, which should have no error types.
         let ours: Vec<&str> =
             s.lines().skip_while(|l| !l.starts_with("fn traits::")).collect();
@@ -270,9 +378,9 @@ mod tests {
             // from the `FnMut(Self::Item)` bound.
             "|s| match s { Shape::Circle(r) => 3 * r * r, ... : {closure}(&Shape) -> u32",
             "r : &u32",
-            "3 * r * r : u32",
+            "3 * r * r : u32  [core::ops::arith::Mul::mul]",
             // `impl Trait` parameters and `&mut impl FnMut`.
-            "seen(x) : ()",
+            "seen(x) : ()  [core::ops::function::FnMut::call_mut]",
             "x : u32",
             // `?` through `Try`, and `parse` from the type wanted.
             "a.parse() : Result<u8, ParseIntError>  [core::str::{impl}::parse]",

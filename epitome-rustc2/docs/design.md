@@ -593,6 +593,25 @@ Traits (`traits.rs`):
   result types from its `F: FnMut(A) -> B` obligations. Closure
   arguments are checked after the others, so that those settle `A`.
 
+What lowering is told (`TypeckResults::tables`, per file, by node):
+
+- `methods`: the function each method call, overloaded operator (`+`,
+  `==`, `+=`, unary `-`, `!` and `*`, `[]`) and call through the `Fn`
+  traits calls, with its generic arguments. A trait's method has `Self`
+  first; monomorphisation picks the impl.
+- `adjustments`: what is done to an expression's value before its use,
+  in order: `Deref` (built in), `OverloadedDeref` (`Deref::deref`),
+  `Borrow(m)` (autoref, or the end of a deref coercion), `Unsize`,
+  `NeverToAny`, `ReifyFnPointer` and `ClosureFnPointer`. A method
+  receiver, a field's base and an index's base carry their autoderef
+  steps; coerced expressions carry their coercion.
+- `pat_derefs` and `bindings`: how many references a pattern matched
+  through (default binding modes), and whether each binding binds by
+  value, `ref` or `ref mut`.
+
+`--dump-types` shows them after each type: `[method]`, `{*, &}`,
+`{through 1 &}`, `{by ref}`.
+
 Const evaluation (array lengths, `const` items, const generics) is an
 interpreter over the typed AST, the same walk as lowering but producing
 values.

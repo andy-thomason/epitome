@@ -22,6 +22,10 @@
 //!   `--pretty` shows the expanded tree).
 //! - `--expand-stats`: print what expansion did, and the macros most often
 //!   not found.
+//! - `--resolve-stats`: resolve names, and print how many paths resolved
+//!   and the first segments of those that did not.
+//! - `--dump-res`: resolve names, and print every path with what it
+//!   resolved to.
 //! - `--parse-tree dir`: parse every `.rs` file under `dir` (each on its
 //!   own, not following modules), and report each that fails and a count.
 //!   Each file is read in the edition of the nearest `Cargo.toml` above it
@@ -46,6 +50,7 @@ fn main() -> ExitCode {
     let (mut dump, mut sexp, mut tokens, mut print, mut roundtrip) = (false, false, false, false, false);
     let mut list_files = false;
     let (mut no_expand, mut expand_stats) = (false, false);
+    let (mut resolve_stats, mut dump_res) = (false, false);
     let mut tree: Option<PathBuf> = None;
     let mut cfg = CfgSet::host();
     let mut externs: Vec<(String, PathBuf)> = Vec::new();
@@ -64,6 +69,8 @@ fn main() -> ExitCode {
             "--list-files" => list_files = true,
             "--no-expand" => no_expand = true,
             "--expand-stats" => expand_stats = true,
+            "--resolve-stats" => resolve_stats = true,
+            "--dump-res" => dump_res = true,
             _ if arg.starts_with("--cfg") => {
                 let v = value("--cfg").unwrap_or_default();
                 match v.split_once('=') {
@@ -143,6 +150,7 @@ fn main() -> ExitCode {
                 stats.rounds, stats.expanded, stats.builtins_left, stats.files_loaded
             );
             eprintln!("per round: {:?}", stats.per_round);
+            eprintln!("found only by name (not by scope, path or import): {:?}", stats.found_by_name);
             if stats.per_round.last().is_some_and(|&n| n > 0) {
                 eprintln!("still expanding in the last round: {:?}", stats.last_round);
             }
@@ -152,6 +160,36 @@ fn main() -> ExitCode {
             eprintln!("not found: {total} calls to {} macros", missing.len());
             for (name, n) in missing.iter().take(20) {
                 eprintln!("  {n:6} {name}!");
+            }
+        }
+    }
+    if resolve_stats || dump_res {
+        let t = std::time::Instant::now();
+        let r = session.resolve(&crates);
+        let elapsed = t.elapsed();
+        if dump_res {
+            print!("{}", r.dump(&crates, &session.sources));
+        }
+        if resolve_stats {
+            let s = r.stats(&crates);
+            eprintln!(
+                "resolution: {} defs, {} modules, {} imports ({} failed), in {:.3} s",
+                s.defs,
+                s.modules,
+                s.imports,
+                s.imports_failed,
+                elapsed.as_secs_f64()
+            );
+            eprintln!(
+                "paths: {} resolved, {} partial (left to type checking), {} unresolved, of {}",
+                s.resolved, s.partial, s.unresolved, s.paths
+            );
+            for (name, n) in s.unresolved_names.iter().take(25) {
+                eprintln!("  {n:6} {name}");
+            }
+            eprintln!("imports that did not resolve (first 40):");
+            for line in r.failed_import_lines().iter().take(40) {
+                eprintln!("  {line}");
             }
         }
     }

@@ -8,7 +8,9 @@
 //! - `--sexp`: print the syntax tree on one line.
 //! - `--tokens`: print the tokens, one per line.
 //! - `--parse-tree dir`: parse every `.rs` file under `dir`, and report
-//!   each that fails and a count.
+//!   each that fails and a count. Each file is read in the edition of the
+//!   nearest `Cargo.toml` above it (2015 if it names none, as for Cargo),
+//!   or `--edition` if there is no `Cargo.toml`.
 
 use epitome_rustc2::lexer::{Edition, lex};
 use epitome_rustc2::parse::parse_str;
@@ -106,9 +108,11 @@ fn parse_tree(dir: &Path, edition: Edition) -> ExitCode {
     collect(dir, &mut files);
     files.sort();
     let mut failed = 0;
+    let mut editions = std::collections::HashMap::new();
     for file in &files {
         let Ok(text) = std::fs::read_to_string(file) else { continue };
         let src = Source::new(file.display().to_string(), text);
+        let edition = file.parent().and_then(|d| crate_edition(d, &mut editions)).unwrap_or(edition);
         if let Err(e) = parse_str(&src.text, edition) {
             failed += 1;
             eprint!("{}", e.render(&src));
@@ -116,6 +120,27 @@ fn parse_tree(dir: &Path, edition: Edition) -> ExitCode {
     }
     println!("{} files, {} failed", files.len(), failed);
     if failed == 0 { ExitCode::SUCCESS } else { ExitCode::FAILURE }
+}
+
+/// The edition of the package whose `Cargo.toml` is nearest above `dir`.
+fn crate_edition(dir: &Path, cache: &mut std::collections::HashMap<PathBuf, Option<Edition>>) -> Option<Edition> {
+    if let Some(&e) = cache.get(dir) {
+        return e;
+    }
+    let manifest = dir.join("Cargo.toml");
+    let e = if let Ok(text) = std::fs::read_to_string(&manifest) {
+        // `edition = "2021"` in `[package]`; a workspace's own manifest
+        // may have none, and `edition.workspace = true` is not followed.
+        let value = text.lines().find_map(|l| {
+            let rest = l.trim().strip_prefix("edition")?.trim_start().strip_prefix('=')?;
+            Some(rest.trim().trim_matches('"').to_string())
+        });
+        Some(value.and_then(|v| Edition::parse(&v)).unwrap_or(Edition::E2015))
+    } else {
+        dir.parent().and_then(|p| crate_edition(p, cache))
+    };
+    cache.insert(dir.to_path_buf(), e);
+    e
 }
 
 fn collect(dir: &Path, out: &mut Vec<PathBuf>) {

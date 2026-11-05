@@ -11,9 +11,12 @@ useful as a reference. The same crate built by both must behave the
 same.
 
 **Status:** Started. The lexer and the parser (sections 3 and 4) are
-written, and every `.rs` file of the toolchain's `rust-src` (2994 files,
-nightly syntax included) parses, in about a second. Everything after
-that is a plan.
+written. Every `.rs` file of the toolchain's `rust-src` (2994 files,
+nightly syntax included) parses, in about a second, and so does every
+file of the local crates.io cache (69108 files) except 37 that are not
+Rust that rustc would accept: `include!`d string fragments, placeholder
+files, compile-fail tests and syn's tests of invalid syntax. Everything
+after that is a plan.
 
 ## 1. Goals
 
@@ -397,8 +400,8 @@ Every test has a tight time limit, and everything is built `--release`.
 
 ## 12. Order of work
 
-1. Lexer, parser, AST dump (done; `rust-src` parses) and pretty printer;
-   the crates.io corpus passes.
+1. Lexer, parser, AST dump (done; `rust-src` and the crates.io cache
+   parse) and pretty printer.
 2. `cfg`, `macro_rules!`, built-in macros; expansion matches rustc's.
 3. Proc macros through the toolchain's server.
 4. Name resolution and item collection.

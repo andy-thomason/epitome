@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 /// Options for a whole run.
-#[derive(Clone, Debug, Default, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Options {
     /// Worker threads; 0 means one per core.
     pub threads: usize,

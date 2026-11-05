@@ -11,7 +11,10 @@
 //! test found shifts by immediate claiming `movi` words, and `adrp`s with
 //! their low page bits dropped.
 //!
-//! The test is skipped when `clang` or `objdump` is not installed.
+//! On a host that is not AArch64, the programs are built for AArch64 Linux
+//! (with the few headers of `tests/riscv/include`; those needing more are
+//! skipped), and `llvm-objdump` reads them. The test is skipped when `clang` or an objdump is not
+//! installed.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -38,9 +41,15 @@ const ALIASES: &[(&str, &str)] = &[
     ("ror", "extr"),
 ];
 
+const NATIVE: bool = cfg!(target_arch = "aarch64");
+
+/// The objdump that reads AArch64 here: the system's on an AArch64 host,
+/// LLVM's elsewhere.
+const OBJDUMP: &str = if NATIVE { "objdump" } else { "llvm-objdump" };
+
 fn have_tools() -> bool {
     let ok = |c: &str, a: &str| Command::new(c).arg(a).output().is_ok_and(|o| o.status.success());
-    ok("clang", "--version") && ok("objdump", "--version")
+    ok("clang", "--version") && ok(OBJDUMP, "--version")
 }
 
 /// objdump writes a vector's arrangement into the mnemonic (`add.4s`);
@@ -58,7 +67,7 @@ fn plain_mnemonic(m: &str) -> &str {
 
 /// Disassembles `obj` both ways and compares; returns (decoded, words).
 fn compare(t: &Target, obj: &Path) -> Result<(usize, usize), String> {
-    let out = Command::new("objdump").arg("-d").arg(obj).output().map_err(|e| e.to_string())?;
+    let out = Command::new(OBJDUMP).arg("-d").arg(obj).output().map_err(|e| e.to_string())?;
     let sys = String::from_utf8_lossy(&out.stdout);
     // The system's: address to mnemonic, for each instruction.
     let mut theirs: HashMap<u64, String> = HashMap::new();
@@ -132,8 +141,17 @@ fn disassembly_agrees_with_objdump() {
     for src in &sources {
         let stem = src.file_stem().unwrap().to_string_lossy().into_owned();
         let obj = tmp.join(format!("{stem}.clang.o"));
-        let ok = Command::new("clang").args(["-O2", "-c"]).arg(src).arg("-o").arg(&obj).output();
+        let mut clang = Command::new("clang");
+        if !NATIVE {
+            clang.arg("--target=aarch64-linux-gnu").arg("-I").arg(dir.join("../riscv/include"));
+        }
+        let ok = clang.args(["-O2", "-c"]).arg(src).arg("-o").arg(&obj).output();
         if !ok.is_ok_and(|o| o.status.success()) {
+            if !NATIVE {
+                // (Headers this host has only for itself, such as pthread.h.)
+                println!("skipped {stem}: clang cannot build it for AArch64 here");
+                continue;
+            }
             failures.push(format!("{stem}: clang failed"));
             continue;
         }

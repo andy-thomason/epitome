@@ -342,23 +342,18 @@ process and calls it through `proc_macro`'s bridge; the server and its
 JSON are rust-analyzer's way round not being rustc. The server also
 declares its API "highly unstable" and runs only with
 `RUST_ANALYZER_INTERNALS_DO_NOT_USE` set. The alternative is to load the
-library ourselves (section 6.7); the token conversion and the expansion
-hooks are the same either way.
+library ourselves, which we will do once we compile proc-macro crates
+(section 6.7); the token conversion and the expansion hooks stay.
 
-### 6.7 Loading proc-macro libraries ourselves (open)
+### 6.7 Loading proc-macro libraries ourselves (later)
 
-To call a library in-process, something must play the compiler's side of
-the `proc_macro` bridge, whose ABI is private to each rustc version.
-Options:
-
-1. A small host library, built by the same toolchain as the proc macros,
-   that implements the bridge's server side with the unstable
-   `proc_macro` internals and exposes a C ABI of our own (flat token
-   trees, as in 6.6) for `epitome-rustc2` to `dlopen`. No JSON, no extra
-   process, one call per expansion.
-2. The bridge implemented directly in `epitome-rustc2`. This needs the
-   bridge's layout, which is only in the `proc_macro` source, so it is
-   not clean-room in the way the rest is.
+Decided (2026-11-05): the server stays until `epitome-rustc2` can
+compile proc-macro crates itself. Then we build both sides of the
+bridge: the macro library, and the `proc_macro` crate it links against.
+The bridge becomes an interface of our own, not the private one of each
+rustc version, and libraries are loaded in-process with no JSON and no
+second process. Until then, proc macros must come from the same
+toolchain as the server.
 
 ## 7. Types
 
@@ -609,7 +604,7 @@ Tests of parallel stages run on one thread and on several, and compare.
 2. `cfg`, `macro_rules!`, built-in macros; expansion matches rustc's
    (done; built-in derives to come).
 3. Proc macros (working through the toolchain's server; in-process
-   loading, section 6.7, to decide).
+   loading once we compile proc-macro crates, section 6.7).
 4. Name resolution and item collection.
 5. Type checking for `#![no_std]` programs: integers, structs, enums,
    references, generics, traits, closures.

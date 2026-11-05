@@ -429,6 +429,18 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     }
                 }
             }
+            // `where I: Iterator<Item = &'a T>`: what settles `T`.
+            for p in &tcx.predicates[imp.def.0 as usize] {
+                if let Pred::Projection(_, a, l, ty) = p {
+                    let pl: Vec<Ty> = tcx.tys(*l).into_iter().map(|x| subst(tcx, x, &params, &args)).collect();
+                    let ty = subst(tcx, *ty, &params, &args);
+                    if let Some(got) = self.project(*a, &pl, depth + 1)
+                        && !self.infer.unify(got, ty)
+                    {
+                        return None;
+                    }
+                }
+            }
         }
         Some(args)
     }
@@ -578,12 +590,16 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 let x = self.normalize(x, depth);
                 self.mk(TyKind::Array(x, c))
             }
-            TyKind::FnPtr(s) => {
+            TyKind::FnPtr(s) | TyKind::Closure(_, s) => {
                 let mut sig = tcx.sig_of(s);
                 let inputs = tcx.tys(sig.inputs).into_iter().map(|x| self.normalize(x, depth)).collect();
                 sig.inputs = tcx.list(inputs);
                 sig.output = self.normalize(sig.output, depth);
-                self.mk(TyKind::FnPtr(tcx.sig(sig)))
+                let sig = tcx.sig(sig);
+                match tcx.kind(t) {
+                    TyKind::Closure(c, _) => self.mk(TyKind::Closure(c, sig)),
+                    _ => self.mk(TyKind::FnPtr(sig)),
+                }
             }
             _ => t,
         }
@@ -612,9 +628,10 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 None => {
                     // Known now, but not projectable: a projection the
                     // body cannot see through (`<I as Iterator>::Item`).
+                    let rigid = args.iter().any(|&x| mentions_rigid(tcx, self.infer.resolve(x)));
                     let p = self.mk(TyKind::Projection(a, tcx.list(args)));
                     let p = self.infer.resolve(p);
-                    if !tcx.has_infer(p) && !tcx.has_error(p) {
+                    if rigid && !tcx.has_infer(p) && !tcx.has_error(p) {
                         self.infer.unify(p, v);
                         self.pending.swap_remove(i);
                     } else {
@@ -980,13 +997,24 @@ pub(super) fn subst_trait_ref(tcx: &crate::ty::TyCtxt, tr: &TraitRef, params: &[
     }
 }
 
+/// Whether a type mentions something a body cannot see through: a
+/// parameter, `dyn`, `impl Trait`, or a projection on one of those.
+fn mentions_rigid(tcx: &crate::ty::TyCtxt, t: Ty) -> bool {
+    match tcx.kind(t) {
+        TyKind::Param(_) | TyKind::Opaque(_) | TyKind::Dyn(_) | TyKind::Projection(..) => true,
+        TyKind::Tuple(l) | TyKind::Adt(_, l) | TyKind::FnDef(_, l) => tcx.tys(l).into_iter().any(|x| mentions_rigid(tcx, x)),
+        TyKind::Ref(_, x) | TyKind::Ptr(_, x) | TyKind::Slice(x) | TyKind::Array(x, _) => mentions_rigid(tcx, x),
+        _ => false,
+    }
+}
+
 /// Whether a type has a projection in it.
 fn has_projection(tcx: &crate::ty::TyCtxt, t: Ty) -> bool {
     match tcx.kind(t) {
         TyKind::Projection(..) => true,
         TyKind::Tuple(l) | TyKind::Adt(_, l) => tcx.tys(l).into_iter().any(|x| has_projection(tcx, x)),
         TyKind::Ref(_, x) | TyKind::Ptr(_, x) | TyKind::Slice(x) | TyKind::Array(x, _) => has_projection(tcx, x),
-        TyKind::FnPtr(s) => {
+        TyKind::FnPtr(s) | TyKind::Closure(_, s) => {
             let s = tcx.sig_of(s);
             has_projection(tcx, s.output) || tcx.tys(s.inputs).into_iter().any(|x| has_projection(tcx, x))
         }

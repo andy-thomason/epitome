@@ -217,6 +217,10 @@ Optimisations in `epitome-llc`:
 
 - `epitome` (the root package): `epitome-rustc`, which builds Rust crates
   with Epitome (see below), and `examples/factorial.rs`.
+- `epitome-rustc2`: a Rust compiler that does not use rustc. Parsing,
+  macro expansion, name resolution and type checking work, and run on
+  `core`, `alloc` and `std` in 1.3 s; lowering to Epitome IR is next. See
+  `epitome-rustc2/README.md`.
 - `ir` (`epitome-ir`): the IR, with a parser and printer for `.ll` files,
   and builders for making it in code (`epitome_ir::build`).
 - `opt` (`epitome-opt`): optimisation passes, run on many functions in

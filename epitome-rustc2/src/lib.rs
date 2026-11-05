@@ -8,10 +8,12 @@
 
 pub mod ast;
 pub mod cfg;
+pub mod consteval;
 pub mod expand;
 pub mod hash;
 pub mod intern;
 pub mod json;
+pub mod layout;
 pub mod lexer;
 pub mod parse;
 pub mod pool;

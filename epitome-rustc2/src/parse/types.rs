@@ -455,6 +455,19 @@ impl<'a> Parser<'a> {
                 while !self.at(")") {
                     self.ty()?;
                     n += 1;
+                    // `(u32 is 1..)`, from `pattern_type!`: the pattern as
+                    // tokens.
+                    if n == 1 && self.at("is") {
+                        self.bump();
+                        let tt = self.mark();
+                        while !self.at(")") && !self.tok(0).is_eof() {
+                            self.bump();
+                        }
+                        self.finish(tt, Kind::TokenTree);
+                        self.expect(")")?;
+                        self.finish(m, Kind::PatternType);
+                        return Ok(());
+                    }
                     comma = self.eat(",");
                     if !comma {
                         break;

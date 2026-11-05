@@ -105,6 +105,18 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
                 self.tcx.mk(TyKind::Tuple(l))
             }
             Kind::ParenType => self.ty(kids[0]),
+            Kind::PatternType => {
+                let t = self.ty(kids[0]);
+                let pat: String = ast.text(kids[1]).chars().filter(|c| !c.is_whitespace()).collect();
+                match pattern_range(self.tcx.kind(t), &pat) {
+                    Some((start, end)) => {
+                        let (s, e) = (self.tcx.konst(Const::Value(start)), self.tcx.konst(Const::Value(end)));
+                        self.tcx.mk(TyKind::Pat(t, s, e))
+                    }
+                    // A pattern we do not follow: no niche, just the type.
+                    None => t,
+                }
+            }
             Kind::NeverType => self.tcx.mk(TyKind::Never),
             Kind::InferType if self.holes => self.tcx.mk(TyKind::Infer(u32::MAX)),
             Kind::InferType => self.err("`_` in a signature"),
@@ -577,6 +589,7 @@ pub(crate) fn is_type(k: Kind) -> bool {
             | SliceType
             | TupleType
             | ParenType
+            | PatternType
             | NeverType
             | InferType
             | FnPtrType
@@ -610,4 +623,74 @@ pub(crate) fn prim(tcx: &TyCtxt, p: &str) -> Ty {
         _ => TyKind::Error,
     };
     tcx.mk(k)
+}
+
+/// The values a pattern type's pattern allows, as `start..=end` in two's
+/// complement (wrapping): `1..`, `..0 | 1..`, `0..=999`, `0..u32::MAX`,
+/// `!null` (on a pointer). `None` for what this does not follow.
+fn pattern_range(t: TyKind, pat: &str) -> Option<(u128, u128)> {
+    let (bits, signed) = match t {
+        TyKind::Ptr(..) => (64, false),
+        k => crate::consteval::int_bits(k, 64)?,
+    };
+    let mask = if bits >= 128 { u128::MAX } else { (1u128 << bits) - 1 };
+    if pat == "!null" {
+        return Some((1, mask));
+    }
+    let (min, max): (i128, i128) = if signed {
+        (-(1i128 << (bits - 1)), (1i128 << (bits - 1)) - 1)
+    } else {
+        (0, if bits >= 128 { i128::MAX } else { (1i128 << bits) - 1 })
+    };
+    let value = |s: &str| -> Option<i128> {
+        let s = s.replace('_', "");
+        if let Some((ty, which)) = s.split_once("::") {
+            let k = crate::consteval::prim_named(ty)?;
+            if k != t {
+                return None;
+            }
+            return match which {
+                "MAX" => Some(max),
+                "MIN" => Some(min),
+                _ => None,
+            };
+        }
+        let (neg, s) = match s.strip_prefix('-') {
+            Some(r) => (true, r),
+            None => (false, s.as_str()),
+        };
+        let v = match s.strip_prefix("0x") {
+            Some(h) => i128::from_str_radix(h, 16).ok()?,
+            None => s.parse::<i128>().ok()?,
+        };
+        Some(if neg { -v } else { v })
+    };
+    // One range: (low, high), inclusive.
+    let range = |r: &str| -> Option<(i128, i128)> {
+        if let Some((a, b)) = r.split_once("..=") {
+            Some((if a.is_empty() { min } else { value(a)? }, value(b)?))
+        } else if let Some((a, b)) = r.split_once("..") {
+            Some((if a.is_empty() { min } else { value(a)? }, if b.is_empty() { max } else { value(b)? - 1 }))
+        } else {
+            let v = value(r)?;
+            Some((v, v))
+        }
+    };
+    let parts: Vec<&str> = pat.split('|').collect();
+    let (lo, hi) = match parts.as_slice() {
+        [one] => range(one)?,
+        // `..0 | 1..`: from the second's start round to the first's end.
+        [a, b] => {
+            let (a, b) = (range(a)?, range(b)?);
+            if a.0 == min && b.1 == max {
+                (b.0, a.1)
+            } else if b.0 == min && a.1 == max {
+                (a.0, b.1)
+            } else {
+                return None;
+            }
+        }
+        _ => return None,
+    };
+    Some((lo as u128 & mask, hi as u128 & mask))
 }

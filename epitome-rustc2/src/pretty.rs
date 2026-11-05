@@ -72,6 +72,7 @@ fn is_type(k: Kind) -> bool {
             | SliceType
             | TupleType
             | ParenType
+            | PatternType
             | NeverType
             | InferType
             | FnPtrType
@@ -1067,6 +1068,13 @@ impl<'p, 'a> Printer<'p, 'a> {
             ParenType | Paren | ParenPat => {
                 self.s("(");
                 self.node(kids[0]);
+                self.s(")");
+            }
+            PatternType => {
+                self.s("(");
+                self.node(kids[0]);
+                self.s(" is ");
+                self.node(kids[1]);
                 self.s(")");
             }
             NeverType | NeverPat => self.s("!"),

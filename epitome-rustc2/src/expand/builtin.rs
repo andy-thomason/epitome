@@ -196,11 +196,13 @@ pub fn expand<'s>(cx: &Context<'_, 's>, name: &str, input: &[Token<'s>]) -> Resu
             Err(cx.error(msg.to_string()))
         }
         "include" => include(cx, input),
-        // `pattern_type!(u32 is 1..)`: the type, without the pattern that
-        // narrows it (which only gives the layout a niche).
+        // `pattern_type!(u32 is 1..)`: `(u32 is 1..)`, a type form only
+        // this makes, which the parser reads as a `PatternType`.
         "pattern_type" => {
-            let end = input.iter().position(|t| t.0 == "is").unwrap_or(input.len());
-            Ok(Some(input[..end].to_vec()))
+            let mut out = vec![Token("(")];
+            out.extend_from_slice(input);
+            out.push(Token(")"));
+            Ok(Some(out))
         }
         _ => Ok(None),
     }

@@ -165,6 +165,15 @@ impl TyCtxt<'_> {
                 }
             }
             TyKind::Foreign(d) => out.push_str(r.defs[d.0 as usize].name),
+            TyKind::Pat(x, a, b) => {
+                out.push_str("pattern_type!(");
+                self.write_ty(r, x, out);
+                let v = |c| match self.const_of(c) {
+                    super::Const::Value(v) => v.to_string(),
+                    _ => "?".into(),
+                };
+                out.push_str(&format!(" is {}..={})", v(a), v(b)));
+            }
             TyKind::Closure(_, s) => {
                 let s = self.sig_of(s);
                 out.push_str("{closure}(");

@@ -47,7 +47,11 @@
 //! other is one. `EPITOME_INTRINSICS_BLESS=1` writes the lists anew.
 //!
 //! The generic and AArch64 catalogues are run on an AArch64 Mac, the x86
-//! one on x86-64 Linux, each with clang and rustup's llvm-tools.
+//! one on x86-64 Linux, each with clang and rustup's llvm-tools. On x86-64
+//! Linux the generic and AArch64 ones run too, under qemu (`qemu-aarch64`,
+//! its `max` CPU: SVE2, SME and the rest of what it has), linked static
+//! against Rust's own musl (rustup's `aarch64-unknown-linux-musl` target);
+//! what they get wrong there is listed in `*-linux-todo.txt`.
 //! `EPITOME_INTRINSICS` limits it to the names containing that text.
 
 use std::collections::BTreeSet;
@@ -557,6 +561,77 @@ struct Host {
     /// The features the functions have: those of the machine, by LLVM's
     /// names (beyond the CPU's).
     features: Vec<&'static str>,
+    /// Run under an emulator, linked as it needs.
+    emulated: Option<Emulated>,
+}
+
+/// AArch64 Linux under qemu: the emulator, and what programs are linked
+/// with (musl's start files and C library, Rust's compiler builtins, and
+/// rust-lld).
+struct Emulated {
+    qemu: PathBuf,
+    lld: PathBuf,
+    musl: PathBuf,
+    builtins: PathBuf,
+}
+
+/// What qemu's `max` CPU has (qemu 8), by LLVM's names.
+const QEMU_MAX: &[&str] = &[
+    "fp-armv8",
+    "neon",
+    "crc",
+    "aes",
+    "sha2",
+    "sha3",
+    "sm4",
+    "lse",
+    "rdm",
+    "dotprod",
+    "fullfp16",
+    "fp16fml",
+    "bf16",
+    "i8mm",
+    "f32mm",
+    "f64mm",
+    "sve",
+    "sve2",
+    "sve-aes",
+    "sve-sha3",
+    "sve-sm4",
+    "sve-bitperm",
+    "mte",
+    "rand",
+    "flagm",
+    "sb",
+    "ssbs",
+    "predres",
+    "bti",
+    "pauth",
+    "jsconv",
+    "complxnum",
+    "rcpc",
+    "sme",
+    "sme-f64f64",
+    "sme-i16i64",
+    "sme-fa64",
+];
+
+fn emulated_aarch64() -> Option<Emulated> {
+    let path = std::env::var_os("PATH")?;
+    let qemu = ["qemu-aarch64-static", "qemu-aarch64"]
+        .iter()
+        .flat_map(|q| std::env::split_paths(&path).map(move |d| d.join(q)))
+        .find(|p| p.exists())?;
+    let o = Command::new("rustc").arg("--print").arg("sysroot").output().ok()?;
+    let root = PathBuf::from(String::from_utf8_lossy(&o.stdout).trim());
+    let lib = root.join("lib/rustlib/aarch64-unknown-linux-musl/lib");
+    let builtins = std::fs::read_dir(&lib).ok()?.flatten().map(|e| e.path()).find(|p| {
+        p.extension().is_some_and(|x| x == "rlib")
+            && p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("libcompiler_builtins-"))
+    })?;
+    let lld = root.join("lib/rustlib/x86_64-unknown-linux-gnu/bin/gcc-ld/ld.lld");
+    let musl = lib.join("self-contained");
+    (lld.exists() && musl.join("libc.a").exists()).then_some(Emulated { qemu, lld, musl, builtins })
 }
 
 /// The machine's x86 features, by LLVM's names.
@@ -602,14 +677,26 @@ fn host(which: &str) -> Option<Host> {
             triple: "x86_64-unknown-linux-gnu",
             cpu: "x86-64",
             features: x86_features(),
+            emulated: None,
         })
-    } else {
-        (cfg!(target_arch = "aarch64") && cfg!(target_os = "macos")).then(|| Host {
+    } else if cfg!(target_arch = "aarch64") && cfg!(target_os = "macos") {
+        Some(Host {
             target: Target::aarch64(),
             triple: "arm64-apple-macosx14.0.0",
             cpu: "apple-m1",
             features: Vec::new(),
+            emulated: None,
         })
+    } else if cfg!(target_arch = "x86_64") && cfg!(target_os = "linux") {
+        emulated_aarch64().map(|e| Host {
+            target: Target::aarch64(),
+            triple: "aarch64-unknown-linux-gnu",
+            cpu: "generic",
+            features: QEMU_MAX.to_vec(),
+            emulated: Some(e),
+        })
+    } else {
+        None
     }
 }
 
@@ -663,7 +750,7 @@ fn run_catalogue(which: &str) {
         && llc.is_some()
         && Command::new("clang").arg("--version").output().is_ok_and(|o| o.status.success());
     if !ok {
-        let on = if which == "x86" { "x86-64 Linux" } else { "an AArch64 Mac" };
+        let on = if which == "x86" { "x86-64 Linux" } else { "an AArch64 Mac (or x86-64 Linux, with qemu and musl)" };
         eprintln!("needs clang and rustup's llvm-tools (llc) on {on}; skipping");
         return;
     }
@@ -760,13 +847,31 @@ fn run_catalogue(which: &str) {
         .map(|side| {
             let exe = tmp.join(format!("run.{side}"));
             let mut cmd = Command::new("clang");
-            cmd.arg("-O1").arg(dir.join("driver.c")).arg(table(side)).arg("-o").arg(&exe);
+            cmd.arg("-O1");
+            if let Some(e) = &host.emulated {
+                // (Static, against musl; the builtins ask for a personality
+                // routine nothing here calls.)
+                let stub = tmp.join("personality.c");
+                std::fs::write(&stub, "void rust_eh_personality(void) {}\n").unwrap();
+                cmd.args(["--target=aarch64-unknown-linux-musl", "-fuse-ld=lld", "-static", "-nostdlib"])
+                    .arg(format!("--ld-path={}", e.lld.display()))
+                    .arg(e.musl.join("crt1.o"))
+                    .arg(e.musl.join("crti.o"))
+                    .arg(&stub);
+            }
+            cmd.arg(dir.join("driver.c")).arg(table(side)).arg("-o").arg(&exe);
             for &k in &run {
                 cmd.arg(tmp.join(format!("c{k}.{side}.o")));
             }
+            if let Some(e) = &host.emulated {
+                cmd.arg(e.musl.join("libc.a")).arg(&e.builtins).arg(e.musl.join("crtn.o"));
+            }
             let st = cmd.status().unwrap();
             assert!(st.success(), "linking the {side} build failed");
-            let o = Command::new(&exe).output().unwrap();
+            let o = match &host.emulated {
+                Some(e) => Command::new(&e.qemu).args(["-cpu", "max"]).arg(&exe).output().unwrap(),
+                None => Command::new(&exe).output().unwrap(),
+            };
             assert!(o.status.success(), "the {side} build failed: {}", String::from_utf8_lossy(&o.stderr));
             String::from_utf8_lossy(&o.stdout).into_owned()
         })
@@ -789,7 +894,8 @@ fn run_catalogue(which: &str) {
     for r in &reference_fails {
         println!("  llc cannot build {r}");
     }
-    let todo_path = dir.join(format!("{which}-todo.txt"));
+    let linux = if host.emulated.is_some() { "-linux" } else { "" };
+    let todo_path = dir.join(format!("{which}{linux}-todo.txt"));
     if std::env::var("EPITOME_INTRINSICS_BLESS").is_ok() && only.is_none() {
         let mut list: Vec<&str> = failures.iter().map(|f| f.0.as_str()).collect();
         list.sort();
@@ -808,8 +914,9 @@ fn run_catalogue(which: &str) {
     let fixed: Vec<&String> =
         todo.iter().filter(|t| !failed.contains(t.as_str()) && cases.iter().any(|c| c.1.label == **t)).collect();
     println!(
-        "{which}: {} cases fail as {which}-todo.txt expects",
-        failures.iter().filter(|f| todo.contains(&f.0)).count()
+        "{which}: {} cases fail as {} expects",
+        failures.iter().filter(|f| todo.contains(&f.0)).count(),
+        todo_path.file_name().unwrap().to_string_lossy()
     );
     if !fixed.is_empty() {
         println!("listed in {which}-todo.txt but now right (take them out):");

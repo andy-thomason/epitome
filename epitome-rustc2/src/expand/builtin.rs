@@ -46,6 +46,7 @@ const LEFT: &[&str] = &[
     "type_ascribe",
     "deref",
     "derive",
+    "derive_const",
     "test",
     "bench",
     "test_case",

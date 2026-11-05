@@ -313,7 +313,7 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
                 let Some(&d) = self.tcx.def_at.get(&at) else { return self.err("`Self` of nothing") };
                 match self.env.r.defs[d.0 as usize].kind {
                     DefKind::Trait => {
-                        let t = TraitRef { def: d, args: self.tcx.list(Vec::new()), bindings: Vec::new() };
+                        let t = TraitRef { def: d, args: self.tcx.list(Vec::new()), bindings: Vec::new(), assoc_bounds: Vec::new() };
                         let t = TraitRef { args: self.trait_identity(d), ..t };
                         self.projection(self_ty, &t, name)
                     }
@@ -353,7 +353,7 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
         let owner = self.tcx.params[p.0 as usize].owner;
         // `Self` of a trait: that trait.
         if self.tcx.params[p.0 as usize].name == "Self" && self.env.r.defs[owner.0 as usize].kind == DefKind::Trait {
-            let t = TraitRef { def: owner, args: self.trait_identity(owner), bindings: Vec::new() };
+            let t = TraitRef { def: owner, args: self.trait_identity(owner), bindings: Vec::new(), assoc_bounds: Vec::new() };
             return self.projection(self_ty, &t, name);
         }
         for t in self.param_bound_traits(p) {
@@ -479,6 +479,7 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
         let seg = ast.children(path).iter().rev().copied().find(|&s| ast.kind(s) == Kind::Segment)?;
         let mut tys = Vec::new();
         let mut bindings = Vec::new();
+        let mut assoc_bounds = Vec::new();
         for &c in ast.children(seg) {
             match ast.kind(c) {
                 Kind::GenericArgs => {
@@ -489,11 +490,24 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
                                 let kids = ast.children(a);
                                 let name = ast.token(kids[0]).0;
                                 let value = kids.iter().rev().copied().find(|&v| is_type(ast.kind(v)));
-                                if let (Some(v), Some((assoc, _))) =
-                                    (value, super::collect::find_assoc(self.env, def, name))
-                                {
+                                let found = super::collect::find_assoc(self.env, def, name);
+                                if let (Some(v), Some((assoc, _))) = (value, found) {
                                     let t = self.ty(v);
                                     bindings.push((assoc, t));
+                                } else if let (Some(b), Some((assoc, _))) =
+                                    (kids.iter().copied().find(|&v| ast.kind(v) == Kind::Bounds), found)
+                                {
+                                    // Lowering these can need the bounds of
+                                    // other parameters, whose bounds can
+                                    // need these: only so deep.
+                                    thread_local!(static DEPTH: std::cell::Cell<u32> = const { std::cell::Cell::new(0) });
+                                    if DEPTH.get() < 2 {
+                                        DEPTH.set(DEPTH.get() + 1);
+                                        for tr in self.bounds(b) {
+                                            assoc_bounds.push((assoc, tr));
+                                        }
+                                        DEPTH.set(DEPTH.get() - 1);
+                                    }
                                 }
                             }
                             Kind::Literal | Kind::Unary | Kind::Block => {
@@ -525,7 +539,7 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
                 _ => {}
             }
         }
-        Some(TraitRef { def, args: self.tcx.list(tys), bindings })
+        Some(TraitRef { def, args: self.tcx.list(tys), bindings, assoc_bounds })
     }
 
     /// The trait bounds in a `Bounds` node (lifetimes, `?Sized` and

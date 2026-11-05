@@ -2,13 +2,14 @@
 
 use super::BodyResult;
 use super::infer::{Infer, VarKind};
+use super::traits::TraitImpls;
 use crate::ast::{Ast, Kind, NodeId};
 use crate::hash::{FastMap, FastSet};
 use crate::resolve::{DefId, DefKind, Ns, Res, Resolver};
 use crate::session::ParsedCrate;
 use crate::ty::collect::subst;
 use crate::ty::lower::{Env, Lower, is_type};
-use crate::ty::{Const, CtorKind, FloatTy, IntTy, Mutbl, Ty, TyCtxt, TyKind, UintTy};
+use crate::ty::{Const, CtorKind, FloatTy, IntTy, Mutbl, Pred, Ty, TyCtxt, TyKind, UintTy};
 
 /// The first type constructor of a type, to find impls by.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -45,29 +46,55 @@ pub fn head(tcx: &TyCtxt, t: Ty) -> Option<Head> {
     })
 }
 
-/// Impls indexed for lookup: inherent impls by their self type's head.
-pub struct Index {
+/// Impls indexed for lookup: inherent impls by their self type's head,
+/// trait impls by trait and head, and traits' items by name.
+pub struct Index<'s> {
     pub inherent: FastMap<Head, Vec<usize>>,
-    /// Trait impls by trait (for trait selection, next).
-    #[allow(dead_code)]
-    pub by_trait: FastMap<DefId, Vec<usize>>,
+    pub trait_impls: FastMap<DefId, TraitImpls>,
+    /// Traits' functions and constants by name: (trait, item).
+    pub trait_items: FastMap<&'s str, Vec<(DefId, DefId)>>,
 }
 
-impl Index {
-    pub fn new(tcx: &TyCtxt, _r: &Resolver) -> Self {
+impl<'s> Index<'s> {
+    pub fn new(tcx: &TyCtxt, r: &Resolver<'s>) -> Self {
         let mut inherent: FastMap<Head, Vec<usize>> = FastMap::default();
-        let mut by_trait: FastMap<DefId, Vec<usize>> = FastMap::default();
+        let mut trait_impls: FastMap<DefId, TraitImpls> = FastMap::default();
         for (i, imp) in tcx.impls.iter().enumerate() {
+            // An impl of something not found would match anything.
+            if tcx.has_error(imp.self_ty) {
+                continue;
+            }
             match &imp.trait_ref {
                 None => {
                     if let Some(h) = head(tcx, imp.self_ty) {
                         inherent.entry(h).or_default().push(i);
                     }
                 }
-                Some(t) => by_trait.entry(t.def).or_default().push(i),
+                Some(t) => {
+                    if tcx.trait_ref_has_error(t) || imp.negative {
+                        continue;
+                    }
+                    let e = trait_impls.entry(t.def).or_default();
+                    e.all.push(i);
+                    match head(tcx, imp.self_ty) {
+                        Some(h) => e.by_head.entry(h).or_default().push(i),
+                        None => e.blanket.push(i),
+                    }
+                }
             }
         }
-        Index { inherent, by_trait }
+        let mut trait_items: FastMap<&'s str, Vec<(DefId, DefId)>> = FastMap::default();
+        for (i, d) in r.defs.iter().enumerate() {
+            if !matches!(d.kind, DefKind::AssocFn | DefKind::AssocConst) {
+                continue;
+            }
+            let Some(m) = d.parent else { continue };
+            let Some(t) = r.modules[m.0 as usize].def else { continue };
+            if r.defs[t.0 as usize].kind == DefKind::Trait {
+                trait_items.entry(d.name).or_default().push((t, DefId(i as u32)));
+            }
+        }
+        Index { inherent, trait_impls, trait_items }
     }
 }
 
@@ -76,7 +103,7 @@ pub(super) fn check_body<'s>(
     tcx: &TyCtxt<'s>,
     r: &Resolver<'s>,
     crates: &[ParsedCrate<'s>],
-    index: &Index,
+    index: &Index<'s>,
     owner: DefId,
     k: u32,
     file: u32,
@@ -100,7 +127,12 @@ pub(super) fn check_body<'s>(
         loops: Vec::new(),
         errors: FastMap::default(),
         reported: FastSet::default(),
+        env_preds: Vec::new(),
+        obligations: Vec::new(),
+        pending: Vec::new(),
+        scope_cache: FastMap::default(),
     };
+    cx.env_predicates();
     match kind {
         DefKind::Fn | DefKind::AssocFn => {
             let body = ast.children(item).iter().copied().find(|&c| ast.kind(c) == Kind::Block)?;
@@ -108,7 +140,9 @@ pub(super) fn check_body<'s>(
             let inputs = tcx.tys(sig.inputs);
             let inputs: Vec<Ty> = inputs.into_iter().map(|t| cx.fill_holes(t)).collect();
             let out = cx.fill_holes(sig.output);
-            cx.ret = cx.opaque_to_var(out);
+            // `impl Trait`: a variable bound by its bounds, so that a
+            // closure returned gets its signature from them.
+            cx.ret = cx.opaque_vars(out, &[], &[]);
             // Parameters: their patterns, in order.
             let params = ast.child(item, Kind::Params)?;
             let mut i = 0;
@@ -199,16 +233,16 @@ struct Loop<'s> {
     broke: bool,
 }
 
-struct FnCtxt<'a, 's> {
-    tcx: &'a TyCtxt<'s>,
-    r: &'a Resolver<'s>,
+pub(super) struct FnCtxt<'a, 's> {
+    pub(super) tcx: &'a TyCtxt<'s>,
+    pub(super) r: &'a Resolver<'s>,
     env: Env<'a, 's>,
-    infer: Infer<'a, 's>,
-    index: &'a Index,
-    k: u32,
+    pub(super) infer: Infer<'a, 's>,
+    pub(super) index: &'a Index<'s>,
+    pub(super) k: u32,
     file: u32,
     ast: &'a Ast<'s>,
-    owner: DefId,
+    pub(super) owner: DefId,
     /// Types of expressions and patterns, unresolved until the end.
     types: FastMap<NodeId, Ty>,
     methods: Vec<(NodeId, DefId)>,
@@ -217,16 +251,29 @@ struct FnCtxt<'a, 's> {
     errors: FastMap<String, usize>,
     /// Nodes already counted as errors.
     reported: FastSet<NodeId>,
+    /// What the body may assume (`traits.rs`).
+    pub(super) env_preds: Vec<Pred>,
+    /// Predicates on variables, from generic items used in the body.
+    pub(super) obligations: Vec<Pred>,
+    /// Projections waiting for their types to be known: `<args>::assoc`
+    /// is the variable.
+    pub(super) pending: Vec<(DefId, crate::ty::List, Ty)>,
+    pub(super) scope_cache: FastMap<DefId, bool>,
 }
 
 impl<'a, 's> FnCtxt<'a, 's> {
     fn finish(mut self) -> BodyResult {
+        self.process_pending();
         self.infer.fallback();
+        self.process_pending();
         let mut types = Vec::with_capacity(self.types.len());
         let (mut error_nodes, mut unknown_nodes) = (0, 0);
         let mut nodes: Vec<(NodeId, Ty)> = self.types.iter().map(|(&n, &t)| (n, t)).collect();
         nodes.sort_by_key(|x| x.0);
         for (n, t) in nodes {
+            let t = self.infer.resolve(t);
+            // Projections whose types are now known.
+            let t = self.normalize(t, 1);
             let t = self.infer.resolve(t);
             if self.tcx.has_error(t) {
                 error_nodes += 1;
@@ -250,15 +297,25 @@ impl<'a, 's> FnCtxt<'a, 's> {
     fn err(&mut self, n: NodeId, why: &str) -> Ty {
         if self.reported.insert(n) {
             *self.errors.entry(why.to_string()).or_default() += 1;
+            // `EPITOME_TYPECK_WHY=text`: print the errors whose reason
+            // has `text` in it, with where they are.
+            static WHY: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+            if let Some(w) = WHY.get_or_init(|| std::env::var("EPITOME_TYPECK_WHY").ok())
+                && why.contains(w.as_str())
+            {
+                let mut text = self.ast.text(n).replace('\n', " ");
+                text.truncate((0..=80.min(text.len())).rev().find(|&i| text.is_char_boundary(i)).unwrap_or(0));
+                eprintln!("{why}: {} in {}", text, self.r.def_path(self.owner));
+            }
         }
         self.tcx.error()
     }
 
-    fn mk(&self, k: TyKind) -> Ty {
+    pub(super) fn mk(&self, k: TyKind) -> Ty {
         self.tcx.mk(k)
     }
 
-    fn unit(&self) -> Ty {
+    pub(super) fn unit(&self) -> Ty {
         self.tcx.unit()
     }
 
@@ -322,14 +379,6 @@ impl<'a, 's> FnCtxt<'a, 's> {
         }
     }
 
-    /// `impl Trait` in a return type: checked as a variable for now.
-    fn opaque_to_var(&mut self, t: Ty) -> Ty {
-        match self.tcx.kind(t) {
-            TyKind::Opaque(_) => self.infer.fresh(),
-            _ => t,
-        }
-    }
-
     fn lang_adt(&mut self, name: &str, args: Vec<Ty>) -> Option<Ty> {
         let d = *self.tcx.lang.get(name)?;
         let l = self.tcx.list(args);
@@ -347,20 +396,37 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let tcx = self.tcx;
         match (tcx.kind(g), tcx.kind(w)) {
             (TyKind::Never, _) => return true,
-            (TyKind::Ref(Mutbl::Mut, x), TyKind::Ref(Mutbl::Not, y)) => {
-                let s = self.infer.snapshot();
+            // Reborrowing, unsizing (`&[T; N]` to `&[T]`, `&T` to
+            // `&dyn Trait`), and deref coercion (`&String` to `&str`).
+            (TyKind::Ref(m, x), TyKind::Ref(m2, y)) if m == m2 || m == Mutbl::Mut => {
+                let p = self.probe();
                 if self.infer.unify(x, y) {
                     return true;
                 }
-                self.infer.rollback(s);
-                if let (TyKind::Array(e, _), TyKind::Slice(f)) = (tcx.kind(self.infer.shallow(x)), tcx.kind(self.infer.shallow(y))) {
-                    return self.infer.unify(e, f);
+                self.rollback(p);
+                if self.unsizes_to(x, y) {
+                    return true;
                 }
+                self.rollback(p);
+                if self.deref_coerces(x, y) {
+                    return true;
+                }
+                self.rollback(p);
             }
-            (TyKind::Ref(m, x), TyKind::Ref(n2, y)) if m == n2 || m == Mutbl::Mut => {
-                if let (TyKind::Array(e, _), TyKind::Slice(f)) = (tcx.kind(self.infer.shallow(x)), tcx.kind(self.infer.shallow(y))) {
-                    return self.infer.unify(e, f);
+            (TyKind::Ref(m, x), TyKind::Ptr(m2, y)) | (TyKind::Ptr(m, x), TyKind::Ptr(m2, y)) if m == m2 || m == Mutbl::Mut => {
+                let p = self.probe();
+                if self.infer.unify(x, y) || self.unsizes_to(x, y) {
+                    return true;
                 }
+                self.rollback(p);
+            }
+            (TyKind::Adt(a, x), TyKind::Adt(b, y)) if a == b && Some(a) == self.lang("owned_box") => {
+                let (x, y) = (tcx.tys(x)[0], tcx.tys(y)[0]);
+                let p = self.probe();
+                if self.infer.unify(x, y) || self.unsizes_to(x, y) {
+                    return true;
+                }
+                self.rollback(p);
             }
             (TyKind::FnDef(d, l), TyKind::FnPtr(s)) => {
                 if let Some((inputs, output)) = self.callable_sig(d, l) {
@@ -403,30 +469,64 @@ impl<'a, 's> FnCtxt<'a, 's> {
 
     /// The parameter types and result of calling item `d` (a function, or
     /// a tuple struct's or variant's constructor) with arguments `l`.
-    fn callable_sig(&mut self, d: DefId, l: crate::ty::List) -> Option<(Vec<Ty>, Ty)> {
+    pub(super) fn callable_sig(&mut self, d: DefId, l: crate::ty::List) -> Option<(Vec<Ty>, Ty)> {
         let tcx = self.tcx;
         let args = tcx.tys(l);
         let params = tcx.all_params(d);
         match self.r.defs[d.0 as usize].kind {
             DefKind::Fn | DefKind::AssocFn | DefKind::ForeignFn => {
                 let sig = tcx.sig_of(tcx.fn_sig[d.0 as usize]?);
-                let inputs = tcx.tys(sig.inputs).into_iter().map(|t| subst(tcx, t, &params, &args)).collect();
-                let out = subst(tcx, sig.output, &params, &args);
-                let out = self.opaque_to_var(out);
+                self.oblige_item(d, &args);
+                // `impl Trait`, for a parameter or the result: a variable,
+                // with the bounds as obligations.
+                let inst = |cx: &mut Self, t: Ty| -> Ty {
+                    let t = subst(tcx, t, &params, &args);
+                    let t = cx.opaque_vars(t, &params, &args);
+                    cx.normalize(t, 0)
+                };
+                let inputs = tcx.tys(sig.inputs).into_iter().map(|t| inst(self, t)).collect();
+                let out = inst(self, sig.output);
                 Some((inputs, out))
             }
             DefKind::Struct => {
                 let v = tcx.adts.get(&d)?.variants.first()?.clone();
-                let inputs = v.fields.iter().map(|f| subst(tcx, f.ty, &params, &args)).collect();
+                let inputs = v.fields.iter().map(|f| subst(tcx, f.ty, &params, &args)).collect::<Vec<_>>();
+                let inputs = inputs.into_iter().map(|t| self.normalize(t, 0)).collect();
                 Some((inputs, self.mk(TyKind::Adt(d, l))))
             }
             DefKind::Variant => {
                 let e = tcx.generics[d.0 as usize].parent?;
                 let v = tcx.adts.get(&e)?.variants.iter().find(|v| v.def == Some(d))?.clone();
-                let inputs = v.fields.iter().map(|f| subst(tcx, f.ty, &params, &args)).collect();
+                let inputs = v.fields.iter().map(|f| subst(tcx, f.ty, &params, &args)).collect::<Vec<_>>();
+                let inputs = inputs.into_iter().map(|t| self.normalize(t, 0)).collect();
                 Some((inputs, self.mk(TyKind::Adt(e, l))))
             }
             _ => None,
+        }
+    }
+
+    /// `t` with each `impl Trait` in it (at the top, or behind a
+    /// reference) replaced by a variable bound by its bounds.
+    fn opaque_vars(&mut self, t: Ty, params: &[crate::ty::ParamId], args: &[Ty]) -> Ty {
+        let tcx = self.tcx;
+        match tcx.kind(t) {
+            TyKind::Opaque(o) => {
+                let v = self.infer.fresh();
+                let mut preds = Vec::new();
+                for tr in tcx.opaque(o).bounds {
+                    let tr = super::traits::subst_trait_ref(tcx, &tr, params, args);
+                    self.elaborate(v, &tr, &mut preds);
+                }
+                for p in preds {
+                    self.oblige(p);
+                }
+                v
+            }
+            TyKind::Ref(m, x) => {
+                let x = self.opaque_vars(x, params, args);
+                self.mk(TyKind::Ref(m, x))
+            }
+            _ => t,
         }
     }
 
@@ -434,28 +534,33 @@ impl<'a, 's> FnCtxt<'a, 's> {
     /// written in the path's last segment (`f::<u8>`) for its own.
     fn item_args(&mut self, d: DefId, path: NodeId) -> Vec<Ty> {
         let tcx = self.tcx;
+        let ast = self.ast;
         let all = tcx.all_params(d);
         let mut args = self.infer.instantiate(&all);
         let own = tcx.generics[d.0 as usize].own.len();
-        let written: Vec<NodeId> = self
-            .ast
-            .children(path)
-            .iter()
-            .rev()
-            .filter(|&&s| self.ast.kind(s) == Kind::Segment)
-            .find_map(|&s| self.ast.child(s, Kind::GenericArgs))
-            .map(|g| self.ast.children(g).iter().copied().filter(|&a| is_type(self.ast.kind(a))).collect())
-            .unwrap_or_default();
         let own_start = all.len() - own;
-        // A variant's (or an assoc item's) written arguments may be its
-        // parent's: `Option::<u8>::None`, `Vec::<u8>::new`.
-        let start = if own == 0 || self.r.defs[d.0 as usize].kind == DefKind::Variant { 0 } else { own_start };
-        for (i, a) in written.into_iter().enumerate() {
-            if start + i < args.len() {
-                let t = self.written_ty(a);
-                args[start + i] = t;
+        let variant = self.r.defs[d.0 as usize].kind == DefKind::Variant;
+        let in_trait = tcx.generics[d.0 as usize].parent.is_some_and(|p| self.r.defs[p.0 as usize].kind == DefKind::Trait);
+        let segs: Vec<NodeId> = ast.children(path).iter().copied().filter(|&s| ast.kind(s) == Kind::Segment).collect();
+        let written = |s: Option<&NodeId>| -> Vec<NodeId> {
+            s.and_then(|&s| ast.child(s, Kind::GenericArgs))
+                .map(|g| ast.children(g).iter().copied().filter(|&a| is_type(ast.kind(a))).collect())
+                .unwrap_or_default()
+        };
+        // On the last segment: the item's own (a variant's are its
+        // enum's: `None::<u8>`). On the one before: its parent's
+        // (`Option::<u8>::None`, `Trait::<A>::f` after `Self`).
+        let last = written(segs.last());
+        let parent = if segs.len() >= 2 { written(segs.get(segs.len() - 2)) } else { Vec::new() };
+        let mut put = |cx: &mut Self, start: usize, ts: Vec<NodeId>| {
+            for (i, a) in ts.into_iter().enumerate() {
+                if start + i < args.len() {
+                    args[start + i] = cx.written_ty(a);
+                }
             }
-        }
+        };
+        put(self, if variant { 0 } else { own_start }, last);
+        put(self, if in_trait { 1 } else { 0 }, parent);
         args
     }
 
@@ -527,7 +632,33 @@ impl<'a, 's> FnCtxt<'a, 's> {
             Res::Partial(base, 1) => {
                 let name = self.last_segment_name(path);
                 let base = (**base).clone();
+                if let Some(q) = self.ast.child(path, Kind::QSelf)
+                    && let Some(&tr) = self.ast.children(q).get(1)
+                {
+                    return self.qualified_trait_value(n, q, tr, name);
+                }
                 self.assoc_value(n, path, &base, name)
+            }
+            Res::Partial(base, 2) => {
+                // `T::Assoc::item`: the associated type, then its item.
+                let base = (**base).clone();
+                let segs: Vec<NodeId> = self.ast.children(path).iter().copied().filter(|&s| self.ast.kind(s) == Kind::Segment).collect();
+                let mid = self.ast.token(segs[segs.len() - 2]).0;
+                let name = self.last_segment_name(path);
+                let Some(bt) = self.base_ty(path, &base) else { return self.err(n, "path through an associated item") };
+                let Some(at) = self.assoc_type_of(bt, mid) else { return self.err(n, "associated type not found") };
+                let at = self.norm(at);
+                if let Some((item, impl_args)) = self.inherent_item(at, name, Ns::Value) {
+                    let own = tcx.generics[item.0 as usize].own.len();
+                    let mut args = impl_args;
+                    let fresh = (0..own).map(|_| self.infer.fresh()).collect::<Vec<_>>();
+                    args.extend(fresh);
+                    return self.mk(TyKind::FnDef(item, tcx.list(args)));
+                }
+                match self.trait_assoc_value(at, name) {
+                    Some(t) => t,
+                    None => self.err(n, "associated item not found"),
+                }
             }
             Res::Partial(..) => self.err(n, "path through an associated item"),
             Res::PrimTy(_) => self.err(n, "a type used as a value"),
@@ -539,9 +670,59 @@ impl<'a, 's> FnCtxt<'a, 's> {
         ast.children(path).iter().rev().find(|&&s| ast.kind(s) == Kind::Segment).map_or("", |&s| ast.token(s).0)
     }
 
+    /// `<T as Trait>::name` as a value.
+    fn qualified_trait_value(&mut self, n: NodeId, q: NodeId, tr: NodeId, name: &str) -> Ty {
+        let tcx = self.tcx;
+        let qk = self.ast.children(q).to_vec();
+        let self_ty = self.written_ty(qk[0]);
+        let Some(&tp) = self.ast.children(tr).first() else { return self.err(n, "bad qualified path") };
+        let mut l = Lower {
+            tcx,
+            env: &self.env,
+            expanding: FastSet::default(),
+            impl_self: None,
+            holes: true,
+            k: self.k,
+            file: self.file,
+            owner: self.owner,
+            failed: false,
+        };
+        let Some(trait_ref) = l.trait_ref(tp) else { return self.err(n, "trait in qualified path not found") };
+        let Some(item) = self.trait_item(trait_ref.def, name, Ns::Value) else {
+            return self.err(n, "no such item in the trait of a qualified path");
+        };
+        let params = tcx.all_params(item);
+        let mut args = vec![self_ty];
+        for t in tcx.tys(trait_ref.args) {
+            let t = self.fill_holes(t);
+            args.push(t);
+        }
+        while args.len() < params.len() {
+            args.push(self.infer.fresh());
+        }
+        args.truncate(params.len());
+        match self.r.defs[item.0 as usize].kind {
+            DefKind::AssocFn => self.mk(TyKind::FnDef(item, tcx.list(args))),
+            DefKind::AssocConst => match tcx.type_of(item) {
+                Some(t) => {
+                    let t = subst(tcx, t, &params, &args);
+                    self.normalize(t, 0)
+                }
+                None => self.err(n, "constant without a type"),
+            },
+            _ => self.err(n, "qualified path to something that is not a value"),
+        }
+    }
+
     /// The type a path's base names, for `Type::item`.
     fn base_ty(&mut self, path: NodeId, base: &Res) -> Option<Ty> {
         let tcx = self.tcx;
+        if let Res::PrimTy("<qualified>") = base
+            && let Some(q) = self.ast.child(path, Kind::QSelf)
+        {
+            let t = self.ast.children(q)[0];
+            return Some(self.written_ty(t));
+        }
         Some(match base {
             Res::Def(d) => match self.r.defs[d.0 as usize].kind {
                 DefKind::Struct | DefKind::Enum | DefKind::Union => {
@@ -580,7 +761,20 @@ impl<'a, 's> FnCtxt<'a, 's> {
     /// inherent impl of the type.
     fn assoc_value(&mut self, n: NodeId, path: NodeId, base: &Res, name: &str) -> Ty {
         let Some(bt) = self.base_ty(path, base) else { return self.err(n, "associated item of something that is not a type") };
-        let bt = self.infer.shallow(bt);
+        let bt = self.norm(bt);
+        let tcx = self.tcx;
+        // `Self::Variant` and `Alias::Variant`.
+        if let TyKind::Adt(e, l) = tcx.kind(bt)
+            && let Some(adt) = tcx.adts.get(&e)
+            && adt.kind == crate::ty::AdtKind::Enum
+            && let Some(v) = adt.variants.iter().find(|v| v.name == name)
+        {
+            return match (v.kind, v.def) {
+                (CtorKind::Unit, _) => bt,
+                (CtorKind::Tuple, Some(vd)) => self.mk(TyKind::FnDef(vd, l)),
+                _ => self.err(n, "struct variant used as a value"),
+            };
+        }
         match self.inherent_item(bt, name, Ns::Value) {
             Some((item, impl_args)) => {
                 let tcx = self.tcx;
@@ -591,13 +785,19 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 match self.r.defs[item.0 as usize].kind {
                     DefKind::AssocFn => self.mk(TyKind::FnDef(item, tcx.list(args))),
                     DefKind::AssocConst => match tcx.type_of(item) {
-                        Some(t) => subst(tcx, t, &tcx.all_params(item), &args),
+                        Some(t) => {
+                            let t = subst(tcx, t, &tcx.all_params(item), &args);
+                            self.normalize(t, 0)
+                        }
                         None => self.err(n, "constant without a type"),
                     },
                     _ => self.err(n, "associated item is not a value"),
                 }
             }
-            None => self.err(n, "associated item not found in an inherent impl"),
+            None => match self.trait_assoc_value(bt, name) {
+                Some(t) => t,
+                None => self.err(n, "associated item not found"),
+            },
         }
     }
 
@@ -625,41 +825,44 @@ impl<'a, 's> FnCtxt<'a, 's> {
 
     // ---- method calls ----
 
-    /// `recv.name(args)`: inherent methods, through references and `Box`.
+    /// `recv.name(args)`: for each type autoderef goes through, the
+    /// receiver by value, then borrowed, then borrowed mutably; inherent
+    /// methods before trait methods at each.
     fn method_call(&mut self, n: NodeId, recv_ty: Ty, name: &str) -> Option<(DefId, Vec<Ty>, Ty)> {
         let tcx = self.tcx;
-        let mut t = self.infer.shallow(recv_ty);
-        for _ in 0..8 {
-            if let Some((item, impl_args)) = self.inherent_item(t, name, Ns::Value)
-                && self.r.defs[item.0 as usize].kind == DefKind::AssocFn
-            {
-                let own = tcx.generics[item.0 as usize].own.len();
-                let mut args = impl_args;
-                let fresh = (0..own).map(|_| self.infer.fresh()).collect::<Vec<_>>();
-                args.extend(fresh);
-                let l = tcx.list(args);
-                let (inputs, output) = self.callable_sig(item, l)?;
-                let Some(&self_param) = inputs.first() else { continue };
-                // The receiver by value, or borrowed to fit `&self`.
-                let s = self.infer.snapshot();
-                if self.infer.unify(self_param, t) {
-                    self.methods.push((n, item));
-                    return Some((item, inputs[1..].to_vec(), output));
-                }
-                self.infer.rollback(s);
-                if let TyKind::Ref(_, inner) = tcx.kind(self.infer.shallow(self_param))
-                    && self.infer.unify(inner, t)
+        let steps = self.autoderef(recv_ty);
+        for t in steps {
+            if self.infer.var_kind(t) == Some(VarKind::General) {
+                return None;
+            }
+            for form in 0..3 {
+                let recv = match form {
+                    0 => t,
+                    1 => self.mk_ref(Mutbl::Not, t),
+                    _ => self.mk_ref(Mutbl::Mut, t),
+                };
+                let s = self.probe();
+                if let Some((item, impl_args)) = self.inherent_item(t, name, Ns::Value)
+                    && self.r.defs[item.0 as usize].kind == DefKind::AssocFn
                 {
+                    let own = tcx.generics[item.0 as usize].own.len();
+                    let mut args = impl_args;
+                    let fresh = (0..own).map(|_| self.infer.fresh()).collect::<Vec<_>>();
+                    args.extend(fresh);
+                    if let Some((inputs, output)) = self.callable_sig(item, tcx.list(args))
+                        && let Some(&sp) = inputs.first()
+                        && self.infer.unify(sp, recv)
+                    {
+                        self.methods.push((n, item));
+                        return Some((item, inputs[1..].to_vec(), output));
+                    }
+                }
+                self.rollback(s);
+                if let Some((item, inputs, output)) = self.trait_method(recv, name) {
                     self.methods.push((n, item));
-                    return Some((item, inputs[1..].to_vec(), output));
+                    return Some((item, inputs, output));
                 }
             }
-            // Through a reference, a raw pointer's not, or a `Box`.
-            t = match tcx.kind(t) {
-                TyKind::Ref(_, x) => self.infer.shallow(x),
-                TyKind::Adt(d, l) if Some(&d) == tcx.lang.get("owned_box") => self.infer.shallow(tcx.tys(l)[0]),
-                _ => return None,
-            };
         }
         None
     }
@@ -750,7 +953,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
                         for &a in &args {
                             self.expr(a, None);
                         }
-                        self.err(n, "method not found (inherent methods only)")
+                        self.err(n, "method not found")
                     }
                 }
             }
@@ -902,7 +1105,15 @@ impl<'a, 's> FnCtxt<'a, 's> {
             }
             Kind::Closure => self.closure(n, &kids, expect),
             Kind::MacroCall => self.builtin_call(n, &kids),
-            Kind::Await | Kind::Yield | Kind::Become | Kind::Yeet | Kind::Builtin | Kind::UseExpr => {
+            Kind::Await => {
+                let t = self.expr(kids[0], None);
+                let s = self.norm(t);
+                match self.await_output(s) {
+                    Some(o) => o,
+                    None => self.err(n, "`.await` on something that is not a future"),
+                }
+            }
+            Kind::Yield | Kind::Become | Kind::Yeet | Kind::Builtin | Kind::UseExpr => {
                 for &c in &kids {
                     if is_expr(ast.kind(c)) {
                         self.expr(c, None);
@@ -993,16 +1204,24 @@ impl<'a, 's> FnCtxt<'a, 's> {
             return self.lang_adt("owned_box", vec![t]).unwrap_or_else(|| self.err(n, "`box` without `Box`"));
         }
         let t = self.expr(kids[1], if op == "*" { None } else { expect });
-        let s = self.infer.shallow(t);
+        let s = self.norm(t);
         match op {
             "*" => match tcx.kind(s) {
-                TyKind::Ref(_, x) | TyKind::Ptr(_, x) => x,
-                TyKind::Adt(d, l) if Some(&d) == tcx.lang.get("owned_box") => tcx.tys(l)[0],
-                _ => self.err(n, "dereference of something that is not a reference (needs `Deref`)"),
+                TyKind::Ptr(_, x) => x,
+                _ => match self.deref_once(s) {
+                    Some(x) => x,
+                    None => self.err(n, "dereference of something that does not implement `Deref`"),
+                },
             },
             "-" if self.infer.is_numeric(s) => t,
             "!" if self.infer.is_integral(s) || tcx.kind(s) == TyKind::Bool => t,
-            _ => self.err(n, "operator on a type that is not a primitive (needs operator traits)"),
+            _ => {
+                let lang = if op == "-" { "neg" } else { "not" };
+                match self.op_trait(lang, s, None) {
+                    Some(o) => o,
+                    None => self.err(n, "unary operator on a type that does not implement it"),
+                }
+            }
         }
     }
 
@@ -1035,8 +1254,21 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let assign = op.ends_with('=') && !matches!(op.as_str(), "==" | "!=" | "<=" | ">=");
         let compare = matches!(op.as_str(), "==" | "!=" | "<" | ">" | "<=" | ">=");
         if compare {
-            // Comparing two values of one type (any type, for now).
-            self.coerce(kids[2], b, a);
+            if both_prim || self.infer.var_kind(sa).is_some() {
+                self.coerce(kids[2], b, a);
+                return bool_;
+            }
+            // `PartialEq<B> for A` or `PartialOrd<B> for A`; failing
+            // that, the same type.
+            let lang = if matches!(op.as_str(), "==" | "!=") { "eq" } else { "partial_ord" };
+            let p = self.probe();
+            match self.lang(lang).map(|tr| self.select(sa, tr, &[sb], 0)) {
+                Some(super::traits::Select::Yes(_)) => {}
+                _ => {
+                    self.rollback(p);
+                    self.coerce(kids[2], b, a);
+                }
+            }
             return bool_;
         }
         if both_prim || self.infer.var_kind(sa).is_some() && self.infer.var_kind(sb).is_some() {
@@ -1048,7 +1280,30 @@ impl<'a, 's> FnCtxt<'a, 's> {
         if matches!(tcx.kind(sa), TyKind::Ptr(..)) && !assign {
             return a;
         }
-        self.err(n, "operator on a type that is not a primitive (needs operator traits)")
+        let base = op.trim_end_matches('=');
+        let lang = match base {
+            "+" => "add",
+            "-" => "sub",
+            "*" => "mul",
+            "/" => "div",
+            "%" => "rem",
+            "&" => "bitand",
+            "|" => "bitor",
+            "^" => "bitxor",
+            "<<" => "shl",
+            ">>" => "shr",
+            _ => return self.err(n, "unknown operator"),
+        };
+        let (sa, sb) = (self.norm(a), self.norm(b));
+        if assign {
+            let name = format!("{lang}_assign");
+            let ok = self.lang(&name).is_some_and(|tr| self.select(sa, tr, &[sb], 0).holds());
+            return if ok { self.unit() } else { self.err(n, "operator on types that do not implement it") };
+        }
+        match self.op_trait(lang, sa, Some(sb)) {
+            Some(o) => o,
+            None => self.err(n, "operator on types that do not implement it"),
+        }
     }
 
     fn range(&mut self, n: NodeId, kids: &[NodeId]) -> Ty {
@@ -1077,7 +1332,11 @@ impl<'a, 's> FnCtxt<'a, 's> {
         if args.len() != inputs.len() {
             self.err(n, "wrong number of arguments");
         }
-        for (i, &a) in args.iter().enumerate() {
+        // Closures last, so that the other arguments settle what they take.
+        let mut order: Vec<usize> = (0..args.len()).filter(|&i| self.ast.kind(args[i]) != Kind::Closure).collect();
+        order.extend((0..args.len()).filter(|&i| self.ast.kind(args[i]) == Kind::Closure));
+        for i in order {
+            let a = args[i];
             match inputs.get(i) {
                 Some(&want) => {
                     let t = self.expr(a, Some(want));
@@ -1094,7 +1353,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let tcx = self.tcx;
         let callee = self.expr(kids[0], None);
         let args = self.kids(kids[1]);
-        let s = self.infer.shallow(callee);
+        let s = self.norm(callee);
         let sig = match tcx.kind(s) {
             TyKind::FnDef(d, l) => self.callable_sig(d, l),
             TyKind::FnPtr(sig) | TyKind::Closure(_, sig) => {
@@ -1109,6 +1368,11 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 _ => None,
             },
             _ => None,
+        };
+        let sig = match sig {
+            Some(x) => Some(x),
+            None if self.infer.var_kind(s).is_none() => self.call_fn_traits(s, args.len()),
+            None => None,
         };
         match sig {
             Some((inputs, output)) => {
@@ -1129,67 +1393,75 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 for &a in &args {
                     self.expr(a, None);
                 }
-                self.err(n, "call of something that is not a function (needs `Fn` traits)")
+                self.err(n, "call of something that is not a function")
             }
         }
     }
 
-    /// `base.name`, through references and `Box`.
+    /// `base.name`, through references, `Box` and `Deref`.
     fn field(&mut self, n: NodeId, base: Ty, name: &str) -> Ty {
         let tcx = self.tcx;
-        let mut t = self.infer.shallow(base);
-        for _ in 0..8 {
+        let steps = self.autoderef(base);
+        for t in steps {
             match tcx.kind(t) {
                 TyKind::Adt(d, l) => {
                     if let Some(adt) = tcx.adts.get(&d)
                         && adt.kind != crate::ty::AdtKind::Enum
                         && let Some(f) = adt.variants[0].fields.iter().find(|f| f.name == name)
                     {
-                        return subst(tcx, f.ty, &tcx.all_params(d), &tcx.tys(l));
+                        let ft = subst(tcx, f.ty, &tcx.all_params(d), &tcx.tys(l));
+                        return self.normalize(ft, 0);
                     }
-                    if Some(&d) == tcx.lang.get("owned_box") {
-                        t = self.infer.shallow(tcx.tys(l)[0]);
-                        continue;
-                    }
-                    return self.err(n, "field not found (or behind `Deref`)");
                 }
                 TyKind::Tuple(l) => {
-                    return match name.parse::<usize>().ok().and_then(|i| tcx.tys(l).get(i).copied()) {
-                        Some(x) => x,
-                        None => self.err(n, "tuple field out of range"),
-                    };
+                    if let Some(x) = name.parse::<usize>().ok().and_then(|i| tcx.tys(l).get(i).copied()) {
+                        return x;
+                    }
                 }
-                TyKind::Ref(_, x) | TyKind::Ptr(_, x) => t = self.infer.shallow(x),
+                TyKind::Ptr(_, x) => {
+                    // Not autoderef, but `(*p).f` is often written `p.f`
+                    // in macro output; follow it once.
+                    let x = self.norm(x);
+                    if let TyKind::Adt(d, l) = tcx.kind(x)
+                        && let Some(adt) = tcx.adts.get(&d)
+                        && adt.kind != crate::ty::AdtKind::Enum
+                        && let Some(f) = adt.variants[0].fields.iter().find(|f| f.name == name)
+                    {
+                        let ft = subst(tcx, f.ty, &tcx.all_params(d), &tcx.tys(l));
+                        return self.normalize(ft, 0);
+                    }
+                }
                 TyKind::Infer(_) => return self.err(n, "field of a value whose type is not yet known"),
-                _ => return self.err(n, "field of something that has none"),
+                _ => {}
             }
         }
-        self.err(n, "field through too many references")
+        self.err(n, "field not found")
     }
 
+    /// `base[idx]`: built in for arrays, slices and `str`, else `Index`,
+    /// through autoderef.
     fn index(&mut self, n: NodeId, base: Ty, idx: Ty) -> Ty {
         let tcx = self.tcx;
-        let mut t = self.infer.shallow(base);
-        loop {
+        let steps = self.autoderef(base);
+        let i = self.norm(idx);
+        for t in steps {
             match tcx.kind(t) {
-                TyKind::Ref(_, x) => t = self.infer.shallow(x),
-                TyKind::Array(e, _) | TyKind::Slice(e) => {
-                    let i = self.infer.shallow(idx);
-                    if self.infer.is_integral(i) {
-                        let usize_ = self.mk(TyKind::Uint(UintTy::Usize));
-                        self.infer.unify(i, usize_);
-                        return e;
-                    }
-                    // A range gives a slice.
-                    if let TyKind::Adt(..) = tcx.kind(i) {
-                        return self.mk(TyKind::Slice(e));
-                    }
-                    return self.err(n, "index that is not an integer or range");
+                TyKind::Array(e, _) | TyKind::Slice(e) if self.infer.is_integral(i) => {
+                    let usize_ = self.mk(TyKind::Uint(UintTy::Usize));
+                    self.infer.unify(i, usize_);
+                    return e;
                 }
-                TyKind::Str => return t,
-                _ => return self.err(n, "indexing something that is not an array or slice (needs `Index`)"),
+                TyKind::Infer(_) => return self.err(n, "indexing a value whose type is not yet known"),
+                _ => {}
+            }
+            if let Some(tr) = self.lang("index")
+                && self.select(t, tr, &[i], 0).holds()
+                && let Some(out) = self.trait_item(tr, "Output", Ns::Type)
+            {
+                return self.project_or_var(out, &[t, i]);
             }
         }
+        self.err(n, "indexing something that does not implement `Index`")
     }
 
     fn struct_expr(&mut self, n: NodeId, kids: &[NodeId]) -> Ty {
@@ -1301,11 +1573,13 @@ impl<'a, 's> FnCtxt<'a, 's> {
         adt_ty
     }
 
-    /// What `for` gets from iterating a value: built in for ranges,
-    /// arrays and slices by reference, for now.
+    /// What `for` gets from iterating a value: `IntoIterator::Item`.
     fn iter_item(&mut self, n: NodeId, t: Ty) -> Ty {
         let tcx = self.tcx;
-        let s = self.infer.shallow(t);
+        let s = self.norm(t);
+        if let Some(item) = self.iterated_item(s) {
+            return item;
+        }
         match tcx.kind(s) {
             TyKind::Adt(d, l) if ["Range", "RangeFrom", "RangeInclusive"].iter().any(|r| tcx.lang.get(r) == Some(&d)) => tcx.tys(l)[0],
             TyKind::Ref(m, x) => match tcx.kind(self.infer.shallow(x)) {
@@ -1319,7 +1593,11 @@ impl<'a, 's> FnCtxt<'a, 's> {
     /// `e?` on `Option<T>` or `Result<T, E>`: `T`.
     fn try_output(&mut self, n: NodeId, t: Ty) -> Ty {
         let tcx = self.tcx;
-        match tcx.kind(self.infer.shallow(t)) {
+        let s = self.norm(t);
+        if let Some(o) = self.try_output_trait(s) {
+            return o;
+        }
+        match tcx.kind(s) {
             TyKind::Adt(d, l) if tcx.lang.get("Option") == Some(&d) || self.r.defs[d.0 as usize].name == "Result" => {
                 tcx.tys(l)[0]
             }
@@ -1332,10 +1610,20 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let ast = self.ast;
         // Parameter types written, or taken from an expected closure or
         // function pointer type.
-        let expected_inputs: Option<Vec<Ty>> = expect.and_then(|e| match tcx.kind(self.infer.shallow(e)) {
-            TyKind::FnPtr(s) | TyKind::Closure(_, s) => Some(tcx.tys(tcx.sig_of(s).inputs)),
-            _ => None,
-        });
+        let mut expected_ret = None;
+        let expected_inputs: Option<Vec<Ty>> = match expect.map(|e| (e, tcx.kind(self.infer.shallow(e)))) {
+            Some((_, TyKind::FnPtr(s) | TyKind::Closure(_, s))) => {
+                let s = tcx.sig_of(s);
+                expected_ret = Some(s.output);
+                Some(tcx.tys(s.inputs))
+            }
+            // A variable or parameter with `Fn` bounds on it.
+            Some((e, _)) => self.closure_expectation(e).map(|(i, r)| {
+                expected_ret = r;
+                i
+            }),
+            None => None,
+        };
         let params = kids.iter().copied().find(|&c| ast.kind(c) == Kind::ClosureParams).map(|p| self.kids(p)).unwrap_or_default();
         let mut inputs = Vec::new();
         for (i, &p) in params.iter().enumerate() {
@@ -1349,7 +1637,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
         }
         let ret = match kids.iter().copied().find(|&c| ast.kind(c) == Kind::RetType) {
             Some(r) => self.written_ty(self.ast.children(r)[0]),
-            None => self.infer.fresh(),
+            None => expected_ret.unwrap_or_else(|| self.infer.fresh()),
         };
         let body = *kids.last().unwrap();
         let saved_ret = std::mem::replace(&mut self.ret, ret);
@@ -1392,6 +1680,40 @@ impl<'a, 's> FnCtxt<'a, 's> {
         if ast.kind(n) == Kind::ConstBlock {
             return self.expr(kids[0], expect);
         }
+        let keyword = |k: &str| kids.iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == k);
+        // `try { e }`: some `R: Try<Output = typeof e>`, which the
+        // context says.
+        if keyword("try") {
+            let out = self.stmts(&stmts, None);
+            let r = match expect {
+                Some(e) => e,
+                None => self.infer.fresh(),
+            };
+            if let Some(tr) = self.lang("Try")
+                && let Some(o) = self.trait_item(tr, "Output", Ns::Type)
+            {
+                let rs = self.norm(r);
+                if self.infer.var_kind(rs).is_some() {
+                    let tcx = self.tcx;
+                    self.obligations.push(Pred::Projection(rs, o, tcx.list(vec![rs]), out));
+                } else {
+                    let ro = self.project_or_var(o, &[rs]);
+                    self.infer.unify(ro, out);
+                }
+            }
+            return r;
+        }
+        // `async` and `gen` blocks: a future or iterator of their own.
+        if keyword("async") || keyword("gen") {
+            self.stmts(&stmts, None);
+            return self.infer.fresh();
+        }
+        self.stmts(&stmts, expect)
+    }
+
+    /// A block's statements: the tail's type, `!` if one diverges, or `()`.
+    fn stmts(&mut self, stmts: &[NodeId], expect: Option<Ty>) -> Ty {
+        let ast = self.ast;
         let mut diverges = false;
         let last = stmts.len().checked_sub(1);
         for (i, &s) in stmts.iter().enumerate() {
@@ -1465,6 +1787,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
         // through references, binding by reference.
         let peels = !matches!(kind, Kind::IdentPat | Kind::WildPat | Kind::RefPat | Kind::RestPat | Kind::OrPat | Kind::ParenPat)
             || kind == Kind::IdentPat && self.r.res_of(self.k as usize, self.file as usize, p).is_some();
+        let t = if peels || kind == Kind::RefPat { self.norm(t) } else { t };
         if peels && let TyKind::Ref(m, inner) = tcx.kind(self.infer.shallow(t)) {
             let bm = if by_ref && bm == Mutbl::Not { Mutbl::Not } else { m };
             return self.pat(p, inner, bm, true);

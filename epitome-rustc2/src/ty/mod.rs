@@ -150,6 +150,8 @@ pub struct TraitRef {
     pub def: DefId,
     pub args: List,
     pub bindings: Vec<(DefId, Ty)>,
+    /// Bounds on associated types: `Iterator<Item: Copy>`.
+    pub assoc_bounds: Vec<(DefId, TraitRef)>,
 }
 
 /// `dyn A + B`: its traits (the first is the principal, the rest auto

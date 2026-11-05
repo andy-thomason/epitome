@@ -10,7 +10,8 @@ wraps the real rustc and replaces only LLVM's code generation. It stays
 useful as a reference. The same crate built by both must behave the
 same.
 
-**Status:** The front end works, up to name resolution.
+**Status:** The front end works up to name resolution, and type
+checking is under way.
 
 - **Parsing.** The lexer and the parser (sections 3 and 4) are written.
   Every `.rs` file of the toolchain's `rust-src` (2994 files, nightly
@@ -28,6 +29,16 @@ same.
 - **Name resolution** (section 5) is done: on `core`, `alloc` and `std`,
   99.6% of paths resolve, or resolve as far as a type, in 0.1 s. Macros
   are found through the same module tree and imports.
+- **Types** (section 7).
+  - Signatures and the type table (7.1, 7.2) are done: 54,523 signatures
+    of `core`, `alloc` and `std` in 0.07 s. The 159 that have an error
+    type all name crates outside the session.
+  - Bodies (7.3) are checked in parallel, with inference variables,
+    expected types, integer fallback, inherent methods and patterns'
+    binding modes. The 32,797 bodies of `core`, `alloc` and `std` take
+    0.2 s, and 70% of them type completely. Almost all of the rest need
+    trait methods, operator traits or `Deref`, which come next.
+    `--dump-types` prints every expression's type.
 
 Everything after that is a plan.
 
@@ -534,6 +545,21 @@ a cache, including associated type projection and normalisation, auto
 traits, `Sized`, and the built-in impls (`Copy` for primitives, `Fn` for
 closures, and so on).
 
+So far (`src/typeck/`):
+
+- `infer.rs` holds a body's variables: general, integer or float, bound
+  by unification, with snapshots to undo a probe (trying an impl).
+- `check.rs` checks expressions against the type expected of them, and
+  patterns against the type they match, through references with default
+  binding modes. The types go in a table by node. Method calls find
+  inherent methods through `&` and `Box`, borrowing the receiver for
+  `&self`, and record the method. Impls are indexed by the head of their
+  self type (an ADT, a primitive, `[T]`, `&T`, ...), so lookup does not
+  scan every impl.
+- The coercions so far: `!` to anything, `&mut T` to `&T`, `&[T; N]` to
+  `&[T]`, and function items and closures to `fn` pointers.
+- Unsuffixed integers and floats left unknown become `i32` and `f64`.
+
 Const evaluation (array lengths, `const` items, const generics) is an
 interpreter over the typed AST, the same walk as lowering but producing
 values.
@@ -744,8 +770,8 @@ Tests of parallel stages run on one thread and on several, and compare.
    loading once we compile proc-macro crates, section 6.7).
 4. Name resolution and item collection (done).
 5. Type checking: signatures and the type table (done); then bodies, for
-   `#![no_std]` programs: integers, structs, enums, references, generics;
-   then traits, methods, closures.
+   `#![no_std]` programs: integers, structs, enums, references, generics
+   (done); then traits, methods, closures.
 6. Lowering of those to Epitome IR; first run tests pass.
 7. Drops, `dyn`, slices and strings, formatting through `core::fmt`.
 8. `core`, then `alloc` and `std` from `rust-src`; Cargo builds.

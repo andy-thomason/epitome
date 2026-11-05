@@ -157,7 +157,7 @@ impl TyCtxt<'_> {
             }
             TyKind::Opaque(o) => {
                 out.push_str("impl ");
-                for (i, t) in self.opaques[o.0 as usize].bounds.iter().enumerate() {
+                for (i, t) in self.opaque(o).bounds.iter().enumerate() {
                     if i > 0 {
                         out.push_str(" + ");
                     }
@@ -165,6 +165,13 @@ impl TyCtxt<'_> {
                 }
             }
             TyKind::Foreign(d) => out.push_str(r.defs[d.0 as usize].name),
+            TyKind::Closure(_, s) => {
+                let s = self.sig_of(s);
+                out.push_str("{closure}(");
+                self.write_list(r, &self.tys(s.inputs), out);
+                out.push_str(") -> ");
+                self.write_ty(r, s.output, out);
+            }
             TyKind::Infer(v) => {
                 let _ = write!(out, "?{v}");
             }
@@ -319,13 +326,13 @@ impl TyCtxt<'_> {
                 let _ = write!(s, "type {path}");
                 self.write_generics(d, &mut s);
                 s.push_str(" = ");
-                self.write_ty(r, self.type_of[d.0 as usize]?, &mut s);
+                self.write_ty(r, self.type_of(d)?, &mut s);
             }
             DefKind::Const | DefKind::AssocConst | DefKind::Static | DefKind::ForeignStatic => {
                 let word =
                     if matches!(def.kind, DefKind::Static | DefKind::ForeignStatic) { "static" } else { "const" };
                 let _ = write!(s, "{word} {path}: ");
-                self.write_ty(r, self.type_of[d.0 as usize]?, &mut s);
+                self.write_ty(r, self.type_of(d)?, &mut s);
             }
             _ => return None,
         }

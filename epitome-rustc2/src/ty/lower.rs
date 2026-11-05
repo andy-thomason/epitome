@@ -10,25 +10,17 @@
 use super::{Abi, FloatTy, IntTy, UintTy};
 use super::{Const, DynData, FnSig, Mutbl, OpaqueDef, ParamId, TraitRef, Ty, TyCtxt, TyKind};
 use crate::ast::{Ast, Kind, NodeId};
-use crate::hash::{FastMap, FastSet};
+use crate::hash::FastSet;
 use crate::resolve::{DefId, DefKind, Ns, Res, Resolver};
 use crate::session::ParsedCrate;
 
 /// Where a node is: crate, file, node.
-pub(super) type At = (u32, u32, NodeId);
+pub(crate) type At = (u32, u32, NodeId);
 
 /// What lowering needs to know besides the tree.
-pub(super) struct Env<'c, 's> {
+pub(crate) struct Env<'c, 's> {
     pub r: &'c Resolver<'s>,
     pub crates: &'c [ParsedCrate<'s>],
-    /// Items by where they are.
-    pub def_at: FastMap<At, DefId>,
-    /// Generic parameters by where they are declared.
-    pub param_at: FastMap<At, ParamId>,
-    /// `Self` of each impl, trait and type definition, by its node.
-    pub self_ty: FastMap<At, Ty>,
-    /// Aliases being expanded, to stop a cycle.
-    pub expanding: FastSet<DefId>,
 }
 
 impl<'c, 's> Env<'c, 's> {
@@ -43,9 +35,17 @@ impl<'c, 's> Env<'c, 's> {
 }
 
 /// Lowering types in one place: an item of one file.
-pub(super) struct Lower<'l, 'c, 's> {
-    pub tcx: &'l mut TyCtxt<'s>,
-    pub env: &'l mut Env<'c, 's>,
+pub(crate) struct Lower<'l, 'c, 's> {
+    pub tcx: &'l TyCtxt<'s>,
+    pub env: &'l Env<'c, 's>,
+    /// Aliases being expanded, to stop a cycle.
+    pub expanding: FastSet<DefId>,
+    /// `Self` of an impl whose header is being lowered (its trait may name
+    /// `Self`), before it is in `Env::self_ty`.
+    pub impl_self: Option<(At, Ty)>,
+    /// In a body, `_` is a hole for inference (`Infer(u32::MAX)`, which
+    /// the checker replaces); in a signature it is an error.
+    pub holes: bool,
     pub k: u32,
     pub file: u32,
     /// The item whose signature this is (for `impl Trait`).
@@ -61,7 +61,7 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
 
     fn err(&mut self, why: &str) -> Ty {
         self.failed = true;
-        *self.tcx.errors.entry(why.to_string()).or_default() += 1;
+        self.tcx.note_error(why);
         self.tcx.error()
     }
 
@@ -106,12 +106,12 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
             }
             Kind::ParenType => self.ty(kids[0]),
             Kind::NeverType => self.tcx.mk(TyKind::Never),
+            Kind::InferType if self.holes => self.tcx.mk(TyKind::Infer(u32::MAX)),
             Kind::InferType => self.err("`_` in a signature"),
             Kind::FnPtrType => self.fn_ptr(n),
             Kind::ImplTraitType => {
                 let bounds = kids.first().map(|&b| self.bounds(b)).unwrap_or_default();
-                let id = super::OpaqueId(self.tcx.opaques.len() as u32);
-                self.tcx.opaques.push(OpaqueDef { owner: self.owner, bounds });
+                let id = self.tcx.new_opaque(OpaqueDef { owner: self.owner, bounds });
                 self.tcx.mk(TyKind::Opaque(id))
             }
             Kind::DynTraitType => {
@@ -147,7 +147,7 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
                 v.map_or(Const::Expr(self.k, self.file, e), Const::Value)
             }
             Kind::PathExpr => match ast.children(e).first().and_then(|&p| self.res(p)) {
-                Some(Res::Generic(n)) => match self.env.param_at.get(&(self.k, self.file, *n)) {
+                Some(Res::Generic(n)) => match self.tcx.param_at.get(&(self.k, self.file, *n)) {
                     Some(&p) => Const::Param(p),
                     None => Const::Expr(self.k, self.file, e),
                 },
@@ -214,7 +214,7 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
                         self.tcx.mk(TyKind::Adt(d, args))
                     }
                     DefKind::TypeAlias => {
-                        let target = super::collect::alias_ty(self.tcx, self.env, d);
+                        let target = super::collect::alias_ty(self.tcx, self.env, &mut self.expanding, d);
                         let args = self.args(d, last);
                         let args = self.tcx.tys(args);
                         let params = self.tcx.all_params(d);
@@ -240,7 +240,7 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
                 }
             }
             Res::PrimTy(p) => prim(self.tcx, p),
-            Res::Generic(n) => match self.env.param_at.get(&(self.k, self.file, *n)) {
+            Res::Generic(n) => match self.tcx.param_at.get(&(self.k, self.file, *n)) {
                 Some(&p) => {
                     if self.tcx.params[p.0 as usize].is_const {
                         let c = self.tcx.konst(Const::Param(p));
@@ -251,11 +251,11 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
                 }
                 None => self.err("generic parameter not found"),
             },
-            Res::SelfTy(f, n) => match self.env.self_ty.get(&(self.k, *f, *n)) {
-                Some(&t) => t,
+            Res::SelfTy(f, n) => match self.self_ty_at(&(self.k, *f, *n)) {
+                Some(t) => t,
                 None => {
                     let what = self
-                        .env
+                        .tcx
                         .def_at
                         .get(&(self.k, *f, *n))
                         .map(|d| format!("{:?}", self.env.r.defs[d.0 as usize].kind));
@@ -300,7 +300,7 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
     /// `base::name` for an associated type.
     fn assoc_of(&mut self, base: &Res, name: &str) -> Ty {
         match base {
-            Res::Generic(n) => match self.env.param_at.get(&(self.k, self.file, *n)) {
+            Res::Generic(n) => match self.tcx.param_at.get(&(self.k, self.file, *n)) {
                 Some(&p) => {
                     let t = self.tcx.mk(TyKind::Param(p));
                     self.assoc_of_param(p, t, name)
@@ -309,8 +309,8 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
             },
             Res::SelfTy(f, n) => {
                 let at = (self.k, *f, *n);
-                let Some(&self_ty) = self.env.self_ty.get(&at) else { return self.err("`Self` here has no type") };
-                let Some(&d) = self.env.def_at.get(&at) else { return self.err("`Self` of nothing") };
+                let Some(self_ty) = self.self_ty_at(&at) else { return self.err("`Self` here has no type") };
+                let Some(&d) = self.tcx.def_at.get(&at) else { return self.err("`Self` of nothing") };
                 match self.env.r.defs[d.0 as usize].kind {
                     DefKind::Trait => {
                         let t = TraitRef { def: d, args: self.tcx.list(Vec::new()), bindings: Vec::new() };
@@ -322,7 +322,7 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
                         if let Some(m) = self.env.r.defs[d.0 as usize].module.or_else(|| self.impl_module(d))
                             && let Some(Res::Def(a)) = self.env.r.lookup(m, name, Ns::Type, m)
                         {
-                            return super::collect::alias_ty(self.tcx, self.env, a);
+                            return super::collect::alias_ty(self.tcx, self.env, &mut self.expanding, a);
                         }
                         match self.tcx.impl_index.get(&d).map(|&i| self.tcx.impls[i].trait_ref.clone()) {
                             Some(Some(t)) => self.projection(self_ty, &t, name),
@@ -333,6 +333,13 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
                 }
             }
             _ => self.err("associated type of a concrete type"),
+        }
+    }
+
+    fn self_ty_at(&self, at: &At) -> Option<Ty> {
+        match self.impl_self {
+            Some((a, t)) if a == *at => Some(t),
+            _ => self.tcx.self_ty.get(at).copied(),
         }
     }
 
@@ -389,7 +396,7 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
                         continue;
                     };
                     let is_p = ast.children(t).first().and_then(|&path| self.res(path)).is_some_and(
-                        |r| matches!(r, Res::Generic(n) if self.env.param_at.get(&(k, f, *n)) == Some(&p)),
+                        |r| matches!(r, Res::Generic(n) if self.tcx.param_at.get(&(k, f, *n)) == Some(&p)),
                     );
                     if is_p {
                         out.extend(self.bounds(b));
@@ -545,7 +552,7 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
     }
 }
 
-pub(super) fn is_type(k: Kind) -> bool {
+pub(crate) fn is_type(k: Kind) -> bool {
     use Kind::*;
     matches!(
         k,
@@ -565,7 +572,7 @@ pub(super) fn is_type(k: Kind) -> bool {
     )
 }
 
-pub(super) fn prim(tcx: &TyCtxt, p: &str) -> Ty {
+pub(crate) fn prim(tcx: &TyCtxt, p: &str) -> Ty {
     let k = match p {
         "bool" => TyKind::Bool,
         "char" => TyKind::Char,

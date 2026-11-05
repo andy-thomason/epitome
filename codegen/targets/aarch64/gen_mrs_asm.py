@@ -41,8 +41,16 @@ CLANG = ["clang", "--target=aarch64-linux-gnu", "-c"]
 CLANG_FEATURES = ("+crc+crypto+sha3+sm4+rcpc+rcpc3+lse+lse128+rdm+dotprod+fp16+fp16fml+bf16+i8mm+f64mm+fp8+fp8fma"
                   "+fp8dot2+fp8dot4+faminmax+lut+cssc+mops+the+d128+gcs+rasv2+ite+flagm+predres+sb+ssbs+tme+ls64"
                   "+wfxt+hbc+brbe+pauth-lr+fprcvt+lsfe+lsui+occmo+cmpbr+pauth+bti+memtag")
+# And SVE's and SME's, for 81-scalable.ll.
+SCALABLE_FEATURES = ("+sve+sve2+sve2p1+sve2p2+sve-b16b16+sve-bitperm+sve-aes+sve-aes2+sve-sha3+sve-sm4+sve-bfscale"
+                     "+sve-f16f32mm+sme+sme2+sme2p1+sme2p2+sme-f64f64+sme-i16i64+sme-f16f16+sme-b16b16+sme-f8f16"
+                     "+sme-f8f32+sme-lutv2+sme-mop4+sme-tmop+ssve-fp8fma+ssve-fp8dot2+ssve-fp8dot4+ssve-aes"
+                     "+ssve-bitperm+f8f16mm+f8f32mm+sme-fa64")
 
 MAX_VARIANTS = 48
+# Whether the instructions written are SVEs and SMEs (81-scalable.ll),
+# or the rest (80-asm.ll).
+SCALABLE = False
 
 
 # ---------------------------------------------------------------------------
@@ -89,7 +97,8 @@ def load(path):
         feats(node.get("condition"), fs)
         if node["_type"] == "Instruction.Instruction":
             p = "/".join(path).lower()
-            if not any(x in p for x in ("sve", "sme", "mortlach", "reserved")):
+            scalable = any(x in p for x in ("sve", "sme", "mortlach"))
+            if "reserved" not in p and scalable == SCALABLE:
                 aliases = [c for c in node.get("children") or [] if c["_type"] == "Instruction.InstructionAlias"]
                 mnemonics = sorted({first_literal(c["assembly"]) for c in aliases} - {first_literal(node["assembly"])})
                 out.append(dict(name=node["name"], mask=mask, value=value, fields=fields, feats=fs, alias=False,
@@ -239,12 +248,21 @@ def assemble_now(lines):
             with open(src, "w") as f:
                 f.write("".join(lines[k] + "\n" for k in todo))
             obj = os.path.join(tmp, "t.o")
-            r = subprocess.run(CLANG + [f"-march=armv9.4-a{CLANG_FEATURES}", "-ferror-limit=0", src, "-o", obj],
+            march = "-march=armv9.4-a" + accepted(CLANG_FEATURES + (SCALABLE_FEATURES if SCALABLE else ""))
+            r = subprocess.run(CLANG + [march, "-ferror-limit=0", src, "-o", obj],
                                capture_output=True, text=True)
             if r.returncode != 0:
                 bad = {int(m.group(1)) - 1 for m in re.finditer(r"t\.s:(\d+):\d+: error", r.stderr)}
                 if not bad:
-                    raise SystemExit(r.stderr[:2000])
+                    # clang crashed (on some SVE and SME lines it does): the
+                    # halves apart, down to the line it crashes on.
+                    if len(todo) == 1:
+                        break
+                    half = len(todo) // 2
+                    for part in (todo[:half], todo[half:]):
+                        for k, w in zip(part, assemble_now([lines[k] for k in part])):
+                            words[k] = w
+                    break
                 todo = [k for i, k in enumerate(todo) if i not in bad]
                 continue
             text = elf_text(open(obj, "rb").read())
@@ -252,6 +270,23 @@ def assemble_now(lines):
                 words[k] = struct.unpack_from("<I", text, 4 * i)[0]
             break
     return words
+
+
+ACCEPTED = {}
+
+
+def accepted(features):
+    """The features of `features` (`+a+b`) this clang knows (newer ones
+    drop some: tme)."""
+    if features not in ACCEPTED:
+        keep = []
+        for f in filter(None, features.split("+")):
+            r = subprocess.run(CLANG + [f"-march=armv9.4-a+{f}", "-x", "assembler", "-", "-o", os.devnull],
+                               input="", capture_output=True, text=True)
+            if r.returncode == 0:
+                keep.append(f)
+        ACCEPTED[features] = "".join("+" + f for f in keep)
+    return ACCEPTED[features]
 
 
 def elf_text(b):
@@ -273,7 +308,13 @@ def elf_text(b):
 NUMS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 15, 16, 24, 31, 32, 33, 48, 63, 64, 100, 127, 128, 255, 256, 504,
         1000, 1020, 4095, 4096, 8188, 32760, 65535, -1, -2, -3, -4, -8, -16, -64, -256, -512, -4096,
         0xff, 0xff00, 0xf0f0, 0x5555, 0x5555_5555, 0x0f0f_0f0f_0f0f_0f0f, 0x5555_5555_5555_5555, 0xffff_0000]
-REG_PREFIX = {"x": "x", "xsp": "x", "w": "w", "wsp": "w", "v": "v", "b": "b", "h": "h", "s": "s", "d": "d", "q": "q"}
+REG_PREFIX = {"x": "x", "xsp": "x", "w": "w", "wsp": "w", "v": "v", "b": "b", "h": "h", "s": "s", "d": "d", "q": "q",
+              "z": "z", "p": "p", "pn": "pn"}
+# The registers of each kind, and those tried first for a line of a
+# template (lists start at even or fourth registers, ZA's slices are chosen
+# by w12-w15, a counter is pn8-pn15).
+REG_COUNT = {"p": 16, "pn": 16}
+REG_TRIES = [None, 4, 8, 12, 0, 16, 13, 2, 24, 14, 15, 9]
 
 
 def bitmask(v, width):
@@ -310,24 +351,40 @@ def name_of(display, taken):
 
 
 def merge_registers(variant, encoded_in):
-    """A number after a register letter (`b{<d>}`, `v{<m>}`) is a register."""
+    """A number after a register letter (`b{<d>}`, `v{<m>}`, SVE's `z`, `p`
+    and `pn`) is a register; one in a list that no field holds (`<Zd2>`) is
+    one after the list's first."""
     out = []
     for p in variant:
-        if (p[0] == "hole" and p[1] == "num" and out and out[-1][0] == "lit" and out[-1][1]
-                and out[-1][1][-1] in "bhsdqvwx" and (len(out[-1][1]) == 1 or not out[-1][1][-2].isalnum())
-                and p[2] in encoded_in):
-            letter = out[-1][1][-1]
-            rest = out[-1][1][:-1]
-            out[-1] = ("lit", rest)
-            out.append(("hole", letter, p[2]))
+        lit = out[-1][1] if out and out[-1][0] == "lit" else ""
+        listed = SCALABLE and re.fullmatch(r"<Z[a-z]*\d>", p[2] or "") if p[0] == "hole" else False
+        if p[0] == "hole" and p[1] == "num" and lit and (p[2] in encoded_in or listed):
+            letter = None
+            if SCALABLE and lit.endswith("pn") and (len(lit) == 2 or not lit[-3].isalnum()):
+                letter = "pn"
+            elif lit[-1] in ("bhsdqvwx" + ("zp" if SCALABLE else "")) and (len(lit) == 1 or not lit[-2].isalnum()):
+                letter = lit[-1]
+            if letter:
+                out[-1] = ("lit", lit[:-len(letter)])
+                out.append(("hole", letter, p[2]))
+                continue
+        out.append(p)
+    # (Literals together, and SVE's `mul vl`, whose words come without
+    # the space between them.)
+    joined = []
+    for p in out:
+        if p[0] == "lit" and joined and joined[-1][0] == "lit":
+            joined[-1] = ("lit", joined[-1][1] + p[1])
         else:
-            out.append(p)
-    return [p for p in out if p != ("lit", "")]
+            joined.append(p)
+    return [(p[0], p[1].replace("mulvl", "mul vl")) if p[0] == "lit" else p for p in joined if p != ("lit", "")]
 
 
 class Hole:
     def __init__(self, kind, display, name, label):
         self.kind, self.display, self.name, self.label = kind, display, name, label
+        # A register after a list's first: that hole, and how far after it.
+        self.after = None
 
     def text(self, v):
         if self.kind == "num":
@@ -345,7 +402,13 @@ def line_of(variant, holes, values):
         if p[0] == "lit":
             out.append(p[1])
         else:
-            out.append(holes[k].text(values[k]))
+            h = holes[k]
+            if h.after is not None:
+                j, off = h.after
+                v = values[j] if values[j] is not None else values[holes[j].after[0]] + holes[j].after[1]
+                out.append(h.text(v + off if h.kind == "num" else (v + off) % REG_COUNT.get(h.kind, 32)))
+            else:
+                out.append(h.text(values[k]))
             k += 1
     return "".join(out)
 
@@ -375,6 +438,29 @@ def fits(samples, width):
     return forms
 
 
+def reg_forms(samples, width):
+    """How a register's field holds it: its number, halved or quartered
+    (a list of two or four), or offset (w8-w11 in two bits, pn8-pn15 in
+    three); never truncated, so that it decodes as itself."""
+    m = (1 << width) - 1
+    out = []
+    for f in fits(samples, width):
+        if f[0] == "shr" and all(v % (1 << f[1]) == 0 and v >> f[1] <= m for v, _ in samples):
+            out.append(f)
+        elif f[0] == "add" and all(0 <= v + f[1] <= m for v, _ in samples):
+            out.append(f)
+    # Offset, then halved or quartered (SME2's z16-z30, even, in three
+    # bits).
+    if not out:
+        v0, b0 = samples[0]
+        for a in (1, 2):
+            c = (b0 << a) - v0
+            if all((v + c) % (1 << a) == 0 and (v + c) >> a == b and 0 <= (v + c) >> a <= m for v, b in samples):
+                out.append(("add_shr", (c, a)))
+                break
+    return out
+
+
 def fit_variant(ins, variant, rules_text):
     """The entry for a template: its enc tokens and asm, or why not."""
     taken = set()
@@ -388,28 +474,105 @@ def fit_variant(ins, variant, rules_text):
         holes.append(Hole(p[1], p[2], name, label))
     if any("(" in h.display or re.search(r"\d>$", h.display) and h.kind == "v" for h in holes):
         return None, "a register list"
-    # A base: registers 1, 2, 3, ...; immediates the first value that works.
-    base = [k + 1 if h.kind != "num" else None for k, h in enumerate(holes)]
-    nums = [k for k, h in enumerate(holes) if h.kind == "num"]
-    choices = [NUMS[:40]] * len(nums)
+    # The registers after a list's first: which, and how far after it (the
+    # next, or strided: SME2's {z0.s, z8.s}), as clang takes them.
+    # An operand written twice (a destructive operation's `<Zdn>`): the
+    # one register, the second written as the first.
+    same = {}
+    for k, h in enumerate(holes):
+        if h.display in [holes[j].display for j in range(k)]:
+            same[k] = next(j for j in range(k) if holes[j].display == h.display)
+    # In a list in braces, the registers after the first follow from it;
+    # so does a range's end (ZA's slices `<offs1>:<offs4>`).
+    group, depth, groups = 0, 0, []
+    k = 0
+    for p in variant:
+        if p[0] == "lit":
+            for ch in p[1]:
+                if ch == "{":
+                    depth += 1
+                    group += 1
+                elif ch == "}":
+                    depth -= 1
+        else:
+            groups.append(group if depth else None)
+            k += 1
+    derived, firsts = [], {}
+    for k, h in enumerate(holes):
+        if k in same:
+            continue
+        if h.kind == "z" and groups[k] is not None:
+            if groups[k] in firsts:
+                derived.append(k)
+                holes[k].after = (firsts[groups[k]], None)
+            else:
+                firsts[groups[k]] = k
+        m = re.fullmatch(r"<([a-z]+)([2-9])>", h.display)
+        if h.kind == "num" and m:
+            first = next((j for j in range(k) if holes[j].display == f"<{m.group(1)}1>"), None)
+            if first is not None:
+                derived.append(k)
+                holes[k].after = (first, None)
+    # (How far after the first: by the number in its name, <Zd4> the
+    # fourth, times the list's stride.)
+    position = {}
+    for k in derived:
+        m = re.search(r"(\d)>$", holes[k].display)
+        if holes[k].kind == "num":
+            position[k] = int(m.group(1)) - 1
+            continue
+        # (Else by its place in the list.)
+        place = sum(1 for j in derived if j <= k and holes[j].after[0] == holes[k].after[0])
+        position[k] = int(m.group(1)) - 1 if m and int(m.group(1)) > 1 else place
+    for k, j in same.items():
+        holes[k].name = holes[j].name
+    regs = [k for k, h in enumerate(holes) if h.kind != "num" and h.after is None and k not in same]
+    nums = [k for k, h in enumerate(holes) if h.kind == "num" and k not in same]
+    # A base: registers 1, 2, 3, ... (else others), lists' strides, and
+    # immediates the first values that work.
+    import random
+    rng = random.Random(len(holes) * 7919 + len(variant))
+    reg_sets = [[k + 1 for k in regs]]
+    for t in REG_TRIES[1:]:
+        reg_sets.append([(t + 4 * i) % 32 if holes[k].kind != "pn" else 8 + (i % 8) for i, k in enumerate(regs)])
+    for _ in range(64):
+        reg_sets.append([rng.choice([1, 2, 4, 8, 9, 10, 11, 12, 13, 14, 15, 16, 20, 24, 28, 0]) for _ in regs])
+    strides = [1, 4, 8] if derived else [1]
     lines, combos = [], []
-    for combo in itertools.islice(itertools.product(*[[1, 0, 4, 8, 16, 2, 3, 32, 64]] * len(nums)), 64):
-        vals = list(base)
-        for k, v in zip(nums, combo):
-            vals[k] = v
-        lines.append(line_of(variant, holes, vals))
-        combos.append(vals)
+    for regset in reg_sets:
+        for stride in strides:
+            # (Fewer immediates with the later registers.)
+            n_imms = 16 if len(lines) < 800 else 4
+            for combo in itertools.islice(itertools.product(*[[1, 0, 4, 8, 16, 2, 3, 32, 64]] * len(nums)), n_imms):
+                vals = [None] * len(holes)
+                for k, v in zip(regs, regset):
+                    vals[k] = v
+                for k, v in zip(nums, combo):
+                    vals[k] = v
+                for k in derived:
+                    holes[k].after = (holes[k].after[0], (1 if holes[k].kind == "num" else stride) * position[k])
+                for k, j in same.items():
+                    holes[k].after = (j, 0) if holes[j].after is None else holes[j].after
+                lines.append(line_of(variant, holes, vals))
+                combos.append((vals, stride))
     words = assemble(lines)
     # The base must be this encoding (clang may choose another: ldur for
     # an offset ldr cannot scale).
     found = next(((w, v) for w, v in zip(words, combos) if w is not None and w & ins["mask"] == ins["value"]), None)
     if found is None:
         return None, "no line of it assembles"
-    w0, base = found
+    w0, (base, stride) = found
+    for k in derived:
+        holes[k].after = (holes[k].after[0], (1 if holes[k].kind == "num" else stride) * position[k])
+    for k, j in same.items():
+        holes[k].after = (j, 0) if holes[j].after is None else holes[j].after
+        holes[k].twice = True
     # Each hole varied alone.
     tries = []
     for k, h in enumerate(holes):
-        vals = NUMS if h.kind == "num" else [v for v in range(32) if v != base[k]]
+        if h.after is not None:
+            continue
+        vals = NUMS if h.kind == "num" else [v for v in range(REG_COUNT.get(h.kind, 32)) if v != base[k]]
         for v in vals:
             if v == base[k]:
                 continue
@@ -437,18 +600,26 @@ def fit_variant(ins, variant, rules_text):
             allowed[k] = ~ins["mask"] & 0xFFFF_FFFF
     bits = [0] * len(holes)
     seen = [[] for _ in holes]
+    # (A register after a list's first changes nothing of its own.)
+    for k in derived:
+        allowed[k] = 0
     for (k, v, _), w in zip(tries, words):
         if w is not None and (w ^ w0) & ~allowed[k] == 0:
             seen[k].append((v, w))
             bits[k] |= w ^ w0
     # Only bits Arm leaves to fields.
     for k, h in enumerate(holes):
+        if h.after is not None:
+            continue
         if bits[k] & ins["mask"]:
             return None, "an operand changes fixed bits"
         if not bits[k]:
             return None, f"operand {h.display} changes no bits"
 
     def express(form, v):
+        if form[0] == "add_shr":
+            c, a = form[1]
+            return f"({v}+{c})>>{a}" if c >= 0 else f"({v}-{-c})>>{a}"
         return {"shr": f"{v}>>{form[1]}" if form[1] else v, "sub_from": f"({form[1]}-{v})",
                 "add": f"({v}+{form[1]})" if form[1] >= 0 else f"({v}-{-form[1]})",
                 "bitmask": f"bitmask{form[1]}({v})"}[form[0]]
@@ -458,6 +629,8 @@ def fit_variant(ins, variant, rules_text):
     tokens_for = {}
     by_field = []
     for k, h in enumerate(holes):
+        if h.after is not None:
+            continue
         if any(bits[k] & bits[j] for j in range(len(holes)) if j != k):
             by_field.append(k)
             continue
@@ -473,6 +646,8 @@ def fit_variant(ins, variant, rules_text):
         samples = [(base[k], gather(w0, positions))] + [(v, gather(w, positions)) for v, w in seen[k]]
         if h.kind != "num":
             form = ("shr", 0) if all(b == v for v, b in samples) else None
+            if form is None and SCALABLE:
+                form = next(iter(reg_forms(samples, width)), None)
         else:
             forms = fits(samples, width)
             form = forms[0] if forms else None
@@ -505,6 +680,8 @@ def fit_variant(ins, variant, rules_text):
             h = holes[k]
             samples = [(base[k], g0)] + [(v, gather(w, positions)) for v, w in seen[k]]
             forms = [("shr", 0)] if h.kind != "num" and all(b == v for v, b in samples) else fits(samples, n)
+            if h.kind != "num" and SCALABLE and not (forms and forms[0] == ("shr", 0) and all(b == v for v, b in samples)):
+                forms = reg_forms(samples, n)
             if not forms:
                 return None, f"no fit for {h.display} in {fname}"
             form = forms[0]
@@ -577,7 +754,48 @@ def fit_variant(ins, variant, rules_text):
         else:
             merged.append(t)
     clean = [w0] + [w for k in range(len(holes)) for _, w in seen[k]]
-    return (holes, merged, w0, clean, forms_of), None
+    return (holes, merged, w0, clean, forms_of, base), None
+
+
+def spelling(toks):
+    """An encoding's shape: its tokens with the operands numbered in order."""
+    ids = {}
+    return re.sub(r"[a-z_][a-z0-9_]*", lambda m: ids.setdefault(m.group(0), f"o{len(ids)}"), " ".join(toks))
+
+
+def normal(t):
+    """A line of assembly as two spellings of it compare: lower case, one
+    space, numbers in decimal, lists without inner spaces."""
+    t = re.sub(r"\s+", " ", t.split("//")[0].replace("\t", " ")).strip().lower()
+    t = re.sub(r"0x[0-9a-f]+", lambda m: str(int(m.group(0), 16)), t)
+    t = re.sub(r"\{\s*", "{", t)
+    t = re.sub(r"\s*\}", "}", t)
+    t = re.sub(r"\s*-\s*", "-", t)
+    return re.sub(r"\s*,\s*", ", ", t)
+
+
+def same_text(a, b):
+    return normal(a) == normal(b)
+
+
+def objdump_words(words):
+    """llvm-objdump's text for each word (None where it reads none)."""
+    out = [None] * len(words)
+    with tempfile.TemporaryDirectory() as tmp:
+        src, obj = os.path.join(tmp, "w.s"), os.path.join(tmp, "w.o")
+        with open(src, "w") as f:
+            f.write("".join(f".inst 0x{w:08x}\n" for w in words))
+        march = "-march=armv9.4-a" + accepted(CLANG_FEATURES + SCALABLE_FEATURES)
+        subprocess.run(CLANG + [march, src, "-o", obj], check=True, capture_output=True)
+        dump = subprocess.run([os.environ.get("LLVM_OBJDUMP", "llvm-objdump"), "-d", "--no-show-raw-insn", "--mattr=+all", obj],
+                              capture_output=True, text=True).stdout
+    for line in dump.splitlines():
+        m = re.match(r"\s*([0-9a-f]+):\s+(.*)", line)
+        if m and not m.group(2).startswith("<"):
+            k = int(m.group(1), 16) // 4
+            if k < len(out) and not m.group(2).startswith(("<unknown>", ".word", "udf")):
+                out[k] = m.group(2)
+    return out
 
 
 def gather(w, positions):
@@ -589,7 +807,8 @@ def gather(w, positions):
 # ---------------------------------------------------------------------------
 # Entries
 
-CLASS = {"x": "x", "xsp": "xsp", "w": "w", "wsp": "wsp", "v": "q", "b": "b", "h": "h", "s": "s", "d": "d", "q": "q"}
+CLASS = {"x": "x", "xsp": "xsp", "w": "w", "wsp": "wsp", "v": "q", "b": "b", "h": "h", "s": "s", "d": "d", "q": "q",
+         "z": "z", "p": "p", "pn": "pn"}
 
 
 def template(variant, holes, forms):
@@ -599,12 +818,20 @@ def template(variant, holes, forms):
     text, k = "", 0
     for p in variant:
         if p[0] == "lit":
-            text += p[1]
+            # (Braces, a register list's, as templates write them.)
+            text += p[1].replace("{", "\x01").replace("}", "\x02")
         else:
             text += f"\x00{k}\x00"
             k += 1
     for k, h in enumerate(holes):
         mark = f"\x00{k}\x00"
+        if h.after is not None:
+            j, off = h.after
+            if h.kind == "num":
+                text = text.replace(mark, f"{{={holes[j].name}+{off}}}" if off else f"{{{holes[j].name}}}")
+            else:
+                text = text.replace(mark, f"{{{holes[j].name}:+{off}}}" if off else f"{{{holes[j].name}}}")
+            continue
         if h.label:
             text = text.replace("#" + mark, mark)
         if h.kind == "v":
@@ -613,18 +840,24 @@ def template(variant, holes, forms):
         form = forms.get(k)
         mod = f":h{form[1]}" if form and form[0] == "bitmask" else ""
         text = text.replace(mark, f"{{{h.name}{mod}}}")
-    return re.sub(r" +", " ", text).strip()
+    return re.sub(r" +", " ", text).strip().replace("\x01", "{lb}").replace("\x02", "{rb}")
 
 
 def entry(name, holes, toks, asm, decode, aliases):
     params = []
     for h in holes:
+        if h.after is not None:
+            continue
         if h.label:
             params.append(f'ptr "label" %{h.name}')
         elif h.kind == "num":
             params.append(f'i64 "imm" %{h.name}')
         else:
-            params.append(f'i64 "reg"="{CLASS[h.kind]}" %{h.name}')
+            cls = CLASS[h.kind]
+            # (A predicate in three bits: p0-p7.)
+            if cls == "p" and re.search(rf"\b{re.escape(h.name)}(_f)?:3\b", " ".join(toks)):
+                cls = "pg"
+            params.append(f'i64 "reg"="{cls}" %{h.name}')
     return (f'define void @{name}({", ".join(params)}) "enc"="{" ".join(toks)}" "asm"="{asm}" "asmonly"{"" if decode else ' "nodecode"'}'
             f'{f" \"aliases\"=\"{",".join(aliases)}\"" if aliases else ""} {{\n'
             f"  ret void\n}}\n")
@@ -635,7 +868,7 @@ def existing():
     mnemonic, so that what they already cover is left out."""
     out = []
     for path in sorted(os.listdir(HERE)):
-        if not path.endswith(".ll") or path == "80-asm.ll":
+        if not path.endswith(".ll") or path in ("80-asm.ll", "81-scalable.ll"):
             continue
         for line in open(os.path.join(HERE, path)):
             m = re.match(r'define .*?@([A-Za-z0-9_.]+)\(.*?"enc"="([^"]*)"', line)
@@ -660,13 +893,18 @@ def existing():
 
 
 def main():
+    global SCALABLE
     if len(sys.argv) < 2:
         sys.exit(__doc__)
+    SCALABLE = "--scalable" in sys.argv[2:]
     insts, rules = load(sys.argv[1])
     stats = collections.Counter()
     jobs = []
     for ins in insts:
-        vs = expand(ins["assembly"], rules)
+        try:
+            vs = expand(ins["assembly"], rules)
+        except RecursionError:
+            vs = None
         if vs is None:
             stats["too many variants"] += 1
             continue
@@ -677,7 +915,7 @@ def main():
             if key in seen:
                 continue
             seen.add(key)
-            if any(p[0] == "lit" and ("{" in p[1] or "}" in p[1]) for p in var):
+            if not SCALABLE and any(p[0] == "lit" and ("{" in p[1] or "}" in p[1]) for p in var):
                 stats["register list"] += 1
                 continue
             jobs.append((ins, var))
@@ -694,12 +932,25 @@ def main():
     # Encodings already written: another spelling of one (b.cs, b.hs) is
     # read, but not written by the disassembler.
     decoded = set()
+    fitted = []
     for ins, var in jobs:
         r, why = fit_variant(ins, var, None)
         if r is None:
             stats[re.sub(r"<[^>]*>", "<..>", why)] += 1
             continue
-        holes, toks, w0, words, forms = r
+        fitted.append((ins, var, r))
+    # Of an encoding's spellings, the disassembler writes the one
+    # llvm-objdump does (SVE's: `{ z0.s, z1.s }` but `{ z0.s - z3.s }`, mov
+    # for cpy), where one is.
+    preferred = set()
+    if SCALABLE:
+        texts = objdump_words([r[2] for _, _, r in fitted])
+        for n, ((ins, var, r), text) in enumerate(zip(fitted, texts)):
+            holes, base = r[0], r[5]
+            if text is not None and same_text(line_of(var, holes, base), text):
+                preferred.add(n)
+    for n, (ins, var, r) in enumerate(fitted):
+        holes, toks, w0, words, forms, _ = r
         if any(all(w & m == v for w in words) for m, v in ours):
             stats["the description has it"] += 1
             covered.add(ins["name"])
@@ -709,7 +960,12 @@ def main():
         # The encoding, its operands numbered in order.
         ids = {}
         shape_ = re.sub(r"[a-z_][a-z0-9_]*", lambda m: ids.setdefault(m.group(0), f"o{len(ids)}"), " ".join(toks))
-        decode = shape_ not in decoded and not ins["alias"]
+        if SCALABLE:
+            # (The spelling llvm-objdump writes, else the first.)
+            others = [m for m, (i2, v2, r2) in enumerate(fitted) if m in preferred and spelling(r2[1]) == shape_]
+            decode = shape_ not in decoded and (n in preferred or not others and not ins["alias"])
+        else:
+            decode = shape_ not in decoded and not ins["alias"]
         if decode:
             decoded.add(shape_)
         if not decode:
@@ -721,14 +977,17 @@ def main():
     for k, v in sorted(stats.items(), key=lambda x: -x[1]):
         print(f"{v:6} {k}", file=sys.stderr)
     ref = json.load(open(sys.argv[1]))["_meta"]["version"]
-    with open(os.path.join(HERE, "80-asm.ll"), "w") as f:
-        f.write(NOTICE.format(ref=ref['ref']))
+    with open(os.path.join(HERE, "81-scalable.ll" if SCALABLE else "80-asm.ll"), "w") as f:
+        f.write(NOTICE.format(ref=ref['ref'], what=SCALABLE_WHAT if SCALABLE else BASE_WHAT))
         f.write("\n".join(entries))
 
 
+BASE_WHAT = """the A64 instructions (base, floating point and Advanced
+; SIMD) the rest of the description does not have"""
+SCALABLE_WHAT = """SVE's and SME's instructions (with --scalable): those
+; of every SVE and SME extension clang knows"""
 NOTICE = """; Entries for assembly and disassembly only ("asmonly"), written by
-; gen_mrs_asm.py: the A64 instructions (base, floating point and Advanced
-; SIMD) the rest of the description does not have. Their bit layouts and
+; gen_mrs_asm.py: {what}. Their bit layouts and
 ; assembly syntax are from Arm's A-profile Architecture Machine Readable
 ; Specification (AARCHMRS, {ref}), under this license:
 ;

@@ -449,6 +449,19 @@ pub fn fill_template(t: &Target, abi: Option<&crate::abi::Abi>, i: usize, value:
         match (value(k), o.kind) {
             (Operand::Reg(r), Kind::Reg(class)) => {
                 let m = &t.machine;
+                // A register after it in a list, `{n:+1}`: z4 for z3 (z0
+                // after z31).
+                if let Some(k) = modifier.and_then(|m| m.strip_prefix('+')).and_then(|k| k.parse::<i64>().ok()) {
+                    match r {
+                        Reg::P(p) => {
+                            let size = m.def(class).names.len() as i64;
+                            let n = m.field(class, p).unwrap_or(0);
+                            out.push_str(&m.name(class, m.phys(class, (n + k).rem_euclid(size))));
+                        }
+                        Reg::V(v) => out.push_str(&format!("%v{v}+{k}")),
+                    }
+                    continue;
+                }
                 // A vector arrangement, `{n:4s}`: v3.4s; or a lane's size,
                 // `{n:.s}`: v3.s (followed in the template by `[k]`).
                 if let Some(arr) =

@@ -372,6 +372,13 @@ impl<'t> Assembler<'t> {
                     let reg = text.split('.').next()?;
                     let p = self.t.machine.lookup(reg).or_else(|| self.t.machine.lookup(&reg.to_ascii_lowercase()))?;
                     let n = self.t.machine.field(class, p)?;
+                    // A register after the operand in a list (`{n:+1}`): the
+                    // operand is the one that many before it.
+                    if let Some(off) = modifier.and_then(|m| m.strip_prefix('+')).and_then(|m| m.parse::<i64>().ok()) {
+                        let size = self.t.machine.def(class).names.len() as i64;
+                        set(&mut r.env, name, (n - off).rem_euclid(size))?;
+                        continue;
+                    }
                     set(&mut r.env, name, n)?;
                     r.shown.insert(k, Operand::Reg(Reg::P(p)));
                 }

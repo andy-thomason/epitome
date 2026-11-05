@@ -19,10 +19,29 @@ use epitome_codegen::objdump::Image;
 use epitome_codegen::target::Target;
 
 /// What clang must be told the machine has, for every extension the
-/// description's instructions need.
-const MARCH: &str = "-march=armv9.4-a+crc+crypto+sha3+sm4+rcpc+rcpc3+lse+lse128+rdm+dotprod+fp16+fp16fml+bf16+i8mm\
+/// description's instructions need (SVE's and SME's too).
+const FEATURES: &str = "crc+crypto+sha3+sm4+rcpc+rcpc3+lse+lse128+rdm+dotprod+fp16+fp16fml+bf16+i8mm\
 +f64mm+sme+fp8+fp8fma+fp8dot2+fp8dot4+faminmax+lut+cssc+mops+the+d128+gcs+rasv2+ite+flagm+predres+sb+ssbs+tme+ls64+wfxt\
-+hbc+brbe+pauth-lr+fprcvt+lsfe+lsui+occmo+cmpbr+pauth+bti+memtag+rng";
++hbc+brbe+pauth-lr+fprcvt+lsfe+lsui+occmo+cmpbr+pauth+bti+memtag+rng+sve+sve2+sve2p1+sve2p2+sve-b16b16+sve-bitperm\
++sve-aes+sve-aes2+sve-sha3+sve-sm4+sve-bfscale+sve-f16f32mm+sme2+sme2p1+sme2p2+sme-f64f64+sme-i16i64+sme-f16f16\
++sme-b16b16+sme-f8f16+sme-f8f32+sme-lutv2+sme-mop4+sme-tmop+ssve-fp8fma+ssve-fp8dot2+ssve-fp8dot4+ssve-aes\
++ssve-bitperm+f8f16mm+f8f32mm+sme-fa64";
+
+/// `-march` with those of FEATURES this clang knows (a newer one has
+/// dropped tme).
+fn march() -> String {
+    let known: Vec<&str> = FEATURES
+        .split('+')
+        .filter(|f| {
+            Command::new("clang")
+                .args(["--target=aarch64-linux-gnu", &format!("-march=armv9.4-a+{f}"), "-c", "-x", "assembler"])
+                .args(["/dev/null", "-o", "/dev/null"])
+                .output()
+                .is_ok_and(|o| o.status.success())
+        })
+        .collect();
+    format!("-march=armv9.4-a+{}", known.join("+"))
+}
 
 /// The sample lines that differ between our object and theirs, their code
 /// split into instructions by `split`.
@@ -84,7 +103,7 @@ fn epitome_as_and_clang_agree() {
     let ours = Assembler::new(&t).assemble(&text, Some(Syntax::Elf)).and_then(|a| a.file(&t)).unwrap();
     let o = tmp.join("aarch64.clang.o");
     let out = Command::new("clang")
-        .args(["--target=aarch64-linux-gnu", MARCH, "-ferror-limit=0", "-c"])
+        .args(["--target=aarch64-linux-gnu", &march(), "-ferror-limit=0", "-c"])
         .arg(&s)
         .arg("-o")
         .arg(&o)

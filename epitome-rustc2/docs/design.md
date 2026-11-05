@@ -10,7 +10,7 @@ wraps the real rustc and replaces only LLVM's code generation. It stays
 useful as a reference. The same crate built by both must behave the
 same.
 
-**Status:** The front end up to macro expansion works.
+**Status:** The front end works, up to name resolution.
 
 - **Parsing.** The lexer and the parser (sections 3 and 4) are written.
   Every `.rs` file of the toolchain's `rust-src` (2994 files, nightly
@@ -24,6 +24,10 @@ same.
     according to rustc's dep-info.
   - The test programs in `tests/expand/` expand to the same tokens as
     `rustc -Zunpretty=expanded`.
+
+- **Name resolution** (section 5) is done: on `core`, `alloc` and `std`,
+  99.6% of paths resolve, or resolve as far as a type, in 0.1 s. Macros
+  are found through the same module tree and imports.
 
 Everything after that is a plan.
 
@@ -218,14 +222,77 @@ directory and lists the failures: the parse corpus of section 12.
 
 ## 5. Name resolution
 
-Resolution fills `res: Vec<Option<Res>>` indexed by `NodeId` for every
-path, and builds the module tree: `DefId`s for items, each module's
-names in its type, value and macro namespaces, glob and named imports
-resolved to a fixed point, the prelude, `extern crate`s and
-`--extern` crates. Local variables resolve to the pattern node that binds
-them. Hygiene for `macro_rules!` comes from each expanded token carrying
-a syntax context (section 6.3), which resolution consults for locals and
-labels.
+**Done** for items, imports and paths (`src/resolve/`).
+`epitome-rustc2 --dump-res` prints every path with what it resolved to,
+and `--resolve-stats` counts them.
+
+### 5.1 Definitions and modules
+
+`collect.rs` makes a `Def` for every item, and a module for the crate
+root, each `mod`, each `enum` (its variants), each `trait` (its items)
+and each block that holds items. A module has names in three namespaces,
+types, values and macros, each with a visibility: public, or seen only
+inside a module (`pub(crate)`, `pub(super)`, private). A tuple or unit
+struct or variant is in both the type and value namespaces.
+`#[macro_export]` macros are also at the crate root.
+
+### 5.2 Imports
+
+`use` trees are flattened into single and glob imports, and resolved in
+rounds until a round resolves nothing new (`imports.rs`).
+
+- **Path starts.** A path starts at `crate`, `self`, `super`, `::crate`,
+  a name in the module, or a crate in the extern prelude. The extern
+  prelude is the crates of the session plus any `extern crate` at the
+  crate root, renames included. 2015 crates start at the crate root.
+- **Globs** are edges to other modules, followed when a name is looked
+  up, so names a module defines or imports by name come first.
+- **The prelude** is what `#[prelude_import]` names, else
+  `std::prelude::rust_20xx` (or `core`'s with `no_std`).
+
+### 5.3 Paths
+
+`paths.rs` walks every file in parallel. It keeps scopes for generic
+parameters and `Self`, function and closure parameters, `let` bindings,
+match arms, `if let` / `while let` (and `let` chains) and `for`
+patterns. An item inside a function sees none of the function's locals.
+
+- **One name** looks in the scopes, then the items of the enclosing
+  blocks and the module, the extern prelude, the prelude, and the
+  built-in types. A generic argument read as a type may be a constant.
+- **A longer path** follows modules, enums and traits. When it reaches a
+  type (`Vec::new`, `T::Item`, `u32::MAX`, `Ordering::is_lt`), it stops
+  with `Res::Partial`, leaving the rest for type checking. A primitive
+  name shadowed by a module (`char` after `use core::char`) falls back to
+  the primitive, as rustc does.
+- **An identifier pattern** that names a unit struct, unit variant or
+  constant in scope is that, not a new binding.
+- **Results** go in a side table from the path's node to its `Res`; the
+  tree does not change.
+
+### 5.4 Hygiene
+
+A path written in a macro 2.0's body resolves in the macro's module
+first (definition-site), then at the call site, for the items the
+expansion itself defines. The span of each macro 2.0's body is known, so
+a token's address says whether it came from one. `macro_rules!`
+expansions resolve at the call site, as rustc's mixed-site hygiene does
+for items. The hygiene of local variables is not yet modelled.
+
+### 5.5 Results on `core`, `alloc` and `std`
+
+On mandelbrot, `core`, `alloc` and `std` resolve in 0.1 s: 54,278
+definitions, 14,733 modules and 6,177 imports.
+
+| Paths (336,574 in all) | Share |
+|---|---|
+| Resolved | 94.3% |
+| Partial (finished in type checking) | 5.3% |
+| Unresolved | 0.4% |
+
+The 128 imports that fail and nearly all of the unresolved paths name
+crates outside the session (`libc`, `hashbrown`, `std_detect`,
+`unwind`, `cfg_if`).
 
 ## 6. Macro expansion
 
@@ -303,9 +370,11 @@ then its own. A call `m!` finds, in order:
   crate`, and `std` or `core`);
 - a built-in.
 
-A path finds the macro in the crate it names. Macros brought in by
-`use` are found by name for now; name resolution (section 5) will
-replace that.
+Paths and macros brought in by `use` are found by name resolution's
+module tree and imports (section 5), rebuilt at the start of each round,
+so an import made by one round's expansions is seen by the next. A
+macro 2.0's body resolves where the macro is defined (5.4). Only proc
+macros of crates outside the session are still found by name.
 
 ### 6.5 Built-in macros and attributes
 
@@ -605,7 +674,7 @@ Tests of parallel stages run on one thread and on several, and compare.
    (done; built-in derives to come).
 3. Proc macros (working through the toolchain's server; in-process
    loading once we compile proc-macro crates, section 6.7).
-4. Name resolution and item collection.
+4. Name resolution and item collection (done).
 5. Type checking for `#![no_std]` programs: integers, structs, enums,
    references, generics, traits, closures.
 6. Lowering of those to Epitome IR; first run tests pass.

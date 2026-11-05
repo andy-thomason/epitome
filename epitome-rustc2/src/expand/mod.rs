@@ -75,6 +75,9 @@ pub enum MacroKind<'s> {
 pub struct MacroDef<'s> {
     pub name: &'s str,
     pub krate: usize,
+    /// Its file (an index into the crate's files) and item.
+    pub file: u32,
+    pub node: NodeId,
     /// Where it is in the crate's text.
     pub pos: Vec<u32>,
     /// The module path it is visible in (and below), after `#[macro_use]`.
@@ -96,6 +99,9 @@ pub struct ExpandStats {
     pub builtins_left: usize,
     /// Calls whose macro was not found, by name.
     pub unresolved: BTreeMap<String, usize>,
+    /// Calls whose macro was found only by searching for its name (not by
+    /// scope, path or import): proc macros of crates outside the session.
+    pub found_by_name: BTreeMap<String, usize>,
     pub files_loaded: usize,
     /// Calls expanded in each round.
     pub per_round: Vec<usize>,
@@ -113,10 +119,10 @@ struct Macros<'s> {
     exported: Vec<HashMap<&'s str, usize>>,
     /// Per crate: crates whose exported macros are in scope by name.
     prelude: Vec<Vec<usize>>,
-    /// Crate names to indices.
-    crate_index: HashMap<String, usize>,
     /// Per crate: the tokens `$crate` becomes in another crate (`::name`).
     crate_path: Vec<Vec<Token<'s>>>,
+    /// Definitions by crate, file and item, to match name resolution's.
+    by_node: HashMap<(usize, u32, NodeId), usize>,
 }
 
 impl Session {
@@ -147,6 +153,7 @@ impl Session {
                 }
             }
             let results: Mutex<Vec<(usize, FileResult<'s>)>> = Mutex::new(Vec::new());
+            let resolver = crate::resolve::module_tree(crates);
             let editions: Vec<Edition> = crates.iter().map(|c| c.edition).collect();
             let names: Vec<String> = crates.iter().map(|c| c.name.clone()).collect();
             let dirs: Vec<std::path::PathBuf> = crates.iter().map(|c| c.dir.clone()).collect();
@@ -155,17 +162,22 @@ impl Session {
                 .enumerate()
                 .flat_map(|(k, c)| c.files.iter_mut().enumerate().map(move |(i, f)| (k, i, f)))
                 .collect();
-            pool::run(self.threads(), jobs, |(k, _, file), _| {
+            pool::run(self.threads(), jobs, |(k, i, file), _| {
                 let mut x = Expander {
                     session: self,
                     macros: &macros,
+                    resolver: &resolver,
+                    file_index: i as u32,
+                    mods: vec![resolver.file_modules[k][i]],
                     krate: k,
+                    found_by_name: std::cell::RefCell::new(Vec::new()),
                     dir: &dirs[k],
                     crate_name: &names[k],
                     edition: editions[k],
                     result: FileResult::default(),
                 };
                 x.expand_file(file);
+                x.result.found_by_name = x.found_by_name.take();
                 results.lock().unwrap().push((k, x.result));
             });
             let mut results = results.into_inner().unwrap();
@@ -181,6 +193,9 @@ impl Session {
                 }
                 for n in r.names {
                     *stats.last_round.entry(n.to_string()).or_default() += 1;
+                }
+                for n in r.found_by_name {
+                    *stats.found_by_name.entry(n.to_string()).or_default() += 1;
                 }
                 round_errors.extend(r.errors.into_iter().map(|e| (k, e)));
             }
@@ -211,13 +226,17 @@ impl Session {
         crate_path: &[Vec<Token<'s>>],
     ) -> (Macros<'s>, Vec<(usize, Vec<Error<'s>>)>) {
         let found: Mutex<Vec<(usize, Vec<MacroDef<'s>>, Vec<Error<'s>>)>> = Mutex::new(Vec::new());
-        let jobs: Vec<(usize, &ParsedFile<'s>)> =
-            crates.iter().enumerate().flat_map(|(k, c)| c.files.iter().map(move |f| (k, f))).collect();
-        pool::run(self.threads(), jobs, |(k, f), _| {
+        let jobs: Vec<(usize, u32, &ParsedFile<'s>)> = crates
+            .iter()
+            .enumerate()
+            .flat_map(|(k, c)| c.files.iter().enumerate().map(move |(i, f)| (k, i as u32, f)))
+            .collect();
+        pool::run(self.threads(), jobs, |(k, i, f), _| {
             let mut defs = Vec::new();
             let mut errors = Vec::new();
             let mut scope = f.scope.clone();
-            collect_defs(&f.ast, f.ast.root, f, k, crates[k].edition, &mut scope, &mut defs, &mut errors);
+            let at = (f, k, i, crates[k].edition);
+            collect_defs(&f.ast, f.ast.root, at, &mut scope, &mut defs, &mut errors);
             found.lock().unwrap().push((k, defs, errors));
         });
         let mut found = found.into_inner().unwrap();
@@ -228,8 +247,8 @@ impl Session {
             by_name: vec![HashMap::new(); crates.len()],
             exported: vec![HashMap::new(); crates.len()],
             prelude: crates.iter().map(|c| macro_prelude(c, crate_index)).collect(),
-            crate_index: crate_index.clone(),
             crate_path: crate_path.to_vec(),
+            by_node: HashMap::new(),
         };
         let mut errs = Vec::new();
         let mut all: Vec<MacroDef<'s>> = Vec::new();
@@ -241,6 +260,7 @@ impl Session {
         }
         all.sort_by(|a, b| (a.krate, &a.pos).cmp(&(b.krate, &b.pos)));
         for (i, d) in all.iter().enumerate() {
+            m.by_node.insert((d.krate, d.file, d.node), i);
             m.by_name[d.krate].entry(d.name).or_default().push(i);
             if d.exported {
                 m.exported[d.krate].insert(d.name, i);
@@ -252,11 +272,6 @@ impl Session {
 }
 
 impl<'s> Macros<'s> {
-    /// The number of crates.
-    fn defs_by_crate(&self) -> usize {
-        self.by_name.len()
-    }
-
     /// Adds each crate's procedural macros, found by name like a macro
     /// brought in by `use`.
     fn add_proc_macros(&mut self, procs: &[Vec<(&'s str, std::path::PathBuf, crate::proc_macro::ProcMacroKind)>]) {
@@ -266,6 +281,8 @@ impl<'s> Macros<'s> {
                 self.defs.push(MacroDef {
                     name,
                     krate: k,
+                    file: u32::MAX,
+                    node: NodeId(0),
                     pos: Vec::new(),
                     scope: Vec::new(),
                     exported: false,
@@ -352,17 +369,15 @@ fn effective_scope(scope: &[ScopeStep]) -> Vec<String> {
     scope[..n].iter().map(|s| s.name.clone()).collect()
 }
 
-#[allow(clippy::too_many_arguments)]
 fn collect_defs<'s>(
     ast: &Ast<'s>,
     id: NodeId,
-    file: &ParsedFile<'s>,
-    krate: usize,
-    edition: Edition,
+    at: (&ParsedFile<'s>, usize, u32, Edition),
     scope: &mut Vec<ScopeStep>,
     out: &mut Vec<MacroDef<'s>>,
     errors: &mut Vec<Error<'s>>,
 ) {
+    let (file, krate, file_index, edition) = at;
     for &k in ast.children(id) {
         match ast.kind(k) {
             Kind::MacroRules | Kind::MacroDef => {
@@ -405,6 +420,8 @@ fn collect_defs<'s>(
                 out.push(MacroDef {
                     name,
                     krate,
+                    file: file_index,
+                    node: k,
                     pos,
                     scope: effective_scope(scope),
                     exported: has_attribute(ast, k, "macro_export"),
@@ -415,16 +432,16 @@ fn collect_defs<'s>(
             Kind::Mod => {
                 let name = ast.child(k, Kind::Name).map_or("", |n| ast.token(n).ident_name());
                 scope.push(ScopeStep { name: name.to_string(), macro_use: has_attribute(ast, k, "macro_use") });
-                collect_defs(ast, k, file, krate, edition, scope, out, errors);
+                collect_defs(ast, k, at, scope, out, errors);
                 scope.pop();
             }
             Kind::Block => {
                 scope.push(ScopeStep { name: block_scope(file, k), macro_use: false });
-                collect_defs(ast, k, file, krate, edition, scope, out, errors);
+                collect_defs(ast, k, at, scope, out, errors);
                 scope.pop();
             }
             Kind::TokenTree => {}
-            kind if !kind.is_leaf() => collect_defs(ast, k, file, krate, edition, scope, out, errors),
+            kind if !kind.is_leaf() => collect_defs(ast, k, at, scope, out, errors),
             _ => {}
         }
     }
@@ -444,6 +461,7 @@ fn inner<'p, 'a>(ast: &'p Ast<'a>, tt: NodeId) -> &'p [Token<'a>] {
 #[derive(Default)]
 struct FileResult<'s> {
     expanded: usize,
+    found_by_name: Vec<&'s str>,
     names: Vec<&'s str>,
     builtins_left: usize,
     unresolved: Vec<&'s str>,
@@ -464,7 +482,14 @@ enum Place {
 struct Expander<'x, 's> {
     session: &'s Session,
     macros: &'x Macros<'s>,
+    /// The module tree and imports as the round began.
+    resolver: &'x crate::resolve::Resolver<'s>,
+    file_index: u32,
+    /// The modules the walk is in (file, inline modules, blocks with items).
+    mods: Vec<crate::resolve::ModId>,
     krate: usize,
+    /// Calls found only by searching for their macro's name.
+    found_by_name: std::cell::RefCell<Vec<&'s str>>,
     /// The crate root's directory.
     dir: &'x std::path::Path,
     crate_name: &'x str,
@@ -482,6 +507,10 @@ impl<'x, 's> Expander<'x, 's> {
     /// Expands the calls under `id`.
     fn walk(&mut self, file: &mut ParsedFile<'s>, id: NodeId, scope: &mut Vec<ScopeStep>, depth: usize) {
         let kind = file.ast.kind(id);
+        let module = self.resolver.module_of.get(&(self.krate as u32, self.file_index, id)).copied();
+        if let Some(m) = module {
+            self.mods.push(m);
+        }
         let pushed = match kind {
             Kind::Mod if id != file.ast.root => {
                 let name = file.ast.child(id, Kind::Name).map_or("", |n| file.ast.token(n).ident_name());
@@ -534,6 +563,9 @@ impl<'x, 's> Expander<'x, 's> {
         }
         if pushed {
             scope.pop();
+        }
+        if module.is_some() {
+            self.mods.pop();
         }
     }
 
@@ -937,9 +969,6 @@ impl<'x, 's> Expander<'x, 's> {
     fn resolve(&self, segs: &[&'s str], rooted: bool, pos: &[u32], module: &[String]) -> Option<usize> {
         let m = self.macros;
         let name = *segs.last()?;
-        let in_crate = |k: usize| -> Option<usize> {
-            m.exported[k].get(name).copied().or_else(|| m.by_name[k].get(name).and_then(|v| v.last().copied()))
-        };
         if segs.len() == 1 && !rooted {
             // Text order: the last definition before the call in this
             // module or an enclosing one.
@@ -957,26 +986,31 @@ impl<'x, 's> Expander<'x, 's> {
                     return Some(d);
                 }
             }
-            // Brought in by `use` (`use crate::a::m;`, or `pub(crate) use
-            // m;` beside the definition): until name resolution can follow
-            // the `use`, take this crate's macro of that name, then one of
-            // a prelude crate's.
-            return in_crate(self.krate)
-                .or_else(|| {
-                    m.prelude[self.krate].iter().find_map(|&k| m.by_name[k].get(name).and_then(|v| v.last().copied()))
-                })
-                .or_else(|| (0..m.defs_by_crate()).find_map(in_crate));
         }
-        let first = segs[0];
-        if !rooted && matches!(first, "crate" | "self" | "super" | "Self") {
-            return in_crate(self.krate);
+        // By path and imports, as name resolution sees the module tree; a
+        // call written in a macro 2.0's body, where that macro is.
+        let call_site = *self.mods.last()?;
+        let def_site = self.resolver.def_site_module(segs[0]);
+        for here in def_site.into_iter().chain([call_site]) {
+            if let Some(d) = self.resolver.resolve_macro(self.krate as u32, here, segs, rooted) {
+                let def = &self.resolver.defs[d.0 as usize];
+                if let Some(&i) = m.by_node.get(&(def.krate as usize, def.file, def.node)) {
+                    return Some(i);
+                }
+            }
         }
-        if let Some(&k) = m.crate_index.get(first) {
-            return in_crate(k);
+        // Proc macros of crates outside the session (`hello::echo!`, or
+        // `echo!` after `use hello::echo`) are found by name.
+        let proc_in = |k: usize| -> Option<usize> {
+            m.by_name[k].get(name)?.iter().rev().copied().find(|&d| matches!(m.defs[d].kind, MacroKind::Proc(..)))
+        };
+        // Anything else is left for the next round, whose module tree has
+        // the imports this round's expansions made.
+        let found = proc_in(self.krate);
+        if found.is_some() {
+            self.found_by_name.borrow_mut().push(name);
         }
-        // A module path: this crate, else (through a `use` of another
-        // crate's module) any crate.
-        in_crate(self.krate).or_else(|| (0..m.defs_by_crate()).find_map(in_crate))
+        found
     }
 }
 

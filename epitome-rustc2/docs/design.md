@@ -618,6 +618,28 @@ values.
 
 ## 8. Lowering to Epitome IR
 
+### 8.1 Layout (`src/layout.rs`) and constants (`src/consteval.rs`)
+
+Done. A `LayoutCx` works out the layout of concrete types, once each,
+from any thread: size, alignment, fields' offsets, the ABI (`Scalar`,
+`ScalarPair`, or in memory), and the largest niche.
+
+- Pointers to slices and `str` carry a length; to `dyn Trait`, a vtable.
+- `repr(Rust)` fields go in order of decreasing alignment; `repr(C)`,
+  `packed(n)`, `align(n)` and `transparent` are followed.
+- Enums have a tag (the `repr`'s integer or the smallest that holds the
+  discriminants), or, when all variants but one carry no data, use a
+  niche in that one (`Option<&T>`, `Option<NonZero<u32>>`).
+- Pattern types (`pattern_type!(u32 is 1..)`, `*const T is !null`, as
+  `NonNull` and the `NonZero` integers are built) are `TyKind::Pat`, with
+  their range; they narrow the scalar.
+- The constant evaluator covers array lengths, discriminants, integer
+  `const`s, `MIN`/`MAX`/`BITS`, `size_of`/`align_of`.
+- `--dump-layout` prints every non-generic type's layout;
+  `tests/layout_vs_rustc.rs` checks 45 types' sizes and alignments
+  against a program rustc builds.
+
+
 Lowering is demand-driven monomorphisation: start from `main` (or every
 exported item of a library), and lower each `(DefId, generic args)`
 instance once, walking its AST with the side tables and substituting

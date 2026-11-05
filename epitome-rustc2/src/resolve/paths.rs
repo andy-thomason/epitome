@@ -728,6 +728,7 @@ fn is_type(k: Kind) -> bool {
             | SliceType
             | TupleType
             | ParenType
+            | PatternType
             | NeverType
             | InferType
             | FnPtrType

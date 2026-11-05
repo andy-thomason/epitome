@@ -107,6 +107,7 @@ impl<'t, 's> Infer<'t, 's> {
             TyKind::Ref(m, x) => tcx.mk(TyKind::Ref(m, self.resolve(x))),
             TyKind::Ptr(m, x) => tcx.mk(TyKind::Ptr(m, self.resolve(x))),
             TyKind::Slice(x) => tcx.mk(TyKind::Slice(self.resolve(x))),
+            TyKind::Pat(x, a, b) => tcx.mk(TyKind::Pat(self.resolve(x), a, b)),
             TyKind::Array(x, c) => tcx.mk(TyKind::Array(self.resolve(x), c)),
             TyKind::FnPtr(s) => {
                 let mut sig = tcx.sig_of(s);
@@ -203,6 +204,7 @@ impl<'t, 's> Infer<'t, 's> {
             (TyKind::Projection(d, x), TyKind::Projection(e, y)) => d == e && self.unify_lists(x, y),
             (TyKind::Ref(m, x), TyKind::Ref(n, y)) | (TyKind::Ptr(m, x), TyKind::Ptr(n, y)) => m == n && self.unify(x, y),
             (TyKind::Slice(x), TyKind::Slice(y)) => self.unify(x, y),
+            (TyKind::Pat(x, a, b), TyKind::Pat(y, c, d)) => a == c && b == d && self.unify(x, y),
             (TyKind::Array(x, c), TyKind::Array(y, d)) => self.consts_agree(c, d) && self.unify(x, y),
             (TyKind::FnPtr(s), TyKind::FnPtr(t)) => {
                 let (s, t) = (tcx.sig_of(s), tcx.sig_of(t));

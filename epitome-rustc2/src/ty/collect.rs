@@ -482,6 +482,21 @@ fn find_assoc_in(env: &Env, t: DefId, name: &str, seen: &mut FastSet<DefId>) -> 
 }
 
 /// `t` with each of `params` replaced by the matching `args`.
+/// A constant with `params` replaced by `args` (a const parameter's
+/// argument is a `ConstArg` type).
+pub(crate) fn subst_const(tcx: &TyCtxt, c: super::ConstId, params: &[ParamId], args: &[Ty]) -> super::ConstId {
+    match tcx.const_of(c) {
+        super::Const::Param(p) => match params.iter().position(|&q| q == p).and_then(|i| args.get(i)) {
+            Some(&a) => match tcx.kind(a) {
+                TyKind::ConstArg(c2) => c2,
+                _ => c,
+            },
+            None => c,
+        },
+        _ => c,
+    }
+}
+
 pub(crate) fn subst(tcx: &TyCtxt, t: Ty, params: &[ParamId], args: &[Ty]) -> Ty {
     if params.is_empty() {
         return t;
@@ -503,12 +518,20 @@ pub(crate) fn subst(tcx: &TyCtxt, t: Ty, params: &[ParamId], args: &[Ty]) -> Ty 
         TyKind::Ref(m, x) => tcx.mk(TyKind::Ref(m, sub(x))),
         TyKind::Ptr(m, x) => tcx.mk(TyKind::Ptr(m, sub(x))),
         TyKind::Slice(x) => tcx.mk(TyKind::Slice(sub(x))),
-        TyKind::Array(x, c) => tcx.mk(TyKind::Array(sub(x), c)),
+        TyKind::Pat(x, a, b) => tcx.mk(TyKind::Pat(sub(x), a, b)),
+        TyKind::Array(x, c) => tcx.mk(TyKind::Array(sub(x), subst_const(tcx, c, params, args))),
+        TyKind::ConstArg(c) => tcx.mk(TyKind::ConstArg(subst_const(tcx, c, params, args))),
         TyKind::FnPtr(s) => {
             let mut sig = tcx.sig_of(s);
             sig.inputs = sub_list(sig.inputs);
             sig.output = sub(sig.output);
             tcx.mk(TyKind::FnPtr(tcx.sig(sig)))
+        }
+        TyKind::Closure(c, s) => {
+            let mut sig = tcx.sig_of(s);
+            sig.inputs = sub_list(sig.inputs);
+            sig.output = sub(sig.output);
+            tcx.mk(TyKind::Closure(c, tcx.sig(sig)))
         }
         TyKind::Dyn(d) => {
             let mut data = tcx.dyn_of(d);

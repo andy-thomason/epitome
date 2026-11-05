@@ -1058,7 +1058,7 @@ fn mentions_rigid(tcx: &crate::ty::TyCtxt, t: Ty) -> bool {
     match tcx.kind(t) {
         TyKind::Param(_) | TyKind::Opaque(_) | TyKind::Dyn(_) | TyKind::Projection(..) => true,
         TyKind::Tuple(l) | TyKind::Adt(_, l) | TyKind::FnDef(_, l) => tcx.tys(l).into_iter().any(|x| mentions_rigid(tcx, x)),
-        TyKind::Ref(_, x) | TyKind::Ptr(_, x) | TyKind::Slice(x) | TyKind::Array(x, _) => mentions_rigid(tcx, x),
+        TyKind::Ref(_, x) | TyKind::Ptr(_, x) | TyKind::Slice(x) | TyKind::Array(x, _) | TyKind::Pat(x, ..) => mentions_rigid(tcx, x),
         _ => false,
     }
 }

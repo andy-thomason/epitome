@@ -111,31 +111,7 @@ pub(super) fn check_body<'s>(
 ) -> Option<BodyResult> {
     let ast = &crates[k as usize].files[file as usize].ast;
     let kind = r.defs[owner.0 as usize].kind;
-    let mut cx = FnCtxt {
-        tcx,
-        r,
-        env: Env { r, crates },
-        infer: Infer::new(tcx),
-        index,
-        k,
-        file,
-        ast,
-        owner,
-        types: FastMap::default(),
-        methods: Vec::new(),
-        adjustments: FastMap::default(),
-        pat_derefs: FastMap::default(),
-        bindings: FastMap::default(),
-        ret: tcx.unit(),
-        loops: Vec::new(),
-        errors: FastMap::default(),
-        reported: FastSet::default(),
-        env_preds: Vec::new(),
-        obligations: Vec::new(),
-        pending: Vec::new(),
-        scope_cache: FastMap::default(),
-    };
-    cx.env_predicates();
+    let mut cx = FnCtxt::new(tcx, r, crates, index, owner, k, file);
     match kind {
         DefKind::Fn | DefKind::AssocFn => {
             let body = ast.children(item).iter().copied().find(|&c| ast.kind(c) == Kind::Block)?;
@@ -270,6 +246,48 @@ pub(super) struct FnCtxt<'a, 's> {
 }
 
 impl<'a, 's> FnCtxt<'a, 's> {
+    /// A context for checking the body of `owner` (in crate `k`, `file`),
+    /// or, with an owner that has no predicates, for selecting outside
+    /// any body.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn new(
+        tcx: &'a TyCtxt<'s>,
+        r: &'a Resolver<'s>,
+        crates: &'a [ParsedCrate<'s>],
+        index: &'a Index<'s>,
+        owner: DefId,
+        k: u32,
+        file: u32,
+    ) -> Self {
+        let ast = &crates[k as usize].files[file as usize].ast;
+        let mut cx = FnCtxt {
+            tcx,
+            r,
+            env: Env { r, crates },
+            infer: Infer::new(tcx),
+            index,
+            k,
+            file,
+            ast,
+            owner,
+            types: FastMap::default(),
+            methods: Vec::new(),
+            adjustments: FastMap::default(),
+            pat_derefs: FastMap::default(),
+            bindings: FastMap::default(),
+            ret: tcx.unit(),
+            loops: Vec::new(),
+            errors: FastMap::default(),
+            reported: FastSet::default(),
+            env_preds: Vec::new(),
+            obligations: Vec::new(),
+            pending: Vec::new(),
+            scope_cache: FastMap::default(),
+        };
+        cx.env_predicates();
+        cx
+    }
+
     fn finish(mut self) -> BodyResult {
         self.process_pending();
         self.infer.fallback();

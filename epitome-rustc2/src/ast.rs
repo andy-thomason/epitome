@@ -414,6 +414,9 @@ pub enum Kind {
     TupleType,
     /// `(T)`: `Type`.
     ParenType,
+    /// `(T is 1..)`, what `pattern_type!(T is 1..)` expands to: `Type
+    /// TokenTree` (the pattern, as tokens).
+    PatternType,
     /// `!`.
     NeverType,
     /// `_`.

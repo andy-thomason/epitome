@@ -106,6 +106,9 @@ pub enum TyKind {
     Closure(ClosureId, SigId),
     /// A type from an `extern` block.
     Foreign(DefId),
+    /// A pattern type, `pattern_type!(u32 is 1..)`: the type, holding only
+    /// `start..=end` (two's complement, wrapping if `start > end`).
+    Pat(Ty, ConstId, ConstId),
     /// An inference variable (only while checking a body).
     Infer(u32),
     /// A constant as a generic argument (`N`, `3`, `{ N + 1 }`), only in
@@ -410,7 +413,7 @@ impl<'s> TyCtxt<'s> {
             TyKind::Tuple(l) | TyKind::Adt(_, l) | TyKind::FnDef(_, l) | TyKind::Projection(_, l) => {
                 self.tys(l).into_iter().any(|x| self.has_error(x))
             }
-            TyKind::Ref(_, x) | TyKind::Ptr(_, x) | TyKind::Slice(x) => self.has_error(x),
+            TyKind::Ref(_, x) | TyKind::Ptr(_, x) | TyKind::Slice(x) | TyKind::Pat(x, ..) => self.has_error(x),
             TyKind::Array(x, c) => self.has_error(x) || self.const_of(c) == Const::Error,
             TyKind::FnPtr(s) | TyKind::Closure(_, s) => {
                 let s = self.sig_of(s);

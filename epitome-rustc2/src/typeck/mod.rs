@@ -137,10 +137,100 @@ struct BodyResult {
     unknown_nodes: usize,
 }
 
+pub use check::Index;
+
+/// Trait selection and normalisation outside any body, for types whose
+/// generic parameters have all been replaced (monomorphisation, layout).
+/// Cheap to make: one per job.
+pub struct Solver<'a, 's> {
+    cx: check::FnCtxt<'a, 's>,
+}
+
+/// What makes a concrete type implement a trait.
+#[derive(Clone, Debug)]
+pub enum ImplSource {
+    /// An impl (its index in `TyCtxt::impls`) with its arguments.
+    Impl(usize, Vec<Ty>),
+    /// Built in: closures and functions for the `Fn` traits, `Sized`,
+    /// auto traits, ...
+    Builtin,
+}
+
+impl<'a, 's> Solver<'a, 's> {
+    pub fn new(tcx: &'a TyCtxt<'s>, r: &'a Resolver<'s>, crates: &'a [ParsedCrate<'s>], index: &'a Index<'s>) -> Self {
+        // The first crate's root: no predicates to assume.
+        let root = r.defs.iter().position(|d| d.parent.is_none()).map_or(DefId(0), |i| DefId(i as u32));
+        let def = &r.defs[root.0 as usize];
+        Solver { cx: check::FnCtxt::new(tcx, r, crates, index, root, def.krate, def.file) }
+    }
+
+    /// `t` with its projections worked out.
+    pub fn normalize(&mut self, t: Ty) -> Ty {
+        let mut t = t;
+        for _ in 0..4 {
+            let n = self.cx.normalize(t, 1);
+            let n = self.cx.infer.resolve(n);
+            if n == t {
+                break;
+            }
+            t = n;
+        }
+        t
+    }
+
+    /// How `t: tr<targs>` holds, if it does unambiguously.
+    pub fn select(&mut self, t: Ty, tr: DefId, targs: &[Ty]) -> Option<ImplSource> {
+        let s = self.cx.probe();
+        let got = match self.cx.select(t, tr, targs, 0) {
+            traits::Select::Yes(traits::Source::Impl(i, args)) => {
+                let args = args.into_iter().map(|a| self.cx.infer.resolve(a)).collect();
+                Some(ImplSource::Impl(i, args))
+            }
+            traits::Select::Yes(_) => Some(ImplSource::Builtin),
+            _ => None,
+        };
+        self.cx.rollback(s);
+        got
+    }
+
+    /// The function a call of trait method `item` at `args` (`Self`, the
+    /// trait's other arguments, then the method's own) runs: the impl's
+    /// method with its arguments, or the trait's default method. `None`
+    /// for a built-in impl (a closure's `call`, say) or no impl.
+    pub fn resolve_method(&mut self, item: DefId, args: &[Ty]) -> Option<(DefId, Vec<Ty>)> {
+        let tcx = self.cx.tcx;
+        let Some(tr) = self.cx.trait_of(item) else { return Some((item, args.to_vec())) };
+        let ntrait = tcx.all_params(tr).len();
+        let (self_ty, targs) = (args[0], &args[1..ntrait.min(args.len())]);
+        match self.select(self_ty, tr, targs)? {
+            ImplSource::Impl(i, iargs) => {
+                let name = self.cx.r.defs[item.0 as usize].name;
+                let m = self.cx.r.defs[tcx.impls[i].def.0 as usize].module?;
+                match self.cx.r.modules[m.0 as usize].names.get(&(name, crate::resolve::Ns::Value)).map(|b| &b.res) {
+                    Some(crate::resolve::Res::Def(f)) => {
+                        let mut a = iargs;
+                        a.extend_from_slice(&args[ntrait.min(args.len())..]);
+                        Some((*f, a))
+                    }
+                    // Not overridden: the trait's own body.
+                    _ => Some((item, args.to_vec())),
+                }
+            }
+            ImplSource::Builtin => None,
+        }
+    }
+}
+
 impl Session {
     /// Type checks every body of `crates`.
     pub fn typeck<'s>(&'s self, crates: &[ParsedCrate<'s>], r: &Resolver<'s>, tcx: &TyCtxt<'s>) -> TypeckResults {
         let index = check::Index::new(tcx, r);
+        self.typeck_with(crates, r, tcx, &index)
+    }
+
+    /// `typeck`, with an index of impls already made (to share with
+    /// later stages).
+    pub fn typeck_with<'s>(&'s self, crates: &[ParsedCrate<'s>], r: &Resolver<'s>, tcx: &TyCtxt<'s>, index: &Index<'s>) -> TypeckResults {
         let bodies: Vec<Body> = (0..r.defs.len() as u32)
             .map(DefId)
             .filter(|&d| {
@@ -159,7 +249,7 @@ impl Session {
         let out: Mutex<Vec<BodyResult>> = Mutex::new(Vec::new());
         let checked: Mutex<Vec<DefId>> = Mutex::new(Vec::new());
         pool::run(self.threads(), bodies, |b, _| {
-            if let Some(res) = check::check_body(tcx, r, crates, &index, b.owner, b.k, b.file, b.item) {
+            if let Some(res) = check::check_body(tcx, r, crates, index, b.owner, b.k, b.file, b.item) {
                 checked.lock().unwrap().push(b.owner);
                 out.lock().unwrap().push(res);
             }
@@ -284,7 +374,7 @@ impl TyCtxt<'_> {
             TyKind::Tuple(l) | TyKind::Adt(_, l) | TyKind::FnDef(_, l) | TyKind::Projection(_, l) => {
                 self.tys(l).into_iter().any(|x| self.has_infer(x))
             }
-            TyKind::Ref(_, x) | TyKind::Ptr(_, x) | TyKind::Slice(x) | TyKind::Array(x, _) => self.has_infer(x),
+            TyKind::Ref(_, x) | TyKind::Ptr(_, x) | TyKind::Slice(x) | TyKind::Array(x, _) | TyKind::Pat(x, ..) => self.has_infer(x),
             TyKind::FnPtr(s) | TyKind::Closure(_, s) => {
                 let s = self.sig_of(s);
                 self.has_infer(s.output) || self.tys(s.inputs).into_iter().any(|x| self.has_infer(x))

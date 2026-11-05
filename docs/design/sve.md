@@ -36,32 +36,44 @@ run under qemu (`qemu-aarch64 -cpu max`), static against Rust's musl
   (`target::SCALABLE`), so that `<vscale x 4 x i32>` and `<4 x i32>` are
   told apart.
 - Selection puts a scalable vector in z, a scalable vector of i1 in p
-  (`isel::class_of_ty`). Entries for selection are in `82-sve.ll` (needs
-  the feature `sve`).
+  (`isel::class_of_ty`). Entries for selection are in `82-sve.ll`,
+  written by `gen_sve.py` from tables with `81-scalable.ll`'s encodings
+  (needs the feature `sve`): so far copies, whole registers to and from
+  memory (`ldr`, `str`: little-endian, the lanes in order whatever their
+  width), and unpredicated arithmetic and logic.
 - Arguments and results: z0-z7 are d0-d7's registers, so the convention's
   floating-point registers already pass them (AAPCS64's SVE variant).
+
+## Spills and frames (done)
+
+A spill slot of a scalable value is a vector length (`Slot::scalable`),
+whatever the machine's is. A function with such slots has them between
+the rest and the saves (`frame::scalable_frame`): from sp up, arguments
+for calls and the other slots, then the scalable slots, then the saves and
+the frame record. The frame is made in three steps (the top, by bytes,
+with x29 set and the CFA defined from it; the scalable slots, `addvl sp,
+sp, #-n`; the rest, by bytes) and undone from x29. Scalable slots are
+addressed in vector lengths from `sp` plus the fixed part (`ldr z0, [x16,
+#k, mul vl]`), incoming arguments from x29. The spills are `82-sve.ll`'s
+roles `load.z` and `store.z`, the steps `addvl`.
 
 ## Still to do
 
 In order:
 
-1. **Spills and frames.** A slot of a scalable value is sized in vector
-   lengths (`mul vl`): laid out apart from the rest, made with `addvl`,
-   addressed `[sp, #k, mul vl]`; the CFA from the frame pointer once sp
-   moves by a vector length.
-2. **Predicates.** A third file in the calling convention (p0-p3 for
+1. **Predicates.** A third file in the calling convention (p0-p3 for
    arguments, p0 for a result), allocatable; spills in predicate lengths.
-3. **Selection**: what clang's vectoriser makes (loads and stores with an
+2. **Selection**: what clang's vectoriser makes (loads and stores with an
    all-true predicate, splats, `llvm.vscale`, arithmetic, comparisons into
    predicates, selects, `llvm.fmuladd`, reductions, `whilelo` loops), as a
    generated `82-sve.ll` (from tables, with `81-scalable.ll`'s
    encodings).
-4. **The passes before selection** leave scalable vectors alone, or say
+3. **The passes before selection** leave scalable vectors alone, or say
    what they cannot do with them (`intrinsics::lower`'s lane-by-lane
    expansion, the shuffles and masks of `legalize`, `mangle`'s `nx`).
-5. **SVE's intrinsics** (`llvm.aarch64.sve.*`), found as x86's are
+4. **SVE's intrinsics** (`llvm.aarch64.sve.*`), found as x86's are
    (`x86_64/discover_intrinsics.py`): their types from Rust's
    `core::arch`, the instruction from llc, the encoding from
    `81-scalable.ll`; and the catalogue's SVE lines run under qemu.
-6. **SME**: streaming mode and ZA as values, beyond `45-sme.ll`'s fixed
+5. **SME**: streaming mode and ZA as values, beyond `45-sme.ll`'s fixed
    registers.

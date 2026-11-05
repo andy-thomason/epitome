@@ -3264,7 +3264,7 @@ impl<'a, 'b> Sel<'a, 'b> {
                     let n = count.and_then(|c| self.cx.const_int(c)).unwrap_or(1) as u64;
                     let size = self.cx.size_of(*ty)? * n;
                     let align = align.map_or(8, Align::bytes);
-                    self.mf.slots.push(Slot { size: size.max(1), align, offset: 0 });
+                    self.mf.slots.push(Slot { size: size.max(1), align, offset: 0, scalable: false });
                     let slot = self.mf.slots.len() - 1;
                     let d = self.vreg_of(r);
                     self.push(MInst::new(
@@ -3461,9 +3461,9 @@ impl<'a, 'b> Sel<'a, 'b> {
                 let (args, fp_args) = (self.mf.abi.args.clone(), self.mf.abi.fp_args.clone());
                 let (ngr, nvr) = (used(&args), used(&fp_args));
                 let (gr, vr) = (8 * (args.len() - ngr) as i64, 16 * (fp_args.len() - nvr) as i64);
-                self.mf.slots.push(Slot { size: gr.max(8) as u64, align: 8, offset: 0 });
+                self.mf.slots.push(Slot { size: gr.max(8) as u64, align: 8, offset: 0, scalable: false });
                 let gs = self.mf.slots.len() - 1;
-                self.mf.slots.push(Slot { size: vr.max(16) as u64, align: 16, offset: 0 });
+                self.mf.slots.push(Slot { size: vr.max(16) as u64, align: 16, offset: 0, scalable: false });
                 let vs = self.mf.slots.len() - 1;
                 let sp = self.t.machine.sp;
                 let (stx, stq) =
@@ -3496,7 +3496,12 @@ impl<'a, 'b> Sel<'a, 'b> {
                 let (args, fp_args) = (self.mf.abi.args.clone(), self.mf.abi.fp_args.clone());
                 let (ngr, nvr) = (used(&args), used(&fp_args));
                 let fp_at = 8 * args.len() as i64;
-                self.mf.slots.push(Slot { size: (fp_at + 16 * fp_args.len() as i64) as u64, align: 16, offset: 0 });
+                self.mf.slots.push(Slot {
+                    size: (fp_at + 16 * fp_args.len() as i64) as u64,
+                    align: 16,
+                    offset: 0,
+                    scalable: false,
+                });
                 let slot = self.mf.slots.len() - 1;
                 let sp = self.t.machine.sp;
                 let (stx, std) = (self.t.by_role("store.x"), self.t.by_role("store.d"));

@@ -178,6 +178,22 @@ define void @uabd_z_p_zz_.3(i64 "reg"="z" %zdn, i64 "reg"="pg" %pg, i64 "reg"="z
   ret void
 }
 
+define void @mul_z_p_zz_.0(i64 "reg"="z" %zdn, i64 "reg"="pg" %pg, i64 "reg"="z" %zm) "enc"="0000010000010000000 pg:3 zm:5 zdn:5" "asm"="mul {zdn}.b, {pg}/m, {zdn}.b, {zm}.b" "asmonly" {
+  ret void
+}
+
+define void @mul_z_p_zz_.1(i64 "reg"="z" %zdn, i64 "reg"="pg" %pg, i64 "reg"="z" %zm) "enc"="0000010001010000000 pg:3 zm:5 zdn:5" "asm"="mul {zdn}.h, {pg}/m, {zdn}.h, {zm}.h" "asmonly" {
+  ret void
+}
+
+define void @mul_z_p_zz_.2(i64 "reg"="z" %zdn, i64 "reg"="pg" %pg, i64 "reg"="z" %zm) "enc"="0000010010010000000 pg:3 zm:5 zdn:5" "asm"="mul {zdn}.s, {pg}/m, {zdn}.s, {zm}.s" "asmonly" {
+  ret void
+}
+
+define void @mul_z_p_zz_.3(i64 "reg"="z" %zdn, i64 "reg"="pg" %pg, i64 "reg"="z" %zm) "enc"="0000010011010000000 pg:3 zm:5 zdn:5" "asm"="mul {zdn}.d, {pg}/m, {zdn}.d, {zm}.d" "asmonly" {
+  ret void
+}
+
 define void @smulh_z_p_zz_.0(i64 "reg"="z" %zdn, i64 "reg"="pg" %pg, i64 "reg"="z" %zm) "enc"="0000010000010010000 pg:3 zm:5 zdn:5" "asm"="smulh {zdn}.b, {pg}/m, {zdn}.b, {zm}.b" "asmonly" {
   ret void
 }
@@ -239,6 +255,22 @@ define void @udivr_z_p_zz_.0(i64 "reg"="z" %zdn, i64 "reg"="pg" %pg, i64 "reg"="
 }
 
 define void @udivr_z_p_zz_.1(i64 "reg"="z" %zdn, i64 "reg"="pg" %pg, i64 "reg"="z" %zm) "enc"="0000010011010111000 pg:3 zm:5 zdn:5" "asm"="udivr {zdn}.d, {pg}/m, {zdn}.d, {zm}.d" "asmonly" {
+  ret void
+}
+
+define void @orr_z_p_zz_.0(i64 "reg"="z" %zdn, i64 "reg"="pg" %pg, i64 "reg"="z" %zm) "enc"="0000010000011000000 pg:3 zm:5 zdn:5" "asm"="orr {zdn}.b, {pg}/m, {zdn}.b, {zm}.b" "asmonly" {
+  ret void
+}
+
+define void @orr_z_p_zz_.1(i64 "reg"="z" %zdn, i64 "reg"="pg" %pg, i64 "reg"="z" %zm) "enc"="0000010001011000000 pg:3 zm:5 zdn:5" "asm"="orr {zdn}.h, {pg}/m, {zdn}.h, {zm}.h" "asmonly" {
+  ret void
+}
+
+define void @orr_z_p_zz_.2(i64 "reg"="z" %zdn, i64 "reg"="pg" %pg, i64 "reg"="z" %zm) "enc"="0000010010011000000 pg:3 zm:5 zdn:5" "asm"="orr {zdn}.s, {pg}/m, {zdn}.s, {zm}.s" "asmonly" {
+  ret void
+}
+
+define void @orr_z_p_zz_.3(i64 "reg"="z" %zdn, i64 "reg"="pg" %pg, i64 "reg"="z" %zm) "enc"="0000010011011000000 pg:3 zm:5 zdn:5" "asm"="orr {zdn}.d, {pg}/m, {zdn}.d, {zm}.d" "asmonly" {
   ret void
 }
 
@@ -414,11 +446,63 @@ define void @uminqv_z_p_z_.3(i64 "reg"="q" %vd, i64 "reg"="pg" %pg, i64 "reg"="z
   ret void
 }
 
+define void @movprfx_z_p_z_.0(i64 "reg"="z" %zd, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010000010000001 pg:3 zn:5 zd:5" "asm"="movprfx {zd}.b, {pg}/z, {zn}.b" "asmonly" {
+  ret void
+}
+
+define void @movprfx_z_p_z_.1(i64 "reg"="z" %zd, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010000010001001 pg:3 zn:5 zd:5" "asm"="movprfx {zd}.b, {pg}/m, {zn}.b" "asmonly" {
+  ret void
+}
+
+define void @movprfx_z_p_z_.2(i64 "reg"="z" %zd, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010001010000001 pg:3 zn:5 zd:5" "asm"="movprfx {zd}.h, {pg}/z, {zn}.h" "asmonly" {
+  ret void
+}
+
+define void @movprfx_z_p_z_.3(i64 "reg"="z" %zd, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010001010001001 pg:3 zn:5 zd:5" "asm"="movprfx {zd}.h, {pg}/m, {zn}.h" "asmonly" {
+  ret void
+}
+
+define void @movprfx_z_p_z_.4(i64 "reg"="z" %zd, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010010010000001 pg:3 zn:5 zd:5" "asm"="movprfx {zd}.s, {pg}/z, {zn}.s" "asmonly" {
+  ret void
+}
+
+define void @movprfx_z_p_z_.5(i64 "reg"="z" %zd, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010010010001001 pg:3 zn:5 zd:5" "asm"="movprfx {zd}.s, {pg}/m, {zn}.s" "asmonly" {
+  ret void
+}
+
+define void @movprfx_z_p_z_.6(i64 "reg"="z" %zd, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010011010000001 pg:3 zn:5 zd:5" "asm"="movprfx {zd}.d, {pg}/z, {zn}.d" "asmonly" {
+  ret void
+}
+
+define void @movprfx_z_p_z_.7(i64 "reg"="z" %zd, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010011010001001 pg:3 zn:5 zd:5" "asm"="movprfx {zd}.d, {pg}/m, {zn}.d" "asmonly" {
+  ret void
+}
+
+define void @orv_r_p_z_.0(i64 "reg"="b" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010000011000001 pg:3 zn:5 d:5" "asm"="orv {d}, {pg}, {zn}.b" "asmonly" {
+  ret void
+}
+
 define void @eorv_r_p_z_.0(i64 "reg"="b" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010000011001001 pg:3 zn:5 d:5" "asm"="eorv {d}, {pg}, {zn}.b" "asmonly" {
   ret void
 }
 
 define void @andv_r_p_z_.0(i64 "reg"="b" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010000011010001 pg:3 zn:5 d:5" "asm"="andv {d}, {pg}, {zn}.b" "asmonly" {
+  ret void
+}
+
+define void @orqv_z_p_z_.0(i64 "reg"="q" %vd, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010000011100001 pg:3 zn:5 vd:5" "asm"="orqv {vd:16b}, {pg}, {zn}.b" "asmonly" {
+  ret void
+}
+
+define void @orqv_z_p_z_.1(i64 "reg"="q" %vd, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010001011100001 pg:3 zn:5 vd:5" "asm"="orqv {vd:8h}, {pg}, {zn}.h" "asmonly" {
+  ret void
+}
+
+define void @orqv_z_p_z_.2(i64 "reg"="q" %vd, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010010011100001 pg:3 zn:5 vd:5" "asm"="orqv {vd:4s}, {pg}, {zn}.s" "asmonly" {
+  ret void
+}
+
+define void @orqv_z_p_z_.3(i64 "reg"="q" %vd, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010011011100001 pg:3 zn:5 vd:5" "asm"="orqv {vd:2d}, {pg}, {zn}.d" "asmonly" {
   ret void
 }
 
@@ -742,6 +826,38 @@ define void @abs_z_p_z_z.3(i64 "reg"="z" %zd, i64 "reg"="pg" %pg, i64 "reg"="z" 
   ret void
 }
 
+define void @neg_z_p_z_m.0(i64 "reg"="z" %zd, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010000010111101 pg:3 zn:5 zd:5" "asm"="neg {zd}.b, {pg}/m, {zn}.b" "asmonly" {
+  ret void
+}
+
+define void @neg_z_p_z_m.1(i64 "reg"="z" %zd, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010001010111101 pg:3 zn:5 zd:5" "asm"="neg {zd}.h, {pg}/m, {zn}.h" "asmonly" {
+  ret void
+}
+
+define void @neg_z_p_z_m.2(i64 "reg"="z" %zd, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010010010111101 pg:3 zn:5 zd:5" "asm"="neg {zd}.s, {pg}/m, {zn}.s" "asmonly" {
+  ret void
+}
+
+define void @neg_z_p_z_m.3(i64 "reg"="z" %zd, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010011010111101 pg:3 zn:5 zd:5" "asm"="neg {zd}.d, {pg}/m, {zn}.d" "asmonly" {
+  ret void
+}
+
+define void @neg_z_p_z_z.0(i64 "reg"="z" %zd, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010000000111101 pg:3 zn:5 zd:5" "asm"="neg {zd}.b, {pg}/z, {zn}.b" "asmonly" {
+  ret void
+}
+
+define void @neg_z_p_z_z.1(i64 "reg"="z" %zd, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010001000111101 pg:3 zn:5 zd:5" "asm"="neg {zd}.h, {pg}/z, {zn}.h" "asmonly" {
+  ret void
+}
+
+define void @neg_z_p_z_z.2(i64 "reg"="z" %zd, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010010000111101 pg:3 zn:5 zd:5" "asm"="neg {zd}.s, {pg}/z, {zn}.s" "asmonly" {
+  ret void
+}
+
+define void @neg_z_p_z_z.3(i64 "reg"="z" %zd, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010011000111101 pg:3 zn:5 zd:5" "asm"="neg {zd}.d, {pg}/z, {zn}.d" "asmonly" {
+  ret void
+}
+
 define void @sxtw_z_p_z_m.0(i64 "reg"="z" %zd, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010011010100101 pg:3 zn:5 zd:5" "asm"="sxtw {zd}.d, {pg}/m, {zn}.d" "asmonly" {
   ret void
 }
@@ -1014,6 +1130,38 @@ define void @fneg_z_p_z_z.2(i64 "reg"="z" %zd, i64 "reg"="pg" %pg, i64 "reg"="z"
   ret void
 }
 
+define void @not_z_p_z_m.0(i64 "reg"="z" %zd, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010000011110101 pg:3 zn:5 zd:5" "asm"="not {zd}.b, {pg}/m, {zn}.b" "asmonly" {
+  ret void
+}
+
+define void @not_z_p_z_m.1(i64 "reg"="z" %zd, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010001011110101 pg:3 zn:5 zd:5" "asm"="not {zd}.h, {pg}/m, {zn}.h" "asmonly" {
+  ret void
+}
+
+define void @not_z_p_z_m.2(i64 "reg"="z" %zd, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010010011110101 pg:3 zn:5 zd:5" "asm"="not {zd}.s, {pg}/m, {zn}.s" "asmonly" {
+  ret void
+}
+
+define void @not_z_p_z_m.3(i64 "reg"="z" %zd, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010011011110101 pg:3 zn:5 zd:5" "asm"="not {zd}.d, {pg}/m, {zn}.d" "asmonly" {
+  ret void
+}
+
+define void @not_z_p_z_z.0(i64 "reg"="z" %zd, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010000001110101 pg:3 zn:5 zd:5" "asm"="not {zd}.b, {pg}/z, {zn}.b" "asmonly" {
+  ret void
+}
+
+define void @not_z_p_z_z.1(i64 "reg"="z" %zd, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010001001110101 pg:3 zn:5 zd:5" "asm"="not {zd}.h, {pg}/z, {zn}.h" "asmonly" {
+  ret void
+}
+
+define void @not_z_p_z_z.2(i64 "reg"="z" %zd, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010010001110101 pg:3 zn:5 zd:5" "asm"="not {zd}.s, {pg}/z, {zn}.s" "asmonly" {
+  ret void
+}
+
+define void @not_z_p_z_z.3(i64 "reg"="z" %zd, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010011001110101 pg:3 zn:5 zd:5" "asm"="not {zd}.d, {pg}/z, {zn}.d" "asmonly" {
+  ret void
+}
+
 define void @mla_z_p_zzz_.0(i64 "reg"="z" %zda, i64 "reg"="pg" %pg, i64 "reg"="z" %zn, i64 "reg"="z" %zm) "enc"="00000100000 zm:5 010 pg:3 zn:5 zda:5" "asm"="mla {zda}.b, {pg}/m, {zn}.b, {zm}.b" "asmonly" {
   ret void
 }
@@ -1059,6 +1207,22 @@ define void @mad_z_p_zzz_.2(i64 "reg"="z" %zdn, i64 "reg"="pg" %pg, i64 "reg"="z
 }
 
 define void @mad_z_p_zzz_.3(i64 "reg"="z" %zdn, i64 "reg"="pg" %pg, i64 "reg"="z" %zm, i64 "reg"="z" %za) "enc"="00000100110 zm:5 110 pg:3 za:5 zdn:5" "asm"="mad {zdn}.d, {pg}/m, {zm}.d, {za}.d" "asmonly" {
+  ret void
+}
+
+define void @msb_z_p_zzz_.0(i64 "reg"="z" %zdn, i64 "reg"="pg" %pg, i64 "reg"="z" %zm, i64 "reg"="z" %za) "enc"="00000100000 zm:5 111 pg:3 za:5 zdn:5" "asm"="msb {zdn}.b, {pg}/m, {zm}.b, {za}.b" "asmonly" {
+  ret void
+}
+
+define void @msb_z_p_zzz_.1(i64 "reg"="z" %zdn, i64 "reg"="pg" %pg, i64 "reg"="z" %zm, i64 "reg"="z" %za) "enc"="00000100010 zm:5 111 pg:3 za:5 zdn:5" "asm"="msb {zdn}.h, {pg}/m, {zm}.h, {za}.h" "asmonly" {
+  ret void
+}
+
+define void @msb_z_p_zzz_.2(i64 "reg"="z" %zdn, i64 "reg"="pg" %pg, i64 "reg"="z" %zm, i64 "reg"="z" %za) "enc"="00000100100 zm:5 111 pg:3 za:5 zdn:5" "asm"="msb {zdn}.s, {pg}/m, {zm}.s, {za}.s" "asmonly" {
+  ret void
+}
+
+define void @msb_z_p_zzz_.3(i64 "reg"="z" %zdn, i64 "reg"="pg" %pg, i64 "reg"="z" %zm, i64 "reg"="z" %za) "enc"="00000100110 zm:5 111 pg:3 za:5 zdn:5" "asm"="msb {zdn}.d, {pg}/m, {zm}.d, {za}.d" "asmonly" {
   ret void
 }
 
@@ -1162,6 +1326,10 @@ define void @and_z_zz_.0(i64 "reg"="z" %zd, i64 "reg"="z" %zn, i64 "reg"="z" %zm
   ret void
 }
 
+define void @orr_z_zz_.0(i64 "reg"="z" %zd, i64 "reg"="z" %zn, i64 "reg"="z" %zm) "enc"="00000100011 zm:5 001100 zn:5 zd:5" "asm"="orr {zd}.d, {zn}.d, {zm}.d" "asmonly" "aliases"="mov" {
+  ret void
+}
+
 define void @eor_z_zz_.0(i64 "reg"="z" %zd, i64 "reg"="z" %zn, i64 "reg"="z" %zm) "enc"="00000100101 zm:5 001100 zn:5 zd:5" "asm"="eor {zd}.d, {zn}.d, {zm}.d" "asmonly" {
   ret void
 }
@@ -1199,6 +1367,10 @@ define void @bsl1n_z_zzz_.0(i64 "reg"="z" %zdn, i64 "reg"="z" %zm, i64 "reg"="z"
 }
 
 define void @bsl2n_z_zzz_.0(i64 "reg"="z" %zdn, i64 "reg"="z" %zm, i64 "reg"="z" %zk) "enc"="00000100101 zm:5 001111 zk:5 zdn:5" "asm"="bsl2n {zdn}.d, {zdn}.d, {zm}.d, {zk}.d" "asmonly" {
+  ret void
+}
+
+define void @nbsl_z_zzz_.0(i64 "reg"="z" %zdn, i64 "reg"="z" %zm, i64 "reg"="z" %zk) "enc"="00000100111 zm:5 001111 zk:5 zdn:5" "asm"="nbsl {zdn}.d, {zdn}.d, {zm}.d, {zk}.d" "asmonly" {
   ret void
 }
 
@@ -1366,6 +1538,10 @@ define void @fexpa_z_z_.2(i64 "reg"="z" %zd, i64 "reg"="z" %zn) "enc"="000001001
   ret void
 }
 
+define void @movprfx_z_z_.0(i64 "reg"="z" %zd, i64 "reg"="z" %zn) "enc"="0000010000100000101111 zn:5 zd:5" "asm"="movprfx {zd}, {zn}" "asmonly" {
+  ret void
+}
+
 define void @index_z_ri_.0(i64 "reg"="z" %zd, i64 "imm" %imm) "enc"="00000100001 imm:s5 01000111111 zd:5" "asm"="index {zd}.b, wzr, #{imm}" "asmonly" {
   ret void
 }
@@ -1503,6 +1679,22 @@ define void @rdvl_r_i_.0(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="0000010010111
 }
 
 define void @rdsvl_r_i_.0(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001001011111101011 imm:s6 xd:5" "asm"="rdsvl {xd}, #{imm}" "asmonly" {
+  ret void
+}
+
+define void @mul_z_zz_.0(i64 "reg"="z" %zd, i64 "reg"="z" %zn, i64 "reg"="z" %zm) "enc"="00000100001 zm:5 011000 zn:5 zd:5" "asm"="mul {zd}.b, {zn}.b, {zm}.b" "asmonly" {
+  ret void
+}
+
+define void @mul_z_zz_.1(i64 "reg"="z" %zd, i64 "reg"="z" %zn, i64 "reg"="z" %zm) "enc"="00000100011 zm:5 011000 zn:5 zd:5" "asm"="mul {zd}.h, {zn}.h, {zm}.h" "asmonly" {
+  ret void
+}
+
+define void @mul_z_zz_.2(i64 "reg"="z" %zd, i64 "reg"="z" %zn, i64 "reg"="z" %zm) "enc"="00000100101 zm:5 011000 zn:5 zd:5" "asm"="mul {zd}.s, {zn}.s, {zm}.s" "asmonly" {
+  ret void
+}
+
+define void @mul_z_zz_.3(i64 "reg"="z" %zd, i64 "reg"="z" %zn, i64 "reg"="z" %zm) "enc"="00000100111 zm:5 011000 zn:5 zd:5" "asm"="mul {zd}.d, {zn}.d, {zm}.d" "asmonly" {
   ret void
 }
 
@@ -1787,6 +1979,14 @@ define void @uqincd_r_rs_x.0(i64 "reg"="x" %xdn) "enc"="000001001111000011110111
 }
 
 define void @uqdecd_r_rs_x.0(i64 "reg"="x" %xdn) "enc"="000001001111000011111111111 xdn:5" "asm"="uqdecd {xdn}" "asmonly" {
+  ret void
+}
+
+define void @orr_z_zi_.0(i64 "reg"="z" %zdn, i64 "imm" %const) "enc"="0000010100000000 const_f:11=bitmask32(const) zdn:5" "asm"="orr {zdn}.s, {zdn}.s, #{const:h32}" "asmonly" "aliases"="orn" {
+  ret void
+}
+
+define void @orr_z_zi_.1(i64 "reg"="z" %zdn, i64 "imm" %const) "enc"="00000101000000 const_f:13=bitmask64(const) zdn:5" "asm"="orr {zdn}.d, {zdn}.d, #{const:h64}" "asmonly" "aliases"="orn" {
   ret void
 }
 
@@ -3378,11 +3578,27 @@ define void @bic_p_p_pp_z.0(i64 "reg"="p" %pd, i64 "reg"="p" %pg, i64 "reg"="p" 
   ret void
 }
 
+define void @orr_p_p_pp_z.0(i64 "reg"="p" %pd, i64 "reg"="p" %pg, i64 "reg"="p" %pn, i64 "reg"="p" %pm) "enc"="001001011000 pm:4 01 pg:4 0 pn:4 0 pd:4" "asm"="orr {pd}.b, {pg}/z, {pn}.b, {pm}.b" "asmonly" "aliases"="mov" {
+  ret void
+}
+
+define void @orn_p_p_pp_z.0(i64 "reg"="p" %pd, i64 "reg"="p" %pg, i64 "reg"="p" %pn, i64 "reg"="p" %pm) "enc"="001001011000 pm:4 01 pg:4 0 pn:4 1 pd:4" "asm"="orn {pd}.b, {pg}/z, {pn}.b, {pm}.b" "asmonly" {
+  ret void
+}
+
 define void @eor_p_p_pp_z.0(i64 "reg"="p" %pd, i64 "reg"="p" %pg, i64 "reg"="p" %pn, i64 "reg"="p" %pm) "enc"="001001010000 pm:4 01 pg:4 1 pn:4 0 pd:4" "asm"="eor {pd}.b, {pg}/z, {pn}.b, {pm}.b" "asmonly" "aliases"="not" {
   ret void
 }
 
 define void @sel_p_p_pp_.0(i64 "reg"="p" %pd, i64 "reg"="p" %pg, i64 "reg"="p" %pn, i64 "reg"="p" %pm) "enc"="001001010000 pm:4 01 pg:4 1 pn:4 1 pd:4" "asm"="sel {pd}.b, {pg}, {pn}.b, {pm}.b" "asmonly" "aliases"="mov" {
+  ret void
+}
+
+define void @nor_p_p_pp_z.0(i64 "reg"="p" %pd, i64 "reg"="p" %pg, i64 "reg"="p" %pn, i64 "reg"="p" %pm) "enc"="001001011000 pm:4 01 pg:4 1 pn:4 0 pd:4" "asm"="nor {pd}.b, {pg}/z, {pn}.b, {pm}.b" "asmonly" {
+  ret void
+}
+
+define void @nand_p_p_pp_z.0(i64 "reg"="p" %pd, i64 "reg"="p" %pg, i64 "reg"="p" %pn, i64 "reg"="p" %pm) "enc"="001001011000 pm:4 01 pg:4 1 pn:4 1 pd:4" "asm"="nand {pd}.b, {pg}/z, {pn}.b, {pm}.b" "asmonly" {
   ret void
 }
 
@@ -3394,7 +3610,23 @@ define void @bics_p_p_pp_z.0(i64 "reg"="p" %pd, i64 "reg"="p" %pg, i64 "reg"="p"
   ret void
 }
 
+define void @orrs_p_p_pp_z.0(i64 "reg"="p" %pd, i64 "reg"="p" %pg, i64 "reg"="p" %pn, i64 "reg"="p" %pm) "enc"="001001011100 pm:4 01 pg:4 0 pn:4 0 pd:4" "asm"="orrs {pd}.b, {pg}/z, {pn}.b, {pm}.b" "asmonly" "aliases"="movs" {
+  ret void
+}
+
+define void @orns_p_p_pp_z.0(i64 "reg"="p" %pd, i64 "reg"="p" %pg, i64 "reg"="p" %pn, i64 "reg"="p" %pm) "enc"="001001011100 pm:4 01 pg:4 0 pn:4 1 pd:4" "asm"="orns {pd}.b, {pg}/z, {pn}.b, {pm}.b" "asmonly" {
+  ret void
+}
+
 define void @eors_p_p_pp_z.0(i64 "reg"="p" %pd, i64 "reg"="p" %pg, i64 "reg"="p" %pn, i64 "reg"="p" %pm) "enc"="001001010100 pm:4 01 pg:4 1 pn:4 0 pd:4" "asm"="eors {pd}.b, {pg}/z, {pn}.b, {pm}.b" "asmonly" "aliases"="nots" {
+  ret void
+}
+
+define void @nors_p_p_pp_z.0(i64 "reg"="p" %pd, i64 "reg"="p" %pg, i64 "reg"="p" %pn, i64 "reg"="p" %pm) "enc"="001001011100 pm:4 01 pg:4 1 pn:4 0 pd:4" "asm"="nors {pd}.b, {pg}/z, {pn}.b, {pm}.b" "asmonly" {
+  ret void
+}
+
+define void @nands_p_p_pp_z.0(i64 "reg"="p" %pd, i64 "reg"="p" %pg, i64 "reg"="p" %pn, i64 "reg"="p" %pm) "enc"="001001011100 pm:4 01 pg:4 1 pn:4 1 pd:4" "asm"="nands {pd}.b, {pg}/z, {pn}.b, {pm}.b" "asmonly" {
   ret void
 }
 
@@ -3755,6 +3987,22 @@ define void @whilels_pn_rr_.6(i64 "reg"="pn" %pnd, i64 "reg"="x" %xn, i64 "reg"=
 }
 
 define void @whilels_pn_rr_.7(i64 "reg"="pn" %pnd, i64 "reg"="x" %xn, i64 "reg"="x" %xm) "enc"="00100101111 xm:5 011011 xn:5 11 pnd_f:3=(pnd-8)" "asm"="whilels {pnd}.d, {xn}, {xm}, vlx4" "asmonly" {
+  ret void
+}
+
+define void @pext_pn_rr_.0(i64 "reg"="p" %pd, i64 "reg"="pn" %pnn, i64 "imm" %imm) "enc"="0010010100100000011100 imm:2 pnn_f:3=(pnn-8) 1 pd:4" "asm"="pext {pd}.b, {pnn}[{imm}]" "asmonly" {
+  ret void
+}
+
+define void @pext_pn_rr_.1(i64 "reg"="p" %pd, i64 "reg"="pn" %pnn, i64 "imm" %imm) "enc"="0010010101100000011100 imm:2 pnn_f:3=(pnn-8) 1 pd:4" "asm"="pext {pd}.h, {pnn}[{imm}]" "asmonly" {
+  ret void
+}
+
+define void @pext_pn_rr_.2(i64 "reg"="p" %pd, i64 "reg"="pn" %pnn, i64 "imm" %imm) "enc"="0010010110100000011100 imm:2 pnn_f:3=(pnn-8) 1 pd:4" "asm"="pext {pd}.s, {pnn}[{imm}]" "asmonly" {
+  ret void
+}
+
+define void @pext_pn_rr_.3(i64 "reg"="p" %pd, i64 "reg"="pn" %pnn, i64 "imm" %imm) "enc"="0010010111100000011100 imm:2 pnn_f:3=(pnn-8) 1 pd:4" "asm"="pext {pd}.d, {pnn}[{imm}]" "asmonly" {
   ret void
 }
 
@@ -5418,6 +5666,22 @@ define void @umin_z_zi_.3(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="00100101111
   ret void
 }
 
+define void @mul_z_zi_.0(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="0010010100110000110 imm:s8 zdn:5" "asm"="mul {zdn}.b, {zdn}.b, #{imm}" "asmonly" {
+  ret void
+}
+
+define void @mul_z_zi_.1(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="0010010101110000110 imm:s8 zdn:5" "asm"="mul {zdn}.h, {zdn}.h, #{imm}" "asmonly" {
+  ret void
+}
+
+define void @mul_z_zi_.2(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="0010010110110000110 imm:s8 zdn:5" "asm"="mul {zdn}.s, {zdn}.s, #{imm}" "asmonly" {
+  ret void
+}
+
+define void @mul_z_zi_.3(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="0010010111110000110 imm:s8 zdn:5" "asm"="mul {zdn}.d, {zdn}.d, #{imm}" "asmonly" {
+  ret void
+}
+
 define void @dup_z_i_.0(i64 "reg"="z" %zd, i64 "imm" %imm) "enc"="0010010100111000110 imm:s8 zd:5" "asm"="dup {zd}.b, #{imm}" "asmonly" "nodecode" "aliases"="fmov,mov" {
   ret void
 }
@@ -6994,6 +7258,18 @@ define void @sqrdmulh_z_zzi_d.0(i64 "reg"="z" %zd, i64 "reg"="z" %zn, i64 "reg"=
   ret void
 }
 
+define void @mul_z_zzi_h.0(i64 "reg"="z" %zd, i64 "reg"="z" %zn, i64 "reg"="z" %zm, i64 "imm" %imm) "enc"="010001000 imm1:1=(imm>>2)&1 1 imm2:2=imm&3 zm:3 111110 zn:5 zd:5" "asm"="mul {zd}.h, {zn}.h, {zm}.h[{imm}]" "asmonly" {
+  ret void
+}
+
+define void @mul_z_zzi_s.0(i64 "reg"="z" %zd, i64 "reg"="z" %zn, i64 "reg"="z" %zm, i64 "imm" %imm) "enc"="01000100101 imm:2 zm:3 111110 zn:5 zd:5" "asm"="mul {zd}.s, {zn}.s, {zm}.s[{imm}]" "asmonly" {
+  ret void
+}
+
+define void @mul_z_zzi_d.0(i64 "reg"="z" %zd, i64 "reg"="z" %zn, i64 "reg"="z" %zm, i64 "imm" %imm) "enc"="01000100111 imm:1 zm:4 111110 zn:5 zd:5" "asm"="mul {zd}.d, {zn}.d, {zm}.d[{imm}]" "asmonly" {
+  ret void
+}
+
 define void @saddlb_z_zz_.0(i64 "reg"="z" %zd, i64 "reg"="z" %zn, i64 "reg"="z" %zm) "enc"="01000101010 zm:5 000000 zn:5 zd:5" "asm"="saddlb {zd}.h, {zn}.b, {zm}.b" "asmonly" {
   ret void
 }
@@ -8147,6 +8423,14 @@ define void @match_p_p_zz_.0(i64 "reg"="p" %pd, i64 "reg"="pg" %pg, i64 "reg"="z
 }
 
 define void @match_p_p_zz_.1(i64 "reg"="p" %pd, i64 "reg"="pg" %pg, i64 "reg"="z" %zn, i64 "reg"="z" %zm) "enc"="01000101011 zm:5 100 pg:3 zn:5 0 pd:4" "asm"="match {pd}.h, {pg}/z, {zn}.h, {zm}.h" "asmonly" {
+  ret void
+}
+
+define void @nmatch_p_p_zz_.0(i64 "reg"="p" %pd, i64 "reg"="pg" %pg, i64 "reg"="z" %zn, i64 "reg"="z" %zm) "enc"="01000101001 zm:5 100 pg:3 zn:5 1 pd:4" "asm"="nmatch {pd}.b, {pg}/z, {zn}.b, {zm}.b" "asmonly" {
+  ret void
+}
+
+define void @nmatch_p_p_zz_.1(i64 "reg"="p" %pd, i64 "reg"="pg" %pg, i64 "reg"="z" %zn, i64 "reg"="z" %zm) "enc"="01000101011 zm:5 100 pg:3 zn:5 1 pd:4" "asm"="nmatch {pd}.h, {pg}/z, {zn}.h, {zm}.h" "asmonly" {
   ret void
 }
 
@@ -15938,6 +16222,14 @@ define void @movaz_z_rza_q.1(i64 "reg"="z" %zd, i64 "imm" %zan, i64 "reg"="w" %w
   ret void
 }
 
+define void @movaz_mz2_za_b1.0(i64 "reg"="z" %zd1, i64 "reg"="w" %ws, i64 "imm" %offs1) "enc"="11000000000001100 ws_f:2=(ws-12) 00010 offs1_f:3=offs1>>1 zd1_f:4=zd1>>1 0" "asm"="movaz {lb} {zd1}.b-{zd1:+1}.b {rb}, za0h.b[{ws}, {offs1}:{=offs1+1}]" "asmonly" {
+  ret void
+}
+
+define void @movaz_mz2_za_b1.1(i64 "reg"="z" %zd1, i64 "reg"="w" %ws, i64 "imm" %offs1) "enc"="11000000000001101 ws_f:2=(ws-12) 00010 offs1_f:3=offs1>>1 zd1_f:4=zd1>>1 0" "asm"="movaz {lb} {zd1}.b-{zd1:+1}.b {rb}, za0v.b[{ws}, {offs1}:{=offs1+1}]" "asmonly" {
+  ret void
+}
+
 define void @movaz_mz2_za_h1.0(i64 "reg"="z" %zd1, i64 "imm" %zan, i64 "reg"="w" %ws, i64 "imm" %offs1) "enc"="11000000010001100 ws_f:2=(ws-12) 00010 zan:1 offs1_f:2=offs1>>1 zd1_f:4=zd1>>1 0" "asm"="movaz {lb} {zd1}.h-{zd1:+1}.h {rb}, za{zan}h.h[{ws}, {offs1}:{=offs1+1}]" "asmonly" {
   ret void
 }
@@ -15959,6 +16251,14 @@ define void @movaz_mz2_za_d1.0(i64 "reg"="z" %zd1, i64 "imm" %zan, i64 "reg"="w"
 }
 
 define void @movaz_mz2_za_d1.1(i64 "reg"="z" %zd1, i64 "imm" %zan, i64 "reg"="w" %ws) "enc"="11000000110001101 ws_f:2=(ws-12) 00010 zan:3 zd1_f:4=zd1>>1 0" "asm"="movaz {lb} {zd1}.d-{zd1:+1}.d {rb}, za{zan}v.d[{ws}, 0:1]" "asmonly" {
+  ret void
+}
+
+define void @movaz_mz4_za_b1.0(i64 "reg"="z" %zd1, i64 "reg"="w" %ws, i64 "imm" %offs1) "enc"="11000000000001100 ws_f:2=(ws-12) 001100 offs1_f:2=offs1>>2 zd1_f:3=zd1>>2 00" "asm"="movaz {lb} {zd1}.b-{zd1:+3}.b {rb}, za0h.b[{ws}, {offs1}:{=offs1+3}]" "asmonly" {
+  ret void
+}
+
+define void @movaz_mz4_za_b1.1(i64 "reg"="z" %zd1, i64 "reg"="w" %ws, i64 "imm" %offs1) "enc"="11000000000001101 ws_f:2=(ws-12) 001100 offs1_f:2=offs1>>2 zd1_f:3=zd1>>2 00" "asm"="movaz {lb} {zd1}.b-{zd1:+3}.b {rb}, za0v.b[{ws}, {offs1}:{=offs1+3}]" "asmonly" {
   ret void
 }
 
@@ -16035,6 +16335,22 @@ define void @zero_za4_ri_4.0(i64 "reg"="w" %wv, i64 "imm" %offs1) "enc"="1100000
 }
 
 define void @zero_zt_i_.0() "enc"="11000000010010000000000000000001" "asm"="zero {lb} zt0 {rb}" "asmonly" {
+  ret void
+}
+
+define void @movt_r_zt_.0(i64 "reg"="x" %xt, i64 "imm" %offs) "enc"="11000000010011000 offs_f:3=offs>>3 0011111 xt:5" "asm"="movt {xt}, zt0[{offs}]" "asmonly" {
+  ret void
+}
+
+define void @movt_zt_r_.0(i64 "imm" %offs, i64 "reg"="x" %xt) "enc"="11000000010011100 offs_f:3=offs>>3 0011111 xt:5" "asm"="movt zt0[{offs}], {xt}" "asmonly" {
+  ret void
+}
+
+define void @movt_zt_z_.0(i64 "reg"="z" %zt) "enc"="110000000100111100000011111 zt:5" "asm"="movt zt0, {zt}" "asmonly" {
+  ret void
+}
+
+define void @movt_zt_z_.1(i64 "imm" %offs, i64 "reg"="z" %zt) "enc"="110000000100111100 offs:2 0011111 zt:5" "asm"="movt zt0[{offs}, mul vl], {zt}" "asmonly" {
   ret void
 }
 

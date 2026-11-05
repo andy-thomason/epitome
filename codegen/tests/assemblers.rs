@@ -95,9 +95,15 @@ fn epitome_as_and_clang_agree() {
         return;
     }
     let t = Target::aarch64();
-    let text = epitome_codegen::check::sample_assembly(&t, Syntax::Elf, 3);
+    let all = epitome_codegen::check::sample_assembly(&t, Syntax::Elf, 3);
     let tmp = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("assemblers");
     std::fs::create_dir_all(&tmp).unwrap();
+    // SVE's movprfx makes clang check the instruction after it against it:
+    // its lines are assembled each alone.
+    let is_prefix = |l: &str| l.split(":\t").nth(1).is_some_and(|i| i.trim_start().starts_with("movprfx"));
+    let head: Vec<&str> = all.lines().filter(|l| !l.contains(":\t")).collect();
+    let prefixes: Vec<&str> = all.lines().filter(|l| is_prefix(l)).collect();
+    let text: String = all.lines().filter(|l| !is_prefix(l)).map(|l| format!("{l}\n")).collect();
     let s = tmp.join("aarch64.s");
     std::fs::write(&s, &text).unwrap();
     let ours = Assembler::new(&t).assemble(&text, Some(Syntax::Elf)).and_then(|a| a.file(&t)).unwrap();
@@ -110,7 +116,23 @@ fn epitome_as_and_clang_agree() {
         .output()
         .unwrap();
     assert!(out.status.success(), "clang:\n{}", String::from_utf8_lossy(&out.stderr));
-    let wrong = differences(&t, &text, &ours, &std::fs::read(&o).unwrap(), words);
+    let mut wrong = differences(&t, &text, &ours, &std::fs::read(&o).unwrap(), words);
+    for line in prefixes {
+        let one = format!("{}\n{line}\n", head.join("\n"));
+        let s = tmp.join("movprfx.s");
+        std::fs::write(&s, &one).unwrap();
+        let ours = Assembler::new(&t).assemble(&one, Some(Syntax::Elf)).and_then(|a| a.file(&t)).unwrap();
+        let o = tmp.join("movprfx.clang.o");
+        let out = Command::new("clang")
+            .args(["--target=aarch64-linux-gnu", &march(), "-c"])
+            .arg(&s)
+            .arg("-o")
+            .arg(&o)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "clang:\n{}", String::from_utf8_lossy(&out.stderr));
+        wrong.extend(differences(&t, &one, &ours, &std::fs::read(&o).unwrap(), words));
+    }
     assert!(wrong.is_empty(), "these differ:\n{}", wrong.join("\n"));
 }
 

@@ -239,9 +239,21 @@ def run_batch():
 def assemble_now(lines):
     """clang's word for each line, or None where clang refuses it."""
     words = [None] * len(lines)
+    # SVE's movprfx makes clang check the next instruction against it, and
+    # it reports one such error at a time: each is assembled alone, last.
+    prefixes = [k for k, line in enumerate(lines) if line.startswith("movprfx")]
+    if prefixes and len(lines) > 1:
+        rest = [k for k in range(len(lines)) if k not in set(prefixes)]
+        for k, w in zip(rest, assemble_now([lines[k] for k in rest])):
+            words[k] = w
+        for k in prefixes:
+            words[k] = assemble_now([lines[k]])[0]
+        return words
     todo = list(range(len(lines)))
     with tempfile.TemporaryDirectory() as tmp:
-        for _ in range(4):
+        # (Until clang takes what is left: it reports only some errors at a
+        # time.)
+        for _ in range(64):
             if not todo:
                 break
             src = os.path.join(tmp, "t.s")
@@ -253,7 +265,8 @@ def assemble_now(lines):
                                capture_output=True, text=True)
             if r.returncode != 0:
                 bad = {int(m.group(1)) - 1 for m in re.finditer(r"t\.s:(\d+):\d+: error", r.stderr)}
-                if not bad:
+                crashed = "Stack dump" in r.stderr or "PLEASE submit" in r.stderr or r.returncode > 1
+                if not bad or crashed:
                     # clang crashed (on some SVE and SME lines it does): the
                     # halves apart, down to the line it crashes on.
                     if len(todo) == 1:
@@ -266,6 +279,15 @@ def assemble_now(lines):
                 todo = [k for i, k in enumerate(todo) if i not in bad]
                 continue
             text = elf_text(open(obj, "rb").read())
+            # (A line that is not one word, an alias of two instructions,
+            # would shift the rest: the halves apart, down to it.)
+            if len(text) != 4 * len(todo):
+                if len(todo) > 1:
+                    half = len(todo) // 2
+                    for part in (todo[:half], todo[half:]):
+                        for k, w in zip(part, assemble_now([lines[k] for k in part])):
+                            words[k] = w
+                break
             for i, k in enumerate(todo):
                 words[k] = struct.unpack_from("<I", text, 4 * i)[0]
             break
@@ -868,7 +890,7 @@ def existing():
     mnemonic, so that what they already cover is left out."""
     out = []
     for path in sorted(os.listdir(HERE)):
-        if not path.endswith(".ll") or path in ("80-asm.ll", "81-scalable.ll"):
+        if not path.endswith(".ll") or path in ("80-asm.ll", "81-scalable.ll", "82-sve.ll"):
             continue
         for line in open(os.path.join(HERE, path)):
             m = re.match(r'define .*?@([A-Za-z0-9_.]+)\(.*?"enc"="([^"]*)"', line)

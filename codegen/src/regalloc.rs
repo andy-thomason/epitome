@@ -555,8 +555,11 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
     // Spill slots, and loads and stores around each use and definition.
     let mut slot_of: HashMap<VReg, usize> = HashMap::new();
     for &v in spilled.iter().filter(|v| !remat.contains_key(v)) {
-        let size = (m.def(f.vclass[v as usize]).bits as u64 / 8).max(8);
-        f.slots.push(Slot { size, align: size, offset: 0 });
+        let def = m.def(f.vclass[v as usize]);
+        let size = (def.bits as u64 / 8).max(8);
+        // (A scalable value's: a vector length, as frame.rs lays it out.)
+        let scalable = matches!(def.holds, Some(crate::machine::Holds::Scalable | crate::machine::Holds::Predicate));
+        f.slots.push(Slot { size, align: size, offset: 0, scalable });
         slot_of.insert(v, f.slots.len() - 1);
     }
     // Spill code: a value is spilled as its file's registers are saved

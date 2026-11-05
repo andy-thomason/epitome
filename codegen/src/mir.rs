@@ -214,6 +214,9 @@ pub struct Slot {
     pub size: u64,
     pub align: u64,
     pub offset: i64,
+    /// A scalable value's (SVE's): one vector length, whatever the
+    /// machine's is; its offset is then in vector lengths (`frame.rs`).
+    pub scalable: bool,
 }
 
 #[derive(Clone, Debug)]

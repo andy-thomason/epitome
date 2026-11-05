@@ -12,7 +12,9 @@ its own, and some features such machines tend to have:
    loop, for software pipelining;
 5. channels: values that live in a FIFO between units, not in a register;
 6. streams: one function compiled into several programs, for different
-   units, one launching the others.
+   units, one launching the others;
+7. several machines in one object: streams whose units are different
+   machines, each with a description of its own.
 
 None of it names a machine. The public machines it is checked against are
 Intel's Itanium (bundles with a template, rotating registers, `br.ctop`)
@@ -253,6 +255,68 @@ code is in bundles of the stream's format, and its symbols are
 measured in the units its launch operand counts (`"unit-bytes"`), so a
 relocation can resolve to a bundle number.
 
+## 7. Several machines in one object
+
+The streams of section 6 are units of one description. Sometimes they are
+different machines: a RISC-V core that launches the programs of a bundle
+machine, a host processor and a DSP. Each has a description of its own,
+and one object holds the code of all of them.
+
+### What LLVM does
+
+LLVM IR gives each function `"target-cpu"` and `"target-features"`
+attributes, so functions of one module can be compiled for different CPUs
+of one architecture (C's `__attribute__((target("avx2")))`, Rust's
+`#[target_feature]`, ARM and Thumb functions side by side). The triple and
+the data layout are the module's, though, so a module is for one
+architecture. Code for another (CUDA, HIP, OpenMP offloading) is a module
+of its own, compiled separately, and its object is embedded in the host's
+object as data (`.llvm.offloading`, a fat binary), to be loaded at run
+time. Cell's SPU code was embedded in the PPU's object in the same way.
+
+### Here: a stream is a description
+
+A stream may name a target instead of being a part of this one:
+
+```llvm
+!target.streams = !{!1340, !1341}
+!1340 = !{!"name", !"host", !"section", !".text"}
+!1341 = !{!"name", !"dsp", !"target", !"toy-dsp", !"section", !".text.dsp .dsp.text*"}
+```
+
+The description holding `!target.streams` is the first stream's, and is
+the object's machine (`e_machine`). A stream with `"target"` is compiled
+by that description (found as `--target` finds one): its own selection,
+allocation, bundles and encodings. Such a description has no streams of
+its own.
+
+Which code goes to which stream is said by sections, a convention every
+front end already has:
+
+- a function whose `section` is one of a stream's sections is compiled
+  whole for that stream (Rust's `#[link_section = ".text.dsp"]`, C's
+  `__attribute__((section(".text.dsp")))`); it may not be called from
+  another stream, only launched;
+- otherwise, regions of a function are taken out for a stream by the
+  partition of section 6, by the streams of the entries selected.
+
+The object is one ELF file with the first stream's `e_machine`. Each other
+stream's sections are its code, as they would be in an object of its own,
+and a note, `.note.epitome.machines`, lists which sections are which
+machine's (section name pattern, `e_machine`, bundle format), so that
+`epitome-objdump` disassembles each by its own description. Other tools
+see code they cannot read, as they would see data.
+
+A launch is the first stream's instruction, so its relocation is in the
+first stream's machine's numbering, with the symbol measured in the
+launched stream's `unit-bytes`. Machines without numbers to spare have a
+way to add some: RISC-V's `R_RISCV_VENDOR` (191) names a vendor for the
+relocation that follows it, whose type is from 192 to 255.
+
+Embedding a whole object, as LLVM does, is kept for later, for a loader
+that wants each machine's code as a file of its own: the sections and the
+note are what it would be made from.
+
 ## Status
 
 | Item | Status |
@@ -269,4 +333,5 @@ relocation can resolve to a bundle number.
 | Rotating registers and modulo scheduling | **Later** |
 | Channels | **Planned** |
 | Streams, launch and parameters | **Planned** |
+| Several machines in one object: streams with `"target"`, functions by section, the machines note | **Planned** |
 | Itanium description, for assembly and disassembly | **Later** |

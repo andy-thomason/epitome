@@ -1259,6 +1259,36 @@ impl<'a, 'b> Sel<'a, 'b> {
         if holds == Some(Holds::Vector) {
             return self.vector_const(c, class);
         }
+        // A predicate (SVE's): all lanes on, of their width (`ptrue.s`,
+        // for <vscale x 4 x i1>), or none.
+        if holds == Some(Holds::Predicate) {
+            let Type::Vector { len, .. } = *self.cx.m.types.get(k.ty) else {
+                return self.err("a predicate constant of a scalar type");
+            };
+            let on = match &k.kind {
+                ConstKind::Splat(e) => {
+                    matches!(&self.cx.m.constant(*e).kind, ConstKind::Int(a) if a.low_u64() & 1 == 1)
+                }
+                ConstKind::Zero | ConstKind::Undef | ConstKind::Poison => false,
+                other => return self.err(format!("unsupported predicate constant {other:?}")),
+            };
+            let role = if on {
+                let lane = match len {
+                    16 => "b",
+                    8 => "h",
+                    4 => "s",
+                    2 => "d",
+                    _ => return self.err(format!("a predicate of {len} lanes")),
+                };
+                format!("ptrue.{lane}")
+            } else {
+                "pfalse".to_string()
+            };
+            let ins = self.t.role(&role).ok_or_else(|| format!("no instruction has role {role}"))?;
+            let d = self.mf.new_vreg(class);
+            self.push(MInst::new(ins, vec![MOp::Reg(Reg::V(d))]));
+            return Ok(Reg::V(d));
+        }
         // A floating-point constant: its bits, made in an integer register
         // and moved across (zero from the zero register).
         if holds == Some(Holds::Float) {
@@ -2027,7 +2057,8 @@ impl<'a, 'b> Sel<'a, 'b> {
         let sret = attrs.iter().any(|x| matches!(x, Attr::Type { name, .. } if name == "sret"));
         let wide = has_mark(attrs, crate::wide::WIDE);
         let ty = self.ty_of(v);
-        let part = |size, fp| crate::abi::Part { size, fp, sret: false, wide: false, hfa: false, byval: false };
+        let part =
+            |size, fp| crate::abi::Part { size, fp, sret: false, wide: false, hfa: false, byval: false, pred: false };
         // A struct passed in memory: 8-byte pieces of it, on the stack.
         if let Some(size) = self.byval_size(attrs) {
             return (0..size.div_ceil(8))
@@ -2044,6 +2075,10 @@ impl<'a, 'b> Sel<'a, 'b> {
         }
         match self.parts_of(ty) {
             Some(n) => vec![crate::abi::Part { wide, ..part(8, false) }; n],
+            // (A predicate, in the predicate registers.)
+            None if self.holds(ty) == Holds::Predicate => {
+                vec![crate::abi::Part { pred: true, ..part(self.arg_size(v), false) }]
+            }
             None => vec![crate::abi::Part { sret, ..part(self.arg_size(v), self.is_fp(ty)) }],
         }
     }
@@ -2947,7 +2982,14 @@ impl<'a, 'b> Sel<'a, 'b> {
                 self.push(MInst::new(self.t.by_role("move.w.h"), vec![MOp::Reg(Reg::V(d)), MOp::Reg(Reg::P(from))]));
                 return Ok(());
             }
-            let from = if self.is_fp(self.f.locals[r.index()].ty) { self.mf.abi.fp_result } else { self.mf.abi.result };
+            let rty = self.f.locals[r.index()].ty;
+            let from = if self.holds(rty) == Holds::Predicate {
+                self.mf.abi.pred_result.ok_or("the convention returns no predicates")?
+            } else if self.is_fp(rty) {
+                self.mf.abi.fp_result
+            } else {
+                self.mf.abi.result
+            };
             self.push(MInst::copy(Reg::V(d), Reg::P(from)));
         }
         Ok(())
@@ -3165,6 +3207,8 @@ impl<'a, 'b> Sel<'a, 'b> {
                             ret.imp_uses = result.into_iter().collect();
                             self.push(ret);
                             continue;
+                        } else if self.t.machine.def(class).holds == Some(Holds::Predicate) {
+                            self.mf.abi.pred_result.ok_or("the convention returns no predicates")?
                         } else if self.fp_class(class) {
                             self.mf.abi.fp_result
                         } else {

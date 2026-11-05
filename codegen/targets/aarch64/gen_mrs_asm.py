@@ -53,6 +53,11 @@ MAX_VARIANTS = 48
 SCALABLE = False
 
 
+def max_variants():
+    # (SVEs take more: ptrues patterns are 17 for each of 4 lane sizes.)
+    return 4 * MAX_VARIANTS if SCALABLE else MAX_VARIANTS
+
+
 # ---------------------------------------------------------------------------
 # Arm's specification
 
@@ -156,7 +161,7 @@ def expand(asm, rules, display=None, bound=None):
         for pieces, b in variants:
             for alt, b2 in alternatives(s, rules, display, b):
                 new.append((pieces + alt, b2))
-                if len(new) > MAX_VARIANTS:
+                if len(new) > max_variants():
                     return None
         variants = new
     return variants
@@ -188,7 +193,7 @@ def alternatives(s, rules, display, bound):
                 continue
             sub = expand(c, rules, d, b)
             if sub is None:
-                return [] if len(out) > MAX_VARIANTS else out
+                return [] if len(out) > max_variants() else out
             out.extend(sub)
     else:
         out = expand(r.get("symbols"), rules, d, bound)

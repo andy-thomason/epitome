@@ -61,6 +61,26 @@ def copies_and_memory():
     entry('void', 'STRzspill', [f'{z} "reg"="z" %t', 'ptr "reg"="xsp" %n', 'i64 "imm" %off'],
           enc('str {zt}, [{xn_sp}, #{imm}, mul vl]', {'zt': 't', 'xn_sp': 'n', 'imm': 'off'}),
           'str {t}, [{n}, #{off}, mul vl]', [f'store {z} %t, ptr %n', 'ret void'], ' "role"="store.z" "nomatch"')
+    # Predicates: copies (mov, orr of a predicate with itself, by itself)
+    # and spills, in eighths of a vector length.
+    pr = '<vscale x 16 x i1>'
+    entry(pr, 'MOVp', [f'{pr} "reg"="p" %n'],
+          enc('orr {pd}.b, {pg}/z, {pn}.b, {pm}.b', {'pd': 'd', 'pg': 'n', 'pn': 'n', 'pm': 'n'}),
+          'mov {d}.b, {n}.b', [f'ret {pr} %n'], ' "copy"="p"')
+    entry(pr, 'LDRpspill', ['ptr "reg"="xsp" %n', 'i64 "imm" %off'],
+          enc('ldr {pt}, [{xn_sp}, #{imm}, mul vl]', {'pt': 'd', 'xn_sp': 'n', 'imm': 'off'}),
+          'ldr {d}, [{n}, #{off}, mul vl]', [f'%r = load {pr}, ptr %n', f'ret {pr} %r'],
+          ' "role"="load.p,load.pg" "nomatch"')
+    entry('void', 'STRpspill', [f'{pr} "reg"="p" %t', 'ptr "reg"="xsp" %n', 'i64 "imm" %off'],
+          enc('str {pt}, [{xn_sp}, #{imm}, mul vl]', {'pt': 't', 'xn_sp': 'n', 'imm': 'off'}),
+          'str {t}, [{n}, #{off}, mul vl]', [f'store {pr} %t, ptr %n', 'ret void'], ' "role"="store.p,store.pg" "nomatch"')
+    # Predicates' constants: all lanes on, of a width, and none.
+    for n, lane in [(16, 'b'), (8, 'h'), (4, 's'), (2, 'd')]:
+        ty = f'<vscale x {n} x i1>'
+        entry(ty, f'PTRUE{lane}', [], enc(f'ptrue {{pd}}.{lane}', {'pd': 'd'}), f'ptrue {{d}}.{lane}',
+              [f'ret {ty} splat (i1 true)'], f' "dclass"="p" "role"="ptrue.{lane}" "nomatch"')
+    entry(pr, 'PFALSE', [], enc('pfalse {pd}.b', {'pd': 'd'}), 'pfalse {d}.b', [f'ret {pr} zeroinitializer'],
+          ' "dclass"="p" "role"="pfalse" "nomatch"')
     # sp by vector lengths.
     entry('i64', 'ADDVL', ['i64 "reg"="xsp" %n', 'i64 "imm" %k'],
           enc('addvl {xd_sp}, {xn_sp}, #{imm}', {'xd_sp': 'd', 'xn_sp': 'n', 'imm': 'k'}),

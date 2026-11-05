@@ -330,7 +330,10 @@ fn scalable_frame(t: &Target, f: &mut MFunc, saved: Vec<u8>, base: Option<u8>) -
             for (k, op) in inst.ops.iter_mut().enumerate() {
                 match op {
                     MOp::Frame(s, o) if f.slots[*s].scalable => {
-                        *op = MOp::Imm(f.slots[*s].offset + *o);
+                        // (In the units the slot's loads take: vector
+                        // lengths, or a predicate's eighths of one.)
+                        let unit = (16 / f.slots[*s].size.max(1)) as i64;
+                        *op = MOp::Imm(f.slots[*s].offset * unit + *o);
                         lengths = k > 0;
                     }
                     MOp::Frame(s, o) => *op = MOp::Imm(f.slots[*s].offset + *o),

@@ -556,9 +556,10 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
     let mut slot_of: HashMap<VReg, usize> = HashMap::new();
     for &v in spilled.iter().filter(|v| !remat.contains_key(v)) {
         let def = m.def(f.vclass[v as usize]);
-        let size = (def.bits as u64 / 8).max(8);
-        // (A scalable value's: a vector length, as frame.rs lays it out.)
+        // (A scalable value's: a vector length, as frame.rs lays it out; a
+        // predicate's size, 2, says its offset is in eighths of one.)
         let scalable = matches!(def.holds, Some(crate::machine::Holds::Scalable | crate::machine::Holds::Predicate));
+        let size = if scalable { def.bits as u64 / 8 } else { (def.bits as u64 / 8).max(8) };
         f.slots.push(Slot { size, align: size, offset: 0, scalable });
         slot_of.insert(v, f.slots.len() - 1);
     }

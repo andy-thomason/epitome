@@ -1770,7 +1770,295 @@ define void @sqinch_z_zs_.0(i64 "reg"="z" %zdn) "enc"="0000010001100000110000111
   ret void
 }
 
+define void @sqinch_z_zs_.1(i64 "reg"="z" %zdn) "enc"="000001000110000011000000000 zdn:5" "asm"="sqinch {zdn}.h, pow2" "asmonly" {
+  ret void
+}
+
+define void @sqinch_z_zs_.2(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11000000000 zdn:5" "asm"="sqinch {zdn}.h, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_z_zs_.3(i64 "reg"="z" %zdn) "enc"="000001000110000011000000001 zdn:5" "asm"="sqinch {zdn}.h, vl1" "asmonly" {
+  ret void
+}
+
+define void @sqinch_z_zs_.4(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11000000001 zdn:5" "asm"="sqinch {zdn}.h, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_z_zs_.5(i64 "reg"="z" %zdn) "enc"="000001000110000011000000010 zdn:5" "asm"="sqinch {zdn}.h, vl2" "asmonly" {
+  ret void
+}
+
+define void @sqinch_z_zs_.6(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11000000010 zdn:5" "asm"="sqinch {zdn}.h, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_z_zs_.7(i64 "reg"="z" %zdn) "enc"="000001000110000011000000011 zdn:5" "asm"="sqinch {zdn}.h, vl3" "asmonly" {
+  ret void
+}
+
+define void @sqinch_z_zs_.8(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11000000011 zdn:5" "asm"="sqinch {zdn}.h, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_z_zs_.9(i64 "reg"="z" %zdn) "enc"="000001000110000011000000100 zdn:5" "asm"="sqinch {zdn}.h, vl4" "asmonly" {
+  ret void
+}
+
+define void @sqinch_z_zs_.10(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11000000100 zdn:5" "asm"="sqinch {zdn}.h, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_z_zs_.11(i64 "reg"="z" %zdn) "enc"="000001000110000011000000101 zdn:5" "asm"="sqinch {zdn}.h, vl5" "asmonly" {
+  ret void
+}
+
+define void @sqinch_z_zs_.12(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11000000101 zdn:5" "asm"="sqinch {zdn}.h, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_z_zs_.13(i64 "reg"="z" %zdn) "enc"="000001000110000011000000110 zdn:5" "asm"="sqinch {zdn}.h, vl6" "asmonly" {
+  ret void
+}
+
+define void @sqinch_z_zs_.14(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11000000110 zdn:5" "asm"="sqinch {zdn}.h, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_z_zs_.15(i64 "reg"="z" %zdn) "enc"="000001000110000011000000111 zdn:5" "asm"="sqinch {zdn}.h, vl7" "asmonly" {
+  ret void
+}
+
+define void @sqinch_z_zs_.16(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11000000111 zdn:5" "asm"="sqinch {zdn}.h, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_z_zs_.17(i64 "reg"="z" %zdn) "enc"="000001000110000011000001000 zdn:5" "asm"="sqinch {zdn}.h, vl8" "asmonly" {
+  ret void
+}
+
+define void @sqinch_z_zs_.18(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11000001000 zdn:5" "asm"="sqinch {zdn}.h, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_z_zs_.19(i64 "reg"="z" %zdn) "enc"="000001000110000011000001001 zdn:5" "asm"="sqinch {zdn}.h, vl16" "asmonly" {
+  ret void
+}
+
+define void @sqinch_z_zs_.20(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11000001001 zdn:5" "asm"="sqinch {zdn}.h, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_z_zs_.21(i64 "reg"="z" %zdn) "enc"="000001000110000011000001010 zdn:5" "asm"="sqinch {zdn}.h, vl32" "asmonly" {
+  ret void
+}
+
+define void @sqinch_z_zs_.22(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11000001010 zdn:5" "asm"="sqinch {zdn}.h, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_z_zs_.23(i64 "reg"="z" %zdn) "enc"="000001000110000011000001011 zdn:5" "asm"="sqinch {zdn}.h, vl64" "asmonly" {
+  ret void
+}
+
+define void @sqinch_z_zs_.24(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11000001011 zdn:5" "asm"="sqinch {zdn}.h, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_z_zs_.25(i64 "reg"="z" %zdn) "enc"="000001000110000011000001100 zdn:5" "asm"="sqinch {zdn}.h, vl128" "asmonly" {
+  ret void
+}
+
+define void @sqinch_z_zs_.26(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11000001100 zdn:5" "asm"="sqinch {zdn}.h, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_z_zs_.27(i64 "reg"="z" %zdn) "enc"="000001000110000011000001101 zdn:5" "asm"="sqinch {zdn}.h, vl256" "asmonly" {
+  ret void
+}
+
+define void @sqinch_z_zs_.28(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11000001101 zdn:5" "asm"="sqinch {zdn}.h, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_z_zs_.29(i64 "reg"="z" %zdn, i64 "imm" %pattern) "enc"="0000010001100000110000 pattern:5 zdn:5" "asm"="sqinch {zdn}.h, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_z_zs_.30(i64 "reg"="z" %zdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 110000 pattern:5 zdn:5" "asm"="sqinch {zdn}.h, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_z_zs_.31(i64 "reg"="z" %zdn) "enc"="000001000110000011000011101 zdn:5" "asm"="sqinch {zdn}.h, mul4" "asmonly" {
+  ret void
+}
+
+define void @sqinch_z_zs_.32(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11000011101 zdn:5" "asm"="sqinch {zdn}.h, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_z_zs_.33(i64 "reg"="z" %zdn) "enc"="000001000110000011000011110 zdn:5" "asm"="sqinch {zdn}.h, mul3" "asmonly" {
+  ret void
+}
+
+define void @sqinch_z_zs_.34(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11000011110 zdn:5" "asm"="sqinch {zdn}.h, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_z_zs_.35(i64 "reg"="z" %zdn) "enc"="000001000110000011000011111 zdn:5" "asm"="sqinch {zdn}.h, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @sqinch_z_zs_.36(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11000011111 zdn:5" "asm"="sqinch {zdn}.h, all, mul #{imm}" "asmonly" {
+  ret void
+}
+
 define void @sqdech_z_zs_.0(i64 "reg"="z" %zdn) "enc"="000001000110000011001011111 zdn:5" "asm"="sqdech {zdn}.h" "asmonly" {
+  ret void
+}
+
+define void @sqdech_z_zs_.1(i64 "reg"="z" %zdn) "enc"="000001000110000011001000000 zdn:5" "asm"="sqdech {zdn}.h, pow2" "asmonly" {
+  ret void
+}
+
+define void @sqdech_z_zs_.2(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11001000000 zdn:5" "asm"="sqdech {zdn}.h, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_z_zs_.3(i64 "reg"="z" %zdn) "enc"="000001000110000011001000001 zdn:5" "asm"="sqdech {zdn}.h, vl1" "asmonly" {
+  ret void
+}
+
+define void @sqdech_z_zs_.4(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11001000001 zdn:5" "asm"="sqdech {zdn}.h, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_z_zs_.5(i64 "reg"="z" %zdn) "enc"="000001000110000011001000010 zdn:5" "asm"="sqdech {zdn}.h, vl2" "asmonly" {
+  ret void
+}
+
+define void @sqdech_z_zs_.6(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11001000010 zdn:5" "asm"="sqdech {zdn}.h, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_z_zs_.7(i64 "reg"="z" %zdn) "enc"="000001000110000011001000011 zdn:5" "asm"="sqdech {zdn}.h, vl3" "asmonly" {
+  ret void
+}
+
+define void @sqdech_z_zs_.8(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11001000011 zdn:5" "asm"="sqdech {zdn}.h, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_z_zs_.9(i64 "reg"="z" %zdn) "enc"="000001000110000011001000100 zdn:5" "asm"="sqdech {zdn}.h, vl4" "asmonly" {
+  ret void
+}
+
+define void @sqdech_z_zs_.10(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11001000100 zdn:5" "asm"="sqdech {zdn}.h, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_z_zs_.11(i64 "reg"="z" %zdn) "enc"="000001000110000011001000101 zdn:5" "asm"="sqdech {zdn}.h, vl5" "asmonly" {
+  ret void
+}
+
+define void @sqdech_z_zs_.12(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11001000101 zdn:5" "asm"="sqdech {zdn}.h, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_z_zs_.13(i64 "reg"="z" %zdn) "enc"="000001000110000011001000110 zdn:5" "asm"="sqdech {zdn}.h, vl6" "asmonly" {
+  ret void
+}
+
+define void @sqdech_z_zs_.14(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11001000110 zdn:5" "asm"="sqdech {zdn}.h, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_z_zs_.15(i64 "reg"="z" %zdn) "enc"="000001000110000011001000111 zdn:5" "asm"="sqdech {zdn}.h, vl7" "asmonly" {
+  ret void
+}
+
+define void @sqdech_z_zs_.16(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11001000111 zdn:5" "asm"="sqdech {zdn}.h, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_z_zs_.17(i64 "reg"="z" %zdn) "enc"="000001000110000011001001000 zdn:5" "asm"="sqdech {zdn}.h, vl8" "asmonly" {
+  ret void
+}
+
+define void @sqdech_z_zs_.18(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11001001000 zdn:5" "asm"="sqdech {zdn}.h, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_z_zs_.19(i64 "reg"="z" %zdn) "enc"="000001000110000011001001001 zdn:5" "asm"="sqdech {zdn}.h, vl16" "asmonly" {
+  ret void
+}
+
+define void @sqdech_z_zs_.20(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11001001001 zdn:5" "asm"="sqdech {zdn}.h, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_z_zs_.21(i64 "reg"="z" %zdn) "enc"="000001000110000011001001010 zdn:5" "asm"="sqdech {zdn}.h, vl32" "asmonly" {
+  ret void
+}
+
+define void @sqdech_z_zs_.22(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11001001010 zdn:5" "asm"="sqdech {zdn}.h, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_z_zs_.23(i64 "reg"="z" %zdn) "enc"="000001000110000011001001011 zdn:5" "asm"="sqdech {zdn}.h, vl64" "asmonly" {
+  ret void
+}
+
+define void @sqdech_z_zs_.24(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11001001011 zdn:5" "asm"="sqdech {zdn}.h, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_z_zs_.25(i64 "reg"="z" %zdn) "enc"="000001000110000011001001100 zdn:5" "asm"="sqdech {zdn}.h, vl128" "asmonly" {
+  ret void
+}
+
+define void @sqdech_z_zs_.26(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11001001100 zdn:5" "asm"="sqdech {zdn}.h, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_z_zs_.27(i64 "reg"="z" %zdn) "enc"="000001000110000011001001101 zdn:5" "asm"="sqdech {zdn}.h, vl256" "asmonly" {
+  ret void
+}
+
+define void @sqdech_z_zs_.28(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11001001101 zdn:5" "asm"="sqdech {zdn}.h, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_z_zs_.29(i64 "reg"="z" %zdn, i64 "imm" %pattern) "enc"="0000010001100000110010 pattern:5 zdn:5" "asm"="sqdech {zdn}.h, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_z_zs_.30(i64 "reg"="z" %zdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 110010 pattern:5 zdn:5" "asm"="sqdech {zdn}.h, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_z_zs_.31(i64 "reg"="z" %zdn) "enc"="000001000110000011001011101 zdn:5" "asm"="sqdech {zdn}.h, mul4" "asmonly" {
+  ret void
+}
+
+define void @sqdech_z_zs_.32(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11001011101 zdn:5" "asm"="sqdech {zdn}.h, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_z_zs_.33(i64 "reg"="z" %zdn) "enc"="000001000110000011001011110 zdn:5" "asm"="sqdech {zdn}.h, mul3" "asmonly" {
+  ret void
+}
+
+define void @sqdech_z_zs_.34(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11001011110 zdn:5" "asm"="sqdech {zdn}.h, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_z_zs_.35(i64 "reg"="z" %zdn) "enc"="000001000110000011001011111 zdn:5" "asm"="sqdech {zdn}.h, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @sqdech_z_zs_.36(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11001011111 zdn:5" "asm"="sqdech {zdn}.h, all, mul #{imm}" "asmonly" {
   ret void
 }
 
@@ -1778,7 +2066,295 @@ define void @uqinch_z_zs_.0(i64 "reg"="z" %zdn) "enc"="0000010001100000110001111
   ret void
 }
 
+define void @uqinch_z_zs_.1(i64 "reg"="z" %zdn) "enc"="000001000110000011000100000 zdn:5" "asm"="uqinch {zdn}.h, pow2" "asmonly" {
+  ret void
+}
+
+define void @uqinch_z_zs_.2(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11000100000 zdn:5" "asm"="uqinch {zdn}.h, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_z_zs_.3(i64 "reg"="z" %zdn) "enc"="000001000110000011000100001 zdn:5" "asm"="uqinch {zdn}.h, vl1" "asmonly" {
+  ret void
+}
+
+define void @uqinch_z_zs_.4(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11000100001 zdn:5" "asm"="uqinch {zdn}.h, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_z_zs_.5(i64 "reg"="z" %zdn) "enc"="000001000110000011000100010 zdn:5" "asm"="uqinch {zdn}.h, vl2" "asmonly" {
+  ret void
+}
+
+define void @uqinch_z_zs_.6(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11000100010 zdn:5" "asm"="uqinch {zdn}.h, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_z_zs_.7(i64 "reg"="z" %zdn) "enc"="000001000110000011000100011 zdn:5" "asm"="uqinch {zdn}.h, vl3" "asmonly" {
+  ret void
+}
+
+define void @uqinch_z_zs_.8(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11000100011 zdn:5" "asm"="uqinch {zdn}.h, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_z_zs_.9(i64 "reg"="z" %zdn) "enc"="000001000110000011000100100 zdn:5" "asm"="uqinch {zdn}.h, vl4" "asmonly" {
+  ret void
+}
+
+define void @uqinch_z_zs_.10(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11000100100 zdn:5" "asm"="uqinch {zdn}.h, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_z_zs_.11(i64 "reg"="z" %zdn) "enc"="000001000110000011000100101 zdn:5" "asm"="uqinch {zdn}.h, vl5" "asmonly" {
+  ret void
+}
+
+define void @uqinch_z_zs_.12(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11000100101 zdn:5" "asm"="uqinch {zdn}.h, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_z_zs_.13(i64 "reg"="z" %zdn) "enc"="000001000110000011000100110 zdn:5" "asm"="uqinch {zdn}.h, vl6" "asmonly" {
+  ret void
+}
+
+define void @uqinch_z_zs_.14(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11000100110 zdn:5" "asm"="uqinch {zdn}.h, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_z_zs_.15(i64 "reg"="z" %zdn) "enc"="000001000110000011000100111 zdn:5" "asm"="uqinch {zdn}.h, vl7" "asmonly" {
+  ret void
+}
+
+define void @uqinch_z_zs_.16(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11000100111 zdn:5" "asm"="uqinch {zdn}.h, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_z_zs_.17(i64 "reg"="z" %zdn) "enc"="000001000110000011000101000 zdn:5" "asm"="uqinch {zdn}.h, vl8" "asmonly" {
+  ret void
+}
+
+define void @uqinch_z_zs_.18(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11000101000 zdn:5" "asm"="uqinch {zdn}.h, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_z_zs_.19(i64 "reg"="z" %zdn) "enc"="000001000110000011000101001 zdn:5" "asm"="uqinch {zdn}.h, vl16" "asmonly" {
+  ret void
+}
+
+define void @uqinch_z_zs_.20(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11000101001 zdn:5" "asm"="uqinch {zdn}.h, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_z_zs_.21(i64 "reg"="z" %zdn) "enc"="000001000110000011000101010 zdn:5" "asm"="uqinch {zdn}.h, vl32" "asmonly" {
+  ret void
+}
+
+define void @uqinch_z_zs_.22(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11000101010 zdn:5" "asm"="uqinch {zdn}.h, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_z_zs_.23(i64 "reg"="z" %zdn) "enc"="000001000110000011000101011 zdn:5" "asm"="uqinch {zdn}.h, vl64" "asmonly" {
+  ret void
+}
+
+define void @uqinch_z_zs_.24(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11000101011 zdn:5" "asm"="uqinch {zdn}.h, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_z_zs_.25(i64 "reg"="z" %zdn) "enc"="000001000110000011000101100 zdn:5" "asm"="uqinch {zdn}.h, vl128" "asmonly" {
+  ret void
+}
+
+define void @uqinch_z_zs_.26(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11000101100 zdn:5" "asm"="uqinch {zdn}.h, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_z_zs_.27(i64 "reg"="z" %zdn) "enc"="000001000110000011000101101 zdn:5" "asm"="uqinch {zdn}.h, vl256" "asmonly" {
+  ret void
+}
+
+define void @uqinch_z_zs_.28(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11000101101 zdn:5" "asm"="uqinch {zdn}.h, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_z_zs_.29(i64 "reg"="z" %zdn, i64 "imm" %pattern) "enc"="0000010001100000110001 pattern:5 zdn:5" "asm"="uqinch {zdn}.h, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_z_zs_.30(i64 "reg"="z" %zdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 110001 pattern:5 zdn:5" "asm"="uqinch {zdn}.h, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_z_zs_.31(i64 "reg"="z" %zdn) "enc"="000001000110000011000111101 zdn:5" "asm"="uqinch {zdn}.h, mul4" "asmonly" {
+  ret void
+}
+
+define void @uqinch_z_zs_.32(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11000111101 zdn:5" "asm"="uqinch {zdn}.h, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_z_zs_.33(i64 "reg"="z" %zdn) "enc"="000001000110000011000111110 zdn:5" "asm"="uqinch {zdn}.h, mul3" "asmonly" {
+  ret void
+}
+
+define void @uqinch_z_zs_.34(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11000111110 zdn:5" "asm"="uqinch {zdn}.h, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_z_zs_.35(i64 "reg"="z" %zdn) "enc"="000001000110000011000111111 zdn:5" "asm"="uqinch {zdn}.h, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @uqinch_z_zs_.36(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11000111111 zdn:5" "asm"="uqinch {zdn}.h, all, mul #{imm}" "asmonly" {
+  ret void
+}
+
 define void @uqdech_z_zs_.0(i64 "reg"="z" %zdn) "enc"="000001000110000011001111111 zdn:5" "asm"="uqdech {zdn}.h" "asmonly" {
+  ret void
+}
+
+define void @uqdech_z_zs_.1(i64 "reg"="z" %zdn) "enc"="000001000110000011001100000 zdn:5" "asm"="uqdech {zdn}.h, pow2" "asmonly" {
+  ret void
+}
+
+define void @uqdech_z_zs_.2(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11001100000 zdn:5" "asm"="uqdech {zdn}.h, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_z_zs_.3(i64 "reg"="z" %zdn) "enc"="000001000110000011001100001 zdn:5" "asm"="uqdech {zdn}.h, vl1" "asmonly" {
+  ret void
+}
+
+define void @uqdech_z_zs_.4(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11001100001 zdn:5" "asm"="uqdech {zdn}.h, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_z_zs_.5(i64 "reg"="z" %zdn) "enc"="000001000110000011001100010 zdn:5" "asm"="uqdech {zdn}.h, vl2" "asmonly" {
+  ret void
+}
+
+define void @uqdech_z_zs_.6(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11001100010 zdn:5" "asm"="uqdech {zdn}.h, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_z_zs_.7(i64 "reg"="z" %zdn) "enc"="000001000110000011001100011 zdn:5" "asm"="uqdech {zdn}.h, vl3" "asmonly" {
+  ret void
+}
+
+define void @uqdech_z_zs_.8(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11001100011 zdn:5" "asm"="uqdech {zdn}.h, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_z_zs_.9(i64 "reg"="z" %zdn) "enc"="000001000110000011001100100 zdn:5" "asm"="uqdech {zdn}.h, vl4" "asmonly" {
+  ret void
+}
+
+define void @uqdech_z_zs_.10(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11001100100 zdn:5" "asm"="uqdech {zdn}.h, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_z_zs_.11(i64 "reg"="z" %zdn) "enc"="000001000110000011001100101 zdn:5" "asm"="uqdech {zdn}.h, vl5" "asmonly" {
+  ret void
+}
+
+define void @uqdech_z_zs_.12(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11001100101 zdn:5" "asm"="uqdech {zdn}.h, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_z_zs_.13(i64 "reg"="z" %zdn) "enc"="000001000110000011001100110 zdn:5" "asm"="uqdech {zdn}.h, vl6" "asmonly" {
+  ret void
+}
+
+define void @uqdech_z_zs_.14(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11001100110 zdn:5" "asm"="uqdech {zdn}.h, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_z_zs_.15(i64 "reg"="z" %zdn) "enc"="000001000110000011001100111 zdn:5" "asm"="uqdech {zdn}.h, vl7" "asmonly" {
+  ret void
+}
+
+define void @uqdech_z_zs_.16(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11001100111 zdn:5" "asm"="uqdech {zdn}.h, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_z_zs_.17(i64 "reg"="z" %zdn) "enc"="000001000110000011001101000 zdn:5" "asm"="uqdech {zdn}.h, vl8" "asmonly" {
+  ret void
+}
+
+define void @uqdech_z_zs_.18(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11001101000 zdn:5" "asm"="uqdech {zdn}.h, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_z_zs_.19(i64 "reg"="z" %zdn) "enc"="000001000110000011001101001 zdn:5" "asm"="uqdech {zdn}.h, vl16" "asmonly" {
+  ret void
+}
+
+define void @uqdech_z_zs_.20(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11001101001 zdn:5" "asm"="uqdech {zdn}.h, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_z_zs_.21(i64 "reg"="z" %zdn) "enc"="000001000110000011001101010 zdn:5" "asm"="uqdech {zdn}.h, vl32" "asmonly" {
+  ret void
+}
+
+define void @uqdech_z_zs_.22(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11001101010 zdn:5" "asm"="uqdech {zdn}.h, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_z_zs_.23(i64 "reg"="z" %zdn) "enc"="000001000110000011001101011 zdn:5" "asm"="uqdech {zdn}.h, vl64" "asmonly" {
+  ret void
+}
+
+define void @uqdech_z_zs_.24(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11001101011 zdn:5" "asm"="uqdech {zdn}.h, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_z_zs_.25(i64 "reg"="z" %zdn) "enc"="000001000110000011001101100 zdn:5" "asm"="uqdech {zdn}.h, vl128" "asmonly" {
+  ret void
+}
+
+define void @uqdech_z_zs_.26(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11001101100 zdn:5" "asm"="uqdech {zdn}.h, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_z_zs_.27(i64 "reg"="z" %zdn) "enc"="000001000110000011001101101 zdn:5" "asm"="uqdech {zdn}.h, vl256" "asmonly" {
+  ret void
+}
+
+define void @uqdech_z_zs_.28(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11001101101 zdn:5" "asm"="uqdech {zdn}.h, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_z_zs_.29(i64 "reg"="z" %zdn, i64 "imm" %pattern) "enc"="0000010001100000110011 pattern:5 zdn:5" "asm"="uqdech {zdn}.h, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_z_zs_.30(i64 "reg"="z" %zdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 110011 pattern:5 zdn:5" "asm"="uqdech {zdn}.h, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_z_zs_.31(i64 "reg"="z" %zdn) "enc"="000001000110000011001111101 zdn:5" "asm"="uqdech {zdn}.h, mul4" "asmonly" {
+  ret void
+}
+
+define void @uqdech_z_zs_.32(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11001111101 zdn:5" "asm"="uqdech {zdn}.h, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_z_zs_.33(i64 "reg"="z" %zdn) "enc"="000001000110000011001111110 zdn:5" "asm"="uqdech {zdn}.h, mul3" "asmonly" {
+  ret void
+}
+
+define void @uqdech_z_zs_.34(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11001111110 zdn:5" "asm"="uqdech {zdn}.h, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_z_zs_.35(i64 "reg"="z" %zdn) "enc"="000001000110000011001111111 zdn:5" "asm"="uqdech {zdn}.h, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @uqdech_z_zs_.36(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11001111111 zdn:5" "asm"="uqdech {zdn}.h, all, mul #{imm}" "asmonly" {
   ret void
 }
 
@@ -1786,7 +2362,295 @@ define void @sqincw_z_zs_.0(i64 "reg"="z" %zdn) "enc"="0000010010100000110000111
   ret void
 }
 
+define void @sqincw_z_zs_.1(i64 "reg"="z" %zdn) "enc"="000001001010000011000000000 zdn:5" "asm"="sqincw {zdn}.s, pow2" "asmonly" {
+  ret void
+}
+
+define void @sqincw_z_zs_.2(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11000000000 zdn:5" "asm"="sqincw {zdn}.s, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_z_zs_.3(i64 "reg"="z" %zdn) "enc"="000001001010000011000000001 zdn:5" "asm"="sqincw {zdn}.s, vl1" "asmonly" {
+  ret void
+}
+
+define void @sqincw_z_zs_.4(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11000000001 zdn:5" "asm"="sqincw {zdn}.s, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_z_zs_.5(i64 "reg"="z" %zdn) "enc"="000001001010000011000000010 zdn:5" "asm"="sqincw {zdn}.s, vl2" "asmonly" {
+  ret void
+}
+
+define void @sqincw_z_zs_.6(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11000000010 zdn:5" "asm"="sqincw {zdn}.s, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_z_zs_.7(i64 "reg"="z" %zdn) "enc"="000001001010000011000000011 zdn:5" "asm"="sqincw {zdn}.s, vl3" "asmonly" {
+  ret void
+}
+
+define void @sqincw_z_zs_.8(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11000000011 zdn:5" "asm"="sqincw {zdn}.s, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_z_zs_.9(i64 "reg"="z" %zdn) "enc"="000001001010000011000000100 zdn:5" "asm"="sqincw {zdn}.s, vl4" "asmonly" {
+  ret void
+}
+
+define void @sqincw_z_zs_.10(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11000000100 zdn:5" "asm"="sqincw {zdn}.s, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_z_zs_.11(i64 "reg"="z" %zdn) "enc"="000001001010000011000000101 zdn:5" "asm"="sqincw {zdn}.s, vl5" "asmonly" {
+  ret void
+}
+
+define void @sqincw_z_zs_.12(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11000000101 zdn:5" "asm"="sqincw {zdn}.s, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_z_zs_.13(i64 "reg"="z" %zdn) "enc"="000001001010000011000000110 zdn:5" "asm"="sqincw {zdn}.s, vl6" "asmonly" {
+  ret void
+}
+
+define void @sqincw_z_zs_.14(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11000000110 zdn:5" "asm"="sqincw {zdn}.s, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_z_zs_.15(i64 "reg"="z" %zdn) "enc"="000001001010000011000000111 zdn:5" "asm"="sqincw {zdn}.s, vl7" "asmonly" {
+  ret void
+}
+
+define void @sqincw_z_zs_.16(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11000000111 zdn:5" "asm"="sqincw {zdn}.s, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_z_zs_.17(i64 "reg"="z" %zdn) "enc"="000001001010000011000001000 zdn:5" "asm"="sqincw {zdn}.s, vl8" "asmonly" {
+  ret void
+}
+
+define void @sqincw_z_zs_.18(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11000001000 zdn:5" "asm"="sqincw {zdn}.s, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_z_zs_.19(i64 "reg"="z" %zdn) "enc"="000001001010000011000001001 zdn:5" "asm"="sqincw {zdn}.s, vl16" "asmonly" {
+  ret void
+}
+
+define void @sqincw_z_zs_.20(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11000001001 zdn:5" "asm"="sqincw {zdn}.s, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_z_zs_.21(i64 "reg"="z" %zdn) "enc"="000001001010000011000001010 zdn:5" "asm"="sqincw {zdn}.s, vl32" "asmonly" {
+  ret void
+}
+
+define void @sqincw_z_zs_.22(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11000001010 zdn:5" "asm"="sqincw {zdn}.s, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_z_zs_.23(i64 "reg"="z" %zdn) "enc"="000001001010000011000001011 zdn:5" "asm"="sqincw {zdn}.s, vl64" "asmonly" {
+  ret void
+}
+
+define void @sqincw_z_zs_.24(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11000001011 zdn:5" "asm"="sqincw {zdn}.s, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_z_zs_.25(i64 "reg"="z" %zdn) "enc"="000001001010000011000001100 zdn:5" "asm"="sqincw {zdn}.s, vl128" "asmonly" {
+  ret void
+}
+
+define void @sqincw_z_zs_.26(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11000001100 zdn:5" "asm"="sqincw {zdn}.s, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_z_zs_.27(i64 "reg"="z" %zdn) "enc"="000001001010000011000001101 zdn:5" "asm"="sqincw {zdn}.s, vl256" "asmonly" {
+  ret void
+}
+
+define void @sqincw_z_zs_.28(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11000001101 zdn:5" "asm"="sqincw {zdn}.s, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_z_zs_.29(i64 "reg"="z" %zdn, i64 "imm" %pattern) "enc"="0000010010100000110000 pattern:5 zdn:5" "asm"="sqincw {zdn}.s, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_z_zs_.30(i64 "reg"="z" %zdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 110000 pattern:5 zdn:5" "asm"="sqincw {zdn}.s, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_z_zs_.31(i64 "reg"="z" %zdn) "enc"="000001001010000011000011101 zdn:5" "asm"="sqincw {zdn}.s, mul4" "asmonly" {
+  ret void
+}
+
+define void @sqincw_z_zs_.32(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11000011101 zdn:5" "asm"="sqincw {zdn}.s, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_z_zs_.33(i64 "reg"="z" %zdn) "enc"="000001001010000011000011110 zdn:5" "asm"="sqincw {zdn}.s, mul3" "asmonly" {
+  ret void
+}
+
+define void @sqincw_z_zs_.34(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11000011110 zdn:5" "asm"="sqincw {zdn}.s, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_z_zs_.35(i64 "reg"="z" %zdn) "enc"="000001001010000011000011111 zdn:5" "asm"="sqincw {zdn}.s, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @sqincw_z_zs_.36(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11000011111 zdn:5" "asm"="sqincw {zdn}.s, all, mul #{imm}" "asmonly" {
+  ret void
+}
+
 define void @sqdecw_z_zs_.0(i64 "reg"="z" %zdn) "enc"="000001001010000011001011111 zdn:5" "asm"="sqdecw {zdn}.s" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.1(i64 "reg"="z" %zdn) "enc"="000001001010000011001000000 zdn:5" "asm"="sqdecw {zdn}.s, pow2" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.2(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11001000000 zdn:5" "asm"="sqdecw {zdn}.s, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.3(i64 "reg"="z" %zdn) "enc"="000001001010000011001000001 zdn:5" "asm"="sqdecw {zdn}.s, vl1" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.4(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11001000001 zdn:5" "asm"="sqdecw {zdn}.s, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.5(i64 "reg"="z" %zdn) "enc"="000001001010000011001000010 zdn:5" "asm"="sqdecw {zdn}.s, vl2" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.6(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11001000010 zdn:5" "asm"="sqdecw {zdn}.s, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.7(i64 "reg"="z" %zdn) "enc"="000001001010000011001000011 zdn:5" "asm"="sqdecw {zdn}.s, vl3" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.8(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11001000011 zdn:5" "asm"="sqdecw {zdn}.s, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.9(i64 "reg"="z" %zdn) "enc"="000001001010000011001000100 zdn:5" "asm"="sqdecw {zdn}.s, vl4" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.10(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11001000100 zdn:5" "asm"="sqdecw {zdn}.s, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.11(i64 "reg"="z" %zdn) "enc"="000001001010000011001000101 zdn:5" "asm"="sqdecw {zdn}.s, vl5" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.12(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11001000101 zdn:5" "asm"="sqdecw {zdn}.s, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.13(i64 "reg"="z" %zdn) "enc"="000001001010000011001000110 zdn:5" "asm"="sqdecw {zdn}.s, vl6" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.14(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11001000110 zdn:5" "asm"="sqdecw {zdn}.s, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.15(i64 "reg"="z" %zdn) "enc"="000001001010000011001000111 zdn:5" "asm"="sqdecw {zdn}.s, vl7" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.16(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11001000111 zdn:5" "asm"="sqdecw {zdn}.s, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.17(i64 "reg"="z" %zdn) "enc"="000001001010000011001001000 zdn:5" "asm"="sqdecw {zdn}.s, vl8" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.18(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11001001000 zdn:5" "asm"="sqdecw {zdn}.s, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.19(i64 "reg"="z" %zdn) "enc"="000001001010000011001001001 zdn:5" "asm"="sqdecw {zdn}.s, vl16" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.20(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11001001001 zdn:5" "asm"="sqdecw {zdn}.s, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.21(i64 "reg"="z" %zdn) "enc"="000001001010000011001001010 zdn:5" "asm"="sqdecw {zdn}.s, vl32" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.22(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11001001010 zdn:5" "asm"="sqdecw {zdn}.s, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.23(i64 "reg"="z" %zdn) "enc"="000001001010000011001001011 zdn:5" "asm"="sqdecw {zdn}.s, vl64" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.24(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11001001011 zdn:5" "asm"="sqdecw {zdn}.s, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.25(i64 "reg"="z" %zdn) "enc"="000001001010000011001001100 zdn:5" "asm"="sqdecw {zdn}.s, vl128" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.26(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11001001100 zdn:5" "asm"="sqdecw {zdn}.s, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.27(i64 "reg"="z" %zdn) "enc"="000001001010000011001001101 zdn:5" "asm"="sqdecw {zdn}.s, vl256" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.28(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11001001101 zdn:5" "asm"="sqdecw {zdn}.s, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.29(i64 "reg"="z" %zdn, i64 "imm" %pattern) "enc"="0000010010100000110010 pattern:5 zdn:5" "asm"="sqdecw {zdn}.s, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.30(i64 "reg"="z" %zdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 110010 pattern:5 zdn:5" "asm"="sqdecw {zdn}.s, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.31(i64 "reg"="z" %zdn) "enc"="000001001010000011001011101 zdn:5" "asm"="sqdecw {zdn}.s, mul4" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.32(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11001011101 zdn:5" "asm"="sqdecw {zdn}.s, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.33(i64 "reg"="z" %zdn) "enc"="000001001010000011001011110 zdn:5" "asm"="sqdecw {zdn}.s, mul3" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.34(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11001011110 zdn:5" "asm"="sqdecw {zdn}.s, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.35(i64 "reg"="z" %zdn) "enc"="000001001010000011001011111 zdn:5" "asm"="sqdecw {zdn}.s, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @sqdecw_z_zs_.36(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11001011111 zdn:5" "asm"="sqdecw {zdn}.s, all, mul #{imm}" "asmonly" {
   ret void
 }
 
@@ -1794,7 +2658,295 @@ define void @uqincw_z_zs_.0(i64 "reg"="z" %zdn) "enc"="0000010010100000110001111
   ret void
 }
 
+define void @uqincw_z_zs_.1(i64 "reg"="z" %zdn) "enc"="000001001010000011000100000 zdn:5" "asm"="uqincw {zdn}.s, pow2" "asmonly" {
+  ret void
+}
+
+define void @uqincw_z_zs_.2(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11000100000 zdn:5" "asm"="uqincw {zdn}.s, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_z_zs_.3(i64 "reg"="z" %zdn) "enc"="000001001010000011000100001 zdn:5" "asm"="uqincw {zdn}.s, vl1" "asmonly" {
+  ret void
+}
+
+define void @uqincw_z_zs_.4(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11000100001 zdn:5" "asm"="uqincw {zdn}.s, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_z_zs_.5(i64 "reg"="z" %zdn) "enc"="000001001010000011000100010 zdn:5" "asm"="uqincw {zdn}.s, vl2" "asmonly" {
+  ret void
+}
+
+define void @uqincw_z_zs_.6(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11000100010 zdn:5" "asm"="uqincw {zdn}.s, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_z_zs_.7(i64 "reg"="z" %zdn) "enc"="000001001010000011000100011 zdn:5" "asm"="uqincw {zdn}.s, vl3" "asmonly" {
+  ret void
+}
+
+define void @uqincw_z_zs_.8(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11000100011 zdn:5" "asm"="uqincw {zdn}.s, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_z_zs_.9(i64 "reg"="z" %zdn) "enc"="000001001010000011000100100 zdn:5" "asm"="uqincw {zdn}.s, vl4" "asmonly" {
+  ret void
+}
+
+define void @uqincw_z_zs_.10(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11000100100 zdn:5" "asm"="uqincw {zdn}.s, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_z_zs_.11(i64 "reg"="z" %zdn) "enc"="000001001010000011000100101 zdn:5" "asm"="uqincw {zdn}.s, vl5" "asmonly" {
+  ret void
+}
+
+define void @uqincw_z_zs_.12(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11000100101 zdn:5" "asm"="uqincw {zdn}.s, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_z_zs_.13(i64 "reg"="z" %zdn) "enc"="000001001010000011000100110 zdn:5" "asm"="uqincw {zdn}.s, vl6" "asmonly" {
+  ret void
+}
+
+define void @uqincw_z_zs_.14(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11000100110 zdn:5" "asm"="uqincw {zdn}.s, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_z_zs_.15(i64 "reg"="z" %zdn) "enc"="000001001010000011000100111 zdn:5" "asm"="uqincw {zdn}.s, vl7" "asmonly" {
+  ret void
+}
+
+define void @uqincw_z_zs_.16(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11000100111 zdn:5" "asm"="uqincw {zdn}.s, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_z_zs_.17(i64 "reg"="z" %zdn) "enc"="000001001010000011000101000 zdn:5" "asm"="uqincw {zdn}.s, vl8" "asmonly" {
+  ret void
+}
+
+define void @uqincw_z_zs_.18(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11000101000 zdn:5" "asm"="uqincw {zdn}.s, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_z_zs_.19(i64 "reg"="z" %zdn) "enc"="000001001010000011000101001 zdn:5" "asm"="uqincw {zdn}.s, vl16" "asmonly" {
+  ret void
+}
+
+define void @uqincw_z_zs_.20(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11000101001 zdn:5" "asm"="uqincw {zdn}.s, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_z_zs_.21(i64 "reg"="z" %zdn) "enc"="000001001010000011000101010 zdn:5" "asm"="uqincw {zdn}.s, vl32" "asmonly" {
+  ret void
+}
+
+define void @uqincw_z_zs_.22(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11000101010 zdn:5" "asm"="uqincw {zdn}.s, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_z_zs_.23(i64 "reg"="z" %zdn) "enc"="000001001010000011000101011 zdn:5" "asm"="uqincw {zdn}.s, vl64" "asmonly" {
+  ret void
+}
+
+define void @uqincw_z_zs_.24(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11000101011 zdn:5" "asm"="uqincw {zdn}.s, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_z_zs_.25(i64 "reg"="z" %zdn) "enc"="000001001010000011000101100 zdn:5" "asm"="uqincw {zdn}.s, vl128" "asmonly" {
+  ret void
+}
+
+define void @uqincw_z_zs_.26(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11000101100 zdn:5" "asm"="uqincw {zdn}.s, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_z_zs_.27(i64 "reg"="z" %zdn) "enc"="000001001010000011000101101 zdn:5" "asm"="uqincw {zdn}.s, vl256" "asmonly" {
+  ret void
+}
+
+define void @uqincw_z_zs_.28(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11000101101 zdn:5" "asm"="uqincw {zdn}.s, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_z_zs_.29(i64 "reg"="z" %zdn, i64 "imm" %pattern) "enc"="0000010010100000110001 pattern:5 zdn:5" "asm"="uqincw {zdn}.s, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_z_zs_.30(i64 "reg"="z" %zdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 110001 pattern:5 zdn:5" "asm"="uqincw {zdn}.s, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_z_zs_.31(i64 "reg"="z" %zdn) "enc"="000001001010000011000111101 zdn:5" "asm"="uqincw {zdn}.s, mul4" "asmonly" {
+  ret void
+}
+
+define void @uqincw_z_zs_.32(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11000111101 zdn:5" "asm"="uqincw {zdn}.s, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_z_zs_.33(i64 "reg"="z" %zdn) "enc"="000001001010000011000111110 zdn:5" "asm"="uqincw {zdn}.s, mul3" "asmonly" {
+  ret void
+}
+
+define void @uqincw_z_zs_.34(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11000111110 zdn:5" "asm"="uqincw {zdn}.s, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_z_zs_.35(i64 "reg"="z" %zdn) "enc"="000001001010000011000111111 zdn:5" "asm"="uqincw {zdn}.s, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @uqincw_z_zs_.36(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11000111111 zdn:5" "asm"="uqincw {zdn}.s, all, mul #{imm}" "asmonly" {
+  ret void
+}
+
 define void @uqdecw_z_zs_.0(i64 "reg"="z" %zdn) "enc"="000001001010000011001111111 zdn:5" "asm"="uqdecw {zdn}.s" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.1(i64 "reg"="z" %zdn) "enc"="000001001010000011001100000 zdn:5" "asm"="uqdecw {zdn}.s, pow2" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.2(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11001100000 zdn:5" "asm"="uqdecw {zdn}.s, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.3(i64 "reg"="z" %zdn) "enc"="000001001010000011001100001 zdn:5" "asm"="uqdecw {zdn}.s, vl1" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.4(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11001100001 zdn:5" "asm"="uqdecw {zdn}.s, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.5(i64 "reg"="z" %zdn) "enc"="000001001010000011001100010 zdn:5" "asm"="uqdecw {zdn}.s, vl2" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.6(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11001100010 zdn:5" "asm"="uqdecw {zdn}.s, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.7(i64 "reg"="z" %zdn) "enc"="000001001010000011001100011 zdn:5" "asm"="uqdecw {zdn}.s, vl3" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.8(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11001100011 zdn:5" "asm"="uqdecw {zdn}.s, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.9(i64 "reg"="z" %zdn) "enc"="000001001010000011001100100 zdn:5" "asm"="uqdecw {zdn}.s, vl4" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.10(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11001100100 zdn:5" "asm"="uqdecw {zdn}.s, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.11(i64 "reg"="z" %zdn) "enc"="000001001010000011001100101 zdn:5" "asm"="uqdecw {zdn}.s, vl5" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.12(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11001100101 zdn:5" "asm"="uqdecw {zdn}.s, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.13(i64 "reg"="z" %zdn) "enc"="000001001010000011001100110 zdn:5" "asm"="uqdecw {zdn}.s, vl6" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.14(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11001100110 zdn:5" "asm"="uqdecw {zdn}.s, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.15(i64 "reg"="z" %zdn) "enc"="000001001010000011001100111 zdn:5" "asm"="uqdecw {zdn}.s, vl7" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.16(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11001100111 zdn:5" "asm"="uqdecw {zdn}.s, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.17(i64 "reg"="z" %zdn) "enc"="000001001010000011001101000 zdn:5" "asm"="uqdecw {zdn}.s, vl8" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.18(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11001101000 zdn:5" "asm"="uqdecw {zdn}.s, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.19(i64 "reg"="z" %zdn) "enc"="000001001010000011001101001 zdn:5" "asm"="uqdecw {zdn}.s, vl16" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.20(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11001101001 zdn:5" "asm"="uqdecw {zdn}.s, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.21(i64 "reg"="z" %zdn) "enc"="000001001010000011001101010 zdn:5" "asm"="uqdecw {zdn}.s, vl32" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.22(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11001101010 zdn:5" "asm"="uqdecw {zdn}.s, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.23(i64 "reg"="z" %zdn) "enc"="000001001010000011001101011 zdn:5" "asm"="uqdecw {zdn}.s, vl64" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.24(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11001101011 zdn:5" "asm"="uqdecw {zdn}.s, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.25(i64 "reg"="z" %zdn) "enc"="000001001010000011001101100 zdn:5" "asm"="uqdecw {zdn}.s, vl128" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.26(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11001101100 zdn:5" "asm"="uqdecw {zdn}.s, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.27(i64 "reg"="z" %zdn) "enc"="000001001010000011001101101 zdn:5" "asm"="uqdecw {zdn}.s, vl256" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.28(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11001101101 zdn:5" "asm"="uqdecw {zdn}.s, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.29(i64 "reg"="z" %zdn, i64 "imm" %pattern) "enc"="0000010010100000110011 pattern:5 zdn:5" "asm"="uqdecw {zdn}.s, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.30(i64 "reg"="z" %zdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 110011 pattern:5 zdn:5" "asm"="uqdecw {zdn}.s, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.31(i64 "reg"="z" %zdn) "enc"="000001001010000011001111101 zdn:5" "asm"="uqdecw {zdn}.s, mul4" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.32(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11001111101 zdn:5" "asm"="uqdecw {zdn}.s, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.33(i64 "reg"="z" %zdn) "enc"="000001001010000011001111110 zdn:5" "asm"="uqdecw {zdn}.s, mul3" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.34(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11001111110 zdn:5" "asm"="uqdecw {zdn}.s, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.35(i64 "reg"="z" %zdn) "enc"="000001001010000011001111111 zdn:5" "asm"="uqdecw {zdn}.s, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @uqdecw_z_zs_.36(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11001111111 zdn:5" "asm"="uqdecw {zdn}.s, all, mul #{imm}" "asmonly" {
   ret void
 }
 
@@ -1802,7 +2954,295 @@ define void @sqincd_z_zs_.0(i64 "reg"="z" %zdn) "enc"="0000010011100000110000111
   ret void
 }
 
+define void @sqincd_z_zs_.1(i64 "reg"="z" %zdn) "enc"="000001001110000011000000000 zdn:5" "asm"="sqincd {zdn}.d, pow2" "asmonly" {
+  ret void
+}
+
+define void @sqincd_z_zs_.2(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11000000000 zdn:5" "asm"="sqincd {zdn}.d, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_z_zs_.3(i64 "reg"="z" %zdn) "enc"="000001001110000011000000001 zdn:5" "asm"="sqincd {zdn}.d, vl1" "asmonly" {
+  ret void
+}
+
+define void @sqincd_z_zs_.4(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11000000001 zdn:5" "asm"="sqincd {zdn}.d, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_z_zs_.5(i64 "reg"="z" %zdn) "enc"="000001001110000011000000010 zdn:5" "asm"="sqincd {zdn}.d, vl2" "asmonly" {
+  ret void
+}
+
+define void @sqincd_z_zs_.6(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11000000010 zdn:5" "asm"="sqincd {zdn}.d, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_z_zs_.7(i64 "reg"="z" %zdn) "enc"="000001001110000011000000011 zdn:5" "asm"="sqincd {zdn}.d, vl3" "asmonly" {
+  ret void
+}
+
+define void @sqincd_z_zs_.8(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11000000011 zdn:5" "asm"="sqincd {zdn}.d, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_z_zs_.9(i64 "reg"="z" %zdn) "enc"="000001001110000011000000100 zdn:5" "asm"="sqincd {zdn}.d, vl4" "asmonly" {
+  ret void
+}
+
+define void @sqincd_z_zs_.10(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11000000100 zdn:5" "asm"="sqincd {zdn}.d, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_z_zs_.11(i64 "reg"="z" %zdn) "enc"="000001001110000011000000101 zdn:5" "asm"="sqincd {zdn}.d, vl5" "asmonly" {
+  ret void
+}
+
+define void @sqincd_z_zs_.12(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11000000101 zdn:5" "asm"="sqincd {zdn}.d, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_z_zs_.13(i64 "reg"="z" %zdn) "enc"="000001001110000011000000110 zdn:5" "asm"="sqincd {zdn}.d, vl6" "asmonly" {
+  ret void
+}
+
+define void @sqincd_z_zs_.14(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11000000110 zdn:5" "asm"="sqincd {zdn}.d, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_z_zs_.15(i64 "reg"="z" %zdn) "enc"="000001001110000011000000111 zdn:5" "asm"="sqincd {zdn}.d, vl7" "asmonly" {
+  ret void
+}
+
+define void @sqincd_z_zs_.16(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11000000111 zdn:5" "asm"="sqincd {zdn}.d, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_z_zs_.17(i64 "reg"="z" %zdn) "enc"="000001001110000011000001000 zdn:5" "asm"="sqincd {zdn}.d, vl8" "asmonly" {
+  ret void
+}
+
+define void @sqincd_z_zs_.18(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11000001000 zdn:5" "asm"="sqincd {zdn}.d, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_z_zs_.19(i64 "reg"="z" %zdn) "enc"="000001001110000011000001001 zdn:5" "asm"="sqincd {zdn}.d, vl16" "asmonly" {
+  ret void
+}
+
+define void @sqincd_z_zs_.20(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11000001001 zdn:5" "asm"="sqincd {zdn}.d, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_z_zs_.21(i64 "reg"="z" %zdn) "enc"="000001001110000011000001010 zdn:5" "asm"="sqincd {zdn}.d, vl32" "asmonly" {
+  ret void
+}
+
+define void @sqincd_z_zs_.22(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11000001010 zdn:5" "asm"="sqincd {zdn}.d, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_z_zs_.23(i64 "reg"="z" %zdn) "enc"="000001001110000011000001011 zdn:5" "asm"="sqincd {zdn}.d, vl64" "asmonly" {
+  ret void
+}
+
+define void @sqincd_z_zs_.24(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11000001011 zdn:5" "asm"="sqincd {zdn}.d, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_z_zs_.25(i64 "reg"="z" %zdn) "enc"="000001001110000011000001100 zdn:5" "asm"="sqincd {zdn}.d, vl128" "asmonly" {
+  ret void
+}
+
+define void @sqincd_z_zs_.26(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11000001100 zdn:5" "asm"="sqincd {zdn}.d, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_z_zs_.27(i64 "reg"="z" %zdn) "enc"="000001001110000011000001101 zdn:5" "asm"="sqincd {zdn}.d, vl256" "asmonly" {
+  ret void
+}
+
+define void @sqincd_z_zs_.28(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11000001101 zdn:5" "asm"="sqincd {zdn}.d, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_z_zs_.29(i64 "reg"="z" %zdn, i64 "imm" %pattern) "enc"="0000010011100000110000 pattern:5 zdn:5" "asm"="sqincd {zdn}.d, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_z_zs_.30(i64 "reg"="z" %zdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 110000 pattern:5 zdn:5" "asm"="sqincd {zdn}.d, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_z_zs_.31(i64 "reg"="z" %zdn) "enc"="000001001110000011000011101 zdn:5" "asm"="sqincd {zdn}.d, mul4" "asmonly" {
+  ret void
+}
+
+define void @sqincd_z_zs_.32(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11000011101 zdn:5" "asm"="sqincd {zdn}.d, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_z_zs_.33(i64 "reg"="z" %zdn) "enc"="000001001110000011000011110 zdn:5" "asm"="sqincd {zdn}.d, mul3" "asmonly" {
+  ret void
+}
+
+define void @sqincd_z_zs_.34(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11000011110 zdn:5" "asm"="sqincd {zdn}.d, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_z_zs_.35(i64 "reg"="z" %zdn) "enc"="000001001110000011000011111 zdn:5" "asm"="sqincd {zdn}.d, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @sqincd_z_zs_.36(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11000011111 zdn:5" "asm"="sqincd {zdn}.d, all, mul #{imm}" "asmonly" {
+  ret void
+}
+
 define void @sqdecd_z_zs_.0(i64 "reg"="z" %zdn) "enc"="000001001110000011001011111 zdn:5" "asm"="sqdecd {zdn}.d" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.1(i64 "reg"="z" %zdn) "enc"="000001001110000011001000000 zdn:5" "asm"="sqdecd {zdn}.d, pow2" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.2(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11001000000 zdn:5" "asm"="sqdecd {zdn}.d, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.3(i64 "reg"="z" %zdn) "enc"="000001001110000011001000001 zdn:5" "asm"="sqdecd {zdn}.d, vl1" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.4(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11001000001 zdn:5" "asm"="sqdecd {zdn}.d, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.5(i64 "reg"="z" %zdn) "enc"="000001001110000011001000010 zdn:5" "asm"="sqdecd {zdn}.d, vl2" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.6(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11001000010 zdn:5" "asm"="sqdecd {zdn}.d, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.7(i64 "reg"="z" %zdn) "enc"="000001001110000011001000011 zdn:5" "asm"="sqdecd {zdn}.d, vl3" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.8(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11001000011 zdn:5" "asm"="sqdecd {zdn}.d, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.9(i64 "reg"="z" %zdn) "enc"="000001001110000011001000100 zdn:5" "asm"="sqdecd {zdn}.d, vl4" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.10(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11001000100 zdn:5" "asm"="sqdecd {zdn}.d, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.11(i64 "reg"="z" %zdn) "enc"="000001001110000011001000101 zdn:5" "asm"="sqdecd {zdn}.d, vl5" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.12(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11001000101 zdn:5" "asm"="sqdecd {zdn}.d, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.13(i64 "reg"="z" %zdn) "enc"="000001001110000011001000110 zdn:5" "asm"="sqdecd {zdn}.d, vl6" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.14(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11001000110 zdn:5" "asm"="sqdecd {zdn}.d, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.15(i64 "reg"="z" %zdn) "enc"="000001001110000011001000111 zdn:5" "asm"="sqdecd {zdn}.d, vl7" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.16(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11001000111 zdn:5" "asm"="sqdecd {zdn}.d, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.17(i64 "reg"="z" %zdn) "enc"="000001001110000011001001000 zdn:5" "asm"="sqdecd {zdn}.d, vl8" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.18(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11001001000 zdn:5" "asm"="sqdecd {zdn}.d, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.19(i64 "reg"="z" %zdn) "enc"="000001001110000011001001001 zdn:5" "asm"="sqdecd {zdn}.d, vl16" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.20(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11001001001 zdn:5" "asm"="sqdecd {zdn}.d, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.21(i64 "reg"="z" %zdn) "enc"="000001001110000011001001010 zdn:5" "asm"="sqdecd {zdn}.d, vl32" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.22(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11001001010 zdn:5" "asm"="sqdecd {zdn}.d, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.23(i64 "reg"="z" %zdn) "enc"="000001001110000011001001011 zdn:5" "asm"="sqdecd {zdn}.d, vl64" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.24(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11001001011 zdn:5" "asm"="sqdecd {zdn}.d, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.25(i64 "reg"="z" %zdn) "enc"="000001001110000011001001100 zdn:5" "asm"="sqdecd {zdn}.d, vl128" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.26(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11001001100 zdn:5" "asm"="sqdecd {zdn}.d, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.27(i64 "reg"="z" %zdn) "enc"="000001001110000011001001101 zdn:5" "asm"="sqdecd {zdn}.d, vl256" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.28(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11001001101 zdn:5" "asm"="sqdecd {zdn}.d, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.29(i64 "reg"="z" %zdn, i64 "imm" %pattern) "enc"="0000010011100000110010 pattern:5 zdn:5" "asm"="sqdecd {zdn}.d, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.30(i64 "reg"="z" %zdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 110010 pattern:5 zdn:5" "asm"="sqdecd {zdn}.d, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.31(i64 "reg"="z" %zdn) "enc"="000001001110000011001011101 zdn:5" "asm"="sqdecd {zdn}.d, mul4" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.32(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11001011101 zdn:5" "asm"="sqdecd {zdn}.d, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.33(i64 "reg"="z" %zdn) "enc"="000001001110000011001011110 zdn:5" "asm"="sqdecd {zdn}.d, mul3" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.34(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11001011110 zdn:5" "asm"="sqdecd {zdn}.d, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.35(i64 "reg"="z" %zdn) "enc"="000001001110000011001011111 zdn:5" "asm"="sqdecd {zdn}.d, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @sqdecd_z_zs_.36(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11001011111 zdn:5" "asm"="sqdecd {zdn}.d, all, mul #{imm}" "asmonly" {
   ret void
 }
 
@@ -1810,7 +3250,295 @@ define void @uqincd_z_zs_.0(i64 "reg"="z" %zdn) "enc"="0000010011100000110001111
   ret void
 }
 
+define void @uqincd_z_zs_.1(i64 "reg"="z" %zdn) "enc"="000001001110000011000100000 zdn:5" "asm"="uqincd {zdn}.d, pow2" "asmonly" {
+  ret void
+}
+
+define void @uqincd_z_zs_.2(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11000100000 zdn:5" "asm"="uqincd {zdn}.d, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_z_zs_.3(i64 "reg"="z" %zdn) "enc"="000001001110000011000100001 zdn:5" "asm"="uqincd {zdn}.d, vl1" "asmonly" {
+  ret void
+}
+
+define void @uqincd_z_zs_.4(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11000100001 zdn:5" "asm"="uqincd {zdn}.d, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_z_zs_.5(i64 "reg"="z" %zdn) "enc"="000001001110000011000100010 zdn:5" "asm"="uqincd {zdn}.d, vl2" "asmonly" {
+  ret void
+}
+
+define void @uqincd_z_zs_.6(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11000100010 zdn:5" "asm"="uqincd {zdn}.d, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_z_zs_.7(i64 "reg"="z" %zdn) "enc"="000001001110000011000100011 zdn:5" "asm"="uqincd {zdn}.d, vl3" "asmonly" {
+  ret void
+}
+
+define void @uqincd_z_zs_.8(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11000100011 zdn:5" "asm"="uqincd {zdn}.d, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_z_zs_.9(i64 "reg"="z" %zdn) "enc"="000001001110000011000100100 zdn:5" "asm"="uqincd {zdn}.d, vl4" "asmonly" {
+  ret void
+}
+
+define void @uqincd_z_zs_.10(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11000100100 zdn:5" "asm"="uqincd {zdn}.d, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_z_zs_.11(i64 "reg"="z" %zdn) "enc"="000001001110000011000100101 zdn:5" "asm"="uqincd {zdn}.d, vl5" "asmonly" {
+  ret void
+}
+
+define void @uqincd_z_zs_.12(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11000100101 zdn:5" "asm"="uqincd {zdn}.d, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_z_zs_.13(i64 "reg"="z" %zdn) "enc"="000001001110000011000100110 zdn:5" "asm"="uqincd {zdn}.d, vl6" "asmonly" {
+  ret void
+}
+
+define void @uqincd_z_zs_.14(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11000100110 zdn:5" "asm"="uqincd {zdn}.d, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_z_zs_.15(i64 "reg"="z" %zdn) "enc"="000001001110000011000100111 zdn:5" "asm"="uqincd {zdn}.d, vl7" "asmonly" {
+  ret void
+}
+
+define void @uqincd_z_zs_.16(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11000100111 zdn:5" "asm"="uqincd {zdn}.d, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_z_zs_.17(i64 "reg"="z" %zdn) "enc"="000001001110000011000101000 zdn:5" "asm"="uqincd {zdn}.d, vl8" "asmonly" {
+  ret void
+}
+
+define void @uqincd_z_zs_.18(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11000101000 zdn:5" "asm"="uqincd {zdn}.d, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_z_zs_.19(i64 "reg"="z" %zdn) "enc"="000001001110000011000101001 zdn:5" "asm"="uqincd {zdn}.d, vl16" "asmonly" {
+  ret void
+}
+
+define void @uqincd_z_zs_.20(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11000101001 zdn:5" "asm"="uqincd {zdn}.d, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_z_zs_.21(i64 "reg"="z" %zdn) "enc"="000001001110000011000101010 zdn:5" "asm"="uqincd {zdn}.d, vl32" "asmonly" {
+  ret void
+}
+
+define void @uqincd_z_zs_.22(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11000101010 zdn:5" "asm"="uqincd {zdn}.d, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_z_zs_.23(i64 "reg"="z" %zdn) "enc"="000001001110000011000101011 zdn:5" "asm"="uqincd {zdn}.d, vl64" "asmonly" {
+  ret void
+}
+
+define void @uqincd_z_zs_.24(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11000101011 zdn:5" "asm"="uqincd {zdn}.d, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_z_zs_.25(i64 "reg"="z" %zdn) "enc"="000001001110000011000101100 zdn:5" "asm"="uqincd {zdn}.d, vl128" "asmonly" {
+  ret void
+}
+
+define void @uqincd_z_zs_.26(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11000101100 zdn:5" "asm"="uqincd {zdn}.d, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_z_zs_.27(i64 "reg"="z" %zdn) "enc"="000001001110000011000101101 zdn:5" "asm"="uqincd {zdn}.d, vl256" "asmonly" {
+  ret void
+}
+
+define void @uqincd_z_zs_.28(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11000101101 zdn:5" "asm"="uqincd {zdn}.d, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_z_zs_.29(i64 "reg"="z" %zdn, i64 "imm" %pattern) "enc"="0000010011100000110001 pattern:5 zdn:5" "asm"="uqincd {zdn}.d, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_z_zs_.30(i64 "reg"="z" %zdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 110001 pattern:5 zdn:5" "asm"="uqincd {zdn}.d, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_z_zs_.31(i64 "reg"="z" %zdn) "enc"="000001001110000011000111101 zdn:5" "asm"="uqincd {zdn}.d, mul4" "asmonly" {
+  ret void
+}
+
+define void @uqincd_z_zs_.32(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11000111101 zdn:5" "asm"="uqincd {zdn}.d, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_z_zs_.33(i64 "reg"="z" %zdn) "enc"="000001001110000011000111110 zdn:5" "asm"="uqincd {zdn}.d, mul3" "asmonly" {
+  ret void
+}
+
+define void @uqincd_z_zs_.34(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11000111110 zdn:5" "asm"="uqincd {zdn}.d, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_z_zs_.35(i64 "reg"="z" %zdn) "enc"="000001001110000011000111111 zdn:5" "asm"="uqincd {zdn}.d, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @uqincd_z_zs_.36(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11000111111 zdn:5" "asm"="uqincd {zdn}.d, all, mul #{imm}" "asmonly" {
+  ret void
+}
+
 define void @uqdecd_z_zs_.0(i64 "reg"="z" %zdn) "enc"="000001001110000011001111111 zdn:5" "asm"="uqdecd {zdn}.d" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.1(i64 "reg"="z" %zdn) "enc"="000001001110000011001100000 zdn:5" "asm"="uqdecd {zdn}.d, pow2" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.2(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11001100000 zdn:5" "asm"="uqdecd {zdn}.d, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.3(i64 "reg"="z" %zdn) "enc"="000001001110000011001100001 zdn:5" "asm"="uqdecd {zdn}.d, vl1" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.4(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11001100001 zdn:5" "asm"="uqdecd {zdn}.d, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.5(i64 "reg"="z" %zdn) "enc"="000001001110000011001100010 zdn:5" "asm"="uqdecd {zdn}.d, vl2" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.6(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11001100010 zdn:5" "asm"="uqdecd {zdn}.d, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.7(i64 "reg"="z" %zdn) "enc"="000001001110000011001100011 zdn:5" "asm"="uqdecd {zdn}.d, vl3" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.8(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11001100011 zdn:5" "asm"="uqdecd {zdn}.d, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.9(i64 "reg"="z" %zdn) "enc"="000001001110000011001100100 zdn:5" "asm"="uqdecd {zdn}.d, vl4" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.10(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11001100100 zdn:5" "asm"="uqdecd {zdn}.d, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.11(i64 "reg"="z" %zdn) "enc"="000001001110000011001100101 zdn:5" "asm"="uqdecd {zdn}.d, vl5" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.12(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11001100101 zdn:5" "asm"="uqdecd {zdn}.d, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.13(i64 "reg"="z" %zdn) "enc"="000001001110000011001100110 zdn:5" "asm"="uqdecd {zdn}.d, vl6" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.14(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11001100110 zdn:5" "asm"="uqdecd {zdn}.d, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.15(i64 "reg"="z" %zdn) "enc"="000001001110000011001100111 zdn:5" "asm"="uqdecd {zdn}.d, vl7" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.16(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11001100111 zdn:5" "asm"="uqdecd {zdn}.d, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.17(i64 "reg"="z" %zdn) "enc"="000001001110000011001101000 zdn:5" "asm"="uqdecd {zdn}.d, vl8" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.18(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11001101000 zdn:5" "asm"="uqdecd {zdn}.d, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.19(i64 "reg"="z" %zdn) "enc"="000001001110000011001101001 zdn:5" "asm"="uqdecd {zdn}.d, vl16" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.20(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11001101001 zdn:5" "asm"="uqdecd {zdn}.d, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.21(i64 "reg"="z" %zdn) "enc"="000001001110000011001101010 zdn:5" "asm"="uqdecd {zdn}.d, vl32" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.22(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11001101010 zdn:5" "asm"="uqdecd {zdn}.d, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.23(i64 "reg"="z" %zdn) "enc"="000001001110000011001101011 zdn:5" "asm"="uqdecd {zdn}.d, vl64" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.24(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11001101011 zdn:5" "asm"="uqdecd {zdn}.d, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.25(i64 "reg"="z" %zdn) "enc"="000001001110000011001101100 zdn:5" "asm"="uqdecd {zdn}.d, vl128" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.26(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11001101100 zdn:5" "asm"="uqdecd {zdn}.d, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.27(i64 "reg"="z" %zdn) "enc"="000001001110000011001101101 zdn:5" "asm"="uqdecd {zdn}.d, vl256" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.28(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11001101101 zdn:5" "asm"="uqdecd {zdn}.d, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.29(i64 "reg"="z" %zdn, i64 "imm" %pattern) "enc"="0000010011100000110011 pattern:5 zdn:5" "asm"="uqdecd {zdn}.d, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.30(i64 "reg"="z" %zdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 110011 pattern:5 zdn:5" "asm"="uqdecd {zdn}.d, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.31(i64 "reg"="z" %zdn) "enc"="000001001110000011001111101 zdn:5" "asm"="uqdecd {zdn}.d, mul4" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.32(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11001111101 zdn:5" "asm"="uqdecd {zdn}.d, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.33(i64 "reg"="z" %zdn) "enc"="000001001110000011001111110 zdn:5" "asm"="uqdecd {zdn}.d, mul3" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.34(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11001111110 zdn:5" "asm"="uqdecd {zdn}.d, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.35(i64 "reg"="z" %zdn) "enc"="000001001110000011001111111 zdn:5" "asm"="uqdecd {zdn}.d, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @uqdecd_z_zs_.36(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11001111111 zdn:5" "asm"="uqdecd {zdn}.d, all, mul #{imm}" "asmonly" {
   ret void
 }
 
@@ -1818,7 +3546,295 @@ define void @inch_z_zs_.0(i64 "reg"="z" %zdn) "enc"="000001000111000011000011111
   ret void
 }
 
+define void @inch_z_zs_.1(i64 "reg"="z" %zdn) "enc"="000001000111000011000000000 zdn:5" "asm"="inch {zdn}.h, pow2" "asmonly" {
+  ret void
+}
+
+define void @inch_z_zs_.2(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11000000000 zdn:5" "asm"="inch {zdn}.h, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @inch_z_zs_.3(i64 "reg"="z" %zdn) "enc"="000001000111000011000000001 zdn:5" "asm"="inch {zdn}.h, vl1" "asmonly" {
+  ret void
+}
+
+define void @inch_z_zs_.4(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11000000001 zdn:5" "asm"="inch {zdn}.h, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @inch_z_zs_.5(i64 "reg"="z" %zdn) "enc"="000001000111000011000000010 zdn:5" "asm"="inch {zdn}.h, vl2" "asmonly" {
+  ret void
+}
+
+define void @inch_z_zs_.6(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11000000010 zdn:5" "asm"="inch {zdn}.h, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @inch_z_zs_.7(i64 "reg"="z" %zdn) "enc"="000001000111000011000000011 zdn:5" "asm"="inch {zdn}.h, vl3" "asmonly" {
+  ret void
+}
+
+define void @inch_z_zs_.8(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11000000011 zdn:5" "asm"="inch {zdn}.h, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @inch_z_zs_.9(i64 "reg"="z" %zdn) "enc"="000001000111000011000000100 zdn:5" "asm"="inch {zdn}.h, vl4" "asmonly" {
+  ret void
+}
+
+define void @inch_z_zs_.10(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11000000100 zdn:5" "asm"="inch {zdn}.h, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @inch_z_zs_.11(i64 "reg"="z" %zdn) "enc"="000001000111000011000000101 zdn:5" "asm"="inch {zdn}.h, vl5" "asmonly" {
+  ret void
+}
+
+define void @inch_z_zs_.12(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11000000101 zdn:5" "asm"="inch {zdn}.h, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @inch_z_zs_.13(i64 "reg"="z" %zdn) "enc"="000001000111000011000000110 zdn:5" "asm"="inch {zdn}.h, vl6" "asmonly" {
+  ret void
+}
+
+define void @inch_z_zs_.14(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11000000110 zdn:5" "asm"="inch {zdn}.h, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @inch_z_zs_.15(i64 "reg"="z" %zdn) "enc"="000001000111000011000000111 zdn:5" "asm"="inch {zdn}.h, vl7" "asmonly" {
+  ret void
+}
+
+define void @inch_z_zs_.16(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11000000111 zdn:5" "asm"="inch {zdn}.h, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @inch_z_zs_.17(i64 "reg"="z" %zdn) "enc"="000001000111000011000001000 zdn:5" "asm"="inch {zdn}.h, vl8" "asmonly" {
+  ret void
+}
+
+define void @inch_z_zs_.18(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11000001000 zdn:5" "asm"="inch {zdn}.h, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @inch_z_zs_.19(i64 "reg"="z" %zdn) "enc"="000001000111000011000001001 zdn:5" "asm"="inch {zdn}.h, vl16" "asmonly" {
+  ret void
+}
+
+define void @inch_z_zs_.20(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11000001001 zdn:5" "asm"="inch {zdn}.h, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @inch_z_zs_.21(i64 "reg"="z" %zdn) "enc"="000001000111000011000001010 zdn:5" "asm"="inch {zdn}.h, vl32" "asmonly" {
+  ret void
+}
+
+define void @inch_z_zs_.22(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11000001010 zdn:5" "asm"="inch {zdn}.h, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @inch_z_zs_.23(i64 "reg"="z" %zdn) "enc"="000001000111000011000001011 zdn:5" "asm"="inch {zdn}.h, vl64" "asmonly" {
+  ret void
+}
+
+define void @inch_z_zs_.24(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11000001011 zdn:5" "asm"="inch {zdn}.h, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @inch_z_zs_.25(i64 "reg"="z" %zdn) "enc"="000001000111000011000001100 zdn:5" "asm"="inch {zdn}.h, vl128" "asmonly" {
+  ret void
+}
+
+define void @inch_z_zs_.26(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11000001100 zdn:5" "asm"="inch {zdn}.h, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @inch_z_zs_.27(i64 "reg"="z" %zdn) "enc"="000001000111000011000001101 zdn:5" "asm"="inch {zdn}.h, vl256" "asmonly" {
+  ret void
+}
+
+define void @inch_z_zs_.28(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11000001101 zdn:5" "asm"="inch {zdn}.h, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @inch_z_zs_.29(i64 "reg"="z" %zdn, i64 "imm" %pattern) "enc"="0000010001110000110000 pattern:5 zdn:5" "asm"="inch {zdn}.h, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @inch_z_zs_.30(i64 "reg"="z" %zdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 110000 pattern:5 zdn:5" "asm"="inch {zdn}.h, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @inch_z_zs_.31(i64 "reg"="z" %zdn) "enc"="000001000111000011000011101 zdn:5" "asm"="inch {zdn}.h, mul4" "asmonly" {
+  ret void
+}
+
+define void @inch_z_zs_.32(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11000011101 zdn:5" "asm"="inch {zdn}.h, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @inch_z_zs_.33(i64 "reg"="z" %zdn) "enc"="000001000111000011000011110 zdn:5" "asm"="inch {zdn}.h, mul3" "asmonly" {
+  ret void
+}
+
+define void @inch_z_zs_.34(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11000011110 zdn:5" "asm"="inch {zdn}.h, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @inch_z_zs_.35(i64 "reg"="z" %zdn) "enc"="000001000111000011000011111 zdn:5" "asm"="inch {zdn}.h, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @inch_z_zs_.36(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11000011111 zdn:5" "asm"="inch {zdn}.h, all, mul #{imm}" "asmonly" {
+  ret void
+}
+
 define void @dech_z_zs_.0(i64 "reg"="z" %zdn) "enc"="000001000111000011000111111 zdn:5" "asm"="dech {zdn}.h" "asmonly" {
+  ret void
+}
+
+define void @dech_z_zs_.1(i64 "reg"="z" %zdn) "enc"="000001000111000011000100000 zdn:5" "asm"="dech {zdn}.h, pow2" "asmonly" {
+  ret void
+}
+
+define void @dech_z_zs_.2(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11000100000 zdn:5" "asm"="dech {zdn}.h, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @dech_z_zs_.3(i64 "reg"="z" %zdn) "enc"="000001000111000011000100001 zdn:5" "asm"="dech {zdn}.h, vl1" "asmonly" {
+  ret void
+}
+
+define void @dech_z_zs_.4(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11000100001 zdn:5" "asm"="dech {zdn}.h, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @dech_z_zs_.5(i64 "reg"="z" %zdn) "enc"="000001000111000011000100010 zdn:5" "asm"="dech {zdn}.h, vl2" "asmonly" {
+  ret void
+}
+
+define void @dech_z_zs_.6(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11000100010 zdn:5" "asm"="dech {zdn}.h, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @dech_z_zs_.7(i64 "reg"="z" %zdn) "enc"="000001000111000011000100011 zdn:5" "asm"="dech {zdn}.h, vl3" "asmonly" {
+  ret void
+}
+
+define void @dech_z_zs_.8(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11000100011 zdn:5" "asm"="dech {zdn}.h, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @dech_z_zs_.9(i64 "reg"="z" %zdn) "enc"="000001000111000011000100100 zdn:5" "asm"="dech {zdn}.h, vl4" "asmonly" {
+  ret void
+}
+
+define void @dech_z_zs_.10(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11000100100 zdn:5" "asm"="dech {zdn}.h, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @dech_z_zs_.11(i64 "reg"="z" %zdn) "enc"="000001000111000011000100101 zdn:5" "asm"="dech {zdn}.h, vl5" "asmonly" {
+  ret void
+}
+
+define void @dech_z_zs_.12(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11000100101 zdn:5" "asm"="dech {zdn}.h, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @dech_z_zs_.13(i64 "reg"="z" %zdn) "enc"="000001000111000011000100110 zdn:5" "asm"="dech {zdn}.h, vl6" "asmonly" {
+  ret void
+}
+
+define void @dech_z_zs_.14(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11000100110 zdn:5" "asm"="dech {zdn}.h, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @dech_z_zs_.15(i64 "reg"="z" %zdn) "enc"="000001000111000011000100111 zdn:5" "asm"="dech {zdn}.h, vl7" "asmonly" {
+  ret void
+}
+
+define void @dech_z_zs_.16(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11000100111 zdn:5" "asm"="dech {zdn}.h, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @dech_z_zs_.17(i64 "reg"="z" %zdn) "enc"="000001000111000011000101000 zdn:5" "asm"="dech {zdn}.h, vl8" "asmonly" {
+  ret void
+}
+
+define void @dech_z_zs_.18(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11000101000 zdn:5" "asm"="dech {zdn}.h, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @dech_z_zs_.19(i64 "reg"="z" %zdn) "enc"="000001000111000011000101001 zdn:5" "asm"="dech {zdn}.h, vl16" "asmonly" {
+  ret void
+}
+
+define void @dech_z_zs_.20(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11000101001 zdn:5" "asm"="dech {zdn}.h, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @dech_z_zs_.21(i64 "reg"="z" %zdn) "enc"="000001000111000011000101010 zdn:5" "asm"="dech {zdn}.h, vl32" "asmonly" {
+  ret void
+}
+
+define void @dech_z_zs_.22(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11000101010 zdn:5" "asm"="dech {zdn}.h, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @dech_z_zs_.23(i64 "reg"="z" %zdn) "enc"="000001000111000011000101011 zdn:5" "asm"="dech {zdn}.h, vl64" "asmonly" {
+  ret void
+}
+
+define void @dech_z_zs_.24(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11000101011 zdn:5" "asm"="dech {zdn}.h, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @dech_z_zs_.25(i64 "reg"="z" %zdn) "enc"="000001000111000011000101100 zdn:5" "asm"="dech {zdn}.h, vl128" "asmonly" {
+  ret void
+}
+
+define void @dech_z_zs_.26(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11000101100 zdn:5" "asm"="dech {zdn}.h, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @dech_z_zs_.27(i64 "reg"="z" %zdn) "enc"="000001000111000011000101101 zdn:5" "asm"="dech {zdn}.h, vl256" "asmonly" {
+  ret void
+}
+
+define void @dech_z_zs_.28(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11000101101 zdn:5" "asm"="dech {zdn}.h, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @dech_z_zs_.29(i64 "reg"="z" %zdn, i64 "imm" %pattern) "enc"="0000010001110000110001 pattern:5 zdn:5" "asm"="dech {zdn}.h, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @dech_z_zs_.30(i64 "reg"="z" %zdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 110001 pattern:5 zdn:5" "asm"="dech {zdn}.h, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @dech_z_zs_.31(i64 "reg"="z" %zdn) "enc"="000001000111000011000111101 zdn:5" "asm"="dech {zdn}.h, mul4" "asmonly" {
+  ret void
+}
+
+define void @dech_z_zs_.32(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11000111101 zdn:5" "asm"="dech {zdn}.h, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @dech_z_zs_.33(i64 "reg"="z" %zdn) "enc"="000001000111000011000111110 zdn:5" "asm"="dech {zdn}.h, mul3" "asmonly" {
+  ret void
+}
+
+define void @dech_z_zs_.34(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11000111110 zdn:5" "asm"="dech {zdn}.h, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @dech_z_zs_.35(i64 "reg"="z" %zdn) "enc"="000001000111000011000111111 zdn:5" "asm"="dech {zdn}.h, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @dech_z_zs_.36(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11000111111 zdn:5" "asm"="dech {zdn}.h, all, mul #{imm}" "asmonly" {
   ret void
 }
 
@@ -1826,7 +3842,295 @@ define void @incw_z_zs_.0(i64 "reg"="z" %zdn) "enc"="000001001011000011000011111
   ret void
 }
 
+define void @incw_z_zs_.1(i64 "reg"="z" %zdn) "enc"="000001001011000011000000000 zdn:5" "asm"="incw {zdn}.s, pow2" "asmonly" {
+  ret void
+}
+
+define void @incw_z_zs_.2(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11000000000 zdn:5" "asm"="incw {zdn}.s, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incw_z_zs_.3(i64 "reg"="z" %zdn) "enc"="000001001011000011000000001 zdn:5" "asm"="incw {zdn}.s, vl1" "asmonly" {
+  ret void
+}
+
+define void @incw_z_zs_.4(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11000000001 zdn:5" "asm"="incw {zdn}.s, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incw_z_zs_.5(i64 "reg"="z" %zdn) "enc"="000001001011000011000000010 zdn:5" "asm"="incw {zdn}.s, vl2" "asmonly" {
+  ret void
+}
+
+define void @incw_z_zs_.6(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11000000010 zdn:5" "asm"="incw {zdn}.s, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incw_z_zs_.7(i64 "reg"="z" %zdn) "enc"="000001001011000011000000011 zdn:5" "asm"="incw {zdn}.s, vl3" "asmonly" {
+  ret void
+}
+
+define void @incw_z_zs_.8(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11000000011 zdn:5" "asm"="incw {zdn}.s, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incw_z_zs_.9(i64 "reg"="z" %zdn) "enc"="000001001011000011000000100 zdn:5" "asm"="incw {zdn}.s, vl4" "asmonly" {
+  ret void
+}
+
+define void @incw_z_zs_.10(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11000000100 zdn:5" "asm"="incw {zdn}.s, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incw_z_zs_.11(i64 "reg"="z" %zdn) "enc"="000001001011000011000000101 zdn:5" "asm"="incw {zdn}.s, vl5" "asmonly" {
+  ret void
+}
+
+define void @incw_z_zs_.12(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11000000101 zdn:5" "asm"="incw {zdn}.s, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incw_z_zs_.13(i64 "reg"="z" %zdn) "enc"="000001001011000011000000110 zdn:5" "asm"="incw {zdn}.s, vl6" "asmonly" {
+  ret void
+}
+
+define void @incw_z_zs_.14(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11000000110 zdn:5" "asm"="incw {zdn}.s, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incw_z_zs_.15(i64 "reg"="z" %zdn) "enc"="000001001011000011000000111 zdn:5" "asm"="incw {zdn}.s, vl7" "asmonly" {
+  ret void
+}
+
+define void @incw_z_zs_.16(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11000000111 zdn:5" "asm"="incw {zdn}.s, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incw_z_zs_.17(i64 "reg"="z" %zdn) "enc"="000001001011000011000001000 zdn:5" "asm"="incw {zdn}.s, vl8" "asmonly" {
+  ret void
+}
+
+define void @incw_z_zs_.18(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11000001000 zdn:5" "asm"="incw {zdn}.s, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incw_z_zs_.19(i64 "reg"="z" %zdn) "enc"="000001001011000011000001001 zdn:5" "asm"="incw {zdn}.s, vl16" "asmonly" {
+  ret void
+}
+
+define void @incw_z_zs_.20(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11000001001 zdn:5" "asm"="incw {zdn}.s, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incw_z_zs_.21(i64 "reg"="z" %zdn) "enc"="000001001011000011000001010 zdn:5" "asm"="incw {zdn}.s, vl32" "asmonly" {
+  ret void
+}
+
+define void @incw_z_zs_.22(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11000001010 zdn:5" "asm"="incw {zdn}.s, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incw_z_zs_.23(i64 "reg"="z" %zdn) "enc"="000001001011000011000001011 zdn:5" "asm"="incw {zdn}.s, vl64" "asmonly" {
+  ret void
+}
+
+define void @incw_z_zs_.24(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11000001011 zdn:5" "asm"="incw {zdn}.s, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incw_z_zs_.25(i64 "reg"="z" %zdn) "enc"="000001001011000011000001100 zdn:5" "asm"="incw {zdn}.s, vl128" "asmonly" {
+  ret void
+}
+
+define void @incw_z_zs_.26(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11000001100 zdn:5" "asm"="incw {zdn}.s, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incw_z_zs_.27(i64 "reg"="z" %zdn) "enc"="000001001011000011000001101 zdn:5" "asm"="incw {zdn}.s, vl256" "asmonly" {
+  ret void
+}
+
+define void @incw_z_zs_.28(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11000001101 zdn:5" "asm"="incw {zdn}.s, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incw_z_zs_.29(i64 "reg"="z" %zdn, i64 "imm" %pattern) "enc"="0000010010110000110000 pattern:5 zdn:5" "asm"="incw {zdn}.s, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @incw_z_zs_.30(i64 "reg"="z" %zdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 110000 pattern:5 zdn:5" "asm"="incw {zdn}.s, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incw_z_zs_.31(i64 "reg"="z" %zdn) "enc"="000001001011000011000011101 zdn:5" "asm"="incw {zdn}.s, mul4" "asmonly" {
+  ret void
+}
+
+define void @incw_z_zs_.32(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11000011101 zdn:5" "asm"="incw {zdn}.s, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incw_z_zs_.33(i64 "reg"="z" %zdn) "enc"="000001001011000011000011110 zdn:5" "asm"="incw {zdn}.s, mul3" "asmonly" {
+  ret void
+}
+
+define void @incw_z_zs_.34(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11000011110 zdn:5" "asm"="incw {zdn}.s, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incw_z_zs_.35(i64 "reg"="z" %zdn) "enc"="000001001011000011000011111 zdn:5" "asm"="incw {zdn}.s, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @incw_z_zs_.36(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11000011111 zdn:5" "asm"="incw {zdn}.s, all, mul #{imm}" "asmonly" {
+  ret void
+}
+
 define void @decw_z_zs_.0(i64 "reg"="z" %zdn) "enc"="000001001011000011000111111 zdn:5" "asm"="decw {zdn}.s" "asmonly" {
+  ret void
+}
+
+define void @decw_z_zs_.1(i64 "reg"="z" %zdn) "enc"="000001001011000011000100000 zdn:5" "asm"="decw {zdn}.s, pow2" "asmonly" {
+  ret void
+}
+
+define void @decw_z_zs_.2(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11000100000 zdn:5" "asm"="decw {zdn}.s, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decw_z_zs_.3(i64 "reg"="z" %zdn) "enc"="000001001011000011000100001 zdn:5" "asm"="decw {zdn}.s, vl1" "asmonly" {
+  ret void
+}
+
+define void @decw_z_zs_.4(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11000100001 zdn:5" "asm"="decw {zdn}.s, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decw_z_zs_.5(i64 "reg"="z" %zdn) "enc"="000001001011000011000100010 zdn:5" "asm"="decw {zdn}.s, vl2" "asmonly" {
+  ret void
+}
+
+define void @decw_z_zs_.6(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11000100010 zdn:5" "asm"="decw {zdn}.s, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decw_z_zs_.7(i64 "reg"="z" %zdn) "enc"="000001001011000011000100011 zdn:5" "asm"="decw {zdn}.s, vl3" "asmonly" {
+  ret void
+}
+
+define void @decw_z_zs_.8(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11000100011 zdn:5" "asm"="decw {zdn}.s, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decw_z_zs_.9(i64 "reg"="z" %zdn) "enc"="000001001011000011000100100 zdn:5" "asm"="decw {zdn}.s, vl4" "asmonly" {
+  ret void
+}
+
+define void @decw_z_zs_.10(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11000100100 zdn:5" "asm"="decw {zdn}.s, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decw_z_zs_.11(i64 "reg"="z" %zdn) "enc"="000001001011000011000100101 zdn:5" "asm"="decw {zdn}.s, vl5" "asmonly" {
+  ret void
+}
+
+define void @decw_z_zs_.12(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11000100101 zdn:5" "asm"="decw {zdn}.s, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decw_z_zs_.13(i64 "reg"="z" %zdn) "enc"="000001001011000011000100110 zdn:5" "asm"="decw {zdn}.s, vl6" "asmonly" {
+  ret void
+}
+
+define void @decw_z_zs_.14(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11000100110 zdn:5" "asm"="decw {zdn}.s, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decw_z_zs_.15(i64 "reg"="z" %zdn) "enc"="000001001011000011000100111 zdn:5" "asm"="decw {zdn}.s, vl7" "asmonly" {
+  ret void
+}
+
+define void @decw_z_zs_.16(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11000100111 zdn:5" "asm"="decw {zdn}.s, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decw_z_zs_.17(i64 "reg"="z" %zdn) "enc"="000001001011000011000101000 zdn:5" "asm"="decw {zdn}.s, vl8" "asmonly" {
+  ret void
+}
+
+define void @decw_z_zs_.18(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11000101000 zdn:5" "asm"="decw {zdn}.s, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decw_z_zs_.19(i64 "reg"="z" %zdn) "enc"="000001001011000011000101001 zdn:5" "asm"="decw {zdn}.s, vl16" "asmonly" {
+  ret void
+}
+
+define void @decw_z_zs_.20(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11000101001 zdn:5" "asm"="decw {zdn}.s, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decw_z_zs_.21(i64 "reg"="z" %zdn) "enc"="000001001011000011000101010 zdn:5" "asm"="decw {zdn}.s, vl32" "asmonly" {
+  ret void
+}
+
+define void @decw_z_zs_.22(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11000101010 zdn:5" "asm"="decw {zdn}.s, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decw_z_zs_.23(i64 "reg"="z" %zdn) "enc"="000001001011000011000101011 zdn:5" "asm"="decw {zdn}.s, vl64" "asmonly" {
+  ret void
+}
+
+define void @decw_z_zs_.24(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11000101011 zdn:5" "asm"="decw {zdn}.s, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decw_z_zs_.25(i64 "reg"="z" %zdn) "enc"="000001001011000011000101100 zdn:5" "asm"="decw {zdn}.s, vl128" "asmonly" {
+  ret void
+}
+
+define void @decw_z_zs_.26(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11000101100 zdn:5" "asm"="decw {zdn}.s, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decw_z_zs_.27(i64 "reg"="z" %zdn) "enc"="000001001011000011000101101 zdn:5" "asm"="decw {zdn}.s, vl256" "asmonly" {
+  ret void
+}
+
+define void @decw_z_zs_.28(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11000101101 zdn:5" "asm"="decw {zdn}.s, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decw_z_zs_.29(i64 "reg"="z" %zdn, i64 "imm" %pattern) "enc"="0000010010110000110001 pattern:5 zdn:5" "asm"="decw {zdn}.s, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @decw_z_zs_.30(i64 "reg"="z" %zdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 110001 pattern:5 zdn:5" "asm"="decw {zdn}.s, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decw_z_zs_.31(i64 "reg"="z" %zdn) "enc"="000001001011000011000111101 zdn:5" "asm"="decw {zdn}.s, mul4" "asmonly" {
+  ret void
+}
+
+define void @decw_z_zs_.32(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11000111101 zdn:5" "asm"="decw {zdn}.s, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decw_z_zs_.33(i64 "reg"="z" %zdn) "enc"="000001001011000011000111110 zdn:5" "asm"="decw {zdn}.s, mul3" "asmonly" {
+  ret void
+}
+
+define void @decw_z_zs_.34(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11000111110 zdn:5" "asm"="decw {zdn}.s, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decw_z_zs_.35(i64 "reg"="z" %zdn) "enc"="000001001011000011000111111 zdn:5" "asm"="decw {zdn}.s, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @decw_z_zs_.36(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11000111111 zdn:5" "asm"="decw {zdn}.s, all, mul #{imm}" "asmonly" {
   ret void
 }
 
@@ -1834,7 +4138,295 @@ define void @incd_z_zs_.0(i64 "reg"="z" %zdn) "enc"="000001001111000011000011111
   ret void
 }
 
+define void @incd_z_zs_.1(i64 "reg"="z" %zdn) "enc"="000001001111000011000000000 zdn:5" "asm"="incd {zdn}.d, pow2" "asmonly" {
+  ret void
+}
+
+define void @incd_z_zs_.2(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11000000000 zdn:5" "asm"="incd {zdn}.d, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incd_z_zs_.3(i64 "reg"="z" %zdn) "enc"="000001001111000011000000001 zdn:5" "asm"="incd {zdn}.d, vl1" "asmonly" {
+  ret void
+}
+
+define void @incd_z_zs_.4(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11000000001 zdn:5" "asm"="incd {zdn}.d, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incd_z_zs_.5(i64 "reg"="z" %zdn) "enc"="000001001111000011000000010 zdn:5" "asm"="incd {zdn}.d, vl2" "asmonly" {
+  ret void
+}
+
+define void @incd_z_zs_.6(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11000000010 zdn:5" "asm"="incd {zdn}.d, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incd_z_zs_.7(i64 "reg"="z" %zdn) "enc"="000001001111000011000000011 zdn:5" "asm"="incd {zdn}.d, vl3" "asmonly" {
+  ret void
+}
+
+define void @incd_z_zs_.8(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11000000011 zdn:5" "asm"="incd {zdn}.d, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incd_z_zs_.9(i64 "reg"="z" %zdn) "enc"="000001001111000011000000100 zdn:5" "asm"="incd {zdn}.d, vl4" "asmonly" {
+  ret void
+}
+
+define void @incd_z_zs_.10(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11000000100 zdn:5" "asm"="incd {zdn}.d, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incd_z_zs_.11(i64 "reg"="z" %zdn) "enc"="000001001111000011000000101 zdn:5" "asm"="incd {zdn}.d, vl5" "asmonly" {
+  ret void
+}
+
+define void @incd_z_zs_.12(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11000000101 zdn:5" "asm"="incd {zdn}.d, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incd_z_zs_.13(i64 "reg"="z" %zdn) "enc"="000001001111000011000000110 zdn:5" "asm"="incd {zdn}.d, vl6" "asmonly" {
+  ret void
+}
+
+define void @incd_z_zs_.14(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11000000110 zdn:5" "asm"="incd {zdn}.d, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incd_z_zs_.15(i64 "reg"="z" %zdn) "enc"="000001001111000011000000111 zdn:5" "asm"="incd {zdn}.d, vl7" "asmonly" {
+  ret void
+}
+
+define void @incd_z_zs_.16(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11000000111 zdn:5" "asm"="incd {zdn}.d, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incd_z_zs_.17(i64 "reg"="z" %zdn) "enc"="000001001111000011000001000 zdn:5" "asm"="incd {zdn}.d, vl8" "asmonly" {
+  ret void
+}
+
+define void @incd_z_zs_.18(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11000001000 zdn:5" "asm"="incd {zdn}.d, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incd_z_zs_.19(i64 "reg"="z" %zdn) "enc"="000001001111000011000001001 zdn:5" "asm"="incd {zdn}.d, vl16" "asmonly" {
+  ret void
+}
+
+define void @incd_z_zs_.20(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11000001001 zdn:5" "asm"="incd {zdn}.d, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incd_z_zs_.21(i64 "reg"="z" %zdn) "enc"="000001001111000011000001010 zdn:5" "asm"="incd {zdn}.d, vl32" "asmonly" {
+  ret void
+}
+
+define void @incd_z_zs_.22(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11000001010 zdn:5" "asm"="incd {zdn}.d, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incd_z_zs_.23(i64 "reg"="z" %zdn) "enc"="000001001111000011000001011 zdn:5" "asm"="incd {zdn}.d, vl64" "asmonly" {
+  ret void
+}
+
+define void @incd_z_zs_.24(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11000001011 zdn:5" "asm"="incd {zdn}.d, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incd_z_zs_.25(i64 "reg"="z" %zdn) "enc"="000001001111000011000001100 zdn:5" "asm"="incd {zdn}.d, vl128" "asmonly" {
+  ret void
+}
+
+define void @incd_z_zs_.26(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11000001100 zdn:5" "asm"="incd {zdn}.d, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incd_z_zs_.27(i64 "reg"="z" %zdn) "enc"="000001001111000011000001101 zdn:5" "asm"="incd {zdn}.d, vl256" "asmonly" {
+  ret void
+}
+
+define void @incd_z_zs_.28(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11000001101 zdn:5" "asm"="incd {zdn}.d, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incd_z_zs_.29(i64 "reg"="z" %zdn, i64 "imm" %pattern) "enc"="0000010011110000110000 pattern:5 zdn:5" "asm"="incd {zdn}.d, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @incd_z_zs_.30(i64 "reg"="z" %zdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 110000 pattern:5 zdn:5" "asm"="incd {zdn}.d, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incd_z_zs_.31(i64 "reg"="z" %zdn) "enc"="000001001111000011000011101 zdn:5" "asm"="incd {zdn}.d, mul4" "asmonly" {
+  ret void
+}
+
+define void @incd_z_zs_.32(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11000011101 zdn:5" "asm"="incd {zdn}.d, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incd_z_zs_.33(i64 "reg"="z" %zdn) "enc"="000001001111000011000011110 zdn:5" "asm"="incd {zdn}.d, mul3" "asmonly" {
+  ret void
+}
+
+define void @incd_z_zs_.34(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11000011110 zdn:5" "asm"="incd {zdn}.d, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incd_z_zs_.35(i64 "reg"="z" %zdn) "enc"="000001001111000011000011111 zdn:5" "asm"="incd {zdn}.d, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @incd_z_zs_.36(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11000011111 zdn:5" "asm"="incd {zdn}.d, all, mul #{imm}" "asmonly" {
+  ret void
+}
+
 define void @decd_z_zs_.0(i64 "reg"="z" %zdn) "enc"="000001001111000011000111111 zdn:5" "asm"="decd {zdn}.d" "asmonly" {
+  ret void
+}
+
+define void @decd_z_zs_.1(i64 "reg"="z" %zdn) "enc"="000001001111000011000100000 zdn:5" "asm"="decd {zdn}.d, pow2" "asmonly" {
+  ret void
+}
+
+define void @decd_z_zs_.2(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11000100000 zdn:5" "asm"="decd {zdn}.d, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decd_z_zs_.3(i64 "reg"="z" %zdn) "enc"="000001001111000011000100001 zdn:5" "asm"="decd {zdn}.d, vl1" "asmonly" {
+  ret void
+}
+
+define void @decd_z_zs_.4(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11000100001 zdn:5" "asm"="decd {zdn}.d, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decd_z_zs_.5(i64 "reg"="z" %zdn) "enc"="000001001111000011000100010 zdn:5" "asm"="decd {zdn}.d, vl2" "asmonly" {
+  ret void
+}
+
+define void @decd_z_zs_.6(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11000100010 zdn:5" "asm"="decd {zdn}.d, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decd_z_zs_.7(i64 "reg"="z" %zdn) "enc"="000001001111000011000100011 zdn:5" "asm"="decd {zdn}.d, vl3" "asmonly" {
+  ret void
+}
+
+define void @decd_z_zs_.8(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11000100011 zdn:5" "asm"="decd {zdn}.d, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decd_z_zs_.9(i64 "reg"="z" %zdn) "enc"="000001001111000011000100100 zdn:5" "asm"="decd {zdn}.d, vl4" "asmonly" {
+  ret void
+}
+
+define void @decd_z_zs_.10(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11000100100 zdn:5" "asm"="decd {zdn}.d, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decd_z_zs_.11(i64 "reg"="z" %zdn) "enc"="000001001111000011000100101 zdn:5" "asm"="decd {zdn}.d, vl5" "asmonly" {
+  ret void
+}
+
+define void @decd_z_zs_.12(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11000100101 zdn:5" "asm"="decd {zdn}.d, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decd_z_zs_.13(i64 "reg"="z" %zdn) "enc"="000001001111000011000100110 zdn:5" "asm"="decd {zdn}.d, vl6" "asmonly" {
+  ret void
+}
+
+define void @decd_z_zs_.14(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11000100110 zdn:5" "asm"="decd {zdn}.d, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decd_z_zs_.15(i64 "reg"="z" %zdn) "enc"="000001001111000011000100111 zdn:5" "asm"="decd {zdn}.d, vl7" "asmonly" {
+  ret void
+}
+
+define void @decd_z_zs_.16(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11000100111 zdn:5" "asm"="decd {zdn}.d, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decd_z_zs_.17(i64 "reg"="z" %zdn) "enc"="000001001111000011000101000 zdn:5" "asm"="decd {zdn}.d, vl8" "asmonly" {
+  ret void
+}
+
+define void @decd_z_zs_.18(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11000101000 zdn:5" "asm"="decd {zdn}.d, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decd_z_zs_.19(i64 "reg"="z" %zdn) "enc"="000001001111000011000101001 zdn:5" "asm"="decd {zdn}.d, vl16" "asmonly" {
+  ret void
+}
+
+define void @decd_z_zs_.20(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11000101001 zdn:5" "asm"="decd {zdn}.d, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decd_z_zs_.21(i64 "reg"="z" %zdn) "enc"="000001001111000011000101010 zdn:5" "asm"="decd {zdn}.d, vl32" "asmonly" {
+  ret void
+}
+
+define void @decd_z_zs_.22(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11000101010 zdn:5" "asm"="decd {zdn}.d, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decd_z_zs_.23(i64 "reg"="z" %zdn) "enc"="000001001111000011000101011 zdn:5" "asm"="decd {zdn}.d, vl64" "asmonly" {
+  ret void
+}
+
+define void @decd_z_zs_.24(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11000101011 zdn:5" "asm"="decd {zdn}.d, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decd_z_zs_.25(i64 "reg"="z" %zdn) "enc"="000001001111000011000101100 zdn:5" "asm"="decd {zdn}.d, vl128" "asmonly" {
+  ret void
+}
+
+define void @decd_z_zs_.26(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11000101100 zdn:5" "asm"="decd {zdn}.d, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decd_z_zs_.27(i64 "reg"="z" %zdn) "enc"="000001001111000011000101101 zdn:5" "asm"="decd {zdn}.d, vl256" "asmonly" {
+  ret void
+}
+
+define void @decd_z_zs_.28(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11000101101 zdn:5" "asm"="decd {zdn}.d, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decd_z_zs_.29(i64 "reg"="z" %zdn, i64 "imm" %pattern) "enc"="0000010011110000110001 pattern:5 zdn:5" "asm"="decd {zdn}.d, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @decd_z_zs_.30(i64 "reg"="z" %zdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 110001 pattern:5 zdn:5" "asm"="decd {zdn}.d, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decd_z_zs_.31(i64 "reg"="z" %zdn) "enc"="000001001111000011000111101 zdn:5" "asm"="decd {zdn}.d, mul4" "asmonly" {
+  ret void
+}
+
+define void @decd_z_zs_.32(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11000111101 zdn:5" "asm"="decd {zdn}.d, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decd_z_zs_.33(i64 "reg"="z" %zdn) "enc"="000001001111000011000111110 zdn:5" "asm"="decd {zdn}.d, mul3" "asmonly" {
+  ret void
+}
+
+define void @decd_z_zs_.34(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11000111110 zdn:5" "asm"="decd {zdn}.d, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decd_z_zs_.35(i64 "reg"="z" %zdn) "enc"="000001001111000011000111111 zdn:5" "asm"="decd {zdn}.d, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @decd_z_zs_.36(i64 "reg"="z" %zdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11000111111 zdn:5" "asm"="decd {zdn}.d, all, mul #{imm}" "asmonly" {
   ret void
 }
 
@@ -1842,7 +4434,295 @@ define void @cntb_r_s_.0(i64 "reg"="x" %xd) "enc"="000001000010000011100011111 x
   ret void
 }
 
+define void @cntb_r_s_.1(i64 "reg"="x" %xd) "enc"="000001000010000011100000000 xd:5" "asm"="cntb {xd}, pow2" "asmonly" {
+  ret void
+}
+
+define void @cntb_r_s_.2(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11100000000 xd:5" "asm"="cntb {xd}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntb_r_s_.3(i64 "reg"="x" %xd) "enc"="000001000010000011100000001 xd:5" "asm"="cntb {xd}, vl1" "asmonly" {
+  ret void
+}
+
+define void @cntb_r_s_.4(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11100000001 xd:5" "asm"="cntb {xd}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntb_r_s_.5(i64 "reg"="x" %xd) "enc"="000001000010000011100000010 xd:5" "asm"="cntb {xd}, vl2" "asmonly" {
+  ret void
+}
+
+define void @cntb_r_s_.6(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11100000010 xd:5" "asm"="cntb {xd}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntb_r_s_.7(i64 "reg"="x" %xd) "enc"="000001000010000011100000011 xd:5" "asm"="cntb {xd}, vl3" "asmonly" {
+  ret void
+}
+
+define void @cntb_r_s_.8(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11100000011 xd:5" "asm"="cntb {xd}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntb_r_s_.9(i64 "reg"="x" %xd) "enc"="000001000010000011100000100 xd:5" "asm"="cntb {xd}, vl4" "asmonly" {
+  ret void
+}
+
+define void @cntb_r_s_.10(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11100000100 xd:5" "asm"="cntb {xd}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntb_r_s_.11(i64 "reg"="x" %xd) "enc"="000001000010000011100000101 xd:5" "asm"="cntb {xd}, vl5" "asmonly" {
+  ret void
+}
+
+define void @cntb_r_s_.12(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11100000101 xd:5" "asm"="cntb {xd}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntb_r_s_.13(i64 "reg"="x" %xd) "enc"="000001000010000011100000110 xd:5" "asm"="cntb {xd}, vl6" "asmonly" {
+  ret void
+}
+
+define void @cntb_r_s_.14(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11100000110 xd:5" "asm"="cntb {xd}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntb_r_s_.15(i64 "reg"="x" %xd) "enc"="000001000010000011100000111 xd:5" "asm"="cntb {xd}, vl7" "asmonly" {
+  ret void
+}
+
+define void @cntb_r_s_.16(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11100000111 xd:5" "asm"="cntb {xd}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntb_r_s_.17(i64 "reg"="x" %xd) "enc"="000001000010000011100001000 xd:5" "asm"="cntb {xd}, vl8" "asmonly" {
+  ret void
+}
+
+define void @cntb_r_s_.18(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11100001000 xd:5" "asm"="cntb {xd}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntb_r_s_.19(i64 "reg"="x" %xd) "enc"="000001000010000011100001001 xd:5" "asm"="cntb {xd}, vl16" "asmonly" {
+  ret void
+}
+
+define void @cntb_r_s_.20(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11100001001 xd:5" "asm"="cntb {xd}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntb_r_s_.21(i64 "reg"="x" %xd) "enc"="000001000010000011100001010 xd:5" "asm"="cntb {xd}, vl32" "asmonly" {
+  ret void
+}
+
+define void @cntb_r_s_.22(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11100001010 xd:5" "asm"="cntb {xd}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntb_r_s_.23(i64 "reg"="x" %xd) "enc"="000001000010000011100001011 xd:5" "asm"="cntb {xd}, vl64" "asmonly" {
+  ret void
+}
+
+define void @cntb_r_s_.24(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11100001011 xd:5" "asm"="cntb {xd}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntb_r_s_.25(i64 "reg"="x" %xd) "enc"="000001000010000011100001100 xd:5" "asm"="cntb {xd}, vl128" "asmonly" {
+  ret void
+}
+
+define void @cntb_r_s_.26(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11100001100 xd:5" "asm"="cntb {xd}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntb_r_s_.27(i64 "reg"="x" %xd) "enc"="000001000010000011100001101 xd:5" "asm"="cntb {xd}, vl256" "asmonly" {
+  ret void
+}
+
+define void @cntb_r_s_.28(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11100001101 xd:5" "asm"="cntb {xd}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntb_r_s_.29(i64 "reg"="x" %xd, i64 "imm" %pattern) "enc"="0000010000100000111000 pattern:5 xd:5" "asm"="cntb {xd}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @cntb_r_s_.30(i64 "reg"="x" %xd, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 111000 pattern:5 xd:5" "asm"="cntb {xd}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntb_r_s_.31(i64 "reg"="x" %xd) "enc"="000001000010000011100011101 xd:5" "asm"="cntb {xd}, mul4" "asmonly" {
+  ret void
+}
+
+define void @cntb_r_s_.32(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11100011101 xd:5" "asm"="cntb {xd}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntb_r_s_.33(i64 "reg"="x" %xd) "enc"="000001000010000011100011110 xd:5" "asm"="cntb {xd}, mul3" "asmonly" {
+  ret void
+}
+
+define void @cntb_r_s_.34(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11100011110 xd:5" "asm"="cntb {xd}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntb_r_s_.35(i64 "reg"="x" %xd) "enc"="000001000010000011100011111 xd:5" "asm"="cntb {xd}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @cntb_r_s_.36(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11100011111 xd:5" "asm"="cntb {xd}, all, mul #{imm}" "asmonly" {
+  ret void
+}
+
 define void @cnth_r_s_.0(i64 "reg"="x" %xd) "enc"="000001000110000011100011111 xd:5" "asm"="cnth {xd}" "asmonly" {
+  ret void
+}
+
+define void @cnth_r_s_.1(i64 "reg"="x" %xd) "enc"="000001000110000011100000000 xd:5" "asm"="cnth {xd}, pow2" "asmonly" {
+  ret void
+}
+
+define void @cnth_r_s_.2(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11100000000 xd:5" "asm"="cnth {xd}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cnth_r_s_.3(i64 "reg"="x" %xd) "enc"="000001000110000011100000001 xd:5" "asm"="cnth {xd}, vl1" "asmonly" {
+  ret void
+}
+
+define void @cnth_r_s_.4(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11100000001 xd:5" "asm"="cnth {xd}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cnth_r_s_.5(i64 "reg"="x" %xd) "enc"="000001000110000011100000010 xd:5" "asm"="cnth {xd}, vl2" "asmonly" {
+  ret void
+}
+
+define void @cnth_r_s_.6(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11100000010 xd:5" "asm"="cnth {xd}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cnth_r_s_.7(i64 "reg"="x" %xd) "enc"="000001000110000011100000011 xd:5" "asm"="cnth {xd}, vl3" "asmonly" {
+  ret void
+}
+
+define void @cnth_r_s_.8(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11100000011 xd:5" "asm"="cnth {xd}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cnth_r_s_.9(i64 "reg"="x" %xd) "enc"="000001000110000011100000100 xd:5" "asm"="cnth {xd}, vl4" "asmonly" {
+  ret void
+}
+
+define void @cnth_r_s_.10(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11100000100 xd:5" "asm"="cnth {xd}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cnth_r_s_.11(i64 "reg"="x" %xd) "enc"="000001000110000011100000101 xd:5" "asm"="cnth {xd}, vl5" "asmonly" {
+  ret void
+}
+
+define void @cnth_r_s_.12(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11100000101 xd:5" "asm"="cnth {xd}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cnth_r_s_.13(i64 "reg"="x" %xd) "enc"="000001000110000011100000110 xd:5" "asm"="cnth {xd}, vl6" "asmonly" {
+  ret void
+}
+
+define void @cnth_r_s_.14(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11100000110 xd:5" "asm"="cnth {xd}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cnth_r_s_.15(i64 "reg"="x" %xd) "enc"="000001000110000011100000111 xd:5" "asm"="cnth {xd}, vl7" "asmonly" {
+  ret void
+}
+
+define void @cnth_r_s_.16(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11100000111 xd:5" "asm"="cnth {xd}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cnth_r_s_.17(i64 "reg"="x" %xd) "enc"="000001000110000011100001000 xd:5" "asm"="cnth {xd}, vl8" "asmonly" {
+  ret void
+}
+
+define void @cnth_r_s_.18(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11100001000 xd:5" "asm"="cnth {xd}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cnth_r_s_.19(i64 "reg"="x" %xd) "enc"="000001000110000011100001001 xd:5" "asm"="cnth {xd}, vl16" "asmonly" {
+  ret void
+}
+
+define void @cnth_r_s_.20(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11100001001 xd:5" "asm"="cnth {xd}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cnth_r_s_.21(i64 "reg"="x" %xd) "enc"="000001000110000011100001010 xd:5" "asm"="cnth {xd}, vl32" "asmonly" {
+  ret void
+}
+
+define void @cnth_r_s_.22(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11100001010 xd:5" "asm"="cnth {xd}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cnth_r_s_.23(i64 "reg"="x" %xd) "enc"="000001000110000011100001011 xd:5" "asm"="cnth {xd}, vl64" "asmonly" {
+  ret void
+}
+
+define void @cnth_r_s_.24(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11100001011 xd:5" "asm"="cnth {xd}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cnth_r_s_.25(i64 "reg"="x" %xd) "enc"="000001000110000011100001100 xd:5" "asm"="cnth {xd}, vl128" "asmonly" {
+  ret void
+}
+
+define void @cnth_r_s_.26(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11100001100 xd:5" "asm"="cnth {xd}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cnth_r_s_.27(i64 "reg"="x" %xd) "enc"="000001000110000011100001101 xd:5" "asm"="cnth {xd}, vl256" "asmonly" {
+  ret void
+}
+
+define void @cnth_r_s_.28(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11100001101 xd:5" "asm"="cnth {xd}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cnth_r_s_.29(i64 "reg"="x" %xd, i64 "imm" %pattern) "enc"="0000010001100000111000 pattern:5 xd:5" "asm"="cnth {xd}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @cnth_r_s_.30(i64 "reg"="x" %xd, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 111000 pattern:5 xd:5" "asm"="cnth {xd}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cnth_r_s_.31(i64 "reg"="x" %xd) "enc"="000001000110000011100011101 xd:5" "asm"="cnth {xd}, mul4" "asmonly" {
+  ret void
+}
+
+define void @cnth_r_s_.32(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11100011101 xd:5" "asm"="cnth {xd}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cnth_r_s_.33(i64 "reg"="x" %xd) "enc"="000001000110000011100011110 xd:5" "asm"="cnth {xd}, mul3" "asmonly" {
+  ret void
+}
+
+define void @cnth_r_s_.34(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11100011110 xd:5" "asm"="cnth {xd}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cnth_r_s_.35(i64 "reg"="x" %xd) "enc"="000001000110000011100011111 xd:5" "asm"="cnth {xd}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @cnth_r_s_.36(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11100011111 xd:5" "asm"="cnth {xd}, all, mul #{imm}" "asmonly" {
   ret void
 }
 
@@ -1850,7 +4730,295 @@ define void @cntw_r_s_.0(i64 "reg"="x" %xd) "enc"="000001001010000011100011111 x
   ret void
 }
 
+define void @cntw_r_s_.1(i64 "reg"="x" %xd) "enc"="000001001010000011100000000 xd:5" "asm"="cntw {xd}, pow2" "asmonly" {
+  ret void
+}
+
+define void @cntw_r_s_.2(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11100000000 xd:5" "asm"="cntw {xd}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntw_r_s_.3(i64 "reg"="x" %xd) "enc"="000001001010000011100000001 xd:5" "asm"="cntw {xd}, vl1" "asmonly" {
+  ret void
+}
+
+define void @cntw_r_s_.4(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11100000001 xd:5" "asm"="cntw {xd}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntw_r_s_.5(i64 "reg"="x" %xd) "enc"="000001001010000011100000010 xd:5" "asm"="cntw {xd}, vl2" "asmonly" {
+  ret void
+}
+
+define void @cntw_r_s_.6(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11100000010 xd:5" "asm"="cntw {xd}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntw_r_s_.7(i64 "reg"="x" %xd) "enc"="000001001010000011100000011 xd:5" "asm"="cntw {xd}, vl3" "asmonly" {
+  ret void
+}
+
+define void @cntw_r_s_.8(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11100000011 xd:5" "asm"="cntw {xd}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntw_r_s_.9(i64 "reg"="x" %xd) "enc"="000001001010000011100000100 xd:5" "asm"="cntw {xd}, vl4" "asmonly" {
+  ret void
+}
+
+define void @cntw_r_s_.10(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11100000100 xd:5" "asm"="cntw {xd}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntw_r_s_.11(i64 "reg"="x" %xd) "enc"="000001001010000011100000101 xd:5" "asm"="cntw {xd}, vl5" "asmonly" {
+  ret void
+}
+
+define void @cntw_r_s_.12(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11100000101 xd:5" "asm"="cntw {xd}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntw_r_s_.13(i64 "reg"="x" %xd) "enc"="000001001010000011100000110 xd:5" "asm"="cntw {xd}, vl6" "asmonly" {
+  ret void
+}
+
+define void @cntw_r_s_.14(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11100000110 xd:5" "asm"="cntw {xd}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntw_r_s_.15(i64 "reg"="x" %xd) "enc"="000001001010000011100000111 xd:5" "asm"="cntw {xd}, vl7" "asmonly" {
+  ret void
+}
+
+define void @cntw_r_s_.16(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11100000111 xd:5" "asm"="cntw {xd}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntw_r_s_.17(i64 "reg"="x" %xd) "enc"="000001001010000011100001000 xd:5" "asm"="cntw {xd}, vl8" "asmonly" {
+  ret void
+}
+
+define void @cntw_r_s_.18(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11100001000 xd:5" "asm"="cntw {xd}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntw_r_s_.19(i64 "reg"="x" %xd) "enc"="000001001010000011100001001 xd:5" "asm"="cntw {xd}, vl16" "asmonly" {
+  ret void
+}
+
+define void @cntw_r_s_.20(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11100001001 xd:5" "asm"="cntw {xd}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntw_r_s_.21(i64 "reg"="x" %xd) "enc"="000001001010000011100001010 xd:5" "asm"="cntw {xd}, vl32" "asmonly" {
+  ret void
+}
+
+define void @cntw_r_s_.22(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11100001010 xd:5" "asm"="cntw {xd}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntw_r_s_.23(i64 "reg"="x" %xd) "enc"="000001001010000011100001011 xd:5" "asm"="cntw {xd}, vl64" "asmonly" {
+  ret void
+}
+
+define void @cntw_r_s_.24(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11100001011 xd:5" "asm"="cntw {xd}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntw_r_s_.25(i64 "reg"="x" %xd) "enc"="000001001010000011100001100 xd:5" "asm"="cntw {xd}, vl128" "asmonly" {
+  ret void
+}
+
+define void @cntw_r_s_.26(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11100001100 xd:5" "asm"="cntw {xd}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntw_r_s_.27(i64 "reg"="x" %xd) "enc"="000001001010000011100001101 xd:5" "asm"="cntw {xd}, vl256" "asmonly" {
+  ret void
+}
+
+define void @cntw_r_s_.28(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11100001101 xd:5" "asm"="cntw {xd}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntw_r_s_.29(i64 "reg"="x" %xd, i64 "imm" %pattern) "enc"="0000010010100000111000 pattern:5 xd:5" "asm"="cntw {xd}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @cntw_r_s_.30(i64 "reg"="x" %xd, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 111000 pattern:5 xd:5" "asm"="cntw {xd}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntw_r_s_.31(i64 "reg"="x" %xd) "enc"="000001001010000011100011101 xd:5" "asm"="cntw {xd}, mul4" "asmonly" {
+  ret void
+}
+
+define void @cntw_r_s_.32(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11100011101 xd:5" "asm"="cntw {xd}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntw_r_s_.33(i64 "reg"="x" %xd) "enc"="000001001010000011100011110 xd:5" "asm"="cntw {xd}, mul3" "asmonly" {
+  ret void
+}
+
+define void @cntw_r_s_.34(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11100011110 xd:5" "asm"="cntw {xd}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntw_r_s_.35(i64 "reg"="x" %xd) "enc"="000001001010000011100011111 xd:5" "asm"="cntw {xd}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @cntw_r_s_.36(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11100011111 xd:5" "asm"="cntw {xd}, all, mul #{imm}" "asmonly" {
+  ret void
+}
+
 define void @cntd_r_s_.0(i64 "reg"="x" %xd) "enc"="000001001110000011100011111 xd:5" "asm"="cntd {xd}" "asmonly" {
+  ret void
+}
+
+define void @cntd_r_s_.1(i64 "reg"="x" %xd) "enc"="000001001110000011100000000 xd:5" "asm"="cntd {xd}, pow2" "asmonly" {
+  ret void
+}
+
+define void @cntd_r_s_.2(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11100000000 xd:5" "asm"="cntd {xd}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntd_r_s_.3(i64 "reg"="x" %xd) "enc"="000001001110000011100000001 xd:5" "asm"="cntd {xd}, vl1" "asmonly" {
+  ret void
+}
+
+define void @cntd_r_s_.4(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11100000001 xd:5" "asm"="cntd {xd}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntd_r_s_.5(i64 "reg"="x" %xd) "enc"="000001001110000011100000010 xd:5" "asm"="cntd {xd}, vl2" "asmonly" {
+  ret void
+}
+
+define void @cntd_r_s_.6(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11100000010 xd:5" "asm"="cntd {xd}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntd_r_s_.7(i64 "reg"="x" %xd) "enc"="000001001110000011100000011 xd:5" "asm"="cntd {xd}, vl3" "asmonly" {
+  ret void
+}
+
+define void @cntd_r_s_.8(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11100000011 xd:5" "asm"="cntd {xd}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntd_r_s_.9(i64 "reg"="x" %xd) "enc"="000001001110000011100000100 xd:5" "asm"="cntd {xd}, vl4" "asmonly" {
+  ret void
+}
+
+define void @cntd_r_s_.10(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11100000100 xd:5" "asm"="cntd {xd}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntd_r_s_.11(i64 "reg"="x" %xd) "enc"="000001001110000011100000101 xd:5" "asm"="cntd {xd}, vl5" "asmonly" {
+  ret void
+}
+
+define void @cntd_r_s_.12(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11100000101 xd:5" "asm"="cntd {xd}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntd_r_s_.13(i64 "reg"="x" %xd) "enc"="000001001110000011100000110 xd:5" "asm"="cntd {xd}, vl6" "asmonly" {
+  ret void
+}
+
+define void @cntd_r_s_.14(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11100000110 xd:5" "asm"="cntd {xd}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntd_r_s_.15(i64 "reg"="x" %xd) "enc"="000001001110000011100000111 xd:5" "asm"="cntd {xd}, vl7" "asmonly" {
+  ret void
+}
+
+define void @cntd_r_s_.16(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11100000111 xd:5" "asm"="cntd {xd}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntd_r_s_.17(i64 "reg"="x" %xd) "enc"="000001001110000011100001000 xd:5" "asm"="cntd {xd}, vl8" "asmonly" {
+  ret void
+}
+
+define void @cntd_r_s_.18(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11100001000 xd:5" "asm"="cntd {xd}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntd_r_s_.19(i64 "reg"="x" %xd) "enc"="000001001110000011100001001 xd:5" "asm"="cntd {xd}, vl16" "asmonly" {
+  ret void
+}
+
+define void @cntd_r_s_.20(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11100001001 xd:5" "asm"="cntd {xd}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntd_r_s_.21(i64 "reg"="x" %xd) "enc"="000001001110000011100001010 xd:5" "asm"="cntd {xd}, vl32" "asmonly" {
+  ret void
+}
+
+define void @cntd_r_s_.22(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11100001010 xd:5" "asm"="cntd {xd}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntd_r_s_.23(i64 "reg"="x" %xd) "enc"="000001001110000011100001011 xd:5" "asm"="cntd {xd}, vl64" "asmonly" {
+  ret void
+}
+
+define void @cntd_r_s_.24(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11100001011 xd:5" "asm"="cntd {xd}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntd_r_s_.25(i64 "reg"="x" %xd) "enc"="000001001110000011100001100 xd:5" "asm"="cntd {xd}, vl128" "asmonly" {
+  ret void
+}
+
+define void @cntd_r_s_.26(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11100001100 xd:5" "asm"="cntd {xd}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntd_r_s_.27(i64 "reg"="x" %xd) "enc"="000001001110000011100001101 xd:5" "asm"="cntd {xd}, vl256" "asmonly" {
+  ret void
+}
+
+define void @cntd_r_s_.28(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11100001101 xd:5" "asm"="cntd {xd}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntd_r_s_.29(i64 "reg"="x" %xd, i64 "imm" %pattern) "enc"="0000010011100000111000 pattern:5 xd:5" "asm"="cntd {xd}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @cntd_r_s_.30(i64 "reg"="x" %xd, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 111000 pattern:5 xd:5" "asm"="cntd {xd}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntd_r_s_.31(i64 "reg"="x" %xd) "enc"="000001001110000011100011101 xd:5" "asm"="cntd {xd}, mul4" "asmonly" {
+  ret void
+}
+
+define void @cntd_r_s_.32(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11100011101 xd:5" "asm"="cntd {xd}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntd_r_s_.33(i64 "reg"="x" %xd) "enc"="000001001110000011100011110 xd:5" "asm"="cntd {xd}, mul3" "asmonly" {
+  ret void
+}
+
+define void @cntd_r_s_.34(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11100011110 xd:5" "asm"="cntd {xd}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @cntd_r_s_.35(i64 "reg"="x" %xd) "enc"="000001001110000011100011111 xd:5" "asm"="cntd {xd}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @cntd_r_s_.36(i64 "reg"="x" %xd, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11100011111 xd:5" "asm"="cntd {xd}, all, mul #{imm}" "asmonly" {
   ret void
 }
 
@@ -1858,7 +5026,295 @@ define void @incb_r_rs_.0(i64 "reg"="x" %xdn) "enc"="000001000011000011100011111
   ret void
 }
 
+define void @incb_r_rs_.1(i64 "reg"="x" %xdn) "enc"="000001000011000011100000000 xdn:5" "asm"="incb {xdn}, pow2" "asmonly" {
+  ret void
+}
+
+define void @incb_r_rs_.2(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11100000000 xdn:5" "asm"="incb {xdn}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incb_r_rs_.3(i64 "reg"="x" %xdn) "enc"="000001000011000011100000001 xdn:5" "asm"="incb {xdn}, vl1" "asmonly" {
+  ret void
+}
+
+define void @incb_r_rs_.4(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11100000001 xdn:5" "asm"="incb {xdn}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incb_r_rs_.5(i64 "reg"="x" %xdn) "enc"="000001000011000011100000010 xdn:5" "asm"="incb {xdn}, vl2" "asmonly" {
+  ret void
+}
+
+define void @incb_r_rs_.6(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11100000010 xdn:5" "asm"="incb {xdn}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incb_r_rs_.7(i64 "reg"="x" %xdn) "enc"="000001000011000011100000011 xdn:5" "asm"="incb {xdn}, vl3" "asmonly" {
+  ret void
+}
+
+define void @incb_r_rs_.8(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11100000011 xdn:5" "asm"="incb {xdn}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incb_r_rs_.9(i64 "reg"="x" %xdn) "enc"="000001000011000011100000100 xdn:5" "asm"="incb {xdn}, vl4" "asmonly" {
+  ret void
+}
+
+define void @incb_r_rs_.10(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11100000100 xdn:5" "asm"="incb {xdn}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incb_r_rs_.11(i64 "reg"="x" %xdn) "enc"="000001000011000011100000101 xdn:5" "asm"="incb {xdn}, vl5" "asmonly" {
+  ret void
+}
+
+define void @incb_r_rs_.12(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11100000101 xdn:5" "asm"="incb {xdn}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incb_r_rs_.13(i64 "reg"="x" %xdn) "enc"="000001000011000011100000110 xdn:5" "asm"="incb {xdn}, vl6" "asmonly" {
+  ret void
+}
+
+define void @incb_r_rs_.14(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11100000110 xdn:5" "asm"="incb {xdn}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incb_r_rs_.15(i64 "reg"="x" %xdn) "enc"="000001000011000011100000111 xdn:5" "asm"="incb {xdn}, vl7" "asmonly" {
+  ret void
+}
+
+define void @incb_r_rs_.16(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11100000111 xdn:5" "asm"="incb {xdn}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incb_r_rs_.17(i64 "reg"="x" %xdn) "enc"="000001000011000011100001000 xdn:5" "asm"="incb {xdn}, vl8" "asmonly" {
+  ret void
+}
+
+define void @incb_r_rs_.18(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11100001000 xdn:5" "asm"="incb {xdn}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incb_r_rs_.19(i64 "reg"="x" %xdn) "enc"="000001000011000011100001001 xdn:5" "asm"="incb {xdn}, vl16" "asmonly" {
+  ret void
+}
+
+define void @incb_r_rs_.20(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11100001001 xdn:5" "asm"="incb {xdn}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incb_r_rs_.21(i64 "reg"="x" %xdn) "enc"="000001000011000011100001010 xdn:5" "asm"="incb {xdn}, vl32" "asmonly" {
+  ret void
+}
+
+define void @incb_r_rs_.22(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11100001010 xdn:5" "asm"="incb {xdn}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incb_r_rs_.23(i64 "reg"="x" %xdn) "enc"="000001000011000011100001011 xdn:5" "asm"="incb {xdn}, vl64" "asmonly" {
+  ret void
+}
+
+define void @incb_r_rs_.24(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11100001011 xdn:5" "asm"="incb {xdn}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incb_r_rs_.25(i64 "reg"="x" %xdn) "enc"="000001000011000011100001100 xdn:5" "asm"="incb {xdn}, vl128" "asmonly" {
+  ret void
+}
+
+define void @incb_r_rs_.26(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11100001100 xdn:5" "asm"="incb {xdn}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incb_r_rs_.27(i64 "reg"="x" %xdn) "enc"="000001000011000011100001101 xdn:5" "asm"="incb {xdn}, vl256" "asmonly" {
+  ret void
+}
+
+define void @incb_r_rs_.28(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11100001101 xdn:5" "asm"="incb {xdn}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incb_r_rs_.29(i64 "reg"="x" %xdn, i64 "imm" %pattern) "enc"="0000010000110000111000 pattern:5 xdn:5" "asm"="incb {xdn}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @incb_r_rs_.30(i64 "reg"="x" %xdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 111000 pattern:5 xdn:5" "asm"="incb {xdn}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incb_r_rs_.31(i64 "reg"="x" %xdn) "enc"="000001000011000011100011101 xdn:5" "asm"="incb {xdn}, mul4" "asmonly" {
+  ret void
+}
+
+define void @incb_r_rs_.32(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11100011101 xdn:5" "asm"="incb {xdn}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incb_r_rs_.33(i64 "reg"="x" %xdn) "enc"="000001000011000011100011110 xdn:5" "asm"="incb {xdn}, mul3" "asmonly" {
+  ret void
+}
+
+define void @incb_r_rs_.34(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11100011110 xdn:5" "asm"="incb {xdn}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incb_r_rs_.35(i64 "reg"="x" %xdn) "enc"="000001000011000011100011111 xdn:5" "asm"="incb {xdn}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @incb_r_rs_.36(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11100011111 xdn:5" "asm"="incb {xdn}, all, mul #{imm}" "asmonly" {
+  ret void
+}
+
 define void @decb_r_rs_.0(i64 "reg"="x" %xdn) "enc"="000001000011000011100111111 xdn:5" "asm"="decb {xdn}" "asmonly" {
+  ret void
+}
+
+define void @decb_r_rs_.1(i64 "reg"="x" %xdn) "enc"="000001000011000011100100000 xdn:5" "asm"="decb {xdn}, pow2" "asmonly" {
+  ret void
+}
+
+define void @decb_r_rs_.2(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11100100000 xdn:5" "asm"="decb {xdn}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decb_r_rs_.3(i64 "reg"="x" %xdn) "enc"="000001000011000011100100001 xdn:5" "asm"="decb {xdn}, vl1" "asmonly" {
+  ret void
+}
+
+define void @decb_r_rs_.4(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11100100001 xdn:5" "asm"="decb {xdn}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decb_r_rs_.5(i64 "reg"="x" %xdn) "enc"="000001000011000011100100010 xdn:5" "asm"="decb {xdn}, vl2" "asmonly" {
+  ret void
+}
+
+define void @decb_r_rs_.6(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11100100010 xdn:5" "asm"="decb {xdn}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decb_r_rs_.7(i64 "reg"="x" %xdn) "enc"="000001000011000011100100011 xdn:5" "asm"="decb {xdn}, vl3" "asmonly" {
+  ret void
+}
+
+define void @decb_r_rs_.8(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11100100011 xdn:5" "asm"="decb {xdn}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decb_r_rs_.9(i64 "reg"="x" %xdn) "enc"="000001000011000011100100100 xdn:5" "asm"="decb {xdn}, vl4" "asmonly" {
+  ret void
+}
+
+define void @decb_r_rs_.10(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11100100100 xdn:5" "asm"="decb {xdn}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decb_r_rs_.11(i64 "reg"="x" %xdn) "enc"="000001000011000011100100101 xdn:5" "asm"="decb {xdn}, vl5" "asmonly" {
+  ret void
+}
+
+define void @decb_r_rs_.12(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11100100101 xdn:5" "asm"="decb {xdn}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decb_r_rs_.13(i64 "reg"="x" %xdn) "enc"="000001000011000011100100110 xdn:5" "asm"="decb {xdn}, vl6" "asmonly" {
+  ret void
+}
+
+define void @decb_r_rs_.14(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11100100110 xdn:5" "asm"="decb {xdn}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decb_r_rs_.15(i64 "reg"="x" %xdn) "enc"="000001000011000011100100111 xdn:5" "asm"="decb {xdn}, vl7" "asmonly" {
+  ret void
+}
+
+define void @decb_r_rs_.16(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11100100111 xdn:5" "asm"="decb {xdn}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decb_r_rs_.17(i64 "reg"="x" %xdn) "enc"="000001000011000011100101000 xdn:5" "asm"="decb {xdn}, vl8" "asmonly" {
+  ret void
+}
+
+define void @decb_r_rs_.18(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11100101000 xdn:5" "asm"="decb {xdn}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decb_r_rs_.19(i64 "reg"="x" %xdn) "enc"="000001000011000011100101001 xdn:5" "asm"="decb {xdn}, vl16" "asmonly" {
+  ret void
+}
+
+define void @decb_r_rs_.20(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11100101001 xdn:5" "asm"="decb {xdn}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decb_r_rs_.21(i64 "reg"="x" %xdn) "enc"="000001000011000011100101010 xdn:5" "asm"="decb {xdn}, vl32" "asmonly" {
+  ret void
+}
+
+define void @decb_r_rs_.22(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11100101010 xdn:5" "asm"="decb {xdn}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decb_r_rs_.23(i64 "reg"="x" %xdn) "enc"="000001000011000011100101011 xdn:5" "asm"="decb {xdn}, vl64" "asmonly" {
+  ret void
+}
+
+define void @decb_r_rs_.24(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11100101011 xdn:5" "asm"="decb {xdn}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decb_r_rs_.25(i64 "reg"="x" %xdn) "enc"="000001000011000011100101100 xdn:5" "asm"="decb {xdn}, vl128" "asmonly" {
+  ret void
+}
+
+define void @decb_r_rs_.26(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11100101100 xdn:5" "asm"="decb {xdn}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decb_r_rs_.27(i64 "reg"="x" %xdn) "enc"="000001000011000011100101101 xdn:5" "asm"="decb {xdn}, vl256" "asmonly" {
+  ret void
+}
+
+define void @decb_r_rs_.28(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11100101101 xdn:5" "asm"="decb {xdn}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decb_r_rs_.29(i64 "reg"="x" %xdn, i64 "imm" %pattern) "enc"="0000010000110000111001 pattern:5 xdn:5" "asm"="decb {xdn}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @decb_r_rs_.30(i64 "reg"="x" %xdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 111001 pattern:5 xdn:5" "asm"="decb {xdn}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decb_r_rs_.31(i64 "reg"="x" %xdn) "enc"="000001000011000011100111101 xdn:5" "asm"="decb {xdn}, mul4" "asmonly" {
+  ret void
+}
+
+define void @decb_r_rs_.32(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11100111101 xdn:5" "asm"="decb {xdn}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decb_r_rs_.33(i64 "reg"="x" %xdn) "enc"="000001000011000011100111110 xdn:5" "asm"="decb {xdn}, mul3" "asmonly" {
+  ret void
+}
+
+define void @decb_r_rs_.34(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11100111110 xdn:5" "asm"="decb {xdn}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decb_r_rs_.35(i64 "reg"="x" %xdn) "enc"="000001000011000011100111111 xdn:5" "asm"="decb {xdn}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @decb_r_rs_.36(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11100111111 xdn:5" "asm"="decb {xdn}, all, mul #{imm}" "asmonly" {
   ret void
 }
 
@@ -1866,7 +5322,295 @@ define void @inch_r_rs_.0(i64 "reg"="x" %xdn) "enc"="000001000111000011100011111
   ret void
 }
 
+define void @inch_r_rs_.1(i64 "reg"="x" %xdn) "enc"="000001000111000011100000000 xdn:5" "asm"="inch {xdn}, pow2" "asmonly" {
+  ret void
+}
+
+define void @inch_r_rs_.2(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11100000000 xdn:5" "asm"="inch {xdn}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @inch_r_rs_.3(i64 "reg"="x" %xdn) "enc"="000001000111000011100000001 xdn:5" "asm"="inch {xdn}, vl1" "asmonly" {
+  ret void
+}
+
+define void @inch_r_rs_.4(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11100000001 xdn:5" "asm"="inch {xdn}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @inch_r_rs_.5(i64 "reg"="x" %xdn) "enc"="000001000111000011100000010 xdn:5" "asm"="inch {xdn}, vl2" "asmonly" {
+  ret void
+}
+
+define void @inch_r_rs_.6(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11100000010 xdn:5" "asm"="inch {xdn}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @inch_r_rs_.7(i64 "reg"="x" %xdn) "enc"="000001000111000011100000011 xdn:5" "asm"="inch {xdn}, vl3" "asmonly" {
+  ret void
+}
+
+define void @inch_r_rs_.8(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11100000011 xdn:5" "asm"="inch {xdn}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @inch_r_rs_.9(i64 "reg"="x" %xdn) "enc"="000001000111000011100000100 xdn:5" "asm"="inch {xdn}, vl4" "asmonly" {
+  ret void
+}
+
+define void @inch_r_rs_.10(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11100000100 xdn:5" "asm"="inch {xdn}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @inch_r_rs_.11(i64 "reg"="x" %xdn) "enc"="000001000111000011100000101 xdn:5" "asm"="inch {xdn}, vl5" "asmonly" {
+  ret void
+}
+
+define void @inch_r_rs_.12(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11100000101 xdn:5" "asm"="inch {xdn}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @inch_r_rs_.13(i64 "reg"="x" %xdn) "enc"="000001000111000011100000110 xdn:5" "asm"="inch {xdn}, vl6" "asmonly" {
+  ret void
+}
+
+define void @inch_r_rs_.14(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11100000110 xdn:5" "asm"="inch {xdn}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @inch_r_rs_.15(i64 "reg"="x" %xdn) "enc"="000001000111000011100000111 xdn:5" "asm"="inch {xdn}, vl7" "asmonly" {
+  ret void
+}
+
+define void @inch_r_rs_.16(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11100000111 xdn:5" "asm"="inch {xdn}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @inch_r_rs_.17(i64 "reg"="x" %xdn) "enc"="000001000111000011100001000 xdn:5" "asm"="inch {xdn}, vl8" "asmonly" {
+  ret void
+}
+
+define void @inch_r_rs_.18(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11100001000 xdn:5" "asm"="inch {xdn}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @inch_r_rs_.19(i64 "reg"="x" %xdn) "enc"="000001000111000011100001001 xdn:5" "asm"="inch {xdn}, vl16" "asmonly" {
+  ret void
+}
+
+define void @inch_r_rs_.20(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11100001001 xdn:5" "asm"="inch {xdn}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @inch_r_rs_.21(i64 "reg"="x" %xdn) "enc"="000001000111000011100001010 xdn:5" "asm"="inch {xdn}, vl32" "asmonly" {
+  ret void
+}
+
+define void @inch_r_rs_.22(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11100001010 xdn:5" "asm"="inch {xdn}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @inch_r_rs_.23(i64 "reg"="x" %xdn) "enc"="000001000111000011100001011 xdn:5" "asm"="inch {xdn}, vl64" "asmonly" {
+  ret void
+}
+
+define void @inch_r_rs_.24(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11100001011 xdn:5" "asm"="inch {xdn}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @inch_r_rs_.25(i64 "reg"="x" %xdn) "enc"="000001000111000011100001100 xdn:5" "asm"="inch {xdn}, vl128" "asmonly" {
+  ret void
+}
+
+define void @inch_r_rs_.26(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11100001100 xdn:5" "asm"="inch {xdn}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @inch_r_rs_.27(i64 "reg"="x" %xdn) "enc"="000001000111000011100001101 xdn:5" "asm"="inch {xdn}, vl256" "asmonly" {
+  ret void
+}
+
+define void @inch_r_rs_.28(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11100001101 xdn:5" "asm"="inch {xdn}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @inch_r_rs_.29(i64 "reg"="x" %xdn, i64 "imm" %pattern) "enc"="0000010001110000111000 pattern:5 xdn:5" "asm"="inch {xdn}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @inch_r_rs_.30(i64 "reg"="x" %xdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 111000 pattern:5 xdn:5" "asm"="inch {xdn}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @inch_r_rs_.31(i64 "reg"="x" %xdn) "enc"="000001000111000011100011101 xdn:5" "asm"="inch {xdn}, mul4" "asmonly" {
+  ret void
+}
+
+define void @inch_r_rs_.32(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11100011101 xdn:5" "asm"="inch {xdn}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @inch_r_rs_.33(i64 "reg"="x" %xdn) "enc"="000001000111000011100011110 xdn:5" "asm"="inch {xdn}, mul3" "asmonly" {
+  ret void
+}
+
+define void @inch_r_rs_.34(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11100011110 xdn:5" "asm"="inch {xdn}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @inch_r_rs_.35(i64 "reg"="x" %xdn) "enc"="000001000111000011100011111 xdn:5" "asm"="inch {xdn}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @inch_r_rs_.36(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11100011111 xdn:5" "asm"="inch {xdn}, all, mul #{imm}" "asmonly" {
+  ret void
+}
+
 define void @dech_r_rs_.0(i64 "reg"="x" %xdn) "enc"="000001000111000011100111111 xdn:5" "asm"="dech {xdn}" "asmonly" {
+  ret void
+}
+
+define void @dech_r_rs_.1(i64 "reg"="x" %xdn) "enc"="000001000111000011100100000 xdn:5" "asm"="dech {xdn}, pow2" "asmonly" {
+  ret void
+}
+
+define void @dech_r_rs_.2(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11100100000 xdn:5" "asm"="dech {xdn}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @dech_r_rs_.3(i64 "reg"="x" %xdn) "enc"="000001000111000011100100001 xdn:5" "asm"="dech {xdn}, vl1" "asmonly" {
+  ret void
+}
+
+define void @dech_r_rs_.4(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11100100001 xdn:5" "asm"="dech {xdn}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @dech_r_rs_.5(i64 "reg"="x" %xdn) "enc"="000001000111000011100100010 xdn:5" "asm"="dech {xdn}, vl2" "asmonly" {
+  ret void
+}
+
+define void @dech_r_rs_.6(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11100100010 xdn:5" "asm"="dech {xdn}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @dech_r_rs_.7(i64 "reg"="x" %xdn) "enc"="000001000111000011100100011 xdn:5" "asm"="dech {xdn}, vl3" "asmonly" {
+  ret void
+}
+
+define void @dech_r_rs_.8(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11100100011 xdn:5" "asm"="dech {xdn}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @dech_r_rs_.9(i64 "reg"="x" %xdn) "enc"="000001000111000011100100100 xdn:5" "asm"="dech {xdn}, vl4" "asmonly" {
+  ret void
+}
+
+define void @dech_r_rs_.10(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11100100100 xdn:5" "asm"="dech {xdn}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @dech_r_rs_.11(i64 "reg"="x" %xdn) "enc"="000001000111000011100100101 xdn:5" "asm"="dech {xdn}, vl5" "asmonly" {
+  ret void
+}
+
+define void @dech_r_rs_.12(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11100100101 xdn:5" "asm"="dech {xdn}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @dech_r_rs_.13(i64 "reg"="x" %xdn) "enc"="000001000111000011100100110 xdn:5" "asm"="dech {xdn}, vl6" "asmonly" {
+  ret void
+}
+
+define void @dech_r_rs_.14(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11100100110 xdn:5" "asm"="dech {xdn}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @dech_r_rs_.15(i64 "reg"="x" %xdn) "enc"="000001000111000011100100111 xdn:5" "asm"="dech {xdn}, vl7" "asmonly" {
+  ret void
+}
+
+define void @dech_r_rs_.16(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11100100111 xdn:5" "asm"="dech {xdn}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @dech_r_rs_.17(i64 "reg"="x" %xdn) "enc"="000001000111000011100101000 xdn:5" "asm"="dech {xdn}, vl8" "asmonly" {
+  ret void
+}
+
+define void @dech_r_rs_.18(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11100101000 xdn:5" "asm"="dech {xdn}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @dech_r_rs_.19(i64 "reg"="x" %xdn) "enc"="000001000111000011100101001 xdn:5" "asm"="dech {xdn}, vl16" "asmonly" {
+  ret void
+}
+
+define void @dech_r_rs_.20(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11100101001 xdn:5" "asm"="dech {xdn}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @dech_r_rs_.21(i64 "reg"="x" %xdn) "enc"="000001000111000011100101010 xdn:5" "asm"="dech {xdn}, vl32" "asmonly" {
+  ret void
+}
+
+define void @dech_r_rs_.22(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11100101010 xdn:5" "asm"="dech {xdn}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @dech_r_rs_.23(i64 "reg"="x" %xdn) "enc"="000001000111000011100101011 xdn:5" "asm"="dech {xdn}, vl64" "asmonly" {
+  ret void
+}
+
+define void @dech_r_rs_.24(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11100101011 xdn:5" "asm"="dech {xdn}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @dech_r_rs_.25(i64 "reg"="x" %xdn) "enc"="000001000111000011100101100 xdn:5" "asm"="dech {xdn}, vl128" "asmonly" {
+  ret void
+}
+
+define void @dech_r_rs_.26(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11100101100 xdn:5" "asm"="dech {xdn}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @dech_r_rs_.27(i64 "reg"="x" %xdn) "enc"="000001000111000011100101101 xdn:5" "asm"="dech {xdn}, vl256" "asmonly" {
+  ret void
+}
+
+define void @dech_r_rs_.28(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11100101101 xdn:5" "asm"="dech {xdn}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @dech_r_rs_.29(i64 "reg"="x" %xdn, i64 "imm" %pattern) "enc"="0000010001110000111001 pattern:5 xdn:5" "asm"="dech {xdn}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @dech_r_rs_.30(i64 "reg"="x" %xdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 111001 pattern:5 xdn:5" "asm"="dech {xdn}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @dech_r_rs_.31(i64 "reg"="x" %xdn) "enc"="000001000111000011100111101 xdn:5" "asm"="dech {xdn}, mul4" "asmonly" {
+  ret void
+}
+
+define void @dech_r_rs_.32(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11100111101 xdn:5" "asm"="dech {xdn}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @dech_r_rs_.33(i64 "reg"="x" %xdn) "enc"="000001000111000011100111110 xdn:5" "asm"="dech {xdn}, mul3" "asmonly" {
+  ret void
+}
+
+define void @dech_r_rs_.34(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11100111110 xdn:5" "asm"="dech {xdn}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @dech_r_rs_.35(i64 "reg"="x" %xdn) "enc"="000001000111000011100111111 xdn:5" "asm"="dech {xdn}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @dech_r_rs_.36(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11100111111 xdn:5" "asm"="dech {xdn}, all, mul #{imm}" "asmonly" {
   ret void
 }
 
@@ -1874,7 +5618,295 @@ define void @incw_r_rs_.0(i64 "reg"="x" %xdn) "enc"="000001001011000011100011111
   ret void
 }
 
+define void @incw_r_rs_.1(i64 "reg"="x" %xdn) "enc"="000001001011000011100000000 xdn:5" "asm"="incw {xdn}, pow2" "asmonly" {
+  ret void
+}
+
+define void @incw_r_rs_.2(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11100000000 xdn:5" "asm"="incw {xdn}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incw_r_rs_.3(i64 "reg"="x" %xdn) "enc"="000001001011000011100000001 xdn:5" "asm"="incw {xdn}, vl1" "asmonly" {
+  ret void
+}
+
+define void @incw_r_rs_.4(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11100000001 xdn:5" "asm"="incw {xdn}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incw_r_rs_.5(i64 "reg"="x" %xdn) "enc"="000001001011000011100000010 xdn:5" "asm"="incw {xdn}, vl2" "asmonly" {
+  ret void
+}
+
+define void @incw_r_rs_.6(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11100000010 xdn:5" "asm"="incw {xdn}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incw_r_rs_.7(i64 "reg"="x" %xdn) "enc"="000001001011000011100000011 xdn:5" "asm"="incw {xdn}, vl3" "asmonly" {
+  ret void
+}
+
+define void @incw_r_rs_.8(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11100000011 xdn:5" "asm"="incw {xdn}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incw_r_rs_.9(i64 "reg"="x" %xdn) "enc"="000001001011000011100000100 xdn:5" "asm"="incw {xdn}, vl4" "asmonly" {
+  ret void
+}
+
+define void @incw_r_rs_.10(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11100000100 xdn:5" "asm"="incw {xdn}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incw_r_rs_.11(i64 "reg"="x" %xdn) "enc"="000001001011000011100000101 xdn:5" "asm"="incw {xdn}, vl5" "asmonly" {
+  ret void
+}
+
+define void @incw_r_rs_.12(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11100000101 xdn:5" "asm"="incw {xdn}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incw_r_rs_.13(i64 "reg"="x" %xdn) "enc"="000001001011000011100000110 xdn:5" "asm"="incw {xdn}, vl6" "asmonly" {
+  ret void
+}
+
+define void @incw_r_rs_.14(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11100000110 xdn:5" "asm"="incw {xdn}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incw_r_rs_.15(i64 "reg"="x" %xdn) "enc"="000001001011000011100000111 xdn:5" "asm"="incw {xdn}, vl7" "asmonly" {
+  ret void
+}
+
+define void @incw_r_rs_.16(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11100000111 xdn:5" "asm"="incw {xdn}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incw_r_rs_.17(i64 "reg"="x" %xdn) "enc"="000001001011000011100001000 xdn:5" "asm"="incw {xdn}, vl8" "asmonly" {
+  ret void
+}
+
+define void @incw_r_rs_.18(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11100001000 xdn:5" "asm"="incw {xdn}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incw_r_rs_.19(i64 "reg"="x" %xdn) "enc"="000001001011000011100001001 xdn:5" "asm"="incw {xdn}, vl16" "asmonly" {
+  ret void
+}
+
+define void @incw_r_rs_.20(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11100001001 xdn:5" "asm"="incw {xdn}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incw_r_rs_.21(i64 "reg"="x" %xdn) "enc"="000001001011000011100001010 xdn:5" "asm"="incw {xdn}, vl32" "asmonly" {
+  ret void
+}
+
+define void @incw_r_rs_.22(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11100001010 xdn:5" "asm"="incw {xdn}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incw_r_rs_.23(i64 "reg"="x" %xdn) "enc"="000001001011000011100001011 xdn:5" "asm"="incw {xdn}, vl64" "asmonly" {
+  ret void
+}
+
+define void @incw_r_rs_.24(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11100001011 xdn:5" "asm"="incw {xdn}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incw_r_rs_.25(i64 "reg"="x" %xdn) "enc"="000001001011000011100001100 xdn:5" "asm"="incw {xdn}, vl128" "asmonly" {
+  ret void
+}
+
+define void @incw_r_rs_.26(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11100001100 xdn:5" "asm"="incw {xdn}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incw_r_rs_.27(i64 "reg"="x" %xdn) "enc"="000001001011000011100001101 xdn:5" "asm"="incw {xdn}, vl256" "asmonly" {
+  ret void
+}
+
+define void @incw_r_rs_.28(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11100001101 xdn:5" "asm"="incw {xdn}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incw_r_rs_.29(i64 "reg"="x" %xdn, i64 "imm" %pattern) "enc"="0000010010110000111000 pattern:5 xdn:5" "asm"="incw {xdn}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @incw_r_rs_.30(i64 "reg"="x" %xdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 111000 pattern:5 xdn:5" "asm"="incw {xdn}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incw_r_rs_.31(i64 "reg"="x" %xdn) "enc"="000001001011000011100011101 xdn:5" "asm"="incw {xdn}, mul4" "asmonly" {
+  ret void
+}
+
+define void @incw_r_rs_.32(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11100011101 xdn:5" "asm"="incw {xdn}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incw_r_rs_.33(i64 "reg"="x" %xdn) "enc"="000001001011000011100011110 xdn:5" "asm"="incw {xdn}, mul3" "asmonly" {
+  ret void
+}
+
+define void @incw_r_rs_.34(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11100011110 xdn:5" "asm"="incw {xdn}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incw_r_rs_.35(i64 "reg"="x" %xdn) "enc"="000001001011000011100011111 xdn:5" "asm"="incw {xdn}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @incw_r_rs_.36(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11100011111 xdn:5" "asm"="incw {xdn}, all, mul #{imm}" "asmonly" {
+  ret void
+}
+
 define void @decw_r_rs_.0(i64 "reg"="x" %xdn) "enc"="000001001011000011100111111 xdn:5" "asm"="decw {xdn}" "asmonly" {
+  ret void
+}
+
+define void @decw_r_rs_.1(i64 "reg"="x" %xdn) "enc"="000001001011000011100100000 xdn:5" "asm"="decw {xdn}, pow2" "asmonly" {
+  ret void
+}
+
+define void @decw_r_rs_.2(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11100100000 xdn:5" "asm"="decw {xdn}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decw_r_rs_.3(i64 "reg"="x" %xdn) "enc"="000001001011000011100100001 xdn:5" "asm"="decw {xdn}, vl1" "asmonly" {
+  ret void
+}
+
+define void @decw_r_rs_.4(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11100100001 xdn:5" "asm"="decw {xdn}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decw_r_rs_.5(i64 "reg"="x" %xdn) "enc"="000001001011000011100100010 xdn:5" "asm"="decw {xdn}, vl2" "asmonly" {
+  ret void
+}
+
+define void @decw_r_rs_.6(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11100100010 xdn:5" "asm"="decw {xdn}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decw_r_rs_.7(i64 "reg"="x" %xdn) "enc"="000001001011000011100100011 xdn:5" "asm"="decw {xdn}, vl3" "asmonly" {
+  ret void
+}
+
+define void @decw_r_rs_.8(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11100100011 xdn:5" "asm"="decw {xdn}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decw_r_rs_.9(i64 "reg"="x" %xdn) "enc"="000001001011000011100100100 xdn:5" "asm"="decw {xdn}, vl4" "asmonly" {
+  ret void
+}
+
+define void @decw_r_rs_.10(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11100100100 xdn:5" "asm"="decw {xdn}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decw_r_rs_.11(i64 "reg"="x" %xdn) "enc"="000001001011000011100100101 xdn:5" "asm"="decw {xdn}, vl5" "asmonly" {
+  ret void
+}
+
+define void @decw_r_rs_.12(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11100100101 xdn:5" "asm"="decw {xdn}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decw_r_rs_.13(i64 "reg"="x" %xdn) "enc"="000001001011000011100100110 xdn:5" "asm"="decw {xdn}, vl6" "asmonly" {
+  ret void
+}
+
+define void @decw_r_rs_.14(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11100100110 xdn:5" "asm"="decw {xdn}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decw_r_rs_.15(i64 "reg"="x" %xdn) "enc"="000001001011000011100100111 xdn:5" "asm"="decw {xdn}, vl7" "asmonly" {
+  ret void
+}
+
+define void @decw_r_rs_.16(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11100100111 xdn:5" "asm"="decw {xdn}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decw_r_rs_.17(i64 "reg"="x" %xdn) "enc"="000001001011000011100101000 xdn:5" "asm"="decw {xdn}, vl8" "asmonly" {
+  ret void
+}
+
+define void @decw_r_rs_.18(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11100101000 xdn:5" "asm"="decw {xdn}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decw_r_rs_.19(i64 "reg"="x" %xdn) "enc"="000001001011000011100101001 xdn:5" "asm"="decw {xdn}, vl16" "asmonly" {
+  ret void
+}
+
+define void @decw_r_rs_.20(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11100101001 xdn:5" "asm"="decw {xdn}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decw_r_rs_.21(i64 "reg"="x" %xdn) "enc"="000001001011000011100101010 xdn:5" "asm"="decw {xdn}, vl32" "asmonly" {
+  ret void
+}
+
+define void @decw_r_rs_.22(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11100101010 xdn:5" "asm"="decw {xdn}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decw_r_rs_.23(i64 "reg"="x" %xdn) "enc"="000001001011000011100101011 xdn:5" "asm"="decw {xdn}, vl64" "asmonly" {
+  ret void
+}
+
+define void @decw_r_rs_.24(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11100101011 xdn:5" "asm"="decw {xdn}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decw_r_rs_.25(i64 "reg"="x" %xdn) "enc"="000001001011000011100101100 xdn:5" "asm"="decw {xdn}, vl128" "asmonly" {
+  ret void
+}
+
+define void @decw_r_rs_.26(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11100101100 xdn:5" "asm"="decw {xdn}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decw_r_rs_.27(i64 "reg"="x" %xdn) "enc"="000001001011000011100101101 xdn:5" "asm"="decw {xdn}, vl256" "asmonly" {
+  ret void
+}
+
+define void @decw_r_rs_.28(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11100101101 xdn:5" "asm"="decw {xdn}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decw_r_rs_.29(i64 "reg"="x" %xdn, i64 "imm" %pattern) "enc"="0000010010110000111001 pattern:5 xdn:5" "asm"="decw {xdn}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @decw_r_rs_.30(i64 "reg"="x" %xdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 111001 pattern:5 xdn:5" "asm"="decw {xdn}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decw_r_rs_.31(i64 "reg"="x" %xdn) "enc"="000001001011000011100111101 xdn:5" "asm"="decw {xdn}, mul4" "asmonly" {
+  ret void
+}
+
+define void @decw_r_rs_.32(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11100111101 xdn:5" "asm"="decw {xdn}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decw_r_rs_.33(i64 "reg"="x" %xdn) "enc"="000001001011000011100111110 xdn:5" "asm"="decw {xdn}, mul3" "asmonly" {
+  ret void
+}
+
+define void @decw_r_rs_.34(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11100111110 xdn:5" "asm"="decw {xdn}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decw_r_rs_.35(i64 "reg"="x" %xdn) "enc"="000001001011000011100111111 xdn:5" "asm"="decw {xdn}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @decw_r_rs_.36(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11100111111 xdn:5" "asm"="decw {xdn}, all, mul #{imm}" "asmonly" {
   ret void
 }
 
@@ -1882,7 +5914,295 @@ define void @incd_r_rs_.0(i64 "reg"="x" %xdn) "enc"="000001001111000011100011111
   ret void
 }
 
+define void @incd_r_rs_.1(i64 "reg"="x" %xdn) "enc"="000001001111000011100000000 xdn:5" "asm"="incd {xdn}, pow2" "asmonly" {
+  ret void
+}
+
+define void @incd_r_rs_.2(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11100000000 xdn:5" "asm"="incd {xdn}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incd_r_rs_.3(i64 "reg"="x" %xdn) "enc"="000001001111000011100000001 xdn:5" "asm"="incd {xdn}, vl1" "asmonly" {
+  ret void
+}
+
+define void @incd_r_rs_.4(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11100000001 xdn:5" "asm"="incd {xdn}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incd_r_rs_.5(i64 "reg"="x" %xdn) "enc"="000001001111000011100000010 xdn:5" "asm"="incd {xdn}, vl2" "asmonly" {
+  ret void
+}
+
+define void @incd_r_rs_.6(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11100000010 xdn:5" "asm"="incd {xdn}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incd_r_rs_.7(i64 "reg"="x" %xdn) "enc"="000001001111000011100000011 xdn:5" "asm"="incd {xdn}, vl3" "asmonly" {
+  ret void
+}
+
+define void @incd_r_rs_.8(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11100000011 xdn:5" "asm"="incd {xdn}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incd_r_rs_.9(i64 "reg"="x" %xdn) "enc"="000001001111000011100000100 xdn:5" "asm"="incd {xdn}, vl4" "asmonly" {
+  ret void
+}
+
+define void @incd_r_rs_.10(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11100000100 xdn:5" "asm"="incd {xdn}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incd_r_rs_.11(i64 "reg"="x" %xdn) "enc"="000001001111000011100000101 xdn:5" "asm"="incd {xdn}, vl5" "asmonly" {
+  ret void
+}
+
+define void @incd_r_rs_.12(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11100000101 xdn:5" "asm"="incd {xdn}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incd_r_rs_.13(i64 "reg"="x" %xdn) "enc"="000001001111000011100000110 xdn:5" "asm"="incd {xdn}, vl6" "asmonly" {
+  ret void
+}
+
+define void @incd_r_rs_.14(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11100000110 xdn:5" "asm"="incd {xdn}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incd_r_rs_.15(i64 "reg"="x" %xdn) "enc"="000001001111000011100000111 xdn:5" "asm"="incd {xdn}, vl7" "asmonly" {
+  ret void
+}
+
+define void @incd_r_rs_.16(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11100000111 xdn:5" "asm"="incd {xdn}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incd_r_rs_.17(i64 "reg"="x" %xdn) "enc"="000001001111000011100001000 xdn:5" "asm"="incd {xdn}, vl8" "asmonly" {
+  ret void
+}
+
+define void @incd_r_rs_.18(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11100001000 xdn:5" "asm"="incd {xdn}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incd_r_rs_.19(i64 "reg"="x" %xdn) "enc"="000001001111000011100001001 xdn:5" "asm"="incd {xdn}, vl16" "asmonly" {
+  ret void
+}
+
+define void @incd_r_rs_.20(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11100001001 xdn:5" "asm"="incd {xdn}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incd_r_rs_.21(i64 "reg"="x" %xdn) "enc"="000001001111000011100001010 xdn:5" "asm"="incd {xdn}, vl32" "asmonly" {
+  ret void
+}
+
+define void @incd_r_rs_.22(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11100001010 xdn:5" "asm"="incd {xdn}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incd_r_rs_.23(i64 "reg"="x" %xdn) "enc"="000001001111000011100001011 xdn:5" "asm"="incd {xdn}, vl64" "asmonly" {
+  ret void
+}
+
+define void @incd_r_rs_.24(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11100001011 xdn:5" "asm"="incd {xdn}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incd_r_rs_.25(i64 "reg"="x" %xdn) "enc"="000001001111000011100001100 xdn:5" "asm"="incd {xdn}, vl128" "asmonly" {
+  ret void
+}
+
+define void @incd_r_rs_.26(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11100001100 xdn:5" "asm"="incd {xdn}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incd_r_rs_.27(i64 "reg"="x" %xdn) "enc"="000001001111000011100001101 xdn:5" "asm"="incd {xdn}, vl256" "asmonly" {
+  ret void
+}
+
+define void @incd_r_rs_.28(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11100001101 xdn:5" "asm"="incd {xdn}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incd_r_rs_.29(i64 "reg"="x" %xdn, i64 "imm" %pattern) "enc"="0000010011110000111000 pattern:5 xdn:5" "asm"="incd {xdn}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @incd_r_rs_.30(i64 "reg"="x" %xdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 111000 pattern:5 xdn:5" "asm"="incd {xdn}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incd_r_rs_.31(i64 "reg"="x" %xdn) "enc"="000001001111000011100011101 xdn:5" "asm"="incd {xdn}, mul4" "asmonly" {
+  ret void
+}
+
+define void @incd_r_rs_.32(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11100011101 xdn:5" "asm"="incd {xdn}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incd_r_rs_.33(i64 "reg"="x" %xdn) "enc"="000001001111000011100011110 xdn:5" "asm"="incd {xdn}, mul3" "asmonly" {
+  ret void
+}
+
+define void @incd_r_rs_.34(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11100011110 xdn:5" "asm"="incd {xdn}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @incd_r_rs_.35(i64 "reg"="x" %xdn) "enc"="000001001111000011100011111 xdn:5" "asm"="incd {xdn}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @incd_r_rs_.36(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11100011111 xdn:5" "asm"="incd {xdn}, all, mul #{imm}" "asmonly" {
+  ret void
+}
+
 define void @decd_r_rs_.0(i64 "reg"="x" %xdn) "enc"="000001001111000011100111111 xdn:5" "asm"="decd {xdn}" "asmonly" {
+  ret void
+}
+
+define void @decd_r_rs_.1(i64 "reg"="x" %xdn) "enc"="000001001111000011100100000 xdn:5" "asm"="decd {xdn}, pow2" "asmonly" {
+  ret void
+}
+
+define void @decd_r_rs_.2(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11100100000 xdn:5" "asm"="decd {xdn}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decd_r_rs_.3(i64 "reg"="x" %xdn) "enc"="000001001111000011100100001 xdn:5" "asm"="decd {xdn}, vl1" "asmonly" {
+  ret void
+}
+
+define void @decd_r_rs_.4(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11100100001 xdn:5" "asm"="decd {xdn}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decd_r_rs_.5(i64 "reg"="x" %xdn) "enc"="000001001111000011100100010 xdn:5" "asm"="decd {xdn}, vl2" "asmonly" {
+  ret void
+}
+
+define void @decd_r_rs_.6(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11100100010 xdn:5" "asm"="decd {xdn}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decd_r_rs_.7(i64 "reg"="x" %xdn) "enc"="000001001111000011100100011 xdn:5" "asm"="decd {xdn}, vl3" "asmonly" {
+  ret void
+}
+
+define void @decd_r_rs_.8(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11100100011 xdn:5" "asm"="decd {xdn}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decd_r_rs_.9(i64 "reg"="x" %xdn) "enc"="000001001111000011100100100 xdn:5" "asm"="decd {xdn}, vl4" "asmonly" {
+  ret void
+}
+
+define void @decd_r_rs_.10(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11100100100 xdn:5" "asm"="decd {xdn}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decd_r_rs_.11(i64 "reg"="x" %xdn) "enc"="000001001111000011100100101 xdn:5" "asm"="decd {xdn}, vl5" "asmonly" {
+  ret void
+}
+
+define void @decd_r_rs_.12(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11100100101 xdn:5" "asm"="decd {xdn}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decd_r_rs_.13(i64 "reg"="x" %xdn) "enc"="000001001111000011100100110 xdn:5" "asm"="decd {xdn}, vl6" "asmonly" {
+  ret void
+}
+
+define void @decd_r_rs_.14(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11100100110 xdn:5" "asm"="decd {xdn}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decd_r_rs_.15(i64 "reg"="x" %xdn) "enc"="000001001111000011100100111 xdn:5" "asm"="decd {xdn}, vl7" "asmonly" {
+  ret void
+}
+
+define void @decd_r_rs_.16(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11100100111 xdn:5" "asm"="decd {xdn}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decd_r_rs_.17(i64 "reg"="x" %xdn) "enc"="000001001111000011100101000 xdn:5" "asm"="decd {xdn}, vl8" "asmonly" {
+  ret void
+}
+
+define void @decd_r_rs_.18(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11100101000 xdn:5" "asm"="decd {xdn}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decd_r_rs_.19(i64 "reg"="x" %xdn) "enc"="000001001111000011100101001 xdn:5" "asm"="decd {xdn}, vl16" "asmonly" {
+  ret void
+}
+
+define void @decd_r_rs_.20(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11100101001 xdn:5" "asm"="decd {xdn}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decd_r_rs_.21(i64 "reg"="x" %xdn) "enc"="000001001111000011100101010 xdn:5" "asm"="decd {xdn}, vl32" "asmonly" {
+  ret void
+}
+
+define void @decd_r_rs_.22(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11100101010 xdn:5" "asm"="decd {xdn}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decd_r_rs_.23(i64 "reg"="x" %xdn) "enc"="000001001111000011100101011 xdn:5" "asm"="decd {xdn}, vl64" "asmonly" {
+  ret void
+}
+
+define void @decd_r_rs_.24(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11100101011 xdn:5" "asm"="decd {xdn}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decd_r_rs_.25(i64 "reg"="x" %xdn) "enc"="000001001111000011100101100 xdn:5" "asm"="decd {xdn}, vl128" "asmonly" {
+  ret void
+}
+
+define void @decd_r_rs_.26(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11100101100 xdn:5" "asm"="decd {xdn}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decd_r_rs_.27(i64 "reg"="x" %xdn) "enc"="000001001111000011100101101 xdn:5" "asm"="decd {xdn}, vl256" "asmonly" {
+  ret void
+}
+
+define void @decd_r_rs_.28(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11100101101 xdn:5" "asm"="decd {xdn}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decd_r_rs_.29(i64 "reg"="x" %xdn, i64 "imm" %pattern) "enc"="0000010011110000111001 pattern:5 xdn:5" "asm"="decd {xdn}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @decd_r_rs_.30(i64 "reg"="x" %xdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 111001 pattern:5 xdn:5" "asm"="decd {xdn}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decd_r_rs_.31(i64 "reg"="x" %xdn) "enc"="000001001111000011100111101 xdn:5" "asm"="decd {xdn}, mul4" "asmonly" {
+  ret void
+}
+
+define void @decd_r_rs_.32(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11100111101 xdn:5" "asm"="decd {xdn}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decd_r_rs_.33(i64 "reg"="x" %xdn) "enc"="000001001111000011100111110 xdn:5" "asm"="decd {xdn}, mul3" "asmonly" {
+  ret void
+}
+
+define void @decd_r_rs_.34(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11100111110 xdn:5" "asm"="decd {xdn}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @decd_r_rs_.35(i64 "reg"="x" %xdn) "enc"="000001001111000011100111111 xdn:5" "asm"="decd {xdn}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @decd_r_rs_.36(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11100111111 xdn:5" "asm"="decd {xdn}, all, mul #{imm}" "asmonly" {
   ret void
 }
 
@@ -1890,7 +6210,295 @@ define void @uqincb_r_rs_uw.0(i64 "reg"="w" %wdn) "enc"="00000100001000001111011
   ret void
 }
 
+define void @uqincb_r_rs_uw.1(i64 "reg"="w" %wdn) "enc"="000001000010000011110100000 wdn:5" "asm"="uqincb {wdn}, pow2" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_uw.2(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11110100000 wdn:5" "asm"="uqincb {wdn}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_uw.3(i64 "reg"="w" %wdn) "enc"="000001000010000011110100001 wdn:5" "asm"="uqincb {wdn}, vl1" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_uw.4(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11110100001 wdn:5" "asm"="uqincb {wdn}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_uw.5(i64 "reg"="w" %wdn) "enc"="000001000010000011110100010 wdn:5" "asm"="uqincb {wdn}, vl2" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_uw.6(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11110100010 wdn:5" "asm"="uqincb {wdn}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_uw.7(i64 "reg"="w" %wdn) "enc"="000001000010000011110100011 wdn:5" "asm"="uqincb {wdn}, vl3" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_uw.8(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11110100011 wdn:5" "asm"="uqincb {wdn}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_uw.9(i64 "reg"="w" %wdn) "enc"="000001000010000011110100100 wdn:5" "asm"="uqincb {wdn}, vl4" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_uw.10(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11110100100 wdn:5" "asm"="uqincb {wdn}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_uw.11(i64 "reg"="w" %wdn) "enc"="000001000010000011110100101 wdn:5" "asm"="uqincb {wdn}, vl5" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_uw.12(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11110100101 wdn:5" "asm"="uqincb {wdn}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_uw.13(i64 "reg"="w" %wdn) "enc"="000001000010000011110100110 wdn:5" "asm"="uqincb {wdn}, vl6" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_uw.14(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11110100110 wdn:5" "asm"="uqincb {wdn}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_uw.15(i64 "reg"="w" %wdn) "enc"="000001000010000011110100111 wdn:5" "asm"="uqincb {wdn}, vl7" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_uw.16(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11110100111 wdn:5" "asm"="uqincb {wdn}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_uw.17(i64 "reg"="w" %wdn) "enc"="000001000010000011110101000 wdn:5" "asm"="uqincb {wdn}, vl8" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_uw.18(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11110101000 wdn:5" "asm"="uqincb {wdn}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_uw.19(i64 "reg"="w" %wdn) "enc"="000001000010000011110101001 wdn:5" "asm"="uqincb {wdn}, vl16" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_uw.20(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11110101001 wdn:5" "asm"="uqincb {wdn}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_uw.21(i64 "reg"="w" %wdn) "enc"="000001000010000011110101010 wdn:5" "asm"="uqincb {wdn}, vl32" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_uw.22(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11110101010 wdn:5" "asm"="uqincb {wdn}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_uw.23(i64 "reg"="w" %wdn) "enc"="000001000010000011110101011 wdn:5" "asm"="uqincb {wdn}, vl64" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_uw.24(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11110101011 wdn:5" "asm"="uqincb {wdn}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_uw.25(i64 "reg"="w" %wdn) "enc"="000001000010000011110101100 wdn:5" "asm"="uqincb {wdn}, vl128" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_uw.26(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11110101100 wdn:5" "asm"="uqincb {wdn}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_uw.27(i64 "reg"="w" %wdn) "enc"="000001000010000011110101101 wdn:5" "asm"="uqincb {wdn}, vl256" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_uw.28(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11110101101 wdn:5" "asm"="uqincb {wdn}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_uw.29(i64 "reg"="w" %wdn, i64 "imm" %pattern) "enc"="0000010000100000111101 pattern:5 wdn:5" "asm"="uqincb {wdn}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_uw.30(i64 "reg"="w" %wdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 111101 pattern:5 wdn:5" "asm"="uqincb {wdn}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_uw.31(i64 "reg"="w" %wdn) "enc"="000001000010000011110111101 wdn:5" "asm"="uqincb {wdn}, mul4" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_uw.32(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11110111101 wdn:5" "asm"="uqincb {wdn}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_uw.33(i64 "reg"="w" %wdn) "enc"="000001000010000011110111110 wdn:5" "asm"="uqincb {wdn}, mul3" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_uw.34(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11110111110 wdn:5" "asm"="uqincb {wdn}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_uw.35(i64 "reg"="w" %wdn) "enc"="000001000010000011110111111 wdn:5" "asm"="uqincb {wdn}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @uqincb_r_rs_uw.36(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11110111111 wdn:5" "asm"="uqincb {wdn}, all, mul #{imm}" "asmonly" {
+  ret void
+}
+
 define void @uqdecb_r_rs_uw.0(i64 "reg"="w" %wdn) "enc"="000001000010000011111111111 wdn:5" "asm"="uqdecb {wdn}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.1(i64 "reg"="w" %wdn) "enc"="000001000010000011111100000 wdn:5" "asm"="uqdecb {wdn}, pow2" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.2(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11111100000 wdn:5" "asm"="uqdecb {wdn}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.3(i64 "reg"="w" %wdn) "enc"="000001000010000011111100001 wdn:5" "asm"="uqdecb {wdn}, vl1" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.4(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11111100001 wdn:5" "asm"="uqdecb {wdn}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.5(i64 "reg"="w" %wdn) "enc"="000001000010000011111100010 wdn:5" "asm"="uqdecb {wdn}, vl2" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.6(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11111100010 wdn:5" "asm"="uqdecb {wdn}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.7(i64 "reg"="w" %wdn) "enc"="000001000010000011111100011 wdn:5" "asm"="uqdecb {wdn}, vl3" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.8(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11111100011 wdn:5" "asm"="uqdecb {wdn}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.9(i64 "reg"="w" %wdn) "enc"="000001000010000011111100100 wdn:5" "asm"="uqdecb {wdn}, vl4" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.10(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11111100100 wdn:5" "asm"="uqdecb {wdn}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.11(i64 "reg"="w" %wdn) "enc"="000001000010000011111100101 wdn:5" "asm"="uqdecb {wdn}, vl5" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.12(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11111100101 wdn:5" "asm"="uqdecb {wdn}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.13(i64 "reg"="w" %wdn) "enc"="000001000010000011111100110 wdn:5" "asm"="uqdecb {wdn}, vl6" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.14(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11111100110 wdn:5" "asm"="uqdecb {wdn}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.15(i64 "reg"="w" %wdn) "enc"="000001000010000011111100111 wdn:5" "asm"="uqdecb {wdn}, vl7" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.16(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11111100111 wdn:5" "asm"="uqdecb {wdn}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.17(i64 "reg"="w" %wdn) "enc"="000001000010000011111101000 wdn:5" "asm"="uqdecb {wdn}, vl8" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.18(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11111101000 wdn:5" "asm"="uqdecb {wdn}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.19(i64 "reg"="w" %wdn) "enc"="000001000010000011111101001 wdn:5" "asm"="uqdecb {wdn}, vl16" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.20(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11111101001 wdn:5" "asm"="uqdecb {wdn}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.21(i64 "reg"="w" %wdn) "enc"="000001000010000011111101010 wdn:5" "asm"="uqdecb {wdn}, vl32" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.22(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11111101010 wdn:5" "asm"="uqdecb {wdn}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.23(i64 "reg"="w" %wdn) "enc"="000001000010000011111101011 wdn:5" "asm"="uqdecb {wdn}, vl64" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.24(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11111101011 wdn:5" "asm"="uqdecb {wdn}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.25(i64 "reg"="w" %wdn) "enc"="000001000010000011111101100 wdn:5" "asm"="uqdecb {wdn}, vl128" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.26(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11111101100 wdn:5" "asm"="uqdecb {wdn}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.27(i64 "reg"="w" %wdn) "enc"="000001000010000011111101101 wdn:5" "asm"="uqdecb {wdn}, vl256" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.28(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11111101101 wdn:5" "asm"="uqdecb {wdn}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.29(i64 "reg"="w" %wdn, i64 "imm" %pattern) "enc"="0000010000100000111111 pattern:5 wdn:5" "asm"="uqdecb {wdn}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.30(i64 "reg"="w" %wdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 111111 pattern:5 wdn:5" "asm"="uqdecb {wdn}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.31(i64 "reg"="w" %wdn) "enc"="000001000010000011111111101 wdn:5" "asm"="uqdecb {wdn}, mul4" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.32(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11111111101 wdn:5" "asm"="uqdecb {wdn}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.33(i64 "reg"="w" %wdn) "enc"="000001000010000011111111110 wdn:5" "asm"="uqdecb {wdn}, mul3" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.34(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11111111110 wdn:5" "asm"="uqdecb {wdn}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.35(i64 "reg"="w" %wdn) "enc"="000001000010000011111111111 wdn:5" "asm"="uqdecb {wdn}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @uqdecb_r_rs_uw.36(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000010 imm_f:4=(imm-1) 11111111111 wdn:5" "asm"="uqdecb {wdn}, all, mul #{imm}" "asmonly" {
   ret void
 }
 
@@ -1898,7 +6506,295 @@ define void @sqincb_r_rs_x.0(i64 "reg"="x" %xdn) "enc"="000001000011000011110011
   ret void
 }
 
+define void @sqincb_r_rs_x.1(i64 "reg"="x" %xdn) "enc"="000001000011000011110000000 xdn:5" "asm"="sqincb {xdn}, pow2" "asmonly" {
+  ret void
+}
+
+define void @sqincb_r_rs_x.2(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11110000000 xdn:5" "asm"="sqincb {xdn}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincb_r_rs_x.3(i64 "reg"="x" %xdn) "enc"="000001000011000011110000001 xdn:5" "asm"="sqincb {xdn}, vl1" "asmonly" {
+  ret void
+}
+
+define void @sqincb_r_rs_x.4(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11110000001 xdn:5" "asm"="sqincb {xdn}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincb_r_rs_x.5(i64 "reg"="x" %xdn) "enc"="000001000011000011110000010 xdn:5" "asm"="sqincb {xdn}, vl2" "asmonly" {
+  ret void
+}
+
+define void @sqincb_r_rs_x.6(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11110000010 xdn:5" "asm"="sqincb {xdn}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincb_r_rs_x.7(i64 "reg"="x" %xdn) "enc"="000001000011000011110000011 xdn:5" "asm"="sqincb {xdn}, vl3" "asmonly" {
+  ret void
+}
+
+define void @sqincb_r_rs_x.8(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11110000011 xdn:5" "asm"="sqincb {xdn}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincb_r_rs_x.9(i64 "reg"="x" %xdn) "enc"="000001000011000011110000100 xdn:5" "asm"="sqincb {xdn}, vl4" "asmonly" {
+  ret void
+}
+
+define void @sqincb_r_rs_x.10(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11110000100 xdn:5" "asm"="sqincb {xdn}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincb_r_rs_x.11(i64 "reg"="x" %xdn) "enc"="000001000011000011110000101 xdn:5" "asm"="sqincb {xdn}, vl5" "asmonly" {
+  ret void
+}
+
+define void @sqincb_r_rs_x.12(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11110000101 xdn:5" "asm"="sqincb {xdn}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincb_r_rs_x.13(i64 "reg"="x" %xdn) "enc"="000001000011000011110000110 xdn:5" "asm"="sqincb {xdn}, vl6" "asmonly" {
+  ret void
+}
+
+define void @sqincb_r_rs_x.14(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11110000110 xdn:5" "asm"="sqincb {xdn}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincb_r_rs_x.15(i64 "reg"="x" %xdn) "enc"="000001000011000011110000111 xdn:5" "asm"="sqincb {xdn}, vl7" "asmonly" {
+  ret void
+}
+
+define void @sqincb_r_rs_x.16(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11110000111 xdn:5" "asm"="sqincb {xdn}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincb_r_rs_x.17(i64 "reg"="x" %xdn) "enc"="000001000011000011110001000 xdn:5" "asm"="sqincb {xdn}, vl8" "asmonly" {
+  ret void
+}
+
+define void @sqincb_r_rs_x.18(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11110001000 xdn:5" "asm"="sqincb {xdn}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincb_r_rs_x.19(i64 "reg"="x" %xdn) "enc"="000001000011000011110001001 xdn:5" "asm"="sqincb {xdn}, vl16" "asmonly" {
+  ret void
+}
+
+define void @sqincb_r_rs_x.20(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11110001001 xdn:5" "asm"="sqincb {xdn}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincb_r_rs_x.21(i64 "reg"="x" %xdn) "enc"="000001000011000011110001010 xdn:5" "asm"="sqincb {xdn}, vl32" "asmonly" {
+  ret void
+}
+
+define void @sqincb_r_rs_x.22(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11110001010 xdn:5" "asm"="sqincb {xdn}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincb_r_rs_x.23(i64 "reg"="x" %xdn) "enc"="000001000011000011110001011 xdn:5" "asm"="sqincb {xdn}, vl64" "asmonly" {
+  ret void
+}
+
+define void @sqincb_r_rs_x.24(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11110001011 xdn:5" "asm"="sqincb {xdn}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincb_r_rs_x.25(i64 "reg"="x" %xdn) "enc"="000001000011000011110001100 xdn:5" "asm"="sqincb {xdn}, vl128" "asmonly" {
+  ret void
+}
+
+define void @sqincb_r_rs_x.26(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11110001100 xdn:5" "asm"="sqincb {xdn}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincb_r_rs_x.27(i64 "reg"="x" %xdn) "enc"="000001000011000011110001101 xdn:5" "asm"="sqincb {xdn}, vl256" "asmonly" {
+  ret void
+}
+
+define void @sqincb_r_rs_x.28(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11110001101 xdn:5" "asm"="sqincb {xdn}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincb_r_rs_x.29(i64 "reg"="x" %xdn, i64 "imm" %pattern) "enc"="0000010000110000111100 pattern:5 xdn:5" "asm"="sqincb {xdn}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @sqincb_r_rs_x.30(i64 "reg"="x" %xdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 111100 pattern:5 xdn:5" "asm"="sqincb {xdn}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincb_r_rs_x.31(i64 "reg"="x" %xdn) "enc"="000001000011000011110011101 xdn:5" "asm"="sqincb {xdn}, mul4" "asmonly" {
+  ret void
+}
+
+define void @sqincb_r_rs_x.32(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11110011101 xdn:5" "asm"="sqincb {xdn}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincb_r_rs_x.33(i64 "reg"="x" %xdn) "enc"="000001000011000011110011110 xdn:5" "asm"="sqincb {xdn}, mul3" "asmonly" {
+  ret void
+}
+
+define void @sqincb_r_rs_x.34(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11110011110 xdn:5" "asm"="sqincb {xdn}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincb_r_rs_x.35(i64 "reg"="x" %xdn) "enc"="000001000011000011110011111 xdn:5" "asm"="sqincb {xdn}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @sqincb_r_rs_x.36(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11110011111 xdn:5" "asm"="sqincb {xdn}, all, mul #{imm}" "asmonly" {
+  ret void
+}
+
 define void @sqdecb_r_rs_x.0(i64 "reg"="x" %xdn) "enc"="000001000011000011111011111 xdn:5" "asm"="sqdecb {xdn}" "asmonly" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.1(i64 "reg"="x" %xdn) "enc"="000001000011000011111000000 xdn:5" "asm"="sqdecb {xdn}, pow2" "asmonly" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.2(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11111000000 xdn:5" "asm"="sqdecb {xdn}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.3(i64 "reg"="x" %xdn) "enc"="000001000011000011111000001 xdn:5" "asm"="sqdecb {xdn}, vl1" "asmonly" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.4(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11111000001 xdn:5" "asm"="sqdecb {xdn}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.5(i64 "reg"="x" %xdn) "enc"="000001000011000011111000010 xdn:5" "asm"="sqdecb {xdn}, vl2" "asmonly" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.6(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11111000010 xdn:5" "asm"="sqdecb {xdn}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.7(i64 "reg"="x" %xdn) "enc"="000001000011000011111000011 xdn:5" "asm"="sqdecb {xdn}, vl3" "asmonly" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.8(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11111000011 xdn:5" "asm"="sqdecb {xdn}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.9(i64 "reg"="x" %xdn) "enc"="000001000011000011111000100 xdn:5" "asm"="sqdecb {xdn}, vl4" "asmonly" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.10(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11111000100 xdn:5" "asm"="sqdecb {xdn}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.11(i64 "reg"="x" %xdn) "enc"="000001000011000011111000101 xdn:5" "asm"="sqdecb {xdn}, vl5" "asmonly" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.12(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11111000101 xdn:5" "asm"="sqdecb {xdn}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.13(i64 "reg"="x" %xdn) "enc"="000001000011000011111000110 xdn:5" "asm"="sqdecb {xdn}, vl6" "asmonly" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.14(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11111000110 xdn:5" "asm"="sqdecb {xdn}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.15(i64 "reg"="x" %xdn) "enc"="000001000011000011111000111 xdn:5" "asm"="sqdecb {xdn}, vl7" "asmonly" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.16(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11111000111 xdn:5" "asm"="sqdecb {xdn}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.17(i64 "reg"="x" %xdn) "enc"="000001000011000011111001000 xdn:5" "asm"="sqdecb {xdn}, vl8" "asmonly" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.18(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11111001000 xdn:5" "asm"="sqdecb {xdn}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.19(i64 "reg"="x" %xdn) "enc"="000001000011000011111001001 xdn:5" "asm"="sqdecb {xdn}, vl16" "asmonly" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.20(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11111001001 xdn:5" "asm"="sqdecb {xdn}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.21(i64 "reg"="x" %xdn) "enc"="000001000011000011111001010 xdn:5" "asm"="sqdecb {xdn}, vl32" "asmonly" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.22(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11111001010 xdn:5" "asm"="sqdecb {xdn}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.23(i64 "reg"="x" %xdn) "enc"="000001000011000011111001011 xdn:5" "asm"="sqdecb {xdn}, vl64" "asmonly" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.24(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11111001011 xdn:5" "asm"="sqdecb {xdn}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.25(i64 "reg"="x" %xdn) "enc"="000001000011000011111001100 xdn:5" "asm"="sqdecb {xdn}, vl128" "asmonly" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.26(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11111001100 xdn:5" "asm"="sqdecb {xdn}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.27(i64 "reg"="x" %xdn) "enc"="000001000011000011111001101 xdn:5" "asm"="sqdecb {xdn}, vl256" "asmonly" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.28(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11111001101 xdn:5" "asm"="sqdecb {xdn}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.29(i64 "reg"="x" %xdn, i64 "imm" %pattern) "enc"="0000010000110000111110 pattern:5 xdn:5" "asm"="sqdecb {xdn}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.30(i64 "reg"="x" %xdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 111110 pattern:5 xdn:5" "asm"="sqdecb {xdn}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.31(i64 "reg"="x" %xdn) "enc"="000001000011000011111011101 xdn:5" "asm"="sqdecb {xdn}, mul4" "asmonly" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.32(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11111011101 xdn:5" "asm"="sqdecb {xdn}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.33(i64 "reg"="x" %xdn) "enc"="000001000011000011111011110 xdn:5" "asm"="sqdecb {xdn}, mul3" "asmonly" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.34(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11111011110 xdn:5" "asm"="sqdecb {xdn}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.35(i64 "reg"="x" %xdn) "enc"="000001000011000011111011111 xdn:5" "asm"="sqdecb {xdn}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @sqdecb_r_rs_x.36(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11111011111 xdn:5" "asm"="sqdecb {xdn}, all, mul #{imm}" "asmonly" {
   ret void
 }
 
@@ -1906,7 +6802,295 @@ define void @uqinch_r_rs_uw.0(i64 "reg"="w" %wdn) "enc"="00000100011000001111011
   ret void
 }
 
+define void @uqinch_r_rs_uw.1(i64 "reg"="w" %wdn) "enc"="000001000110000011110100000 wdn:5" "asm"="uqinch {wdn}, pow2" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_uw.2(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11110100000 wdn:5" "asm"="uqinch {wdn}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_uw.3(i64 "reg"="w" %wdn) "enc"="000001000110000011110100001 wdn:5" "asm"="uqinch {wdn}, vl1" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_uw.4(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11110100001 wdn:5" "asm"="uqinch {wdn}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_uw.5(i64 "reg"="w" %wdn) "enc"="000001000110000011110100010 wdn:5" "asm"="uqinch {wdn}, vl2" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_uw.6(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11110100010 wdn:5" "asm"="uqinch {wdn}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_uw.7(i64 "reg"="w" %wdn) "enc"="000001000110000011110100011 wdn:5" "asm"="uqinch {wdn}, vl3" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_uw.8(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11110100011 wdn:5" "asm"="uqinch {wdn}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_uw.9(i64 "reg"="w" %wdn) "enc"="000001000110000011110100100 wdn:5" "asm"="uqinch {wdn}, vl4" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_uw.10(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11110100100 wdn:5" "asm"="uqinch {wdn}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_uw.11(i64 "reg"="w" %wdn) "enc"="000001000110000011110100101 wdn:5" "asm"="uqinch {wdn}, vl5" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_uw.12(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11110100101 wdn:5" "asm"="uqinch {wdn}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_uw.13(i64 "reg"="w" %wdn) "enc"="000001000110000011110100110 wdn:5" "asm"="uqinch {wdn}, vl6" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_uw.14(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11110100110 wdn:5" "asm"="uqinch {wdn}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_uw.15(i64 "reg"="w" %wdn) "enc"="000001000110000011110100111 wdn:5" "asm"="uqinch {wdn}, vl7" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_uw.16(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11110100111 wdn:5" "asm"="uqinch {wdn}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_uw.17(i64 "reg"="w" %wdn) "enc"="000001000110000011110101000 wdn:5" "asm"="uqinch {wdn}, vl8" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_uw.18(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11110101000 wdn:5" "asm"="uqinch {wdn}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_uw.19(i64 "reg"="w" %wdn) "enc"="000001000110000011110101001 wdn:5" "asm"="uqinch {wdn}, vl16" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_uw.20(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11110101001 wdn:5" "asm"="uqinch {wdn}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_uw.21(i64 "reg"="w" %wdn) "enc"="000001000110000011110101010 wdn:5" "asm"="uqinch {wdn}, vl32" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_uw.22(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11110101010 wdn:5" "asm"="uqinch {wdn}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_uw.23(i64 "reg"="w" %wdn) "enc"="000001000110000011110101011 wdn:5" "asm"="uqinch {wdn}, vl64" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_uw.24(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11110101011 wdn:5" "asm"="uqinch {wdn}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_uw.25(i64 "reg"="w" %wdn) "enc"="000001000110000011110101100 wdn:5" "asm"="uqinch {wdn}, vl128" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_uw.26(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11110101100 wdn:5" "asm"="uqinch {wdn}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_uw.27(i64 "reg"="w" %wdn) "enc"="000001000110000011110101101 wdn:5" "asm"="uqinch {wdn}, vl256" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_uw.28(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11110101101 wdn:5" "asm"="uqinch {wdn}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_uw.29(i64 "reg"="w" %wdn, i64 "imm" %pattern) "enc"="0000010001100000111101 pattern:5 wdn:5" "asm"="uqinch {wdn}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_uw.30(i64 "reg"="w" %wdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 111101 pattern:5 wdn:5" "asm"="uqinch {wdn}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_uw.31(i64 "reg"="w" %wdn) "enc"="000001000110000011110111101 wdn:5" "asm"="uqinch {wdn}, mul4" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_uw.32(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11110111101 wdn:5" "asm"="uqinch {wdn}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_uw.33(i64 "reg"="w" %wdn) "enc"="000001000110000011110111110 wdn:5" "asm"="uqinch {wdn}, mul3" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_uw.34(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11110111110 wdn:5" "asm"="uqinch {wdn}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_uw.35(i64 "reg"="w" %wdn) "enc"="000001000110000011110111111 wdn:5" "asm"="uqinch {wdn}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @uqinch_r_rs_uw.36(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11110111111 wdn:5" "asm"="uqinch {wdn}, all, mul #{imm}" "asmonly" {
+  ret void
+}
+
 define void @uqdech_r_rs_uw.0(i64 "reg"="w" %wdn) "enc"="000001000110000011111111111 wdn:5" "asm"="uqdech {wdn}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.1(i64 "reg"="w" %wdn) "enc"="000001000110000011111100000 wdn:5" "asm"="uqdech {wdn}, pow2" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.2(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11111100000 wdn:5" "asm"="uqdech {wdn}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.3(i64 "reg"="w" %wdn) "enc"="000001000110000011111100001 wdn:5" "asm"="uqdech {wdn}, vl1" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.4(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11111100001 wdn:5" "asm"="uqdech {wdn}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.5(i64 "reg"="w" %wdn) "enc"="000001000110000011111100010 wdn:5" "asm"="uqdech {wdn}, vl2" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.6(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11111100010 wdn:5" "asm"="uqdech {wdn}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.7(i64 "reg"="w" %wdn) "enc"="000001000110000011111100011 wdn:5" "asm"="uqdech {wdn}, vl3" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.8(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11111100011 wdn:5" "asm"="uqdech {wdn}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.9(i64 "reg"="w" %wdn) "enc"="000001000110000011111100100 wdn:5" "asm"="uqdech {wdn}, vl4" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.10(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11111100100 wdn:5" "asm"="uqdech {wdn}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.11(i64 "reg"="w" %wdn) "enc"="000001000110000011111100101 wdn:5" "asm"="uqdech {wdn}, vl5" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.12(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11111100101 wdn:5" "asm"="uqdech {wdn}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.13(i64 "reg"="w" %wdn) "enc"="000001000110000011111100110 wdn:5" "asm"="uqdech {wdn}, vl6" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.14(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11111100110 wdn:5" "asm"="uqdech {wdn}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.15(i64 "reg"="w" %wdn) "enc"="000001000110000011111100111 wdn:5" "asm"="uqdech {wdn}, vl7" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.16(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11111100111 wdn:5" "asm"="uqdech {wdn}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.17(i64 "reg"="w" %wdn) "enc"="000001000110000011111101000 wdn:5" "asm"="uqdech {wdn}, vl8" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.18(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11111101000 wdn:5" "asm"="uqdech {wdn}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.19(i64 "reg"="w" %wdn) "enc"="000001000110000011111101001 wdn:5" "asm"="uqdech {wdn}, vl16" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.20(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11111101001 wdn:5" "asm"="uqdech {wdn}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.21(i64 "reg"="w" %wdn) "enc"="000001000110000011111101010 wdn:5" "asm"="uqdech {wdn}, vl32" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.22(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11111101010 wdn:5" "asm"="uqdech {wdn}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.23(i64 "reg"="w" %wdn) "enc"="000001000110000011111101011 wdn:5" "asm"="uqdech {wdn}, vl64" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.24(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11111101011 wdn:5" "asm"="uqdech {wdn}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.25(i64 "reg"="w" %wdn) "enc"="000001000110000011111101100 wdn:5" "asm"="uqdech {wdn}, vl128" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.26(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11111101100 wdn:5" "asm"="uqdech {wdn}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.27(i64 "reg"="w" %wdn) "enc"="000001000110000011111101101 wdn:5" "asm"="uqdech {wdn}, vl256" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.28(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11111101101 wdn:5" "asm"="uqdech {wdn}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.29(i64 "reg"="w" %wdn, i64 "imm" %pattern) "enc"="0000010001100000111111 pattern:5 wdn:5" "asm"="uqdech {wdn}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.30(i64 "reg"="w" %wdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 111111 pattern:5 wdn:5" "asm"="uqdech {wdn}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.31(i64 "reg"="w" %wdn) "enc"="000001000110000011111111101 wdn:5" "asm"="uqdech {wdn}, mul4" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.32(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11111111101 wdn:5" "asm"="uqdech {wdn}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.33(i64 "reg"="w" %wdn) "enc"="000001000110000011111111110 wdn:5" "asm"="uqdech {wdn}, mul3" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.34(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11111111110 wdn:5" "asm"="uqdech {wdn}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.35(i64 "reg"="w" %wdn) "enc"="000001000110000011111111111 wdn:5" "asm"="uqdech {wdn}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @uqdech_r_rs_uw.36(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001000110 imm_f:4=(imm-1) 11111111111 wdn:5" "asm"="uqdech {wdn}, all, mul #{imm}" "asmonly" {
   ret void
 }
 
@@ -1914,7 +7098,295 @@ define void @sqinch_r_rs_x.0(i64 "reg"="x" %xdn) "enc"="000001000111000011110011
   ret void
 }
 
+define void @sqinch_r_rs_x.1(i64 "reg"="x" %xdn) "enc"="000001000111000011110000000 xdn:5" "asm"="sqinch {xdn}, pow2" "asmonly" {
+  ret void
+}
+
+define void @sqinch_r_rs_x.2(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11110000000 xdn:5" "asm"="sqinch {xdn}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_r_rs_x.3(i64 "reg"="x" %xdn) "enc"="000001000111000011110000001 xdn:5" "asm"="sqinch {xdn}, vl1" "asmonly" {
+  ret void
+}
+
+define void @sqinch_r_rs_x.4(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11110000001 xdn:5" "asm"="sqinch {xdn}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_r_rs_x.5(i64 "reg"="x" %xdn) "enc"="000001000111000011110000010 xdn:5" "asm"="sqinch {xdn}, vl2" "asmonly" {
+  ret void
+}
+
+define void @sqinch_r_rs_x.6(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11110000010 xdn:5" "asm"="sqinch {xdn}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_r_rs_x.7(i64 "reg"="x" %xdn) "enc"="000001000111000011110000011 xdn:5" "asm"="sqinch {xdn}, vl3" "asmonly" {
+  ret void
+}
+
+define void @sqinch_r_rs_x.8(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11110000011 xdn:5" "asm"="sqinch {xdn}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_r_rs_x.9(i64 "reg"="x" %xdn) "enc"="000001000111000011110000100 xdn:5" "asm"="sqinch {xdn}, vl4" "asmonly" {
+  ret void
+}
+
+define void @sqinch_r_rs_x.10(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11110000100 xdn:5" "asm"="sqinch {xdn}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_r_rs_x.11(i64 "reg"="x" %xdn) "enc"="000001000111000011110000101 xdn:5" "asm"="sqinch {xdn}, vl5" "asmonly" {
+  ret void
+}
+
+define void @sqinch_r_rs_x.12(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11110000101 xdn:5" "asm"="sqinch {xdn}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_r_rs_x.13(i64 "reg"="x" %xdn) "enc"="000001000111000011110000110 xdn:5" "asm"="sqinch {xdn}, vl6" "asmonly" {
+  ret void
+}
+
+define void @sqinch_r_rs_x.14(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11110000110 xdn:5" "asm"="sqinch {xdn}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_r_rs_x.15(i64 "reg"="x" %xdn) "enc"="000001000111000011110000111 xdn:5" "asm"="sqinch {xdn}, vl7" "asmonly" {
+  ret void
+}
+
+define void @sqinch_r_rs_x.16(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11110000111 xdn:5" "asm"="sqinch {xdn}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_r_rs_x.17(i64 "reg"="x" %xdn) "enc"="000001000111000011110001000 xdn:5" "asm"="sqinch {xdn}, vl8" "asmonly" {
+  ret void
+}
+
+define void @sqinch_r_rs_x.18(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11110001000 xdn:5" "asm"="sqinch {xdn}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_r_rs_x.19(i64 "reg"="x" %xdn) "enc"="000001000111000011110001001 xdn:5" "asm"="sqinch {xdn}, vl16" "asmonly" {
+  ret void
+}
+
+define void @sqinch_r_rs_x.20(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11110001001 xdn:5" "asm"="sqinch {xdn}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_r_rs_x.21(i64 "reg"="x" %xdn) "enc"="000001000111000011110001010 xdn:5" "asm"="sqinch {xdn}, vl32" "asmonly" {
+  ret void
+}
+
+define void @sqinch_r_rs_x.22(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11110001010 xdn:5" "asm"="sqinch {xdn}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_r_rs_x.23(i64 "reg"="x" %xdn) "enc"="000001000111000011110001011 xdn:5" "asm"="sqinch {xdn}, vl64" "asmonly" {
+  ret void
+}
+
+define void @sqinch_r_rs_x.24(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11110001011 xdn:5" "asm"="sqinch {xdn}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_r_rs_x.25(i64 "reg"="x" %xdn) "enc"="000001000111000011110001100 xdn:5" "asm"="sqinch {xdn}, vl128" "asmonly" {
+  ret void
+}
+
+define void @sqinch_r_rs_x.26(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11110001100 xdn:5" "asm"="sqinch {xdn}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_r_rs_x.27(i64 "reg"="x" %xdn) "enc"="000001000111000011110001101 xdn:5" "asm"="sqinch {xdn}, vl256" "asmonly" {
+  ret void
+}
+
+define void @sqinch_r_rs_x.28(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11110001101 xdn:5" "asm"="sqinch {xdn}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_r_rs_x.29(i64 "reg"="x" %xdn, i64 "imm" %pattern) "enc"="0000010001110000111100 pattern:5 xdn:5" "asm"="sqinch {xdn}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_r_rs_x.30(i64 "reg"="x" %xdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 111100 pattern:5 xdn:5" "asm"="sqinch {xdn}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_r_rs_x.31(i64 "reg"="x" %xdn) "enc"="000001000111000011110011101 xdn:5" "asm"="sqinch {xdn}, mul4" "asmonly" {
+  ret void
+}
+
+define void @sqinch_r_rs_x.32(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11110011101 xdn:5" "asm"="sqinch {xdn}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_r_rs_x.33(i64 "reg"="x" %xdn) "enc"="000001000111000011110011110 xdn:5" "asm"="sqinch {xdn}, mul3" "asmonly" {
+  ret void
+}
+
+define void @sqinch_r_rs_x.34(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11110011110 xdn:5" "asm"="sqinch {xdn}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqinch_r_rs_x.35(i64 "reg"="x" %xdn) "enc"="000001000111000011110011111 xdn:5" "asm"="sqinch {xdn}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @sqinch_r_rs_x.36(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11110011111 xdn:5" "asm"="sqinch {xdn}, all, mul #{imm}" "asmonly" {
+  ret void
+}
+
 define void @sqdech_r_rs_x.0(i64 "reg"="x" %xdn) "enc"="000001000111000011111011111 xdn:5" "asm"="sqdech {xdn}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.1(i64 "reg"="x" %xdn) "enc"="000001000111000011111000000 xdn:5" "asm"="sqdech {xdn}, pow2" "asmonly" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.2(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11111000000 xdn:5" "asm"="sqdech {xdn}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.3(i64 "reg"="x" %xdn) "enc"="000001000111000011111000001 xdn:5" "asm"="sqdech {xdn}, vl1" "asmonly" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.4(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11111000001 xdn:5" "asm"="sqdech {xdn}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.5(i64 "reg"="x" %xdn) "enc"="000001000111000011111000010 xdn:5" "asm"="sqdech {xdn}, vl2" "asmonly" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.6(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11111000010 xdn:5" "asm"="sqdech {xdn}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.7(i64 "reg"="x" %xdn) "enc"="000001000111000011111000011 xdn:5" "asm"="sqdech {xdn}, vl3" "asmonly" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.8(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11111000011 xdn:5" "asm"="sqdech {xdn}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.9(i64 "reg"="x" %xdn) "enc"="000001000111000011111000100 xdn:5" "asm"="sqdech {xdn}, vl4" "asmonly" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.10(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11111000100 xdn:5" "asm"="sqdech {xdn}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.11(i64 "reg"="x" %xdn) "enc"="000001000111000011111000101 xdn:5" "asm"="sqdech {xdn}, vl5" "asmonly" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.12(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11111000101 xdn:5" "asm"="sqdech {xdn}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.13(i64 "reg"="x" %xdn) "enc"="000001000111000011111000110 xdn:5" "asm"="sqdech {xdn}, vl6" "asmonly" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.14(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11111000110 xdn:5" "asm"="sqdech {xdn}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.15(i64 "reg"="x" %xdn) "enc"="000001000111000011111000111 xdn:5" "asm"="sqdech {xdn}, vl7" "asmonly" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.16(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11111000111 xdn:5" "asm"="sqdech {xdn}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.17(i64 "reg"="x" %xdn) "enc"="000001000111000011111001000 xdn:5" "asm"="sqdech {xdn}, vl8" "asmonly" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.18(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11111001000 xdn:5" "asm"="sqdech {xdn}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.19(i64 "reg"="x" %xdn) "enc"="000001000111000011111001001 xdn:5" "asm"="sqdech {xdn}, vl16" "asmonly" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.20(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11111001001 xdn:5" "asm"="sqdech {xdn}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.21(i64 "reg"="x" %xdn) "enc"="000001000111000011111001010 xdn:5" "asm"="sqdech {xdn}, vl32" "asmonly" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.22(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11111001010 xdn:5" "asm"="sqdech {xdn}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.23(i64 "reg"="x" %xdn) "enc"="000001000111000011111001011 xdn:5" "asm"="sqdech {xdn}, vl64" "asmonly" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.24(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11111001011 xdn:5" "asm"="sqdech {xdn}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.25(i64 "reg"="x" %xdn) "enc"="000001000111000011111001100 xdn:5" "asm"="sqdech {xdn}, vl128" "asmonly" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.26(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11111001100 xdn:5" "asm"="sqdech {xdn}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.27(i64 "reg"="x" %xdn) "enc"="000001000111000011111001101 xdn:5" "asm"="sqdech {xdn}, vl256" "asmonly" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.28(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11111001101 xdn:5" "asm"="sqdech {xdn}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.29(i64 "reg"="x" %xdn, i64 "imm" %pattern) "enc"="0000010001110000111110 pattern:5 xdn:5" "asm"="sqdech {xdn}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.30(i64 "reg"="x" %xdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 111110 pattern:5 xdn:5" "asm"="sqdech {xdn}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.31(i64 "reg"="x" %xdn) "enc"="000001000111000011111011101 xdn:5" "asm"="sqdech {xdn}, mul4" "asmonly" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.32(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11111011101 xdn:5" "asm"="sqdech {xdn}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.33(i64 "reg"="x" %xdn) "enc"="000001000111000011111011110 xdn:5" "asm"="sqdech {xdn}, mul3" "asmonly" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.34(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11111011110 xdn:5" "asm"="sqdech {xdn}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.35(i64 "reg"="x" %xdn) "enc"="000001000111000011111011111 xdn:5" "asm"="sqdech {xdn}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @sqdech_r_rs_x.36(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11111011111 xdn:5" "asm"="sqdech {xdn}, all, mul #{imm}" "asmonly" {
   ret void
 }
 
@@ -1922,7 +7394,295 @@ define void @uqincw_r_rs_uw.0(i64 "reg"="w" %wdn) "enc"="00000100101000001111011
   ret void
 }
 
+define void @uqincw_r_rs_uw.1(i64 "reg"="w" %wdn) "enc"="000001001010000011110100000 wdn:5" "asm"="uqincw {wdn}, pow2" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_uw.2(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11110100000 wdn:5" "asm"="uqincw {wdn}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_uw.3(i64 "reg"="w" %wdn) "enc"="000001001010000011110100001 wdn:5" "asm"="uqincw {wdn}, vl1" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_uw.4(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11110100001 wdn:5" "asm"="uqincw {wdn}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_uw.5(i64 "reg"="w" %wdn) "enc"="000001001010000011110100010 wdn:5" "asm"="uqincw {wdn}, vl2" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_uw.6(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11110100010 wdn:5" "asm"="uqincw {wdn}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_uw.7(i64 "reg"="w" %wdn) "enc"="000001001010000011110100011 wdn:5" "asm"="uqincw {wdn}, vl3" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_uw.8(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11110100011 wdn:5" "asm"="uqincw {wdn}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_uw.9(i64 "reg"="w" %wdn) "enc"="000001001010000011110100100 wdn:5" "asm"="uqincw {wdn}, vl4" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_uw.10(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11110100100 wdn:5" "asm"="uqincw {wdn}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_uw.11(i64 "reg"="w" %wdn) "enc"="000001001010000011110100101 wdn:5" "asm"="uqincw {wdn}, vl5" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_uw.12(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11110100101 wdn:5" "asm"="uqincw {wdn}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_uw.13(i64 "reg"="w" %wdn) "enc"="000001001010000011110100110 wdn:5" "asm"="uqincw {wdn}, vl6" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_uw.14(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11110100110 wdn:5" "asm"="uqincw {wdn}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_uw.15(i64 "reg"="w" %wdn) "enc"="000001001010000011110100111 wdn:5" "asm"="uqincw {wdn}, vl7" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_uw.16(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11110100111 wdn:5" "asm"="uqincw {wdn}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_uw.17(i64 "reg"="w" %wdn) "enc"="000001001010000011110101000 wdn:5" "asm"="uqincw {wdn}, vl8" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_uw.18(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11110101000 wdn:5" "asm"="uqincw {wdn}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_uw.19(i64 "reg"="w" %wdn) "enc"="000001001010000011110101001 wdn:5" "asm"="uqincw {wdn}, vl16" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_uw.20(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11110101001 wdn:5" "asm"="uqincw {wdn}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_uw.21(i64 "reg"="w" %wdn) "enc"="000001001010000011110101010 wdn:5" "asm"="uqincw {wdn}, vl32" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_uw.22(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11110101010 wdn:5" "asm"="uqincw {wdn}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_uw.23(i64 "reg"="w" %wdn) "enc"="000001001010000011110101011 wdn:5" "asm"="uqincw {wdn}, vl64" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_uw.24(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11110101011 wdn:5" "asm"="uqincw {wdn}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_uw.25(i64 "reg"="w" %wdn) "enc"="000001001010000011110101100 wdn:5" "asm"="uqincw {wdn}, vl128" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_uw.26(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11110101100 wdn:5" "asm"="uqincw {wdn}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_uw.27(i64 "reg"="w" %wdn) "enc"="000001001010000011110101101 wdn:5" "asm"="uqincw {wdn}, vl256" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_uw.28(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11110101101 wdn:5" "asm"="uqincw {wdn}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_uw.29(i64 "reg"="w" %wdn, i64 "imm" %pattern) "enc"="0000010010100000111101 pattern:5 wdn:5" "asm"="uqincw {wdn}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_uw.30(i64 "reg"="w" %wdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 111101 pattern:5 wdn:5" "asm"="uqincw {wdn}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_uw.31(i64 "reg"="w" %wdn) "enc"="000001001010000011110111101 wdn:5" "asm"="uqincw {wdn}, mul4" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_uw.32(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11110111101 wdn:5" "asm"="uqincw {wdn}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_uw.33(i64 "reg"="w" %wdn) "enc"="000001001010000011110111110 wdn:5" "asm"="uqincw {wdn}, mul3" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_uw.34(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11110111110 wdn:5" "asm"="uqincw {wdn}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_uw.35(i64 "reg"="w" %wdn) "enc"="000001001010000011110111111 wdn:5" "asm"="uqincw {wdn}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @uqincw_r_rs_uw.36(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11110111111 wdn:5" "asm"="uqincw {wdn}, all, mul #{imm}" "asmonly" {
+  ret void
+}
+
 define void @uqdecw_r_rs_uw.0(i64 "reg"="w" %wdn) "enc"="000001001010000011111111111 wdn:5" "asm"="uqdecw {wdn}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.1(i64 "reg"="w" %wdn) "enc"="000001001010000011111100000 wdn:5" "asm"="uqdecw {wdn}, pow2" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.2(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11111100000 wdn:5" "asm"="uqdecw {wdn}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.3(i64 "reg"="w" %wdn) "enc"="000001001010000011111100001 wdn:5" "asm"="uqdecw {wdn}, vl1" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.4(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11111100001 wdn:5" "asm"="uqdecw {wdn}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.5(i64 "reg"="w" %wdn) "enc"="000001001010000011111100010 wdn:5" "asm"="uqdecw {wdn}, vl2" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.6(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11111100010 wdn:5" "asm"="uqdecw {wdn}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.7(i64 "reg"="w" %wdn) "enc"="000001001010000011111100011 wdn:5" "asm"="uqdecw {wdn}, vl3" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.8(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11111100011 wdn:5" "asm"="uqdecw {wdn}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.9(i64 "reg"="w" %wdn) "enc"="000001001010000011111100100 wdn:5" "asm"="uqdecw {wdn}, vl4" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.10(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11111100100 wdn:5" "asm"="uqdecw {wdn}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.11(i64 "reg"="w" %wdn) "enc"="000001001010000011111100101 wdn:5" "asm"="uqdecw {wdn}, vl5" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.12(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11111100101 wdn:5" "asm"="uqdecw {wdn}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.13(i64 "reg"="w" %wdn) "enc"="000001001010000011111100110 wdn:5" "asm"="uqdecw {wdn}, vl6" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.14(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11111100110 wdn:5" "asm"="uqdecw {wdn}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.15(i64 "reg"="w" %wdn) "enc"="000001001010000011111100111 wdn:5" "asm"="uqdecw {wdn}, vl7" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.16(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11111100111 wdn:5" "asm"="uqdecw {wdn}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.17(i64 "reg"="w" %wdn) "enc"="000001001010000011111101000 wdn:5" "asm"="uqdecw {wdn}, vl8" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.18(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11111101000 wdn:5" "asm"="uqdecw {wdn}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.19(i64 "reg"="w" %wdn) "enc"="000001001010000011111101001 wdn:5" "asm"="uqdecw {wdn}, vl16" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.20(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11111101001 wdn:5" "asm"="uqdecw {wdn}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.21(i64 "reg"="w" %wdn) "enc"="000001001010000011111101010 wdn:5" "asm"="uqdecw {wdn}, vl32" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.22(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11111101010 wdn:5" "asm"="uqdecw {wdn}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.23(i64 "reg"="w" %wdn) "enc"="000001001010000011111101011 wdn:5" "asm"="uqdecw {wdn}, vl64" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.24(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11111101011 wdn:5" "asm"="uqdecw {wdn}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.25(i64 "reg"="w" %wdn) "enc"="000001001010000011111101100 wdn:5" "asm"="uqdecw {wdn}, vl128" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.26(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11111101100 wdn:5" "asm"="uqdecw {wdn}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.27(i64 "reg"="w" %wdn) "enc"="000001001010000011111101101 wdn:5" "asm"="uqdecw {wdn}, vl256" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.28(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11111101101 wdn:5" "asm"="uqdecw {wdn}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.29(i64 "reg"="w" %wdn, i64 "imm" %pattern) "enc"="0000010010100000111111 pattern:5 wdn:5" "asm"="uqdecw {wdn}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.30(i64 "reg"="w" %wdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 111111 pattern:5 wdn:5" "asm"="uqdecw {wdn}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.31(i64 "reg"="w" %wdn) "enc"="000001001010000011111111101 wdn:5" "asm"="uqdecw {wdn}, mul4" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.32(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11111111101 wdn:5" "asm"="uqdecw {wdn}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.33(i64 "reg"="w" %wdn) "enc"="000001001010000011111111110 wdn:5" "asm"="uqdecw {wdn}, mul3" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.34(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11111111110 wdn:5" "asm"="uqdecw {wdn}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.35(i64 "reg"="w" %wdn) "enc"="000001001010000011111111111 wdn:5" "asm"="uqdecw {wdn}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @uqdecw_r_rs_uw.36(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001010 imm_f:4=(imm-1) 11111111111 wdn:5" "asm"="uqdecw {wdn}, all, mul #{imm}" "asmonly" {
   ret void
 }
 
@@ -1930,7 +7690,295 @@ define void @sqincw_r_rs_x.0(i64 "reg"="x" %xdn) "enc"="000001001011000011110011
   ret void
 }
 
+define void @sqincw_r_rs_x.1(i64 "reg"="x" %xdn) "enc"="000001001011000011110000000 xdn:5" "asm"="sqincw {xdn}, pow2" "asmonly" {
+  ret void
+}
+
+define void @sqincw_r_rs_x.2(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11110000000 xdn:5" "asm"="sqincw {xdn}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_r_rs_x.3(i64 "reg"="x" %xdn) "enc"="000001001011000011110000001 xdn:5" "asm"="sqincw {xdn}, vl1" "asmonly" {
+  ret void
+}
+
+define void @sqincw_r_rs_x.4(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11110000001 xdn:5" "asm"="sqincw {xdn}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_r_rs_x.5(i64 "reg"="x" %xdn) "enc"="000001001011000011110000010 xdn:5" "asm"="sqincw {xdn}, vl2" "asmonly" {
+  ret void
+}
+
+define void @sqincw_r_rs_x.6(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11110000010 xdn:5" "asm"="sqincw {xdn}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_r_rs_x.7(i64 "reg"="x" %xdn) "enc"="000001001011000011110000011 xdn:5" "asm"="sqincw {xdn}, vl3" "asmonly" {
+  ret void
+}
+
+define void @sqincw_r_rs_x.8(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11110000011 xdn:5" "asm"="sqincw {xdn}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_r_rs_x.9(i64 "reg"="x" %xdn) "enc"="000001001011000011110000100 xdn:5" "asm"="sqincw {xdn}, vl4" "asmonly" {
+  ret void
+}
+
+define void @sqincw_r_rs_x.10(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11110000100 xdn:5" "asm"="sqincw {xdn}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_r_rs_x.11(i64 "reg"="x" %xdn) "enc"="000001001011000011110000101 xdn:5" "asm"="sqincw {xdn}, vl5" "asmonly" {
+  ret void
+}
+
+define void @sqincw_r_rs_x.12(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11110000101 xdn:5" "asm"="sqincw {xdn}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_r_rs_x.13(i64 "reg"="x" %xdn) "enc"="000001001011000011110000110 xdn:5" "asm"="sqincw {xdn}, vl6" "asmonly" {
+  ret void
+}
+
+define void @sqincw_r_rs_x.14(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11110000110 xdn:5" "asm"="sqincw {xdn}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_r_rs_x.15(i64 "reg"="x" %xdn) "enc"="000001001011000011110000111 xdn:5" "asm"="sqincw {xdn}, vl7" "asmonly" {
+  ret void
+}
+
+define void @sqincw_r_rs_x.16(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11110000111 xdn:5" "asm"="sqincw {xdn}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_r_rs_x.17(i64 "reg"="x" %xdn) "enc"="000001001011000011110001000 xdn:5" "asm"="sqincw {xdn}, vl8" "asmonly" {
+  ret void
+}
+
+define void @sqincw_r_rs_x.18(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11110001000 xdn:5" "asm"="sqincw {xdn}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_r_rs_x.19(i64 "reg"="x" %xdn) "enc"="000001001011000011110001001 xdn:5" "asm"="sqincw {xdn}, vl16" "asmonly" {
+  ret void
+}
+
+define void @sqincw_r_rs_x.20(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11110001001 xdn:5" "asm"="sqincw {xdn}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_r_rs_x.21(i64 "reg"="x" %xdn) "enc"="000001001011000011110001010 xdn:5" "asm"="sqincw {xdn}, vl32" "asmonly" {
+  ret void
+}
+
+define void @sqincw_r_rs_x.22(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11110001010 xdn:5" "asm"="sqincw {xdn}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_r_rs_x.23(i64 "reg"="x" %xdn) "enc"="000001001011000011110001011 xdn:5" "asm"="sqincw {xdn}, vl64" "asmonly" {
+  ret void
+}
+
+define void @sqincw_r_rs_x.24(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11110001011 xdn:5" "asm"="sqincw {xdn}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_r_rs_x.25(i64 "reg"="x" %xdn) "enc"="000001001011000011110001100 xdn:5" "asm"="sqincw {xdn}, vl128" "asmonly" {
+  ret void
+}
+
+define void @sqincw_r_rs_x.26(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11110001100 xdn:5" "asm"="sqincw {xdn}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_r_rs_x.27(i64 "reg"="x" %xdn) "enc"="000001001011000011110001101 xdn:5" "asm"="sqincw {xdn}, vl256" "asmonly" {
+  ret void
+}
+
+define void @sqincw_r_rs_x.28(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11110001101 xdn:5" "asm"="sqincw {xdn}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_r_rs_x.29(i64 "reg"="x" %xdn, i64 "imm" %pattern) "enc"="0000010010110000111100 pattern:5 xdn:5" "asm"="sqincw {xdn}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_r_rs_x.30(i64 "reg"="x" %xdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 111100 pattern:5 xdn:5" "asm"="sqincw {xdn}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_r_rs_x.31(i64 "reg"="x" %xdn) "enc"="000001001011000011110011101 xdn:5" "asm"="sqincw {xdn}, mul4" "asmonly" {
+  ret void
+}
+
+define void @sqincw_r_rs_x.32(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11110011101 xdn:5" "asm"="sqincw {xdn}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_r_rs_x.33(i64 "reg"="x" %xdn) "enc"="000001001011000011110011110 xdn:5" "asm"="sqincw {xdn}, mul3" "asmonly" {
+  ret void
+}
+
+define void @sqincw_r_rs_x.34(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11110011110 xdn:5" "asm"="sqincw {xdn}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincw_r_rs_x.35(i64 "reg"="x" %xdn) "enc"="000001001011000011110011111 xdn:5" "asm"="sqincw {xdn}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @sqincw_r_rs_x.36(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11110011111 xdn:5" "asm"="sqincw {xdn}, all, mul #{imm}" "asmonly" {
+  ret void
+}
+
 define void @sqdecw_r_rs_x.0(i64 "reg"="x" %xdn) "enc"="000001001011000011111011111 xdn:5" "asm"="sqdecw {xdn}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.1(i64 "reg"="x" %xdn) "enc"="000001001011000011111000000 xdn:5" "asm"="sqdecw {xdn}, pow2" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.2(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11111000000 xdn:5" "asm"="sqdecw {xdn}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.3(i64 "reg"="x" %xdn) "enc"="000001001011000011111000001 xdn:5" "asm"="sqdecw {xdn}, vl1" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.4(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11111000001 xdn:5" "asm"="sqdecw {xdn}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.5(i64 "reg"="x" %xdn) "enc"="000001001011000011111000010 xdn:5" "asm"="sqdecw {xdn}, vl2" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.6(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11111000010 xdn:5" "asm"="sqdecw {xdn}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.7(i64 "reg"="x" %xdn) "enc"="000001001011000011111000011 xdn:5" "asm"="sqdecw {xdn}, vl3" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.8(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11111000011 xdn:5" "asm"="sqdecw {xdn}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.9(i64 "reg"="x" %xdn) "enc"="000001001011000011111000100 xdn:5" "asm"="sqdecw {xdn}, vl4" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.10(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11111000100 xdn:5" "asm"="sqdecw {xdn}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.11(i64 "reg"="x" %xdn) "enc"="000001001011000011111000101 xdn:5" "asm"="sqdecw {xdn}, vl5" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.12(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11111000101 xdn:5" "asm"="sqdecw {xdn}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.13(i64 "reg"="x" %xdn) "enc"="000001001011000011111000110 xdn:5" "asm"="sqdecw {xdn}, vl6" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.14(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11111000110 xdn:5" "asm"="sqdecw {xdn}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.15(i64 "reg"="x" %xdn) "enc"="000001001011000011111000111 xdn:5" "asm"="sqdecw {xdn}, vl7" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.16(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11111000111 xdn:5" "asm"="sqdecw {xdn}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.17(i64 "reg"="x" %xdn) "enc"="000001001011000011111001000 xdn:5" "asm"="sqdecw {xdn}, vl8" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.18(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11111001000 xdn:5" "asm"="sqdecw {xdn}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.19(i64 "reg"="x" %xdn) "enc"="000001001011000011111001001 xdn:5" "asm"="sqdecw {xdn}, vl16" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.20(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11111001001 xdn:5" "asm"="sqdecw {xdn}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.21(i64 "reg"="x" %xdn) "enc"="000001001011000011111001010 xdn:5" "asm"="sqdecw {xdn}, vl32" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.22(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11111001010 xdn:5" "asm"="sqdecw {xdn}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.23(i64 "reg"="x" %xdn) "enc"="000001001011000011111001011 xdn:5" "asm"="sqdecw {xdn}, vl64" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.24(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11111001011 xdn:5" "asm"="sqdecw {xdn}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.25(i64 "reg"="x" %xdn) "enc"="000001001011000011111001100 xdn:5" "asm"="sqdecw {xdn}, vl128" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.26(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11111001100 xdn:5" "asm"="sqdecw {xdn}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.27(i64 "reg"="x" %xdn) "enc"="000001001011000011111001101 xdn:5" "asm"="sqdecw {xdn}, vl256" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.28(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11111001101 xdn:5" "asm"="sqdecw {xdn}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.29(i64 "reg"="x" %xdn, i64 "imm" %pattern) "enc"="0000010010110000111110 pattern:5 xdn:5" "asm"="sqdecw {xdn}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.30(i64 "reg"="x" %xdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 111110 pattern:5 xdn:5" "asm"="sqdecw {xdn}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.31(i64 "reg"="x" %xdn) "enc"="000001001011000011111011101 xdn:5" "asm"="sqdecw {xdn}, mul4" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.32(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11111011101 xdn:5" "asm"="sqdecw {xdn}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.33(i64 "reg"="x" %xdn) "enc"="000001001011000011111011110 xdn:5" "asm"="sqdecw {xdn}, mul3" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.34(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11111011110 xdn:5" "asm"="sqdecw {xdn}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.35(i64 "reg"="x" %xdn) "enc"="000001001011000011111011111 xdn:5" "asm"="sqdecw {xdn}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @sqdecw_r_rs_x.36(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11111011111 xdn:5" "asm"="sqdecw {xdn}, all, mul #{imm}" "asmonly" {
   ret void
 }
 
@@ -1938,7 +7986,295 @@ define void @uqincd_r_rs_uw.0(i64 "reg"="w" %wdn) "enc"="00000100111000001111011
   ret void
 }
 
+define void @uqincd_r_rs_uw.1(i64 "reg"="w" %wdn) "enc"="000001001110000011110100000 wdn:5" "asm"="uqincd {wdn}, pow2" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_uw.2(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11110100000 wdn:5" "asm"="uqincd {wdn}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_uw.3(i64 "reg"="w" %wdn) "enc"="000001001110000011110100001 wdn:5" "asm"="uqincd {wdn}, vl1" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_uw.4(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11110100001 wdn:5" "asm"="uqincd {wdn}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_uw.5(i64 "reg"="w" %wdn) "enc"="000001001110000011110100010 wdn:5" "asm"="uqincd {wdn}, vl2" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_uw.6(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11110100010 wdn:5" "asm"="uqincd {wdn}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_uw.7(i64 "reg"="w" %wdn) "enc"="000001001110000011110100011 wdn:5" "asm"="uqincd {wdn}, vl3" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_uw.8(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11110100011 wdn:5" "asm"="uqincd {wdn}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_uw.9(i64 "reg"="w" %wdn) "enc"="000001001110000011110100100 wdn:5" "asm"="uqincd {wdn}, vl4" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_uw.10(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11110100100 wdn:5" "asm"="uqincd {wdn}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_uw.11(i64 "reg"="w" %wdn) "enc"="000001001110000011110100101 wdn:5" "asm"="uqincd {wdn}, vl5" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_uw.12(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11110100101 wdn:5" "asm"="uqincd {wdn}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_uw.13(i64 "reg"="w" %wdn) "enc"="000001001110000011110100110 wdn:5" "asm"="uqincd {wdn}, vl6" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_uw.14(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11110100110 wdn:5" "asm"="uqincd {wdn}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_uw.15(i64 "reg"="w" %wdn) "enc"="000001001110000011110100111 wdn:5" "asm"="uqincd {wdn}, vl7" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_uw.16(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11110100111 wdn:5" "asm"="uqincd {wdn}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_uw.17(i64 "reg"="w" %wdn) "enc"="000001001110000011110101000 wdn:5" "asm"="uqincd {wdn}, vl8" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_uw.18(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11110101000 wdn:5" "asm"="uqincd {wdn}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_uw.19(i64 "reg"="w" %wdn) "enc"="000001001110000011110101001 wdn:5" "asm"="uqincd {wdn}, vl16" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_uw.20(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11110101001 wdn:5" "asm"="uqincd {wdn}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_uw.21(i64 "reg"="w" %wdn) "enc"="000001001110000011110101010 wdn:5" "asm"="uqincd {wdn}, vl32" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_uw.22(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11110101010 wdn:5" "asm"="uqincd {wdn}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_uw.23(i64 "reg"="w" %wdn) "enc"="000001001110000011110101011 wdn:5" "asm"="uqincd {wdn}, vl64" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_uw.24(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11110101011 wdn:5" "asm"="uqincd {wdn}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_uw.25(i64 "reg"="w" %wdn) "enc"="000001001110000011110101100 wdn:5" "asm"="uqincd {wdn}, vl128" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_uw.26(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11110101100 wdn:5" "asm"="uqincd {wdn}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_uw.27(i64 "reg"="w" %wdn) "enc"="000001001110000011110101101 wdn:5" "asm"="uqincd {wdn}, vl256" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_uw.28(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11110101101 wdn:5" "asm"="uqincd {wdn}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_uw.29(i64 "reg"="w" %wdn, i64 "imm" %pattern) "enc"="0000010011100000111101 pattern:5 wdn:5" "asm"="uqincd {wdn}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_uw.30(i64 "reg"="w" %wdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 111101 pattern:5 wdn:5" "asm"="uqincd {wdn}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_uw.31(i64 "reg"="w" %wdn) "enc"="000001001110000011110111101 wdn:5" "asm"="uqincd {wdn}, mul4" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_uw.32(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11110111101 wdn:5" "asm"="uqincd {wdn}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_uw.33(i64 "reg"="w" %wdn) "enc"="000001001110000011110111110 wdn:5" "asm"="uqincd {wdn}, mul3" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_uw.34(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11110111110 wdn:5" "asm"="uqincd {wdn}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_uw.35(i64 "reg"="w" %wdn) "enc"="000001001110000011110111111 wdn:5" "asm"="uqincd {wdn}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @uqincd_r_rs_uw.36(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11110111111 wdn:5" "asm"="uqincd {wdn}, all, mul #{imm}" "asmonly" {
+  ret void
+}
+
 define void @uqdecd_r_rs_uw.0(i64 "reg"="w" %wdn) "enc"="000001001110000011111111111 wdn:5" "asm"="uqdecd {wdn}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.1(i64 "reg"="w" %wdn) "enc"="000001001110000011111100000 wdn:5" "asm"="uqdecd {wdn}, pow2" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.2(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11111100000 wdn:5" "asm"="uqdecd {wdn}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.3(i64 "reg"="w" %wdn) "enc"="000001001110000011111100001 wdn:5" "asm"="uqdecd {wdn}, vl1" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.4(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11111100001 wdn:5" "asm"="uqdecd {wdn}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.5(i64 "reg"="w" %wdn) "enc"="000001001110000011111100010 wdn:5" "asm"="uqdecd {wdn}, vl2" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.6(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11111100010 wdn:5" "asm"="uqdecd {wdn}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.7(i64 "reg"="w" %wdn) "enc"="000001001110000011111100011 wdn:5" "asm"="uqdecd {wdn}, vl3" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.8(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11111100011 wdn:5" "asm"="uqdecd {wdn}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.9(i64 "reg"="w" %wdn) "enc"="000001001110000011111100100 wdn:5" "asm"="uqdecd {wdn}, vl4" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.10(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11111100100 wdn:5" "asm"="uqdecd {wdn}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.11(i64 "reg"="w" %wdn) "enc"="000001001110000011111100101 wdn:5" "asm"="uqdecd {wdn}, vl5" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.12(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11111100101 wdn:5" "asm"="uqdecd {wdn}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.13(i64 "reg"="w" %wdn) "enc"="000001001110000011111100110 wdn:5" "asm"="uqdecd {wdn}, vl6" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.14(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11111100110 wdn:5" "asm"="uqdecd {wdn}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.15(i64 "reg"="w" %wdn) "enc"="000001001110000011111100111 wdn:5" "asm"="uqdecd {wdn}, vl7" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.16(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11111100111 wdn:5" "asm"="uqdecd {wdn}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.17(i64 "reg"="w" %wdn) "enc"="000001001110000011111101000 wdn:5" "asm"="uqdecd {wdn}, vl8" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.18(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11111101000 wdn:5" "asm"="uqdecd {wdn}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.19(i64 "reg"="w" %wdn) "enc"="000001001110000011111101001 wdn:5" "asm"="uqdecd {wdn}, vl16" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.20(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11111101001 wdn:5" "asm"="uqdecd {wdn}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.21(i64 "reg"="w" %wdn) "enc"="000001001110000011111101010 wdn:5" "asm"="uqdecd {wdn}, vl32" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.22(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11111101010 wdn:5" "asm"="uqdecd {wdn}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.23(i64 "reg"="w" %wdn) "enc"="000001001110000011111101011 wdn:5" "asm"="uqdecd {wdn}, vl64" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.24(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11111101011 wdn:5" "asm"="uqdecd {wdn}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.25(i64 "reg"="w" %wdn) "enc"="000001001110000011111101100 wdn:5" "asm"="uqdecd {wdn}, vl128" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.26(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11111101100 wdn:5" "asm"="uqdecd {wdn}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.27(i64 "reg"="w" %wdn) "enc"="000001001110000011111101101 wdn:5" "asm"="uqdecd {wdn}, vl256" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.28(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11111101101 wdn:5" "asm"="uqdecd {wdn}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.29(i64 "reg"="w" %wdn, i64 "imm" %pattern) "enc"="0000010011100000111111 pattern:5 wdn:5" "asm"="uqdecd {wdn}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.30(i64 "reg"="w" %wdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 111111 pattern:5 wdn:5" "asm"="uqdecd {wdn}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.31(i64 "reg"="w" %wdn) "enc"="000001001110000011111111101 wdn:5" "asm"="uqdecd {wdn}, mul4" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.32(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11111111101 wdn:5" "asm"="uqdecd {wdn}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.33(i64 "reg"="w" %wdn) "enc"="000001001110000011111111110 wdn:5" "asm"="uqdecd {wdn}, mul3" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.34(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11111111110 wdn:5" "asm"="uqdecd {wdn}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.35(i64 "reg"="w" %wdn) "enc"="000001001110000011111111111 wdn:5" "asm"="uqdecd {wdn}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @uqdecd_r_rs_uw.36(i64 "reg"="w" %wdn, i64 "imm" %imm) "enc"="000001001110 imm_f:4=(imm-1) 11111111111 wdn:5" "asm"="uqdecd {wdn}, all, mul #{imm}" "asmonly" {
   ret void
 }
 
@@ -1946,7 +8282,295 @@ define void @sqincd_r_rs_x.0(i64 "reg"="x" %xdn) "enc"="000001001111000011110011
   ret void
 }
 
+define void @sqincd_r_rs_x.1(i64 "reg"="x" %xdn) "enc"="000001001111000011110000000 xdn:5" "asm"="sqincd {xdn}, pow2" "asmonly" {
+  ret void
+}
+
+define void @sqincd_r_rs_x.2(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11110000000 xdn:5" "asm"="sqincd {xdn}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_r_rs_x.3(i64 "reg"="x" %xdn) "enc"="000001001111000011110000001 xdn:5" "asm"="sqincd {xdn}, vl1" "asmonly" {
+  ret void
+}
+
+define void @sqincd_r_rs_x.4(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11110000001 xdn:5" "asm"="sqincd {xdn}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_r_rs_x.5(i64 "reg"="x" %xdn) "enc"="000001001111000011110000010 xdn:5" "asm"="sqincd {xdn}, vl2" "asmonly" {
+  ret void
+}
+
+define void @sqincd_r_rs_x.6(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11110000010 xdn:5" "asm"="sqincd {xdn}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_r_rs_x.7(i64 "reg"="x" %xdn) "enc"="000001001111000011110000011 xdn:5" "asm"="sqincd {xdn}, vl3" "asmonly" {
+  ret void
+}
+
+define void @sqincd_r_rs_x.8(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11110000011 xdn:5" "asm"="sqincd {xdn}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_r_rs_x.9(i64 "reg"="x" %xdn) "enc"="000001001111000011110000100 xdn:5" "asm"="sqincd {xdn}, vl4" "asmonly" {
+  ret void
+}
+
+define void @sqincd_r_rs_x.10(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11110000100 xdn:5" "asm"="sqincd {xdn}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_r_rs_x.11(i64 "reg"="x" %xdn) "enc"="000001001111000011110000101 xdn:5" "asm"="sqincd {xdn}, vl5" "asmonly" {
+  ret void
+}
+
+define void @sqincd_r_rs_x.12(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11110000101 xdn:5" "asm"="sqincd {xdn}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_r_rs_x.13(i64 "reg"="x" %xdn) "enc"="000001001111000011110000110 xdn:5" "asm"="sqincd {xdn}, vl6" "asmonly" {
+  ret void
+}
+
+define void @sqincd_r_rs_x.14(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11110000110 xdn:5" "asm"="sqincd {xdn}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_r_rs_x.15(i64 "reg"="x" %xdn) "enc"="000001001111000011110000111 xdn:5" "asm"="sqincd {xdn}, vl7" "asmonly" {
+  ret void
+}
+
+define void @sqincd_r_rs_x.16(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11110000111 xdn:5" "asm"="sqincd {xdn}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_r_rs_x.17(i64 "reg"="x" %xdn) "enc"="000001001111000011110001000 xdn:5" "asm"="sqincd {xdn}, vl8" "asmonly" {
+  ret void
+}
+
+define void @sqincd_r_rs_x.18(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11110001000 xdn:5" "asm"="sqincd {xdn}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_r_rs_x.19(i64 "reg"="x" %xdn) "enc"="000001001111000011110001001 xdn:5" "asm"="sqincd {xdn}, vl16" "asmonly" {
+  ret void
+}
+
+define void @sqincd_r_rs_x.20(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11110001001 xdn:5" "asm"="sqincd {xdn}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_r_rs_x.21(i64 "reg"="x" %xdn) "enc"="000001001111000011110001010 xdn:5" "asm"="sqincd {xdn}, vl32" "asmonly" {
+  ret void
+}
+
+define void @sqincd_r_rs_x.22(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11110001010 xdn:5" "asm"="sqincd {xdn}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_r_rs_x.23(i64 "reg"="x" %xdn) "enc"="000001001111000011110001011 xdn:5" "asm"="sqincd {xdn}, vl64" "asmonly" {
+  ret void
+}
+
+define void @sqincd_r_rs_x.24(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11110001011 xdn:5" "asm"="sqincd {xdn}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_r_rs_x.25(i64 "reg"="x" %xdn) "enc"="000001001111000011110001100 xdn:5" "asm"="sqincd {xdn}, vl128" "asmonly" {
+  ret void
+}
+
+define void @sqincd_r_rs_x.26(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11110001100 xdn:5" "asm"="sqincd {xdn}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_r_rs_x.27(i64 "reg"="x" %xdn) "enc"="000001001111000011110001101 xdn:5" "asm"="sqincd {xdn}, vl256" "asmonly" {
+  ret void
+}
+
+define void @sqincd_r_rs_x.28(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11110001101 xdn:5" "asm"="sqincd {xdn}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_r_rs_x.29(i64 "reg"="x" %xdn, i64 "imm" %pattern) "enc"="0000010011110000111100 pattern:5 xdn:5" "asm"="sqincd {xdn}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_r_rs_x.30(i64 "reg"="x" %xdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 111100 pattern:5 xdn:5" "asm"="sqincd {xdn}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_r_rs_x.31(i64 "reg"="x" %xdn) "enc"="000001001111000011110011101 xdn:5" "asm"="sqincd {xdn}, mul4" "asmonly" {
+  ret void
+}
+
+define void @sqincd_r_rs_x.32(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11110011101 xdn:5" "asm"="sqincd {xdn}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_r_rs_x.33(i64 "reg"="x" %xdn) "enc"="000001001111000011110011110 xdn:5" "asm"="sqincd {xdn}, mul3" "asmonly" {
+  ret void
+}
+
+define void @sqincd_r_rs_x.34(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11110011110 xdn:5" "asm"="sqincd {xdn}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqincd_r_rs_x.35(i64 "reg"="x" %xdn) "enc"="000001001111000011110011111 xdn:5" "asm"="sqincd {xdn}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @sqincd_r_rs_x.36(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11110011111 xdn:5" "asm"="sqincd {xdn}, all, mul #{imm}" "asmonly" {
+  ret void
+}
+
 define void @sqdecd_r_rs_x.0(i64 "reg"="x" %xdn) "enc"="000001001111000011111011111 xdn:5" "asm"="sqdecd {xdn}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.1(i64 "reg"="x" %xdn) "enc"="000001001111000011111000000 xdn:5" "asm"="sqdecd {xdn}, pow2" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.2(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11111000000 xdn:5" "asm"="sqdecd {xdn}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.3(i64 "reg"="x" %xdn) "enc"="000001001111000011111000001 xdn:5" "asm"="sqdecd {xdn}, vl1" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.4(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11111000001 xdn:5" "asm"="sqdecd {xdn}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.5(i64 "reg"="x" %xdn) "enc"="000001001111000011111000010 xdn:5" "asm"="sqdecd {xdn}, vl2" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.6(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11111000010 xdn:5" "asm"="sqdecd {xdn}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.7(i64 "reg"="x" %xdn) "enc"="000001001111000011111000011 xdn:5" "asm"="sqdecd {xdn}, vl3" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.8(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11111000011 xdn:5" "asm"="sqdecd {xdn}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.9(i64 "reg"="x" %xdn) "enc"="000001001111000011111000100 xdn:5" "asm"="sqdecd {xdn}, vl4" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.10(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11111000100 xdn:5" "asm"="sqdecd {xdn}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.11(i64 "reg"="x" %xdn) "enc"="000001001111000011111000101 xdn:5" "asm"="sqdecd {xdn}, vl5" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.12(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11111000101 xdn:5" "asm"="sqdecd {xdn}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.13(i64 "reg"="x" %xdn) "enc"="000001001111000011111000110 xdn:5" "asm"="sqdecd {xdn}, vl6" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.14(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11111000110 xdn:5" "asm"="sqdecd {xdn}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.15(i64 "reg"="x" %xdn) "enc"="000001001111000011111000111 xdn:5" "asm"="sqdecd {xdn}, vl7" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.16(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11111000111 xdn:5" "asm"="sqdecd {xdn}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.17(i64 "reg"="x" %xdn) "enc"="000001001111000011111001000 xdn:5" "asm"="sqdecd {xdn}, vl8" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.18(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11111001000 xdn:5" "asm"="sqdecd {xdn}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.19(i64 "reg"="x" %xdn) "enc"="000001001111000011111001001 xdn:5" "asm"="sqdecd {xdn}, vl16" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.20(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11111001001 xdn:5" "asm"="sqdecd {xdn}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.21(i64 "reg"="x" %xdn) "enc"="000001001111000011111001010 xdn:5" "asm"="sqdecd {xdn}, vl32" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.22(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11111001010 xdn:5" "asm"="sqdecd {xdn}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.23(i64 "reg"="x" %xdn) "enc"="000001001111000011111001011 xdn:5" "asm"="sqdecd {xdn}, vl64" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.24(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11111001011 xdn:5" "asm"="sqdecd {xdn}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.25(i64 "reg"="x" %xdn) "enc"="000001001111000011111001100 xdn:5" "asm"="sqdecd {xdn}, vl128" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.26(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11111001100 xdn:5" "asm"="sqdecd {xdn}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.27(i64 "reg"="x" %xdn) "enc"="000001001111000011111001101 xdn:5" "asm"="sqdecd {xdn}, vl256" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.28(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11111001101 xdn:5" "asm"="sqdecd {xdn}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.29(i64 "reg"="x" %xdn, i64 "imm" %pattern) "enc"="0000010011110000111110 pattern:5 xdn:5" "asm"="sqdecd {xdn}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.30(i64 "reg"="x" %xdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 111110 pattern:5 xdn:5" "asm"="sqdecd {xdn}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.31(i64 "reg"="x" %xdn) "enc"="000001001111000011111011101 xdn:5" "asm"="sqdecd {xdn}, mul4" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.32(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11111011101 xdn:5" "asm"="sqdecd {xdn}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.33(i64 "reg"="x" %xdn) "enc"="000001001111000011111011110 xdn:5" "asm"="sqdecd {xdn}, mul3" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.34(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11111011110 xdn:5" "asm"="sqdecd {xdn}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.35(i64 "reg"="x" %xdn) "enc"="000001001111000011111011111 xdn:5" "asm"="sqdecd {xdn}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @sqdecd_r_rs_x.36(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11111011111 xdn:5" "asm"="sqdecd {xdn}, all, mul #{imm}" "asmonly" {
   ret void
 }
 
@@ -1954,7 +8578,295 @@ define void @uqincb_r_rs_x.0(i64 "reg"="x" %xdn) "enc"="000001000011000011110111
   ret void
 }
 
+define void @uqincb_r_rs_x.1(i64 "reg"="x" %xdn) "enc"="000001000011000011110100000 xdn:5" "asm"="uqincb {xdn}, pow2" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_x.2(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11110100000 xdn:5" "asm"="uqincb {xdn}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_x.3(i64 "reg"="x" %xdn) "enc"="000001000011000011110100001 xdn:5" "asm"="uqincb {xdn}, vl1" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_x.4(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11110100001 xdn:5" "asm"="uqincb {xdn}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_x.5(i64 "reg"="x" %xdn) "enc"="000001000011000011110100010 xdn:5" "asm"="uqincb {xdn}, vl2" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_x.6(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11110100010 xdn:5" "asm"="uqincb {xdn}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_x.7(i64 "reg"="x" %xdn) "enc"="000001000011000011110100011 xdn:5" "asm"="uqincb {xdn}, vl3" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_x.8(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11110100011 xdn:5" "asm"="uqincb {xdn}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_x.9(i64 "reg"="x" %xdn) "enc"="000001000011000011110100100 xdn:5" "asm"="uqincb {xdn}, vl4" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_x.10(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11110100100 xdn:5" "asm"="uqincb {xdn}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_x.11(i64 "reg"="x" %xdn) "enc"="000001000011000011110100101 xdn:5" "asm"="uqincb {xdn}, vl5" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_x.12(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11110100101 xdn:5" "asm"="uqincb {xdn}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_x.13(i64 "reg"="x" %xdn) "enc"="000001000011000011110100110 xdn:5" "asm"="uqincb {xdn}, vl6" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_x.14(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11110100110 xdn:5" "asm"="uqincb {xdn}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_x.15(i64 "reg"="x" %xdn) "enc"="000001000011000011110100111 xdn:5" "asm"="uqincb {xdn}, vl7" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_x.16(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11110100111 xdn:5" "asm"="uqincb {xdn}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_x.17(i64 "reg"="x" %xdn) "enc"="000001000011000011110101000 xdn:5" "asm"="uqincb {xdn}, vl8" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_x.18(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11110101000 xdn:5" "asm"="uqincb {xdn}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_x.19(i64 "reg"="x" %xdn) "enc"="000001000011000011110101001 xdn:5" "asm"="uqincb {xdn}, vl16" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_x.20(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11110101001 xdn:5" "asm"="uqincb {xdn}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_x.21(i64 "reg"="x" %xdn) "enc"="000001000011000011110101010 xdn:5" "asm"="uqincb {xdn}, vl32" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_x.22(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11110101010 xdn:5" "asm"="uqincb {xdn}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_x.23(i64 "reg"="x" %xdn) "enc"="000001000011000011110101011 xdn:5" "asm"="uqincb {xdn}, vl64" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_x.24(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11110101011 xdn:5" "asm"="uqincb {xdn}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_x.25(i64 "reg"="x" %xdn) "enc"="000001000011000011110101100 xdn:5" "asm"="uqincb {xdn}, vl128" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_x.26(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11110101100 xdn:5" "asm"="uqincb {xdn}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_x.27(i64 "reg"="x" %xdn) "enc"="000001000011000011110101101 xdn:5" "asm"="uqincb {xdn}, vl256" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_x.28(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11110101101 xdn:5" "asm"="uqincb {xdn}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_x.29(i64 "reg"="x" %xdn, i64 "imm" %pattern) "enc"="0000010000110000111101 pattern:5 xdn:5" "asm"="uqincb {xdn}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_x.30(i64 "reg"="x" %xdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 111101 pattern:5 xdn:5" "asm"="uqincb {xdn}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_x.31(i64 "reg"="x" %xdn) "enc"="000001000011000011110111101 xdn:5" "asm"="uqincb {xdn}, mul4" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_x.32(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11110111101 xdn:5" "asm"="uqincb {xdn}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_x.33(i64 "reg"="x" %xdn) "enc"="000001000011000011110111110 xdn:5" "asm"="uqincb {xdn}, mul3" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_x.34(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11110111110 xdn:5" "asm"="uqincb {xdn}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincb_r_rs_x.35(i64 "reg"="x" %xdn) "enc"="000001000011000011110111111 xdn:5" "asm"="uqincb {xdn}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @uqincb_r_rs_x.36(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11110111111 xdn:5" "asm"="uqincb {xdn}, all, mul #{imm}" "asmonly" {
+  ret void
+}
+
 define void @uqdecb_r_rs_x.0(i64 "reg"="x" %xdn) "enc"="000001000011000011111111111 xdn:5" "asm"="uqdecb {xdn}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.1(i64 "reg"="x" %xdn) "enc"="000001000011000011111100000 xdn:5" "asm"="uqdecb {xdn}, pow2" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.2(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11111100000 xdn:5" "asm"="uqdecb {xdn}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.3(i64 "reg"="x" %xdn) "enc"="000001000011000011111100001 xdn:5" "asm"="uqdecb {xdn}, vl1" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.4(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11111100001 xdn:5" "asm"="uqdecb {xdn}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.5(i64 "reg"="x" %xdn) "enc"="000001000011000011111100010 xdn:5" "asm"="uqdecb {xdn}, vl2" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.6(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11111100010 xdn:5" "asm"="uqdecb {xdn}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.7(i64 "reg"="x" %xdn) "enc"="000001000011000011111100011 xdn:5" "asm"="uqdecb {xdn}, vl3" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.8(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11111100011 xdn:5" "asm"="uqdecb {xdn}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.9(i64 "reg"="x" %xdn) "enc"="000001000011000011111100100 xdn:5" "asm"="uqdecb {xdn}, vl4" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.10(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11111100100 xdn:5" "asm"="uqdecb {xdn}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.11(i64 "reg"="x" %xdn) "enc"="000001000011000011111100101 xdn:5" "asm"="uqdecb {xdn}, vl5" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.12(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11111100101 xdn:5" "asm"="uqdecb {xdn}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.13(i64 "reg"="x" %xdn) "enc"="000001000011000011111100110 xdn:5" "asm"="uqdecb {xdn}, vl6" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.14(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11111100110 xdn:5" "asm"="uqdecb {xdn}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.15(i64 "reg"="x" %xdn) "enc"="000001000011000011111100111 xdn:5" "asm"="uqdecb {xdn}, vl7" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.16(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11111100111 xdn:5" "asm"="uqdecb {xdn}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.17(i64 "reg"="x" %xdn) "enc"="000001000011000011111101000 xdn:5" "asm"="uqdecb {xdn}, vl8" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.18(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11111101000 xdn:5" "asm"="uqdecb {xdn}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.19(i64 "reg"="x" %xdn) "enc"="000001000011000011111101001 xdn:5" "asm"="uqdecb {xdn}, vl16" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.20(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11111101001 xdn:5" "asm"="uqdecb {xdn}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.21(i64 "reg"="x" %xdn) "enc"="000001000011000011111101010 xdn:5" "asm"="uqdecb {xdn}, vl32" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.22(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11111101010 xdn:5" "asm"="uqdecb {xdn}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.23(i64 "reg"="x" %xdn) "enc"="000001000011000011111101011 xdn:5" "asm"="uqdecb {xdn}, vl64" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.24(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11111101011 xdn:5" "asm"="uqdecb {xdn}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.25(i64 "reg"="x" %xdn) "enc"="000001000011000011111101100 xdn:5" "asm"="uqdecb {xdn}, vl128" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.26(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11111101100 xdn:5" "asm"="uqdecb {xdn}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.27(i64 "reg"="x" %xdn) "enc"="000001000011000011111101101 xdn:5" "asm"="uqdecb {xdn}, vl256" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.28(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11111101101 xdn:5" "asm"="uqdecb {xdn}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.29(i64 "reg"="x" %xdn, i64 "imm" %pattern) "enc"="0000010000110000111111 pattern:5 xdn:5" "asm"="uqdecb {xdn}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.30(i64 "reg"="x" %xdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 111111 pattern:5 xdn:5" "asm"="uqdecb {xdn}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.31(i64 "reg"="x" %xdn) "enc"="000001000011000011111111101 xdn:5" "asm"="uqdecb {xdn}, mul4" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.32(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11111111101 xdn:5" "asm"="uqdecb {xdn}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.33(i64 "reg"="x" %xdn) "enc"="000001000011000011111111110 xdn:5" "asm"="uqdecb {xdn}, mul3" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.34(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11111111110 xdn:5" "asm"="uqdecb {xdn}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.35(i64 "reg"="x" %xdn) "enc"="000001000011000011111111111 xdn:5" "asm"="uqdecb {xdn}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @uqdecb_r_rs_x.36(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000011 imm_f:4=(imm-1) 11111111111 xdn:5" "asm"="uqdecb {xdn}, all, mul #{imm}" "asmonly" {
   ret void
 }
 
@@ -1962,7 +8874,295 @@ define void @uqinch_r_rs_x.0(i64 "reg"="x" %xdn) "enc"="000001000111000011110111
   ret void
 }
 
+define void @uqinch_r_rs_x.1(i64 "reg"="x" %xdn) "enc"="000001000111000011110100000 xdn:5" "asm"="uqinch {xdn}, pow2" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_x.2(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11110100000 xdn:5" "asm"="uqinch {xdn}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_x.3(i64 "reg"="x" %xdn) "enc"="000001000111000011110100001 xdn:5" "asm"="uqinch {xdn}, vl1" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_x.4(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11110100001 xdn:5" "asm"="uqinch {xdn}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_x.5(i64 "reg"="x" %xdn) "enc"="000001000111000011110100010 xdn:5" "asm"="uqinch {xdn}, vl2" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_x.6(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11110100010 xdn:5" "asm"="uqinch {xdn}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_x.7(i64 "reg"="x" %xdn) "enc"="000001000111000011110100011 xdn:5" "asm"="uqinch {xdn}, vl3" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_x.8(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11110100011 xdn:5" "asm"="uqinch {xdn}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_x.9(i64 "reg"="x" %xdn) "enc"="000001000111000011110100100 xdn:5" "asm"="uqinch {xdn}, vl4" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_x.10(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11110100100 xdn:5" "asm"="uqinch {xdn}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_x.11(i64 "reg"="x" %xdn) "enc"="000001000111000011110100101 xdn:5" "asm"="uqinch {xdn}, vl5" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_x.12(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11110100101 xdn:5" "asm"="uqinch {xdn}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_x.13(i64 "reg"="x" %xdn) "enc"="000001000111000011110100110 xdn:5" "asm"="uqinch {xdn}, vl6" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_x.14(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11110100110 xdn:5" "asm"="uqinch {xdn}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_x.15(i64 "reg"="x" %xdn) "enc"="000001000111000011110100111 xdn:5" "asm"="uqinch {xdn}, vl7" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_x.16(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11110100111 xdn:5" "asm"="uqinch {xdn}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_x.17(i64 "reg"="x" %xdn) "enc"="000001000111000011110101000 xdn:5" "asm"="uqinch {xdn}, vl8" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_x.18(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11110101000 xdn:5" "asm"="uqinch {xdn}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_x.19(i64 "reg"="x" %xdn) "enc"="000001000111000011110101001 xdn:5" "asm"="uqinch {xdn}, vl16" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_x.20(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11110101001 xdn:5" "asm"="uqinch {xdn}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_x.21(i64 "reg"="x" %xdn) "enc"="000001000111000011110101010 xdn:5" "asm"="uqinch {xdn}, vl32" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_x.22(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11110101010 xdn:5" "asm"="uqinch {xdn}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_x.23(i64 "reg"="x" %xdn) "enc"="000001000111000011110101011 xdn:5" "asm"="uqinch {xdn}, vl64" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_x.24(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11110101011 xdn:5" "asm"="uqinch {xdn}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_x.25(i64 "reg"="x" %xdn) "enc"="000001000111000011110101100 xdn:5" "asm"="uqinch {xdn}, vl128" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_x.26(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11110101100 xdn:5" "asm"="uqinch {xdn}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_x.27(i64 "reg"="x" %xdn) "enc"="000001000111000011110101101 xdn:5" "asm"="uqinch {xdn}, vl256" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_x.28(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11110101101 xdn:5" "asm"="uqinch {xdn}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_x.29(i64 "reg"="x" %xdn, i64 "imm" %pattern) "enc"="0000010001110000111101 pattern:5 xdn:5" "asm"="uqinch {xdn}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_x.30(i64 "reg"="x" %xdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 111101 pattern:5 xdn:5" "asm"="uqinch {xdn}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_x.31(i64 "reg"="x" %xdn) "enc"="000001000111000011110111101 xdn:5" "asm"="uqinch {xdn}, mul4" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_x.32(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11110111101 xdn:5" "asm"="uqinch {xdn}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_x.33(i64 "reg"="x" %xdn) "enc"="000001000111000011110111110 xdn:5" "asm"="uqinch {xdn}, mul3" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_x.34(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11110111110 xdn:5" "asm"="uqinch {xdn}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqinch_r_rs_x.35(i64 "reg"="x" %xdn) "enc"="000001000111000011110111111 xdn:5" "asm"="uqinch {xdn}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @uqinch_r_rs_x.36(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11110111111 xdn:5" "asm"="uqinch {xdn}, all, mul #{imm}" "asmonly" {
+  ret void
+}
+
 define void @uqdech_r_rs_x.0(i64 "reg"="x" %xdn) "enc"="000001000111000011111111111 xdn:5" "asm"="uqdech {xdn}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.1(i64 "reg"="x" %xdn) "enc"="000001000111000011111100000 xdn:5" "asm"="uqdech {xdn}, pow2" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.2(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11111100000 xdn:5" "asm"="uqdech {xdn}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.3(i64 "reg"="x" %xdn) "enc"="000001000111000011111100001 xdn:5" "asm"="uqdech {xdn}, vl1" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.4(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11111100001 xdn:5" "asm"="uqdech {xdn}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.5(i64 "reg"="x" %xdn) "enc"="000001000111000011111100010 xdn:5" "asm"="uqdech {xdn}, vl2" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.6(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11111100010 xdn:5" "asm"="uqdech {xdn}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.7(i64 "reg"="x" %xdn) "enc"="000001000111000011111100011 xdn:5" "asm"="uqdech {xdn}, vl3" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.8(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11111100011 xdn:5" "asm"="uqdech {xdn}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.9(i64 "reg"="x" %xdn) "enc"="000001000111000011111100100 xdn:5" "asm"="uqdech {xdn}, vl4" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.10(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11111100100 xdn:5" "asm"="uqdech {xdn}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.11(i64 "reg"="x" %xdn) "enc"="000001000111000011111100101 xdn:5" "asm"="uqdech {xdn}, vl5" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.12(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11111100101 xdn:5" "asm"="uqdech {xdn}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.13(i64 "reg"="x" %xdn) "enc"="000001000111000011111100110 xdn:5" "asm"="uqdech {xdn}, vl6" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.14(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11111100110 xdn:5" "asm"="uqdech {xdn}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.15(i64 "reg"="x" %xdn) "enc"="000001000111000011111100111 xdn:5" "asm"="uqdech {xdn}, vl7" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.16(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11111100111 xdn:5" "asm"="uqdech {xdn}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.17(i64 "reg"="x" %xdn) "enc"="000001000111000011111101000 xdn:5" "asm"="uqdech {xdn}, vl8" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.18(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11111101000 xdn:5" "asm"="uqdech {xdn}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.19(i64 "reg"="x" %xdn) "enc"="000001000111000011111101001 xdn:5" "asm"="uqdech {xdn}, vl16" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.20(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11111101001 xdn:5" "asm"="uqdech {xdn}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.21(i64 "reg"="x" %xdn) "enc"="000001000111000011111101010 xdn:5" "asm"="uqdech {xdn}, vl32" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.22(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11111101010 xdn:5" "asm"="uqdech {xdn}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.23(i64 "reg"="x" %xdn) "enc"="000001000111000011111101011 xdn:5" "asm"="uqdech {xdn}, vl64" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.24(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11111101011 xdn:5" "asm"="uqdech {xdn}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.25(i64 "reg"="x" %xdn) "enc"="000001000111000011111101100 xdn:5" "asm"="uqdech {xdn}, vl128" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.26(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11111101100 xdn:5" "asm"="uqdech {xdn}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.27(i64 "reg"="x" %xdn) "enc"="000001000111000011111101101 xdn:5" "asm"="uqdech {xdn}, vl256" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.28(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11111101101 xdn:5" "asm"="uqdech {xdn}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.29(i64 "reg"="x" %xdn, i64 "imm" %pattern) "enc"="0000010001110000111111 pattern:5 xdn:5" "asm"="uqdech {xdn}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.30(i64 "reg"="x" %xdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 111111 pattern:5 xdn:5" "asm"="uqdech {xdn}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.31(i64 "reg"="x" %xdn) "enc"="000001000111000011111111101 xdn:5" "asm"="uqdech {xdn}, mul4" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.32(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11111111101 xdn:5" "asm"="uqdech {xdn}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.33(i64 "reg"="x" %xdn) "enc"="000001000111000011111111110 xdn:5" "asm"="uqdech {xdn}, mul3" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.34(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11111111110 xdn:5" "asm"="uqdech {xdn}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.35(i64 "reg"="x" %xdn) "enc"="000001000111000011111111111 xdn:5" "asm"="uqdech {xdn}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @uqdech_r_rs_x.36(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001000111 imm_f:4=(imm-1) 11111111111 xdn:5" "asm"="uqdech {xdn}, all, mul #{imm}" "asmonly" {
   ret void
 }
 
@@ -1970,7 +9170,295 @@ define void @uqincw_r_rs_x.0(i64 "reg"="x" %xdn) "enc"="000001001011000011110111
   ret void
 }
 
+define void @uqincw_r_rs_x.1(i64 "reg"="x" %xdn) "enc"="000001001011000011110100000 xdn:5" "asm"="uqincw {xdn}, pow2" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_x.2(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11110100000 xdn:5" "asm"="uqincw {xdn}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_x.3(i64 "reg"="x" %xdn) "enc"="000001001011000011110100001 xdn:5" "asm"="uqincw {xdn}, vl1" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_x.4(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11110100001 xdn:5" "asm"="uqincw {xdn}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_x.5(i64 "reg"="x" %xdn) "enc"="000001001011000011110100010 xdn:5" "asm"="uqincw {xdn}, vl2" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_x.6(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11110100010 xdn:5" "asm"="uqincw {xdn}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_x.7(i64 "reg"="x" %xdn) "enc"="000001001011000011110100011 xdn:5" "asm"="uqincw {xdn}, vl3" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_x.8(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11110100011 xdn:5" "asm"="uqincw {xdn}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_x.9(i64 "reg"="x" %xdn) "enc"="000001001011000011110100100 xdn:5" "asm"="uqincw {xdn}, vl4" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_x.10(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11110100100 xdn:5" "asm"="uqincw {xdn}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_x.11(i64 "reg"="x" %xdn) "enc"="000001001011000011110100101 xdn:5" "asm"="uqincw {xdn}, vl5" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_x.12(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11110100101 xdn:5" "asm"="uqincw {xdn}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_x.13(i64 "reg"="x" %xdn) "enc"="000001001011000011110100110 xdn:5" "asm"="uqincw {xdn}, vl6" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_x.14(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11110100110 xdn:5" "asm"="uqincw {xdn}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_x.15(i64 "reg"="x" %xdn) "enc"="000001001011000011110100111 xdn:5" "asm"="uqincw {xdn}, vl7" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_x.16(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11110100111 xdn:5" "asm"="uqincw {xdn}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_x.17(i64 "reg"="x" %xdn) "enc"="000001001011000011110101000 xdn:5" "asm"="uqincw {xdn}, vl8" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_x.18(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11110101000 xdn:5" "asm"="uqincw {xdn}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_x.19(i64 "reg"="x" %xdn) "enc"="000001001011000011110101001 xdn:5" "asm"="uqincw {xdn}, vl16" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_x.20(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11110101001 xdn:5" "asm"="uqincw {xdn}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_x.21(i64 "reg"="x" %xdn) "enc"="000001001011000011110101010 xdn:5" "asm"="uqincw {xdn}, vl32" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_x.22(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11110101010 xdn:5" "asm"="uqincw {xdn}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_x.23(i64 "reg"="x" %xdn) "enc"="000001001011000011110101011 xdn:5" "asm"="uqincw {xdn}, vl64" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_x.24(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11110101011 xdn:5" "asm"="uqincw {xdn}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_x.25(i64 "reg"="x" %xdn) "enc"="000001001011000011110101100 xdn:5" "asm"="uqincw {xdn}, vl128" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_x.26(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11110101100 xdn:5" "asm"="uqincw {xdn}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_x.27(i64 "reg"="x" %xdn) "enc"="000001001011000011110101101 xdn:5" "asm"="uqincw {xdn}, vl256" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_x.28(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11110101101 xdn:5" "asm"="uqincw {xdn}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_x.29(i64 "reg"="x" %xdn, i64 "imm" %pattern) "enc"="0000010010110000111101 pattern:5 xdn:5" "asm"="uqincw {xdn}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_x.30(i64 "reg"="x" %xdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 111101 pattern:5 xdn:5" "asm"="uqincw {xdn}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_x.31(i64 "reg"="x" %xdn) "enc"="000001001011000011110111101 xdn:5" "asm"="uqincw {xdn}, mul4" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_x.32(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11110111101 xdn:5" "asm"="uqincw {xdn}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_x.33(i64 "reg"="x" %xdn) "enc"="000001001011000011110111110 xdn:5" "asm"="uqincw {xdn}, mul3" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_x.34(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11110111110 xdn:5" "asm"="uqincw {xdn}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincw_r_rs_x.35(i64 "reg"="x" %xdn) "enc"="000001001011000011110111111 xdn:5" "asm"="uqincw {xdn}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @uqincw_r_rs_x.36(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11110111111 xdn:5" "asm"="uqincw {xdn}, all, mul #{imm}" "asmonly" {
+  ret void
+}
+
 define void @uqdecw_r_rs_x.0(i64 "reg"="x" %xdn) "enc"="000001001011000011111111111 xdn:5" "asm"="uqdecw {xdn}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.1(i64 "reg"="x" %xdn) "enc"="000001001011000011111100000 xdn:5" "asm"="uqdecw {xdn}, pow2" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.2(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11111100000 xdn:5" "asm"="uqdecw {xdn}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.3(i64 "reg"="x" %xdn) "enc"="000001001011000011111100001 xdn:5" "asm"="uqdecw {xdn}, vl1" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.4(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11111100001 xdn:5" "asm"="uqdecw {xdn}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.5(i64 "reg"="x" %xdn) "enc"="000001001011000011111100010 xdn:5" "asm"="uqdecw {xdn}, vl2" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.6(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11111100010 xdn:5" "asm"="uqdecw {xdn}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.7(i64 "reg"="x" %xdn) "enc"="000001001011000011111100011 xdn:5" "asm"="uqdecw {xdn}, vl3" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.8(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11111100011 xdn:5" "asm"="uqdecw {xdn}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.9(i64 "reg"="x" %xdn) "enc"="000001001011000011111100100 xdn:5" "asm"="uqdecw {xdn}, vl4" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.10(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11111100100 xdn:5" "asm"="uqdecw {xdn}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.11(i64 "reg"="x" %xdn) "enc"="000001001011000011111100101 xdn:5" "asm"="uqdecw {xdn}, vl5" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.12(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11111100101 xdn:5" "asm"="uqdecw {xdn}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.13(i64 "reg"="x" %xdn) "enc"="000001001011000011111100110 xdn:5" "asm"="uqdecw {xdn}, vl6" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.14(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11111100110 xdn:5" "asm"="uqdecw {xdn}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.15(i64 "reg"="x" %xdn) "enc"="000001001011000011111100111 xdn:5" "asm"="uqdecw {xdn}, vl7" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.16(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11111100111 xdn:5" "asm"="uqdecw {xdn}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.17(i64 "reg"="x" %xdn) "enc"="000001001011000011111101000 xdn:5" "asm"="uqdecw {xdn}, vl8" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.18(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11111101000 xdn:5" "asm"="uqdecw {xdn}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.19(i64 "reg"="x" %xdn) "enc"="000001001011000011111101001 xdn:5" "asm"="uqdecw {xdn}, vl16" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.20(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11111101001 xdn:5" "asm"="uqdecw {xdn}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.21(i64 "reg"="x" %xdn) "enc"="000001001011000011111101010 xdn:5" "asm"="uqdecw {xdn}, vl32" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.22(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11111101010 xdn:5" "asm"="uqdecw {xdn}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.23(i64 "reg"="x" %xdn) "enc"="000001001011000011111101011 xdn:5" "asm"="uqdecw {xdn}, vl64" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.24(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11111101011 xdn:5" "asm"="uqdecw {xdn}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.25(i64 "reg"="x" %xdn) "enc"="000001001011000011111101100 xdn:5" "asm"="uqdecw {xdn}, vl128" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.26(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11111101100 xdn:5" "asm"="uqdecw {xdn}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.27(i64 "reg"="x" %xdn) "enc"="000001001011000011111101101 xdn:5" "asm"="uqdecw {xdn}, vl256" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.28(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11111101101 xdn:5" "asm"="uqdecw {xdn}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.29(i64 "reg"="x" %xdn, i64 "imm" %pattern) "enc"="0000010010110000111111 pattern:5 xdn:5" "asm"="uqdecw {xdn}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.30(i64 "reg"="x" %xdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 111111 pattern:5 xdn:5" "asm"="uqdecw {xdn}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.31(i64 "reg"="x" %xdn) "enc"="000001001011000011111111101 xdn:5" "asm"="uqdecw {xdn}, mul4" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.32(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11111111101 xdn:5" "asm"="uqdecw {xdn}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.33(i64 "reg"="x" %xdn) "enc"="000001001011000011111111110 xdn:5" "asm"="uqdecw {xdn}, mul3" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.34(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11111111110 xdn:5" "asm"="uqdecw {xdn}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.35(i64 "reg"="x" %xdn) "enc"="000001001011000011111111111 xdn:5" "asm"="uqdecw {xdn}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @uqdecw_r_rs_x.36(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001011 imm_f:4=(imm-1) 11111111111 xdn:5" "asm"="uqdecw {xdn}, all, mul #{imm}" "asmonly" {
   ret void
 }
 
@@ -1978,7 +9466,295 @@ define void @uqincd_r_rs_x.0(i64 "reg"="x" %xdn) "enc"="000001001111000011110111
   ret void
 }
 
+define void @uqincd_r_rs_x.1(i64 "reg"="x" %xdn) "enc"="000001001111000011110100000 xdn:5" "asm"="uqincd {xdn}, pow2" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_x.2(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11110100000 xdn:5" "asm"="uqincd {xdn}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_x.3(i64 "reg"="x" %xdn) "enc"="000001001111000011110100001 xdn:5" "asm"="uqincd {xdn}, vl1" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_x.4(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11110100001 xdn:5" "asm"="uqincd {xdn}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_x.5(i64 "reg"="x" %xdn) "enc"="000001001111000011110100010 xdn:5" "asm"="uqincd {xdn}, vl2" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_x.6(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11110100010 xdn:5" "asm"="uqincd {xdn}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_x.7(i64 "reg"="x" %xdn) "enc"="000001001111000011110100011 xdn:5" "asm"="uqincd {xdn}, vl3" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_x.8(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11110100011 xdn:5" "asm"="uqincd {xdn}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_x.9(i64 "reg"="x" %xdn) "enc"="000001001111000011110100100 xdn:5" "asm"="uqincd {xdn}, vl4" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_x.10(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11110100100 xdn:5" "asm"="uqincd {xdn}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_x.11(i64 "reg"="x" %xdn) "enc"="000001001111000011110100101 xdn:5" "asm"="uqincd {xdn}, vl5" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_x.12(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11110100101 xdn:5" "asm"="uqincd {xdn}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_x.13(i64 "reg"="x" %xdn) "enc"="000001001111000011110100110 xdn:5" "asm"="uqincd {xdn}, vl6" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_x.14(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11110100110 xdn:5" "asm"="uqincd {xdn}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_x.15(i64 "reg"="x" %xdn) "enc"="000001001111000011110100111 xdn:5" "asm"="uqincd {xdn}, vl7" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_x.16(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11110100111 xdn:5" "asm"="uqincd {xdn}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_x.17(i64 "reg"="x" %xdn) "enc"="000001001111000011110101000 xdn:5" "asm"="uqincd {xdn}, vl8" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_x.18(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11110101000 xdn:5" "asm"="uqincd {xdn}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_x.19(i64 "reg"="x" %xdn) "enc"="000001001111000011110101001 xdn:5" "asm"="uqincd {xdn}, vl16" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_x.20(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11110101001 xdn:5" "asm"="uqincd {xdn}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_x.21(i64 "reg"="x" %xdn) "enc"="000001001111000011110101010 xdn:5" "asm"="uqincd {xdn}, vl32" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_x.22(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11110101010 xdn:5" "asm"="uqincd {xdn}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_x.23(i64 "reg"="x" %xdn) "enc"="000001001111000011110101011 xdn:5" "asm"="uqincd {xdn}, vl64" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_x.24(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11110101011 xdn:5" "asm"="uqincd {xdn}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_x.25(i64 "reg"="x" %xdn) "enc"="000001001111000011110101100 xdn:5" "asm"="uqincd {xdn}, vl128" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_x.26(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11110101100 xdn:5" "asm"="uqincd {xdn}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_x.27(i64 "reg"="x" %xdn) "enc"="000001001111000011110101101 xdn:5" "asm"="uqincd {xdn}, vl256" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_x.28(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11110101101 xdn:5" "asm"="uqincd {xdn}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_x.29(i64 "reg"="x" %xdn, i64 "imm" %pattern) "enc"="0000010011110000111101 pattern:5 xdn:5" "asm"="uqincd {xdn}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_x.30(i64 "reg"="x" %xdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 111101 pattern:5 xdn:5" "asm"="uqincd {xdn}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_x.31(i64 "reg"="x" %xdn) "enc"="000001001111000011110111101 xdn:5" "asm"="uqincd {xdn}, mul4" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_x.32(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11110111101 xdn:5" "asm"="uqincd {xdn}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_x.33(i64 "reg"="x" %xdn) "enc"="000001001111000011110111110 xdn:5" "asm"="uqincd {xdn}, mul3" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_x.34(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11110111110 xdn:5" "asm"="uqincd {xdn}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqincd_r_rs_x.35(i64 "reg"="x" %xdn) "enc"="000001001111000011110111111 xdn:5" "asm"="uqincd {xdn}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @uqincd_r_rs_x.36(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11110111111 xdn:5" "asm"="uqincd {xdn}, all, mul #{imm}" "asmonly" {
+  ret void
+}
+
 define void @uqdecd_r_rs_x.0(i64 "reg"="x" %xdn) "enc"="000001001111000011111111111 xdn:5" "asm"="uqdecd {xdn}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.1(i64 "reg"="x" %xdn) "enc"="000001001111000011111100000 xdn:5" "asm"="uqdecd {xdn}, pow2" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.2(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11111100000 xdn:5" "asm"="uqdecd {xdn}, pow2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.3(i64 "reg"="x" %xdn) "enc"="000001001111000011111100001 xdn:5" "asm"="uqdecd {xdn}, vl1" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.4(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11111100001 xdn:5" "asm"="uqdecd {xdn}, vl1, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.5(i64 "reg"="x" %xdn) "enc"="000001001111000011111100010 xdn:5" "asm"="uqdecd {xdn}, vl2" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.6(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11111100010 xdn:5" "asm"="uqdecd {xdn}, vl2, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.7(i64 "reg"="x" %xdn) "enc"="000001001111000011111100011 xdn:5" "asm"="uqdecd {xdn}, vl3" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.8(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11111100011 xdn:5" "asm"="uqdecd {xdn}, vl3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.9(i64 "reg"="x" %xdn) "enc"="000001001111000011111100100 xdn:5" "asm"="uqdecd {xdn}, vl4" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.10(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11111100100 xdn:5" "asm"="uqdecd {xdn}, vl4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.11(i64 "reg"="x" %xdn) "enc"="000001001111000011111100101 xdn:5" "asm"="uqdecd {xdn}, vl5" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.12(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11111100101 xdn:5" "asm"="uqdecd {xdn}, vl5, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.13(i64 "reg"="x" %xdn) "enc"="000001001111000011111100110 xdn:5" "asm"="uqdecd {xdn}, vl6" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.14(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11111100110 xdn:5" "asm"="uqdecd {xdn}, vl6, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.15(i64 "reg"="x" %xdn) "enc"="000001001111000011111100111 xdn:5" "asm"="uqdecd {xdn}, vl7" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.16(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11111100111 xdn:5" "asm"="uqdecd {xdn}, vl7, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.17(i64 "reg"="x" %xdn) "enc"="000001001111000011111101000 xdn:5" "asm"="uqdecd {xdn}, vl8" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.18(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11111101000 xdn:5" "asm"="uqdecd {xdn}, vl8, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.19(i64 "reg"="x" %xdn) "enc"="000001001111000011111101001 xdn:5" "asm"="uqdecd {xdn}, vl16" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.20(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11111101001 xdn:5" "asm"="uqdecd {xdn}, vl16, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.21(i64 "reg"="x" %xdn) "enc"="000001001111000011111101010 xdn:5" "asm"="uqdecd {xdn}, vl32" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.22(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11111101010 xdn:5" "asm"="uqdecd {xdn}, vl32, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.23(i64 "reg"="x" %xdn) "enc"="000001001111000011111101011 xdn:5" "asm"="uqdecd {xdn}, vl64" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.24(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11111101011 xdn:5" "asm"="uqdecd {xdn}, vl64, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.25(i64 "reg"="x" %xdn) "enc"="000001001111000011111101100 xdn:5" "asm"="uqdecd {xdn}, vl128" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.26(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11111101100 xdn:5" "asm"="uqdecd {xdn}, vl128, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.27(i64 "reg"="x" %xdn) "enc"="000001001111000011111101101 xdn:5" "asm"="uqdecd {xdn}, vl256" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.28(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11111101101 xdn:5" "asm"="uqdecd {xdn}, vl256, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.29(i64 "reg"="x" %xdn, i64 "imm" %pattern) "enc"="0000010011110000111111 pattern:5 xdn:5" "asm"="uqdecd {xdn}, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.30(i64 "reg"="x" %xdn, i64 "imm" %pattern, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 111111 pattern:5 xdn:5" "asm"="uqdecd {xdn}, {pattern}, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.31(i64 "reg"="x" %xdn) "enc"="000001001111000011111111101 xdn:5" "asm"="uqdecd {xdn}, mul4" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.32(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11111111101 xdn:5" "asm"="uqdecd {xdn}, mul4, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.33(i64 "reg"="x" %xdn) "enc"="000001001111000011111111110 xdn:5" "asm"="uqdecd {xdn}, mul3" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.34(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11111111110 xdn:5" "asm"="uqdecd {xdn}, mul3, mul #{imm}" "asmonly" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.35(i64 "reg"="x" %xdn) "enc"="000001001111000011111111111 xdn:5" "asm"="uqdecd {xdn}, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @uqdecd_r_rs_x.36(i64 "reg"="x" %xdn, i64 "imm" %imm) "enc"="000001001111 imm_f:4=(imm-1) 11111111111 xdn:5" "asm"="uqdecd {xdn}, all, mul #{imm}" "asmonly" {
   ret void
 }
 
@@ -3699,6 +11475,614 @@ define void @pnext_p_p_p_.2(i64 "reg"="p" %pdn, i64 "reg"="p" %pv) "enc"="001001
 }
 
 define void @pnext_p_p_p_.3(i64 "reg"="p" %pdn, i64 "reg"="p" %pv) "enc"="00100101110110011100010 pv:4 0 pdn:4" "asm"="pnext {pdn}.d, {pv}, {pdn}.d" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.0(i64 "reg"="p" %pd) "enc"="0010010100011000111000111110 pd:4" "asm"="ptrue {pd}.b" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.1(i64 "reg"="p" %pd) "enc"="0010010100011000111000000000 pd:4" "asm"="ptrue {pd}.b, pow2" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.2(i64 "reg"="p" %pd) "enc"="0010010100011000111000000010 pd:4" "asm"="ptrue {pd}.b, vl1" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.3(i64 "reg"="p" %pd) "enc"="0010010100011000111000000100 pd:4" "asm"="ptrue {pd}.b, vl2" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.4(i64 "reg"="p" %pd) "enc"="0010010100011000111000000110 pd:4" "asm"="ptrue {pd}.b, vl3" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.5(i64 "reg"="p" %pd) "enc"="0010010100011000111000001000 pd:4" "asm"="ptrue {pd}.b, vl4" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.6(i64 "reg"="p" %pd) "enc"="0010010100011000111000001010 pd:4" "asm"="ptrue {pd}.b, vl5" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.7(i64 "reg"="p" %pd) "enc"="0010010100011000111000001100 pd:4" "asm"="ptrue {pd}.b, vl6" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.8(i64 "reg"="p" %pd) "enc"="0010010100011000111000001110 pd:4" "asm"="ptrue {pd}.b, vl7" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.9(i64 "reg"="p" %pd) "enc"="0010010100011000111000010000 pd:4" "asm"="ptrue {pd}.b, vl8" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.10(i64 "reg"="p" %pd) "enc"="0010010100011000111000010010 pd:4" "asm"="ptrue {pd}.b, vl16" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.11(i64 "reg"="p" %pd) "enc"="0010010100011000111000010100 pd:4" "asm"="ptrue {pd}.b, vl32" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.12(i64 "reg"="p" %pd) "enc"="0010010100011000111000010110 pd:4" "asm"="ptrue {pd}.b, vl64" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.13(i64 "reg"="p" %pd) "enc"="0010010100011000111000011000 pd:4" "asm"="ptrue {pd}.b, vl128" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.14(i64 "reg"="p" %pd) "enc"="0010010100011000111000011010 pd:4" "asm"="ptrue {pd}.b, vl256" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.15(i64 "reg"="p" %pd, i64 "imm" %pattern) "enc"="0010010100011000111000 pattern:5 0 pd:4" "asm"="ptrue {pd}.b, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.16(i64 "reg"="p" %pd) "enc"="0010010100011000111000111010 pd:4" "asm"="ptrue {pd}.b, mul4" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.17(i64 "reg"="p" %pd) "enc"="0010010100011000111000111100 pd:4" "asm"="ptrue {pd}.b, mul3" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.18(i64 "reg"="p" %pd) "enc"="0010010100011000111000111110 pd:4" "asm"="ptrue {pd}.b, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @ptrue_p_s_.19(i64 "reg"="p" %pd) "enc"="0010010101011000111000111110 pd:4" "asm"="ptrue {pd}.h" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.20(i64 "reg"="p" %pd) "enc"="0010010101011000111000000000 pd:4" "asm"="ptrue {pd}.h, pow2" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.21(i64 "reg"="p" %pd) "enc"="0010010101011000111000000010 pd:4" "asm"="ptrue {pd}.h, vl1" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.22(i64 "reg"="p" %pd) "enc"="0010010101011000111000000100 pd:4" "asm"="ptrue {pd}.h, vl2" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.23(i64 "reg"="p" %pd) "enc"="0010010101011000111000000110 pd:4" "asm"="ptrue {pd}.h, vl3" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.24(i64 "reg"="p" %pd) "enc"="0010010101011000111000001000 pd:4" "asm"="ptrue {pd}.h, vl4" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.25(i64 "reg"="p" %pd) "enc"="0010010101011000111000001010 pd:4" "asm"="ptrue {pd}.h, vl5" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.26(i64 "reg"="p" %pd) "enc"="0010010101011000111000001100 pd:4" "asm"="ptrue {pd}.h, vl6" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.27(i64 "reg"="p" %pd) "enc"="0010010101011000111000001110 pd:4" "asm"="ptrue {pd}.h, vl7" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.28(i64 "reg"="p" %pd) "enc"="0010010101011000111000010000 pd:4" "asm"="ptrue {pd}.h, vl8" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.29(i64 "reg"="p" %pd) "enc"="0010010101011000111000010010 pd:4" "asm"="ptrue {pd}.h, vl16" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.30(i64 "reg"="p" %pd) "enc"="0010010101011000111000010100 pd:4" "asm"="ptrue {pd}.h, vl32" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.31(i64 "reg"="p" %pd) "enc"="0010010101011000111000010110 pd:4" "asm"="ptrue {pd}.h, vl64" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.32(i64 "reg"="p" %pd) "enc"="0010010101011000111000011000 pd:4" "asm"="ptrue {pd}.h, vl128" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.33(i64 "reg"="p" %pd) "enc"="0010010101011000111000011010 pd:4" "asm"="ptrue {pd}.h, vl256" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.34(i64 "reg"="p" %pd, i64 "imm" %pattern) "enc"="0010010101011000111000 pattern:5 0 pd:4" "asm"="ptrue {pd}.h, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.35(i64 "reg"="p" %pd) "enc"="0010010101011000111000111010 pd:4" "asm"="ptrue {pd}.h, mul4" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.36(i64 "reg"="p" %pd) "enc"="0010010101011000111000111100 pd:4" "asm"="ptrue {pd}.h, mul3" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.37(i64 "reg"="p" %pd) "enc"="0010010101011000111000111110 pd:4" "asm"="ptrue {pd}.h, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @ptrue_p_s_.38(i64 "reg"="p" %pd) "enc"="0010010110011000111000111110 pd:4" "asm"="ptrue {pd}.s" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.39(i64 "reg"="p" %pd) "enc"="0010010110011000111000000000 pd:4" "asm"="ptrue {pd}.s, pow2" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.40(i64 "reg"="p" %pd) "enc"="0010010110011000111000000010 pd:4" "asm"="ptrue {pd}.s, vl1" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.41(i64 "reg"="p" %pd) "enc"="0010010110011000111000000100 pd:4" "asm"="ptrue {pd}.s, vl2" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.42(i64 "reg"="p" %pd) "enc"="0010010110011000111000000110 pd:4" "asm"="ptrue {pd}.s, vl3" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.43(i64 "reg"="p" %pd) "enc"="0010010110011000111000001000 pd:4" "asm"="ptrue {pd}.s, vl4" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.44(i64 "reg"="p" %pd) "enc"="0010010110011000111000001010 pd:4" "asm"="ptrue {pd}.s, vl5" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.45(i64 "reg"="p" %pd) "enc"="0010010110011000111000001100 pd:4" "asm"="ptrue {pd}.s, vl6" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.46(i64 "reg"="p" %pd) "enc"="0010010110011000111000001110 pd:4" "asm"="ptrue {pd}.s, vl7" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.47(i64 "reg"="p" %pd) "enc"="0010010110011000111000010000 pd:4" "asm"="ptrue {pd}.s, vl8" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.48(i64 "reg"="p" %pd) "enc"="0010010110011000111000010010 pd:4" "asm"="ptrue {pd}.s, vl16" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.49(i64 "reg"="p" %pd) "enc"="0010010110011000111000010100 pd:4" "asm"="ptrue {pd}.s, vl32" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.50(i64 "reg"="p" %pd) "enc"="0010010110011000111000010110 pd:4" "asm"="ptrue {pd}.s, vl64" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.51(i64 "reg"="p" %pd) "enc"="0010010110011000111000011000 pd:4" "asm"="ptrue {pd}.s, vl128" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.52(i64 "reg"="p" %pd) "enc"="0010010110011000111000011010 pd:4" "asm"="ptrue {pd}.s, vl256" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.53(i64 "reg"="p" %pd, i64 "imm" %pattern) "enc"="0010010110011000111000 pattern:5 0 pd:4" "asm"="ptrue {pd}.s, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.54(i64 "reg"="p" %pd) "enc"="0010010110011000111000111010 pd:4" "asm"="ptrue {pd}.s, mul4" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.55(i64 "reg"="p" %pd) "enc"="0010010110011000111000111100 pd:4" "asm"="ptrue {pd}.s, mul3" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.56(i64 "reg"="p" %pd) "enc"="0010010110011000111000111110 pd:4" "asm"="ptrue {pd}.s, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @ptrue_p_s_.57(i64 "reg"="p" %pd) "enc"="0010010111011000111000111110 pd:4" "asm"="ptrue {pd}.d" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.58(i64 "reg"="p" %pd) "enc"="0010010111011000111000000000 pd:4" "asm"="ptrue {pd}.d, pow2" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.59(i64 "reg"="p" %pd) "enc"="0010010111011000111000000010 pd:4" "asm"="ptrue {pd}.d, vl1" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.60(i64 "reg"="p" %pd) "enc"="0010010111011000111000000100 pd:4" "asm"="ptrue {pd}.d, vl2" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.61(i64 "reg"="p" %pd) "enc"="0010010111011000111000000110 pd:4" "asm"="ptrue {pd}.d, vl3" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.62(i64 "reg"="p" %pd) "enc"="0010010111011000111000001000 pd:4" "asm"="ptrue {pd}.d, vl4" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.63(i64 "reg"="p" %pd) "enc"="0010010111011000111000001010 pd:4" "asm"="ptrue {pd}.d, vl5" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.64(i64 "reg"="p" %pd) "enc"="0010010111011000111000001100 pd:4" "asm"="ptrue {pd}.d, vl6" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.65(i64 "reg"="p" %pd) "enc"="0010010111011000111000001110 pd:4" "asm"="ptrue {pd}.d, vl7" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.66(i64 "reg"="p" %pd) "enc"="0010010111011000111000010000 pd:4" "asm"="ptrue {pd}.d, vl8" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.67(i64 "reg"="p" %pd) "enc"="0010010111011000111000010010 pd:4" "asm"="ptrue {pd}.d, vl16" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.68(i64 "reg"="p" %pd) "enc"="0010010111011000111000010100 pd:4" "asm"="ptrue {pd}.d, vl32" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.69(i64 "reg"="p" %pd) "enc"="0010010111011000111000010110 pd:4" "asm"="ptrue {pd}.d, vl64" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.70(i64 "reg"="p" %pd) "enc"="0010010111011000111000011000 pd:4" "asm"="ptrue {pd}.d, vl128" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.71(i64 "reg"="p" %pd) "enc"="0010010111011000111000011010 pd:4" "asm"="ptrue {pd}.d, vl256" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.72(i64 "reg"="p" %pd, i64 "imm" %pattern) "enc"="0010010111011000111000 pattern:5 0 pd:4" "asm"="ptrue {pd}.d, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.73(i64 "reg"="p" %pd) "enc"="0010010111011000111000111010 pd:4" "asm"="ptrue {pd}.d, mul4" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.74(i64 "reg"="p" %pd) "enc"="0010010111011000111000111100 pd:4" "asm"="ptrue {pd}.d, mul3" "asmonly" {
+  ret void
+}
+
+define void @ptrue_p_s_.75(i64 "reg"="p" %pd) "enc"="0010010111011000111000111110 pd:4" "asm"="ptrue {pd}.d, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @ptrues_p_s_.0(i64 "reg"="p" %pd) "enc"="0010010100011001111000111110 pd:4" "asm"="ptrues {pd}.b" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.1(i64 "reg"="p" %pd) "enc"="0010010100011001111000000000 pd:4" "asm"="ptrues {pd}.b, pow2" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.2(i64 "reg"="p" %pd) "enc"="0010010100011001111000000010 pd:4" "asm"="ptrues {pd}.b, vl1" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.3(i64 "reg"="p" %pd) "enc"="0010010100011001111000000100 pd:4" "asm"="ptrues {pd}.b, vl2" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.4(i64 "reg"="p" %pd) "enc"="0010010100011001111000000110 pd:4" "asm"="ptrues {pd}.b, vl3" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.5(i64 "reg"="p" %pd) "enc"="0010010100011001111000001000 pd:4" "asm"="ptrues {pd}.b, vl4" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.6(i64 "reg"="p" %pd) "enc"="0010010100011001111000001010 pd:4" "asm"="ptrues {pd}.b, vl5" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.7(i64 "reg"="p" %pd) "enc"="0010010100011001111000001100 pd:4" "asm"="ptrues {pd}.b, vl6" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.8(i64 "reg"="p" %pd) "enc"="0010010100011001111000001110 pd:4" "asm"="ptrues {pd}.b, vl7" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.9(i64 "reg"="p" %pd) "enc"="0010010100011001111000010000 pd:4" "asm"="ptrues {pd}.b, vl8" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.10(i64 "reg"="p" %pd) "enc"="0010010100011001111000010010 pd:4" "asm"="ptrues {pd}.b, vl16" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.11(i64 "reg"="p" %pd) "enc"="0010010100011001111000010100 pd:4" "asm"="ptrues {pd}.b, vl32" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.12(i64 "reg"="p" %pd) "enc"="0010010100011001111000010110 pd:4" "asm"="ptrues {pd}.b, vl64" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.13(i64 "reg"="p" %pd) "enc"="0010010100011001111000011000 pd:4" "asm"="ptrues {pd}.b, vl128" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.14(i64 "reg"="p" %pd) "enc"="0010010100011001111000011010 pd:4" "asm"="ptrues {pd}.b, vl256" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.15(i64 "reg"="p" %pd, i64 "imm" %pattern) "enc"="0010010100011001111000 pattern:5 0 pd:4" "asm"="ptrues {pd}.b, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.16(i64 "reg"="p" %pd) "enc"="0010010100011001111000111010 pd:4" "asm"="ptrues {pd}.b, mul4" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.17(i64 "reg"="p" %pd) "enc"="0010010100011001111000111100 pd:4" "asm"="ptrues {pd}.b, mul3" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.18(i64 "reg"="p" %pd) "enc"="0010010100011001111000111110 pd:4" "asm"="ptrues {pd}.b, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @ptrues_p_s_.19(i64 "reg"="p" %pd) "enc"="0010010101011001111000111110 pd:4" "asm"="ptrues {pd}.h" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.20(i64 "reg"="p" %pd) "enc"="0010010101011001111000000000 pd:4" "asm"="ptrues {pd}.h, pow2" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.21(i64 "reg"="p" %pd) "enc"="0010010101011001111000000010 pd:4" "asm"="ptrues {pd}.h, vl1" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.22(i64 "reg"="p" %pd) "enc"="0010010101011001111000000100 pd:4" "asm"="ptrues {pd}.h, vl2" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.23(i64 "reg"="p" %pd) "enc"="0010010101011001111000000110 pd:4" "asm"="ptrues {pd}.h, vl3" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.24(i64 "reg"="p" %pd) "enc"="0010010101011001111000001000 pd:4" "asm"="ptrues {pd}.h, vl4" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.25(i64 "reg"="p" %pd) "enc"="0010010101011001111000001010 pd:4" "asm"="ptrues {pd}.h, vl5" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.26(i64 "reg"="p" %pd) "enc"="0010010101011001111000001100 pd:4" "asm"="ptrues {pd}.h, vl6" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.27(i64 "reg"="p" %pd) "enc"="0010010101011001111000001110 pd:4" "asm"="ptrues {pd}.h, vl7" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.28(i64 "reg"="p" %pd) "enc"="0010010101011001111000010000 pd:4" "asm"="ptrues {pd}.h, vl8" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.29(i64 "reg"="p" %pd) "enc"="0010010101011001111000010010 pd:4" "asm"="ptrues {pd}.h, vl16" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.30(i64 "reg"="p" %pd) "enc"="0010010101011001111000010100 pd:4" "asm"="ptrues {pd}.h, vl32" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.31(i64 "reg"="p" %pd) "enc"="0010010101011001111000010110 pd:4" "asm"="ptrues {pd}.h, vl64" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.32(i64 "reg"="p" %pd) "enc"="0010010101011001111000011000 pd:4" "asm"="ptrues {pd}.h, vl128" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.33(i64 "reg"="p" %pd) "enc"="0010010101011001111000011010 pd:4" "asm"="ptrues {pd}.h, vl256" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.34(i64 "reg"="p" %pd, i64 "imm" %pattern) "enc"="0010010101011001111000 pattern:5 0 pd:4" "asm"="ptrues {pd}.h, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.35(i64 "reg"="p" %pd) "enc"="0010010101011001111000111010 pd:4" "asm"="ptrues {pd}.h, mul4" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.36(i64 "reg"="p" %pd) "enc"="0010010101011001111000111100 pd:4" "asm"="ptrues {pd}.h, mul3" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.37(i64 "reg"="p" %pd) "enc"="0010010101011001111000111110 pd:4" "asm"="ptrues {pd}.h, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @ptrues_p_s_.38(i64 "reg"="p" %pd) "enc"="0010010110011001111000111110 pd:4" "asm"="ptrues {pd}.s" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.39(i64 "reg"="p" %pd) "enc"="0010010110011001111000000000 pd:4" "asm"="ptrues {pd}.s, pow2" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.40(i64 "reg"="p" %pd) "enc"="0010010110011001111000000010 pd:4" "asm"="ptrues {pd}.s, vl1" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.41(i64 "reg"="p" %pd) "enc"="0010010110011001111000000100 pd:4" "asm"="ptrues {pd}.s, vl2" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.42(i64 "reg"="p" %pd) "enc"="0010010110011001111000000110 pd:4" "asm"="ptrues {pd}.s, vl3" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.43(i64 "reg"="p" %pd) "enc"="0010010110011001111000001000 pd:4" "asm"="ptrues {pd}.s, vl4" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.44(i64 "reg"="p" %pd) "enc"="0010010110011001111000001010 pd:4" "asm"="ptrues {pd}.s, vl5" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.45(i64 "reg"="p" %pd) "enc"="0010010110011001111000001100 pd:4" "asm"="ptrues {pd}.s, vl6" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.46(i64 "reg"="p" %pd) "enc"="0010010110011001111000001110 pd:4" "asm"="ptrues {pd}.s, vl7" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.47(i64 "reg"="p" %pd) "enc"="0010010110011001111000010000 pd:4" "asm"="ptrues {pd}.s, vl8" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.48(i64 "reg"="p" %pd) "enc"="0010010110011001111000010010 pd:4" "asm"="ptrues {pd}.s, vl16" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.49(i64 "reg"="p" %pd) "enc"="0010010110011001111000010100 pd:4" "asm"="ptrues {pd}.s, vl32" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.50(i64 "reg"="p" %pd) "enc"="0010010110011001111000010110 pd:4" "asm"="ptrues {pd}.s, vl64" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.51(i64 "reg"="p" %pd) "enc"="0010010110011001111000011000 pd:4" "asm"="ptrues {pd}.s, vl128" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.52(i64 "reg"="p" %pd) "enc"="0010010110011001111000011010 pd:4" "asm"="ptrues {pd}.s, vl256" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.53(i64 "reg"="p" %pd, i64 "imm" %pattern) "enc"="0010010110011001111000 pattern:5 0 pd:4" "asm"="ptrues {pd}.s, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.54(i64 "reg"="p" %pd) "enc"="0010010110011001111000111010 pd:4" "asm"="ptrues {pd}.s, mul4" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.55(i64 "reg"="p" %pd) "enc"="0010010110011001111000111100 pd:4" "asm"="ptrues {pd}.s, mul3" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.56(i64 "reg"="p" %pd) "enc"="0010010110011001111000111110 pd:4" "asm"="ptrues {pd}.s, all" "asmonly" "nodecode" {
+  ret void
+}
+
+define void @ptrues_p_s_.57(i64 "reg"="p" %pd) "enc"="0010010111011001111000111110 pd:4" "asm"="ptrues {pd}.d" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.58(i64 "reg"="p" %pd) "enc"="0010010111011001111000000000 pd:4" "asm"="ptrues {pd}.d, pow2" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.59(i64 "reg"="p" %pd) "enc"="0010010111011001111000000010 pd:4" "asm"="ptrues {pd}.d, vl1" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.60(i64 "reg"="p" %pd) "enc"="0010010111011001111000000100 pd:4" "asm"="ptrues {pd}.d, vl2" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.61(i64 "reg"="p" %pd) "enc"="0010010111011001111000000110 pd:4" "asm"="ptrues {pd}.d, vl3" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.62(i64 "reg"="p" %pd) "enc"="0010010111011001111000001000 pd:4" "asm"="ptrues {pd}.d, vl4" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.63(i64 "reg"="p" %pd) "enc"="0010010111011001111000001010 pd:4" "asm"="ptrues {pd}.d, vl5" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.64(i64 "reg"="p" %pd) "enc"="0010010111011001111000001100 pd:4" "asm"="ptrues {pd}.d, vl6" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.65(i64 "reg"="p" %pd) "enc"="0010010111011001111000001110 pd:4" "asm"="ptrues {pd}.d, vl7" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.66(i64 "reg"="p" %pd) "enc"="0010010111011001111000010000 pd:4" "asm"="ptrues {pd}.d, vl8" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.67(i64 "reg"="p" %pd) "enc"="0010010111011001111000010010 pd:4" "asm"="ptrues {pd}.d, vl16" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.68(i64 "reg"="p" %pd) "enc"="0010010111011001111000010100 pd:4" "asm"="ptrues {pd}.d, vl32" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.69(i64 "reg"="p" %pd) "enc"="0010010111011001111000010110 pd:4" "asm"="ptrues {pd}.d, vl64" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.70(i64 "reg"="p" %pd) "enc"="0010010111011001111000011000 pd:4" "asm"="ptrues {pd}.d, vl128" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.71(i64 "reg"="p" %pd) "enc"="0010010111011001111000011010 pd:4" "asm"="ptrues {pd}.d, vl256" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.72(i64 "reg"="p" %pd, i64 "imm" %pattern) "enc"="0010010111011001111000 pattern:5 0 pd:4" "asm"="ptrues {pd}.d, {pattern}" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.73(i64 "reg"="p" %pd) "enc"="0010010111011001111000111010 pd:4" "asm"="ptrues {pd}.d, mul4" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.74(i64 "reg"="p" %pd) "enc"="0010010111011001111000111100 pd:4" "asm"="ptrues {pd}.d, mul3" "asmonly" {
+  ret void
+}
+
+define void @ptrues_p_s_.75(i64 "reg"="p" %pd) "enc"="0010010111011001111000111110 pd:4" "asm"="ptrues {pd}.d, all" "asmonly" "nodecode" {
   ret void
 }
 
@@ -10714,6 +19098,318 @@ define void @prfb_i_p_bz_s_x32_scaled.25(i64 "imm" %prfop, i64 "reg"="pg" %pg, i
   ret void
 }
 
+define void @prfh_i_p_bz_s_x32_scaled.0(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 001 pg:3 xn_sp:5 00000" "asm"="prfh pldl1keep, {pg}, [{xn_sp}, {zm}.s, uxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_s_x32_scaled.1(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 001 pg:3 xn_sp:5 00000" "asm"="prfh pldl1keep, {pg}, [{xn_sp}, {zm}.s, sxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_s_x32_scaled.2(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 001 pg:3 xn_sp:5 00001" "asm"="prfh pldl1strm, {pg}, [{xn_sp}, {zm}.s, uxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_s_x32_scaled.3(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 001 pg:3 xn_sp:5 00001" "asm"="prfh pldl1strm, {pg}, [{xn_sp}, {zm}.s, sxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_s_x32_scaled.4(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 001 pg:3 xn_sp:5 00010" "asm"="prfh pldl2keep, {pg}, [{xn_sp}, {zm}.s, uxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_s_x32_scaled.5(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 001 pg:3 xn_sp:5 00010" "asm"="prfh pldl2keep, {pg}, [{xn_sp}, {zm}.s, sxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_s_x32_scaled.6(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 001 pg:3 xn_sp:5 00011" "asm"="prfh pldl2strm, {pg}, [{xn_sp}, {zm}.s, uxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_s_x32_scaled.7(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 001 pg:3 xn_sp:5 00011" "asm"="prfh pldl2strm, {pg}, [{xn_sp}, {zm}.s, sxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_s_x32_scaled.8(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 001 pg:3 xn_sp:5 00100" "asm"="prfh pldl3keep, {pg}, [{xn_sp}, {zm}.s, uxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_s_x32_scaled.9(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 001 pg:3 xn_sp:5 00100" "asm"="prfh pldl3keep, {pg}, [{xn_sp}, {zm}.s, sxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_s_x32_scaled.10(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 001 pg:3 xn_sp:5 00101" "asm"="prfh pldl3strm, {pg}, [{xn_sp}, {zm}.s, uxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_s_x32_scaled.11(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 001 pg:3 xn_sp:5 00101" "asm"="prfh pldl3strm, {pg}, [{xn_sp}, {zm}.s, sxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_s_x32_scaled.12(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 001 pg:3 xn_sp:5 01000" "asm"="prfh pstl1keep, {pg}, [{xn_sp}, {zm}.s, uxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_s_x32_scaled.13(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 001 pg:3 xn_sp:5 01000" "asm"="prfh pstl1keep, {pg}, [{xn_sp}, {zm}.s, sxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_s_x32_scaled.14(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 001 pg:3 xn_sp:5 01001" "asm"="prfh pstl1strm, {pg}, [{xn_sp}, {zm}.s, uxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_s_x32_scaled.15(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 001 pg:3 xn_sp:5 01001" "asm"="prfh pstl1strm, {pg}, [{xn_sp}, {zm}.s, sxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_s_x32_scaled.16(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 001 pg:3 xn_sp:5 01010" "asm"="prfh pstl2keep, {pg}, [{xn_sp}, {zm}.s, uxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_s_x32_scaled.17(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 001 pg:3 xn_sp:5 01010" "asm"="prfh pstl2keep, {pg}, [{xn_sp}, {zm}.s, sxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_s_x32_scaled.18(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 001 pg:3 xn_sp:5 01011" "asm"="prfh pstl2strm, {pg}, [{xn_sp}, {zm}.s, uxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_s_x32_scaled.19(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 001 pg:3 xn_sp:5 01011" "asm"="prfh pstl2strm, {pg}, [{xn_sp}, {zm}.s, sxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_s_x32_scaled.20(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 001 pg:3 xn_sp:5 01100" "asm"="prfh pstl3keep, {pg}, [{xn_sp}, {zm}.s, uxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_s_x32_scaled.21(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 001 pg:3 xn_sp:5 01100" "asm"="prfh pstl3keep, {pg}, [{xn_sp}, {zm}.s, sxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_s_x32_scaled.22(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 001 pg:3 xn_sp:5 01101" "asm"="prfh pstl3strm, {pg}, [{xn_sp}, {zm}.s, uxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_s_x32_scaled.23(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 001 pg:3 xn_sp:5 01101" "asm"="prfh pstl3strm, {pg}, [{xn_sp}, {zm}.s, sxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_s_x32_scaled.24(i64 "imm" %prfop, i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 001 pg:3 xn_sp:5 0 prfop:4" "asm"="prfh {prfop}, {pg}, [{xn_sp}, {zm}.s, uxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_s_x32_scaled.25(i64 "imm" %prfop, i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 001 pg:3 xn_sp:5 0 prfop:4" "asm"="prfh {prfop}, {pg}, [{xn_sp}, {zm}.s, sxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_s_x32_scaled.0(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 010 pg:3 xn_sp:5 00000" "asm"="prfw pldl1keep, {pg}, [{xn_sp}, {zm}.s, uxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_s_x32_scaled.1(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 010 pg:3 xn_sp:5 00000" "asm"="prfw pldl1keep, {pg}, [{xn_sp}, {zm}.s, sxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_s_x32_scaled.2(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 010 pg:3 xn_sp:5 00001" "asm"="prfw pldl1strm, {pg}, [{xn_sp}, {zm}.s, uxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_s_x32_scaled.3(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 010 pg:3 xn_sp:5 00001" "asm"="prfw pldl1strm, {pg}, [{xn_sp}, {zm}.s, sxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_s_x32_scaled.4(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 010 pg:3 xn_sp:5 00010" "asm"="prfw pldl2keep, {pg}, [{xn_sp}, {zm}.s, uxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_s_x32_scaled.5(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 010 pg:3 xn_sp:5 00010" "asm"="prfw pldl2keep, {pg}, [{xn_sp}, {zm}.s, sxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_s_x32_scaled.6(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 010 pg:3 xn_sp:5 00011" "asm"="prfw pldl2strm, {pg}, [{xn_sp}, {zm}.s, uxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_s_x32_scaled.7(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 010 pg:3 xn_sp:5 00011" "asm"="prfw pldl2strm, {pg}, [{xn_sp}, {zm}.s, sxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_s_x32_scaled.8(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 010 pg:3 xn_sp:5 00100" "asm"="prfw pldl3keep, {pg}, [{xn_sp}, {zm}.s, uxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_s_x32_scaled.9(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 010 pg:3 xn_sp:5 00100" "asm"="prfw pldl3keep, {pg}, [{xn_sp}, {zm}.s, sxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_s_x32_scaled.10(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 010 pg:3 xn_sp:5 00101" "asm"="prfw pldl3strm, {pg}, [{xn_sp}, {zm}.s, uxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_s_x32_scaled.11(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 010 pg:3 xn_sp:5 00101" "asm"="prfw pldl3strm, {pg}, [{xn_sp}, {zm}.s, sxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_s_x32_scaled.12(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 010 pg:3 xn_sp:5 01000" "asm"="prfw pstl1keep, {pg}, [{xn_sp}, {zm}.s, uxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_s_x32_scaled.13(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 010 pg:3 xn_sp:5 01000" "asm"="prfw pstl1keep, {pg}, [{xn_sp}, {zm}.s, sxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_s_x32_scaled.14(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 010 pg:3 xn_sp:5 01001" "asm"="prfw pstl1strm, {pg}, [{xn_sp}, {zm}.s, uxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_s_x32_scaled.15(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 010 pg:3 xn_sp:5 01001" "asm"="prfw pstl1strm, {pg}, [{xn_sp}, {zm}.s, sxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_s_x32_scaled.16(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 010 pg:3 xn_sp:5 01010" "asm"="prfw pstl2keep, {pg}, [{xn_sp}, {zm}.s, uxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_s_x32_scaled.17(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 010 pg:3 xn_sp:5 01010" "asm"="prfw pstl2keep, {pg}, [{xn_sp}, {zm}.s, sxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_s_x32_scaled.18(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 010 pg:3 xn_sp:5 01011" "asm"="prfw pstl2strm, {pg}, [{xn_sp}, {zm}.s, uxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_s_x32_scaled.19(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 010 pg:3 xn_sp:5 01011" "asm"="prfw pstl2strm, {pg}, [{xn_sp}, {zm}.s, sxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_s_x32_scaled.20(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 010 pg:3 xn_sp:5 01100" "asm"="prfw pstl3keep, {pg}, [{xn_sp}, {zm}.s, uxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_s_x32_scaled.21(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 010 pg:3 xn_sp:5 01100" "asm"="prfw pstl3keep, {pg}, [{xn_sp}, {zm}.s, sxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_s_x32_scaled.22(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 010 pg:3 xn_sp:5 01101" "asm"="prfw pstl3strm, {pg}, [{xn_sp}, {zm}.s, uxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_s_x32_scaled.23(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 010 pg:3 xn_sp:5 01101" "asm"="prfw pstl3strm, {pg}, [{xn_sp}, {zm}.s, sxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_s_x32_scaled.24(i64 "imm" %prfop, i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 010 pg:3 xn_sp:5 0 prfop:4" "asm"="prfw {prfop}, {pg}, [{xn_sp}, {zm}.s, uxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_s_x32_scaled.25(i64 "imm" %prfop, i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 010 pg:3 xn_sp:5 0 prfop:4" "asm"="prfw {prfop}, {pg}, [{xn_sp}, {zm}.s, sxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_s_x32_scaled.0(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 011 pg:3 xn_sp:5 00000" "asm"="prfd pldl1keep, {pg}, [{xn_sp}, {zm}.s, uxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_s_x32_scaled.1(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 011 pg:3 xn_sp:5 00000" "asm"="prfd pldl1keep, {pg}, [{xn_sp}, {zm}.s, sxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_s_x32_scaled.2(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 011 pg:3 xn_sp:5 00001" "asm"="prfd pldl1strm, {pg}, [{xn_sp}, {zm}.s, uxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_s_x32_scaled.3(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 011 pg:3 xn_sp:5 00001" "asm"="prfd pldl1strm, {pg}, [{xn_sp}, {zm}.s, sxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_s_x32_scaled.4(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 011 pg:3 xn_sp:5 00010" "asm"="prfd pldl2keep, {pg}, [{xn_sp}, {zm}.s, uxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_s_x32_scaled.5(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 011 pg:3 xn_sp:5 00010" "asm"="prfd pldl2keep, {pg}, [{xn_sp}, {zm}.s, sxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_s_x32_scaled.6(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 011 pg:3 xn_sp:5 00011" "asm"="prfd pldl2strm, {pg}, [{xn_sp}, {zm}.s, uxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_s_x32_scaled.7(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 011 pg:3 xn_sp:5 00011" "asm"="prfd pldl2strm, {pg}, [{xn_sp}, {zm}.s, sxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_s_x32_scaled.8(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 011 pg:3 xn_sp:5 00100" "asm"="prfd pldl3keep, {pg}, [{xn_sp}, {zm}.s, uxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_s_x32_scaled.9(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 011 pg:3 xn_sp:5 00100" "asm"="prfd pldl3keep, {pg}, [{xn_sp}, {zm}.s, sxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_s_x32_scaled.10(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 011 pg:3 xn_sp:5 00101" "asm"="prfd pldl3strm, {pg}, [{xn_sp}, {zm}.s, uxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_s_x32_scaled.11(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 011 pg:3 xn_sp:5 00101" "asm"="prfd pldl3strm, {pg}, [{xn_sp}, {zm}.s, sxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_s_x32_scaled.12(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 011 pg:3 xn_sp:5 01000" "asm"="prfd pstl1keep, {pg}, [{xn_sp}, {zm}.s, uxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_s_x32_scaled.13(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 011 pg:3 xn_sp:5 01000" "asm"="prfd pstl1keep, {pg}, [{xn_sp}, {zm}.s, sxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_s_x32_scaled.14(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 011 pg:3 xn_sp:5 01001" "asm"="prfd pstl1strm, {pg}, [{xn_sp}, {zm}.s, uxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_s_x32_scaled.15(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 011 pg:3 xn_sp:5 01001" "asm"="prfd pstl1strm, {pg}, [{xn_sp}, {zm}.s, sxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_s_x32_scaled.16(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 011 pg:3 xn_sp:5 01010" "asm"="prfd pstl2keep, {pg}, [{xn_sp}, {zm}.s, uxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_s_x32_scaled.17(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 011 pg:3 xn_sp:5 01010" "asm"="prfd pstl2keep, {pg}, [{xn_sp}, {zm}.s, sxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_s_x32_scaled.18(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 011 pg:3 xn_sp:5 01011" "asm"="prfd pstl2strm, {pg}, [{xn_sp}, {zm}.s, uxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_s_x32_scaled.19(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 011 pg:3 xn_sp:5 01011" "asm"="prfd pstl2strm, {pg}, [{xn_sp}, {zm}.s, sxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_s_x32_scaled.20(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 011 pg:3 xn_sp:5 01100" "asm"="prfd pstl3keep, {pg}, [{xn_sp}, {zm}.s, uxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_s_x32_scaled.21(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 011 pg:3 xn_sp:5 01100" "asm"="prfd pstl3keep, {pg}, [{xn_sp}, {zm}.s, sxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_s_x32_scaled.22(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 011 pg:3 xn_sp:5 01101" "asm"="prfd pstl3strm, {pg}, [{xn_sp}, {zm}.s, uxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_s_x32_scaled.23(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 011 pg:3 xn_sp:5 01101" "asm"="prfd pstl3strm, {pg}, [{xn_sp}, {zm}.s, sxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_s_x32_scaled.24(i64 "imm" %prfop, i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100001 zm:5 011 pg:3 xn_sp:5 0 prfop:4" "asm"="prfd {prfop}, {pg}, [{xn_sp}, {zm}.s, uxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_s_x32_scaled.25(i64 "imm" %prfop, i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100011 zm:5 011 pg:3 xn_sp:5 0 prfop:4" "asm"="prfd {prfop}, {pg}, [{xn_sp}, {zm}.s, sxtw #3]" "asmonly" {
+  ret void
+}
+
 define void @ld1sh_z_p_bz_s_x32_scaled.0(i64 "reg"="z" %zt, i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="10000100101 zm:5 000 pg:3 xn_sp:5 zt:5" "asm"="ld1sh {lb} {zt}.s {rb}, {pg}/z, [{xn_sp}, {zm}.s, uxtw #1]" "asmonly" {
   ret void
 }
@@ -13039,6 +21735,318 @@ define void @prfb_i_p_bz_d_x32_scaled.24(i64 "imm" %prfop, i64 "reg"="pg" %pg, i
 }
 
 define void @prfb_i_p_bz_d_x32_scaled.25(i64 "imm" %prfop, i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 000 pg:3 xn_sp:5 0 prfop:4" "asm"="prfb {prfop}, {pg}, [{xn_sp}, {zm}.d, sxtw]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_d_x32_scaled.0(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 001 pg:3 xn_sp:5 00000" "asm"="prfh pldl1keep, {pg}, [{xn_sp}, {zm}.d, uxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_d_x32_scaled.1(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 001 pg:3 xn_sp:5 00000" "asm"="prfh pldl1keep, {pg}, [{xn_sp}, {zm}.d, sxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_d_x32_scaled.2(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 001 pg:3 xn_sp:5 00001" "asm"="prfh pldl1strm, {pg}, [{xn_sp}, {zm}.d, uxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_d_x32_scaled.3(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 001 pg:3 xn_sp:5 00001" "asm"="prfh pldl1strm, {pg}, [{xn_sp}, {zm}.d, sxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_d_x32_scaled.4(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 001 pg:3 xn_sp:5 00010" "asm"="prfh pldl2keep, {pg}, [{xn_sp}, {zm}.d, uxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_d_x32_scaled.5(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 001 pg:3 xn_sp:5 00010" "asm"="prfh pldl2keep, {pg}, [{xn_sp}, {zm}.d, sxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_d_x32_scaled.6(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 001 pg:3 xn_sp:5 00011" "asm"="prfh pldl2strm, {pg}, [{xn_sp}, {zm}.d, uxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_d_x32_scaled.7(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 001 pg:3 xn_sp:5 00011" "asm"="prfh pldl2strm, {pg}, [{xn_sp}, {zm}.d, sxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_d_x32_scaled.8(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 001 pg:3 xn_sp:5 00100" "asm"="prfh pldl3keep, {pg}, [{xn_sp}, {zm}.d, uxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_d_x32_scaled.9(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 001 pg:3 xn_sp:5 00100" "asm"="prfh pldl3keep, {pg}, [{xn_sp}, {zm}.d, sxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_d_x32_scaled.10(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 001 pg:3 xn_sp:5 00101" "asm"="prfh pldl3strm, {pg}, [{xn_sp}, {zm}.d, uxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_d_x32_scaled.11(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 001 pg:3 xn_sp:5 00101" "asm"="prfh pldl3strm, {pg}, [{xn_sp}, {zm}.d, sxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_d_x32_scaled.12(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 001 pg:3 xn_sp:5 01000" "asm"="prfh pstl1keep, {pg}, [{xn_sp}, {zm}.d, uxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_d_x32_scaled.13(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 001 pg:3 xn_sp:5 01000" "asm"="prfh pstl1keep, {pg}, [{xn_sp}, {zm}.d, sxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_d_x32_scaled.14(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 001 pg:3 xn_sp:5 01001" "asm"="prfh pstl1strm, {pg}, [{xn_sp}, {zm}.d, uxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_d_x32_scaled.15(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 001 pg:3 xn_sp:5 01001" "asm"="prfh pstl1strm, {pg}, [{xn_sp}, {zm}.d, sxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_d_x32_scaled.16(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 001 pg:3 xn_sp:5 01010" "asm"="prfh pstl2keep, {pg}, [{xn_sp}, {zm}.d, uxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_d_x32_scaled.17(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 001 pg:3 xn_sp:5 01010" "asm"="prfh pstl2keep, {pg}, [{xn_sp}, {zm}.d, sxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_d_x32_scaled.18(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 001 pg:3 xn_sp:5 01011" "asm"="prfh pstl2strm, {pg}, [{xn_sp}, {zm}.d, uxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_d_x32_scaled.19(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 001 pg:3 xn_sp:5 01011" "asm"="prfh pstl2strm, {pg}, [{xn_sp}, {zm}.d, sxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_d_x32_scaled.20(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 001 pg:3 xn_sp:5 01100" "asm"="prfh pstl3keep, {pg}, [{xn_sp}, {zm}.d, uxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_d_x32_scaled.21(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 001 pg:3 xn_sp:5 01100" "asm"="prfh pstl3keep, {pg}, [{xn_sp}, {zm}.d, sxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_d_x32_scaled.22(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 001 pg:3 xn_sp:5 01101" "asm"="prfh pstl3strm, {pg}, [{xn_sp}, {zm}.d, uxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_d_x32_scaled.23(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 001 pg:3 xn_sp:5 01101" "asm"="prfh pstl3strm, {pg}, [{xn_sp}, {zm}.d, sxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_d_x32_scaled.24(i64 "imm" %prfop, i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 001 pg:3 xn_sp:5 0 prfop:4" "asm"="prfh {prfop}, {pg}, [{xn_sp}, {zm}.d, uxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfh_i_p_bz_d_x32_scaled.25(i64 "imm" %prfop, i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 001 pg:3 xn_sp:5 0 prfop:4" "asm"="prfh {prfop}, {pg}, [{xn_sp}, {zm}.d, sxtw #1]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_d_x32_scaled.0(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 010 pg:3 xn_sp:5 00000" "asm"="prfw pldl1keep, {pg}, [{xn_sp}, {zm}.d, uxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_d_x32_scaled.1(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 010 pg:3 xn_sp:5 00000" "asm"="prfw pldl1keep, {pg}, [{xn_sp}, {zm}.d, sxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_d_x32_scaled.2(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 010 pg:3 xn_sp:5 00001" "asm"="prfw pldl1strm, {pg}, [{xn_sp}, {zm}.d, uxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_d_x32_scaled.3(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 010 pg:3 xn_sp:5 00001" "asm"="prfw pldl1strm, {pg}, [{xn_sp}, {zm}.d, sxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_d_x32_scaled.4(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 010 pg:3 xn_sp:5 00010" "asm"="prfw pldl2keep, {pg}, [{xn_sp}, {zm}.d, uxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_d_x32_scaled.5(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 010 pg:3 xn_sp:5 00010" "asm"="prfw pldl2keep, {pg}, [{xn_sp}, {zm}.d, sxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_d_x32_scaled.6(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 010 pg:3 xn_sp:5 00011" "asm"="prfw pldl2strm, {pg}, [{xn_sp}, {zm}.d, uxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_d_x32_scaled.7(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 010 pg:3 xn_sp:5 00011" "asm"="prfw pldl2strm, {pg}, [{xn_sp}, {zm}.d, sxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_d_x32_scaled.8(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 010 pg:3 xn_sp:5 00100" "asm"="prfw pldl3keep, {pg}, [{xn_sp}, {zm}.d, uxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_d_x32_scaled.9(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 010 pg:3 xn_sp:5 00100" "asm"="prfw pldl3keep, {pg}, [{xn_sp}, {zm}.d, sxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_d_x32_scaled.10(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 010 pg:3 xn_sp:5 00101" "asm"="prfw pldl3strm, {pg}, [{xn_sp}, {zm}.d, uxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_d_x32_scaled.11(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 010 pg:3 xn_sp:5 00101" "asm"="prfw pldl3strm, {pg}, [{xn_sp}, {zm}.d, sxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_d_x32_scaled.12(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 010 pg:3 xn_sp:5 01000" "asm"="prfw pstl1keep, {pg}, [{xn_sp}, {zm}.d, uxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_d_x32_scaled.13(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 010 pg:3 xn_sp:5 01000" "asm"="prfw pstl1keep, {pg}, [{xn_sp}, {zm}.d, sxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_d_x32_scaled.14(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 010 pg:3 xn_sp:5 01001" "asm"="prfw pstl1strm, {pg}, [{xn_sp}, {zm}.d, uxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_d_x32_scaled.15(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 010 pg:3 xn_sp:5 01001" "asm"="prfw pstl1strm, {pg}, [{xn_sp}, {zm}.d, sxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_d_x32_scaled.16(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 010 pg:3 xn_sp:5 01010" "asm"="prfw pstl2keep, {pg}, [{xn_sp}, {zm}.d, uxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_d_x32_scaled.17(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 010 pg:3 xn_sp:5 01010" "asm"="prfw pstl2keep, {pg}, [{xn_sp}, {zm}.d, sxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_d_x32_scaled.18(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 010 pg:3 xn_sp:5 01011" "asm"="prfw pstl2strm, {pg}, [{xn_sp}, {zm}.d, uxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_d_x32_scaled.19(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 010 pg:3 xn_sp:5 01011" "asm"="prfw pstl2strm, {pg}, [{xn_sp}, {zm}.d, sxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_d_x32_scaled.20(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 010 pg:3 xn_sp:5 01100" "asm"="prfw pstl3keep, {pg}, [{xn_sp}, {zm}.d, uxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_d_x32_scaled.21(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 010 pg:3 xn_sp:5 01100" "asm"="prfw pstl3keep, {pg}, [{xn_sp}, {zm}.d, sxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_d_x32_scaled.22(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 010 pg:3 xn_sp:5 01101" "asm"="prfw pstl3strm, {pg}, [{xn_sp}, {zm}.d, uxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_d_x32_scaled.23(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 010 pg:3 xn_sp:5 01101" "asm"="prfw pstl3strm, {pg}, [{xn_sp}, {zm}.d, sxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_d_x32_scaled.24(i64 "imm" %prfop, i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 010 pg:3 xn_sp:5 0 prfop:4" "asm"="prfw {prfop}, {pg}, [{xn_sp}, {zm}.d, uxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfw_i_p_bz_d_x32_scaled.25(i64 "imm" %prfop, i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 010 pg:3 xn_sp:5 0 prfop:4" "asm"="prfw {prfop}, {pg}, [{xn_sp}, {zm}.d, sxtw #2]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_d_x32_scaled.0(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 011 pg:3 xn_sp:5 00000" "asm"="prfd pldl1keep, {pg}, [{xn_sp}, {zm}.d, uxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_d_x32_scaled.1(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 011 pg:3 xn_sp:5 00000" "asm"="prfd pldl1keep, {pg}, [{xn_sp}, {zm}.d, sxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_d_x32_scaled.2(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 011 pg:3 xn_sp:5 00001" "asm"="prfd pldl1strm, {pg}, [{xn_sp}, {zm}.d, uxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_d_x32_scaled.3(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 011 pg:3 xn_sp:5 00001" "asm"="prfd pldl1strm, {pg}, [{xn_sp}, {zm}.d, sxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_d_x32_scaled.4(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 011 pg:3 xn_sp:5 00010" "asm"="prfd pldl2keep, {pg}, [{xn_sp}, {zm}.d, uxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_d_x32_scaled.5(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 011 pg:3 xn_sp:5 00010" "asm"="prfd pldl2keep, {pg}, [{xn_sp}, {zm}.d, sxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_d_x32_scaled.6(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 011 pg:3 xn_sp:5 00011" "asm"="prfd pldl2strm, {pg}, [{xn_sp}, {zm}.d, uxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_d_x32_scaled.7(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 011 pg:3 xn_sp:5 00011" "asm"="prfd pldl2strm, {pg}, [{xn_sp}, {zm}.d, sxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_d_x32_scaled.8(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 011 pg:3 xn_sp:5 00100" "asm"="prfd pldl3keep, {pg}, [{xn_sp}, {zm}.d, uxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_d_x32_scaled.9(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 011 pg:3 xn_sp:5 00100" "asm"="prfd pldl3keep, {pg}, [{xn_sp}, {zm}.d, sxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_d_x32_scaled.10(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 011 pg:3 xn_sp:5 00101" "asm"="prfd pldl3strm, {pg}, [{xn_sp}, {zm}.d, uxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_d_x32_scaled.11(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 011 pg:3 xn_sp:5 00101" "asm"="prfd pldl3strm, {pg}, [{xn_sp}, {zm}.d, sxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_d_x32_scaled.12(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 011 pg:3 xn_sp:5 01000" "asm"="prfd pstl1keep, {pg}, [{xn_sp}, {zm}.d, uxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_d_x32_scaled.13(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 011 pg:3 xn_sp:5 01000" "asm"="prfd pstl1keep, {pg}, [{xn_sp}, {zm}.d, sxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_d_x32_scaled.14(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 011 pg:3 xn_sp:5 01001" "asm"="prfd pstl1strm, {pg}, [{xn_sp}, {zm}.d, uxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_d_x32_scaled.15(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 011 pg:3 xn_sp:5 01001" "asm"="prfd pstl1strm, {pg}, [{xn_sp}, {zm}.d, sxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_d_x32_scaled.16(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 011 pg:3 xn_sp:5 01010" "asm"="prfd pstl2keep, {pg}, [{xn_sp}, {zm}.d, uxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_d_x32_scaled.17(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 011 pg:3 xn_sp:5 01010" "asm"="prfd pstl2keep, {pg}, [{xn_sp}, {zm}.d, sxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_d_x32_scaled.18(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 011 pg:3 xn_sp:5 01011" "asm"="prfd pstl2strm, {pg}, [{xn_sp}, {zm}.d, uxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_d_x32_scaled.19(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 011 pg:3 xn_sp:5 01011" "asm"="prfd pstl2strm, {pg}, [{xn_sp}, {zm}.d, sxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_d_x32_scaled.20(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 011 pg:3 xn_sp:5 01100" "asm"="prfd pstl3keep, {pg}, [{xn_sp}, {zm}.d, uxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_d_x32_scaled.21(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 011 pg:3 xn_sp:5 01100" "asm"="prfd pstl3keep, {pg}, [{xn_sp}, {zm}.d, sxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_d_x32_scaled.22(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 011 pg:3 xn_sp:5 01101" "asm"="prfd pstl3strm, {pg}, [{xn_sp}, {zm}.d, uxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_d_x32_scaled.23(i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 011 pg:3 xn_sp:5 01101" "asm"="prfd pstl3strm, {pg}, [{xn_sp}, {zm}.d, sxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_d_x32_scaled.24(i64 "imm" %prfop, i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100001 zm:5 011 pg:3 xn_sp:5 0 prfop:4" "asm"="prfd {prfop}, {pg}, [{xn_sp}, {zm}.d, uxtw #3]" "asmonly" {
+  ret void
+}
+
+define void @prfd_i_p_bz_d_x32_scaled.25(i64 "imm" %prfop, i64 "reg"="pg" %pg, i64 "reg"="xsp" %xn_sp, i64 "reg"="z" %zm) "enc"="11000100011 zm:5 011 pg:3 xn_sp:5 0 prfop:4" "asm"="prfd {prfop}, {pg}, [{xn_sp}, {zm}.d, sxtw #3]" "asmonly" {
   ret void
 }
 

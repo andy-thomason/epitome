@@ -15,6 +15,40 @@ define void @STRzspill(<vscale x 16 x i8> "reg"="z" %t, ptr "reg"="xsp" %n, i64 
   ret void
 }
 
+define <vscale x 16 x i1> @MOVp(<vscale x 16 x i1> "reg"="p" %n) "feature"="sve" "enc"="001001011000 n:4 01 n:4 0 n:4 0 d:4" "asm"="mov {d}.b, {n}.b" "copy"="p" "nodecode" {
+  ret <vscale x 16 x i1> %n
+}
+
+define <vscale x 16 x i1> @LDRpspill(ptr "reg"="xsp" %n, i64 "imm" %off) "feature"="sve" "enc"="1000010110 imm1:s6=off>>3 000 imm2:3=off&7 n:5 0 d:4" "asm"="ldr {d}, [{n}, #{off}, mul vl]" "role"="load.p,load.pg" "nomatch" "nodecode" {
+  %r = load <vscale x 16 x i1>, ptr %n
+  ret <vscale x 16 x i1> %r
+}
+
+define void @STRpspill(<vscale x 16 x i1> "reg"="p" %t, ptr "reg"="xsp" %n, i64 "imm" %off) "feature"="sve" "enc"="1110010110 imm1:s6=off>>3 000 imm2:3=off&7 n:5 0 t:4" "asm"="str {t}, [{n}, #{off}, mul vl]" "role"="store.p,store.pg" "nomatch" "nodecode" {
+  store <vscale x 16 x i1> %t, ptr %n
+  ret void
+}
+
+define <vscale x 16 x i1> @PTRUEb() "feature"="sve" "enc"="0010010100011000111000111110 d:4" "asm"="ptrue {d}.b" "dclass"="p" "role"="ptrue.b" "nomatch" "nodecode" {
+  ret <vscale x 16 x i1> splat (i1 true)
+}
+
+define <vscale x 8 x i1> @PTRUEh() "feature"="sve" "enc"="0010010101011000111000111110 d:4" "asm"="ptrue {d}.h" "dclass"="p" "role"="ptrue.h" "nomatch" "nodecode" {
+  ret <vscale x 8 x i1> splat (i1 true)
+}
+
+define <vscale x 4 x i1> @PTRUEs() "feature"="sve" "enc"="0010010110011000111000111110 d:4" "asm"="ptrue {d}.s" "dclass"="p" "role"="ptrue.s" "nomatch" "nodecode" {
+  ret <vscale x 4 x i1> splat (i1 true)
+}
+
+define <vscale x 2 x i1> @PTRUEd() "feature"="sve" "enc"="0010010111011000111000111110 d:4" "asm"="ptrue {d}.d" "dclass"="p" "role"="ptrue.d" "nomatch" "nodecode" {
+  ret <vscale x 2 x i1> splat (i1 true)
+}
+
+define <vscale x 16 x i1> @PFALSE() "feature"="sve" "enc"="0010010100011000111001000000 d:4" "asm"="pfalse {d}.b" "dclass"="p" "role"="pfalse" "nomatch" "nodecode" {
+  ret <vscale x 16 x i1> zeroinitializer
+}
+
 define i64 @ADDVL(i64 "reg"="xsp" %n, i64 "imm" %k) "feature"="sve" "enc"="00000100001 n:5 01010 k:s6 d:5" "asm"="addvl {d}, {n}, #{k}" "dclass"="xsp" "role"="addvl" "nomatch" "nodecode" {
   ret i64 %n
 }

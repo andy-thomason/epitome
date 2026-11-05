@@ -782,7 +782,7 @@ impl<'x, 's> Expander<'x, 's> {
         for &a in &attrs {
             let segs = names(a);
             let Some(&name) = segs.last() else { continue };
-            if crate::expand::builtin::is_builtin(name) || matches!(name, "cfg" | "cfg_attr" | "derive") {
+            if crate::expand::builtin::is_builtin(name) || matches!(name, "cfg" | "cfg_attr" | "derive" | "derive_const") {
                 continue;
             }
             let Some(d) = self.resolve(&segs, false, &[u32::MAX], &[]) else { continue };
@@ -807,7 +807,8 @@ impl<'x, 's> Expander<'x, 's> {
         // Each derive: a proc macro's library, or none for a built-in.
         let mut derives: Vec<(Option<std::path::PathBuf>, &'s str, NodeId)> = Vec::new();
         for &a in &attrs {
-            if names(a).as_slice() != ["derive"] {
+            // `derive_const` derives `const` impls: the same, to us.
+            if !matches!(names(a).as_slice(), ["derive"] | ["derive_const"]) {
                 continue;
             }
             let Some(tt) = file.ast.child(a, Kind::TokenTree) else { continue };

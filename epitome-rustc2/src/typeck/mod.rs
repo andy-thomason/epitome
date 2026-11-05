@@ -10,6 +10,7 @@
 
 mod check;
 pub mod infer;
+mod traits;
 
 use crate::ast::NodeId;
 use crate::hash::FastMap;

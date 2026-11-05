@@ -226,7 +226,8 @@ impl<'t, 's> Infer<'t, 's> {
     fn consts_agree(&self, c: crate::ty::ConstId, d: crate::ty::ConstId) -> bool {
         match (self.tcx.const_of(c), self.tcx.const_of(d)) {
             (Const::Value(a), Const::Value(b)) => a == b,
-            (Const::Param(a), Const::Param(b)) => a == b,
+            // A const parameter's value is not inferred yet: two of them
+            // (an impl's `N` and the body's) may well be the same.
             _ => true,
         }
     }

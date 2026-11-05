@@ -240,6 +240,13 @@ fn push_trait(tcx: &TyCtxt, preds: &mut Vec<Pred>, t: Ty, tr: TraitRef) {
         args.extend(tcx.tys(tr.args));
         preds.push(Pred::Projection(t, assoc, tcx.list(args), b));
     }
+    // `T: Iterator<Item: Copy>`: `<T as Iterator>::Item: Copy`.
+    for (assoc, b) in &tr.assoc_bounds {
+        let mut args = vec![t];
+        args.extend(tcx.tys(tr.args));
+        let p = tcx.mk(TyKind::Projection(*assoc, tcx.list(args)));
+        push_trait(tcx, preds, p, b.clone());
+    }
     preds.push(Pred::Trait(t, tr));
 }
 
@@ -370,8 +377,16 @@ fn signature<'s>(tcx: &TyCtxt<'s>, env: &Env<'_, 's>, d: DefId) -> Option<SigOut
             if kind == DefKind::AssocType
                 && let Some(b) = ast.child(node, Kind::Bounds)
             {
-                // `type Item: Bound;` in a trait: bounds on the projection.
-                let _ = l.bounds(b);
+                // `type Item: Bound;` in a trait: bounds on the
+                // projection, `<Self as Trait>::Item: Bound`, kept as the
+                // associated type's predicates.
+                let bounds = l.bounds(b);
+                if let Some(tr) = tcx.generics[d.0 as usize].parent {
+                    let p = tcx.mk(TyKind::Projection(d, tcx.identity_args(tr)));
+                    for b in bounds {
+                        push_trait(tcx, &mut out.preds, p, b);
+                    }
+                }
             }
             let t = alias_ty(tcx, env, &mut l.expanding, d);
             l.failed |= tcx.has_error(t);

@@ -5,7 +5,9 @@
 //! `NAME.main.c` (built by clang, with `arm_sve.h`) and run under qemu at
 //! vector lengths of 128, 256, 512 and 2048 bits; the two builds must
 //! print the same at each. Code of scalable vectors must be right at
-//! every length, so each is tried.
+//! every length, so each is tried. Streaming mode (SME) has the same
+//! lengths, and no FA64, so that an instruction streaming mode does not
+//! allow (Advanced SIMD's, scalar floating point) faults.
 //!
 //! On x86-64 Linux with clang, `qemu-aarch64` and rustup's
 //! `aarch64-unknown-linux-musl` target (whose musl the programs are linked
@@ -56,7 +58,13 @@ fn tools() -> Option<Tools> {
 /// printed at each.
 fn outputs(t: &Tools, obj: &Path, main: &Path, exe: &Path) -> Result<Vec<String>, String> {
     let stub = exe.with_extension("personality.c");
-    std::fs::write(&stub, "void rust_eh_personality(void) {}\n").unwrap();
+    // (SME's lazy save of ZA: `__arm_tpidr2_save` commits one, which
+    // nothing here makes, so it is never reached.)
+    std::fs::write(
+        &stub,
+        "void rust_eh_personality(void) {}\nvoid abort(void);\nvoid __arm_tpidr2_save(void) { abort(); }\n",
+    )
+    .unwrap();
     let st = Command::new("clang")
         .args(["--target=aarch64-unknown-linux-musl", MARCH, "-O1", "-fuse-ld=lld", "-static", "-nostdlib"])
         .arg(format!("--ld-path={}", t.lld.display()))
@@ -79,7 +87,9 @@ fn outputs(t: &Tools, obj: &Path, main: &Path, exe: &Path) -> Result<Vec<String>
     for vl in LENGTHS {
         let o = Command::new(&t.qemu)
             .arg("-cpu")
-            .arg(format!("max,sve-default-vector-length={vl}"))
+            // (Streaming mode's length too, and without SME's FA64, as
+            // Apple's M4 is: what streaming mode does not allow faults.)
+            .arg(format!("max,sve-default-vector-length={vl},sme-default-vector-length={vl},sme_fa64=off"))
             .arg(exe)
             .output()
             .map_err(|e| e.to_string())?;

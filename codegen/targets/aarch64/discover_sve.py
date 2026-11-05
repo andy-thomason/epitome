@@ -329,6 +329,21 @@ def move(text):
     return None
 
 
+def ranges(line):
+    """llc's lists of consecutive registers (`{ z0.d, z1.d }`) as
+    81-scalable.ll writes them, ranges (`{ z0.d-z1.d }`)."""
+    def one(m):
+        regs = [r.strip() for r in m.group(1).split(',')]
+        ps = [re.fullmatch(r'z(\d+)(\.\w+)?', r) for r in regs]
+        if len(regs) < 2 or not all(ps) or len({p.group(2) for p in ps}) != 1:
+            return m.group(0)
+        ns = [int(p.group(1)) for p in ps]
+        if any((ns[k] + 1) % 32 != ns[k + 1] for k in range(len(ns) - 1)):
+            return m.group(0)
+        return '{ ' + regs[0] + '-' + regs[-1] + ' }'
+    return re.sub(r'\{ ([^}]*) \}', one, line)
+
+
 def match(code, ret, args, consts, ents):
     place = abi(ret, args, consts)
     if place is None:
@@ -352,13 +367,14 @@ def match(code, ret, args, consts, ents):
     def listed(m):
         a, b, t = int(m.group(1)), int(m.group(3)), m.group(2)
         return '{ ' + ', '.join(f'z{k % 32}.{t}' for k in range(a, b + (32 if b < a else 0) + 1)) + ' }'
-    text = re.sub(r'\{\s*z(\d+)\.(\w+)\s*-\s*z(\d+)\.\w+\s*\}', listed, text)
+    # (Templates write lists both ways: SVE's as lists, SME's as ranges.)
+    texts = [re.sub(r'\{\s*z(\d+)\.(\w+)\s*-\s*z(\d+)\.\w+\s*\}', listed, text), ranges(text)]
     mn, _ = operands(text)
     cands = ents.get(mn, [])
     if not cands:
         return 'skip', 'mnemonic not in 81-scalable.ll'
     for name, rx, holes, params in cands:
-        m = rx.match(text)
+        m = next(filter(None, (rx.match(t) for t in texts)), None)
         if not m:
             continue
         vals = {}

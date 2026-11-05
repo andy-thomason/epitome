@@ -167,6 +167,10 @@ pub fn prepare(cx: &mut Ctx, f: &Function, fname: &str) -> Result<Function, Stri
     let mut f = f.clone();
     // (Scalable vectors of more than a register as parts first, before
     // what follows takes their lanes as countable.)
+    // (Streaming mode and ZA first: the calls of their switches.)
+    if cx.t.machine.class("ws").is_some() {
+        crate::sme::lower(cx, &mut f, fname)?;
+    }
     crate::scalable::split(cx, &mut f).map_err(|e| format!("@{fname}: {e}"))?;
     crate::scalable::masked_memory(cx, &mut f);
     crate::scalable::predicate_casts(cx, &mut f);

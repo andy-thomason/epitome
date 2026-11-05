@@ -131,11 +131,48 @@ still to do: `llvm.get.active.lane.mask` is `whilelo`, and the test of its
 first lane that ends the loop is that lane of the predicate made integers
 (`mov z0.s, p0/z, #1`, then `fmov w0, s0`).
 
+## SME (done in part)
+
+- **Intrinsics.** Rust's `core::arch` has no SME, so `discover_sme.py`
+  finds them from C's: clang's AST dump lists `arm_sme.h`'s functions
+  (1,845), each is called from a streaming function sharing ZA and the IR
+  clang makes says which `llvm.aarch64.sme.*` it is (839), and then, as for
+  SVE (`discover_sve.py`'s matching), llc's code (clang's own llc, 22) is
+  found among `81-scalable.ll`'s entries: 550, in `sme-intrinsics.txt`,
+  which `gen_sve.py` makes entries of (`SME.*`). ZA's slices are chosen by
+  w12-w15 (class `ws`) or SME2's w8-w11 (`wv`): classes with gaps
+  (`!"-{0-11}", !"w{12-15}"`), into which selection copies a value whose
+  class has registers they have not (as it now does for SVE's p0-p7).
+- **Streaming mode and ZA** (`sme.rs`, from the functions' attributes):
+  `aarch64_pstate_sm_body` switches on after the prologue and off before
+  each return; `aarch64_new_za` commits a caller's lazily saved ZA
+  (`__arm_tpidr2_save` when TPIDR2_EL0 says there is one), then turns ZA on
+  and zeroes it, and off before each return; a call from a streaming body
+  of a function that is not, or the other way, switches around it. The
+  switches clear the vector and predicate registers ("clobbers"), so
+  nothing stays in one across them, and d8-d15 are saved.
+- `tests/sve/sme.c`: outer products into a tile, a transpose through ZA,
+  bytes' outer products, and calls both ways, run at the four streaming
+  lengths with FA64 off (as on Apple's M4), so that an instruction
+  streaming mode does not allow would fault.
+
 ## Still to do
+
+- **Lists of registers** (`st2 {z0.d-z1.d}`, `tbl {z0.b-z1.b}`, SME2's
+  multi-vector forms): entries whose template derives one register from
+  another (`{zn:+1}`) are left out of `gen_sve.py`, as nothing yet puts
+  the separate values they take in consecutive registers (they were right
+  only by where the arguments arrived). Intrinsics returning tuples of
+  vectors too.
+- **SME**: calls with ZA live of functions without it (ZA's lazy save, a
+  TPIDR2 block), streaming-compatible functions' calls of ones that are
+  not (switches by a test of PSTATE.SM), the runtime's own calls in
+  streaming mode (`memcpy`, which should be `__arm_sc_memcpy`), scalable
+  vectors into or out of a locally streaming function, and scalable spill
+  slots of one (sized `addvl` in the prologue, before the switch, where
+  `addsvl` is wanted).
 
 - **Unpacked floats** (`<vscale x 2 x float>`, from loops mixing floats
   and doubles), and vectors of more than a register in compares, selects
   and calls other than those above.
 - **Gathers and scatters** (`llvm.masked.gather` of scalable vectors).
-- **SME**: streaming mode and ZA as values, beyond `45-sme.ll`'s fixed
-  registers.

@@ -1203,13 +1203,16 @@ impl<'a, 'b> Sel<'a, 'b> {
 
     /// A register holding value `v`, made in the current block if `v` is a
     /// constant. `class` says whether the zero register will do for 0.
-    /// `r`, or, if it is of another register file than `class`, a copy of
-    /// it in a register of `class` (a mask, as AVX-512 takes them, from an
-    /// integer register).
+    /// `r`, or, if it is of another register file than `class` or of a
+    /// class with registers `class` has not, a copy of it in a register of
+    /// `class` (a mask, as AVX-512 takes them, from an integer register).
     fn in_file_of(&mut self, r: Reg, class: Class) -> Reg {
         let m = &self.t.machine;
+        // (Or of the same file, if `class` has fewer of its registers: SVE's
+        // governing predicates p0-p7, SME's w12-w15.)
         if let Reg::V(x) = r
-            && m.def(self.mf.vclass[x as usize]).file != m.def(class).file
+            && (m.def(self.mf.vclass[x as usize]).file != m.def(class).file
+                || m.def(class).fixed.is_none() && !m.within(self.mf.vclass[x as usize], class))
         {
             let d = self.mf.new_vreg(class);
             self.push(MInst::copy(Reg::V(d), r));

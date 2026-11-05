@@ -189,7 +189,8 @@ def intrinsics():
     body calls the intrinsic, the operands are its arguments and result;
     the features are those Rust's core::arch asks for it."""
     declared = set()
-    for line in open(os.path.join(HERE, 'sve-intrinsics.txt')):
+    lines = [line for f in ('sve-intrinsics.txt', 'sme-intrinsics.txt') for line in open(os.path.join(HERE, f))]
+    for line in lines:
         f = line.rstrip('\n').split(' ; ')
         if line.startswith('#') or len(f) < 8 or f[3] != 'entry':
             continue
@@ -198,6 +199,13 @@ def intrinsics():
         ret, args = sig[:-1].split('(', 1)
         args = split_top(args)
         params81, e, asm = entry_of(ename)
+        # (SME's choosers of ZA's slices: w12-w15, or w8-w11, by their
+        # fields' offsets.)
+        params81 = dict(params81)
+        for n, (t, c) in list(params81.items()):
+            m = re.search(rf'(?<![\w.]){re.escape(n)}_f:2=\({re.escape(n)}-(12|8)\)', e)
+            if c == 'w' and m:
+                params81[n] = (t, 'ws' if m.group(1) == '12' else 'wv')
         names = dict(o.split('=') for o in operands.split())
         extra = extra.split()
         tied = next((x[5:] for x in extra if x.startswith('tied=')), None)
@@ -212,6 +220,8 @@ def intrinsics():
             elif re.fullmatch(r'-?\d+', v):
                 e = fixed(e, n, int(v))
                 asm = asm.replace('{' + n + '}', v)
+                # (And in computed operands: {=offs+1}.)
+                asm = re.sub(r'\{=[^}]*\}', lambda m: re.sub(rf'(?<![\w.]){re.escape(n)}(?![\w.])', v, m.group(0)), asm)
             else:
                 rename[n] = v
         params, call = [], []
@@ -236,6 +246,10 @@ def intrinsics():
         dclass = params81[of['d']][1] if 'd' in of else None
         if bad or dclass in ('h', 'b', 'q') or 'half' in sig or 'bfloat' in sig and not ret.startswith('<'):
             continue
+        # (Not of lists of registers, {zn}-{zn:+1}, whose members are
+        # separate arguments: nothing yet puts them in consecutive registers.)
+        if ':+' in asm:
+            continue
         e = re.sub(r'(?<![\w.])([a-z][a-z0-9_]*)(?![\w.(])', lambda m: rename.get(m.group(1), m.group(1)), e)
         for n, v in rename.items():
             asm = re.sub(r'\{' + re.escape(n) + r'(\}|:)', '{' + v + r'\1', asm)
@@ -243,7 +257,8 @@ def intrinsics():
         body = ([f'call void @{name}({", ".join(call)})', 'ret void'] if ret == 'void'
                 else [f'%r = call {ret} @{name}({", ".join(call)})', f'ret {ret} %r'])
         attrs = f' "dclass"="{dclass}"' if dclass else ''
-        out.append(f'define {ret} @SVE.{name[len("llvm.aarch64.sve."):]}({", ".join(params)}) "feature"="{feats}" '
+        kind = 'SME' if name.startswith('llvm.aarch64.sme.') else 'SVE'
+        out.append(f'define {ret} @{kind}.{name[len("llvm.aarch64.sve."):]}({", ".join(params)}) "feature"="{feats}" '
                    f'"enc"="{e}" "asm"="{asm}"{attrs} "nodecode" {{\n' + ''.join(f'  {b}\n' for b in body) + '}\n')
         if name not in declared:
             types = ', '.join(a.split(' imm')[0] for a in args)
@@ -312,6 +327,34 @@ def unpacked_memory():
         ty = f'void @llvm.epitome.sve.st1.nxv{n}i{k}({c}, <vscale x {n} x i1>, ptr)' if op == 'st1' \
             else f'{c} @llvm.epitome.sve.ld1.nxv{n}i{k}(<vscale x {n} x i1>, ptr)'
         out.append(f'declare {ty}\n')
+
+
+def sme_modes():
+    """SME's switches of streaming mode and ZA (sme.rs makes the calls),
+    and TPIDR2_EL0, where a lazily saved ZA's block is. Streaming mode's
+    switches clear the vector and predicate registers."""
+    every = '"clobbers"="d0-d31,p0-p15"'
+    for name, word, asm, what, clob in [
+            ('SMSTARTsm', 0xd503437f, 'smstart sm', 'start.sm', every),
+            ('SMSTOPsm', 0xd503427f, 'smstop sm', 'stop.sm', every),
+            ('SMSTARTza', 0xd503457f, 'smstart za', 'start.za', ''),
+            ('SMSTOPza', 0xd503447f, 'smstop za', 'stop.za', ''),
+            ('MSRtpidr2zr', 0xd51bd0bf, 'msr TPIDR2_EL0, xzr', 'tpidr2.clear', '')]:
+        out.append(f'declare void @llvm.epitome.sme.{what}()\n')
+        attrs = f' {clob}' if clob else ''
+        out.append(f'define void @{name}() "feature"="sme" "enc"="{word:032b}" "asm"="{asm}"{attrs} "nodecode" {{\n'
+                   f'  call void @llvm.epitome.sme.{what}()\n  ret void\n}}\n')
+    # ZA's tiles zeroed (llvm.aarch64.sme.zero): a mask of the eight 64-bit
+    # tiles, written as their list (all eight, za).
+    out.append('declare void @llvm.aarch64.sme.zero(i32)\n')
+    for v in range(1, 256):
+        tiles = 'za' if v == 255 else ', '.join(f'za{k}.d' for k in range(8) if v >> k & 1)
+        out.append(f'define void @ZEROza.{v}() "feature"="sme" "enc"="{0xc0080000 | v:032b}" '
+                   f'"asm"="zero {{lb}}{tiles}{{rb}}" "nodecode" {{\n'
+                   f'  call void @llvm.aarch64.sme.zero(i32 {v})\n  ret void\n}}\n')
+    out.append('declare i64 @llvm.epitome.sme.tpidr2()\n')
+    out.append(f'define i64 @MRStpidr2() "feature"="sme" "enc"="{0xd53bd0a0 >> 5:027b} d:5" "asm"="mrs {{d}}, TPIDR2_EL0" '
+               '"dclass"="x" "nodecode" {\n  %r = call i64 @llvm.epitome.sme.tpidr2()\n  ret i64 %r\n}\n')
 
 
 def generic():
@@ -475,6 +518,13 @@ def generic():
                   'd': ('1001111001100110000000 a:5 d:5', 'fmov {d}, {a:d}')}[l]
         entry(et, f'LANE0.{t}', [f'{ty} "reg"="z" %a'], e, asm.replace('{a:q}', '{a:v}'),
               [f'%r = extractelement {ty} %a, i64 0', f'ret {et} %r'], f' "dclass"="{"x" if l == "d" else "w"}"')
+    # Each lane's number (llvm.stepvector): index from zero by one.
+    for k, (ty, l, t) in enumerate(INTS):
+        _, e, asm = entry_of(f'index_z_ri_.{2 * k}')
+        e = fixed(e, 'imm', 1).replace('zd:5', 'd:5')
+        out.append(f'declare {ty} @llvm.stepvector.{t}()\n')
+        entry(ty, f'STEP.{t}', [], e, asm.replace('{zd}', '{d}').replace('#{imm}', '#1'),
+              [f'%r = call {ty} @llvm.stepvector.{t}()', f'ret {ty} %r'], ' "dclass"="z"')
     # A tail-folded loop's lanes still to do: whilelo.
     for n in (16, 8, 4, 2):
         for it in ('i32', 'i64'):
@@ -502,6 +552,7 @@ def main():
     arithmetic()
     intrinsics()
     unpacked_memory()
+    sme_modes()
     generic()
     sys.stdout.write('\n'.join(out))
 

@@ -34,6 +34,7 @@ pub mod prepare;
 pub mod regalloc;
 pub mod runtime;
 pub mod scalable;
+pub mod sme;
 pub mod target;
 pub mod unwind;
 pub mod wide;

@@ -42,6 +42,9 @@ pub struct Operand {
     pub tied: bool,
     /// Read and written: the base register of a post-increment access.
     pub writeback: bool,
+    /// A register operand's least number, its class's first register (12
+    /// for SME's w12-w15): what `fits` tries.
+    pub first: i64,
 }
 
 /// An instruction's encoding, from its text: parsed as the description is
@@ -234,12 +237,12 @@ impl Instr {
     /// survive an encode and decode. `None` values are registers, labels or
     /// symbols, and are given placeholders.
     pub fn fits(&self, values: &[Option<i64>]) -> bool {
-        // (The registers not given are any: 0, or else 1, as an AVX-512
-        // mask, which k0 cannot be.)
+        // (The registers not given are any: the first of their classes, or
+        // else the next, as an AVX-512 mask, which k0 cannot be.)
         [0, 1].into_iter().any(|r| {
             let mut env = Env::new();
             for (o, v) in self.operands.iter().zip(values) {
-                env.insert(o.name.clone(), v.unwrap_or(if matches!(o.kind, Kind::Reg(_)) { r } else { 0 }));
+                env.insert(o.name.clone(), v.unwrap_or(if matches!(o.kind, Kind::Reg(_)) { o.first + r } else { 0 }));
             }
             let Some(bytes) = self.encode(&env) else { return false };
             let Some((back, _)) = self.decode(&bytes) else { return false };
@@ -568,6 +571,7 @@ pub fn type_bits(m: &Module, ty: TypeId) -> u32 {
         Type::Ptr(_) => 64,
         Type::Double => 64,
         Type::Float => 32,
+        Type::Half | Type::BFloat => 16,
         // A vector of booleans is a mask, a whole q register of lanes that
         // are all ones or all zeros, as a vector comparison makes it.
         Type::Vector { scalable: false, elem, .. } if type_bits(m, *elem) == 1 => 128,
@@ -1110,6 +1114,7 @@ impl Target {
                     bits: ret_bits,
                     tied: false,
                     writeback: false,
+                    first: 0,
                 });
             }
             // A second register result, `d2`: the second field of the
@@ -1132,6 +1137,7 @@ impl Target {
                     bits,
                     tied: false,
                     writeback: false,
+                    first: 0,
                 });
             }
             for p in &f.params {
@@ -1158,6 +1164,7 @@ impl Target {
                     bits: type_bits(m, local.ty),
                     tied: attr(&p.attrs, "tied").is_some(),
                     writeback: attr(&p.attrs, "writeback").is_some(),
+                    first: 0,
                 });
             }
             // A 32-bit result is zero above 32 bits where the machine zeroes
@@ -1252,6 +1259,13 @@ impl Target {
                     .is_some_and(|c| c.split(',').any(|x| x.trim() == "flags")),
                 func: g,
             });
+        }
+        for ins in &mut instrs {
+            for o in &mut ins.operands {
+                if let Kind::Reg(c) = o.kind {
+                    o.first = self.machine.first_in(c);
+                }
+            }
         }
         for (i, ins) in instrs.iter().enumerate() {
             self.by_name.insert(ins.name.clone(), i);
@@ -2038,6 +2052,8 @@ impl Target {
                             _ => return None,
                         }) & mask(to)
                     }
+                    // (Of no arguments, as llvm.stepvector: not a value to work out.)
+                    Head::Intrinsic(..) if k.is_empty() => return None,
                     Head::Intrinsic(id, bits) => {
                         let m = mask(bits);
                         let (a, b) = (k[0] & m, k.get(1).copied().unwrap_or(0) & m);

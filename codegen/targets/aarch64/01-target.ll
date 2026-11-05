@@ -8,7 +8,7 @@
 ; floating-point and vector registers (v0-v31), which d, s, q and v name as
 ; 64-bit, 32-bit and 128-bit values and 64-bit vectors.
 
-!target.registers = !{!1000, !1001, !1002, !1003, !1004, !1005, !1006, !1007, !1008, !1009, !1010, !1011, !1012, !1013, !1014}
+!target.registers = !{!1000, !1001, !1002, !1003, !1004, !1005, !1006, !1007, !1008, !1009, !1010, !1011, !1012, !1013, !1014, !1015, !1016}
 !1000 = !{!"w", !"w{0-30}", !"wzr"}
 !1001 = !{!"x", !"x{0-30}", !"xzr"}
 !1002 = !{!"wsp", !"w{0-30}", !"wsp"}
@@ -30,10 +30,14 @@
 !1012 = !{!"p", !"p{0-15}"}
 !1013 = !{!"pg", !"p{0-7}"}
 !1014 = !{!"pn", !"pn{0-15}"}
+; SME's choosers of ZA's slices: ws, w12-w15 (a tile's), and wv, w8-w11
+; (SME2's vectors of the array), each in a two-bit field.
+!1015 = !{!"ws", !"-{0-11}", !"w{12-15}"}
+!1016 = !{!"wv", !"-{0-7}", !"w{8-11}"}
 
 ; What each class holds, and in which file. The first of a kind and width
 ; is where values of it are put; b, h and lanes only name registers.
-!target.classes = !{!1020, !1021, !1022, !1023, !1024, !1025, !1026, !1027, !1028, !1029, !1030, !1031, !1032, !1033, !1034}
+!target.classes = !{!1020, !1021, !1022, !1023, !1024, !1025, !1026, !1027, !1028, !1029, !1030, !1031, !1032, !1033, !1034, !1035, !1036}
 !1020 = !{!"w", !"file", !"r", !"bits", !"32", !"holds", !"int"}
 !1021 = !{!"x", !"file", !"r", !"bits", !"64", !"holds", !"int"}
 !1022 = !{!"wsp", !"file", !"r", !"bits", !"32", !"holds", !"int", !"sp", !"yes"}
@@ -49,6 +53,8 @@
 !1032 = !{!"p", !"file", !"p", !"bits", !"16", !"holds", !"predicate"}
 !1033 = !{!"pg", !"file", !"p", !"bits", !"16", !"holds", !"predicate"}
 !1034 = !{!"pn", !"file", !"p"}
+!1035 = !{!"ws", !"file", !"r", !"bits", !"32", !"holds", !"int"}
+!1036 = !{!"wv", !"file", !"r", !"bits", !"32", !"holds", !"int"}
 
 ; ===========================================================================
 ; Parameters

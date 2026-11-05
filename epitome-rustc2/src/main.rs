@@ -26,6 +26,8 @@
 //!   and the first segments of those that did not.
 //! - `--dump-res`: resolve names, and print every path with what it
 //!   resolved to.
+//! - `--dump-sigs`: work out every item's signature, and print them.
+//! - `--types-stats`: count signatures, and why any have error types.
 //! - `--parse-tree dir`: parse every `.rs` file under `dir` (each on its
 //!   own, not following modules), and report each that fails and a count.
 //!   Each file is read in the edition of the nearest `Cargo.toml` above it
@@ -51,6 +53,7 @@ fn main() -> ExitCode {
     let mut list_files = false;
     let (mut no_expand, mut expand_stats) = (false, false);
     let (mut resolve_stats, mut dump_res) = (false, false);
+    let (mut dump_sigs, mut types_stats) = (false, false);
     let mut tree: Option<PathBuf> = None;
     let mut cfg = CfgSet::host();
     let mut externs: Vec<(String, PathBuf)> = Vec::new();
@@ -71,6 +74,8 @@ fn main() -> ExitCode {
             "--expand-stats" => expand_stats = true,
             "--resolve-stats" => resolve_stats = true,
             "--dump-res" => dump_res = true,
+            "--dump-sigs" => dump_sigs = true,
+            "--types-stats" => types_stats = true,
             _ if arg.starts_with("--cfg") => {
                 let v = value("--cfg").unwrap_or_default();
                 match v.split_once('=') {
@@ -160,6 +165,29 @@ fn main() -> ExitCode {
             eprintln!("not found: {total} calls to {} macros", missing.len());
             for (name, n) in missing.iter().take(20) {
                 eprintln!("  {n:6} {name}!");
+            }
+        }
+    }
+    if dump_sigs || types_stats {
+        let r = session.resolve(&crates);
+        let t = std::time::Instant::now();
+        let tcx = session.collect_types(&crates, &r);
+        let elapsed = t.elapsed();
+        if dump_sigs {
+            print!("{}", epitome_rustc2::ty::dump_signatures(&tcx, &r));
+        }
+        if types_stats {
+            let s = tcx.stats();
+            eprintln!(
+                "types: {} signatures ({} with error types), {} impls, {} distinct types, in {:.3} s",
+                s.signatures,
+                s.with_errors,
+                s.impls,
+                s.distinct_types,
+                elapsed.as_secs_f64()
+            );
+            for (why, n) in s.reasons.iter().take(20) {
+                eprintln!("  {n:6} {why}");
             }
         }
     }

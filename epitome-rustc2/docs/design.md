@@ -455,26 +455,67 @@ toolchain as the server.
 
 ### 7.1 Definitions
 
-After expansion, a collection pass records for each item its generics,
-predicates, field types, variant lists, signatures, associated items,
-and impls (inherent impls by self type; trait impls by trait). This is
-also what a crate writes as metadata (section 9).
+**Done** (`src/ty/collect.rs`). Every item gets its signature, keyed by its
+`DefId`, in one pass over the definitions (an item's parent, an impl or
+trait, always comes before it). It records:
+
+- **Generic parameters**, with a trait's `Self` as parameter 0, an impl's
+  or trait's parameters first in its items' lists, and defaults (which
+  may name `Self`).
+- **Predicates** from bounds and `where` clauses. `Item = T` bindings
+  become projection predicates; `?Sized` is dropped.
+- **Fields and variants**, function signatures (the receiver first),
+  impl headers, supertraits and auto traits.
+- **The types of aliases, constants and statics.** An alias is expanded
+  where it is used, worked out when first needed.
+
+`--dump-sigs` prints every signature, one per line:
+
+```text
+fn core::option::{impl}::map<U, F>(Option<T>, F) -> Option<U> where <F as FnOnce<(T,)>>::Output == U, F: FnOnce<(T,), Output = U>
+fn core::iter::traits::iterator::Iterator::next(&mut Self) -> Option<<Self as Iterator>::Item>
+```
+
+On `core`, `alloc` and `std`, the run takes 0.07 s and gives 54,523
+signatures and 13,818 impls. 0.3% of them contain an error type, every
+one naming a crate outside the session (`libc`, `hashbrown`, `unwind`).
 
 ### 7.2 The type table
 
-Types are interned in one arena, `Ty(u32)`, so equality is comparing
-indices:
+**Done** (`src/ty/mod.rs`, `src/intern.rs`). A type is a `Ty(u32)`, an
+index into an interned table of `TyKind`s, so equal types have equal ids.
+Everything inside a `TyKind` is an id as well, so `TyKind` is `Copy`. The
+kinds:
 
-- `Bool`, `Char`, `Int(I8..I128, Isize)`, `Uint(...)`, `Float(F16..F128)`,
-  `Str`, `Never`;
-- `Adt(DefId, Args)`, `Tuple(Tys)`, `Array(Ty, Const)`, `Slice(Ty)`,
-  `Ref(Region, Mutability, Ty)`, `Ptr(Mutability, Ty)`;
-- `FnDef(DefId, Args)`, `FnPtr(Sig)`, `Closure(NodeId, Args)`,
-  `Dyn(Bounds)`, `Param(index)`, `Alias(projection or opaque)`,
-  `Infer(var)`.
+- **Primitives:** `bool`, `char`, `str`, the integers and floats, `!`.
+- **Built-up types:** `Tuple(List)`, `Ref` and `Ptr` (with mutability),
+  `Array(Ty, ConstId)`, `Slice`.
+- **Items:** `Adt(DefId, List)`, `FnDef(DefId, List)`, `FnPtr(SigId)`,
+  `Dyn(DynId)`, `Foreign(DefId)`.
+- **Generic and associated:** `Param(ParamId)`, `Projection(assoc DefId,
+  List)` with the self type first in the list, `Opaque(OpaqueId)` for
+  `impl Trait`, and `ConstArg(ConstId)` for a constant in an argument
+  list.
+- **For checking:** `Infer(var)` and `Error`.
 
-Regions are kept only as far as trait selection and `dyn` need them;
-there is no borrow checker to feed.
+Lifetimes are not kept: they matter for borrow checking, not code
+generation.
+
+The interner is split into 16 shards by hash, each with its own locks,
+so parallel jobs can add types; an id's low bits name its shard. Maps use
+our own hasher (`src/hash.rs`).
+
+Turning written types into `Ty`s (`src/ty/lower.rs`) uses name
+resolution's results:
+
+- Missing generic arguments take their defaults.
+- `T::Item` and `Self::Item` become projections through a trait bounding
+  `T`. The bounds searched are those of the current item and its
+  parents, so a method's `where T: Deref` bounds its impl's `T`.
+- `<T as Tr>::Item` is a projection directly.
+- `Fn(A) -> B` becomes `Fn<(A,)>` with `Output = B`.
+- A module never stands for a type: `u8` in `core` is the primitive,
+  though a module `u8` is in scope.
 
 ### 7.3 Checking a function
 
@@ -702,8 +743,9 @@ Tests of parallel stages run on one thread and on several, and compare.
 3. Proc macros (working through the toolchain's server; in-process
    loading once we compile proc-macro crates, section 6.7).
 4. Name resolution and item collection (done).
-5. Type checking for `#![no_std]` programs: integers, structs, enums,
-   references, generics, traits, closures.
+5. Type checking: signatures and the type table (done); then bodies, for
+   `#![no_std]` programs: integers, structs, enums, references, generics;
+   then traits, methods, closures.
 6. Lowering of those to Epitome IR; first run tests pass.
 7. Drops, `dyn`, slices and strings, formatting through `core::fmt`.
 8. `core`, then `alloc` and `std` from `rust-src`; Cargo builds.

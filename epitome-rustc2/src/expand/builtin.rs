@@ -24,6 +24,7 @@ const EXPANDED: &[&str] = &[
     "env",
     "option_env",
     "compile_error",
+    "pattern_type",
 ];
 
 /// Built-ins left as calls, for type checking or lowering to handle.
@@ -44,7 +45,6 @@ const LEFT: &[&str] = &[
     "offset_of",
     "type_ascribe",
     "deref",
-    "pattern_type",
     "derive",
     "test",
     "bench",
@@ -195,6 +195,12 @@ pub fn expand<'s>(cx: &Context<'_, 's>, name: &str, input: &[Token<'s>]) -> Resu
             Err(cx.error(msg.to_string()))
         }
         "include" => include(cx, input),
+        // `pattern_type!(u32 is 1..)`: the type, without the pattern that
+        // narrows it (which only gives the layout a niche).
+        "pattern_type" => {
+            let end = input.iter().position(|t| t.0 == "is").unwrap_or(input.len());
+            Ok(Some(input[..end].to_vec()))
+        }
         _ => Ok(None),
     }
 }

@@ -124,14 +124,18 @@ shuffles), and intrinsics' names mangle them with `nx`.
 conditional loads and stores, structures of pairs); the test builds
 clang's IR of them with both compilers.
 
+Loops with their tails folded in (`tests/sve/folded.c`, whose first line
+gives clang `-mllvm -prefer-predicate-over-epilogue=...`, as some CPUs'
+tunings do by default) run each step under the predicate of the lanes
+still to do: `llvm.get.active.lane.mask` is `whilelo`, and the test of its
+first lane that ends the loop is that lane of the predicate made integers
+(`mov z0.s, p0/z, #1`, then `fmov w0, s0`).
+
 ## Still to do
 
 - **Unpacked floats** (`<vscale x 2 x float>`, from loops mixing floats
   and doubles), and vectors of more than a register in compares, selects
   and calls other than those above.
 - **Gathers and scatters** (`llvm.masked.gather` of scalable vectors).
-- **`whilelo` loops**: clang vectorises with a scalar tail unless told to
-  fold it (`-mllvm -prefer-predicate-over-epilogue`); the folded form's
-  `llvm.get.active.lane.mask` is not yet selected.
 - **SME**: streaming mode and ZA as values, beyond `45-sme.ll`'s fixed
   registers.

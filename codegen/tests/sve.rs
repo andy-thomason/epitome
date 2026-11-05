@@ -121,8 +121,18 @@ fn sve_behaves_as_clangs_build() {
         let run = || -> Result<(), String> {
             let ll = if dir.join(format!("{name}.c")).exists() {
                 let ll = tmp.join(format!("{name}.ll"));
+                // (Flags of its own for clang on its first line: `// clang:
+                // -mllvm ...`.)
+                let c = std::fs::read_to_string(dir.join(format!("{name}.c"))).map_err(|e| e.to_string())?;
+                let flags: Vec<&str> = c
+                    .lines()
+                    .next()
+                    .and_then(|l| l.strip_prefix("// clang:"))
+                    .map(|f| f.split_whitespace().collect())
+                    .unwrap_or_default();
                 let st = Command::new("clang")
                     .args(["--target=aarch64-unknown-linux-gnu", MARCH, "-O2", "-S", "-emit-llvm"])
+                    .args(&flags)
                     .arg(dir.join(format!("{name}.c")))
                     .arg("-o")
                     .arg(&ll)

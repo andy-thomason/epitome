@@ -451,6 +451,38 @@ pub fn split(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
 /// one or minus one where on, zero elsewhere (`mov z.s, p/z, #1`).
 pub fn predicate_casts(cx: &mut Ctx, f: &mut Function) {
     let i1 = cx.m.types.int(1);
+    // A lane of a predicate (a tail-folded loop's test of its first): the
+    // lane of it extended to integers (made a select below), truncated.
+    for b in f.layout.clone() {
+        let mut k = 0;
+        while k < f.blocks[b.index()].insts.len() {
+            let i = f.blocks[b.index()].insts[k];
+            let Op::ExtractElement { vector, index } = f.insts[i.index()].op else {
+                k += 1;
+                continue;
+            };
+            let Type::Vector { len, elem, scalable: true } = *cx.m.types.get(cx.value_ty(f, vector)) else {
+                k += 1;
+                continue;
+            };
+            if elem != i1 {
+                k += 1;
+                continue;
+            }
+            let r = f.insts[i.index()].result.unwrap();
+            let e = cx.m.types.int(PART_BITS / len);
+            let it = cx.m.types.intern(Type::Vector { len, elem: e, scalable: true });
+            let mut s = Seq { f, new: Vec::new() };
+            let wide = s.cast(CastOp::ZExt, vector, it);
+            let x = s.op(Op::ExtractElement { vector: wide, index }, e);
+            let t = s.cast(CastOp::Trunc, x, i1);
+            let new = std::mem::take(&mut s.new);
+            f.replace_uses(Value::Local(r), t);
+            let n = new.len();
+            f.blocks[b.index()].insts.splice(k..=k, new);
+            k += n;
+        }
+    }
     for b in f.layout.clone() {
         for &i in &f.blocks[b.index()].insts.clone() {
             let Op::Cast { op: op @ (CastOp::ZExt | CastOp::SExt), value, .. } = f.insts[i.index()].op else {

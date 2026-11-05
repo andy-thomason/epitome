@@ -351,6 +351,14 @@ def generic():
             out.append(f'declare {ty} @llvm.{op}.{t}({ty}, {ty})\n')
             predicated(f'sve.{op}.{t}', ty, l, f'{op}.{t}', [f'%r = call {ty} @llvm.{op}.{t}({ty} %a, {ty} %b)',
                                                            f'ret {ty} %r'], two, f'{P} %p, {ty} %a, {ty} %b')
+        # |a| (of either flag: whether the least value is poison).
+        if f'SVE.abs.{t}' in have:
+            out.append(f'declare {ty} @llvm.abs.{t}({ty}, i1)\n')
+            for flag in ('false', 'true'):
+                recipe(f'sve.abs.{flag}.{t}', ty, [(ty, 'z', 'a')],
+                       [f'%r = call {ty} @llvm.abs.{t}({ty} %a, i1 {flag})', f'ret {ty} %r'],
+                       [f'%p = call {P} @PTRUE{l}()', f'%r = call {ty} @SVE.abs.{t}({ty} %a, {P} %p, {ty} %a)',
+                        f'ret {ty} %r'])
         # Comparisons, into a predicate; those SVE has not, the other way.
         for pr, intr, swap in [('eq', 'cmpeq', False), ('ne', 'cmpne', False), ('sgt', 'cmpgt', False),
                                ('sge', 'cmpge', False), ('ugt', 'cmphi', False), ('uge', 'cmphs', False),
@@ -457,6 +465,27 @@ def generic():
             recipe(f'sve.{op}.{t}', it[0], [(ty, 'z', 'a')], [f'%r = {op} {ty} %a to {it[0]}', f'ret {it[0]} %r'],
                    [f'%p = call {P} @PTRUE{l}()', f'%q = bitcast {ty} %a to {it[0]}', f'%r = call {it[0]} @SVE.{intr}({it[0]} %q, {P} %p, {ty} %a)',
                     f'ret {it[0]} %r'])
+    # Lane 0 of a vector: the register's low bits, read as a scalar's
+    # (umov for bytes and halves, fmov for words and doublewords).
+    for ty, l, t in INTS:
+        et = 'i' + str({'b': 8, 'h': 16, 's': 32, 'd': 64}[l])
+        e, asm = {'b': ('0000111000000001001111 a:5 d:5', 'umov {d}, {a:q}.b[0]'),
+                  'h': ('0000111000000010001111 a:5 d:5', 'umov {d}, {a:q}.h[0]'),
+                  's': ('0001111000100110000000 a:5 d:5', 'fmov {d}, {a:s}'),
+                  'd': ('1001111001100110000000 a:5 d:5', 'fmov {d}, {a:d}')}[l]
+        entry(et, f'LANE0.{t}', [f'{ty} "reg"="z" %a'], e, asm.replace('{a:q}', '{a:v}'),
+              [f'%r = extractelement {ty} %a, i64 0', f'ret {et} %r'], f' "dclass"="{"x" if l == "d" else "w"}"')
+    # A tail-folded loop's lanes still to do: whilelo.
+    for n in (16, 8, 4, 2):
+        for it in ('i32', 'i64'):
+            if f'SVE.whilelo.nxv{n}i1.{it}' not in have:
+                continue
+            P = f'<vscale x {n} x i1>'
+            c = 'x' if it == 'i64' else 'w'
+            out.append(f'declare {P} @llvm.get.active.lane.mask.nxv{n}i1.{it}({it}, {it})\n')
+            recipe(f'sve.lane.mask.nxv{n}i1.{it}', P, [(it, c, 'a'), (it, c, 'b')],
+                   [f'%r = call {P} @llvm.get.active.lane.mask.nxv{n}i1.{it}({it} %a, {it} %b)', f'ret {P} %r'],
+                   [f'%r = call {P} @SVE.whilelo.nxv{n}i1.{it}({it} %a, {it} %b)', f'ret {P} %r'])
     # The vector length in 128-bit granules (vscale): rdvl's bytes, over 16.
     entry('i64', 'RDVL1', [], fixed(enc('rdvl {xd}, #{imm}', {'xd': 'd'}), 'imm', 1),
           'rdvl {d}, #1', ['ret i64 16'], ' "dclass"="x" "nomatch"')

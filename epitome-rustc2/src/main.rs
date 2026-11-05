@@ -7,10 +7,12 @@
 //! - `--dump-ast`: print the syntax tree, one node per line.
 //! - `--sexp`: print the syntax tree on one line.
 //! - `--tokens`: print the tokens, one per line.
+//! - `--pretty`: print the syntax tree back as Rust source.
 //! - `--parse-tree dir`: parse every `.rs` file under `dir`, and report
 //!   each that fails and a count. Each file is read in the edition of the
 //!   nearest `Cargo.toml` above it (2015 if it names none, as for Cargo),
-//!   or `--edition` if there is no `Cargo.toml`.
+//!   or `--edition` if there is no `Cargo.toml`. With `--roundtrip`, each
+//!   file is also printed and parsed again, and must give the same tree.
 
 use epitome_rustc2::lexer::{Edition, lex};
 use epitome_rustc2::parse::parse_str;
@@ -28,6 +30,8 @@ fn run() -> ExitCode {
     let mut dump = false;
     let mut sexp = false;
     let mut tokens = false;
+    let mut pretty = false;
+    let mut roundtrip = false;
     let mut tree: Option<PathBuf> = None;
     let mut files = Vec::new();
     let mut args = std::env::args().skip(1);
@@ -39,6 +43,8 @@ fn run() -> ExitCode {
             "--dump-ast" => dump = true,
             "--sexp" => sexp = true,
             "--tokens" => tokens = true,
+            "--pretty" => pretty = true,
+            "--roundtrip" => roundtrip = true,
             _ if arg.starts_with("--edition") => {
                 let v = value(&mut args, "--edition").unwrap_or_default();
                 match Edition::parse(&v) {
@@ -58,7 +64,7 @@ fn run() -> ExitCode {
         }
     }
     if let Some(dir) = tree {
-        return parse_tree(&dir, edition);
+        return parse_tree(&dir, edition, roundtrip);
     }
     if files.is_empty() {
         eprintln!("usage: epitome-rustc2 [--edition N] [--dump-ast | --sexp | --tokens] file.rs");
@@ -92,6 +98,9 @@ fn run() -> ExitCode {
                 if sexp {
                     println!("{}", ast.sexp(ast.root));
                 }
+                if pretty {
+                    print!("{}", epitome_rustc2::pretty::pretty(&ast));
+                }
             }
             Err(e) => {
                 eprint!("{}", e.render(src));
@@ -103,7 +112,7 @@ fn run() -> ExitCode {
 }
 
 /// Parses every `.rs` file under `dir`.
-fn parse_tree(dir: &Path, edition: Edition) -> ExitCode {
+fn parse_tree(dir: &Path, edition: Edition, roundtrip: bool) -> ExitCode {
     let mut files = Vec::new();
     collect(dir, &mut files);
     files.sort();
@@ -113,13 +122,33 @@ fn parse_tree(dir: &Path, edition: Edition) -> ExitCode {
         let Ok(text) = std::fs::read_to_string(file) else { continue };
         let src = Source::new(file.display().to_string(), text);
         let edition = file.parent().and_then(|d| crate_edition(d, &mut editions)).unwrap_or(edition);
-        if let Err(e) = parse_str(&src.text, edition) {
+        let ast = match parse_str(&src.text, edition) {
+            Ok(ast) => ast,
+            Err(e) => {
+                failed += 1;
+                eprint!("{}", e.render(&src));
+                continue;
+            }
+        };
+        if roundtrip && let Err(message) = check_roundtrip(&ast, edition) {
             failed += 1;
-            eprint!("{}", e.render(&src));
+            eprintln!("{}: roundtrip: {message}", src.name);
         }
     }
     println!("{} files, {} failed", files.len(), failed);
     if failed == 0 { ExitCode::SUCCESS } else { ExitCode::FAILURE }
+}
+
+/// Prints `ast`, parses the output, and compares the trees.
+fn check_roundtrip(ast: &epitome_rustc2::ast::Ast, edition: Edition) -> Result<(), String> {
+    use epitome_rustc2::pretty::{first_difference, pretty};
+    let out = pretty(ast);
+    let src = Source::new("<pretty>", out);
+    let again = parse_str(&src.text, edition).map_err(|e| format!("the output does not parse:\n{}", e.render(&src)))?;
+    match first_difference(ast, ast.root, &again, again.root) {
+        None => Ok(()),
+        Some((a, b)) => Err(format!("the tree changed:\n  {a}\n  {b}")),
+    }
 }
 
 /// The edition of the package whose `Cargo.toml` is nearest above `dir`.

@@ -191,10 +191,14 @@ directory and lists the failures: the parse corpus of section 10.
   (done).
 - `--sexp` / `Ast::sexp`: the same on one line, for tests (done):
   `(Binary (PathExpr (Path (Segment (Name a)))) (Op +) (Literal 1))`.
-- `--pretty` (next): the tree printed back as Rust source, in a fixed
-  style.
-  Parsing the pretty output must give the same tree; this checks the
-  parser against itself over large inputs.
+- `--pretty` (done, `src/pretty.rs`): the tree printed back as Rust
+  source in a fixed style: four-space indents, one statement or field
+  per line, spaces around binary operators. Parentheses are nodes, so
+  the printer never adds any. Macro input (token trees) is printed as
+  the source text it covers, comments and all. `--parse-tree dir
+  --roundtrip` prints every file, parses the output and checks the tree
+  is the same, node for node and token for token. All of `rust-src`
+  and of the crates.io cache that parses round-trips.
 
 ## 5. Name resolution
 
@@ -400,8 +404,8 @@ Every test has a tight time limit, and everything is built `--release`.
 
 ## 12. Order of work
 
-1. Lexer, parser, AST dump (done; `rust-src` and the crates.io cache
-   parse) and pretty printer.
+1. Lexer, parser, AST dump and pretty printer (done; `rust-src` and the
+   crates.io cache parse and round-trip).
 2. `cfg`, `macro_rules!`, built-in macros; expansion matches rustc's.
 3. Proc macros through the toolchain's server.
 4. Name resolution and item collection.

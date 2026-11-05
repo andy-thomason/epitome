@@ -121,8 +121,29 @@ const OPERATORS: &[&str] = &[
     "^=", "&=", "|=", "<<", ">>", "..",
 ];
 
+/// Whether the tokens from `i` spell `op`, each touching the next.
+fn at_prefix(tokens: &[Token], i: usize, op: &str) -> bool {
+    op.bytes().enumerate().all(|(k, c)| {
+        tokens
+            .get(i + k)
+            .is_some_and(|t| t.0.len() == 1 && t.0.as_bytes()[0] == c && (k == 0 || tokens[i + k - 1].touches(*t)))
+    })
+}
+
+/// The length in tokens of the operator starting at token `i`.
+fn operator_len(tokens: &[Token], i: usize) -> usize {
+    if !tokens[i].is_punct() {
+        return 0;
+    }
+    OPERATORS.iter().find(|op| at_prefix(tokens, i, op)).map_or(1, |op| op.len())
+}
+
 pub(crate) struct Parser<'a> {
     ast: Ast<'a>,
+    /// For each token, the length in tokens of the operator that starts
+    /// there (see `op_len_n`), worked out once: the parser asks about
+    /// operators many times per token.
+    op_len: Vec<u8>,
     pos: usize,
     stack: Vec<NodeId>,
     eof: Token<'a>,
@@ -131,7 +152,8 @@ pub(crate) struct Parser<'a> {
 
 impl<'a> Parser<'a> {
     fn new(tokens: Vec<Token<'a>>, eof: Token<'a>, edition: Edition) -> Self {
-        Parser { ast: Ast::new(tokens), pos: 0, stack: Vec::new(), eof, edition }
+        let op_len = (0..tokens.len()).map(|i| operator_len(&tokens, i) as u8).collect();
+        Parser { ast: Ast::new(tokens), op_len, pos: 0, stack: Vec::new(), eof, edition }
     }
 
     // ---- tokens ----
@@ -171,28 +193,17 @@ impl<'a> Parser<'a> {
     }
 
     /// Whether the tokens from `n` start with `op`'s characters, touching,
-    /// even if they go on to make a longer operator (`<` at the start of
-    /// `<=` when closing generics in `Vec<u8>=`).
+    /// even if they go on to make a longer operator (`.` `.` at the start
+    /// of `..=`).
     pub(crate) fn at_prefix_n(&self, n: usize, op: &str) -> bool {
-        op.chars().enumerate().all(|(k, c)| {
-            let t = self.tok(n + k);
-            t.0.len() == c.len_utf8() && t.0.starts_with(c) && (k == 0 || self.tok(n + k - 1).touches(t))
-        })
+        at_prefix(&self.ast.tokens, self.pos + n, op)
     }
 
     /// The length in tokens of the operator at `n`: the longest in
     /// `OPERATORS` spelt by touching tokens, else 1 for any punctuation
     /// and 0 for anything else.
     pub(crate) fn op_len_n(&self, n: usize) -> usize {
-        if !self.tok(n).is_punct() {
-            return 0;
-        }
-        for op in OPERATORS {
-            if self.at_prefix_n(n, op) {
-                return op.len();
-            }
-        }
-        1
+        self.op_len.get(self.pos + n).copied().unwrap_or(0) as usize
     }
 
     pub(crate) fn bump(&mut self) {

@@ -489,6 +489,16 @@ pub fn disassemble(t: &Target, img: &Image, show_relocs: bool) -> String {
 fn bundles(t: &Target, f: &crate::bundle::Format, s: &ImageSection, here: &[&(u64, usize, String)], out: &mut String) {
     let size = f.bytes as usize;
     let count = s.data.len() / size;
+    // The bundle `end` is written on: the last, or the first of the last
+    // sequence when the format counts them (`body`).
+    let body = f.body.as_deref().and_then(|n| f.field(n));
+    let mut end_at = 0;
+    let mut k = 0;
+    while k < count {
+        end_at = k;
+        let after = body.map_or(0, |fd| crate::bundle::get(&s.data[k * size..(k + 1) * size], fd.lsb, fd.width));
+        k += 1 + after as usize;
+    }
     for b in 0..count {
         let addr = s.addr + (b * size) as u64;
         for (_, _, name) in here.iter().filter(|x| x.0 == addr) {
@@ -496,7 +506,7 @@ fn bundles(t: &Target, f: &crate::bundle::Format, s: &ImageSection, here: &[&(u6
         }
         let bytes = &s.data[b * size..(b + 1) * size];
         let mut explained: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
-        if b + 1 == count {
+        if b == end_at {
             explained.extend(f.end.iter().cloned());
         }
         let mut lines = Vec::new();

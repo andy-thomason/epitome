@@ -86,3 +86,17 @@ fn bundles_disassemble_as_written() {
     let (back, _) = assemble(&t, &format!(".section .text.toy\n{again}\n")).unwrap();
     assert_eq!(back, code, "{again}");
 }
+
+#[test]
+fn a_sequence_ending_the_section_is_marked_at_its_start() {
+    // `rep 1` repeats its bundle and the next (`"body"` is `len`), so the
+    // section's last sequence starts there: `end` marks it, not the bundle
+    // after it.
+    let t = toy();
+    let src = ".section .text.toy\n{\n mov a0, b1\n}\nrep 1 {\n mov a1, b1\n}\n{\n mov a2, b1\n}\n";
+    let (code, obj) = assemble(&t, src).unwrap();
+    let last = |k: usize| code[k * 8 + 1] & 0x10 != 0;
+    assert_eq!((last(0), last(1), last(2)), (false, true, false), "{code:02x?}");
+    let text = objdump::disassemble(&t, &Image::read(&obj, &t.machine).unwrap(), false);
+    assert!(text.contains("rep 1 ") && text.contains("mov a2, b1"), "{code:02x?}\n{text}");
+}

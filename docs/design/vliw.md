@@ -46,6 +46,7 @@ status labels, see the [index](README.md).
 | `slot` | a slot, `lsb:width`, and the units whose entries may go in it |
 | `prefix` | a way of writing header fields before a bundle's `{`: a template of fields, and fields it sets besides |
 | `end` | fields the last bundle of a section sets (a program's end) |
+| `body` | a header field a prefix sets, counting the bundles after this one in its sequence (a repeat's body); `end` then goes on the first bundle of the section's last sequence, never in a body |
 | `lanes` | the text between an instruction line's lanes: `a :: b` is `a` in lane 0 and `b` in lane 1 |
 
 Bits are numbered from bit 0 of byte 0. An entry goes in bundles when it

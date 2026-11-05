@@ -28,7 +28,8 @@
         !"field", !"port", !"0:3 3:3", !"field", !"rot", !"6:1 7:1", !"field", !"len", !"8:3",
         !"field", !"rep", !"11:1", !"field", !"last", !"12:1",
         !"slot", !"16:16", !"X", !"slot", !"32:16", !"Y", !"slot", !"48:16", !"X,Y",
-        !"prefix", !"rep {len} last", !"rep=1 last=1", !"prefix", !"rep {len}", !"rep=1"}
+        !"prefix", !"rep {len} last", !"rep=1 last=1", !"prefix", !"rep {len}", !"rep=1",
+        !"body", !"len"}
 
 define void @ADDX(i32 "enum"="dst" %d, i32 "enum"="src" %s, i32 "enum"="src" %t) "enc"="0001 d:3 t:1=t>>4 s:1=s>>4 0000000" "asm"="add {d}, {s}, {t}" "unit"="X" "lane"="0" "header"="port[s>>4]=s&7; rot[s>>4]=1 if (s>>3)&1; port[t>>4]=t&7; rot[t>>4]=1 if (t>>3)&1" "asmonly" {
   ret void

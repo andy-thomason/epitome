@@ -18,7 +18,8 @@
 //! | `field` | a header field, `lsb:width`; several (`4:4 8:4`) make a family, `port[0]` and `port[1]` |
 //! | `slot` | a slot, `lsb:width`, then the units whose entries go in it |
 //! | `prefix` | a way of writing header fields before a bundle's `{`: a template of fields, and fields it sets |
-//! | `end` | fields the last bundle of a section sets |
+//! | `end` | fields the last bundle of a section sets; with `body`, the first bundle of the last sequence |
+//! | `body` | a header field (set by a prefix) counting the bundles after this one in its sequence, as a repeat's body |
 //! | `lanes` | the text between an item's lanes: `a :: b` is `a` in lane 0 and `b` in lane 1 |
 //!
 //! Bits are numbered from bit 0 of byte 0. An entry goes in a bundle when
@@ -70,6 +71,8 @@ pub struct Format {
     pub slots: Vec<SlotDef>,
     pub prefixes: Vec<Prefix>,
     pub end: Vec<(String, i64)>,
+    /// The field counting the bundles after this one in its sequence.
+    pub body: Option<String>,
     pub lanes: Option<String>,
 }
 
@@ -169,6 +172,7 @@ impl Format {
                 slots: Vec::new(),
                 prefixes: Vec::new(),
                 end: Vec::new(),
+                body: None,
                 lanes: None,
             };
             let mut k = 0;
@@ -181,6 +185,7 @@ impl Format {
                     "bytes" => f.bytes = arg(k + 1)?.parse().map_err(|_| "!target.bundles: bytes: a number")?,
                     "lanes" => f.lanes = Some(arg(k + 1)?),
                     "end" => f.end = sets(&arg(k + 1)?)?,
+                    "body" => f.body = Some(arg(k + 1)?),
                     "field" => {
                         let name = arg(k + 1)?;
                         let places: Vec<&str> =
@@ -218,8 +223,9 @@ impl Format {
                     return Err(format!("bundle {}: a slot at {} is not whole bytes inside the bundle", f.name, s.lsb));
                 }
             }
-            for (name, _) in f.prefixes.iter().flat_map(|p| &p.sets).chain(&f.end) {
-                if f.field(name).is_none() {
+            let body = f.body.iter().map(|b| (b.clone(), 0));
+            for (name, _) in f.prefixes.iter().flat_map(|p| &p.sets).chain(&f.end).cloned().chain(body) {
+                if f.field(&name).is_none() {
                     return Err(format!("bundle {}: no header field {name}", f.name));
                 }
             }

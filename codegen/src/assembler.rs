@@ -1141,12 +1141,23 @@ impl<'t> Assembler<'t> {
         if let Some((_, _, _, line, _, _)) = bundle {
             return Err(err(line, "a bundle without its closing brace".into()));
         }
-        // Each section's last bundle.
-        let mut last_bundle: HashMap<usize, u64> = HashMap::new();
+        // Each section's last bundle, or, where the format counts the
+        // bundles of a sequence (`body`), the first of the last sequence.
+        let mut in_order: HashMap<usize, Vec<(u64, u64)>> = HashMap::new();
         for l in &later {
-            if let Later::Bundle { section, offset, .. } = l {
-                let e = last_bundle.entry(*section).or_insert(*offset);
-                *e = (*e).max(*offset);
+            if let Later::Bundle { format, section, offset, prefix, .. } = l {
+                let body = self.t.machine.bundles[*format].body.as_ref();
+                let after = body.and_then(|b| prefix.iter().find(|(k, _)| k == b)).map_or(0, |(_, v)| *v as u64);
+                in_order.entry(*section).or_default().push((*offset, after));
+            }
+        }
+        let mut last_bundle: HashMap<usize, u64> = HashMap::new();
+        for (section, mut bundles) in in_order {
+            bundles.sort();
+            let mut k = 0;
+            while k < bundles.len() {
+                last_bundle.insert(section, bundles[k].0);
+                k += 1 + bundles[k].1 as usize;
             }
         }
         for l in &mut later {

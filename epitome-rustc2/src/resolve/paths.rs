@@ -15,17 +15,20 @@
 
 use super::{DefKind, ModId, Ns, Res, ResolveStats, Resolver};
 use crate::ast::{Ast, Kind, NodeId};
+use crate::hash::FastMap;
 use crate::pool;
 use crate::session::{ParsedCrate, Session};
-use std::collections::HashMap;
 use std::sync::Mutex;
 
 use super::PRIMITIVES;
 
+/// The syntax context of a name seen from every context.
+const ANY_CTX: u32 = u32::MAX;
+
 pub(super) fn resolve_paths<'s>(session: &Session, r: &mut Resolver<'s>, crates: &[ParsedCrate<'s>]) {
     let jobs: Vec<(usize, usize)> =
         crates.iter().enumerate().flat_map(|(k, c)| (0..c.files.len()).map(move |i| (k, i))).collect();
-    type FileRes = (usize, usize, HashMap<NodeId, Res>);
+    type FileRes = (usize, usize, Vec<Option<Res>>);
     let out: Mutex<Vec<FileRes>> = Mutex::new(Vec::new());
     let rr: &Resolver<'s> = r;
     pool::run(session.threads(), jobs, |(k, i), _| {
@@ -37,13 +40,13 @@ pub(super) fn resolve_paths<'s>(session: &Session, r: &mut Resolver<'s>, crates:
             ast: &f.ast,
             module: rr.file_modules[k][i],
             ribs: Vec::new(),
-            out: HashMap::new(),
+            out: vec![None; f.ast.nodes.len()],
         };
         w.walk(f.ast.root);
         out.lock().unwrap().push((k, i, w.out));
     });
-    let mut res: Vec<Vec<HashMap<NodeId, Res>>> =
-        crates.iter().map(|c| (0..c.files.len()).map(|_| HashMap::new()).collect()).collect();
+    let mut res: Vec<Vec<Vec<Option<Res>>>> =
+        crates.iter().map(|c| (0..c.files.len()).map(|_| Vec::new()).collect()).collect();
     for (k, i, m) in out.into_inner().unwrap() {
         res[k][i] = m;
     }
@@ -52,7 +55,8 @@ pub(super) fn resolve_paths<'s>(session: &Session, r: &mut Resolver<'s>, crates:
 
 #[derive(Default)]
 struct Rib<'s> {
-    values: Vec<(&'s str, Res)>,
+    /// Local variables and const parameters: name, syntax context, what.
+    values: Vec<(&'s str, u32, Res)>,
     types: Vec<(&'s str, Res)>,
 }
 
@@ -64,8 +68,8 @@ struct Walker<'w, 's> {
     module: ModId,
     ribs: Vec<Rib<'s>>,
     /// What each path (or identifier pattern naming a constant) resolved
-    /// to; a path missing here did not resolve.
-    out: HashMap<NodeId, Res>,
+    /// to, by node; `None` for a path that did not resolve.
+    out: Vec<Option<Res>>,
 }
 
 /// One segment of a path: its name.
@@ -93,14 +97,28 @@ impl<'w, 's> Walker<'w, 's> {
     /// A one-segment name in `ns`.
     fn lookup_name(&self, name: &str, ns: Ns, with_ribs: bool) -> Option<Res> {
         if with_ribs {
-            for rib in self.ribs.iter().rev() {
-                let list = match ns {
-                    Ns::Value => &rib.values,
-                    Ns::Type => &rib.types,
-                    Ns::Macro => continue,
+            if ns == Ns::Value {
+                // A local in the same syntax context; for a name written in
+                // a macro's body, then one written outside any macro (the
+                // locals at the macro's definition, approximately).
+                let ctx = self.r.ctx_of(name);
+                let find = |c: u32| {
+                    self.ribs.iter().rev().find_map(|rib| {
+                        rib.values
+                            .iter()
+                            .rev()
+                            .find(|(n, x, _)| *n == name && (*x == c || *x == ANY_CTX))
+                            .map(|v| v.2.clone())
+                    })
                 };
-                if let Some((_, res)) = list.iter().rev().find(|(n, _)| *n == name) {
-                    return Some(res.clone());
+                if let Some(res) = find(ctx).or_else(|| if ctx != 0 { find(0) } else { None }) {
+                    return Some(res);
+                }
+            } else if ns == Ns::Type {
+                for rib in self.ribs.iter().rev() {
+                    if let Some((_, res)) = rib.types.iter().rev().find(|(n, _)| *n == name) {
+                        return Some(res.clone());
+                    }
                 }
             }
         }
@@ -242,7 +260,7 @@ impl<'w, 's> Walker<'w, 's> {
         }
         let res = res.or_else(|| self.resolve_path(path, ns));
         if let Some(res) = res {
-            self.out.insert(path, res);
+            self.out[path.0 as usize] = Some(res);
         }
     }
 
@@ -271,7 +289,8 @@ impl<'w, 's> Walker<'w, 's> {
             let name = self.ast.token(n).ident_name();
             match self.ast.kind(p) {
                 Kind::TypeParam => self.rib().types.push((name, Res::Generic(p))),
-                Kind::ConstParam => self.rib().values.push((name, Res::Generic(p))),
+                // Generic parameters are not hygienic, as locals are.
+                Kind::ConstParam => self.rib().values.push((name, ANY_CTX, Res::Generic(p))),
                 _ => {}
             }
         }
@@ -280,7 +299,7 @@ impl<'w, 's> Walker<'w, 's> {
     /// The names a pattern binds, resolving the paths in it as it goes.
     /// An identifier that names a unit struct, unit variant or constant in
     /// scope is that, not a new binding.
-    fn pattern(&mut self, pat: NodeId, binds: &mut Vec<(&'s str, Res)>) {
+    fn pattern(&mut self, pat: NodeId, binds: &mut Vec<(&'s str, u32, Res)>) {
         match self.ast.kind(pat) {
             Kind::IdentPat => {
                 let Some(n) = self.ast.child(pat, Kind::Name) else { return };
@@ -295,10 +314,10 @@ impl<'w, 's> Walker<'w, 's> {
                         DefKind::Struct | DefKind::Variant | DefKind::Const | DefKind::AssocConst
                     )
                 {
-                    self.out.insert(pat, res);
+                    self.out[pat.0 as usize] = Some(res);
                     return;
                 }
-                binds.push((name, Res::Local(pat)));
+                binds.push((name, self.r.ctx_of(name), Res::Local(pat)));
                 for &c in self.ast.children(pat) {
                     if !matches!(self.ast.kind(c), Kind::Name | Kind::Keyword) {
                         self.pattern(c, binds);
@@ -439,7 +458,9 @@ impl<'w, 's> Walker<'w, 's> {
                     for p in self.ast.children(c).to_vec() {
                         match self.ast.kind(p) {
                             Kind::SelfParam => {
-                                self.rib().values.push(("self", Res::Local(p)));
+                                let tok = self.ast.child(p, Kind::Name).map_or("self", |n| self.ast.token(n).0);
+                                let ctx = self.r.ctx_of(tok);
+                                self.rib().values.push(("self", ctx, Res::Local(p)));
                                 if let Some(t) =
                                     self.ast.children(p).iter().copied().find(|&t| is_type(self.ast.kind(t)))
                                 {
@@ -534,7 +555,7 @@ impl<'w, 's> Walker<'w, 's> {
                     Some(name) if kids.len() == 1 && self.ast.kind(name) == Kind::Name => {
                         let s = self.ast.token(name).ident_name();
                         if let Some(res) = self.lookup_name(s, Ns::Value, true) {
-                            self.out.insert(name, res);
+                            self.out[name.0 as usize] = Some(res);
                         }
                     }
                     _ => {
@@ -742,7 +763,7 @@ impl Resolver<'_> {
                 for p in paths {
                     let t = f.ast.token(p);
                     let at = sources.find(t.0).map_or_else(|| "<expansion>".to_string(), |s| s.locate(t.0).to_string());
-                    let what = self.res[k][i].get(&p).map_or_else(|| "??".to_string(), |r| self.describe(r));
+                    let what = self.res_of(k, i, p).map_or_else(|| "??".to_string(), |r| self.describe(r));
                     out.push_str(&format!("{at} {} -> {what}\n", f.ast.text(p)));
                 }
             }
@@ -759,7 +780,7 @@ impl Resolver<'_> {
             imports_failed: self.failed_imports.len(),
             ..Default::default()
         };
-        let mut missing: HashMap<String, usize> = HashMap::new();
+        let mut missing: FastMap<String, usize> = FastMap::default();
         for (k, c) in crates.iter().enumerate() {
             for (i, f) in c.files.iter().enumerate() {
                 let res = &self.res[k][i];
@@ -799,13 +820,7 @@ fn collect_path_nodes(ast: &Ast, n: NodeId, out: &mut Vec<NodeId>) {
 
 /// Counts the paths under `n` in expressions, types and patterns (not in
 /// `use`, visibilities, attributes or macro input).
-fn count_paths(
-    ast: &Ast,
-    n: NodeId,
-    res: &HashMap<NodeId, Res>,
-    s: &mut ResolveStats,
-    missing: &mut HashMap<String, usize>,
-) {
+fn count_paths(ast: &Ast, n: NodeId, res: &[Option<Res>], s: &mut ResolveStats, missing: &mut FastMap<String, usize>) {
     let kind = ast.kind(n);
     if matches!(
         kind,
@@ -822,7 +837,7 @@ fn count_paths(
     }
     if kind == Kind::Path {
         s.paths += 1;
-        match res.get(&n) {
+        match res.get(n.0 as usize).and_then(Option::as_ref) {
             Some(Res::Partial(..)) => s.partial += 1,
             Some(_) => s.resolved += 1,
             None => {

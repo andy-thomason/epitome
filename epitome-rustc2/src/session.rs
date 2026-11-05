@@ -19,11 +19,11 @@
 
 use crate::ast::{Ast, Kind, NodeId};
 use crate::cfg::{CfgSet, strip};
+use crate::hash::FastSet;
 use crate::lexer::{Edition, Token};
 use crate::parse::parse_str;
 use crate::pool;
 use crate::source::{Error, Source, SourceMap};
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -94,7 +94,7 @@ pub struct ScopeStep {
 pub struct ParsedFile<'s> {
     /// Items whose `#[derive]`s have been expanded, so that a later round
     /// does not expand them again.
-    pub derived: HashSet<NodeId>,
+    pub derived: FastSet<NodeId>,
     pub source: &'s Source,
     pub path: PathBuf,
     /// Whether the file owns its directory (`lib.rs`, `main.rs`, `mod.rs`,
@@ -129,7 +129,7 @@ pub struct ParsedCrate<'s> {
     pub errors: Vec<Error<'s>>,
     /// The `mod` items whose files have been loaded (or tried), as the
     /// declaring file's position and the item.
-    loaded: HashSet<(Vec<u32>, NodeId)>,
+    loaded: FastSet<(Vec<u32>, NodeId)>,
     /// Parent links, by position, for files loaded later.
     parent_pos: Vec<Option<(Vec<u32>, NodeId)>>,
 }
@@ -203,7 +203,7 @@ impl Session {
                 proc_macros: r.proc_macros.clone(),
                 files: Vec::new(),
                 errors: Vec::new(),
-                loaded: HashSet::new(),
+                loaded: FastSet::default(),
                 parent_pos: Vec::new(),
             })
             .collect();
@@ -285,7 +285,7 @@ impl Session {
             done.errors.extend(strip(&mut ast, cfg, job.edition, eof));
         }
         let file = ParsedFile {
-            derived: HashSet::new(),
+            derived: FastSet::default(),
             source,
             path: job.path,
             mod_rs: job.mod_rs,
@@ -296,7 +296,7 @@ impl Session {
             parent: None,
         };
         if job.follow {
-            let (jobs, errors) = module_jobs(job.krate, &file, job.edition, &HashSet::new());
+            let (jobs, errors) = module_jobs(job.krate, &file, job.edition, &FastSet::default());
             done.errors.extend(errors);
             for j in jobs {
                 done.loaded.push((file.pos.clone(), j.decl.as_ref().unwrap().1));
@@ -347,7 +347,7 @@ impl<'s> ParsedCrate<'s> {
             sorted.push(files[i].take().unwrap());
             sorted_parents.push(parents[i].take());
         }
-        let index: std::collections::HashMap<Vec<u32>, usize> =
+        let index: crate::hash::FastMap<Vec<u32>, usize> =
             sorted.iter().enumerate().map(|(i, f)| (f.pos.clone(), i)).collect();
         for (f, p) in sorted.iter_mut().zip(&sorted_parents) {
             f.parent = p.as_ref().and_then(|(pp, n)| index.get(pp).map(|&i| (i, *n)));
@@ -363,7 +363,7 @@ fn module_jobs<'s>(
     krate: usize,
     file: &ParsedFile<'s>,
     edition: Edition,
-    loaded: &HashSet<(Vec<u32>, NodeId)>,
+    loaded: &FastSet<(Vec<u32>, NodeId)>,
 ) -> (Vec<Job<'s>>, Vec<Error<'s>>) {
     let ast = &file.ast;
     let file_dir = file.path.parent().unwrap_or(Path::new("")).to_path_buf();

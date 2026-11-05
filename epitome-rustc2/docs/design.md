@@ -272,12 +272,24 @@ patterns. An item inside a function sees none of the function's locals.
 
 ### 5.4 Hygiene
 
-A path written in a macro 2.0's body resolves in the macro's module
-first (definition-site), then at the call site, for the items the
-expansion itself defines. The span of each macro 2.0's body is known, so
-a token's address says whether it came from one. `macro_rules!`
-expansions resolve at the call site, as rustc's mixed-site hygiene does
-for items. The hygiene of local variables is not yet modelled.
+- **Items.** A path written in a macro 2.0's body resolves in the
+  macro's module first (definition-site), then at the call site, for the
+  items the expansion itself defines. `macro_rules!` expansions resolve
+  items at the call site, as rustc's mixed-site hygiene does.
+- **Local variables.** Every token has a syntax context: the macro body
+  (`macro_rules!` or macro 2.0, as written in a file) whose text it is
+  in, or none. The spans of the bodies are known, so a token's address
+  gives its context. A local binding records its context, and a name
+  sees only bindings of its own context. A name from a macro body falls
+  back to bindings outside any macro (an approximation of the locals at
+  the macro's definition). So `m!(x)` with `let x = 2; $e + x` in `m`
+  sees the caller's `x` for `$e` and the macro's for its own `x`.
+  Generic parameters are not hygienic.
+- **Visibility.** `pub(in path)` names an ancestor module, which already
+  exists when the item is collected, so it is resolved then.
+- **Maps.** Side tables keyed by node are `Vec`s indexed by `NodeId`; the
+  few hash maps use our own fast hasher (`src/hash.rs`), not the standard
+  library's default.
 
 ### 5.5 Results on `core`, `alloc` and `std`
 

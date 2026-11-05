@@ -35,12 +35,12 @@
 
 use epitome_rustc2::ast::Ast;
 use epitome_rustc2::cfg::CfgSet;
+use epitome_rustc2::hash::FastMap;
 use epitome_rustc2::lexer::{Edition, lex};
 use epitome_rustc2::parse::parse_str;
 use epitome_rustc2::pretty::{first_difference, pretty};
 use epitome_rustc2::session::{CrateRoot, Options, Session};
 use epitome_rustc2::source::Source;
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -268,7 +268,7 @@ fn parse_tree(dir: &Path, edition: Edition, roundtrip: bool, options: Options) -
     let mut files = Vec::new();
     collect(dir, &mut files);
     files.sort();
-    let mut editions = HashMap::new();
+    let mut editions = FastMap::default();
     let roots: Vec<CrateRoot> = files
         .iter()
         .map(|f| {
@@ -308,7 +308,7 @@ fn check_roundtrip(ast: &Ast, edition: Edition) -> Result<(), String> {
 }
 
 /// The edition of the package whose `Cargo.toml` is nearest above `dir`.
-fn crate_edition(dir: &Path, cache: &mut HashMap<PathBuf, Option<Edition>>) -> Option<Edition> {
+fn crate_edition(dir: &Path, cache: &mut FastMap<PathBuf, Option<Edition>>) -> Option<Edition> {
     if let Some(&e) = cache.get(dir) {
         return e;
     }

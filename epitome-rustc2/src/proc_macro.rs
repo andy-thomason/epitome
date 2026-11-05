@@ -26,9 +26,9 @@
 //! libraries, so the server must come from that toolchain.
 
 use crate::expand::mbe_delims;
+use crate::hash::FastMap;
 use crate::json::{Json, nums, obj};
 use crate::lexer::Token;
-use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
@@ -169,7 +169,7 @@ struct Flat {
     ident: Vec<u32>,
     token_tree: Vec<u32>,
     text: Vec<String>,
-    texts: HashMap<String, u32>,
+    texts: FastMap<String, u32>,
 }
 
 impl Flat {

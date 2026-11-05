@@ -6,10 +6,14 @@
 //!
 //! - `--edition 2015|2018|2021|2024` (default 2024), also `--edition=N`.
 //! - `--threads N`: worker threads (default one per core).
+//! - `--cfg name` or `--cfg 'name="value"'`: set a configuration option,
+//!   on top of the host's (`target_os`, `unix`, `debug_assertions`, ...).
+//! - `--no-cfg`: do not strip `cfg`; load every module whose file exists.
 //! - `--dump-ast`: print each file's syntax tree, one node per line.
 //! - `--sexp`: print each file's syntax tree on one line.
 //! - `--pretty`: print each file's syntax tree back as Rust source.
 //! - `--tokens file.rs`: print the tokens of one file, one per line.
+//! - `--list-files`: print the path of each file loaded, one per line.
 //! - `--parse-tree dir`: parse every `.rs` file under `dir` (each on its
 //!   own, not following modules), and report each that fails and a count.
 //!   Each file is read in the edition of the nearest `Cargo.toml` above it
@@ -18,6 +22,7 @@
 //!   parsed again, and must give the same tree.
 
 use epitome_rustc2::ast::Ast;
+use epitome_rustc2::cfg::CfgSet;
 use epitome_rustc2::lexer::{Edition, lex};
 use epitome_rustc2::parse::parse_str;
 use epitome_rustc2::pretty::{first_difference, pretty};
@@ -31,7 +36,10 @@ fn main() -> ExitCode {
     let mut edition = Edition::default();
     let mut options = Options::default();
     let (mut dump, mut sexp, mut tokens, mut print, mut roundtrip) = (false, false, false, false, false);
+    let mut list_files = false;
     let mut tree: Option<PathBuf> = None;
+    let mut cfg = CfgSet::host();
+    let mut no_cfg = false;
     let mut files = Vec::new();
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -42,6 +50,15 @@ fn main() -> ExitCode {
             "--tokens" => tokens = true,
             "--pretty" => print = true,
             "--roundtrip" => roundtrip = true,
+            "--no-cfg" => no_cfg = true,
+            "--list-files" => list_files = true,
+            _ if arg.starts_with("--cfg") => {
+                let v = value("--cfg").unwrap_or_default();
+                match v.split_once('=') {
+                    Some((n, val)) => cfg.set_value(n.trim(), val.trim().trim_matches('"')),
+                    None => cfg.set(v.trim()),
+                };
+            }
             _ if arg.starts_with("--edition") => {
                 let v = value("--edition").unwrap_or_default();
                 let Some(e) = Edition::parse(&v) else {
@@ -77,6 +94,9 @@ fn main() -> ExitCode {
         return print_tokens(&files);
     }
 
+    if !no_cfg {
+        options.cfg = Some(cfg);
+    }
     let session = Session::new(options);
     let roots = files
         .iter()
@@ -89,6 +109,9 @@ fn main() -> ExitCode {
     let mut failed = false;
     for c in &crates {
         for f in &c.files {
+            if list_files {
+                println!("{}", f.source.name);
+            }
             let several = crates.len() > 1 || c.files.len() > 1;
             if several && (dump || sexp || print) {
                 println!("// {}", f.source.name);

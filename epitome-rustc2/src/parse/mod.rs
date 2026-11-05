@@ -57,6 +57,11 @@ pub enum Fragment {
     Pattern,
     Item,
     Stmts,
+    /// Items until the end; the root is a `Crate` node holding them.
+    Items,
+    /// An attribute's contents without `#[` and `]`, as in `cfg_attr`:
+    /// the root is an `Attribute`.
+    Meta,
 }
 
 /// Parses all of `tokens` as one fragment; the node is the AST's root.
@@ -90,6 +95,16 @@ pub fn parse_fragment<'a>(
                 p.stmt(None)?;
             }
             p.finish(m, Kind::Block)
+        }
+        Fragment::Items => {
+            let m = p.mark();
+            p.items_until(None)?;
+            p.finish(m, Kind::Crate)
+        }
+        Fragment::Meta => {
+            let m = p.mark();
+            p.meta()?;
+            p.finish(m, Kind::Attribute)
         }
     };
     if !p.at_eof() {
@@ -416,6 +431,12 @@ impl<'a> Parser<'a> {
     /// `[path args]`, `[path = value]`, `[unsafe(...)]`.
     fn attribute_body(&mut self) -> PResult<'a> {
         self.expect("[")?;
+        self.meta()?;
+        self.expect("]")
+    }
+
+    /// `path args`, `path = value`, `unsafe(...)`: an attribute's contents.
+    fn meta(&mut self) -> PResult<'a> {
         let is_unsafe = self.at("unsafe") && self.at_n(1, "(");
         if is_unsafe {
             self.leaf(Kind::Keyword, 1);
@@ -431,6 +452,6 @@ impl<'a> Parser<'a> {
         if is_unsafe {
             self.expect(")")?;
         }
-        self.expect("]")
+        Ok(())
     }
 }

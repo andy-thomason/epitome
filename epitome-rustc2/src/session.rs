@@ -16,7 +16,9 @@
 //! jobs ran in: each file is placed by its position in the module tree.
 
 use crate::ast::{Ast, Kind, NodeId};
+use crate::cfg::{CfgSet, strip};
 use crate::lexer::Edition;
+use crate::lexer::Token;
 use crate::parse::parse_str;
 use crate::pool;
 use crate::source::{Error, Source, SourceMap};
@@ -28,6 +30,10 @@ use std::sync::Mutex;
 pub struct Options {
     /// Worker threads; 0 means one per core.
     pub threads: usize,
+    /// The configuration to strip each file with as it is parsed. Without
+    /// one, nothing is stripped and every `mod` whose file exists is
+    /// loaded (for parsing everything, whatever the target).
+    pub cfg: Option<CfgSet>,
 }
 
 /// A crate to load: its name, root file and edition.
@@ -104,7 +110,7 @@ struct Done<'s> {
     key: Vec<u32>,
     file: Option<ParsedFile<'s>>,
     parent: Option<(Vec<u32>, NodeId)>,
-    error: Option<Error<'s>>,
+    errors: Vec<Error<'s>>,
 }
 
 impl Session {
@@ -146,9 +152,7 @@ impl Session {
         let mut index: Vec<std::collections::HashMap<Vec<u32>, usize>> = vec![Default::default(); crates.len()];
         for d in done {
             let c = &mut crates[d.krate];
-            if let Some(e) = d.error {
-                c.errors.push(e);
-            }
+            c.errors.extend(d.errors);
             if let Some(mut f) = d.file {
                 if let Some((pkey, node)) = d.parent {
                     f.parent = index[d.krate].get(&pkey).map(|&i| (i, node));
@@ -162,23 +166,27 @@ impl Session {
 
     fn parse_job<'s>(&'s self, root: &CrateRoot, job: Job<'s>, queue: &pool::Queue<Job<'s>>) -> Done<'s> {
         let parent = job.decl.as_ref().map(|(k, n, _)| (k.clone(), *n));
-        let mut done = Done { krate: job.krate, key: job.key.clone(), file: None, parent, error: None };
+        let mut done = Done { krate: job.krate, key: job.key.clone(), file: None, parent, errors: Vec::new() };
         let text = match std::fs::read_to_string(&job.path) {
             Ok(t) => t,
             Err(e) => {
                 let at = job.decl.as_ref().map_or("", |d| d.2);
-                done.error = Some(Error::new(at, format!("cannot read `{}`: {e}", job.path.display())));
+                done.errors.push(Error::new(at, format!("cannot read `{}`: {e}", job.path.display())));
                 return done;
             }
         };
         let source = self.sources.add(Source::new(job.path.display().to_string(), text));
-        let ast = match parse_str(&source.text, root.edition) {
+        let mut ast = match parse_str(&source.text, root.edition) {
             Ok(ast) => ast,
             Err(e) => {
-                done.error = Some(e);
+                done.errors.push(e);
                 return done;
             }
         };
+        if let Some(cfg) = &self.options.cfg {
+            let eof = Token(&source.text[source.text.len()..]);
+            done.errors.extend(strip(&mut ast, cfg, root.edition, eof));
+        }
         if root.follow_modules {
             let file_dir = job.path.parent().unwrap_or(Path::new("")).to_path_buf();
             let children_dir =
@@ -199,7 +207,7 @@ impl Session {
                     Err(Some(message)) => {
                         // Reported in the module's place, as if it were a
                         // file that failed.
-                        done.error.get_or_insert(Error::new(m.name, message));
+                        done.errors.push(Error::new(m.name, message));
                     }
                     // Missing, but under `cfg`: left to cfg evaluation.
                     Err(None) => {}
@@ -351,7 +359,7 @@ mod tests {
             ],
         );
         for threads in [1, 4] {
-            let s = Session::new(Options { threads });
+            let s = Session::new(Options { threads, ..Default::default() });
             let crates = s.parse_crates(vec![CrateRoot::new("t", dir.join("src/lib.rs"))]);
             let c = &crates[0];
             assert!(c.errors.is_empty(), "{}", c.errors[0].render_in(&s.sources));
@@ -376,7 +384,7 @@ mod tests {
     #[test]
     fn several_crates_at_once() {
         let dir = tree("many", &[("a/lib.rs", "mod m;"), ("a/m.rs", ""), ("b/lib.rs", "fn (")]);
-        let s = Session::new(Options { threads: 3 });
+        let s = Session::new(Options { threads: 3, ..Default::default() });
         let crates =
             s.parse_crates(vec![CrateRoot::new("a", dir.join("a/lib.rs")), CrateRoot::new("b", dir.join("b/lib.rs"))]);
         assert_eq!(crates[0].files.len(), 2);

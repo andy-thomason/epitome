@@ -61,6 +61,48 @@ impl<'a> Ast<'a> {
         id
     }
 
+    /// Gives `id` a new list of children. The old list stays in the child
+    /// array, unused. Expansion (`cfg` stripping, macros) changes the tree
+    /// only this way, and by adding nodes with `graft`.
+    pub fn set_children(&mut self, id: NodeId, children: &[NodeId]) {
+        let child_start = self.children.len() as u32;
+        self.children.extend_from_slice(children);
+        let n = &mut self.nodes[id.0 as usize];
+        n.child_start = child_start;
+        n.child_len = children.len() as u32;
+    }
+
+    /// Changes a node's kind (an attribute from `cfg_attr` in an inner
+    /// attribute is itself inner).
+    pub fn set_kind(&mut self, id: NodeId, kind: Kind) {
+        self.nodes[id.0 as usize].kind = kind;
+    }
+
+    /// Adds tokens at the end of the token list, and returns the index of
+    /// the first.
+    pub fn append_tokens(&mut self, tokens: &[Token<'a>]) -> usize {
+        let at = self.tokens.len();
+        self.tokens.extend_from_slice(tokens);
+        at
+    }
+
+    /// Copies the nodes of `frag`, parsed from the tokens that are this
+    /// tree's from `token_offset` on, into this tree, and returns the new
+    /// id of `frag`'s root.
+    pub fn graft(&mut self, frag: &Ast<'a>, token_offset: usize) -> NodeId {
+        let base = self.nodes.len() as u32;
+        let child_base = self.children.len() as u32;
+        self.children.extend(frag.children.iter().map(|c| NodeId(c.0 + base)));
+        self.nodes.extend(frag.nodes.iter().map(|n| Node {
+            kind: n.kind,
+            first: n.first + token_offset as u32,
+            end: n.end + token_offset as u32,
+            child_start: n.child_start + child_base,
+            child_len: n.child_len,
+        }));
+        NodeId(frag.root.0 + base)
+    }
+
     /// Drops every node from `nodes` on, for backtracking.
     pub(crate) fn truncate(&mut self, nodes: usize, children: usize) {
         self.nodes.truncate(nodes);

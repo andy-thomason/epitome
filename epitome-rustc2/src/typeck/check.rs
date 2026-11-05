@@ -1280,6 +1280,11 @@ impl<'a, 's> FnCtxt<'a, 's> {
         if matches!(tcx.kind(sa), TyKind::Ptr(..)) && !assign {
             return a;
         }
+        // Types waiting on projections (a closure's parameter) may be
+        // known by now.
+        if !self.pending.is_empty() && (self.tcx.has_infer(self.infer.resolve(a)) || self.tcx.has_infer(self.infer.resolve(b))) {
+            self.process_pending();
+        }
         let base = op.trim_end_matches('=');
         let lang = match base {
             "+" => "add",

@@ -26,6 +26,7 @@
 //! crate) for now; name resolution will follow the `use` itself.
 
 pub mod builtin;
+pub mod derive;
 pub mod mbe;
 
 pub(crate) use mbe::match_delims as mbe_delims;
@@ -801,7 +802,8 @@ impl<'x, 's> Expander<'x, 's> {
         if file.derived.contains(&item) {
             return None;
         }
-        let mut derives = Vec::new();
+        // Each derive: a proc macro's library, or none for a built-in.
+        let mut derives: Vec<(Option<std::path::PathBuf>, &'s str, NodeId)> = Vec::new();
         for &a in &attrs {
             if names(a).as_slice() != ["derive"] {
                 continue;
@@ -809,10 +811,15 @@ impl<'x, 's> Expander<'x, 's> {
             let Some(tt) = file.ast.child(a, Kind::TokenTree) else { continue };
             for path in inner(&file.ast, tt).split(|t| t.0 == ",") {
                 let segs: Vec<&'s str> = path.iter().filter(|t| t.is_ident()).map(|t| t.ident_name()).collect();
-                if let Some(d) = self.resolve(&segs, false, &[u32::MAX], &[])
-                    && let MacroKind::Proc(lib, crate::proc_macro::ProcMacroKind::Derive) = &self.macros.defs[d].kind
-                {
-                    derives.push((lib.clone(), *segs.last().unwrap(), a));
+                let Some(&last) = segs.last() else { continue };
+                match self.resolve(&segs, false, &[u32::MAX], &[]).map(|d| &self.macros.defs[d].kind) {
+                    Some(MacroKind::Proc(lib, crate::proc_macro::ProcMacroKind::Derive)) => {
+                        derives.push((Some(lib.clone()), last, a));
+                    }
+                    Some(MacroKind::Builtin(b)) if derive::BUILTIN_DERIVES.contains(b) => derives.push((None, b, a)),
+                    // Without `core` in the session, the built-ins by name.
+                    None if derive::BUILTIN_DERIVES.contains(&last) => derives.push((None, last, a)),
+                    _ => {}
                 }
             }
         }
@@ -821,10 +828,31 @@ impl<'x, 's> Expander<'x, 's> {
         }
         file.derived.insert(item);
         let derive_attrs: Vec<NodeId> = derives.iter().map(|d| d.2).collect();
-        let body = self.item_tokens(file, item, &derive_attrs)?;
+        let body = if derives.iter().any(|d| d.0.is_some()) {
+            self.item_tokens(file, item, &derive_attrs)?
+        } else {
+            Vec::new()
+        };
         let mut out = vec![item];
         for (lib, name, a) in derives {
-            let Some(tokens) = self.run_proc_macro(file, a, &lib, name, &body, None) else { continue };
+            let tokens = match lib {
+                Some(lib) => self.run_proc_macro(file, a, &lib, name, &body, None),
+                None => match derive::derive(&file.ast, item, name) {
+                    Ok(text) => match lex_text(self.session, &format!("<derive({name})>"), text) {
+                        Ok(t) => Some(t),
+                        Err(e) => {
+                            self.result.errors.push(e);
+                            None
+                        }
+                    },
+                    Err(msg) => {
+                        let at = file.ast.token(a).0;
+                        self.result.errors.push(Error::new(at, msg));
+                        None
+                    }
+                },
+            };
+            let Some(tokens) = tokens else { continue };
             let call_tok = file.ast.node(item).first as usize;
             if let Some(nodes) = self.splice(file, item, call_tok, &tokens, place, name) {
                 self.result.expanded += 1;

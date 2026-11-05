@@ -31,10 +31,12 @@ fn derive_function_and_attribute_macros() {
     let stats = session.expand(&mut crates);
     let errors: Vec<String> = crates[0].errors.iter().map(|e| e.render_in(&session.sources)).collect();
     assert!(errors.is_empty(), "{}", errors.join(""));
-    assert_eq!(stats.expanded, 5);
+    // Three proc macros, the attribute macro, and the built-in `Clone`.
+    assert_eq!(stats.expanded, 6);
     let text = pretty(&crates[0].files[0].ast);
     for want in [
         "impl Hello for Point {",
+        "impl ::core::clone::Clone for Point {",
         "impl Hello for Shape {",
         "(1 + 2) * 3",
         "pub fn __again_once() -> u32",

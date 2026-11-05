@@ -248,6 +248,11 @@ impl<'s> Resolver<'s> {
                 parts.push("{block}".to_string());
             } else if let Some(md) = module.def {
                 let md = &self.defs[md.0 as usize];
+                if md.kind == DefKind::Impl {
+                    parts.push("{impl}".to_string());
+                    m = module.parent;
+                    continue;
+                }
                 if md.parent.is_none() {
                     parts.push(self.crate_names[md.krate as usize].clone());
                     break;

@@ -177,6 +177,15 @@ impl<'w, 's> Walker<'w, 's> {
             }
             // A generic argument `N` is read as a type, but may be a
             // constant (a const parameter or item), as rustc also tries.
+            // A module is never a type: `u8` in a type is the primitive
+            // even where a module `u8` is in scope (as in `core`).
+            if ns == Ns::Type
+                && let Some(&p) = PRIMITIVES.iter().find(|&&p| p == names[0])
+                && let Some(Res::Def(d)) = self.lookup_name(names[0], ns, true)
+                && self.r.defs[d.0 as usize].kind == DefKind::Mod
+            {
+                return Some(Res::PrimTy(p));
+            }
             return self
                 .lookup_name(names[0], ns, true)
                 .or_else(|| if ns == Ns::Type { self.lookup_name(names[0], Ns::Value, true) } else { None });

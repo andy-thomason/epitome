@@ -36,6 +36,9 @@ pub struct Options {
     /// one, nothing is stripped and every `mod` whose file exists is
     /// loaded (for parsing everything, whatever the target).
     pub cfg: Option<CfgSet>,
+    /// The proc-macro server (`libexec/rust-analyzer-proc-macro-srv` of the
+    /// toolchain that built the proc-macro libraries).
+    pub proc_macro_server: Option<PathBuf>,
 }
 
 /// A crate to load: its name, root file and edition.
@@ -47,11 +50,25 @@ pub struct CrateRoot {
     /// Whether to load the files of `mod foo;` declarations. Off, only the
     /// root file is parsed (for parsing loose files).
     pub follow_modules: bool,
+    /// Proc-macro libraries the crate uses, by the name it knows them by
+    /// (as `--extern name=lib.so`).
+    pub proc_macros: Vec<(String, PathBuf)>,
 }
 
 impl CrateRoot {
     pub fn new(name: impl Into<String>, root: impl Into<PathBuf>) -> Self {
-        CrateRoot { name: name.into(), root: root.into(), edition: Edition::default(), follow_modules: true }
+        CrateRoot {
+            name: name.into(),
+            root: root.into(),
+            edition: Edition::default(),
+            follow_modules: true,
+            proc_macros: Vec::new(),
+        }
+    }
+
+    pub fn proc_macro(mut self, name: impl Into<String>, lib: impl Into<PathBuf>) -> Self {
+        self.proc_macros.push((name.into(), lib.into()));
+        self
     }
 
     pub fn edition(mut self, edition: Edition) -> Self {
@@ -75,6 +92,9 @@ pub struct ScopeStep {
 
 /// One parsed file of a crate.
 pub struct ParsedFile<'s> {
+    /// Items whose `#[derive]`s have been expanded, so that a later round
+    /// does not expand them again.
+    pub derived: HashSet<NodeId>,
     pub source: &'s Source,
     pub path: PathBuf,
     /// Whether the file owns its directory (`lib.rs`, `main.rs`, `mod.rs`,
@@ -101,6 +121,9 @@ pub struct ParsedCrate<'s> {
     pub name: String,
     pub edition: Edition,
     pub follow_modules: bool,
+    /// The root file's directory, the current directory for proc macros.
+    pub dir: PathBuf,
+    pub proc_macros: Vec<(String, PathBuf)>,
     pub files: Vec<ParsedFile<'s>>,
     /// Every error found, by file.
     pub errors: Vec<Error<'s>>,
@@ -114,6 +137,7 @@ pub struct ParsedCrate<'s> {
 pub struct Session {
     pub sources: SourceMap,
     pub options: Options,
+    pub(crate) proc_macro_server: Option<crate::proc_macro::Server>,
     /// Files read by `include!` (and later `include_str!`), which are
     /// sources of the compilation as much as module files are.
     pub included: Mutex<Vec<PathBuf>>,
@@ -153,7 +177,8 @@ pub fn node_pos(ast: &Ast, id: NodeId) -> [u32; 2] {
 
 impl Session {
     pub fn new(options: Options) -> Self {
-        Session { sources: SourceMap::new(), options, included: Mutex::new(Vec::new()) }
+        let proc_macro_server = options.proc_macro_server.as_ref().map(crate::proc_macro::Server::new);
+        Session { sources: SourceMap::new(), options, proc_macro_server, included: Mutex::new(Vec::new()) }
     }
 
     pub(crate) fn threads(&self) -> usize {
@@ -174,6 +199,8 @@ impl Session {
                 name: r.name.clone(),
                 edition: r.edition,
                 follow_modules: r.follow_modules,
+                dir: r.root.parent().map_or_else(PathBuf::new, Path::to_path_buf),
+                proc_macros: r.proc_macros.clone(),
                 files: Vec::new(),
                 errors: Vec::new(),
                 loaded: HashSet::new(),
@@ -258,6 +285,7 @@ impl Session {
             done.errors.extend(strip(&mut ast, cfg, job.edition, eof));
         }
         let file = ParsedFile {
+            derived: HashSet::new(),
             source,
             path: job.path,
             mod_rs: job.mod_rs,

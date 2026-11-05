@@ -64,6 +64,8 @@ pub fn is_synthetic(t: Token) -> bool {
 /// What a macro is.
 pub enum MacroKind<'s> {
     Rules(Rules<'s>),
+    /// A procedural macro: its library, and which kind it is.
+    Proc(std::path::PathBuf, crate::proc_macro::ProcMacroKind),
     /// A built-in, by its name: `#[rustc_builtin_macro]` on a definition,
     /// or a known name when no definition is found.
     Builtin(&'s str),
@@ -133,9 +135,11 @@ impl Session {
         // Calls that fail are tried again each round (a later round may
         // define what they need), so only the last round's errors count.
         let mut round_errors: Vec<(usize, Error<'s>)> = Vec::new();
+        let procs = self.list_proc_macros(crates);
         for round in 0..MAX_ROUNDS {
             stats.rounds = round + 1;
-            let (macros, def_errors) = self.collect_macros(crates, &crate_index, &crate_path);
+            let (mut macros, def_errors) = self.collect_macros(crates, &crate_index, &crate_path);
+            macros.add_proc_macros(&procs);
             if round == 0 {
                 // Definitions that failed to compile, reported once.
                 for (k, errors) in def_errors {
@@ -145,6 +149,7 @@ impl Session {
             let results: Mutex<Vec<(usize, FileResult<'s>)>> = Mutex::new(Vec::new());
             let editions: Vec<Edition> = crates.iter().map(|c| c.edition).collect();
             let names: Vec<String> = crates.iter().map(|c| c.name.clone()).collect();
+            let dirs: Vec<std::path::PathBuf> = crates.iter().map(|c| c.dir.clone()).collect();
             let jobs: Vec<(usize, usize, &mut ParsedFile<'s>)> = crates
                 .iter_mut()
                 .enumerate()
@@ -155,6 +160,7 @@ impl Session {
                     session: self,
                     macros: &macros,
                     krate: k,
+                    dir: &dirs[k],
                     crate_name: &names[k],
                     edition: editions[k],
                     result: FileResult::default(),
@@ -245,10 +251,66 @@ impl Session {
     }
 }
 
-impl Macros<'_> {
+impl<'s> Macros<'s> {
     /// The number of crates.
     fn defs_by_crate(&self) -> usize {
         self.by_name.len()
+    }
+
+    /// Adds each crate's procedural macros, found by name like a macro
+    /// brought in by `use`.
+    fn add_proc_macros(&mut self, procs: &[Vec<(&'s str, std::path::PathBuf, crate::proc_macro::ProcMacroKind)>]) {
+        for (k, list) in procs.iter().enumerate() {
+            for (name, lib, kind) in list {
+                let i = self.defs.len();
+                self.defs.push(MacroDef {
+                    name,
+                    krate: k,
+                    pos: Vec::new(),
+                    scope: Vec::new(),
+                    exported: false,
+                    item: true,
+                    kind: MacroKind::Proc(lib.clone(), *kind),
+                });
+                self.by_name[k].entry(name).or_default().push(i);
+            }
+        }
+    }
+}
+
+impl Session {
+    /// The procedural macros of each crate's libraries.
+    #[allow(clippy::type_complexity)]
+    fn list_proc_macros<'s>(
+        &'s self,
+        crates: &mut [ParsedCrate<'s>],
+    ) -> Vec<Vec<(&'s str, std::path::PathBuf, crate::proc_macro::ProcMacroKind)>> {
+        let mut cache: HashMap<std::path::PathBuf, Vec<(&'s str, crate::proc_macro::ProcMacroKind)>> = HashMap::new();
+        let mut out = Vec::new();
+        for c in crates.iter_mut() {
+            let mut list = Vec::new();
+            for (_, lib) in &c.proc_macros {
+                let Some(server) = &self.proc_macro_server else {
+                    c.errors.push(Error::new("", "proc-macro libraries need a proc-macro server"));
+                    break;
+                };
+                if !cache.contains_key(lib) {
+                    match server.list_macros(lib) {
+                        Ok(ms) => {
+                            let ms = ms.into_iter().map(|(n, k)| (self.add_text("<proc macro>", n), k)).collect();
+                            cache.insert(lib.clone(), ms);
+                        }
+                        Err(e) => {
+                            c.errors.push(Error::new("", e));
+                            cache.insert(lib.clone(), Vec::new());
+                        }
+                    }
+                }
+                list.extend(cache[lib].iter().map(|(n, k)| (*n, lib.clone(), *k)));
+            }
+            out.push(list);
+        }
+        out
     }
 }
 
@@ -403,6 +465,8 @@ struct Expander<'x, 's> {
     session: &'s Session,
     macros: &'x Macros<'s>,
     krate: usize,
+    /// The crate root's directory.
+    dir: &'x std::path::Path,
     crate_name: &'x str,
     edition: Edition,
     result: FileResult<'s>,
@@ -434,6 +498,20 @@ impl<'x, 's> Expander<'x, 's> {
         let mut out = Vec::with_capacity(kids.len());
         let mut changed = false;
         for k in kids {
+            // Attribute macros and derives on an item.
+            if let Some(nodes) = self.expand_item_attrs(file, k, kind) {
+                changed = true;
+                let place = if kind == Kind::Block { Place::Stmts(false) } else { Place::Items };
+                for n in nodes {
+                    if n == k {
+                        self.walk_child(file, k, scope, depth);
+                        out.push(k);
+                    } else {
+                        self.walk_new(file, n, place, scope, depth + 1, &mut out);
+                    }
+                }
+                continue;
+            }
             let place = self.place_of(&file.ast, kind, k);
             match place {
                 Some((call, place)) => match self.expand_call(file, call, place, scope) {
@@ -582,6 +660,15 @@ impl<'x, 's> Expander<'x, 's> {
                     }
                 }
                 MacroKind::Builtin(b) => self.builtin(file, call, b, &input, place)?,
+                MacroKind::Proc(lib, kind) => {
+                    if *kind != crate::proc_macro::ProcMacroKind::FuncLike {
+                        let at = ast.token(path).0;
+                        self.result.errors.push(Error::new(at, format!("`{name}` is not a function-like macro")));
+                        return None;
+                    }
+                    let lib = lib.clone();
+                    self.run_proc_macro(file, call, &lib, name, &input, None)?
+                }
             },
             None if builtin::is_builtin(name) => self.builtin(file, call, name, &input, place)?,
             None => {
@@ -593,6 +680,127 @@ impl<'x, 's> Expander<'x, 's> {
         self.result.expanded += 1;
         self.result.names.push(name);
         Some(nodes)
+    }
+
+    /// Runs a procedural macro and lexes what it gives. Errors are
+    /// reported at `at`.
+    fn run_proc_macro(
+        &mut self,
+        file: &ParsedFile<'s>,
+        at: NodeId,
+        lib: &std::path::Path,
+        name: &str,
+        body: &[Token<'s>],
+        attr: Option<&[Token<'s>]>,
+    ) -> Option<Vec<Token<'s>>> {
+        let server = self.session.proc_macro_server.as_ref()?;
+        let site = file.ast.token(at).0;
+        match server.expand(lib, name, body, attr, self.dir) {
+            Ok(text) => match lex_text(self.session, &format!("<{name}!>"), text) {
+                Ok(t) => Some(t),
+                Err(e) => {
+                    self.result.errors.push(Error::new(site, format!("output of `{name}`: {}", e.message)));
+                    None
+                }
+            },
+            Err(e) => {
+                self.result.errors.push(Error::new(site, format!("proc macro `{name}`: {e}")));
+                None
+            }
+        }
+    }
+
+    /// The tokens of an item as a macro sees it: printed (so `cfg`
+    /// stripping shows), without the attributes in `skip`.
+    fn item_tokens(&self, file: &mut ParsedFile<'s>, item: NodeId, skip: &[NodeId]) -> Option<Vec<Token<'s>>> {
+        let kids = file.ast.children(item).to_vec();
+        let kept: Vec<NodeId> = kids.iter().copied().filter(|k| !skip.contains(k)).collect();
+        file.ast.set_children(item, &kept);
+        let text = crate::pretty::pretty_node(&file.ast, item);
+        file.ast.set_children(item, &kids);
+        lex_text(self.session, "<item>", text).ok()
+    }
+
+    /// Expands attribute macros and derives on `item`, a child of a node
+    /// of kind `parent`. Returns the nodes that take its place: an
+    /// attribute macro's output, or the item followed by what its derives
+    /// give. `None` if it has neither.
+    fn expand_item_attrs(&mut self, file: &mut ParsedFile<'s>, item: NodeId, parent: Kind) -> Option<Vec<NodeId>> {
+        if !is_item(file.ast.kind(item))
+            || !matches!(parent, Kind::Crate | Kind::Mod | Kind::Block | Kind::Impl | Kind::Trait)
+        {
+            return None;
+        }
+        let place = if parent == Kind::Block { Place::Stmts(false) } else { Place::Items };
+        let attrs: Vec<NodeId> =
+            file.ast.children(item).iter().copied().filter(|&a| file.ast.kind(a) == Kind::Attribute).collect();
+        let ast = &file.ast;
+        let names = |a: NodeId| -> Vec<&'s str> {
+            let Some(p) = ast.child(a, Kind::Path) else { return Vec::new() };
+            ast.children(p)
+                .iter()
+                .filter(|&&s| ast.kind(s) == Kind::Segment)
+                .map(|&s| ast.token(s).ident_name())
+                .collect()
+        };
+        // An attribute macro: the item becomes its output.
+        for &a in &attrs {
+            let segs = names(a);
+            let Some(&name) = segs.last() else { continue };
+            if crate::expand::builtin::is_builtin(name) || matches!(name, "cfg" | "cfg_attr" | "derive") {
+                continue;
+            }
+            let Some(d) = self.resolve(&segs, false, &[u32::MAX], &[]) else { continue };
+            let MacroKind::Proc(lib, crate::proc_macro::ProcMacroKind::Attr) = &self.macros.defs[d].kind else {
+                continue;
+            };
+            let lib = lib.clone();
+            let args: Vec<Token<'s>> =
+                file.ast.child(a, Kind::TokenTree).map_or(Vec::new(), |tt| inner(&file.ast, tt).to_vec());
+            let body = self.item_tokens(file, item, &[a])?;
+            let tokens = self.run_proc_macro(file, a, &lib, name, &body, Some(&args))?;
+            let call_tok = file.ast.node(item).first as usize;
+            let nodes = self.splice(file, item, call_tok, &tokens, place, name)?;
+            self.result.expanded += 1;
+            self.result.names.push(name);
+            return Some(nodes);
+        }
+        // Derives: the item, then what each gives.
+        if file.derived.contains(&item) {
+            return None;
+        }
+        let mut derives = Vec::new();
+        for &a in &attrs {
+            if names(a).as_slice() != ["derive"] {
+                continue;
+            }
+            let Some(tt) = file.ast.child(a, Kind::TokenTree) else { continue };
+            for path in inner(&file.ast, tt).split(|t| t.0 == ",") {
+                let segs: Vec<&'s str> = path.iter().filter(|t| t.is_ident()).map(|t| t.ident_name()).collect();
+                if let Some(d) = self.resolve(&segs, false, &[u32::MAX], &[])
+                    && let MacroKind::Proc(lib, crate::proc_macro::ProcMacroKind::Derive) = &self.macros.defs[d].kind
+                {
+                    derives.push((lib.clone(), *segs.last().unwrap(), a));
+                }
+            }
+        }
+        if derives.is_empty() {
+            return None;
+        }
+        file.derived.insert(item);
+        let derive_attrs: Vec<NodeId> = derives.iter().map(|d| d.2).collect();
+        let body = self.item_tokens(file, item, &derive_attrs)?;
+        let mut out = vec![item];
+        for (lib, name, a) in derives {
+            let Some(tokens) = self.run_proc_macro(file, a, &lib, name, &body, None) else { continue };
+            let call_tok = file.ast.node(item).first as usize;
+            if let Some(nodes) = self.splice(file, item, call_tok, &tokens, place, name) {
+                self.result.expanded += 1;
+                self.result.names.push(name);
+                out.extend(nodes);
+            }
+        }
+        Some(out)
     }
 
     /// Macro input with each doc comment as the attribute it stands for,

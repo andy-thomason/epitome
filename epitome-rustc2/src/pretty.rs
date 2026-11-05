@@ -22,6 +22,13 @@ pub fn pretty(ast: &Ast) -> String {
     p.out
 }
 
+/// One node (an item, say) as source text.
+pub fn pretty_node(ast: &Ast, id: NodeId) -> String {
+    let mut p = Printer { ast, out: String::new(), indent: 0 };
+    p.node(id);
+    p.out
+}
+
 /// Whether two trees have the same kinds, shapes and leaf tokens.
 pub fn same_tree(a: &Ast, ia: NodeId, b: &Ast, ib: NodeId) -> bool {
     if a.kind(ia) != b.kind(ib) {

@@ -9,6 +9,10 @@
 //! - `--cfg name` or `--cfg 'name="value"'`: set a configuration option,
 //!   on top of the host's (`target_os`, `unix`, `debug_assertions`, ...).
 //! - `--no-cfg`: do not strip `cfg`; load every module whose file exists.
+//! - `--extern name=lib.so`: a proc-macro library (built by rustc) that the
+//!   crates use, as `name`.
+//! - `--proc-macro-server PATH`: the server that runs proc macros; by
+//!   default the one beside the `rustc` on `PATH`.
 //! - `--dump-ast`: print each file's syntax tree, one node per line.
 //! - `--sexp`: print each file's syntax tree on one line.
 //! - `--pretty`: print each file's syntax tree back as Rust source.
@@ -44,6 +48,7 @@ fn main() -> ExitCode {
     let (mut no_expand, mut expand_stats) = (false, false);
     let mut tree: Option<PathBuf> = None;
     let mut cfg = CfgSet::host();
+    let mut externs: Vec<(String, PathBuf)> = Vec::new();
     let mut no_cfg = false;
     let mut files = Vec::new();
     let mut args = std::env::args().skip(1);
@@ -83,6 +88,17 @@ fn main() -> ExitCode {
                 options.threads = n;
             }
             _ if arg.starts_with("--parse-tree") => tree = value("--parse-tree").map(PathBuf::from),
+            _ if arg.starts_with("--extern") => {
+                let v = value("--extern").unwrap_or_default();
+                let Some((name, path)) = v.split_once('=') else {
+                    eprintln!("error: expected `--extern name=path`");
+                    return ExitCode::FAILURE;
+                };
+                externs.push((name.to_string(), PathBuf::from(path)));
+            }
+            _ if arg.starts_with("--proc-macro-server") => {
+                options.proc_macro_server = value("--proc-macro-server").map(PathBuf::from);
+            }
             _ if arg.starts_with('-') => {
                 eprintln!("error: unknown option `{arg}`");
                 return ExitCode::FAILURE;
@@ -104,8 +120,20 @@ fn main() -> ExitCode {
     if !no_cfg {
         options.cfg = Some(cfg);
     }
+    if !externs.is_empty() && options.proc_macro_server.is_none() {
+        options.proc_macro_server = epitome_rustc2::proc_macro::Server::from_rustc();
+    }
     let session = Session::new(options);
-    let roots = files.iter().map(|f| CrateRoot::new(crate_name(f), f).edition(edition)).collect();
+    let roots = files
+        .iter()
+        .map(|f| {
+            let mut root = CrateRoot::new(crate_name(f), f).edition(edition);
+            for (name, lib) in &externs {
+                root = root.proc_macro(name.clone(), lib.clone());
+            }
+            root
+        })
+        .collect();
     let mut crates = session.parse_crates(roots);
     if !no_expand {
         let stats = session.expand(&mut crates);

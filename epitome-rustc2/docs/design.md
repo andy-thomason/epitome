@@ -323,30 +323,42 @@ the type checker knows), `asm!`, `global_asm!`, `include_str!`,
 
 ### 6.6 Procedural macros
 
-Existing proc-macro crates must run unchanged. A proc-macro crate is a
-dynamic library built by rustc whose interface to the compiler (the
-`proc_macro` bridge) is private to each rustc version, so we do not load
-it ourselves. Instead each rustup toolchain ships
-`libexec/rust-analyzer-proc-macro-srv`, a program that loads proc-macro
-libraries built by that toolchain and expands macros on request over
-stdin and stdout. We run it as a program:
+**Working as an experiment** (`src/proc_macro.rs`, `src/json.rs`). Proc-macro
+libraries built by rustc run through the toolchain's
+`libexec/rust-analyzer-proc-macro-srv`, a separate process. Its protocol
+was learnt by running it (its error messages name the fields it wants),
+and is written down at the top of `src/proc_macro.rs`.
 
-1. Cargo builds proc-macro crates with the real rustc (they run on the
-   host; `epitome-rustc2` sees `--crate-type proc-macro` and passes the
-   whole job to rustc, as `epitome-rustc` does).
-2. When a crate uses one (`--extern serde_derive=...dylib`), we start the
-   server from the same toolchain, ask it for the library's macros, and
-   send each call's input as a token tree. Each token's span is an index
-   into a table on our side, so tokens that come back with a span map to
-   their original slices; new text is put in a source of its own in the
-   `SourceMap`.
-3. The output is parsed like a `macro_rules!` expansion.
+- **Function-like macros** are found by name or path, like any macro.
+- **Attribute macros** replace their item with their output.
+- **Derives** add their output after the item. The item is passed
+  `cfg`-stripped and without its `#[derive]`.
+- **Test.** `tests/proc_macro/hello.rs` (a derive, a function-like and an
+  attribute macro) expands `tests/proc_macro/use_hello.rs` to what rustc
+  gives, including the exact tokens the macro receives.
 
-The server's protocol is versioned and documented only by its behaviour,
-so we pin to the versions of the toolchains we test with, and test
-against `serde_derive`, `thiserror-impl` and a small proc macro of our
-own in `tests/`. If that ever becomes unworkable, the fallback is a
-small host program, built with rustc, that loads the library itself.
+This is not how rustc does it. rustc loads the library into its own
+process and calls it through `proc_macro`'s bridge; the server and its
+JSON are rust-analyzer's way round not being rustc. The server also
+declares its API "highly unstable" and runs only with
+`RUST_ANALYZER_INTERNALS_DO_NOT_USE` set. The alternative is to load the
+library ourselves (section 6.7); the token conversion and the expansion
+hooks are the same either way.
+
+### 6.7 Loading proc-macro libraries ourselves (open)
+
+To call a library in-process, something must play the compiler's side of
+the `proc_macro` bridge, whose ABI is private to each rustc version.
+Options:
+
+1. A small host library, built by the same toolchain as the proc macros,
+   that implements the bridge's server side with the unstable
+   `proc_macro` internals and exposes a C ABI of our own (flat token
+   trees, as in 6.6) for `epitome-rustc2` to `dlopen`. No JSON, no extra
+   process, one call per expansion.
+2. The bridge implemented directly in `epitome-rustc2`. This needs the
+   bridge's layout, which is only in the `proc_macro` source, so it is
+   not clean-room in the way the rest is.
 
 ## 7. Types
 
@@ -595,8 +607,9 @@ Tests of parallel stages run on one thread and on several, and compare.
    crates.io cache parse and round-trip). The session and pool: whole
    crates, several at once, loaded in parallel (done).
 2. `cfg`, `macro_rules!`, built-in macros; expansion matches rustc's
-   (done; built-in derives and attribute macros to come).
-3. Proc macros through the toolchain's server.
+   (done; built-in derives to come).
+3. Proc macros (working through the toolchain's server; in-process
+   loading, section 6.7, to decide).
 4. Name resolution and item collection.
 5. Type checking for `#![no_std]` programs: integers, structs, enums,
    references, generics, traits, closures.

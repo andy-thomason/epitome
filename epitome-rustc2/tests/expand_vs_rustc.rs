@@ -33,7 +33,7 @@ fn rustc_expanded(path: &Path) -> Option<String> {
 }
 
 fn ours(path: &Path) -> String {
-    let session = Session::new(Options { threads: 2, cfg: Some(CfgSet::host()) });
+    let session = Session::new(Options { threads: 2, cfg: Some(CfgSet::host()), ..Default::default() });
     let mut crates = session.parse_crates(vec![CrateRoot::new("t", path).edition(Edition::E2021)]);
     session.expand(&mut crates);
     let c = &crates[0];

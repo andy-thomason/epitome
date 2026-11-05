@@ -277,6 +277,32 @@ pub fn strip<'a>(ast: &mut Ast<'a>, cfg: &CfgSet, edition: Edition, eof: Token<'
     s.errors
 }
 
+/// Strips nodes made by macro expansion before they go into the tree:
+/// returns those of `nodes` that are configured in (each stripped inside),
+/// and any errors.
+pub fn strip_new<'a>(
+    ast: &mut Ast<'a>,
+    nodes: &[NodeId],
+    cfg: &CfgSet,
+    edition: Edition,
+    eof: Token<'a>,
+) -> (Vec<NodeId>, Vec<Error<'a>>) {
+    let mut s = Stripper { cfg, edition, eof, errors: Vec::new() };
+    let mut kept = Vec::with_capacity(nodes.len());
+    for &n in nodes {
+        if ast.kind(n).is_leaf() {
+            kept.push(n);
+            continue;
+        }
+        s.expand_cfg_attrs(ast, n);
+        if s.configured_in(ast, n) {
+            s.visit(ast, n);
+            kept.push(n);
+        }
+    }
+    (kept, s.errors)
+}
+
 struct Stripper<'c, 'a> {
     cfg: &'c CfgSet,
     edition: Edition,

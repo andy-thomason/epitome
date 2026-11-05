@@ -8,6 +8,7 @@
 
 pub mod ast;
 pub mod cfg;
+pub mod expand;
 pub mod lexer;
 pub mod parse;
 pub mod pool;

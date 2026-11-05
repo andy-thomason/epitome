@@ -40,11 +40,18 @@ pub struct Ast<'a> {
     pub nodes: Vec<Node>,
     children: Vec<NodeId>,
     pub root: NodeId,
+    /// How many tokens came from the file itself. Tokens after these were
+    /// added by macro expansion.
+    pub original_len: u32,
+    /// For each added token, the file token its expansion was called from
+    /// (through any nesting): where it sits in the file's text order.
+    origin: Vec<u32>,
 }
 
 impl<'a> Ast<'a> {
     pub(crate) fn new(tokens: Vec<Token<'a>>) -> Self {
-        Ast { tokens, nodes: Vec::new(), children: Vec::new(), root: NodeId(0) }
+        let original_len = tokens.len() as u32;
+        Ast { tokens, nodes: Vec::new(), children: Vec::new(), root: NodeId(0), original_len, origin: Vec::new() }
     }
 
     pub(crate) fn push(&mut self, kind: Kind, first: usize, end: usize, children: &[NodeId]) -> NodeId {
@@ -78,12 +85,25 @@ impl<'a> Ast<'a> {
         self.nodes[id.0 as usize].kind = kind;
     }
 
-    /// Adds tokens at the end of the token list, and returns the index of
-    /// the first.
-    pub fn append_tokens(&mut self, tokens: &[Token<'a>]) -> usize {
+    /// Adds tokens made by expanding a macro called at token `call`, and
+    /// returns the index of the first.
+    pub fn append_tokens(&mut self, tokens: &[Token<'a>], call: usize) -> usize {
         let at = self.tokens.len();
+        let origin = self.origin_of(call);
         self.tokens.extend_from_slice(tokens);
+        self.origin.extend(std::iter::repeat_n(origin, tokens.len()));
         at
+    }
+
+    /// The file token that token `i` stands in for in text order: itself if
+    /// it is from the file, else the call its expansion came from.
+    pub fn origin_of(&self, i: usize) -> u32 {
+        if i < self.original_len as usize { i as u32 } else { self.origin[i - self.original_len as usize] }
+    }
+
+    /// Whether every token of a node is from the file itself, in order.
+    pub fn is_original(&self, id: NodeId) -> bool {
+        self.node(id).end <= self.original_len
     }
 
     /// Copies the nodes of `frag`, parsed from the tokens that are this
@@ -315,9 +335,13 @@ pub enum Kind {
     /// `macro name(...) { ... }` or `macro name { ... }`: `attrs vis Name
     /// TokenTree TokenTree?`.
     MacroDef,
-    /// `path!(...)`, `path![...]` or `path!{...}`, in any position: `attrs
-    /// Path TokenTree`.
+    /// `path!(...)`, `path![...]` or `path!{...}` as an item, statement or
+    /// expression: `attrs Path TokenTree`.
     MacroCall,
+    /// A macro call in a type: `Path TokenTree`.
+    TypeMacro,
+    /// A macro call in a pattern: `Path TokenTree`.
+    PatMacro,
 
     // ---- generics ----
     /// `<GenericParam*>`: `(LifetimeParam | TypeParam | ConstParam)*`.
@@ -434,7 +458,7 @@ pub enum Kind {
     OrPat,
     /// `box p`: `Pattern`.
     BoxPat,
-    /// `!`, the never pattern. Macro calls in patterns are `MacroCall`,
+    /// `!`, the never pattern. Macro calls in patterns are `PatMacro`,
     /// and `const { }` is a `ConstBlock`.
     NeverPat,
 

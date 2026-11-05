@@ -111,7 +111,7 @@ impl<'a> Parser<'a> {
                 if self.at("!") {
                     self.bump();
                     self.token_tree()?;
-                    self.finish(m, Kind::MacroCall);
+                    self.finish(m, Kind::PatMacro);
                 } else if self.at("(") {
                     self.bump();
                     while !self.at(")") {

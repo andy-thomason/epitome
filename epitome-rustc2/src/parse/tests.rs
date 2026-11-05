@@ -167,6 +167,13 @@ fn statements() {
         "(Block (Fn (Name f) (Params) (Block)) (Call (PathExpr (Path (Segment (Name f)))) (Args)))"
     );
     assert_eq!(
+        stmts("m! { a } *x = 1;"),
+        format!(
+            "(Block (MacroCall (Path (Segment (Name m))) (TokenTree {{ a }})) (ExprStmt (Binary (Unary (Op *) {}) (Op =) (Literal 1))))",
+            p("x")
+        )
+    );
+    assert_eq!(
         stmts("m! { } x"),
         format!("(Block (MacroCall (Path (Segment (Name m))) (TokenTree {{ }})) {})", p("x"))
     );

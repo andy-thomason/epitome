@@ -10,13 +10,22 @@ wraps the real rustc and replaces only LLVM's code generation. It stays
 useful as a reference. The same crate built by both must behave the
 same.
 
-**Status:** Started. The lexer and the parser (sections 3 and 4) are
-written. Every `.rs` file of the toolchain's `rust-src` (2994 files,
-nightly syntax included) parses, in about a second, and so does every
-file of the local crates.io cache (69108 files) except 37 that are not
-Rust that rustc would accept: `include!`d string fragments, placeholder
-files, compile-fail tests and syn's tests of invalid syntax. Everything
-after that is a plan.
+**Status:** The front end up to macro expansion works.
+
+- **Parsing.** The lexer and the parser (sections 3 and 4) are written.
+  Every `.rs` file of the toolchain's `rust-src` (2994 files, nightly
+  syntax included) parses in about a second, and so does every file of
+  the local crates.io cache (69108 files) except 37 that are not Rust
+  that rustc would accept.
+- **`cfg` and `macro_rules!` expansion** (section 6) are done.
+  - `core`, `alloc` and `std` together expand about 12,000 macro calls,
+    in 0.16 s on mandelbrot, in four rounds.
+  - Afterwards they consist of exactly the files rustc reads for them,
+    according to rustc's dep-info.
+  - The test programs in `tests/expand/` expand to the same tokens as
+    `rustc -Zunpretty=expanded`.
+
+Everything after that is a plan.
 
 ## 1. Goals
 
@@ -25,7 +34,7 @@ after that is a plan.
   `epitome-rustc2` as `RUSTC`.
 - **Run existing procedural macros.** Proc-macro crates (`serde_derive`,
   `thiserror`, ...) are built by the real rustc, as Cargo builds them for
-  the host, and run unchanged (section 6).
+  the host, and run unchanged (section 6.6).
 - **No HIR or MIR.** The AST is the only tree. Later stages add facts
   about AST nodes in side tables indexed by `NodeId`: what a name refers
   to, an expression's type, which method a call picks. Lowering walks the
@@ -215,42 +224,104 @@ names in its type, value and macro namespaces, glob and named imports
 resolved to a fixed point, the prelude, `extern crate`s and
 `--extern` crates. Local variables resolve to the pattern node that binds
 them. Hygiene for `macro_rules!` comes from each expanded token carrying
-a syntax context (section 6.1), which resolution consults for locals and
+a syntax context (section 6.3), which resolution consults for locals and
 labels.
 
 ## 6. Macro expansion
 
-Expansion runs before and interleaved with resolution, until no
-unexpanded calls remain. An expansion is a new list of tokens: slices of
-the definition's text with the call's arguments put in, so most expanded
-tokens still point into real files. They are appended to `Ast::tokens`,
-parsed as the fragment the call position needs (items, expression,
-pattern, type, statements), and the side table `expansion[call] =
-fragment` links them. The original tree is not changed; printing the
-expanded tree follows the table.
+**Done** for `cfg`, `macro_rules!`, macros 2.0 and the built-ins listed
+below (`src/cfg.rs`, `src/expand/`).
 
-### 6.1 `macro_rules!`
+### 6.1 Changing the tree
 
-Matching is the usual NFA over the matcher, with fragment specifiers
-(`expr`, `ty`, `pat`, `ident`, `tt`, `path`, `block`, `item`, `stmt`,
-`lifetime`, `literal`, `meta`, `vis`, `pat_param`, `expr_2021`) parsed by
-the normal parser from the current position. Transcription repeats
-`$(...)*` by the depth of the variables inside. Each transcribed token
-carries a syntax context, kept in a list parallel to `Ast::tokens`, that
-records which expansion made it, for hygiene and for `$crate`.
+An expansion is a new list of tokens: slices of the definition's text
+with the call's arguments put in, so most expanded tokens still point
+into real files. They are appended to `Ast::tokens`, with the position
+of the call they came from (`Ast::origin_of`), and parsed as the
+fragment the call's place needs (items, statements, an expression, a
+type or a pattern). The new nodes are grafted into the file's arena
+(`Ast::graft`) and the call's parent is given a new child list
+(`Ast::set_children`). Nodes never change otherwise, so a `NodeId` stays
+valid through expansion, and the arena is append-only.
 
-### 6.2 Built-in macros and attributes
+An expansion in an expression's place is kept one expression, as rustc
+keeps it one node: if it is not a single operand, it goes in a
+parenthesis node of its own. The printer shows such parentheses only
+where precedence needs them, as rustc's does.
 
-`cfg`/`cfg_attr` (stripping before anything else sees an item),
-`include!`, `include_str!`, `include_bytes!`, `concat!`, `stringify!`,
-`line!`, `file!`, `column!`, `env!`, `option_env!`, `format_args!` (to a
-built-in node the type checker knows), `assert!`, `panic!`,
-`compile_error!`, `asm!`, `global_asm!`, `matches!`-style library macros
-come from `core` as `macro_rules!`. Built-in derives (`Clone`, `Copy`,
-`Debug`, `Default`, `PartialEq`, `Eq`, `PartialOrd`, `Ord`, `Hash`) are
-written as token generators.
+### 6.2 `cfg`
 
-### 6.3 Procedural macros
+`CfgSet::host()` is the configuration rustc uses for the machine we run
+on, including what it prints only with `-Zunstable-options`; a test
+compares it with `rustc --print cfg`. Stripping (`cfg::strip`) runs on
+each file as it is parsed, before its `mod` items are followed, and again
+on everything expansion makes. `cfg_attr` becomes the attributes it
+gives.
+
+### 6.3 `macro_rules!`
+
+A definition's rules are compiled into matchers and transcribers
+(`expand/mbe.rs`).
+
+- **Matching** tries each rule in order and backtracks over repetition
+  counts. Fragments (`expr`, `ty`, `pat`, `pat_param`, `path`, `block`,
+  `stmt`, `item`, `meta`, `vis`, by edition) are read by the ordinary
+  parser from where the matcher is (`FragmentParser`, one per delimited
+  group of the input). `ident`, `lifetime`, `literal` and `tt` are read
+  directly. Doc comments in the input become `#[doc = "..."]` first, as
+  macros see them.
+- **Transcription** copies tokens and handles `$(...) sep op` repetition
+  by the depth of the metavariables in it. It also handles `$crate`
+  (`crate` in the defining crate, `::name` elsewhere) and
+  `${count()}`, `${index()}`, `${ignore()}` and `${concat()}`.
+  - A transcribed `$e:expr` that is not a single operand is put in
+    parentheses made of synthetic tokens (not slices of any source), so
+    `$e * 2` keeps `$e` whole.
+- **Macros 2.0** (`macro m(...) { ... }`, `macro m { ..., ... }`) are the
+  same rules.
+
+### 6.4 Rounds and scope
+
+Expansion runs in rounds, each in parallel over every file of every
+crate:
+
+1. Collect the definitions.
+2. Expand every call whose macro is found, and the calls in its output,
+   up to the recursion limit of 128.
+3. Load the files of any new `mod` items.
+
+Rounds repeat until nothing changes. This handles macros that define
+macros, and modules declared inside `cfg_select!`.
+
+A definition's position is its file's position in the crate's text
+(`ParsedFile::pos`, built from each `mod` item's place in its parent),
+then its own. A call `m!` finds, in order:
+
+- the last `macro_rules! m` before it in its module or an enclosing one
+  (`#[macro_use]` modules pass their macros to their parent);
+- a macro exported by a crate in its macro prelude (`#[macro_use] extern
+  crate`, and `std` or `core`);
+- a built-in.
+
+A path finds the macro in the crate it names. Macros brought in by
+`use` are found by name for now; name resolution (section 5) will
+replace that.
+
+### 6.5 Built-in macros and attributes
+
+Done in expansion: `cfg_select!`, `cfg!`, `include!`, `stringify!`,
+`concat!`, `line!`, `column!`, `file!`, `module_path!`, `env!`,
+`option_env!`, `compile_error!`. A definition with
+`#[rustc_builtin_macro]` dispatches to these by name.
+
+Left as calls for type checking and lowering: `format_args!` (to a node
+the type checker knows), `asm!`, `global_asm!`, `include_str!`,
+`include_bytes!`, `offset_of!`, `assert!` and the like. Built-in derives
+(`Clone`, `Copy`, `Debug`, `Default`, `PartialEq`, `Eq`, `PartialOrd`,
+`Ord`, `Hash`) will be token generators, and attribute macros run after
+`cfg`.
+
+### 6.6 Procedural macros
 
 Existing proc-macro crates must run unchanged. A proc-macro crate is a
 dynamic library built by rustc whose interface to the compiler (the
@@ -523,7 +594,8 @@ Tests of parallel stages run on one thread and on several, and compare.
 1. Lexer, parser, AST dump and pretty printer (done; `rust-src` and the
    crates.io cache parse and round-trip). The session and pool: whole
    crates, several at once, loaded in parallel (done).
-2. `cfg`, `macro_rules!`, built-in macros; expansion matches rustc's.
+2. `cfg`, `macro_rules!`, built-in macros; expansion matches rustc's
+   (done; built-in derives and attribute macros to come).
 3. Proc macros through the toolchain's server.
 4. Name resolution and item collection.
 5. Type checking for `#![no_std]` programs: integers, structs, enums,

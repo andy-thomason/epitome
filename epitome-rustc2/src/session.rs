@@ -4,7 +4,8 @@
 //! ```no_run
 //! use epitome_rustc2::session::{CrateRoot, Options, Session};
 //! let session = Session::new(Options::default());
-//! let crates = session.parse_crates(vec![CrateRoot::new("hello", "src/main.rs")]);
+//! let mut crates = session.parse_crates(vec![CrateRoot::new("hello", "src/main.rs")]);
+//! let stats = session.expand(&mut crates);
 //! for f in &crates[0].files {
 //!     println!("{} ({} nodes)", f.source.name, f.ast.nodes.len());
 //! }
@@ -13,15 +14,16 @@
 //! Parsing a file finds its modules (`mod foo;`), and each module's file is
 //! a new job on the pool, so the files of all crates are read and parsed
 //! at once, as they are found. The result does not depend on the order the
-//! jobs ran in: each file is placed by its position in the module tree.
+//! jobs ran in: each file is placed by its position in the text of the
+//! crate (`ParsedFile::pos`).
 
 use crate::ast::{Ast, Kind, NodeId};
 use crate::cfg::{CfgSet, strip};
-use crate::lexer::Edition;
-use crate::lexer::Token;
+use crate::lexer::{Edition, Token};
 use crate::parse::parse_str;
 use crate::pool;
 use crate::source::{Error, Source, SourceMap};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -63,110 +65,178 @@ impl CrateRoot {
     }
 }
 
+/// One step of a module path: the module's name, and whether its `mod`
+/// item has `#[macro_use]` (so its macros stay in scope after it).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScopeStep {
+    pub name: String,
+    pub macro_use: bool,
+}
+
 /// One parsed file of a crate.
 pub struct ParsedFile<'s> {
     pub source: &'s Source,
+    pub path: PathBuf,
+    /// Whether the file owns its directory (`lib.rs`, `main.rs`, `mod.rs`,
+    /// or a `#[path]` file), so that its modules are beside it.
+    pub mod_rs: bool,
     pub ast: Ast<'s>,
     /// The module's path from the crate root: `["a", "b"]` for
     /// `crate::a::b`; empty for the root.
     pub module: Vec<String>,
+    /// The same path, with each step's `#[macro_use]`.
+    pub scope: Vec<ScopeStep>,
+    /// Where the file sits in the text of the crate: for each `mod` item
+    /// on the way down, the position of its first token in its file (the
+    /// token a macro expansion was called from, then the token itself).
+    /// Files and macro definitions are ordered by this.
+    pub pos: Vec<u32>,
     /// The file holding this module's `mod` item, and that item.
     pub parent: Option<(usize, NodeId)>,
 }
 
-/// A crate's files, in module-tree order (the root first, then each
-/// module's file after its parent's, in the order of the `mod` items).
+/// A crate's files, in text order (the root first, then each module's file
+/// after its parent's, in the order of the `mod` items).
 pub struct ParsedCrate<'s> {
     pub name: String,
     pub edition: Edition,
+    pub follow_modules: bool,
     pub files: Vec<ParsedFile<'s>>,
-    /// Every error found, in the same order as the files.
+    /// Every error found, by file.
     pub errors: Vec<Error<'s>>,
+    /// The `mod` items whose files have been loaded (or tried), as the
+    /// declaring file's position and the item.
+    loaded: HashSet<(Vec<u32>, NodeId)>,
+    /// Parent links, by position, for files loaded later.
+    parent_pos: Vec<Option<(Vec<u32>, NodeId)>>,
 }
 
 pub struct Session {
     pub sources: SourceMap,
     pub options: Options,
+    /// Files read by `include!` (and later `include_str!`), which are
+    /// sources of the compilation as much as module files are.
+    pub included: Mutex<Vec<PathBuf>>,
 }
 
 /// Reading and parsing one file.
 struct Job<'s> {
     krate: usize,
     path: PathBuf,
-    /// The file's place in the module tree: the index of each `mod` item
-    /// on the way down, counting in source order within each file.
-    key: Vec<u32>,
+    pos: Vec<u32>,
     module: Vec<String>,
-    /// Whether the file owns its directory (`lib.rs`, `main.rs`, `mod.rs`,
-    /// or a `#[path]` file), so that its modules are beside it.
+    scope: Vec<ScopeStep>,
     mod_rs: bool,
-    /// The parent's key and `mod` item, and the item's name for errors.
+    edition: Edition,
+    follow: bool,
+    /// The parent's position and `mod` item, and the item's name for
+    /// errors.
     decl: Option<(Vec<u32>, NodeId, &'s str)>,
 }
 
 /// What a job produced.
 struct Done<'s> {
     krate: usize,
-    key: Vec<u32>,
     file: Option<ParsedFile<'s>>,
     parent: Option<(Vec<u32>, NodeId)>,
     errors: Vec<Error<'s>>,
+    /// `mod` items this job queued files for.
+    loaded: Vec<(Vec<u32>, NodeId)>,
+}
+
+/// The position of a node in its file's text order: the token its
+/// expansion was called from, then its own first token.
+pub fn node_pos(ast: &Ast, id: NodeId) -> [u32; 2] {
+    let first = ast.node(id).first as usize;
+    [ast.origin_of(first), first as u32]
 }
 
 impl Session {
     pub fn new(options: Options) -> Self {
-        Session { sources: SourceMap::new(), options }
+        Session { sources: SourceMap::new(), options, included: Mutex::new(Vec::new()) }
     }
 
-    fn threads(&self) -> usize {
+    pub(crate) fn threads(&self) -> usize {
         if self.options.threads == 0 { pool::default_threads() } else { self.options.threads }
+    }
+
+    /// Adds text made during the compilation to the source map, and
+    /// returns it for the life of the session.
+    pub fn add_text(&self, name: &str, text: String) -> &str {
+        &self.sources.add(Source::new(name, text)).text
     }
 
     /// Loads and parses crates, all at once.
     pub fn parse_crates(&self, roots: Vec<CrateRoot>) -> Vec<ParsedCrate<'_>> {
+        let mut crates: Vec<ParsedCrate> = roots
+            .iter()
+            .map(|r| ParsedCrate {
+                name: r.name.clone(),
+                edition: r.edition,
+                follow_modules: r.follow_modules,
+                files: Vec::new(),
+                errors: Vec::new(),
+                loaded: HashSet::new(),
+                parent_pos: Vec::new(),
+            })
+            .collect();
         let jobs = roots
             .iter()
             .enumerate()
             .map(|(k, r)| Job {
                 krate: k,
                 path: r.root.clone(),
-                key: Vec::new(),
+                pos: Vec::new(),
                 module: Vec::new(),
+                scope: Vec::new(),
                 mod_rs: true,
+                edition: r.edition,
+                follow: r.follow_modules,
                 decl: None,
             })
             .collect();
-        let done: Mutex<Vec<Done>> = Mutex::new(Vec::new());
-        pool::run(self.threads(), jobs, |job, queue| {
-            let result = self.parse_job(&roots[job.krate], job, queue);
-            done.lock().unwrap().push(result);
-        });
-        let mut done = done.into_inner().unwrap();
-        done.sort_by(|a, b| (a.krate, &a.key).cmp(&(b.krate, &b.key)));
-
-        let mut crates: Vec<ParsedCrate> = roots
-            .iter()
-            .map(|r| ParsedCrate { name: r.name.clone(), edition: r.edition, files: Vec::new(), errors: Vec::new() })
-            .collect();
-        // Index of each file by key, to link files to their parents.
-        let mut index: Vec<std::collections::HashMap<Vec<u32>, usize>> = vec![Default::default(); crates.len()];
-        for d in done {
-            let c = &mut crates[d.krate];
-            c.errors.extend(d.errors);
-            if let Some(mut f) = d.file {
-                if let Some((pkey, node)) = d.parent {
-                    f.parent = index[d.krate].get(&pkey).map(|&i| (i, node));
-                }
-                index[d.krate].insert(d.key, c.files.len());
-                c.files.push(f);
-            }
-        }
+        self.load(&mut crates, jobs);
         crates
     }
 
-    fn parse_job<'s>(&'s self, root: &CrateRoot, job: Job<'s>, queue: &pool::Queue<Job<'s>>) -> Done<'s> {
+    /// Runs file jobs (and the jobs for the modules they find), and puts
+    /// the files in their crates in text order.
+    fn load<'s>(&'s self, crates: &mut [ParsedCrate<'s>], jobs: Vec<Job<'s>>) {
+        if jobs.is_empty() {
+            return;
+        }
+        let done: Mutex<Vec<Done>> = Mutex::new(Vec::new());
+        pool::run(self.threads(), jobs, |job, queue| {
+            let result = self.parse_job(job, queue);
+            done.lock().unwrap().push(result);
+        });
+        let mut done = done.into_inner().unwrap();
+        done.sort_by(|a, b| {
+            let pa = a.file.as_ref().map(|f| &f.pos);
+            let pb = b.file.as_ref().map(|f| &f.pos);
+            (a.krate, pa).cmp(&(b.krate, pb))
+        });
+        let mut changed = vec![false; crates.len()];
+        for d in done {
+            let c = &mut crates[d.krate];
+            c.errors.extend(d.errors);
+            c.loaded.extend(d.loaded);
+            if let Some(f) = d.file {
+                c.files.push(f);
+                c.parent_pos.push(d.parent);
+                changed[d.krate] = true;
+            }
+        }
+        for (c, changed) in crates.iter_mut().zip(changed) {
+            if changed {
+                c.sort_files();
+            }
+        }
+    }
+
+    fn parse_job<'s>(&'s self, job: Job<'s>, queue: &pool::Queue<Job<'s>>) -> Done<'s> {
         let parent = job.decl.as_ref().map(|(k, n, _)| (k.clone(), *n));
-        let mut done = Done { krate: job.krate, key: job.key.clone(), file: None, parent, errors: Vec::new() };
+        let mut done = Done { krate: job.krate, file: None, parent, errors: Vec::new(), loaded: Vec::new() };
         let text = match std::fs::read_to_string(&job.path) {
             Ok(t) => t,
             Err(e) => {
@@ -176,7 +246,7 @@ impl Session {
             }
         };
         let source = self.sources.add(Source::new(job.path.display().to_string(), text));
-        let mut ast = match parse_str(&source.text, root.edition) {
+        let mut ast = match parse_str(&source.text, job.edition) {
             Ok(ast) => ast,
             Err(e) => {
                 done.errors.push(e);
@@ -185,38 +255,123 @@ impl Session {
         };
         if let Some(cfg) = &self.options.cfg {
             let eof = Token(&source.text[source.text.len()..]);
-            done.errors.extend(strip(&mut ast, cfg, root.edition, eof));
+            done.errors.extend(strip(&mut ast, cfg, job.edition, eof));
         }
-        if root.follow_modules {
-            let file_dir = job.path.parent().unwrap_or(Path::new("")).to_path_buf();
-            let children_dir =
-                if job.mod_rs { file_dir.clone() } else { file_dir.join(job.path.file_stem().unwrap_or_default()) };
-            let mut found = Vec::new();
-            scan_modules(&ast, ast.root, &file_dir, &children_dir, true, &mut found);
-            for (ordinal, m) in found.into_iter().enumerate() {
-                let mut key = job.key.clone();
-                key.push(ordinal as u32);
-                let mut module = job.module.clone();
-                module.extend(m.inline.iter().cloned());
-                module.push(m.name.to_string());
-                let decl = Some((job.key.clone(), m.item, m.name));
-                match m.file {
-                    Ok((path, mod_rs)) => {
-                        queue.push(Job { krate: job.krate, path, key, module, mod_rs, decl });
-                    }
-                    Err(Some(message)) => {
-                        // Reported in the module's place, as if it were a
-                        // file that failed.
-                        done.errors.push(Error::new(m.name, message));
-                    }
-                    // Missing, but under `cfg`: left to cfg evaluation.
-                    Err(None) => {}
+        let file = ParsedFile {
+            source,
+            path: job.path,
+            mod_rs: job.mod_rs,
+            ast,
+            module: job.module,
+            scope: job.scope,
+            pos: job.pos,
+            parent: None,
+        };
+        if job.follow {
+            let (jobs, errors) = module_jobs(job.krate, &file, job.edition, &HashSet::new());
+            done.errors.extend(errors);
+            for j in jobs {
+                done.loaded.push((file.pos.clone(), j.decl.as_ref().unwrap().1));
+                queue.push(j);
+            }
+        }
+        done.file = Some(file);
+        done
+    }
+
+    /// Loads the files of `mod` items that are new since the last load
+    /// (made by macro expansion). Returns how many files were loaded.
+    pub fn load_new_modules<'s>(&'s self, crates: &mut [ParsedCrate<'s>]) -> usize {
+        let mut jobs = Vec::new();
+        for (k, c) in crates.iter_mut().enumerate() {
+            if !c.follow_modules {
+                continue;
+            }
+            for f in &c.files {
+                let (js, errors) = module_jobs(k, f, c.edition, &c.loaded);
+                c.errors.extend(errors);
+                jobs.extend(js);
+            }
+            for j in &jobs {
+                if j.krate == k
+                    && let Some((p, n, _)) = &j.decl
+                {
+                    c.loaded.insert((p.clone(), *n));
                 }
             }
         }
-        done.file = Some(ParsedFile { source, ast, module: job.module, parent: None });
-        done
+        let before: usize = crates.iter().map(|c| c.files.len()).sum();
+        self.load(crates, jobs);
+        crates.iter().map(|c| c.files.len()).sum::<usize>() - before
     }
+}
+
+impl<'s> ParsedCrate<'s> {
+    /// Puts the files in text order and links each to its parent.
+    fn sort_files(&mut self) {
+        let mut order: Vec<usize> = (0..self.files.len()).collect();
+        order.sort_by(|&a, &b| self.files[a].pos.cmp(&self.files[b].pos));
+        let mut files: Vec<Option<ParsedFile<'s>>> = std::mem::take(&mut self.files).into_iter().map(Some).collect();
+        let mut parents: Vec<Option<(Vec<u32>, NodeId)>> = std::mem::take(&mut self.parent_pos);
+        let mut sorted = Vec::with_capacity(files.len());
+        let mut sorted_parents = Vec::with_capacity(files.len());
+        for i in order {
+            sorted.push(files[i].take().unwrap());
+            sorted_parents.push(parents[i].take());
+        }
+        let index: std::collections::HashMap<Vec<u32>, usize> =
+            sorted.iter().enumerate().map(|(i, f)| (f.pos.clone(), i)).collect();
+        for (f, p) in sorted.iter_mut().zip(&sorted_parents) {
+            f.parent = p.as_ref().and_then(|(pp, n)| index.get(pp).map(|&i| (i, *n)));
+        }
+        self.files = sorted;
+        self.parent_pos = sorted_parents;
+    }
+}
+
+/// The jobs for a file's out-of-line modules not yet in `loaded`, and
+/// errors for modules with no file.
+fn module_jobs<'s>(
+    krate: usize,
+    file: &ParsedFile<'s>,
+    edition: Edition,
+    loaded: &HashSet<(Vec<u32>, NodeId)>,
+) -> (Vec<Job<'s>>, Vec<Error<'s>>) {
+    let ast = &file.ast;
+    let file_dir = file.path.parent().unwrap_or(Path::new("")).to_path_buf();
+    let children_dir =
+        if file.mod_rs { file_dir.clone() } else { file_dir.join(file.path.file_stem().unwrap_or_default()) };
+    let mut found = Vec::new();
+    scan_modules(ast, ast.root, &file_dir, &children_dir, true, &mut found);
+    let mut jobs = Vec::new();
+    let mut errors = Vec::new();
+    for m in found {
+        if loaded.contains(&(file.pos.clone(), m.item)) {
+            continue;
+        }
+        let mut pos = file.pos.clone();
+        pos.extend(node_pos(ast, m.item));
+        let mut module = file.module.clone();
+        let mut scope = file.scope.clone();
+        for step in &m.inline {
+            module.push(step.name.clone());
+            scope.push(step.clone());
+        }
+        module.push(m.name.to_string());
+        scope.push(ScopeStep { name: m.name.to_string(), macro_use: has_attribute(ast, m.item, "macro_use") });
+        let decl = Some((file.pos.clone(), m.item, m.name));
+        match m.file {
+            Ok((path, mod_rs)) => {
+                jobs.push(Job { krate, path, pos, module, scope, mod_rs, edition, follow: true, decl });
+            }
+            // Reported in the module's place, as if it were a file that
+            // failed.
+            Err(Some(message)) => errors.push(Error::new(m.name, message)),
+            // Missing, but under `cfg`: left to cfg evaluation.
+            Err(None) => {}
+        }
+    }
+    (jobs, errors)
 }
 
 /// An out-of-line module found in a file.
@@ -224,7 +379,7 @@ struct FoundModule<'s> {
     item: NodeId,
     name: &'s str,
     /// Inline modules between the file and this one.
-    inline: Vec<String>,
+    inline: Vec<ScopeStep>,
     /// The module's file and whether it owns its directory; or why there
     /// is none (`None` when it may be configured away).
     file: Result<(PathBuf, bool), Option<String>>,
@@ -252,7 +407,7 @@ fn scan_into<'s>(
     file_dir: &Path,
     dir: &Path,
     top: bool,
-    inline: &mut Vec<String>,
+    inline: &mut Vec<ScopeStep>,
     out: &mut Vec<FoundModule<'s>>,
 ) {
     for &item in ast.children(node) {
@@ -269,7 +424,7 @@ fn scan_into<'s>(
                 Some(p) => dir.join(p),
                 None => dir.join(name),
             };
-            inline.push(name.to_string());
+            inline.push(ScopeStep { name: name.to_string(), macro_use: has_attribute(ast, item, "macro_use") });
             scan_into(ast, item, file_dir, &sub, false, inline, out);
             inline.pop();
             continue;
@@ -299,19 +454,19 @@ fn scan_into<'s>(
 }
 
 /// The attributes of an item, as (name, node).
-fn attributes<'p>(ast: &'p Ast, item: NodeId) -> impl Iterator<Item = (String, NodeId)> + 'p {
+pub(crate) fn attributes<'p>(ast: &'p Ast, item: NodeId) -> impl Iterator<Item = (String, NodeId)> + 'p {
     ast.children(item).iter().copied().filter(move |&a| ast.kind(a) == Kind::Attribute).filter_map(move |a| {
         let path = ast.child(a, Kind::Path)?;
         Some((ast.text(path), a))
     })
 }
 
-fn has_attribute(ast: &Ast, item: NodeId, name: &str) -> bool {
+pub(crate) fn has_attribute(ast: &Ast, item: NodeId, name: &str) -> bool {
     attributes(ast, item).any(|(n, _)| n == name)
 }
 
 /// The string in `#[name = "value"]`, without quotes.
-fn attribute_value(ast: &Ast, item: NodeId, name: &str) -> Option<String> {
+pub(crate) fn attribute_value(ast: &Ast, item: NodeId, name: &str) -> Option<String> {
     let (_, a) = attributes(ast, item).find(|(n, _)| n == name)?;
     let value = *ast.children(a).last()?;
     if ast.kind(value) != Kind::Literal {

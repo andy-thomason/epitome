@@ -543,7 +543,7 @@ impl<'a> Parser<'a> {
                 if self.at("!") && !self.at_op("!=") {
                     self.bump();
                     self.token_tree()?;
-                    self.finish(m, Kind::MacroCall);
+                    self.finish(m, Kind::TypeMacro);
                 } else {
                     self.finish(m, Kind::PathType);
                     if plus && self.at("+") {

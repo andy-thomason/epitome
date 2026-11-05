@@ -436,7 +436,7 @@ impl<'a> Parser<'a> {
     }
 
     /// `path args`, `path = value`, `unsafe(...)`: an attribute's contents.
-    fn meta(&mut self) -> PResult<'a> {
+    pub(crate) fn meta(&mut self) -> PResult<'a> {
         let is_unsafe = self.at("unsafe") && self.at_n(1, "(");
         if is_unsafe {
             self.leaf(Kind::Keyword, 1);
@@ -453,5 +453,101 @@ impl<'a> Parser<'a> {
             self.expect(")")?;
         }
         Ok(())
+    }
+}
+
+/// A macro fragment specifier's kind of syntax.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FragKind {
+    /// `expr` in the 2024 edition: also `_` and `const { }`.
+    Expr,
+    /// `expr_2021`, and `expr` before 2024.
+    Expr2021,
+    Ty,
+    /// `pat` from 2021: may have a top-level `|`.
+    Pat,
+    /// `pat_param`, and `pat` before 2021.
+    PatParam,
+    Path,
+    Block,
+    Stmt,
+    Item,
+    Meta,
+    Vis,
+}
+
+/// Parses fragments at chosen positions of one token list, for matching
+/// macro input: the list is copied once, and each attempt reuses it.
+pub struct FragmentParser<'a> {
+    p: Parser<'a>,
+}
+
+impl<'a> FragmentParser<'a> {
+    pub fn new(tokens: Vec<Token<'a>>, eof: Token<'a>, edition: Edition) -> Self {
+        FragmentParser { p: Parser::new(tokens, eof, edition) }
+    }
+
+    /// Parses a `what` that starts at token `at`, and returns the index of
+    /// the token after it and the kind of the node read; `None` if no such
+    /// fragment starts there.
+    pub fn parse_at(&mut self, at: usize, what: FragKind) -> Option<(usize, Kind)> {
+        let p = &mut self.p;
+        p.pos = at;
+        p.stack.clear();
+        p.ast.truncate(0, 0);
+        let ok = match what {
+            FragKind::Expr => p.expr(),
+            FragKind::Expr2021 => {
+                if p.at("_") || p.at("const") && p.at_n(1, "{") {
+                    return None;
+                }
+                p.expr()
+            }
+            FragKind::Ty => p.ty(),
+            FragKind::Pat => p.pattern(),
+            FragKind::PatParam => p.pattern_no_alt(),
+            FragKind::Path => p.path(types::PathMode::Type),
+            FragKind::Block => {
+                if !p.at("{") {
+                    return None;
+                }
+                p.block_expr()
+            }
+            FragKind::Stmt => p.stmt_fragment(),
+            FragKind::Item => p.item(),
+            FragKind::Meta => p.meta(),
+            FragKind::Vis => p.visibility(),
+        };
+        ok.ok()?;
+        let kind = p.stack.last().map_or(Kind::Visibility, |&id| p.ast.kind(id));
+        Some((p.pos, kind))
+    }
+}
+
+impl<'a> Parser<'a> {
+    /// A statement without its trailing `;`: an item, a `let`, or an
+    /// expression.
+    fn stmt_fragment(&mut self) -> PResult<'a> {
+        let m = self.mark();
+        self.outer_attributes()?;
+        if self.at("let") {
+            self.bump();
+            self.pattern()?;
+            if self.eat(":") {
+                self.ty()?;
+            }
+            if self.eat("=") {
+                self.expr()?;
+                if self.eat("else") {
+                    self.block_expr()?;
+                }
+            }
+            self.finish(m, Kind::LetStmt);
+            return Ok(());
+        }
+        if self.item_start() {
+            return self.item_from(m);
+        }
+        self.expr()
     }
 }

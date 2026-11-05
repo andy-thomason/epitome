@@ -14,6 +14,10 @@
 //! - `--pretty`: print each file's syntax tree back as Rust source.
 //! - `--tokens file.rs`: print the tokens of one file, one per line.
 //! - `--list-files`: print the path of each file loaded, one per line.
+//! - `--no-expand`: stop before macro expansion (it runs by default, so
+//!   `--pretty` shows the expanded tree).
+//! - `--expand-stats`: print what expansion did, and the macros most often
+//!   not found.
 //! - `--parse-tree dir`: parse every `.rs` file under `dir` (each on its
 //!   own, not following modules), and report each that fails and a count.
 //!   Each file is read in the edition of the nearest `Cargo.toml` above it
@@ -37,6 +41,7 @@ fn main() -> ExitCode {
     let mut options = Options::default();
     let (mut dump, mut sexp, mut tokens, mut print, mut roundtrip) = (false, false, false, false, false);
     let mut list_files = false;
+    let (mut no_expand, mut expand_stats) = (false, false);
     let mut tree: Option<PathBuf> = None;
     let mut cfg = CfgSet::host();
     let mut no_cfg = false;
@@ -52,6 +57,8 @@ fn main() -> ExitCode {
             "--roundtrip" => roundtrip = true,
             "--no-cfg" => no_cfg = true,
             "--list-files" => list_files = true,
+            "--no-expand" => no_expand = true,
+            "--expand-stats" => expand_stats = true,
             _ if arg.starts_with("--cfg") => {
                 let v = value("--cfg").unwrap_or_default();
                 match v.split_once('=') {
@@ -98,14 +105,36 @@ fn main() -> ExitCode {
         options.cfg = Some(cfg);
     }
     let session = Session::new(options);
-    let roots = files
-        .iter()
-        .map(|f| {
-            let name = f.file_stem().map_or("main".into(), |s| s.to_string_lossy().into_owned());
-            CrateRoot::new(name, f).edition(edition)
-        })
-        .collect();
-    let crates = session.parse_crates(roots);
+    let roots = files.iter().map(|f| CrateRoot::new(crate_name(f), f).edition(edition)).collect();
+    let mut crates = session.parse_crates(roots);
+    if !no_expand {
+        let stats = session.expand(&mut crates);
+        if expand_stats {
+            eprintln!(
+                "expansion: {} rounds, {} calls expanded, {} built-in calls left, {} files loaded",
+                stats.rounds, stats.expanded, stats.builtins_left, stats.files_loaded
+            );
+            eprintln!("per round: {:?}", stats.per_round);
+            if stats.per_round.last().is_some_and(|&n| n > 0) {
+                eprintln!("still expanding in the last round: {:?}", stats.last_round);
+            }
+            let mut missing: Vec<_> = stats.unresolved.iter().collect();
+            missing.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
+            let total: usize = missing.iter().map(|m| m.1).sum();
+            eprintln!("not found: {total} calls to {} macros", missing.len());
+            for (name, n) in missing.iter().take(20) {
+                eprintln!("  {n:6} {name}!");
+            }
+        }
+    }
+    if list_files {
+        let mut included = session.included.lock().unwrap().clone();
+        included.sort();
+        included.dedup();
+        for f in included {
+            println!("{}", f.display());
+        }
+    }
     let mut failed = false;
     for c in &crates {
         for f in &c.files {
@@ -132,6 +161,20 @@ fn main() -> ExitCode {
         }
     }
     if failed { ExitCode::FAILURE } else { ExitCode::SUCCESS }
+}
+
+/// A crate's name from its root file: the file's name, or for `lib.rs`,
+/// `main.rs` and `mod.rs` the directory's (above `src`).
+fn crate_name(root: &Path) -> String {
+    let stem = root.file_stem().map_or(String::new(), |s| s.to_string_lossy().into_owned());
+    if !matches!(stem.as_str(), "lib" | "main" | "mod") {
+        return stem;
+    }
+    let mut dir = root.parent();
+    if dir.is_some_and(|d| d.file_name().is_some_and(|n| n == "src")) {
+        dir = dir.and_then(Path::parent);
+    }
+    dir.and_then(|d| d.file_name()).map_or(stem, |n| n.to_string_lossy().replace('-', "_"))
 }
 
 fn print_tokens(files: &[PathBuf]) -> ExitCode {

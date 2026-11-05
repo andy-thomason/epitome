@@ -140,7 +140,9 @@ pub(super) fn check_body<'s>(
             let inputs = tcx.tys(sig.inputs);
             let inputs: Vec<Ty> = inputs.into_iter().map(|t| cx.fill_holes(t)).collect();
             let out = cx.fill_holes(sig.output);
-            cx.ret = cx.opaque_to_var(out);
+            // `impl Trait`: a variable bound by its bounds, so that a
+            // closure returned gets its signature from them.
+            cx.ret = cx.opaque_vars(out, &[], &[]);
             // Parameters: their patterns, in order.
             let params = ast.child(item, Kind::Params)?;
             let mut i = 0;
@@ -270,6 +272,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
         nodes.sort_by_key(|x| x.0);
         for (n, t) in nodes {
             let t = self.infer.resolve(t);
+            // Projections whose types are now known.
+            let t = self.normalize(t, 1);
+            let t = self.infer.resolve(t);
             if self.tcx.has_error(t) {
                 error_nodes += 1;
             } else if self.tcx.has_infer(t) {
@@ -370,14 +375,6 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 let x = self.fill_holes(x);
                 self.mk(TyKind::Array(x, c))
             }
-            _ => t,
-        }
-    }
-
-    /// `impl Trait` in a return type: checked as a variable for now.
-    fn opaque_to_var(&mut self, t: Ty) -> Ty {
-        match self.tcx.kind(t) {
-            TyKind::Opaque(_) => self.infer.fresh(),
             _ => t,
         }
     }
@@ -641,6 +638,27 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     return self.qualified_trait_value(n, q, tr, name);
                 }
                 self.assoc_value(n, path, &base, name)
+            }
+            Res::Partial(base, 2) => {
+                // `T::Assoc::item`: the associated type, then its item.
+                let base = (**base).clone();
+                let segs: Vec<NodeId> = self.ast.children(path).iter().copied().filter(|&s| self.ast.kind(s) == Kind::Segment).collect();
+                let mid = self.ast.token(segs[segs.len() - 2]).0;
+                let name = self.last_segment_name(path);
+                let Some(bt) = self.base_ty(path, &base) else { return self.err(n, "path through an associated item") };
+                let Some(at) = self.assoc_type_of(bt, mid) else { return self.err(n, "associated type not found") };
+                let at = self.norm(at);
+                if let Some((item, impl_args)) = self.inherent_item(at, name, Ns::Value) {
+                    let own = tcx.generics[item.0 as usize].own.len();
+                    let mut args = impl_args;
+                    let fresh = (0..own).map(|_| self.infer.fresh()).collect::<Vec<_>>();
+                    args.extend(fresh);
+                    return self.mk(TyKind::FnDef(item, tcx.list(args)));
+                }
+                match self.trait_assoc_value(at, name) {
+                    Some(t) => t,
+                    None => self.err(n, "associated item not found"),
+                }
             }
             Res::Partial(..) => self.err(n, "path through an associated item"),
             Res::PrimTy(_) => self.err(n, "a type used as a value"),
@@ -1769,6 +1787,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
         // through references, binding by reference.
         let peels = !matches!(kind, Kind::IdentPat | Kind::WildPat | Kind::RefPat | Kind::RestPat | Kind::OrPat | Kind::ParenPat)
             || kind == Kind::IdentPat && self.r.res_of(self.k as usize, self.file as usize, p).is_some();
+        let t = if peels || kind == Kind::RefPat { self.norm(t) } else { t };
         if peels && let TyKind::Ref(m, inner) = tcx.kind(self.infer.shallow(t)) {
             let bm = if by_ref && bm == Mutbl::Not { Mutbl::Not } else { m };
             return self.pat(p, inner, bm, true);

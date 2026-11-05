@@ -33,12 +33,14 @@ checking is under way.
   - Signatures and the type table (7.1, 7.2) are done: 54,523 signatures
     of `core`, `alloc` and `std` in 0.07 s. The 159 that have an error
     type all name crates outside the session.
-  - Bodies (7.3) are checked in parallel, with inference variables,
-    expected types, integer fallback, inherent methods and patterns'
-    binding modes. The 32,797 bodies of `core`, `alloc` and `std` take
-    0.2 s, and 70% of them type completely. Almost all of the rest need
-    trait methods, operator traits or `Deref`, which come next.
-    `--dump-types` prints every expression's type.
+  - Bodies (7.3) are checked in parallel, with traits: selection over
+    impls and `where` clauses, associated types, trait methods with
+    autoderef, operators, `Deref`, `Index`, `Fn`, `IntoIterator` and
+    `Try`, and closures typed from the bounds they are passed to.
+  - The 32,847 bodies of `core`, `alloc` and `std` take 0.4 s, and 93%
+    of them type completely. Most of the rest use `libc` and other
+    crates outside the session.
+  - `--dump-types` prints every expression's type.
 
 Everything after that is a plan.
 
@@ -556,9 +558,40 @@ So far (`src/typeck/`):
   `&self`, and record the method. Impls are indexed by the head of their
   self type (an ADT, a primitive, `[T]`, `&T`, ...), so lookup does not
   scan every impl.
-- The coercions so far: `!` to anything, `&mut T` to `&T`, `&[T; N]` to
-  `&[T]`, and function items and closures to `fn` pointers.
+- The coercions so far: `!` to anything, `&mut T` to `&T`, unsizing
+  (`&[T; N]` to `&[T]`, `&T` and `Box<T>` to `dyn Trait`), deref
+  coercion (`&String` to `&str`), `&T` to `*const T`, and function items
+  and closures to `fn` pointers.
 - Unsuffixed integers and floats left unknown become `i32` and `f64`.
+
+Traits (`traits.rs`):
+
+- **What a body may assume**: its item's and parents' `where` clauses,
+  `Self: Trait` inside a trait, every supertrait, and the bounds a trait
+  declares on its associated types (`type IntoIter: Iterator<Item =
+  Self::Item>`) and that `Iterator<Item: Copy>` puts on them.
+- **Selection** (`T: Trait<A>`): what the body assumes; the bounds of a
+  `dyn` or `impl Trait`; obligations on a variable (from a generic
+  function's bounds, or an `impl Trait` it returns); built-ins (`Sized`,
+  `Tuple`, auto traits, `Fn` for closures, function items and pointers);
+  then impls, found by trait and the head of the self type, each tried
+  in a snapshot with its own `where` clauses checked a few levels deep.
+  Missing trait arguments take their defaults (`Add` is `Add<Self>`).
+  One impl is an answer; several is ambiguous, not an error.
+- **Projections** (`<T as Iterator>::Item`) are normalised from what the
+  body assumes, or from the selected impl's associated type. One that
+  waits on a variable becomes a variable itself, with a pending
+  obligation tried again as types become known. One with no variable
+  and no impl stays a projection (rigid, in a generic body).
+- **Method calls**: for each autoderef step (through `&`, `Box` and
+  `Deref`, then an array's slice), the receiver by value, `&` and `&mut`,
+  inherent methods before trait methods. Trait candidates come from an
+  index of trait items by name, bounds first, then traits in scope.
+- **Operators, `*`, `[]`, calls, `for`, `?` and `.await`** go through
+  their lang-item traits when the types are not primitive.
+- **Closures** passed to a generic function take their parameter and
+  result types from its `F: FnMut(A) -> B` obligations. Closure
+  arguments are checked after the others, so that those settle `A`.
 
 Const evaluation (array lengths, `const` items, const generics) is an
 interpreter over the typed AST, the same walk as lowering but producing
@@ -770,8 +803,9 @@ Tests of parallel stages run on one thread and on several, and compare.
    loading once we compile proc-macro crates, section 6.7).
 4. Name resolution and item collection (done).
 5. Type checking: signatures and the type table (done); then bodies, for
-   `#![no_std]` programs: integers, structs, enums, references, generics
-   (done); then traits, methods, closures.
+   `#![no_std]` programs: integers, structs, enums, references, generics,
+   traits, methods, closures (done; 93% of the bodies of `core`, `alloc`
+   and `std` type completely).
 6. Lowering of those to Epitome IR; first run tests pass.
 7. Drops, `dyn`, slices and strings, formatting through `core::fmt`.
 8. `core`, then `alloc` and `std` from `rust-src`; Cargo builds.

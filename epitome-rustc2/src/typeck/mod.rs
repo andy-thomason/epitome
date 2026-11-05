@@ -133,10 +133,25 @@ impl TypeckResults {
     /// Each checked body's expressions and patterns with their types, in
     /// source order: `line:col text : type`.
     pub fn dump(&self, crates: &[ParsedCrate], r: &Resolver, tcx: &TyCtxt, sources: &crate::source::SourceMap) -> String {
+        self.dump_crate(crates, r, tcx, sources, None)
+    }
+
+    /// `dump`, of crate `only` alone if given.
+    pub fn dump_crate(
+        &self,
+        crates: &[ParsedCrate],
+        r: &Resolver,
+        tcx: &TyCtxt,
+        sources: &crate::source::SourceMap,
+        only: Option<u32>,
+    ) -> String {
         use std::fmt::Write;
         let mut out = String::new();
         for &d in &self.bodies {
             let def = &r.defs[d.0 as usize];
+            if only.is_some_and(|k| k != def.krate) {
+                continue;
+            }
             let (k, f) = (def.krate as usize, def.file as usize);
             let ast = &crates[k].files[f].ast;
             let _ = writeln!(out, "{} {}", if matches!(def.kind, DefKind::Fn | DefKind::AssocFn) { "fn" } else { "const" }, r.def_path(d));
@@ -198,16 +213,23 @@ impl TyCtxt<'_> {
 mod tests {
     use crate::session::{CrateRoot, Options, Session};
 
-    /// `--dump-types` of `tests/typeck/basic.rs`, without positions.
-    fn dump(path: &str) -> String {
+    /// `--dump-types` of a test file (with `core`, if `with` names it),
+    /// without positions.
+    fn dump_with(path: &str, name: &str, with: Option<std::path::PathBuf>) -> String {
         let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(path);
-        let session = Session::new(Options { threads: 2, ..Default::default() });
-        let mut crates = session.parse_crates(vec![CrateRoot::new("basic", &file)]);
+        let session = Session::new(Options { threads: 4, cfg: Some(crate::cfg::CfgSet::host()), ..Default::default() });
+        let mut roots = Vec::new();
+        if let Some(core) = with {
+            roots.push(CrateRoot::new("core", core));
+        }
+        roots.push(CrateRoot::new(name, &file));
+        let mut crates = session.parse_crates(roots);
         session.expand(&mut crates);
         let r = session.resolve(&crates);
         let tcx = session.collect_types(&crates, &r);
         let res = session.typeck(&crates, &r, &tcx);
-        res.dump(&crates, &r, &tcx, &session.sources)
+        let k = crates.len() as u32 - 1;
+        res.dump_crate(&crates, &r, &tcx, &session.sources, Some(k))
             .lines()
             .map(|l| match l.strip_prefix("  ") {
                 Some(rest) => rest.split_once(' ').map_or(rest, |x| x.1).trim_start().to_string(),
@@ -215,6 +237,57 @@ mod tests {
             })
             .collect::<Vec<_>>()
             .join("\n")
+    }
+
+    fn dump(path: &str) -> String {
+        dump_with(path, "basic", None)
+    }
+
+    /// `core` from the toolchain's rust-src, if it is installed.
+    fn core_src() -> Option<std::path::PathBuf> {
+        let out = std::process::Command::new("rustc").args(["--print", "sysroot"]).output().ok()?;
+        let root = std::path::PathBuf::from(String::from_utf8(out.stdout).ok()?.trim());
+        let core = root.join("lib/rustlib/src/rust/library/core/src/lib.rs");
+        core.exists().then_some(core)
+    }
+
+    #[test]
+    fn traits_methods_and_closures() {
+        let Some(core) = core_src() else {
+            eprintln!("no rust-src: skipped");
+            return;
+        };
+        let s = dump_with("tests/typeck/traits.rs", "traits", Some(core));
+        // Only this crate's bodies, which should have no error types.
+        let ours: Vec<&str> =
+            s.lines().skip_while(|l| !l.starts_with("fn traits::")).collect();
+        assert!(!ours.is_empty(), "no bodies of `traits`");
+        for l in &ours {
+            assert!(!l.contains("{error}"), "error type in `traits`:\n{}", ours.join("\n"));
+        }
+        for want in [
+            // A trait method through autoref, with its closure's parameter
+            // from the `FnMut(Self::Item)` bound.
+            "|s| match s { Shape::Circle(r) => 3 * r * r, ... : {closure}(&Shape) -> u32",
+            "r : &u32",
+            "3 * r * r : u32",
+            // `impl Trait` parameters and `&mut impl FnMut`.
+            "seen(x) : ()",
+            "x : u32",
+            // `?` through `Try`, and `parse` from the type wanted.
+            "a.parse() : Result<u8, ParseIntError>  [core::str::{impl}::parse]",
+            "a.parse().ok()? : u8",
+            // `Default::default()` and `+` from bounds on an associated type.
+            "Default::default() : <I as Iterator>::Item",
+            "a + b : <I as Iterator>::Item",
+            // A `dyn Trait` method.
+            "w.write_str(s) : Result<(), Error>  [core::fmt::Write::write_str]",
+            // Patterns through references and iterator adapters.
+            "(x, y) : (&u8, &u16)",
+            "u16::from : fn item core::convert::From::from<u16, u8>",
+        ] {
+            assert!(ours.contains(&want), "no `{want}` in:\n{}", ours.join("\n"));
+        }
     }
 
     #[test]

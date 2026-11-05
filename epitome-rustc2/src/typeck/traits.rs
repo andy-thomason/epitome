@@ -190,11 +190,24 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 break;
             }
             for p in tcx.predicates[x.0 as usize].clone() {
+                // Substituted, with projections in them normalised (or
+                // variables standing for them), so that a closure checked
+                // against them sees through `<Self as Iterator>::Item`.
+                let sub = |cx: &mut Self, t: Ty| {
+                    let t = subst(tcx, t, &params, args);
+                    cx.normalize(t, 0)
+                };
                 let p = match p {
-                    Pred::Trait(t, tr) => Pred::Trait(subst(tcx, t, &params, args), subst_trait_ref(tcx, &tr, &params, args)),
+                    Pred::Trait(t, tr) => {
+                        let tr = subst_trait_ref(tcx, &tr, &params, args);
+                        let targs: Vec<Ty> = tcx.tys(tr.args).into_iter().map(|x| self.normalize(x, 0)).collect();
+                        let bindings = tr.bindings.iter().map(|&(d, b)| (d, self.normalize(b, 0))).collect();
+                        let tr = TraitRef { args: tcx.list(targs), bindings, ..tr };
+                        Pred::Trait(sub(self, t), tr)
+                    }
                     Pred::Projection(t, a, l, b) => {
-                        let l2: Vec<Ty> = tcx.tys(l).into_iter().map(|x| subst(tcx, x, &params, args)).collect();
-                        Pred::Projection(subst(tcx, t, &params, args), a, tcx.list(l2), subst(tcx, b, &params, args))
+                        let l2: Vec<Ty> = tcx.tys(l).into_iter().map(|x| sub(self, x)).collect();
+                        Pred::Projection(sub(self, t), a, tcx.list(l2), sub(self, b))
                     }
                 };
                 self.oblige(p);
@@ -291,7 +304,14 @@ impl<'a, 's> FnCtxt<'a, 's> {
     /// Whether, and how, `t: tr<targs>`.
     pub(super) fn select(&mut self, t: Ty, tr: DefId, targs: &[Ty], depth: u32) -> Select {
         let tcx = self.tcx;
-        let t = self.infer.shallow(t);
+        let mut t = self.infer.shallow(t);
+        // `<Map<I, F> as Iterator>::Item: Tr`: what the projection is.
+        if let TyKind::Projection(..) = tcx.kind(t)
+            && depth < MAX_DEPTH
+        {
+            let n = self.normalize(t, depth + 1);
+            t = self.infer.shallow(n);
+        }
         if depth > MAX_DEPTH || tcx.kind(t) == TyKind::Error {
             return Select::Ambiguous;
         }
@@ -401,7 +421,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
                         continue;
                     }
                     let pt = subst(tcx, *pt, &params, &args);
+                    let pt = self.normalize(pt, depth + 1);
                     let pa: Vec<Ty> = tcx.tys(ptr.args).into_iter().map(|x| subst(tcx, x, &params, &args)).collect();
+                    let pa: Vec<Ty> = pa.into_iter().map(|x| self.normalize(x, depth + 1)).collect();
                     if !self.select(pt, ptr.def, &pa, depth + 1).holds() {
                         return None;
                     }
@@ -467,7 +489,11 @@ impl<'a, 's> FnCtxt<'a, 's> {
             }
             let s = self.probe();
             let pl = tcx.tys(l);
-            if self.self_matches(pt, t) && self.args_unify(&pl[1..], &args[1..]) {
+            let (pa, aa) = match self.trait_of(assoc) {
+                Some(tr) => (self.full_trait_args(tr, pt, pl[1..].to_vec()), self.full_trait_args(tr, t, args[1..].to_vec())),
+                None => (pl[1..].to_vec(), args[1..].to_vec()),
+            };
+            if self.self_matches(pt, t) && self.args_unify(&pa, &aa) {
                 return Some(ty);
             }
             self.rollback(s);
@@ -903,6 +929,38 @@ impl<'a, 's> FnCtxt<'a, 's> {
             self.rollback(p);
         }
         false
+    }
+
+    /// `T::name` for an associated type `name` of a trait `T` implements
+    /// (or is bound by): the projection, normalised.
+    pub(super) fn assoc_type_of(&mut self, t: Ty, name: &str) -> Option<Ty> {
+        let tcx = self.tcx;
+        let mut preds = self.env_preds.clone();
+        preds.extend(self.type_bounds(t));
+        for p in preds {
+            let Pred::Trait(pt, tr) = p else { continue };
+            if self.infer.shallow(pt) != t {
+                continue;
+            }
+            if let Some(a) = self.trait_item(tr.def, name, Ns::Type) {
+                let mut args = vec![t];
+                args.extend(tcx.tys(tr.args));
+                return Some(self.project_or_var(a, &args));
+            }
+        }
+        // Any trait with such an associated type that `t` implements.
+        let traits: Vec<DefId> = tcx.traits.keys().copied().filter(|&tr| self.trait_item(tr, name, Ns::Type).is_some()).collect();
+        for tr in traits {
+            let n = tcx.generics[tr.0 as usize].own.len().saturating_sub(1);
+            let targs: Vec<Ty> = (0..n).map(|_| self.infer.fresh()).collect();
+            if let Select::Yes(_) = self.select(t, tr, &targs, 0) {
+                let a = self.trait_item(tr, name, Ns::Type)?;
+                let mut args = vec![t];
+                args.extend(targs);
+                return Some(self.project_or_var(a, &args));
+            }
+        }
+        None
     }
 
     /// A `&` or `&mut` of `t`.

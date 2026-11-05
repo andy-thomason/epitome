@@ -247,6 +247,11 @@ pub enum Holds {
     Int,
     Float,
     Vector,
+    /// Scalable vectors (SVE's z registers): `bits` is their least width,
+    /// the machine's vector length a multiple of it.
+    Scalable,
+    /// Scalable vectors of booleans (SVE's predicates).
+    Predicate,
 }
 
 #[derive(Clone, Debug)]
@@ -508,6 +513,8 @@ impl Machine {
                 Some("int") => Some(Holds::Int),
                 Some("float") => Some(Holds::Float),
                 Some("vector") => Some(Holds::Vector),
+                Some("scalable") => Some(Holds::Scalable),
+                Some("predicate") => Some(Holds::Predicate),
                 Some(o) => return Err(format!("register class {class}: holds {o}")),
             };
             if holds.is_some() && bits == 0 {

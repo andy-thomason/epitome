@@ -452,13 +452,7 @@ impl<'a, 'b> Sel<'a, 'b> {
 
     /// What a value of this type is.
     fn holds(&self, ty: TypeId) -> Holds {
-        if self.is_vector(ty) {
-            Holds::Vector
-        } else if self.is_fp(ty) {
-            Holds::Float
-        } else {
-            Holds::Int
-        }
+        crate::target::holds_of_type(self.cx.m, ty)
     }
 
     /// The register class a value of this type lives in (the description's
@@ -466,6 +460,10 @@ impl<'a, 'b> Sel<'a, 'b> {
     fn class_of_ty(&self, ty: TypeId) -> Class {
         let bits = self.bits(ty).max(1);
         let m = &self.t.machine;
+        // A scalable vector, or a predicate: in its own kind of class.
+        if crate::target::is_scalable_type(self.cx.m, ty) {
+            return m.value_class(self.holds(ty), bits).expect("the description has no class of scalable vectors");
+        }
         // A mask, in the class for the vectors in use, where the
         // description says.
         if let Type::Vector { elem, .. } = self.cx.m.types.get(ty)
@@ -497,7 +495,7 @@ impl<'a, 'b> Sel<'a, 'b> {
     /// Does this class hold floating-point values or vectors (which go in
     /// the convention's fp registers)?
     fn fp_class(&self, c: Class) -> bool {
-        matches!(self.t.machine.def(c).holds, Some(Holds::Float | Holds::Vector))
+        matches!(self.t.machine.def(c).holds, Some(Holds::Float | Holds::Vector | Holds::Scalable))
     }
 
     fn class_of(&self, v: Value) -> Class {
@@ -879,10 +877,11 @@ impl<'a, 'b> Sel<'a, 'b> {
                     let fixed = def.fixed.is_some();
                     let held = m.holds_of(class) == Some(holds)
                         || fixed && m.classes.iter().any(|c| c.file == def.file && c.holds == Some(holds));
+                    let wide = matches!(holds, Holds::Vector | Holds::Scalable);
                     if bits == 0
                         || !held
-                        || (holds == Holds::Vector && bits != def.bits && !mask && !fixed)
-                        || (holds != Holds::Vector && (bits > 64 || (bits > 32) != (pp.bits > 32)))
+                        || (wide && bits != def.bits && !mask && !fixed)
+                        || (!wide && holds != Holds::Predicate && (bits > 64 || (bits > 32) != (pp.bits > 32)))
                     {
                         return None;
                     }
@@ -1229,16 +1228,18 @@ impl<'a, 'b> Sel<'a, 'b> {
 
     fn const_reg(&mut self, c: ConstId, class: Class) -> Result<Reg, String> {
         // A global's address, made once per block.
-        let address = !matches!(self.t.machine.def(class).holds, Some(Holds::Float | Holds::Vector))
-            && !matches!(
-                self.cx.m.constant(c).kind,
-                ConstKind::Int(_)
-                    | ConstKind::Null
-                    | ConstKind::Zero
-                    | ConstKind::Undef
-                    | ConstKind::Poison
-                    | ConstKind::Expr(ConstExpr::Cast { op: CastOp::IntToPtr, .. })
-            );
+        let address = !matches!(
+            self.t.machine.def(class).holds,
+            Some(Holds::Float | Holds::Vector | Holds::Scalable | Holds::Predicate)
+        ) && !matches!(
+            self.cx.m.constant(c).kind,
+            ConstKind::Int(_)
+                | ConstKind::Null
+                | ConstKind::Zero
+                | ConstKind::Undef
+                | ConstKind::Poison
+                | ConstKind::Expr(ConstExpr::Cast { op: CastOp::IntToPtr, .. })
+        );
         if !address {
             return self.const_reg_made(c, class);
         }

@@ -545,6 +545,7 @@ pub const AARCH64_FILES: &[(&str, &str)] = &[
     ("70-abi.ll", include_str!("../targets/aarch64/70-abi.ll")),
     ("80-asm.ll", include_str!("../targets/aarch64/80-asm.ll")),
     ("81-scalable.ll", include_str!("../targets/aarch64/81-scalable.ll")),
+    ("82-sve.ll", include_str!("../targets/aarch64/82-sve.ll")),
     ("85-sysregs.ll", include_str!("../targets/aarch64/85-sysregs.ll")),
     ("86-system.ll", include_str!("../targets/aarch64/86-system.ll")),
 ];
@@ -571,7 +572,28 @@ pub fn type_bits(m: &Module, ty: TypeId) -> u32 {
         // are all ones or all zeros, as a vector comparison makes it.
         Type::Vector { scalable: false, elem, .. } if type_bits(m, *elem) == 1 => 128,
         Type::Vector { scalable: false, len, elem } => len * type_bits(m, *elem),
+        // A scalable vector: its least width (`<vscale x 4 x i32>`, 128
+        // bits); of booleans, a predicate (one bit to a byte of the least
+        // vector).
+        Type::Vector { scalable: true, elem, .. } if type_bits(m, *elem) == 1 => 16,
+        Type::Vector { scalable: true, len, elem } => len * type_bits(m, *elem),
         _ => 0,
+    }
+}
+
+/// A scalable vector type (`<vscale x 4 x i32>`).
+pub fn is_scalable_type(m: &Module, ty: TypeId) -> bool {
+    matches!(m.types.get(ty), Type::Vector { scalable: true, .. })
+}
+
+/// What a value of type `ty` is, as a register class holds it.
+pub fn holds_of_type(m: &Module, ty: TypeId) -> Holds {
+    match m.types.get(ty) {
+        Type::Vector { scalable: true, elem, .. } if type_bits(m, *elem) == 1 => Holds::Predicate,
+        Type::Vector { scalable: true, .. } => Holds::Scalable,
+        Type::Vector { .. } => Holds::Vector,
+        Type::Double | Type::Float => Holds::Float,
+        _ => Holds::Int,
     }
 }
 
@@ -597,10 +619,16 @@ pub const UNDEF: i64 = 0x7eee_eeee_eeee_eeee;
 /// `double` load and an `i64` load are told apart.
 pub const FP: u32 = 0x1000;
 
+/// Set in the widths of pattern heads for scalable vectors, so that
+/// `<vscale x 4 x i32>` and `<4 x i32>` are told apart.
+pub const SCALABLE: u32 = 0x4000;
+
 /// The width a pattern head records for a value of type `ty`.
 pub fn head_bits(m: &Module, ty: TypeId) -> u32 {
     match m.types.get(ty) {
-        Type::Vector { len, elem, .. } => VEC | (len << 16) | head_bits(m, *elem),
+        Type::Vector { len, elem, scalable } => {
+            VEC | (len << 16) | head_bits(m, *elem) | if *scalable { SCALABLE } else { 0 }
+        }
         Type::Double | Type::Float => type_bits(m, ty) | FP,
         _ => type_bits(m, ty),
     }
@@ -1066,12 +1094,10 @@ impl Target {
                 let class = match attr(&f.fn_attrs, "dclass").flatten() {
                     Some(c) => self.machine.class(c).ok_or_else(|| format!("@{name}: no register class {c}"))?,
                     None => {
-                        let holds = if res_ty.is_some_and(|t| is_vector_type(m, t)) {
-                            Holds::Vector
-                        } else if res_fp {
-                            Holds::Float
-                        } else {
-                            Holds::Int
+                        let holds = match res_ty {
+                            Some(t) if is_vector_type(m, t) => holds_of_type(m, t),
+                            _ if res_fp => Holds::Float,
+                            _ => Holds::Int,
                         };
                         self.machine
                             .value_class(holds, ret_bits)

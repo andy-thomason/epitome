@@ -3769,8 +3769,9 @@ fn check(cx: &Ctx, f: &Function, fname: &str) -> Result<(), String> {
         Type::Ptr(a) => *a != 0,
         Type::Void | Type::Label | Type::Double | Type::Float => false,
         // Vectors that do not fit a register are split (see
-        // `legalize_vectors`); scalable ones are not supported.
-        Type::Vector { scalable: false, elem, .. } => !matches!(
+        // `legalize_vectors`); scalable ones (SVE's) are in their own
+        // registers.
+        Type::Vector { elem, .. } => !matches!(
             cx.m.types.get(*elem),
             Type::Int(1 | 8 | 16 | 32 | 64) | Type::Float | Type::Double | Type::Ptr(0)
         ),

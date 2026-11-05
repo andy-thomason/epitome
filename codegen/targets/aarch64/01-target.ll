@@ -21,7 +21,8 @@
 !1008 = !{!"b", !"b{0-31}"}
 !1009 = !{!"h", !"h{0-31}"}
 !1010 = !{!"lanes", !"v{0-31}"}
-; SVE's: its scalable vectors z0-z31, whose low 128 bits are v0-v31, and a
+; SVE's: its scalable vectors z0-z31 (at least 128 bits, a multiple of
+; them), whose low 128 bits are v0-v31, and a
 ; third file, the predicates p0-p15; pg is the eight a three-bit field
 ; holds (an instruction's governing predicate), pn the predicates as
 ; counters (SVE2.1's and SME2's pn8-pn15).
@@ -44,9 +45,9 @@
 !1028 = !{!"b", !"file", !"v"}
 !1029 = !{!"h", !"file", !"v"}
 !1030 = !{!"lanes", !"file", !"v"}
-!1031 = !{!"z", !"file", !"v"}
-!1032 = !{!"p", !"file", !"p"}
-!1033 = !{!"pg", !"file", !"p"}
+!1031 = !{!"z", !"file", !"v", !"bits", !"128", !"holds", !"scalable"}
+!1032 = !{!"p", !"file", !"p", !"bits", !"16", !"holds", !"predicate"}
+!1033 = !{!"pg", !"file", !"p", !"bits", !"16", !"holds", !"predicate"}
 !1034 = !{!"pn", !"file", !"p"}
 
 ; ===========================================================================

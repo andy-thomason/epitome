@@ -294,6 +294,26 @@ def narrow_reduction(intr, ty, l, t, P):
           ' "dclass"="s" "nomatch"')
 
 
+def unpacked_memory():
+    """Loads and stores of unpacked vectors (<vscale x 8 x i8>, a byte in
+    each 16-bit lane), which codegen holds in their containers
+    (<vscale x 8 x i16>): ld1b's and st1b's of those lanes, as
+    llvm.epitome.sve.ld1.nxv8i8 and .st1, of the container type."""
+    for line in list(out):
+        m = re.match(r'define (\S+ |<[^>]*> )@SVE\.(ld1|st1)\.nxv(\d+)i(\d+)\(', line)
+        if not m or int(m.group(3)) * int(m.group(4)) >= 128:
+            continue
+        n, k = int(m.group(3)), int(m.group(4))
+        u, c = f'<vscale x {n} x i{k}>', f'<vscale x {n} x i{128 // n}>'
+        op = m.group(2)
+        new = (line.replace(u, c).replace(f'@SVE.{op}.nxv{n}i{k}(', f'@SVE.{op}u.nxv{n}i{k}(')
+               .replace(f'@llvm.aarch64.sve.{op}.nxv{n}i{k}(', f'@llvm.epitome.sve.{op}.nxv{n}i{k}('))
+        out.append(new)
+        ty = f'void @llvm.epitome.sve.st1.nxv{n}i{k}({c}, <vscale x {n} x i1>, ptr)' if op == 'st1' \
+            else f'{c} @llvm.epitome.sve.ld1.nxv{n}i{k}(<vscale x {n} x i1>, ptr)'
+        out.append(f'declare {ty}\n')
+
+
 def generic():
     """Generic IR of scalable vectors, as the vectoriser makes it: what has
     no unpredicated instruction is the predicated one under an all-true
@@ -370,9 +390,9 @@ def generic():
                                                                  f'ret {et} %r'],
                    [f'%p = call {P} @PTRUE{l}()'] + tail + [f'ret {et} %r'])
         # A splat of a scalar.
-        et = {'s': 'i32', 'd': 'i64'}.get(l)
-        if et and f'SVE.dup.x.{t}' in have:
-            recipe(f'sve.splat.{t}', ty, [(et, 'w' if l == 's' else 'x', 'x')],
+        et = {'b': 'i8', 'h': 'i16', 's': 'i32', 'd': 'i64'}[l]
+        if f'SVE.dup.x.{t}' in have:
+            recipe(f'sve.splat.{t}', ty, [(et, 'x' if l == 'd' else 'w', 'x')],
                    [f'%i = insertelement {ty} poison, {et} %x, i64 0',
                     f'%r = shufflevector {ty} %i, {ty} poison, <vscale x {lanes[l]} x i32> zeroinitializer',
                     f'ret {ty} %r'], [f'%r = call {ty} @SVE.dup.x.{t}({et} %x)', f'ret {ty} %r'])
@@ -410,6 +430,11 @@ def generic():
         entry(ty, f'SELz.{t}', [f'{P} "reg"="p" %c', f'{ty} "reg"="z" %a', f'{ty} "reg"="z" %b'],
               f'00000101{size}1 b:5 11 c:4 a:5 d:5', f'sel {{d}}.{l}, {{c}}, {{a}}.{l}, {{b}}.{l}',
               [f'%r = select {P} %c, {ty} %a, {ty} %b', f'ret {ty} %r'])
+        if f'SVE.dup.x.{t}' in have:
+            recipe(f'sve.splat.{t}', ty, [(et, l, 'x')],
+                   [f'%i = insertelement {ty} poison, {et} %x, i64 0',
+                    f'%r = shufflevector {ty} %i, {ty} poison, <vscale x {lanes[l]} x i32> zeroinitializer',
+                    f'ret {ty} %r'], [f'%r = call {ty} @SVE.dup.x.{t}({et} %x)', f'ret {ty} %r'])
         # Ordered sums (fadda), with their start.
         if f'SVE.fadda.{t}' in have:
             out.append(f'declare {et} @llvm.vector.reduce.fadd.{t}({et}, {ty})\n')
@@ -447,6 +472,7 @@ def main():
     copies_and_memory()
     arithmetic()
     intrinsics()
+    unpacked_memory()
     generic()
     sys.stdout.write('\n'.join(out))
 

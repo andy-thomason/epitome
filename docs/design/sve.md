@@ -57,23 +57,81 @@ addressed in vector lengths from `sp` plus the fixed part (`ldr z0, [x16,
 #k, mul vl]`), incoming arguments from x29. The spills are `82-sve.ll`'s
 roles `load.z` and `store.z`, the steps `addvl`.
 
+## Predicates (done)
+
+Predicates are a third file in the calling convention (`pred-args` p0-p3,
+`pred-result` p0, the rest clobbered), allocated as z values are and
+spilt in predicate lengths (an eighth of a vector length: `ldr p0, [x16,
+#k, mul vl]`). An all-true constant is `ptrue` of its lanes' width, a
+false one `pfalse`.
+
+## SVE's intrinsics (done)
+
+`llvm.aarch64.sve.*` are found as x86's are (`discover_sve.py`, into
+`sve-intrinsics.txt`): their types from Rust's `core::arch`, the
+instruction from llc, the encoding from `81-scalable.ll`; `gen_sve.py`
+makes an entry of each (1,606), and the AArch64 catalogue's SVE lines run
+under qemu.
+
+## Selection of the vectoriser's IR (done)
+
+What clang's loop vectoriser makes, from `82-sve.ll` (`gen_sve.py
+generic`):
+
+- Operations SVE has only predicated (`mul`, divisions, shifts, min and
+  max, `fdiv`, `fneg`, `fabs`, `sqrt`, `fma`, `minnum`, conversions) are
+  recipes: the predicated instruction under `ptrue` of the lanes.
+- Comparisons are into predicates (`cmpgt p0.s, p1/z, z0.s, z1.s`); those
+  SVE has not (`slt`, `ult`, `olt`) are the others with their operands
+  swapped. Selects are `sel`; a predicate extended to integers is a select
+  of one (or minus one) and zero.
+- Splats are `dup` (`mov z0.s, w0`), of a constant too (made in a
+  register first); reductions are the across-lanes instructions (`uaddv`,
+  `smaxv`, `fadda`; a byte's or half's read through the s register of the
+  same number, which they clear above it); `llvm.vscale` is `rdvl` over
+  16.
+- Copies of z values are `mov z0.d, z1.d`, never the q register's copy,
+  which would clear the lanes above 128 bits (`regalloc::lower_copies`
+  takes a class's own copy first).
+
+## Before selection (done in part)
+
+`scalable.rs` runs first in `prepare`, before the passes that take lanes
+as countable:
+
+- **Values of more than a register** (`<vscale x 4 x i64>`, from widening
+  `<vscale x 4 x i32>`) are parts of one register each, in lane order.
+  Lanes cannot be counted, so the parts are not made by shuffles:
+  extensions are the source unpacked (`sunpklo`, `sunpkhi`), truncations
+  the parts' low halves zipped (`uzp1`), memory at `vscale` times 16 bytes
+  a part, `llvm.vector.partial.reduce.add` the parts added in,
+  `deinterleave2` (a loop over pairs) `uzp1` and `uzp2`, `interleave2`
+  `zip1` and `zip2`.
+- **Unpacked values** (`<vscale x 8 x i8>`, a byte in each 16-bit lane)
+  are held in their containers (`<vscale x 8 x i16>`), their lanes' upper
+  bits unknown, and extended where those matter (shifts right, divisions,
+  comparisons, extensions); their loads and stores are `ld1b {z0.h}` and
+  `st1b` (`llvm.epitome.sve.ld1.nxv8i8`).
+- **Masked loads and stores** are `ld1` and `st1` under the mask (a load's
+  passthru selected in, unless zero or poison).
+
+The other passes leave scalable vectors alone where they would count
+lanes (`prepare`'s ordered reductions and vector bitcasts, `legalize`'s
+shuffles), and intrinsics' names mangle them with `nx`.
+
+`tests/sve/loops.c` and `loops2.c` are C loops clang vectorises for SVE
+(sums, maxima, dot products, conversions, widening and narrowing,
+conditional loads and stores, structures of pairs); the test builds
+clang's IR of them with both compilers.
+
 ## Still to do
 
-In order:
-
-1. **Predicates.** A third file in the calling convention (p0-p3 for
-   arguments, p0 for a result), allocatable; spills in predicate lengths.
-2. **Selection**: what clang's vectoriser makes (loads and stores with an
-   all-true predicate, splats, `llvm.vscale`, arithmetic, comparisons into
-   predicates, selects, `llvm.fmuladd`, reductions, `whilelo` loops), as a
-   generated `82-sve.ll` (from tables, with `81-scalable.ll`'s
-   encodings).
-3. **The passes before selection** leave scalable vectors alone, or say
-   what they cannot do with them (`intrinsics::lower`'s lane-by-lane
-   expansion, the shuffles and masks of `legalize`, `mangle`'s `nx`).
-4. **SVE's intrinsics** (`llvm.aarch64.sve.*`), found as x86's are
-   (`x86_64/discover_intrinsics.py`): their types from Rust's
-   `core::arch`, the instruction from llc, the encoding from
-   `81-scalable.ll`; and the catalogue's SVE lines run under qemu.
-5. **SME**: streaming mode and ZA as values, beyond `45-sme.ll`'s fixed
-   registers.
+- **Unpacked floats** (`<vscale x 2 x float>`, from loops mixing floats
+  and doubles), and vectors of more than a register in compares, selects
+  and calls other than those above.
+- **Gathers and scatters** (`llvm.masked.gather` of scalable vectors).
+- **`whilelo` loops**: clang vectorises with a scalar tail unless told to
+  fold it (`-mllvm -prefer-predicate-over-epilogue`); the folded form's
+  `llvm.get.active.lane.mask` is not yet selected.
+- **SME**: streaming mode and ZA as values, beyond `45-sme.ll`'s fixed
+  registers.

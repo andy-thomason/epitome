@@ -11608,6 +11608,90 @@ define <vscale x 8 x i16> @SVE.zip2q.nxv8i16(<vscale x 8 x i16> "reg"="z" %a0, <
 
 declare <vscale x 8 x i16> @llvm.aarch64.sve.zip2q.nxv8i16(<vscale x 8 x i16>, <vscale x 8 x i16>)
 
+define <vscale x 2 x i64> @SVE.ld1u.nxv2i16(<vscale x 2 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1) "feature"="sve" "enc"="1010010011100000101 a0:3 a1:5 d:5" "asm"="ld1h {lb} {d}.d {rb}, {a0}/z, [{a1}]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.epitome.sve.ld1.nxv2i16(<vscale x 2 x i1> %a0, ptr %a1)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.epitome.sve.ld1.nxv2i16(<vscale x 2 x i1>, ptr)
+
+define <vscale x 2 x i64> @SVE.ld1u.nxv2i32(<vscale x 2 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1) "feature"="sve" "enc"="1010010101100000101 a0:3 a1:5 d:5" "asm"="ld1w {lb} {d}.d {rb}, {a0}/z, [{a1}]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.epitome.sve.ld1.nxv2i32(<vscale x 2 x i1> %a0, ptr %a1)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.epitome.sve.ld1.nxv2i32(<vscale x 2 x i1>, ptr)
+
+define <vscale x 2 x i64> @SVE.ld1u.nxv2i8(<vscale x 2 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1) "feature"="sve" "enc"="1010010001100000101 a0:3 a1:5 d:5" "asm"="ld1b {lb} {d}.d {rb}, {a0}/z, [{a1}]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.epitome.sve.ld1.nxv2i8(<vscale x 2 x i1> %a0, ptr %a1)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.epitome.sve.ld1.nxv2i8(<vscale x 2 x i1>, ptr)
+
+define <vscale x 4 x i32> @SVE.ld1u.nxv4i16(<vscale x 4 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1) "feature"="sve" "enc"="1010010011000000101 a0:3 a1:5 d:5" "asm"="ld1h {lb} {d}.s {rb}, {a0}/z, [{a1}]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 4 x i32> @llvm.epitome.sve.ld1.nxv4i16(<vscale x 4 x i1> %a0, ptr %a1)
+  ret <vscale x 4 x i32> %r
+}
+
+declare <vscale x 4 x i32> @llvm.epitome.sve.ld1.nxv4i16(<vscale x 4 x i1>, ptr)
+
+define <vscale x 4 x i32> @SVE.ld1u.nxv4i8(<vscale x 4 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1) "feature"="sve" "enc"="1010010001000000101 a0:3 a1:5 d:5" "asm"="ld1b {lb} {d}.s {rb}, {a0}/z, [{a1}]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 4 x i32> @llvm.epitome.sve.ld1.nxv4i8(<vscale x 4 x i1> %a0, ptr %a1)
+  ret <vscale x 4 x i32> %r
+}
+
+declare <vscale x 4 x i32> @llvm.epitome.sve.ld1.nxv4i8(<vscale x 4 x i1>, ptr)
+
+define <vscale x 8 x i16> @SVE.ld1u.nxv8i8(<vscale x 8 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1) "feature"="sve" "enc"="1010010000100000101 a0:3 a1:5 d:5" "asm"="ld1b {lb} {d}.h {rb}, {a0}/z, [{a1}]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 8 x i16> @llvm.epitome.sve.ld1.nxv8i8(<vscale x 8 x i1> %a0, ptr %a1)
+  ret <vscale x 8 x i16> %r
+}
+
+declare <vscale x 8 x i16> @llvm.epitome.sve.ld1.nxv8i8(<vscale x 8 x i1>, ptr)
+
+define void @SVE.st1u.nxv2i16(<vscale x 2 x i64> "reg"="z" %a0, <vscale x 2 x i1> "reg"="pg" %a1, ptr "reg"="xsp" %a2) "feature"="sve" "enc"="1110010011100000111 a1:3 a2:5 a0:5" "asm"="st1h {lb} {a0}.d {rb}, {a1}, [{a2}]" "nodecode" {
+  call void @llvm.epitome.sve.st1.nxv2i16(<vscale x 2 x i64> %a0, <vscale x 2 x i1> %a1, ptr %a2)
+  ret void
+}
+
+declare void @llvm.epitome.sve.st1.nxv2i16(<vscale x 2 x i64>, <vscale x 2 x i1>, ptr)
+
+define void @SVE.st1u.nxv2i32(<vscale x 2 x i64> "reg"="z" %a0, <vscale x 2 x i1> "reg"="pg" %a1, ptr "reg"="xsp" %a2) "feature"="sve" "enc"="1110010101100000111 a1:3 a2:5 a0:5" "asm"="st1w {lb} {a0}.d {rb}, {a1}, [{a2}]" "nodecode" {
+  call void @llvm.epitome.sve.st1.nxv2i32(<vscale x 2 x i64> %a0, <vscale x 2 x i1> %a1, ptr %a2)
+  ret void
+}
+
+declare void @llvm.epitome.sve.st1.nxv2i32(<vscale x 2 x i64>, <vscale x 2 x i1>, ptr)
+
+define void @SVE.st1u.nxv2i8(<vscale x 2 x i64> "reg"="z" %a0, <vscale x 2 x i1> "reg"="pg" %a1, ptr "reg"="xsp" %a2) "feature"="sve" "enc"="1110010001100000111 a1:3 a2:5 a0:5" "asm"="st1b {lb} {a0}.d {rb}, {a1}, [{a2}]" "nodecode" {
+  call void @llvm.epitome.sve.st1.nxv2i8(<vscale x 2 x i64> %a0, <vscale x 2 x i1> %a1, ptr %a2)
+  ret void
+}
+
+declare void @llvm.epitome.sve.st1.nxv2i8(<vscale x 2 x i64>, <vscale x 2 x i1>, ptr)
+
+define void @SVE.st1u.nxv4i16(<vscale x 4 x i32> "reg"="z" %a0, <vscale x 4 x i1> "reg"="pg" %a1, ptr "reg"="xsp" %a2) "feature"="sve" "enc"="1110010011000000111 a1:3 a2:5 a0:5" "asm"="st1h {lb} {a0}.s {rb}, {a1}, [{a2}]" "nodecode" {
+  call void @llvm.epitome.sve.st1.nxv4i16(<vscale x 4 x i32> %a0, <vscale x 4 x i1> %a1, ptr %a2)
+  ret void
+}
+
+declare void @llvm.epitome.sve.st1.nxv4i16(<vscale x 4 x i32>, <vscale x 4 x i1>, ptr)
+
+define void @SVE.st1u.nxv4i8(<vscale x 4 x i32> "reg"="z" %a0, <vscale x 4 x i1> "reg"="pg" %a1, ptr "reg"="xsp" %a2) "feature"="sve" "enc"="1110010001000000111 a1:3 a2:5 a0:5" "asm"="st1b {lb} {a0}.s {rb}, {a1}, [{a2}]" "nodecode" {
+  call void @llvm.epitome.sve.st1.nxv4i8(<vscale x 4 x i32> %a0, <vscale x 4 x i1> %a1, ptr %a2)
+  ret void
+}
+
+declare void @llvm.epitome.sve.st1.nxv4i8(<vscale x 4 x i32>, <vscale x 4 x i1>, ptr)
+
+define void @SVE.st1u.nxv8i8(<vscale x 8 x i16> "reg"="z" %a0, <vscale x 8 x i1> "reg"="pg" %a1, ptr "reg"="xsp" %a2) "feature"="sve" "enc"="1110010000100000111 a1:3 a2:5 a0:5" "asm"="st1b {lb} {a0}.h {rb}, {a1}, [{a2}]" "nodecode" {
+  call void @llvm.epitome.sve.st1.nxv8i8(<vscale x 8 x i16> %a0, <vscale x 8 x i1> %a1, ptr %a2)
+  ret void
+}
+
+declare void @llvm.epitome.sve.st1.nxv8i8(<vscale x 8 x i16>, <vscale x 8 x i1>, ptr)
+
 define <vscale x 16 x i8> @sve.mul.nxv16i8(<vscale x 16 x i8> "reg"="z" %a, <vscale x 16 x i8> "reg"="z" %b) "feature"="sve" "recipe"="sve.mul.nxv16i8.expand" {
   %r = mul <vscale x 16 x i8> %a, %b
   ret <vscale x 16 x i8> %r
@@ -11959,6 +12043,17 @@ define i8 @sve.reduce.xor.nxv16i8.expand(<vscale x 16 x i8> %a) {
   ret i8 %r
 }
 
+define <vscale x 16 x i8> @sve.splat.nxv16i8(i8 "reg"="w" %x) "feature"="sve" "recipe"="sve.splat.nxv16i8.expand" {
+  %i = insertelement <vscale x 16 x i8> poison, i8 %x, i64 0
+  %r = shufflevector <vscale x 16 x i8> %i, <vscale x 16 x i8> poison, <vscale x 16 x i32> zeroinitializer
+  ret <vscale x 16 x i8> %r
+}
+
+define <vscale x 16 x i8> @sve.splat.nxv16i8.expand(i8 %x) {
+  %r = call <vscale x 16 x i8> @SVE.dup.x.nxv16i8(i8 %x)
+  ret <vscale x 16 x i8> %r
+}
+
 define <vscale x 8 x i16> @sve.mul.nxv8i16(<vscale x 8 x i16> "reg"="z" %a, <vscale x 8 x i16> "reg"="z" %b) "feature"="sve" "recipe"="sve.mul.nxv8i16.expand" {
   %r = mul <vscale x 8 x i16> %a, %b
   ret <vscale x 8 x i16> %r
@@ -12308,6 +12403,17 @@ define i16 @sve.reduce.xor.nxv8i16.expand(<vscale x 8 x i16> %a) {
   %v = call i32 @EORVh(<vscale x 8 x i1> %p, <vscale x 8 x i16> %a)
   %r = trunc i32 %v to i16
   ret i16 %r
+}
+
+define <vscale x 8 x i16> @sve.splat.nxv8i16(i16 "reg"="w" %x) "feature"="sve" "recipe"="sve.splat.nxv8i16.expand" {
+  %i = insertelement <vscale x 8 x i16> poison, i16 %x, i64 0
+  %r = shufflevector <vscale x 8 x i16> %i, <vscale x 8 x i16> poison, <vscale x 8 x i32> zeroinitializer
+  ret <vscale x 8 x i16> %r
+}
+
+define <vscale x 8 x i16> @sve.splat.nxv8i16.expand(i16 %x) {
+  %r = call <vscale x 8 x i16> @SVE.dup.x.nxv8i16(i16 %x)
+  ret <vscale x 8 x i16> %r
 }
 
 define <vscale x 4 x i32> @sve.mul.nxv4i32(<vscale x 4 x i32> "reg"="z" %a, <vscale x 4 x i32> "reg"="z" %b) "feature"="sve" "recipe"="sve.mul.nxv4i32.expand" {
@@ -13189,6 +13295,17 @@ define <vscale x 4 x float> @SELz.nxv4f32(<vscale x 4 x i1> "reg"="p" %c, <vscal
   ret <vscale x 4 x float> %r
 }
 
+define <vscale x 4 x float> @sve.splat.nxv4f32(float "reg"="s" %x) "feature"="sve" "recipe"="sve.splat.nxv4f32.expand" {
+  %i = insertelement <vscale x 4 x float> poison, float %x, i64 0
+  %r = shufflevector <vscale x 4 x float> %i, <vscale x 4 x float> poison, <vscale x 4 x i32> zeroinitializer
+  ret <vscale x 4 x float> %r
+}
+
+define <vscale x 4 x float> @sve.splat.nxv4f32.expand(float %x) {
+  %r = call <vscale x 4 x float> @SVE.dup.x.nxv4f32(float %x)
+  ret <vscale x 4 x float> %r
+}
+
 declare float @llvm.vector.reduce.fadd.nxv4f32(float, <vscale x 4 x float>)
 
 define float @sve.reduce.fadd.nxv4f32(float "reg"="s" %s, <vscale x 4 x float> "reg"="z" %a) "feature"="sve" "recipe"="sve.reduce.fadd.nxv4f32.expand" {
@@ -13429,6 +13546,17 @@ define <vscale x 2 x i1> @sve.fcmp.uno.nxv2f64.expand(<vscale x 2 x double> %a, 
 
 define <vscale x 2 x double> @SELz.nxv2f64(<vscale x 2 x i1> "reg"="p" %c, <vscale x 2 x double> "reg"="z" %a, <vscale x 2 x double> "reg"="z" %b) "feature"="sve" "enc"="00000101111 b:5 11 c:4 a:5 d:5" "asm"="sel {d}.d, {c}, {a}.d, {b}.d" "nodecode" {
   %r = select <vscale x 2 x i1> %c, <vscale x 2 x double> %a, <vscale x 2 x double> %b
+  ret <vscale x 2 x double> %r
+}
+
+define <vscale x 2 x double> @sve.splat.nxv2f64(double "reg"="d" %x) "feature"="sve" "recipe"="sve.splat.nxv2f64.expand" {
+  %i = insertelement <vscale x 2 x double> poison, double %x, i64 0
+  %r = shufflevector <vscale x 2 x double> %i, <vscale x 2 x double> poison, <vscale x 2 x i32> zeroinitializer
+  ret <vscale x 2 x double> %r
+}
+
+define <vscale x 2 x double> @sve.splat.nxv2f64.expand(double %x) {
+  %r = call <vscale x 2 x double> @SVE.dup.x.nxv2f64(double %x)
   ret <vscale x 2 x double> %r
 }
 

@@ -165,6 +165,12 @@ impl Ctx<'_> {
 /// Puts a copy of `f` into selection form.
 pub fn prepare(cx: &mut Ctx, f: &Function, fname: &str) -> Result<Function, String> {
     let mut f = f.clone();
+    // (Scalable vectors of more than a register as parts first, before
+    // what follows takes their lanes as countable.)
+    crate::scalable::split(cx, &mut f).map_err(|e| format!("@{fname}: {e}"))?;
+    crate::scalable::masked_memory(cx, &mut f);
+    crate::scalable::predicate_casts(cx, &mut f);
+    crate::scalable::unpacked(cx, &mut f).map_err(|e| format!("@{fname}: {e}"))?;
     neon_intrinsics(cx, &mut f);
     crate::neon::lower(cx, &mut f);
     number_min_max(cx, &mut f);
@@ -3133,7 +3139,9 @@ fn vector_int_bitcasts(cx: &mut Ctx, f: &mut Function) {
             };
             let r = f.insts[i.index()].result.unwrap();
             let (from, to) = (cx.value_ty(f, value), f.locals[r.index()].ty);
-            if from == to {
+            // (Scalable vectors in one register are held whole, as their
+            // register is.)
+            if from == to || crate::target::is_scalable_type(cx.m, from) && crate::target::is_scalable_type(cx.m, to) {
                 k += 1;
                 continue;
             }

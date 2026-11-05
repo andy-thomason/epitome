@@ -1482,7 +1482,10 @@ pub fn legalize_vectors(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
             };
             let res_split = res_ty.and_then(|t| split_count(cx, t)).or(mask_phi.map(|m| m.0));
             let odd_shuffle = match &f.insts[i.index()].op {
-                Op::ShuffleVector { .. } => !native_shuffle(cx, f, i),
+                // (A scalable one is a splat, which selection has.)
+                Op::ShuffleVector { .. } => {
+                    !res_ty.is_some_and(|t| crate::target::is_scalable_type(cx.m, t)) && !native_shuffle(cx, f, i)
+                }
                 _ => false,
             };
             if !uses_split && res_split.is_none() && !odd_shuffle {

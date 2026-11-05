@@ -1,5 +1,7 @@
 //! SVE and SME: each `tests/sve/NAME.ll` (IR of scalable vectors, for
-//! `aarch64-unknown-linux-gnu`), built by us and by clang, linked with
+//! `aarch64-unknown-linux-gnu`), or `NAME.c` (loops, which clang's
+//! vectoriser makes IR of scalable vectors of), built by us and by clang
+//! from the same IR, linked with
 //! `NAME.main.c` (built by clang, with `arm_sve.h`) and run under qemu at
 //! vector lengths of 128, 256, 512 and 2048 bits; the two builds must
 //! print the same at each. Code of scalable vectors must be right at
@@ -102,16 +104,37 @@ fn sve_behaves_as_clangs_build() {
     let mut names: Vec<String> = std::fs::read_dir(&dir)
         .unwrap()
         .flatten()
-        .filter_map(|e| e.file_name().to_str().and_then(|n| n.strip_suffix(".ll")).map(str::to_string))
+        .filter_map(|e| {
+            let n = e.file_name().to_str()?.to_string();
+            if n.ends_with(".main.c") {
+                return None;
+            }
+            n.strip_suffix(".ll").or_else(|| n.strip_suffix(".c")).map(str::to_string)
+        })
         .filter(|n| only.as_ref().is_none_or(|o| n.contains(o.as_str())))
         .collect();
     names.sort();
     let t = Target::aarch64();
     let mut failures = Vec::new();
     for name in &names {
-        let ll = dir.join(format!("{name}.ll"));
         let main = dir.join(format!("{name}.main.c"));
         let run = || -> Result<(), String> {
+            let ll = if dir.join(format!("{name}.c")).exists() {
+                let ll = tmp.join(format!("{name}.ll"));
+                let st = Command::new("clang")
+                    .args(["--target=aarch64-unknown-linux-gnu", MARCH, "-O2", "-S", "-emit-llvm"])
+                    .arg(dir.join(format!("{name}.c")))
+                    .arg("-o")
+                    .arg(&ll)
+                    .status()
+                    .map_err(|e| e.to_string())?;
+                if !st.success() {
+                    return Err("clang could not make IR of it".into());
+                }
+                ll
+            } else {
+                dir.join(format!("{name}.ll"))
+            };
             let src = std::fs::read_to_string(&ll).map_err(|e| e.to_string())?;
             let mut m = epitome_ir::parse_module(&src).map_err(|e| format!("{e:?}"))?;
             let ours = tmp.join(format!("{name}.ours.o"));

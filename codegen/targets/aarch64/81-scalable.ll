@@ -370,7 +370,31 @@ define void @smaxv_r_p_z_.0(i64 "reg"="b" %d, i64 "reg"="pg" %pg, i64 "reg"="z" 
   ret void
 }
 
+define void @smaxv_r_p_z_.1(i64 "reg"="h" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010001001000001 pg:3 zn:5 d:5" "asm"="smaxv {d}, {pg}, {zn}.h" "asmonly" {
+  ret void
+}
+
+define void @smaxv_r_p_z_.2(i64 "reg"="s" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010010001000001 pg:3 zn:5 d:5" "asm"="smaxv {d}, {pg}, {zn}.s" "asmonly" {
+  ret void
+}
+
+define void @smaxv_r_p_z_.3(i64 "reg"="d" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010011001000001 pg:3 zn:5 d:5" "asm"="smaxv {d}, {pg}, {zn}.d" "asmonly" {
+  ret void
+}
+
 define void @sminv_r_p_z_.0(i64 "reg"="b" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010000001010001 pg:3 zn:5 d:5" "asm"="sminv {d}, {pg}, {zn}.b" "asmonly" {
+  ret void
+}
+
+define void @sminv_r_p_z_.1(i64 "reg"="h" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010001001010001 pg:3 zn:5 d:5" "asm"="sminv {d}, {pg}, {zn}.h" "asmonly" {
+  ret void
+}
+
+define void @sminv_r_p_z_.2(i64 "reg"="s" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010010001010001 pg:3 zn:5 d:5" "asm"="sminv {d}, {pg}, {zn}.s" "asmonly" {
+  ret void
+}
+
+define void @sminv_r_p_z_.3(i64 "reg"="d" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010011001010001 pg:3 zn:5 d:5" "asm"="sminv {d}, {pg}, {zn}.d" "asmonly" {
   ret void
 }
 
@@ -378,7 +402,31 @@ define void @umaxv_r_p_z_.0(i64 "reg"="b" %d, i64 "reg"="pg" %pg, i64 "reg"="z" 
   ret void
 }
 
+define void @umaxv_r_p_z_.1(i64 "reg"="h" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010001001001001 pg:3 zn:5 d:5" "asm"="umaxv {d}, {pg}, {zn}.h" "asmonly" {
+  ret void
+}
+
+define void @umaxv_r_p_z_.2(i64 "reg"="s" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010010001001001 pg:3 zn:5 d:5" "asm"="umaxv {d}, {pg}, {zn}.s" "asmonly" {
+  ret void
+}
+
+define void @umaxv_r_p_z_.3(i64 "reg"="d" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010011001001001 pg:3 zn:5 d:5" "asm"="umaxv {d}, {pg}, {zn}.d" "asmonly" {
+  ret void
+}
+
 define void @uminv_r_p_z_.0(i64 "reg"="b" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010000001011001 pg:3 zn:5 d:5" "asm"="uminv {d}, {pg}, {zn}.b" "asmonly" {
+  ret void
+}
+
+define void @uminv_r_p_z_.1(i64 "reg"="h" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010001001011001 pg:3 zn:5 d:5" "asm"="uminv {d}, {pg}, {zn}.h" "asmonly" {
+  ret void
+}
+
+define void @uminv_r_p_z_.2(i64 "reg"="s" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010010001011001 pg:3 zn:5 d:5" "asm"="uminv {d}, {pg}, {zn}.s" "asmonly" {
+  ret void
+}
+
+define void @uminv_r_p_z_.3(i64 "reg"="d" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010011001011001 pg:3 zn:5 d:5" "asm"="uminv {d}, {pg}, {zn}.d" "asmonly" {
   ret void
 }
 
@@ -482,11 +530,47 @@ define void @orv_r_p_z_.0(i64 "reg"="b" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %z
   ret void
 }
 
+define void @orv_r_p_z_.1(i64 "reg"="h" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010001011000001 pg:3 zn:5 d:5" "asm"="orv {d}, {pg}, {zn}.h" "asmonly" {
+  ret void
+}
+
+define void @orv_r_p_z_.2(i64 "reg"="s" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010010011000001 pg:3 zn:5 d:5" "asm"="orv {d}, {pg}, {zn}.s" "asmonly" {
+  ret void
+}
+
+define void @orv_r_p_z_.3(i64 "reg"="d" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010011011000001 pg:3 zn:5 d:5" "asm"="orv {d}, {pg}, {zn}.d" "asmonly" {
+  ret void
+}
+
 define void @eorv_r_p_z_.0(i64 "reg"="b" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010000011001001 pg:3 zn:5 d:5" "asm"="eorv {d}, {pg}, {zn}.b" "asmonly" {
   ret void
 }
 
+define void @eorv_r_p_z_.1(i64 "reg"="h" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010001011001001 pg:3 zn:5 d:5" "asm"="eorv {d}, {pg}, {zn}.h" "asmonly" {
+  ret void
+}
+
+define void @eorv_r_p_z_.2(i64 "reg"="s" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010010011001001 pg:3 zn:5 d:5" "asm"="eorv {d}, {pg}, {zn}.s" "asmonly" {
+  ret void
+}
+
+define void @eorv_r_p_z_.3(i64 "reg"="d" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010011011001001 pg:3 zn:5 d:5" "asm"="eorv {d}, {pg}, {zn}.d" "asmonly" {
+  ret void
+}
+
 define void @andv_r_p_z_.0(i64 "reg"="b" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010000011010001 pg:3 zn:5 d:5" "asm"="andv {d}, {pg}, {zn}.b" "asmonly" {
+  ret void
+}
+
+define void @andv_r_p_z_.1(i64 "reg"="h" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010001011010001 pg:3 zn:5 d:5" "asm"="andv {d}, {pg}, {zn}.h" "asmonly" {
+  ret void
+}
+
+define void @andv_r_p_z_.2(i64 "reg"="s" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010010011010001 pg:3 zn:5 d:5" "asm"="andv {d}, {pg}, {zn}.s" "asmonly" {
+  ret void
+}
+
+define void @andv_r_p_z_.3(i64 "reg"="d" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010011011010001 pg:3 zn:5 d:5" "asm"="andv {d}, {pg}, {zn}.d" "asmonly" {
   ret void
 }
 
@@ -1570,6 +1654,10 @@ define void @index_z_ri_.6(i64 "reg"="z" %zd, i64 "imm" %imm) "enc"="00000100111
   ret void
 }
 
+define void @index_z_ri_.7(i64 "reg"="z" %zd, i64 "reg"="x" %n, i64 "imm" %imm) "enc"="00000100111 imm:s5 010001 n:5 zd:5" "asm"="index {zd}.d, {n}, #{imm}" "asmonly" {
+  ret void
+}
+
 define void @index_z_ir_.0(i64 "reg"="z" %zd, i64 "imm" %imm) "enc"="0000010000111111010010 imm:s5 zd:5" "asm"="index {zd}.b, #{imm}, wzr" "asmonly" {
   ret void
 }
@@ -1595,6 +1683,10 @@ define void @index_z_ir_.5(i64 "reg"="z" %zd, i64 "imm" %imm, i64 "reg"="w" %m) 
 }
 
 define void @index_z_ir_.6(i64 "reg"="z" %zd, i64 "imm" %imm) "enc"="0000010011111111010010 imm:s5 zd:5" "asm"="index {zd}.d, #{imm}, xzr" "asmonly" {
+  ret void
+}
+
+define void @index_z_ir_.7(i64 "reg"="z" %zd, i64 "imm" %imm, i64 "reg"="x" %m) "enc"="00000100111 m:5 010010 imm:s5 zd:5" "asm"="index {zd}.d, #{imm}, {m}" "asmonly" {
   ret void
 }
 
@@ -1655,6 +1747,10 @@ define void @index_z_rr_.13(i64 "reg"="z" %zd, i64 "reg"="x" %m) "enc"="00000100
 }
 
 define void @index_z_rr_.14(i64 "reg"="z" %zd, i64 "reg"="x" %n) "enc"="0000010011111111010011 n:5 zd:5" "asm"="index {zd}.d, {n}, xzr" "asmonly" {
+  ret void
+}
+
+define void @index_z_rr_.15(i64 "reg"="z" %zd, i64 "reg"="x" %n, i64 "reg"="x" %m) "enc"="00000100111 m:5 010011 n:5 zd:5" "asm"="index {zd}.d, {n}, {m}" "asmonly" {
   ret void
 }
 
@@ -10034,6 +10130,22 @@ define void @dup_z_zi_.mov_z_v_.0(i64 "reg"="z" %zd, i64 "reg"="q" %n) "enc"="00
   ret void
 }
 
+define void @dup_z_zi_.mov_z_v_.1(i64 "reg"="z" %zd, i64 "reg"="d" %n) "enc"="0000010100101000001000 n:5 zd:5" "asm"="mov {zd}.d, {n}" "asmonly" {
+  ret void
+}
+
+define void @dup_z_zi_.mov_z_v_.2(i64 "reg"="z" %zd, i64 "reg"="s" %n) "enc"="0000010100100100001000 n:5 zd:5" "asm"="mov {zd}.s, {n}" "asmonly" {
+  ret void
+}
+
+define void @dup_z_zi_.mov_z_v_.3(i64 "reg"="z" %zd, i64 "reg"="h" %n) "enc"="0000010100100010001000 n:5 zd:5" "asm"="mov {zd}.h, {n}" "asmonly" {
+  ret void
+}
+
+define void @dup_z_zi_.mov_z_v_.4(i64 "reg"="z" %zd, i64 "reg"="b" %n) "enc"="0000010100100001001000 n:5 zd:5" "asm"="mov {zd}.b, {n}" "asmonly" {
+  ret void
+}
+
 define void @dup_z_zi_.mov_z_zi_.0(i64 "reg"="z" %zd, i64 "reg"="z" %zn, i64 "imm" %imm) "enc"="00000101 imm:2 110000001000 zn:5 zd:5" "asm"="mov {zd}.q, {zn}.q[{imm}]" "asmonly" {
   ret void
 }
@@ -10198,6 +10310,10 @@ define void @insr_z_r_.6(i64 "reg"="z" %zdn) "enc"="000001011110010000111011111 
   ret void
 }
 
+define void @insr_z_r_.7(i64 "reg"="z" %zdn, i64 "reg"="x" %m) "enc"="0000010111100100001110 m:5 zdn:5" "asm"="insr {zdn}.d, {m}" "asmonly" {
+  ret void
+}
+
 define void @pmov_p_zi_b.0(i64 "reg"="p" %pd, i64 "reg"="z" %zn) "enc"="0000010100101010001110 zn:5 0 pd:4" "asm"="pmov {pd}.b, {zn}" "asmonly" {
   ret void
 }
@@ -10303,6 +10419,18 @@ define void @uunpkhi_z_z_.2(i64 "reg"="z" %zd, i64 "reg"="z" %zn) "enc"="0000010
 }
 
 define void @insr_z_v_.0(i64 "reg"="z" %zdn, i64 "reg"="b" %m) "enc"="0000010100110100001110 m:5 zdn:5" "asm"="insr {zdn}.b, {m}" "asmonly" {
+  ret void
+}
+
+define void @insr_z_v_.1(i64 "reg"="z" %zdn, i64 "reg"="h" %m) "enc"="0000010101110100001110 m:5 zdn:5" "asm"="insr {zdn}.h, {m}" "asmonly" {
+  ret void
+}
+
+define void @insr_z_v_.2(i64 "reg"="z" %zdn, i64 "reg"="s" %m) "enc"="0000010110110100001110 m:5 zdn:5" "asm"="insr {zdn}.s, {m}" "asmonly" {
+  ret void
+}
+
+define void @insr_z_v_.3(i64 "reg"="z" %zdn, i64 "reg"="d" %m) "enc"="0000010111110100001110 m:5 zdn:5" "asm"="insr {zdn}.d, {m}" "asmonly" {
   ret void
 }
 
@@ -10542,7 +10670,31 @@ define void @cpy_z_p_v_.0(i64 "reg"="z" %zd, i64 "reg"="pg" %pg, i64 "reg"="b" %
   ret void
 }
 
+define void @cpy_z_p_v_.1(i64 "reg"="z" %zd, i64 "reg"="pg" %pg, i64 "reg"="h" %n) "enc"="0000010101100000100 pg:3 n:5 zd:5" "asm"="cpy {zd}.h, {pg}/m, {n}" "asmonly" "nodecode" "aliases"="mov" {
+  ret void
+}
+
+define void @cpy_z_p_v_.2(i64 "reg"="z" %zd, i64 "reg"="pg" %pg, i64 "reg"="s" %n) "enc"="0000010110100000100 pg:3 n:5 zd:5" "asm"="cpy {zd}.s, {pg}/m, {n}" "asmonly" "nodecode" "aliases"="mov" {
+  ret void
+}
+
+define void @cpy_z_p_v_.3(i64 "reg"="z" %zd, i64 "reg"="pg" %pg, i64 "reg"="d" %n) "enc"="0000010111100000100 pg:3 n:5 zd:5" "asm"="cpy {zd}.d, {pg}/m, {n}" "asmonly" "nodecode" "aliases"="mov" {
+  ret void
+}
+
 define void @cpy_z_p_v_.mov_z_p_v_.0(i64 "reg"="z" %zd, i64 "reg"="pg" %pg, i64 "reg"="b" %n) "enc"="0000010100100000100 pg:3 n:5 zd:5" "asm"="mov {zd}.b, {pg}/m, {n}" "asmonly" {
+  ret void
+}
+
+define void @cpy_z_p_v_.mov_z_p_v_.1(i64 "reg"="z" %zd, i64 "reg"="pg" %pg, i64 "reg"="h" %n) "enc"="0000010101100000100 pg:3 n:5 zd:5" "asm"="mov {zd}.h, {pg}/m, {n}" "asmonly" {
+  ret void
+}
+
+define void @cpy_z_p_v_.mov_z_p_v_.2(i64 "reg"="z" %zd, i64 "reg"="pg" %pg, i64 "reg"="s" %n) "enc"="0000010110100000100 pg:3 n:5 zd:5" "asm"="mov {zd}.s, {pg}/m, {n}" "asmonly" {
+  ret void
+}
+
+define void @cpy_z_p_v_.mov_z_p_v_.3(i64 "reg"="z" %zd, i64 "reg"="pg" %pg, i64 "reg"="d" %n) "enc"="0000010111100000100 pg:3 n:5 zd:5" "asm"="mov {zd}.d, {pg}/m, {n}" "asmonly" {
   ret void
 }
 
@@ -10566,7 +10718,31 @@ define void @lasta_v_p_z_.0(i64 "reg"="b" %d, i64 "reg"="pg" %pg, i64 "reg"="z" 
   ret void
 }
 
+define void @lasta_v_p_z_.1(i64 "reg"="h" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010101100010100 pg:3 zn:5 d:5" "asm"="lasta {d}, {pg}, {zn}.h" "asmonly" {
+  ret void
+}
+
+define void @lasta_v_p_z_.2(i64 "reg"="s" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010110100010100 pg:3 zn:5 d:5" "asm"="lasta {d}, {pg}, {zn}.s" "asmonly" {
+  ret void
+}
+
+define void @lasta_v_p_z_.3(i64 "reg"="d" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010111100010100 pg:3 zn:5 d:5" "asm"="lasta {d}, {pg}, {zn}.d" "asmonly" {
+  ret void
+}
+
 define void @lastb_v_p_z_.0(i64 "reg"="b" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010100100011100 pg:3 zn:5 d:5" "asm"="lastb {d}, {pg}, {zn}.b" "asmonly" {
+  ret void
+}
+
+define void @lastb_v_p_z_.1(i64 "reg"="h" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010101100011100 pg:3 zn:5 d:5" "asm"="lastb {d}, {pg}, {zn}.h" "asmonly" {
+  ret void
+}
+
+define void @lastb_v_p_z_.2(i64 "reg"="s" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010110100011100 pg:3 zn:5 d:5" "asm"="lastb {d}, {pg}, {zn}.s" "asmonly" {
+  ret void
+}
+
+define void @lastb_v_p_z_.3(i64 "reg"="d" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010111100011100 pg:3 zn:5 d:5" "asm"="lastb {d}, {pg}, {zn}.d" "asmonly" {
   ret void
 }
 
@@ -10686,7 +10862,31 @@ define void @clasta_v_p_z_.0(i64 "reg"="b" %dn, i64 "reg"="pg" %pg, i64 "reg"="z
   ret void
 }
 
+define void @clasta_v_p_z_.1(i64 "reg"="h" %dn, i64 "reg"="pg" %pg, i64 "reg"="z" %zm) "enc"="0000010101101010100 pg:3 zm:5 dn:5" "asm"="clasta {dn}, {pg}, {dn}, {zm}.h" "asmonly" {
+  ret void
+}
+
+define void @clasta_v_p_z_.2(i64 "reg"="s" %dn, i64 "reg"="pg" %pg, i64 "reg"="z" %zm) "enc"="0000010110101010100 pg:3 zm:5 dn:5" "asm"="clasta {dn}, {pg}, {dn}, {zm}.s" "asmonly" {
+  ret void
+}
+
+define void @clasta_v_p_z_.3(i64 "reg"="d" %dn, i64 "reg"="pg" %pg, i64 "reg"="z" %zm) "enc"="0000010111101010100 pg:3 zm:5 dn:5" "asm"="clasta {dn}, {pg}, {dn}, {zm}.d" "asmonly" {
+  ret void
+}
+
 define void @clastb_v_p_z_.0(i64 "reg"="b" %dn, i64 "reg"="pg" %pg, i64 "reg"="z" %zm) "enc"="0000010100101011100 pg:3 zm:5 dn:5" "asm"="clastb {dn}, {pg}, {dn}, {zm}.b" "asmonly" {
+  ret void
+}
+
+define void @clastb_v_p_z_.1(i64 "reg"="h" %dn, i64 "reg"="pg" %pg, i64 "reg"="z" %zm) "enc"="0000010101101011100 pg:3 zm:5 dn:5" "asm"="clastb {dn}, {pg}, {dn}, {zm}.h" "asmonly" {
+  ret void
+}
+
+define void @clastb_v_p_z_.2(i64 "reg"="s" %dn, i64 "reg"="pg" %pg, i64 "reg"="z" %zm) "enc"="0000010110101011100 pg:3 zm:5 dn:5" "asm"="clastb {dn}, {pg}, {dn}, {zm}.s" "asmonly" {
+  ret void
+}
+
+define void @clastb_v_p_z_.3(i64 "reg"="d" %dn, i64 "reg"="pg" %pg, i64 "reg"="z" %zm) "enc"="0000010111101011100 pg:3 zm:5 dn:5" "asm"="clastb {dn}, {pg}, {dn}, {zm}.d" "asmonly" {
   ret void
 }
 
@@ -10750,6 +10950,10 @@ define void @lasta_r_p_z_.6(i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="000001
   ret void
 }
 
+define void @lasta_r_p_z_.7(i64 "reg"="x" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010111100000101 pg:3 zn:5 d:5" "asm"="lasta {d}, {pg}, {zn}.d" "asmonly" {
+  ret void
+}
+
 define void @lastb_r_p_z_.0(i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010100100001101 pg:3 zn:5 11111" "asm"="lastb wzr, {pg}, {zn}.b" "asmonly" {
   ret void
 }
@@ -10775,6 +10979,10 @@ define void @lastb_r_p_z_.5(i64 "reg"="w" %d, i64 "reg"="pg" %pg, i64 "reg"="z" 
 }
 
 define void @lastb_r_p_z_.6(i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010111100001101 pg:3 zn:5 11111" "asm"="lastb xzr, {pg}, {zn}.d" "asmonly" {
+  ret void
+}
+
+define void @lastb_r_p_z_.7(i64 "reg"="x" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0000010111100001101 pg:3 zn:5 d:5" "asm"="lastb {d}, {pg}, {zn}.d" "asmonly" {
   ret void
 }
 
@@ -10838,6 +11046,10 @@ define void @clasta_r_p_z_.6(i64 "reg"="pg" %pg, i64 "reg"="z" %zm) "enc"="00000
   ret void
 }
 
+define void @clasta_r_p_z_.7(i64 "reg"="x" %dn, i64 "reg"="pg" %pg, i64 "reg"="z" %zm) "enc"="0000010111110000101 pg:3 zm:5 dn:5" "asm"="clasta {dn}, {pg}, {dn}, {zm}.d" "asmonly" {
+  ret void
+}
+
 define void @clastb_r_p_z_.0(i64 "reg"="pg" %pg, i64 "reg"="z" %zm) "enc"="0000010100110001101 pg:3 zm:5 11111" "asm"="clastb wzr, {pg}, wzr, {zm}.b" "asmonly" {
   ret void
 }
@@ -10863,6 +11075,10 @@ define void @clastb_r_p_z_.5(i64 "reg"="w" %dn, i64 "reg"="pg" %pg, i64 "reg"="z
 }
 
 define void @clastb_r_p_z_.6(i64 "reg"="pg" %pg, i64 "reg"="z" %zm) "enc"="0000010111110001101 pg:3 zm:5 11111" "asm"="clastb xzr, {pg}, xzr, {zm}.d" "asmonly" {
+  ret void
+}
+
+define void @clastb_r_p_z_.7(i64 "reg"="x" %dn, i64 "reg"="pg" %pg, i64 "reg"="z" %zm) "enc"="0000010111110001101 pg:3 zm:5 dn:5" "asm"="clastb {dn}, {pg}, {dn}, {zm}.d" "asmonly" {
   ret void
 }
 
@@ -12434,87 +12650,103 @@ define void @whilege_p_p_rr_.6(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="00100
   ret void
 }
 
-define void @whilege_p_p_rr_.7(i64 "reg"="p" %pd) "enc"="0010010101111111000000111110 pd:4" "asm"="whilege {pd}.h, wzr, wzr" "asmonly" {
+define void @whilege_p_p_rr_.7(i64 "reg"="p" %pd, i64 "reg"="x" %n, i64 "reg"="x" %m) "enc"="00100101001 m:5 000100 n:5 0 pd:4" "asm"="whilege {pd}.b, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilege_p_p_rr_.8(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101011 m:5 000000111110 pd:4" "asm"="whilege {pd}.h, wzr, {m}" "asmonly" {
+define void @whilege_p_p_rr_.8(i64 "reg"="p" %pd) "enc"="0010010101111111000000111110 pd:4" "asm"="whilege {pd}.h, wzr, wzr" "asmonly" {
   ret void
 }
 
-define void @whilege_p_p_rr_.9(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010101111111000000 n:5 0 pd:4" "asm"="whilege {pd}.h, {n}, wzr" "asmonly" {
+define void @whilege_p_p_rr_.9(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101011 m:5 000000111110 pd:4" "asm"="whilege {pd}.h, wzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilege_p_p_rr_.10(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101011 m:5 000000 n:5 0 pd:4" "asm"="whilege {pd}.h, {n}, {m}" "asmonly" {
+define void @whilege_p_p_rr_.10(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010101111111000000 n:5 0 pd:4" "asm"="whilege {pd}.h, {n}, wzr" "asmonly" {
   ret void
 }
 
-define void @whilege_p_p_rr_.11(i64 "reg"="p" %pd) "enc"="0010010101111111000100111110 pd:4" "asm"="whilege {pd}.h, xzr, xzr" "asmonly" {
+define void @whilege_p_p_rr_.11(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101011 m:5 000000 n:5 0 pd:4" "asm"="whilege {pd}.h, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilege_p_p_rr_.12(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101011 m:5 000100111110 pd:4" "asm"="whilege {pd}.h, xzr, {m}" "asmonly" {
+define void @whilege_p_p_rr_.12(i64 "reg"="p" %pd) "enc"="0010010101111111000100111110 pd:4" "asm"="whilege {pd}.h, xzr, xzr" "asmonly" {
   ret void
 }
 
-define void @whilege_p_p_rr_.13(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010101111111000100 n:5 0 pd:4" "asm"="whilege {pd}.h, {n}, xzr" "asmonly" {
+define void @whilege_p_p_rr_.13(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101011 m:5 000100111110 pd:4" "asm"="whilege {pd}.h, xzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilege_p_p_rr_.14(i64 "reg"="p" %pd) "enc"="0010010110111111000000111110 pd:4" "asm"="whilege {pd}.s, wzr, wzr" "asmonly" {
+define void @whilege_p_p_rr_.14(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010101111111000100 n:5 0 pd:4" "asm"="whilege {pd}.h, {n}, xzr" "asmonly" {
   ret void
 }
 
-define void @whilege_p_p_rr_.15(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101101 m:5 000000111110 pd:4" "asm"="whilege {pd}.s, wzr, {m}" "asmonly" {
+define void @whilege_p_p_rr_.15(i64 "reg"="p" %pd, i64 "reg"="x" %n, i64 "reg"="x" %m) "enc"="00100101011 m:5 000100 n:5 0 pd:4" "asm"="whilege {pd}.h, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilege_p_p_rr_.16(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010110111111000000 n:5 0 pd:4" "asm"="whilege {pd}.s, {n}, wzr" "asmonly" {
+define void @whilege_p_p_rr_.16(i64 "reg"="p" %pd) "enc"="0010010110111111000000111110 pd:4" "asm"="whilege {pd}.s, wzr, wzr" "asmonly" {
   ret void
 }
 
-define void @whilege_p_p_rr_.17(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101101 m:5 000000 n:5 0 pd:4" "asm"="whilege {pd}.s, {n}, {m}" "asmonly" {
+define void @whilege_p_p_rr_.17(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101101 m:5 000000111110 pd:4" "asm"="whilege {pd}.s, wzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilege_p_p_rr_.18(i64 "reg"="p" %pd) "enc"="0010010110111111000100111110 pd:4" "asm"="whilege {pd}.s, xzr, xzr" "asmonly" {
+define void @whilege_p_p_rr_.18(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010110111111000000 n:5 0 pd:4" "asm"="whilege {pd}.s, {n}, wzr" "asmonly" {
   ret void
 }
 
-define void @whilege_p_p_rr_.19(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101101 m:5 000100111110 pd:4" "asm"="whilege {pd}.s, xzr, {m}" "asmonly" {
+define void @whilege_p_p_rr_.19(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101101 m:5 000000 n:5 0 pd:4" "asm"="whilege {pd}.s, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilege_p_p_rr_.20(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010110111111000100 n:5 0 pd:4" "asm"="whilege {pd}.s, {n}, xzr" "asmonly" {
+define void @whilege_p_p_rr_.20(i64 "reg"="p" %pd) "enc"="0010010110111111000100111110 pd:4" "asm"="whilege {pd}.s, xzr, xzr" "asmonly" {
   ret void
 }
 
-define void @whilege_p_p_rr_.21(i64 "reg"="p" %pd) "enc"="0010010111111111000000111110 pd:4" "asm"="whilege {pd}.d, wzr, wzr" "asmonly" {
+define void @whilege_p_p_rr_.21(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101101 m:5 000100111110 pd:4" "asm"="whilege {pd}.s, xzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilege_p_p_rr_.22(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101111 m:5 000000111110 pd:4" "asm"="whilege {pd}.d, wzr, {m}" "asmonly" {
+define void @whilege_p_p_rr_.22(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010110111111000100 n:5 0 pd:4" "asm"="whilege {pd}.s, {n}, xzr" "asmonly" {
   ret void
 }
 
-define void @whilege_p_p_rr_.23(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010111111111000000 n:5 0 pd:4" "asm"="whilege {pd}.d, {n}, wzr" "asmonly" {
+define void @whilege_p_p_rr_.23(i64 "reg"="p" %pd, i64 "reg"="x" %n, i64 "reg"="x" %m) "enc"="00100101101 m:5 000100 n:5 0 pd:4" "asm"="whilege {pd}.s, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilege_p_p_rr_.24(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101111 m:5 000000 n:5 0 pd:4" "asm"="whilege {pd}.d, {n}, {m}" "asmonly" {
+define void @whilege_p_p_rr_.24(i64 "reg"="p" %pd) "enc"="0010010111111111000000111110 pd:4" "asm"="whilege {pd}.d, wzr, wzr" "asmonly" {
   ret void
 }
 
-define void @whilege_p_p_rr_.25(i64 "reg"="p" %pd) "enc"="0010010111111111000100111110 pd:4" "asm"="whilege {pd}.d, xzr, xzr" "asmonly" {
+define void @whilege_p_p_rr_.25(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101111 m:5 000000111110 pd:4" "asm"="whilege {pd}.d, wzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilege_p_p_rr_.26(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101111 m:5 000100111110 pd:4" "asm"="whilege {pd}.d, xzr, {m}" "asmonly" {
+define void @whilege_p_p_rr_.26(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010111111111000000 n:5 0 pd:4" "asm"="whilege {pd}.d, {n}, wzr" "asmonly" {
   ret void
 }
 
-define void @whilege_p_p_rr_.27(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010111111111000100 n:5 0 pd:4" "asm"="whilege {pd}.d, {n}, xzr" "asmonly" {
+define void @whilege_p_p_rr_.27(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101111 m:5 000000 n:5 0 pd:4" "asm"="whilege {pd}.d, {n}, {m}" "asmonly" {
+  ret void
+}
+
+define void @whilege_p_p_rr_.28(i64 "reg"="p" %pd) "enc"="0010010111111111000100111110 pd:4" "asm"="whilege {pd}.d, xzr, xzr" "asmonly" {
+  ret void
+}
+
+define void @whilege_p_p_rr_.29(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101111 m:5 000100111110 pd:4" "asm"="whilege {pd}.d, xzr, {m}" "asmonly" {
+  ret void
+}
+
+define void @whilege_p_p_rr_.30(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010111111111000100 n:5 0 pd:4" "asm"="whilege {pd}.d, {n}, xzr" "asmonly" {
+  ret void
+}
+
+define void @whilege_p_p_rr_.31(i64 "reg"="p" %pd, i64 "reg"="x" %n, i64 "reg"="x" %m) "enc"="00100101111 m:5 000100 n:5 0 pd:4" "asm"="whilege {pd}.d, {n}, {m}" "asmonly" {
   ret void
 }
 
@@ -12546,87 +12778,103 @@ define void @whilehs_p_p_rr_.6(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="00100
   ret void
 }
 
-define void @whilehs_p_p_rr_.7(i64 "reg"="p" %pd) "enc"="0010010101111111000010111110 pd:4" "asm"="whilehs {pd}.h, wzr, wzr" "asmonly" {
+define void @whilehs_p_p_rr_.7(i64 "reg"="p" %pd, i64 "reg"="x" %n, i64 "reg"="x" %m) "enc"="00100101001 m:5 000110 n:5 0 pd:4" "asm"="whilehs {pd}.b, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilehs_p_p_rr_.8(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101011 m:5 000010111110 pd:4" "asm"="whilehs {pd}.h, wzr, {m}" "asmonly" {
+define void @whilehs_p_p_rr_.8(i64 "reg"="p" %pd) "enc"="0010010101111111000010111110 pd:4" "asm"="whilehs {pd}.h, wzr, wzr" "asmonly" {
   ret void
 }
 
-define void @whilehs_p_p_rr_.9(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010101111111000010 n:5 0 pd:4" "asm"="whilehs {pd}.h, {n}, wzr" "asmonly" {
+define void @whilehs_p_p_rr_.9(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101011 m:5 000010111110 pd:4" "asm"="whilehs {pd}.h, wzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilehs_p_p_rr_.10(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101011 m:5 000010 n:5 0 pd:4" "asm"="whilehs {pd}.h, {n}, {m}" "asmonly" {
+define void @whilehs_p_p_rr_.10(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010101111111000010 n:5 0 pd:4" "asm"="whilehs {pd}.h, {n}, wzr" "asmonly" {
   ret void
 }
 
-define void @whilehs_p_p_rr_.11(i64 "reg"="p" %pd) "enc"="0010010101111111000110111110 pd:4" "asm"="whilehs {pd}.h, xzr, xzr" "asmonly" {
+define void @whilehs_p_p_rr_.11(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101011 m:5 000010 n:5 0 pd:4" "asm"="whilehs {pd}.h, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilehs_p_p_rr_.12(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101011 m:5 000110111110 pd:4" "asm"="whilehs {pd}.h, xzr, {m}" "asmonly" {
+define void @whilehs_p_p_rr_.12(i64 "reg"="p" %pd) "enc"="0010010101111111000110111110 pd:4" "asm"="whilehs {pd}.h, xzr, xzr" "asmonly" {
   ret void
 }
 
-define void @whilehs_p_p_rr_.13(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010101111111000110 n:5 0 pd:4" "asm"="whilehs {pd}.h, {n}, xzr" "asmonly" {
+define void @whilehs_p_p_rr_.13(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101011 m:5 000110111110 pd:4" "asm"="whilehs {pd}.h, xzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilehs_p_p_rr_.14(i64 "reg"="p" %pd) "enc"="0010010110111111000010111110 pd:4" "asm"="whilehs {pd}.s, wzr, wzr" "asmonly" {
+define void @whilehs_p_p_rr_.14(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010101111111000110 n:5 0 pd:4" "asm"="whilehs {pd}.h, {n}, xzr" "asmonly" {
   ret void
 }
 
-define void @whilehs_p_p_rr_.15(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101101 m:5 000010111110 pd:4" "asm"="whilehs {pd}.s, wzr, {m}" "asmonly" {
+define void @whilehs_p_p_rr_.15(i64 "reg"="p" %pd, i64 "reg"="x" %n, i64 "reg"="x" %m) "enc"="00100101011 m:5 000110 n:5 0 pd:4" "asm"="whilehs {pd}.h, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilehs_p_p_rr_.16(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010110111111000010 n:5 0 pd:4" "asm"="whilehs {pd}.s, {n}, wzr" "asmonly" {
+define void @whilehs_p_p_rr_.16(i64 "reg"="p" %pd) "enc"="0010010110111111000010111110 pd:4" "asm"="whilehs {pd}.s, wzr, wzr" "asmonly" {
   ret void
 }
 
-define void @whilehs_p_p_rr_.17(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101101 m:5 000010 n:5 0 pd:4" "asm"="whilehs {pd}.s, {n}, {m}" "asmonly" {
+define void @whilehs_p_p_rr_.17(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101101 m:5 000010111110 pd:4" "asm"="whilehs {pd}.s, wzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilehs_p_p_rr_.18(i64 "reg"="p" %pd) "enc"="0010010110111111000110111110 pd:4" "asm"="whilehs {pd}.s, xzr, xzr" "asmonly" {
+define void @whilehs_p_p_rr_.18(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010110111111000010 n:5 0 pd:4" "asm"="whilehs {pd}.s, {n}, wzr" "asmonly" {
   ret void
 }
 
-define void @whilehs_p_p_rr_.19(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101101 m:5 000110111110 pd:4" "asm"="whilehs {pd}.s, xzr, {m}" "asmonly" {
+define void @whilehs_p_p_rr_.19(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101101 m:5 000010 n:5 0 pd:4" "asm"="whilehs {pd}.s, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilehs_p_p_rr_.20(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010110111111000110 n:5 0 pd:4" "asm"="whilehs {pd}.s, {n}, xzr" "asmonly" {
+define void @whilehs_p_p_rr_.20(i64 "reg"="p" %pd) "enc"="0010010110111111000110111110 pd:4" "asm"="whilehs {pd}.s, xzr, xzr" "asmonly" {
   ret void
 }
 
-define void @whilehs_p_p_rr_.21(i64 "reg"="p" %pd) "enc"="0010010111111111000010111110 pd:4" "asm"="whilehs {pd}.d, wzr, wzr" "asmonly" {
+define void @whilehs_p_p_rr_.21(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101101 m:5 000110111110 pd:4" "asm"="whilehs {pd}.s, xzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilehs_p_p_rr_.22(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101111 m:5 000010111110 pd:4" "asm"="whilehs {pd}.d, wzr, {m}" "asmonly" {
+define void @whilehs_p_p_rr_.22(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010110111111000110 n:5 0 pd:4" "asm"="whilehs {pd}.s, {n}, xzr" "asmonly" {
   ret void
 }
 
-define void @whilehs_p_p_rr_.23(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010111111111000010 n:5 0 pd:4" "asm"="whilehs {pd}.d, {n}, wzr" "asmonly" {
+define void @whilehs_p_p_rr_.23(i64 "reg"="p" %pd, i64 "reg"="x" %n, i64 "reg"="x" %m) "enc"="00100101101 m:5 000110 n:5 0 pd:4" "asm"="whilehs {pd}.s, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilehs_p_p_rr_.24(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101111 m:5 000010 n:5 0 pd:4" "asm"="whilehs {pd}.d, {n}, {m}" "asmonly" {
+define void @whilehs_p_p_rr_.24(i64 "reg"="p" %pd) "enc"="0010010111111111000010111110 pd:4" "asm"="whilehs {pd}.d, wzr, wzr" "asmonly" {
   ret void
 }
 
-define void @whilehs_p_p_rr_.25(i64 "reg"="p" %pd) "enc"="0010010111111111000110111110 pd:4" "asm"="whilehs {pd}.d, xzr, xzr" "asmonly" {
+define void @whilehs_p_p_rr_.25(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101111 m:5 000010111110 pd:4" "asm"="whilehs {pd}.d, wzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilehs_p_p_rr_.26(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101111 m:5 000110111110 pd:4" "asm"="whilehs {pd}.d, xzr, {m}" "asmonly" {
+define void @whilehs_p_p_rr_.26(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010111111111000010 n:5 0 pd:4" "asm"="whilehs {pd}.d, {n}, wzr" "asmonly" {
   ret void
 }
 
-define void @whilehs_p_p_rr_.27(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010111111111000110 n:5 0 pd:4" "asm"="whilehs {pd}.d, {n}, xzr" "asmonly" {
+define void @whilehs_p_p_rr_.27(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101111 m:5 000010 n:5 0 pd:4" "asm"="whilehs {pd}.d, {n}, {m}" "asmonly" {
+  ret void
+}
+
+define void @whilehs_p_p_rr_.28(i64 "reg"="p" %pd) "enc"="0010010111111111000110111110 pd:4" "asm"="whilehs {pd}.d, xzr, xzr" "asmonly" {
+  ret void
+}
+
+define void @whilehs_p_p_rr_.29(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101111 m:5 000110111110 pd:4" "asm"="whilehs {pd}.d, xzr, {m}" "asmonly" {
+  ret void
+}
+
+define void @whilehs_p_p_rr_.30(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010111111111000110 n:5 0 pd:4" "asm"="whilehs {pd}.d, {n}, xzr" "asmonly" {
+  ret void
+}
+
+define void @whilehs_p_p_rr_.31(i64 "reg"="p" %pd, i64 "reg"="x" %n, i64 "reg"="x" %m) "enc"="00100101111 m:5 000110 n:5 0 pd:4" "asm"="whilehs {pd}.d, {n}, {m}" "asmonly" {
   ret void
 }
 
@@ -12658,87 +12906,103 @@ define void @whilegt_p_p_rr_.6(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="00100
   ret void
 }
 
-define void @whilegt_p_p_rr_.7(i64 "reg"="p" %pd) "enc"="0010010101111111000000111111 pd:4" "asm"="whilegt {pd}.h, wzr, wzr" "asmonly" {
+define void @whilegt_p_p_rr_.7(i64 "reg"="p" %pd, i64 "reg"="x" %n, i64 "reg"="x" %m) "enc"="00100101001 m:5 000100 n:5 1 pd:4" "asm"="whilegt {pd}.b, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilegt_p_p_rr_.8(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101011 m:5 000000111111 pd:4" "asm"="whilegt {pd}.h, wzr, {m}" "asmonly" {
+define void @whilegt_p_p_rr_.8(i64 "reg"="p" %pd) "enc"="0010010101111111000000111111 pd:4" "asm"="whilegt {pd}.h, wzr, wzr" "asmonly" {
   ret void
 }
 
-define void @whilegt_p_p_rr_.9(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010101111111000000 n:5 1 pd:4" "asm"="whilegt {pd}.h, {n}, wzr" "asmonly" {
+define void @whilegt_p_p_rr_.9(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101011 m:5 000000111111 pd:4" "asm"="whilegt {pd}.h, wzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilegt_p_p_rr_.10(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101011 m:5 000000 n:5 1 pd:4" "asm"="whilegt {pd}.h, {n}, {m}" "asmonly" {
+define void @whilegt_p_p_rr_.10(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010101111111000000 n:5 1 pd:4" "asm"="whilegt {pd}.h, {n}, wzr" "asmonly" {
   ret void
 }
 
-define void @whilegt_p_p_rr_.11(i64 "reg"="p" %pd) "enc"="0010010101111111000100111111 pd:4" "asm"="whilegt {pd}.h, xzr, xzr" "asmonly" {
+define void @whilegt_p_p_rr_.11(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101011 m:5 000000 n:5 1 pd:4" "asm"="whilegt {pd}.h, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilegt_p_p_rr_.12(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101011 m:5 000100111111 pd:4" "asm"="whilegt {pd}.h, xzr, {m}" "asmonly" {
+define void @whilegt_p_p_rr_.12(i64 "reg"="p" %pd) "enc"="0010010101111111000100111111 pd:4" "asm"="whilegt {pd}.h, xzr, xzr" "asmonly" {
   ret void
 }
 
-define void @whilegt_p_p_rr_.13(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010101111111000100 n:5 1 pd:4" "asm"="whilegt {pd}.h, {n}, xzr" "asmonly" {
+define void @whilegt_p_p_rr_.13(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101011 m:5 000100111111 pd:4" "asm"="whilegt {pd}.h, xzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilegt_p_p_rr_.14(i64 "reg"="p" %pd) "enc"="0010010110111111000000111111 pd:4" "asm"="whilegt {pd}.s, wzr, wzr" "asmonly" {
+define void @whilegt_p_p_rr_.14(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010101111111000100 n:5 1 pd:4" "asm"="whilegt {pd}.h, {n}, xzr" "asmonly" {
   ret void
 }
 
-define void @whilegt_p_p_rr_.15(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101101 m:5 000000111111 pd:4" "asm"="whilegt {pd}.s, wzr, {m}" "asmonly" {
+define void @whilegt_p_p_rr_.15(i64 "reg"="p" %pd, i64 "reg"="x" %n, i64 "reg"="x" %m) "enc"="00100101011 m:5 000100 n:5 1 pd:4" "asm"="whilegt {pd}.h, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilegt_p_p_rr_.16(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010110111111000000 n:5 1 pd:4" "asm"="whilegt {pd}.s, {n}, wzr" "asmonly" {
+define void @whilegt_p_p_rr_.16(i64 "reg"="p" %pd) "enc"="0010010110111111000000111111 pd:4" "asm"="whilegt {pd}.s, wzr, wzr" "asmonly" {
   ret void
 }
 
-define void @whilegt_p_p_rr_.17(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101101 m:5 000000 n:5 1 pd:4" "asm"="whilegt {pd}.s, {n}, {m}" "asmonly" {
+define void @whilegt_p_p_rr_.17(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101101 m:5 000000111111 pd:4" "asm"="whilegt {pd}.s, wzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilegt_p_p_rr_.18(i64 "reg"="p" %pd) "enc"="0010010110111111000100111111 pd:4" "asm"="whilegt {pd}.s, xzr, xzr" "asmonly" {
+define void @whilegt_p_p_rr_.18(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010110111111000000 n:5 1 pd:4" "asm"="whilegt {pd}.s, {n}, wzr" "asmonly" {
   ret void
 }
 
-define void @whilegt_p_p_rr_.19(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101101 m:5 000100111111 pd:4" "asm"="whilegt {pd}.s, xzr, {m}" "asmonly" {
+define void @whilegt_p_p_rr_.19(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101101 m:5 000000 n:5 1 pd:4" "asm"="whilegt {pd}.s, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilegt_p_p_rr_.20(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010110111111000100 n:5 1 pd:4" "asm"="whilegt {pd}.s, {n}, xzr" "asmonly" {
+define void @whilegt_p_p_rr_.20(i64 "reg"="p" %pd) "enc"="0010010110111111000100111111 pd:4" "asm"="whilegt {pd}.s, xzr, xzr" "asmonly" {
   ret void
 }
 
-define void @whilegt_p_p_rr_.21(i64 "reg"="p" %pd) "enc"="0010010111111111000000111111 pd:4" "asm"="whilegt {pd}.d, wzr, wzr" "asmonly" {
+define void @whilegt_p_p_rr_.21(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101101 m:5 000100111111 pd:4" "asm"="whilegt {pd}.s, xzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilegt_p_p_rr_.22(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101111 m:5 000000111111 pd:4" "asm"="whilegt {pd}.d, wzr, {m}" "asmonly" {
+define void @whilegt_p_p_rr_.22(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010110111111000100 n:5 1 pd:4" "asm"="whilegt {pd}.s, {n}, xzr" "asmonly" {
   ret void
 }
 
-define void @whilegt_p_p_rr_.23(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010111111111000000 n:5 1 pd:4" "asm"="whilegt {pd}.d, {n}, wzr" "asmonly" {
+define void @whilegt_p_p_rr_.23(i64 "reg"="p" %pd, i64 "reg"="x" %n, i64 "reg"="x" %m) "enc"="00100101101 m:5 000100 n:5 1 pd:4" "asm"="whilegt {pd}.s, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilegt_p_p_rr_.24(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101111 m:5 000000 n:5 1 pd:4" "asm"="whilegt {pd}.d, {n}, {m}" "asmonly" {
+define void @whilegt_p_p_rr_.24(i64 "reg"="p" %pd) "enc"="0010010111111111000000111111 pd:4" "asm"="whilegt {pd}.d, wzr, wzr" "asmonly" {
   ret void
 }
 
-define void @whilegt_p_p_rr_.25(i64 "reg"="p" %pd) "enc"="0010010111111111000100111111 pd:4" "asm"="whilegt {pd}.d, xzr, xzr" "asmonly" {
+define void @whilegt_p_p_rr_.25(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101111 m:5 000000111111 pd:4" "asm"="whilegt {pd}.d, wzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilegt_p_p_rr_.26(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101111 m:5 000100111111 pd:4" "asm"="whilegt {pd}.d, xzr, {m}" "asmonly" {
+define void @whilegt_p_p_rr_.26(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010111111111000000 n:5 1 pd:4" "asm"="whilegt {pd}.d, {n}, wzr" "asmonly" {
   ret void
 }
 
-define void @whilegt_p_p_rr_.27(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010111111111000100 n:5 1 pd:4" "asm"="whilegt {pd}.d, {n}, xzr" "asmonly" {
+define void @whilegt_p_p_rr_.27(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101111 m:5 000000 n:5 1 pd:4" "asm"="whilegt {pd}.d, {n}, {m}" "asmonly" {
+  ret void
+}
+
+define void @whilegt_p_p_rr_.28(i64 "reg"="p" %pd) "enc"="0010010111111111000100111111 pd:4" "asm"="whilegt {pd}.d, xzr, xzr" "asmonly" {
+  ret void
+}
+
+define void @whilegt_p_p_rr_.29(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101111 m:5 000100111111 pd:4" "asm"="whilegt {pd}.d, xzr, {m}" "asmonly" {
+  ret void
+}
+
+define void @whilegt_p_p_rr_.30(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010111111111000100 n:5 1 pd:4" "asm"="whilegt {pd}.d, {n}, xzr" "asmonly" {
+  ret void
+}
+
+define void @whilegt_p_p_rr_.31(i64 "reg"="p" %pd, i64 "reg"="x" %n, i64 "reg"="x" %m) "enc"="00100101111 m:5 000100 n:5 1 pd:4" "asm"="whilegt {pd}.d, {n}, {m}" "asmonly" {
   ret void
 }
 
@@ -12770,87 +13034,103 @@ define void @whilehi_p_p_rr_.6(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="00100
   ret void
 }
 
-define void @whilehi_p_p_rr_.7(i64 "reg"="p" %pd) "enc"="0010010101111111000010111111 pd:4" "asm"="whilehi {pd}.h, wzr, wzr" "asmonly" {
+define void @whilehi_p_p_rr_.7(i64 "reg"="p" %pd, i64 "reg"="x" %n, i64 "reg"="x" %m) "enc"="00100101001 m:5 000110 n:5 1 pd:4" "asm"="whilehi {pd}.b, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilehi_p_p_rr_.8(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101011 m:5 000010111111 pd:4" "asm"="whilehi {pd}.h, wzr, {m}" "asmonly" {
+define void @whilehi_p_p_rr_.8(i64 "reg"="p" %pd) "enc"="0010010101111111000010111111 pd:4" "asm"="whilehi {pd}.h, wzr, wzr" "asmonly" {
   ret void
 }
 
-define void @whilehi_p_p_rr_.9(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010101111111000010 n:5 1 pd:4" "asm"="whilehi {pd}.h, {n}, wzr" "asmonly" {
+define void @whilehi_p_p_rr_.9(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101011 m:5 000010111111 pd:4" "asm"="whilehi {pd}.h, wzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilehi_p_p_rr_.10(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101011 m:5 000010 n:5 1 pd:4" "asm"="whilehi {pd}.h, {n}, {m}" "asmonly" {
+define void @whilehi_p_p_rr_.10(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010101111111000010 n:5 1 pd:4" "asm"="whilehi {pd}.h, {n}, wzr" "asmonly" {
   ret void
 }
 
-define void @whilehi_p_p_rr_.11(i64 "reg"="p" %pd) "enc"="0010010101111111000110111111 pd:4" "asm"="whilehi {pd}.h, xzr, xzr" "asmonly" {
+define void @whilehi_p_p_rr_.11(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101011 m:5 000010 n:5 1 pd:4" "asm"="whilehi {pd}.h, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilehi_p_p_rr_.12(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101011 m:5 000110111111 pd:4" "asm"="whilehi {pd}.h, xzr, {m}" "asmonly" {
+define void @whilehi_p_p_rr_.12(i64 "reg"="p" %pd) "enc"="0010010101111111000110111111 pd:4" "asm"="whilehi {pd}.h, xzr, xzr" "asmonly" {
   ret void
 }
 
-define void @whilehi_p_p_rr_.13(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010101111111000110 n:5 1 pd:4" "asm"="whilehi {pd}.h, {n}, xzr" "asmonly" {
+define void @whilehi_p_p_rr_.13(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101011 m:5 000110111111 pd:4" "asm"="whilehi {pd}.h, xzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilehi_p_p_rr_.14(i64 "reg"="p" %pd) "enc"="0010010110111111000010111111 pd:4" "asm"="whilehi {pd}.s, wzr, wzr" "asmonly" {
+define void @whilehi_p_p_rr_.14(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010101111111000110 n:5 1 pd:4" "asm"="whilehi {pd}.h, {n}, xzr" "asmonly" {
   ret void
 }
 
-define void @whilehi_p_p_rr_.15(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101101 m:5 000010111111 pd:4" "asm"="whilehi {pd}.s, wzr, {m}" "asmonly" {
+define void @whilehi_p_p_rr_.15(i64 "reg"="p" %pd, i64 "reg"="x" %n, i64 "reg"="x" %m) "enc"="00100101011 m:5 000110 n:5 1 pd:4" "asm"="whilehi {pd}.h, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilehi_p_p_rr_.16(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010110111111000010 n:5 1 pd:4" "asm"="whilehi {pd}.s, {n}, wzr" "asmonly" {
+define void @whilehi_p_p_rr_.16(i64 "reg"="p" %pd) "enc"="0010010110111111000010111111 pd:4" "asm"="whilehi {pd}.s, wzr, wzr" "asmonly" {
   ret void
 }
 
-define void @whilehi_p_p_rr_.17(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101101 m:5 000010 n:5 1 pd:4" "asm"="whilehi {pd}.s, {n}, {m}" "asmonly" {
+define void @whilehi_p_p_rr_.17(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101101 m:5 000010111111 pd:4" "asm"="whilehi {pd}.s, wzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilehi_p_p_rr_.18(i64 "reg"="p" %pd) "enc"="0010010110111111000110111111 pd:4" "asm"="whilehi {pd}.s, xzr, xzr" "asmonly" {
+define void @whilehi_p_p_rr_.18(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010110111111000010 n:5 1 pd:4" "asm"="whilehi {pd}.s, {n}, wzr" "asmonly" {
   ret void
 }
 
-define void @whilehi_p_p_rr_.19(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101101 m:5 000110111111 pd:4" "asm"="whilehi {pd}.s, xzr, {m}" "asmonly" {
+define void @whilehi_p_p_rr_.19(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101101 m:5 000010 n:5 1 pd:4" "asm"="whilehi {pd}.s, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilehi_p_p_rr_.20(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010110111111000110 n:5 1 pd:4" "asm"="whilehi {pd}.s, {n}, xzr" "asmonly" {
+define void @whilehi_p_p_rr_.20(i64 "reg"="p" %pd) "enc"="0010010110111111000110111111 pd:4" "asm"="whilehi {pd}.s, xzr, xzr" "asmonly" {
   ret void
 }
 
-define void @whilehi_p_p_rr_.21(i64 "reg"="p" %pd) "enc"="0010010111111111000010111111 pd:4" "asm"="whilehi {pd}.d, wzr, wzr" "asmonly" {
+define void @whilehi_p_p_rr_.21(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101101 m:5 000110111111 pd:4" "asm"="whilehi {pd}.s, xzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilehi_p_p_rr_.22(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101111 m:5 000010111111 pd:4" "asm"="whilehi {pd}.d, wzr, {m}" "asmonly" {
+define void @whilehi_p_p_rr_.22(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010110111111000110 n:5 1 pd:4" "asm"="whilehi {pd}.s, {n}, xzr" "asmonly" {
   ret void
 }
 
-define void @whilehi_p_p_rr_.23(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010111111111000010 n:5 1 pd:4" "asm"="whilehi {pd}.d, {n}, wzr" "asmonly" {
+define void @whilehi_p_p_rr_.23(i64 "reg"="p" %pd, i64 "reg"="x" %n, i64 "reg"="x" %m) "enc"="00100101101 m:5 000110 n:5 1 pd:4" "asm"="whilehi {pd}.s, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilehi_p_p_rr_.24(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101111 m:5 000010 n:5 1 pd:4" "asm"="whilehi {pd}.d, {n}, {m}" "asmonly" {
+define void @whilehi_p_p_rr_.24(i64 "reg"="p" %pd) "enc"="0010010111111111000010111111 pd:4" "asm"="whilehi {pd}.d, wzr, wzr" "asmonly" {
   ret void
 }
 
-define void @whilehi_p_p_rr_.25(i64 "reg"="p" %pd) "enc"="0010010111111111000110111111 pd:4" "asm"="whilehi {pd}.d, xzr, xzr" "asmonly" {
+define void @whilehi_p_p_rr_.25(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101111 m:5 000010111111 pd:4" "asm"="whilehi {pd}.d, wzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilehi_p_p_rr_.26(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101111 m:5 000110111111 pd:4" "asm"="whilehi {pd}.d, xzr, {m}" "asmonly" {
+define void @whilehi_p_p_rr_.26(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010111111111000010 n:5 1 pd:4" "asm"="whilehi {pd}.d, {n}, wzr" "asmonly" {
   ret void
 }
 
-define void @whilehi_p_p_rr_.27(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010111111111000110 n:5 1 pd:4" "asm"="whilehi {pd}.d, {n}, xzr" "asmonly" {
+define void @whilehi_p_p_rr_.27(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101111 m:5 000010 n:5 1 pd:4" "asm"="whilehi {pd}.d, {n}, {m}" "asmonly" {
+  ret void
+}
+
+define void @whilehi_p_p_rr_.28(i64 "reg"="p" %pd) "enc"="0010010111111111000110111111 pd:4" "asm"="whilehi {pd}.d, xzr, xzr" "asmonly" {
+  ret void
+}
+
+define void @whilehi_p_p_rr_.29(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101111 m:5 000110111111 pd:4" "asm"="whilehi {pd}.d, xzr, {m}" "asmonly" {
+  ret void
+}
+
+define void @whilehi_p_p_rr_.30(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010111111111000110 n:5 1 pd:4" "asm"="whilehi {pd}.d, {n}, xzr" "asmonly" {
+  ret void
+}
+
+define void @whilehi_p_p_rr_.31(i64 "reg"="p" %pd, i64 "reg"="x" %n, i64 "reg"="x" %m) "enc"="00100101111 m:5 000110 n:5 1 pd:4" "asm"="whilehi {pd}.d, {n}, {m}" "asmonly" {
   ret void
 }
 
@@ -12882,87 +13162,103 @@ define void @whilelt_p_p_rr_.6(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="00100
   ret void
 }
 
-define void @whilelt_p_p_rr_.7(i64 "reg"="p" %pd) "enc"="0010010101111111000001111110 pd:4" "asm"="whilelt {pd}.h, wzr, wzr" "asmonly" {
+define void @whilelt_p_p_rr_.7(i64 "reg"="p" %pd, i64 "reg"="x" %n, i64 "reg"="x" %m) "enc"="00100101001 m:5 000101 n:5 0 pd:4" "asm"="whilelt {pd}.b, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilelt_p_p_rr_.8(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101011 m:5 000001111110 pd:4" "asm"="whilelt {pd}.h, wzr, {m}" "asmonly" {
+define void @whilelt_p_p_rr_.8(i64 "reg"="p" %pd) "enc"="0010010101111111000001111110 pd:4" "asm"="whilelt {pd}.h, wzr, wzr" "asmonly" {
   ret void
 }
 
-define void @whilelt_p_p_rr_.9(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010101111111000001 n:5 0 pd:4" "asm"="whilelt {pd}.h, {n}, wzr" "asmonly" {
+define void @whilelt_p_p_rr_.9(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101011 m:5 000001111110 pd:4" "asm"="whilelt {pd}.h, wzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilelt_p_p_rr_.10(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101011 m:5 000001 n:5 0 pd:4" "asm"="whilelt {pd}.h, {n}, {m}" "asmonly" {
+define void @whilelt_p_p_rr_.10(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010101111111000001 n:5 0 pd:4" "asm"="whilelt {pd}.h, {n}, wzr" "asmonly" {
   ret void
 }
 
-define void @whilelt_p_p_rr_.11(i64 "reg"="p" %pd) "enc"="0010010101111111000101111110 pd:4" "asm"="whilelt {pd}.h, xzr, xzr" "asmonly" {
+define void @whilelt_p_p_rr_.11(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101011 m:5 000001 n:5 0 pd:4" "asm"="whilelt {pd}.h, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilelt_p_p_rr_.12(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101011 m:5 000101111110 pd:4" "asm"="whilelt {pd}.h, xzr, {m}" "asmonly" {
+define void @whilelt_p_p_rr_.12(i64 "reg"="p" %pd) "enc"="0010010101111111000101111110 pd:4" "asm"="whilelt {pd}.h, xzr, xzr" "asmonly" {
   ret void
 }
 
-define void @whilelt_p_p_rr_.13(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010101111111000101 n:5 0 pd:4" "asm"="whilelt {pd}.h, {n}, xzr" "asmonly" {
+define void @whilelt_p_p_rr_.13(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101011 m:5 000101111110 pd:4" "asm"="whilelt {pd}.h, xzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilelt_p_p_rr_.14(i64 "reg"="p" %pd) "enc"="0010010110111111000001111110 pd:4" "asm"="whilelt {pd}.s, wzr, wzr" "asmonly" {
+define void @whilelt_p_p_rr_.14(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010101111111000101 n:5 0 pd:4" "asm"="whilelt {pd}.h, {n}, xzr" "asmonly" {
   ret void
 }
 
-define void @whilelt_p_p_rr_.15(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101101 m:5 000001111110 pd:4" "asm"="whilelt {pd}.s, wzr, {m}" "asmonly" {
+define void @whilelt_p_p_rr_.15(i64 "reg"="p" %pd, i64 "reg"="x" %n, i64 "reg"="x" %m) "enc"="00100101011 m:5 000101 n:5 0 pd:4" "asm"="whilelt {pd}.h, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilelt_p_p_rr_.16(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010110111111000001 n:5 0 pd:4" "asm"="whilelt {pd}.s, {n}, wzr" "asmonly" {
+define void @whilelt_p_p_rr_.16(i64 "reg"="p" %pd) "enc"="0010010110111111000001111110 pd:4" "asm"="whilelt {pd}.s, wzr, wzr" "asmonly" {
   ret void
 }
 
-define void @whilelt_p_p_rr_.17(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101101 m:5 000001 n:5 0 pd:4" "asm"="whilelt {pd}.s, {n}, {m}" "asmonly" {
+define void @whilelt_p_p_rr_.17(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101101 m:5 000001111110 pd:4" "asm"="whilelt {pd}.s, wzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilelt_p_p_rr_.18(i64 "reg"="p" %pd) "enc"="0010010110111111000101111110 pd:4" "asm"="whilelt {pd}.s, xzr, xzr" "asmonly" {
+define void @whilelt_p_p_rr_.18(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010110111111000001 n:5 0 pd:4" "asm"="whilelt {pd}.s, {n}, wzr" "asmonly" {
   ret void
 }
 
-define void @whilelt_p_p_rr_.19(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101101 m:5 000101111110 pd:4" "asm"="whilelt {pd}.s, xzr, {m}" "asmonly" {
+define void @whilelt_p_p_rr_.19(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101101 m:5 000001 n:5 0 pd:4" "asm"="whilelt {pd}.s, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilelt_p_p_rr_.20(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010110111111000101 n:5 0 pd:4" "asm"="whilelt {pd}.s, {n}, xzr" "asmonly" {
+define void @whilelt_p_p_rr_.20(i64 "reg"="p" %pd) "enc"="0010010110111111000101111110 pd:4" "asm"="whilelt {pd}.s, xzr, xzr" "asmonly" {
   ret void
 }
 
-define void @whilelt_p_p_rr_.21(i64 "reg"="p" %pd) "enc"="0010010111111111000001111110 pd:4" "asm"="whilelt {pd}.d, wzr, wzr" "asmonly" {
+define void @whilelt_p_p_rr_.21(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101101 m:5 000101111110 pd:4" "asm"="whilelt {pd}.s, xzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilelt_p_p_rr_.22(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101111 m:5 000001111110 pd:4" "asm"="whilelt {pd}.d, wzr, {m}" "asmonly" {
+define void @whilelt_p_p_rr_.22(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010110111111000101 n:5 0 pd:4" "asm"="whilelt {pd}.s, {n}, xzr" "asmonly" {
   ret void
 }
 
-define void @whilelt_p_p_rr_.23(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010111111111000001 n:5 0 pd:4" "asm"="whilelt {pd}.d, {n}, wzr" "asmonly" {
+define void @whilelt_p_p_rr_.23(i64 "reg"="p" %pd, i64 "reg"="x" %n, i64 "reg"="x" %m) "enc"="00100101101 m:5 000101 n:5 0 pd:4" "asm"="whilelt {pd}.s, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilelt_p_p_rr_.24(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101111 m:5 000001 n:5 0 pd:4" "asm"="whilelt {pd}.d, {n}, {m}" "asmonly" {
+define void @whilelt_p_p_rr_.24(i64 "reg"="p" %pd) "enc"="0010010111111111000001111110 pd:4" "asm"="whilelt {pd}.d, wzr, wzr" "asmonly" {
   ret void
 }
 
-define void @whilelt_p_p_rr_.25(i64 "reg"="p" %pd) "enc"="0010010111111111000101111110 pd:4" "asm"="whilelt {pd}.d, xzr, xzr" "asmonly" {
+define void @whilelt_p_p_rr_.25(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101111 m:5 000001111110 pd:4" "asm"="whilelt {pd}.d, wzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilelt_p_p_rr_.26(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101111 m:5 000101111110 pd:4" "asm"="whilelt {pd}.d, xzr, {m}" "asmonly" {
+define void @whilelt_p_p_rr_.26(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010111111111000001 n:5 0 pd:4" "asm"="whilelt {pd}.d, {n}, wzr" "asmonly" {
   ret void
 }
 
-define void @whilelt_p_p_rr_.27(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010111111111000101 n:5 0 pd:4" "asm"="whilelt {pd}.d, {n}, xzr" "asmonly" {
+define void @whilelt_p_p_rr_.27(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101111 m:5 000001 n:5 0 pd:4" "asm"="whilelt {pd}.d, {n}, {m}" "asmonly" {
+  ret void
+}
+
+define void @whilelt_p_p_rr_.28(i64 "reg"="p" %pd) "enc"="0010010111111111000101111110 pd:4" "asm"="whilelt {pd}.d, xzr, xzr" "asmonly" {
+  ret void
+}
+
+define void @whilelt_p_p_rr_.29(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101111 m:5 000101111110 pd:4" "asm"="whilelt {pd}.d, xzr, {m}" "asmonly" {
+  ret void
+}
+
+define void @whilelt_p_p_rr_.30(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010111111111000101 n:5 0 pd:4" "asm"="whilelt {pd}.d, {n}, xzr" "asmonly" {
+  ret void
+}
+
+define void @whilelt_p_p_rr_.31(i64 "reg"="p" %pd, i64 "reg"="x" %n, i64 "reg"="x" %m) "enc"="00100101111 m:5 000101 n:5 0 pd:4" "asm"="whilelt {pd}.d, {n}, {m}" "asmonly" {
   ret void
 }
 
@@ -12994,87 +13290,103 @@ define void @whilelo_p_p_rr_.6(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="00100
   ret void
 }
 
-define void @whilelo_p_p_rr_.7(i64 "reg"="p" %pd) "enc"="0010010101111111000011111110 pd:4" "asm"="whilelo {pd}.h, wzr, wzr" "asmonly" {
+define void @whilelo_p_p_rr_.7(i64 "reg"="p" %pd, i64 "reg"="x" %n, i64 "reg"="x" %m) "enc"="00100101001 m:5 000111 n:5 0 pd:4" "asm"="whilelo {pd}.b, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilelo_p_p_rr_.8(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101011 m:5 000011111110 pd:4" "asm"="whilelo {pd}.h, wzr, {m}" "asmonly" {
+define void @whilelo_p_p_rr_.8(i64 "reg"="p" %pd) "enc"="0010010101111111000011111110 pd:4" "asm"="whilelo {pd}.h, wzr, wzr" "asmonly" {
   ret void
 }
 
-define void @whilelo_p_p_rr_.9(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010101111111000011 n:5 0 pd:4" "asm"="whilelo {pd}.h, {n}, wzr" "asmonly" {
+define void @whilelo_p_p_rr_.9(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101011 m:5 000011111110 pd:4" "asm"="whilelo {pd}.h, wzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilelo_p_p_rr_.10(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101011 m:5 000011 n:5 0 pd:4" "asm"="whilelo {pd}.h, {n}, {m}" "asmonly" {
+define void @whilelo_p_p_rr_.10(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010101111111000011 n:5 0 pd:4" "asm"="whilelo {pd}.h, {n}, wzr" "asmonly" {
   ret void
 }
 
-define void @whilelo_p_p_rr_.11(i64 "reg"="p" %pd) "enc"="0010010101111111000111111110 pd:4" "asm"="whilelo {pd}.h, xzr, xzr" "asmonly" {
+define void @whilelo_p_p_rr_.11(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101011 m:5 000011 n:5 0 pd:4" "asm"="whilelo {pd}.h, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilelo_p_p_rr_.12(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101011 m:5 000111111110 pd:4" "asm"="whilelo {pd}.h, xzr, {m}" "asmonly" {
+define void @whilelo_p_p_rr_.12(i64 "reg"="p" %pd) "enc"="0010010101111111000111111110 pd:4" "asm"="whilelo {pd}.h, xzr, xzr" "asmonly" {
   ret void
 }
 
-define void @whilelo_p_p_rr_.13(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010101111111000111 n:5 0 pd:4" "asm"="whilelo {pd}.h, {n}, xzr" "asmonly" {
+define void @whilelo_p_p_rr_.13(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101011 m:5 000111111110 pd:4" "asm"="whilelo {pd}.h, xzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilelo_p_p_rr_.14(i64 "reg"="p" %pd) "enc"="0010010110111111000011111110 pd:4" "asm"="whilelo {pd}.s, wzr, wzr" "asmonly" {
+define void @whilelo_p_p_rr_.14(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010101111111000111 n:5 0 pd:4" "asm"="whilelo {pd}.h, {n}, xzr" "asmonly" {
   ret void
 }
 
-define void @whilelo_p_p_rr_.15(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101101 m:5 000011111110 pd:4" "asm"="whilelo {pd}.s, wzr, {m}" "asmonly" {
+define void @whilelo_p_p_rr_.15(i64 "reg"="p" %pd, i64 "reg"="x" %n, i64 "reg"="x" %m) "enc"="00100101011 m:5 000111 n:5 0 pd:4" "asm"="whilelo {pd}.h, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilelo_p_p_rr_.16(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010110111111000011 n:5 0 pd:4" "asm"="whilelo {pd}.s, {n}, wzr" "asmonly" {
+define void @whilelo_p_p_rr_.16(i64 "reg"="p" %pd) "enc"="0010010110111111000011111110 pd:4" "asm"="whilelo {pd}.s, wzr, wzr" "asmonly" {
   ret void
 }
 
-define void @whilelo_p_p_rr_.17(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101101 m:5 000011 n:5 0 pd:4" "asm"="whilelo {pd}.s, {n}, {m}" "asmonly" {
+define void @whilelo_p_p_rr_.17(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101101 m:5 000011111110 pd:4" "asm"="whilelo {pd}.s, wzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilelo_p_p_rr_.18(i64 "reg"="p" %pd) "enc"="0010010110111111000111111110 pd:4" "asm"="whilelo {pd}.s, xzr, xzr" "asmonly" {
+define void @whilelo_p_p_rr_.18(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010110111111000011 n:5 0 pd:4" "asm"="whilelo {pd}.s, {n}, wzr" "asmonly" {
   ret void
 }
 
-define void @whilelo_p_p_rr_.19(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101101 m:5 000111111110 pd:4" "asm"="whilelo {pd}.s, xzr, {m}" "asmonly" {
+define void @whilelo_p_p_rr_.19(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101101 m:5 000011 n:5 0 pd:4" "asm"="whilelo {pd}.s, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilelo_p_p_rr_.20(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010110111111000111 n:5 0 pd:4" "asm"="whilelo {pd}.s, {n}, xzr" "asmonly" {
+define void @whilelo_p_p_rr_.20(i64 "reg"="p" %pd) "enc"="0010010110111111000111111110 pd:4" "asm"="whilelo {pd}.s, xzr, xzr" "asmonly" {
   ret void
 }
 
-define void @whilelo_p_p_rr_.21(i64 "reg"="p" %pd) "enc"="0010010111111111000011111110 pd:4" "asm"="whilelo {pd}.d, wzr, wzr" "asmonly" {
+define void @whilelo_p_p_rr_.21(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101101 m:5 000111111110 pd:4" "asm"="whilelo {pd}.s, xzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilelo_p_p_rr_.22(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101111 m:5 000011111110 pd:4" "asm"="whilelo {pd}.d, wzr, {m}" "asmonly" {
+define void @whilelo_p_p_rr_.22(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010110111111000111 n:5 0 pd:4" "asm"="whilelo {pd}.s, {n}, xzr" "asmonly" {
   ret void
 }
 
-define void @whilelo_p_p_rr_.23(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010111111111000011 n:5 0 pd:4" "asm"="whilelo {pd}.d, {n}, wzr" "asmonly" {
+define void @whilelo_p_p_rr_.23(i64 "reg"="p" %pd, i64 "reg"="x" %n, i64 "reg"="x" %m) "enc"="00100101101 m:5 000111 n:5 0 pd:4" "asm"="whilelo {pd}.s, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilelo_p_p_rr_.24(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101111 m:5 000011 n:5 0 pd:4" "asm"="whilelo {pd}.d, {n}, {m}" "asmonly" {
+define void @whilelo_p_p_rr_.24(i64 "reg"="p" %pd) "enc"="0010010111111111000011111110 pd:4" "asm"="whilelo {pd}.d, wzr, wzr" "asmonly" {
   ret void
 }
 
-define void @whilelo_p_p_rr_.25(i64 "reg"="p" %pd) "enc"="0010010111111111000111111110 pd:4" "asm"="whilelo {pd}.d, xzr, xzr" "asmonly" {
+define void @whilelo_p_p_rr_.25(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101111 m:5 000011111110 pd:4" "asm"="whilelo {pd}.d, wzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilelo_p_p_rr_.26(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101111 m:5 000111111110 pd:4" "asm"="whilelo {pd}.d, xzr, {m}" "asmonly" {
+define void @whilelo_p_p_rr_.26(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010111111111000011 n:5 0 pd:4" "asm"="whilelo {pd}.d, {n}, wzr" "asmonly" {
   ret void
 }
 
-define void @whilelo_p_p_rr_.27(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010111111111000111 n:5 0 pd:4" "asm"="whilelo {pd}.d, {n}, xzr" "asmonly" {
+define void @whilelo_p_p_rr_.27(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101111 m:5 000011 n:5 0 pd:4" "asm"="whilelo {pd}.d, {n}, {m}" "asmonly" {
+  ret void
+}
+
+define void @whilelo_p_p_rr_.28(i64 "reg"="p" %pd) "enc"="0010010111111111000111111110 pd:4" "asm"="whilelo {pd}.d, xzr, xzr" "asmonly" {
+  ret void
+}
+
+define void @whilelo_p_p_rr_.29(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101111 m:5 000111111110 pd:4" "asm"="whilelo {pd}.d, xzr, {m}" "asmonly" {
+  ret void
+}
+
+define void @whilelo_p_p_rr_.30(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010111111111000111 n:5 0 pd:4" "asm"="whilelo {pd}.d, {n}, xzr" "asmonly" {
+  ret void
+}
+
+define void @whilelo_p_p_rr_.31(i64 "reg"="p" %pd, i64 "reg"="x" %n, i64 "reg"="x" %m) "enc"="00100101111 m:5 000111 n:5 0 pd:4" "asm"="whilelo {pd}.d, {n}, {m}" "asmonly" {
   ret void
 }
 
@@ -13106,87 +13418,103 @@ define void @whilele_p_p_rr_.6(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="00100
   ret void
 }
 
-define void @whilele_p_p_rr_.7(i64 "reg"="p" %pd) "enc"="0010010101111111000001111111 pd:4" "asm"="whilele {pd}.h, wzr, wzr" "asmonly" {
+define void @whilele_p_p_rr_.7(i64 "reg"="p" %pd, i64 "reg"="x" %n, i64 "reg"="x" %m) "enc"="00100101001 m:5 000101 n:5 1 pd:4" "asm"="whilele {pd}.b, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilele_p_p_rr_.8(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101011 m:5 000001111111 pd:4" "asm"="whilele {pd}.h, wzr, {m}" "asmonly" {
+define void @whilele_p_p_rr_.8(i64 "reg"="p" %pd) "enc"="0010010101111111000001111111 pd:4" "asm"="whilele {pd}.h, wzr, wzr" "asmonly" {
   ret void
 }
 
-define void @whilele_p_p_rr_.9(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010101111111000001 n:5 1 pd:4" "asm"="whilele {pd}.h, {n}, wzr" "asmonly" {
+define void @whilele_p_p_rr_.9(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101011 m:5 000001111111 pd:4" "asm"="whilele {pd}.h, wzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilele_p_p_rr_.10(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101011 m:5 000001 n:5 1 pd:4" "asm"="whilele {pd}.h, {n}, {m}" "asmonly" {
+define void @whilele_p_p_rr_.10(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010101111111000001 n:5 1 pd:4" "asm"="whilele {pd}.h, {n}, wzr" "asmonly" {
   ret void
 }
 
-define void @whilele_p_p_rr_.11(i64 "reg"="p" %pd) "enc"="0010010101111111000101111111 pd:4" "asm"="whilele {pd}.h, xzr, xzr" "asmonly" {
+define void @whilele_p_p_rr_.11(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101011 m:5 000001 n:5 1 pd:4" "asm"="whilele {pd}.h, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilele_p_p_rr_.12(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101011 m:5 000101111111 pd:4" "asm"="whilele {pd}.h, xzr, {m}" "asmonly" {
+define void @whilele_p_p_rr_.12(i64 "reg"="p" %pd) "enc"="0010010101111111000101111111 pd:4" "asm"="whilele {pd}.h, xzr, xzr" "asmonly" {
   ret void
 }
 
-define void @whilele_p_p_rr_.13(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010101111111000101 n:5 1 pd:4" "asm"="whilele {pd}.h, {n}, xzr" "asmonly" {
+define void @whilele_p_p_rr_.13(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101011 m:5 000101111111 pd:4" "asm"="whilele {pd}.h, xzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilele_p_p_rr_.14(i64 "reg"="p" %pd) "enc"="0010010110111111000001111111 pd:4" "asm"="whilele {pd}.s, wzr, wzr" "asmonly" {
+define void @whilele_p_p_rr_.14(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010101111111000101 n:5 1 pd:4" "asm"="whilele {pd}.h, {n}, xzr" "asmonly" {
   ret void
 }
 
-define void @whilele_p_p_rr_.15(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101101 m:5 000001111111 pd:4" "asm"="whilele {pd}.s, wzr, {m}" "asmonly" {
+define void @whilele_p_p_rr_.15(i64 "reg"="p" %pd, i64 "reg"="x" %n, i64 "reg"="x" %m) "enc"="00100101011 m:5 000101 n:5 1 pd:4" "asm"="whilele {pd}.h, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilele_p_p_rr_.16(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010110111111000001 n:5 1 pd:4" "asm"="whilele {pd}.s, {n}, wzr" "asmonly" {
+define void @whilele_p_p_rr_.16(i64 "reg"="p" %pd) "enc"="0010010110111111000001111111 pd:4" "asm"="whilele {pd}.s, wzr, wzr" "asmonly" {
   ret void
 }
 
-define void @whilele_p_p_rr_.17(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101101 m:5 000001 n:5 1 pd:4" "asm"="whilele {pd}.s, {n}, {m}" "asmonly" {
+define void @whilele_p_p_rr_.17(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101101 m:5 000001111111 pd:4" "asm"="whilele {pd}.s, wzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilele_p_p_rr_.18(i64 "reg"="p" %pd) "enc"="0010010110111111000101111111 pd:4" "asm"="whilele {pd}.s, xzr, xzr" "asmonly" {
+define void @whilele_p_p_rr_.18(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010110111111000001 n:5 1 pd:4" "asm"="whilele {pd}.s, {n}, wzr" "asmonly" {
   ret void
 }
 
-define void @whilele_p_p_rr_.19(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101101 m:5 000101111111 pd:4" "asm"="whilele {pd}.s, xzr, {m}" "asmonly" {
+define void @whilele_p_p_rr_.19(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101101 m:5 000001 n:5 1 pd:4" "asm"="whilele {pd}.s, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilele_p_p_rr_.20(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010110111111000101 n:5 1 pd:4" "asm"="whilele {pd}.s, {n}, xzr" "asmonly" {
+define void @whilele_p_p_rr_.20(i64 "reg"="p" %pd) "enc"="0010010110111111000101111111 pd:4" "asm"="whilele {pd}.s, xzr, xzr" "asmonly" {
   ret void
 }
 
-define void @whilele_p_p_rr_.21(i64 "reg"="p" %pd) "enc"="0010010111111111000001111111 pd:4" "asm"="whilele {pd}.d, wzr, wzr" "asmonly" {
+define void @whilele_p_p_rr_.21(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101101 m:5 000101111111 pd:4" "asm"="whilele {pd}.s, xzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilele_p_p_rr_.22(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101111 m:5 000001111111 pd:4" "asm"="whilele {pd}.d, wzr, {m}" "asmonly" {
+define void @whilele_p_p_rr_.22(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010110111111000101 n:5 1 pd:4" "asm"="whilele {pd}.s, {n}, xzr" "asmonly" {
   ret void
 }
 
-define void @whilele_p_p_rr_.23(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010111111111000001 n:5 1 pd:4" "asm"="whilele {pd}.d, {n}, wzr" "asmonly" {
+define void @whilele_p_p_rr_.23(i64 "reg"="p" %pd, i64 "reg"="x" %n, i64 "reg"="x" %m) "enc"="00100101101 m:5 000101 n:5 1 pd:4" "asm"="whilele {pd}.s, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilele_p_p_rr_.24(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101111 m:5 000001 n:5 1 pd:4" "asm"="whilele {pd}.d, {n}, {m}" "asmonly" {
+define void @whilele_p_p_rr_.24(i64 "reg"="p" %pd) "enc"="0010010111111111000001111111 pd:4" "asm"="whilele {pd}.d, wzr, wzr" "asmonly" {
   ret void
 }
 
-define void @whilele_p_p_rr_.25(i64 "reg"="p" %pd) "enc"="0010010111111111000101111111 pd:4" "asm"="whilele {pd}.d, xzr, xzr" "asmonly" {
+define void @whilele_p_p_rr_.25(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101111 m:5 000001111111 pd:4" "asm"="whilele {pd}.d, wzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilele_p_p_rr_.26(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101111 m:5 000101111111 pd:4" "asm"="whilele {pd}.d, xzr, {m}" "asmonly" {
+define void @whilele_p_p_rr_.26(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010111111111000001 n:5 1 pd:4" "asm"="whilele {pd}.d, {n}, wzr" "asmonly" {
   ret void
 }
 
-define void @whilele_p_p_rr_.27(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010111111111000101 n:5 1 pd:4" "asm"="whilele {pd}.d, {n}, xzr" "asmonly" {
+define void @whilele_p_p_rr_.27(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101111 m:5 000001 n:5 1 pd:4" "asm"="whilele {pd}.d, {n}, {m}" "asmonly" {
+  ret void
+}
+
+define void @whilele_p_p_rr_.28(i64 "reg"="p" %pd) "enc"="0010010111111111000101111111 pd:4" "asm"="whilele {pd}.d, xzr, xzr" "asmonly" {
+  ret void
+}
+
+define void @whilele_p_p_rr_.29(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101111 m:5 000101111111 pd:4" "asm"="whilele {pd}.d, xzr, {m}" "asmonly" {
+  ret void
+}
+
+define void @whilele_p_p_rr_.30(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010111111111000101 n:5 1 pd:4" "asm"="whilele {pd}.d, {n}, xzr" "asmonly" {
+  ret void
+}
+
+define void @whilele_p_p_rr_.31(i64 "reg"="p" %pd, i64 "reg"="x" %n, i64 "reg"="x" %m) "enc"="00100101111 m:5 000101 n:5 1 pd:4" "asm"="whilele {pd}.d, {n}, {m}" "asmonly" {
   ret void
 }
 
@@ -13218,87 +13546,103 @@ define void @whilels_p_p_rr_.6(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="00100
   ret void
 }
 
-define void @whilels_p_p_rr_.7(i64 "reg"="p" %pd) "enc"="0010010101111111000011111111 pd:4" "asm"="whilels {pd}.h, wzr, wzr" "asmonly" {
+define void @whilels_p_p_rr_.7(i64 "reg"="p" %pd, i64 "reg"="x" %n, i64 "reg"="x" %m) "enc"="00100101001 m:5 000111 n:5 1 pd:4" "asm"="whilels {pd}.b, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilels_p_p_rr_.8(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101011 m:5 000011111111 pd:4" "asm"="whilels {pd}.h, wzr, {m}" "asmonly" {
+define void @whilels_p_p_rr_.8(i64 "reg"="p" %pd) "enc"="0010010101111111000011111111 pd:4" "asm"="whilels {pd}.h, wzr, wzr" "asmonly" {
   ret void
 }
 
-define void @whilels_p_p_rr_.9(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010101111111000011 n:5 1 pd:4" "asm"="whilels {pd}.h, {n}, wzr" "asmonly" {
+define void @whilels_p_p_rr_.9(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101011 m:5 000011111111 pd:4" "asm"="whilels {pd}.h, wzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilels_p_p_rr_.10(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101011 m:5 000011 n:5 1 pd:4" "asm"="whilels {pd}.h, {n}, {m}" "asmonly" {
+define void @whilels_p_p_rr_.10(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010101111111000011 n:5 1 pd:4" "asm"="whilels {pd}.h, {n}, wzr" "asmonly" {
   ret void
 }
 
-define void @whilels_p_p_rr_.11(i64 "reg"="p" %pd) "enc"="0010010101111111000111111111 pd:4" "asm"="whilels {pd}.h, xzr, xzr" "asmonly" {
+define void @whilels_p_p_rr_.11(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101011 m:5 000011 n:5 1 pd:4" "asm"="whilels {pd}.h, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilels_p_p_rr_.12(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101011 m:5 000111111111 pd:4" "asm"="whilels {pd}.h, xzr, {m}" "asmonly" {
+define void @whilels_p_p_rr_.12(i64 "reg"="p" %pd) "enc"="0010010101111111000111111111 pd:4" "asm"="whilels {pd}.h, xzr, xzr" "asmonly" {
   ret void
 }
 
-define void @whilels_p_p_rr_.13(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010101111111000111 n:5 1 pd:4" "asm"="whilels {pd}.h, {n}, xzr" "asmonly" {
+define void @whilels_p_p_rr_.13(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101011 m:5 000111111111 pd:4" "asm"="whilels {pd}.h, xzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilels_p_p_rr_.14(i64 "reg"="p" %pd) "enc"="0010010110111111000011111111 pd:4" "asm"="whilels {pd}.s, wzr, wzr" "asmonly" {
+define void @whilels_p_p_rr_.14(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010101111111000111 n:5 1 pd:4" "asm"="whilels {pd}.h, {n}, xzr" "asmonly" {
   ret void
 }
 
-define void @whilels_p_p_rr_.15(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101101 m:5 000011111111 pd:4" "asm"="whilels {pd}.s, wzr, {m}" "asmonly" {
+define void @whilels_p_p_rr_.15(i64 "reg"="p" %pd, i64 "reg"="x" %n, i64 "reg"="x" %m) "enc"="00100101011 m:5 000111 n:5 1 pd:4" "asm"="whilels {pd}.h, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilels_p_p_rr_.16(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010110111111000011 n:5 1 pd:4" "asm"="whilels {pd}.s, {n}, wzr" "asmonly" {
+define void @whilels_p_p_rr_.16(i64 "reg"="p" %pd) "enc"="0010010110111111000011111111 pd:4" "asm"="whilels {pd}.s, wzr, wzr" "asmonly" {
   ret void
 }
 
-define void @whilels_p_p_rr_.17(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101101 m:5 000011 n:5 1 pd:4" "asm"="whilels {pd}.s, {n}, {m}" "asmonly" {
+define void @whilels_p_p_rr_.17(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101101 m:5 000011111111 pd:4" "asm"="whilels {pd}.s, wzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilels_p_p_rr_.18(i64 "reg"="p" %pd) "enc"="0010010110111111000111111111 pd:4" "asm"="whilels {pd}.s, xzr, xzr" "asmonly" {
+define void @whilels_p_p_rr_.18(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010110111111000011 n:5 1 pd:4" "asm"="whilels {pd}.s, {n}, wzr" "asmonly" {
   ret void
 }
 
-define void @whilels_p_p_rr_.19(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101101 m:5 000111111111 pd:4" "asm"="whilels {pd}.s, xzr, {m}" "asmonly" {
+define void @whilels_p_p_rr_.19(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101101 m:5 000011 n:5 1 pd:4" "asm"="whilels {pd}.s, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilels_p_p_rr_.20(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010110111111000111 n:5 1 pd:4" "asm"="whilels {pd}.s, {n}, xzr" "asmonly" {
+define void @whilels_p_p_rr_.20(i64 "reg"="p" %pd) "enc"="0010010110111111000111111111 pd:4" "asm"="whilels {pd}.s, xzr, xzr" "asmonly" {
   ret void
 }
 
-define void @whilels_p_p_rr_.21(i64 "reg"="p" %pd) "enc"="0010010111111111000011111111 pd:4" "asm"="whilels {pd}.d, wzr, wzr" "asmonly" {
+define void @whilels_p_p_rr_.21(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101101 m:5 000111111111 pd:4" "asm"="whilels {pd}.s, xzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilels_p_p_rr_.22(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101111 m:5 000011111111 pd:4" "asm"="whilels {pd}.d, wzr, {m}" "asmonly" {
+define void @whilels_p_p_rr_.22(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010110111111000111 n:5 1 pd:4" "asm"="whilels {pd}.s, {n}, xzr" "asmonly" {
   ret void
 }
 
-define void @whilels_p_p_rr_.23(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010111111111000011 n:5 1 pd:4" "asm"="whilels {pd}.d, {n}, wzr" "asmonly" {
+define void @whilels_p_p_rr_.23(i64 "reg"="p" %pd, i64 "reg"="x" %n, i64 "reg"="x" %m) "enc"="00100101101 m:5 000111 n:5 1 pd:4" "asm"="whilels {pd}.s, {n}, {m}" "asmonly" {
   ret void
 }
 
-define void @whilels_p_p_rr_.24(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101111 m:5 000011 n:5 1 pd:4" "asm"="whilels {pd}.d, {n}, {m}" "asmonly" {
+define void @whilels_p_p_rr_.24(i64 "reg"="p" %pd) "enc"="0010010111111111000011111111 pd:4" "asm"="whilels {pd}.d, wzr, wzr" "asmonly" {
   ret void
 }
 
-define void @whilels_p_p_rr_.25(i64 "reg"="p" %pd) "enc"="0010010111111111000111111111 pd:4" "asm"="whilels {pd}.d, xzr, xzr" "asmonly" {
+define void @whilels_p_p_rr_.25(i64 "reg"="p" %pd, i64 "reg"="w" %m) "enc"="00100101111 m:5 000011111111 pd:4" "asm"="whilels {pd}.d, wzr, {m}" "asmonly" {
   ret void
 }
 
-define void @whilels_p_p_rr_.26(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101111 m:5 000111111111 pd:4" "asm"="whilels {pd}.d, xzr, {m}" "asmonly" {
+define void @whilels_p_p_rr_.26(i64 "reg"="p" %pd, i64 "reg"="w" %n) "enc"="0010010111111111000011 n:5 1 pd:4" "asm"="whilels {pd}.d, {n}, wzr" "asmonly" {
   ret void
 }
 
-define void @whilels_p_p_rr_.27(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010111111111000111 n:5 1 pd:4" "asm"="whilels {pd}.d, {n}, xzr" "asmonly" {
+define void @whilels_p_p_rr_.27(i64 "reg"="p" %pd, i64 "reg"="w" %n, i64 "reg"="w" %m) "enc"="00100101111 m:5 000011 n:5 1 pd:4" "asm"="whilels {pd}.d, {n}, {m}" "asmonly" {
+  ret void
+}
+
+define void @whilels_p_p_rr_.28(i64 "reg"="p" %pd) "enc"="0010010111111111000111111111 pd:4" "asm"="whilels {pd}.d, xzr, xzr" "asmonly" {
+  ret void
+}
+
+define void @whilels_p_p_rr_.29(i64 "reg"="p" %pd, i64 "reg"="x" %m) "enc"="00100101111 m:5 000111111111 pd:4" "asm"="whilels {pd}.d, xzr, {m}" "asmonly" {
+  ret void
+}
+
+define void @whilels_p_p_rr_.30(i64 "reg"="p" %pd, i64 "reg"="x" %n) "enc"="0010010111111111000111 n:5 1 pd:4" "asm"="whilels {pd}.d, {n}, xzr" "asmonly" {
+  ret void
+}
+
+define void @whilels_p_p_rr_.31(i64 "reg"="p" %pd, i64 "reg"="x" %n, i64 "reg"="x" %m) "enc"="00100101111 m:5 000111 n:5 1 pd:4" "asm"="whilels {pd}.d, {n}, {m}" "asmonly" {
   ret void
 }
 
@@ -13330,6 +13674,10 @@ define void @ctermeq_rr_.6(i64 "reg"="x" %n) "enc"="0010010111111111001000 n:5 0
   ret void
 }
 
+define void @ctermeq_rr_.7(i64 "reg"="x" %n, i64 "reg"="x" %m) "enc"="00100101111 m:5 001000 n:5 00000" "asm"="ctermeq {n}, {m}" "asmonly" {
+  ret void
+}
+
 define void @ctermne_rr_.0() "enc"="00100101101111110010001111110000" "asm"="ctermne wzr, wzr" "asmonly" {
   ret void
 }
@@ -13355,6 +13703,10 @@ define void @ctermne_rr_.5(i64 "reg"="x" %m) "enc"="00100101111 m:5 001000111111
 }
 
 define void @ctermne_rr_.6(i64 "reg"="x" %n) "enc"="0010010111111111001000 n:5 10000" "asm"="ctermne {n}, xzr" "asmonly" {
+  ret void
+}
+
+define void @ctermne_rr_.7(i64 "reg"="x" %n, i64 "reg"="x" %m) "enc"="00100101111 m:5 001000 n:5 10000" "asm"="ctermne {n}, {m}" "asmonly" {
   ret void
 }
 
@@ -17802,7 +18154,23 @@ define void @faddv_v_p_z_.0(i64 "reg"="h" %d, i64 "reg"="pg" %pg, i64 "reg"="z" 
   ret void
 }
 
+define void @faddv_v_p_z_.1(i64 "reg"="s" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0110010110000000001 pg:3 zn:5 d:5" "asm"="faddv {d}, {pg}, {zn}.s" "asmonly" {
+  ret void
+}
+
+define void @faddv_v_p_z_.2(i64 "reg"="d" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0110010111000000001 pg:3 zn:5 d:5" "asm"="faddv {d}, {pg}, {zn}.d" "asmonly" {
+  ret void
+}
+
 define void @fmaxnmv_v_p_z_.0(i64 "reg"="h" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0110010101000100001 pg:3 zn:5 d:5" "asm"="fmaxnmv {d}, {pg}, {zn}.h" "asmonly" {
+  ret void
+}
+
+define void @fmaxnmv_v_p_z_.1(i64 "reg"="s" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0110010110000100001 pg:3 zn:5 d:5" "asm"="fmaxnmv {d}, {pg}, {zn}.s" "asmonly" {
+  ret void
+}
+
+define void @fmaxnmv_v_p_z_.2(i64 "reg"="d" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0110010111000100001 pg:3 zn:5 d:5" "asm"="fmaxnmv {d}, {pg}, {zn}.d" "asmonly" {
   ret void
 }
 
@@ -17810,11 +18178,35 @@ define void @fminnmv_v_p_z_.0(i64 "reg"="h" %d, i64 "reg"="pg" %pg, i64 "reg"="z
   ret void
 }
 
+define void @fminnmv_v_p_z_.1(i64 "reg"="s" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0110010110000101001 pg:3 zn:5 d:5" "asm"="fminnmv {d}, {pg}, {zn}.s" "asmonly" {
+  ret void
+}
+
+define void @fminnmv_v_p_z_.2(i64 "reg"="d" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0110010111000101001 pg:3 zn:5 d:5" "asm"="fminnmv {d}, {pg}, {zn}.d" "asmonly" {
+  ret void
+}
+
 define void @fmaxv_v_p_z_.0(i64 "reg"="h" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0110010101000110001 pg:3 zn:5 d:5" "asm"="fmaxv {d}, {pg}, {zn}.h" "asmonly" {
   ret void
 }
 
+define void @fmaxv_v_p_z_.1(i64 "reg"="s" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0110010110000110001 pg:3 zn:5 d:5" "asm"="fmaxv {d}, {pg}, {zn}.s" "asmonly" {
+  ret void
+}
+
+define void @fmaxv_v_p_z_.2(i64 "reg"="d" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0110010111000110001 pg:3 zn:5 d:5" "asm"="fmaxv {d}, {pg}, {zn}.d" "asmonly" {
+  ret void
+}
+
 define void @fminv_v_p_z_.0(i64 "reg"="h" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0110010101000111001 pg:3 zn:5 d:5" "asm"="fminv {d}, {pg}, {zn}.h" "asmonly" {
+  ret void
+}
+
+define void @fminv_v_p_z_.1(i64 "reg"="s" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0110010110000111001 pg:3 zn:5 d:5" "asm"="fminv {d}, {pg}, {zn}.s" "asmonly" {
+  ret void
+}
+
+define void @fminv_v_p_z_.2(i64 "reg"="d" %d, i64 "reg"="pg" %pg, i64 "reg"="z" %zn) "enc"="0110010111000111001 pg:3 zn:5 d:5" "asm"="fminv {d}, {pg}, {zn}.d" "asmonly" {
   ret void
 }
 
@@ -18807,6 +19199,14 @@ define void @fcmle_p_p_z0_.2(i64 "reg"="p" %pd, i64 "reg"="pg" %pg, i64 "reg"="z
 }
 
 define void @fadda_v_p_z_.0(i64 "reg"="h" %dn, i64 "reg"="pg" %pg, i64 "reg"="z" %zm) "enc"="0110010101011000001 pg:3 zm:5 dn:5" "asm"="fadda {dn}, {pg}, {dn}, {zm}.h" "asmonly" {
+  ret void
+}
+
+define void @fadda_v_p_z_.1(i64 "reg"="s" %dn, i64 "reg"="pg" %pg, i64 "reg"="z" %zm) "enc"="0110010110011000001 pg:3 zm:5 dn:5" "asm"="fadda {dn}, {pg}, {dn}, {zm}.s" "asmonly" {
+  ret void
+}
+
+define void @fadda_v_p_z_.2(i64 "reg"="d" %dn, i64 "reg"="pg" %pg, i64 "reg"="z" %zm) "enc"="0110010111011000001 pg:3 zm:5 dn:5" "asm"="fadda {dn}, {pg}, {dn}, {zm}.d" "asmonly" {
   ret void
 }
 

@@ -67,6 +67,9 @@ enum Ty {
     Int(u32),
     Fp(&'static str),
     Vec(u32, Box<Ty>),
+    /// A scalable vector (SVE's): kept in memory as long as the longest
+    /// machine's (16 times its least width); a predicate as svbool.
+    Scalable(u32, Box<Ty>),
     Ptr,
     Void,
     Struct(Vec<Ty>),
@@ -78,6 +81,10 @@ fn fp_name(s: &str) -> Option<&'static str> {
 
 fn parse_ty(s: &str) -> Ty {
     let s = s.trim();
+    if let Some(inner) = s.strip_prefix("<vscale x ").and_then(|s| s.strip_suffix('>')) {
+        let (n, e) = inner.split_once(" x ").unwrap_or_else(|| panic!("bad scalable type {s}"));
+        return Ty::Scalable(n.trim().parse().unwrap(), Box::new(parse_ty(e)));
+    }
     if let Some(b) = s.strip_prefix('i').and_then(|b| b.parse().ok()) {
         return Ty::Int(b);
     }
@@ -106,6 +113,7 @@ impl Ty {
             Ty::Int(b) => format!("i{b}"),
             Ty::Fp(f) => f.to_string(),
             Ty::Vec(n, e) => format!("<{n} x {}>", e.text()),
+            Ty::Scalable(n, e) => format!("<vscale x {n} x {}>", e.text()),
             Ty::Ptr => "ptr".into(),
             Ty::Void => "void".into(),
             Ty::Struct(fs) => format!("{{ {} }}", fs.iter().map(Ty::text).collect::<Vec<_>>().join(", ")),
@@ -121,6 +129,7 @@ impl Ty {
             Ty::Fp("double") => "f64".into(),
             Ty::Fp(_) => "f128".into(),
             Ty::Vec(n, e) => format!("v{n}{}", e.mangle()),
+            Ty::Scalable(n, e) => format!("nxv{n}{}", e.mangle()),
             Ty::Ptr => "p0".into(),
             Ty::Void => "isVoid".into(),
             Ty::Struct(fs) => format!("sl_{}s", fs.iter().map(Ty::mangle).collect::<String>()),
@@ -129,7 +138,7 @@ impl Ty {
 
     fn elem(&self) -> Ty {
         match self {
-            Ty::Vec(_, e) => (**e).clone(),
+            Ty::Vec(_, e) | Ty::Scalable(_, e) => (**e).clone(),
             t => t.clone(),
         }
     }
@@ -138,6 +147,7 @@ impl Ty {
     fn shape_of(&self, e: Ty) -> Ty {
         match self {
             Ty::Vec(n, _) => Ty::Vec(*n, Box::new(e)),
+            Ty::Scalable(n, _) => Ty::Scalable(*n, Box::new(e)),
             _ => e,
         }
     }
@@ -160,6 +170,8 @@ impl Ty {
             Ty::Fp("double") | Ty::Ptr => 8,
             Ty::Fp(_) => 16,
             Ty::Vec(n, e) => n * e.bytes(),
+            Ty::Scalable(_, e) if **e == Ty::Int(1) => 32,
+            Ty::Scalable(n, e) => 16 * n * e.bytes(),
             Ty::Void => 0,
             Ty::Struct(fs) => fs.iter().map(|f| f.bytes().next_multiple_of(16)).sum(),
         }
@@ -168,6 +180,8 @@ impl Ty {
     /// How the driver fills or prints it (`driver.c`), at `off`.
     fn desc(&self, off: u32, domain: &str) -> String {
         let (lanes, e) = match self {
+            Ty::Scalable(_, e) if **e == Ty::Int(1) => (32, Ty::Int(8)),
+            Ty::Scalable(n, e) => (16 * n, (**e).clone()),
             Ty::Vec(n, e) => (*n, (**e).clone()),
             t => (1, t.clone()),
         };
@@ -347,7 +361,8 @@ struct Case {
     output: String,
 }
 
-const SCRATCH: u32 = 64;
+// (Enough for SVE's loads of four vectors at qemu's length, 512 bits.)
+const SCRATCH: u32 = 512;
 
 fn make_case(entry: &Entry, tys: &[Ty], sym: &str, host: &Host) -> Case {
     let mut name = entry.name.clone();
@@ -364,6 +379,8 @@ fn make_case(entry: &Entry, tys: &[Ty], sym: &str, host: &Host) -> Case {
     let mut args = Vec::new();
     let mut uses_mem = false;
     let mut varargs = false;
+    // Declarations the case needs beyond the intrinsic's.
+    let mut extra: Vec<String> = Vec::new();
     // The arguments as the case's label names them.
     let mut parts: Vec<String> = Vec::new();
     let mut v = 0;
@@ -439,7 +456,24 @@ fn make_case(entry: &Entry, tys: &[Ty], sym: &str, host: &Host) -> Case {
         let p = fresh("p");
         let l = fresh("l");
         let _ = writeln!(body, "  {p} = getelementptr i8, ptr %in, i64 {in_off}");
-        let _ = writeln!(body, "  {l} = load {}, ptr {p}, align 1", st.text());
+        // (A predicate of fewer lanes: as svbool, converted.)
+        let narrow = match &t {
+            Ty::Scalable(n, e) if **e == Ty::Int(1) && *n < 16 => Some(*n),
+            _ => None,
+        };
+        if let Some(n) = narrow {
+            let w = fresh("w");
+            let _ = writeln!(body, "  {w} = load <vscale x 16 x i1>, ptr {p}, align 1");
+            let _ = writeln!(
+                body,
+                "  {l} = call <vscale x {n} x i1> @llvm.aarch64.sve.convert.from.svbool.nxv{n}i1(<vscale x 16 x i1> {w})"
+            );
+            extra.push(format!(
+                "declare <vscale x {n} x i1> @llvm.aarch64.sve.convert.from.svbool.nxv{n}i1(<vscale x 16 x i1>)"
+            ));
+        } else {
+            let _ = writeln!(body, "  {l} = load {}, ptr {p}, align 1", st.text());
+        }
         in_off += st.bytes();
         if st != t {
             let x = fresh("t");
@@ -506,6 +540,21 @@ fn make_case(entry: &Entry, tys: &[Ty], sym: &str, host: &Host) -> Case {
                 let _ = writeln!(body, "  {z} = zext {} {x} to {}", t.text(), st.text());
                 let _ = writeln!(body, "  store {} {z}, ptr {p}, align 1", st.text());
                 output.push(st.desc(off, ""));
+            } else if let Ty::Scalable(n, e) = &t
+                && **e == Ty::Int(1)
+                && *n < 16
+            {
+                // (A predicate of fewer lanes: converted to svbool, stored.)
+                let w = fresh("w");
+                let _ = writeln!(
+                    body,
+                    "  {w} = call <vscale x 16 x i1> @llvm.aarch64.sve.convert.to.svbool.nxv{n}i1(<vscale x {n} x i1> {x})"
+                );
+                let _ = writeln!(body, "  store <vscale x 16 x i1> {w}, ptr {p}, align 1");
+                extra.push(format!(
+                    "declare <vscale x 16 x i1> @llvm.aarch64.sve.convert.to.svbool.nxv{n}i1(<vscale x {n} x i1>)"
+                ));
+                output.push(t.desc(off, ""));
             } else {
                 let _ = writeln!(body, "  store {} {x}, ptr {p}, align 1", t.text());
                 output.push(t.desc(off, ""));
@@ -524,9 +573,15 @@ fn make_case(entry: &Entry, tys: &[Ty], sym: &str, host: &Host) -> Case {
         format!(" \"target-features\"=\"{}\"", features.iter().map(|f| format!("+{f}")).collect::<Vec<_>>().join(","))
     };
     let ir = format!(
-        "target triple = \"{}\"\n{decl}\ndefine void @{sym}(ptr %out, ptr %in) #0 {{\n{body}  ret void\n}}\n\
+        "target triple = \"{}\"\n{decl}\n{}define void @{sym}(ptr %out, ptr %in) #0 {{\n{body}  ret void\n}}\n\
          attributes #0 = {{ \"target-cpu\"=\"{}\"{features} }}\n",
-        host.triple, host.cpu
+        host.triple,
+        {
+            extra.sort();
+            extra.dedup();
+            extra.iter().map(|d| format!("{d}\n")).collect::<String>()
+        },
+        host.cpu
     );
     // (Without spaces: the driver's lines start with it.)
     let label = format!("{name}({})", parts.join(","));

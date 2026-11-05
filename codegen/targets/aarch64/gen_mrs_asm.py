@@ -938,7 +938,8 @@ def main():
         seen = set()
         for var, _ in vs:
             var = merge_registers(var, ins["encoded_in"])
-            key = re.sub(r"\s+", "", "".join(p[1] if p[0] == "lit" else f"<{p[2]}>" for p in var))
+            # (By the operands' kinds too: andv h0, of .h, is not andv b0.)
+            key = re.sub(r"\s+", "", "".join(p[1] if p[0] == "lit" else f"<{p[1]}:{p[2]}>" for p in var))
             if key in seen:
                 continue
             seen.add(key)

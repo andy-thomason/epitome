@@ -22,6 +22,13 @@ pub fn pretty(ast: &Ast) -> String {
     p.out
 }
 
+/// One node (an item, say) as source text.
+pub fn pretty_node(ast: &Ast, id: NodeId) -> String {
+    let mut p = Printer { ast, out: String::new(), indent: 0 };
+    p.node(id);
+    p.out
+}
+
 /// Whether two trees have the same kinds, shapes and leaf tokens.
 pub fn same_tree(a: &Ast, ia: NodeId, b: &Ast, ib: NodeId) -> bool {
     if a.kind(ia) != b.kind(ib) {
@@ -73,6 +80,39 @@ fn is_type(k: Kind) -> bool {
     )
 }
 
+const PREC_RANGE: u8 = 2;
+const PREC_CAST: u8 = 12;
+const PREC_PREFIX: u8 = 13;
+const PREC_POSTFIX: u8 = 14;
+
+/// A binary operator's precedence (1, assignment, to 11, `*`), and whether
+/// it groups right to left.
+fn binary_prec(op: &str) -> (u8, bool) {
+    match op {
+        "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "^=" | "&=" | "|=" | "<<=" | ">>=" => (1, true),
+        "||" => (3, false),
+        "&&" => (4, false),
+        "==" | "!=" | "<" | ">" | "<=" | ">=" => (5, false),
+        "|" => (6, false),
+        "^" => (7, false),
+        "&" => (8, false),
+        "<<" | ">>" => (9, false),
+        "+" | "-" => (10, false),
+        _ => (11, false),
+    }
+}
+
+/// Whether a token is not from any source text, but made by expansion
+/// (the parentheses around a transcribed `$e:expr`).
+fn is_synthetic(t: crate::lexer::Token) -> bool {
+    crate::expand::is_synthetic(t)
+}
+
+/// A type, or a macro call standing for one.
+fn is_type_like(k: Kind) -> bool {
+    is_type(k) || k == Kind::TypeMacro
+}
+
 fn is_attr(k: Kind) -> bool {
     matches!(k, Kind::Attribute | Kind::DocComment)
 }
@@ -116,9 +156,31 @@ impl<'p, 'a> Printer<'p, 'a> {
         self.s(&text);
     }
 
-    /// The source text a node covers, verbatim.
+    /// The source text a node covers, verbatim. Tokens made by macro
+    /// expansion are not one piece of text, so they are joined instead:
+    /// with a space between tokens that did not touch, and a new line
+    /// after a line comment.
     fn verbatim(&mut self, id: NodeId) {
         let toks = self.ast.tokens_of(id);
+        if !self.ast.is_original(id) {
+            let mut prev: Option<crate::lexer::Token> = None;
+            // The parentheses expansion puts around a transcribed
+            // expression stay in the tokens (so the expression stays one
+            // when the tokens are expanded again), but are not printed, as
+            // rustc does not print them.
+            for &t in toks.iter().filter(|t| !is_synthetic(**t)) {
+                if let Some(p) = prev {
+                    if p.0.starts_with("//") {
+                        self.nl();
+                    } else if !p.touches(t) {
+                        self.s(" ");
+                    }
+                }
+                self.s(t.0);
+                prev = Some(t);
+            }
+            return;
+        }
         let (Some(first), Some(last)) = (toks.first(), toks.last()) else { return };
         let start = first.0.as_ptr() as usize;
         let end = last.0.as_ptr() as usize + last.0.len();
@@ -195,6 +257,45 @@ impl<'p, 'a> Printer<'p, 'a> {
         self.indent -= 1;
         self.nl();
         self.s("}");
+    }
+
+    /// Whether a `Paren` node was made by macro expansion (to keep an
+    /// expansion one expression) rather than written: either it covers no
+    /// `(` of its own, or its `(` is not from any source text.
+    fn is_synthetic_paren(&self, id: NodeId) -> bool {
+        let first = self.ast.token(id);
+        first.0 != "(" || is_synthetic(first)
+    }
+
+    /// An operand that must bind at least as tightly as `min`: a
+    /// parenthesis made by expansion is printed only if it is needed.
+    fn operand(&mut self, id: NodeId, min: u8) {
+        if self.kind(id) == Kind::Paren && self.is_synthetic_paren(id) {
+            let inner = self.kids(id)[0];
+            if self.expr_prec(inner) < min {
+                self.s("(");
+                self.node(inner);
+                self.s(")");
+            } else {
+                self.operand(inner, min);
+            }
+        } else {
+            self.node(id);
+        }
+    }
+
+    /// How tightly an expression binds, on the scale of `binary_prec`.
+    fn expr_prec(&self, id: NodeId) -> u8 {
+        use Kind::*;
+        match self.kind(id) {
+            Binary => binary_prec(&self.ast.text(self.kids(id)[1])).0,
+            Range => PREC_RANGE,
+            Cast => PREC_CAST,
+            Unary | Borrow => PREC_PREFIX,
+            Closure | Return | Break | Yield | Become | Yeet | Let => 0,
+            Paren if self.is_synthetic_paren(id) => self.expr_prec(self.kids(id)[0]),
+            _ => PREC_POSTFIX,
+        }
     }
 
     /// A path, with `::<` before generic arguments in expressions and
@@ -440,26 +541,29 @@ impl<'p, 'a> Printer<'p, 'a> {
             }
             Variant | FieldDef => {
                 let rest = self.attrs_lines(kids);
+                // A field's type, then its default; a variant's fields,
+                // then its discriminant.
+                let mut typed = self.kind(id) == Variant;
                 for &k in rest {
                     match self.kind(k) {
                         Visibility | Keyword => {
                             self.node(k);
                             self.s(" ");
                         }
-                        Name => self.node(k),
-                        _ if self.before(k) == "=" => {
-                            self.s(" = ");
-                            self.node(k);
-                        }
-                        _ if self.before(k) == ":" => {
-                            self.s(": ");
-                            self.node(k);
-                        }
+                        Name | TupleFields => self.node(k),
                         NamedFields => {
                             self.s(" ");
                             self.node(k);
                         }
-                        _ => self.node(k),
+                        _ if !typed => {
+                            self.s(": ");
+                            self.node(k);
+                            typed = true;
+                        }
+                        _ => {
+                            self.s(" = ");
+                            self.node(k);
+                        }
                     }
                 }
             }
@@ -545,7 +649,7 @@ impl<'p, 'a> Printer<'p, 'a> {
                         ImplTrait => self.node(k),
                         // The self type is the one type in the header; what
                         // follows it (apart from `where`) is the body.
-                        _ if !self_done && (is_type(k_kind) || k_kind == MacroCall) => {
+                        _ if !self_done && (is_type(k_kind) || matches!(k_kind, MacroCall | TypeMacro)) => {
                             self.node(k);
                             self_done = true;
                         }
@@ -628,6 +732,7 @@ impl<'p, 'a> Printer<'p, 'a> {
                     _ => "type ",
                 };
                 let mut said = false;
+                let mut typed = false;
                 for &k in rest {
                     let kk = self.kind(k);
                     let after_word = kk == Keyword && self.ast.text(k) == "mut";
@@ -649,9 +754,12 @@ impl<'p, 'a> Printer<'p, 'a> {
                             self.s(" ");
                             self.node(k);
                         }
-                        _ if self.before(k) == ":" => {
+                        // A constant's or static's type; a type alias's
+                        // type is its value.
+                        _ if !typed && self.kind(id) != TypeAlias && is_type_like(kk) => {
                             self.s(": ");
                             self.node(k);
+                            typed = true;
                         }
                         _ => {
                             self.s(" = ");
@@ -732,7 +840,7 @@ impl<'p, 'a> Printer<'p, 'a> {
                     }
                 }
             }
-            MacroCall => {
+            MacroCall | TypeMacro | PatMacro => {
                 let rest = self.attrs_lines(kids);
                 let at_item = self.ast.tokens_of(id).last().is_some_and(|t| t.0 == ";");
                 self.path(rest[0], true);
@@ -763,21 +871,24 @@ impl<'p, 'a> Printer<'p, 'a> {
                 if self.kind(id) == ConstParam {
                     self.s("const ");
                 }
+                // A const parameter's type, then any default.
+                let mut typed = self.kind(id) != ConstParam;
                 for &k in rest {
                     match self.kind(k) {
                         Bounds => {
                             self.s(": ");
                             self.node(k);
                         }
-                        _ if self.before(k) == ":" => {
+                        Name | Lifetime => self.node(k),
+                        _ if !typed => {
                             self.s(": ");
                             self.node(k);
+                            typed = true;
                         }
-                        _ if self.before(k) == "=" => {
+                        _ => {
                             self.s(" = ");
                             self.node(k);
                         }
-                        _ => self.node(k),
                     }
                 }
             }
@@ -786,6 +897,8 @@ impl<'p, 'a> Printer<'p, 'a> {
                 self.join(kids, ", ");
             }
             WherePredicate => {
+                // `T: Bounds`, `'a: 'b`, or `T = U`.
+                let mut first = true;
                 for &k in kids {
                     match self.kind(k) {
                         ForLifetimes => {
@@ -796,11 +909,14 @@ impl<'p, 'a> Printer<'p, 'a> {
                             self.s(": ");
                             self.node(k);
                         }
-                        _ if self.before(k) == "=" => {
+                        _ if !first => {
                             self.s(" = ");
                             self.node(k);
                         }
-                        _ => self.node(k),
+                        _ => {
+                            self.node(k);
+                            first = false;
+                        }
                     }
                 }
             }
@@ -947,6 +1063,7 @@ impl<'p, 'a> Printer<'p, 'a> {
                 }
                 self.s(")");
             }
+            Paren if self.is_synthetic_paren(id) => self.node(kids[0]),
             ParenType | Paren | ParenPat => {
                 self.s("(");
                 self.node(kids[0]);
@@ -1024,7 +1141,11 @@ impl<'p, 'a> Printer<'p, 'a> {
                         // the range operator.
                         self.s(" ");
                     }
-                    self.node(k);
+                    if self.kind(k) == Op {
+                        self.node(k);
+                    } else {
+                        self.operand(k, PREC_RANGE + 1);
+                    }
                 }
             }
             RefPat => {
@@ -1083,66 +1204,73 @@ impl<'p, 'a> Printer<'p, 'a> {
 
             // ---- expressions ----
             Binary => {
-                self.node(kids[0]);
+                let (prec, right) = binary_prec(&self.ast.text(kids[1]));
+                let (l, r) = if right { (prec + 1, prec) } else { (prec, prec + 1) };
+                self.operand(kids[0], l);
                 self.s(" ");
                 self.node(kids[1]);
                 self.s(" ");
-                self.node(kids[2]);
+                self.operand(kids[2], r);
             }
             Unary => {
                 self.node(kids[0]);
                 if self.kind(kids[0]) == Keyword {
                     self.s(" ");
                 }
-                self.node(kids[1]);
+                self.operand(kids[1], PREC_PREFIX);
             }
             Borrow => {
                 self.s("&");
                 for &k in kids {
-                    self.node(k);
                     if self.kind(k) == Keyword {
+                        self.node(k);
                         self.s(" ");
+                    } else {
+                        self.operand(k, PREC_PREFIX);
                     }
                 }
             }
             Cast => {
-                self.node(kids[0]);
+                self.operand(kids[0], PREC_CAST);
                 self.s(" as ");
                 self.node(kids[1]);
             }
-            Call => self.join(kids, ""),
+            Call => {
+                self.operand(kids[0], PREC_POSTFIX);
+                self.node(kids[1]);
+            }
             Args => {
                 self.s("(");
                 self.join(kids, ", ");
                 self.s(")");
             }
             MethodCall => {
-                self.node(kids[0]);
+                self.operand(kids[0], PREC_POSTFIX);
                 self.s(".");
                 self.segment(kids[1], true);
                 self.node(kids[2]);
             }
             Field => {
-                self.node(kids[0]);
+                self.operand(kids[0], PREC_POSTFIX);
                 self.s(".");
                 self.node(kids[1]);
             }
             Index => {
-                self.node(kids[0]);
+                self.operand(kids[0], PREC_POSTFIX);
                 self.s("[");
                 self.node(kids[1]);
                 self.s("]");
             }
             Try => {
-                self.node(kids[0]);
+                self.operand(kids[0], PREC_POSTFIX);
                 self.s("?");
             }
             Await => {
-                self.node(kids[0]);
+                self.operand(kids[0], PREC_POSTFIX);
                 self.s(".await");
             }
             UseExpr => {
-                self.node(kids[0]);
+                self.operand(kids[0], PREC_POSTFIX);
                 self.s(".use");
             }
             StructBase => {
@@ -1278,23 +1406,31 @@ impl<'p, 'a> Printer<'p, 'a> {
             // ---- statements ----
             LetStmt => {
                 let rest = self.attrs_lines(kids);
+                // The pattern, then a type, a value and an `else` block,
+                // each of which may be missing.
+                let mut stage = 0;
                 for &k in rest {
-                    match self.before(k) {
-                        _ if self.kind(k) == Keyword => {
-                            self.node(k);
-                            self.s(" ");
-                        }
-                        "let" => {
+                    let kk = self.kind(k);
+                    if kk == Keyword {
+                        self.node(k);
+                        self.s(" ");
+                        continue;
+                    }
+                    match stage {
+                        0 => {
                             self.s("let ");
                             self.node(k);
+                            stage = 1;
                         }
-                        ":" => {
+                        1 if is_type_like(kk) => {
                             self.s(": ");
                             self.node(k);
+                            stage = 2;
                         }
-                        "=" => {
+                        1 | 2 => {
                             self.s(" = ");
                             self.node(k);
+                            stage = 3;
                         }
                         _ => {
                             self.s(" else ");

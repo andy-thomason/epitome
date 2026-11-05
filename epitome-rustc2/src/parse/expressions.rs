@@ -629,6 +629,26 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
+    /// Whether a macro call with braces starts here: `a::b! {`.
+    fn brace_macro_at(&self) -> bool {
+        let mut n = 0;
+        if self.at_op("::") {
+            n += 2;
+        }
+        loop {
+            if !self.segment_at(n) {
+                return false;
+            }
+            n += if self.at_n(n, "$") { 2 } else { 1 };
+            if self.at_op_n(n, "::") {
+                n += 2;
+            } else {
+                break;
+            }
+        }
+        self.at_n(n, "!") && self.at_n(n + 1, "{")
+    }
+
     /// Whether the current token starts a block-like expression, which
     /// ends a statement without `;`.
     fn block_like_at(&self) -> bool {
@@ -646,6 +666,15 @@ impl<'a> Parser<'a> {
     /// block-like expression ends there unless `.` or `?` follows; the
     /// result says whether it did.
     fn stmt_like_expr(&mut self) -> PResult<'a, bool> {
+        if self.brace_macro_at() {
+            // `m! { ... }` as a statement ends there, like a block.
+            let m = self.mark();
+            self.path(PathMode::Expr)?;
+            self.expect("!")?;
+            self.token_tree()?;
+            self.finish(m, Kind::MacroCall);
+            return Ok(true);
+        }
         if !self.block_like_at() {
             self.expr()?;
             return Ok(self.top_is_brace_macro());

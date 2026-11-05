@@ -6,10 +6,22 @@
 //!
 //! - `--edition 2015|2018|2021|2024` (default 2024), also `--edition=N`.
 //! - `--threads N`: worker threads (default one per core).
+//! - `--cfg name` or `--cfg 'name="value"'`: set a configuration option,
+//!   on top of the host's (`target_os`, `unix`, `debug_assertions`, ...).
+//! - `--no-cfg`: do not strip `cfg`; load every module whose file exists.
+//! - `--extern name=lib.so`: a proc-macro library (built by rustc) that the
+//!   crates use, as `name`.
+//! - `--proc-macro-server PATH`: the server that runs proc macros; by
+//!   default the one beside the `rustc` on `PATH`.
 //! - `--dump-ast`: print each file's syntax tree, one node per line.
 //! - `--sexp`: print each file's syntax tree on one line.
 //! - `--pretty`: print each file's syntax tree back as Rust source.
 //! - `--tokens file.rs`: print the tokens of one file, one per line.
+//! - `--list-files`: print the path of each file loaded, one per line.
+//! - `--no-expand`: stop before macro expansion (it runs by default, so
+//!   `--pretty` shows the expanded tree).
+//! - `--expand-stats`: print what expansion did, and the macros most often
+//!   not found.
 //! - `--parse-tree dir`: parse every `.rs` file under `dir` (each on its
 //!   own, not following modules), and report each that fails and a count.
 //!   Each file is read in the edition of the nearest `Cargo.toml` above it
@@ -18,6 +30,7 @@
 //!   parsed again, and must give the same tree.
 
 use epitome_rustc2::ast::Ast;
+use epitome_rustc2::cfg::CfgSet;
 use epitome_rustc2::lexer::{Edition, lex};
 use epitome_rustc2::parse::parse_str;
 use epitome_rustc2::pretty::{first_difference, pretty};
@@ -31,7 +44,12 @@ fn main() -> ExitCode {
     let mut edition = Edition::default();
     let mut options = Options::default();
     let (mut dump, mut sexp, mut tokens, mut print, mut roundtrip) = (false, false, false, false, false);
+    let mut list_files = false;
+    let (mut no_expand, mut expand_stats) = (false, false);
     let mut tree: Option<PathBuf> = None;
+    let mut cfg = CfgSet::host();
+    let mut externs: Vec<(String, PathBuf)> = Vec::new();
+    let mut no_cfg = false;
     let mut files = Vec::new();
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -42,6 +60,17 @@ fn main() -> ExitCode {
             "--tokens" => tokens = true,
             "--pretty" => print = true,
             "--roundtrip" => roundtrip = true,
+            "--no-cfg" => no_cfg = true,
+            "--list-files" => list_files = true,
+            "--no-expand" => no_expand = true,
+            "--expand-stats" => expand_stats = true,
+            _ if arg.starts_with("--cfg") => {
+                let v = value("--cfg").unwrap_or_default();
+                match v.split_once('=') {
+                    Some((n, val)) => cfg.set_value(n.trim(), val.trim().trim_matches('"')),
+                    None => cfg.set(v.trim()),
+                };
+            }
             _ if arg.starts_with("--edition") => {
                 let v = value("--edition").unwrap_or_default();
                 let Some(e) = Edition::parse(&v) else {
@@ -59,6 +88,17 @@ fn main() -> ExitCode {
                 options.threads = n;
             }
             _ if arg.starts_with("--parse-tree") => tree = value("--parse-tree").map(PathBuf::from),
+            _ if arg.starts_with("--extern") => {
+                let v = value("--extern").unwrap_or_default();
+                let Some((name, path)) = v.split_once('=') else {
+                    eprintln!("error: expected `--extern name=path`");
+                    return ExitCode::FAILURE;
+                };
+                externs.push((name.to_string(), PathBuf::from(path)));
+            }
+            _ if arg.starts_with("--proc-macro-server") => {
+                options.proc_macro_server = value("--proc-macro-server").map(PathBuf::from);
+            }
             _ if arg.starts_with('-') => {
                 eprintln!("error: unknown option `{arg}`");
                 return ExitCode::FAILURE;
@@ -77,18 +117,58 @@ fn main() -> ExitCode {
         return print_tokens(&files);
     }
 
+    if !no_cfg {
+        options.cfg = Some(cfg);
+    }
+    if !externs.is_empty() && options.proc_macro_server.is_none() {
+        options.proc_macro_server = epitome_rustc2::proc_macro::Server::from_rustc();
+    }
     let session = Session::new(options);
     let roots = files
         .iter()
         .map(|f| {
-            let name = f.file_stem().map_or("main".into(), |s| s.to_string_lossy().into_owned());
-            CrateRoot::new(name, f).edition(edition)
+            let mut root = CrateRoot::new(crate_name(f), f).edition(edition);
+            for (name, lib) in &externs {
+                root = root.proc_macro(name.clone(), lib.clone());
+            }
+            root
         })
         .collect();
-    let crates = session.parse_crates(roots);
+    let mut crates = session.parse_crates(roots);
+    if !no_expand {
+        let stats = session.expand(&mut crates);
+        if expand_stats {
+            eprintln!(
+                "expansion: {} rounds, {} calls expanded, {} built-in calls left, {} files loaded",
+                stats.rounds, stats.expanded, stats.builtins_left, stats.files_loaded
+            );
+            eprintln!("per round: {:?}", stats.per_round);
+            if stats.per_round.last().is_some_and(|&n| n > 0) {
+                eprintln!("still expanding in the last round: {:?}", stats.last_round);
+            }
+            let mut missing: Vec<_> = stats.unresolved.iter().collect();
+            missing.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
+            let total: usize = missing.iter().map(|m| m.1).sum();
+            eprintln!("not found: {total} calls to {} macros", missing.len());
+            for (name, n) in missing.iter().take(20) {
+                eprintln!("  {n:6} {name}!");
+            }
+        }
+    }
+    if list_files {
+        let mut included = session.included.lock().unwrap().clone();
+        included.sort();
+        included.dedup();
+        for f in included {
+            println!("{}", f.display());
+        }
+    }
     let mut failed = false;
     for c in &crates {
         for f in &c.files {
+            if list_files {
+                println!("{}", f.source.name);
+            }
             let several = crates.len() > 1 || c.files.len() > 1;
             if several && (dump || sexp || print) {
                 println!("// {}", f.source.name);
@@ -109,6 +189,20 @@ fn main() -> ExitCode {
         }
     }
     if failed { ExitCode::FAILURE } else { ExitCode::SUCCESS }
+}
+
+/// A crate's name from its root file: the file's name, or for `lib.rs`,
+/// `main.rs` and `mod.rs` the directory's (above `src`).
+fn crate_name(root: &Path) -> String {
+    let stem = root.file_stem().map_or(String::new(), |s| s.to_string_lossy().into_owned());
+    if !matches!(stem.as_str(), "lib" | "main" | "mod") {
+        return stem;
+    }
+    let mut dir = root.parent();
+    if dir.is_some_and(|d| d.file_name().is_some_and(|n| n == "src")) {
+        dir = dir.and_then(Path::parent);
+    }
+    dir.and_then(|d| d.file_name()).map_or(stem, |n| n.to_string_lossy().replace('-', "_"))
 }
 
 fn print_tokens(files: &[PathBuf]) -> ExitCode {

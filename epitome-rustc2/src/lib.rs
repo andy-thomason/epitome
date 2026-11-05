@@ -7,9 +7,13 @@
 //! their files in parallel on a pool of threads (`pool`).
 
 pub mod ast;
+pub mod cfg;
+pub mod expand;
+pub mod json;
 pub mod lexer;
 pub mod parse;
 pub mod pool;
 pub mod pretty;
+pub mod proc_macro;
 pub mod session;
 pub mod source;

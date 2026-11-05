@@ -9,8 +9,8 @@
 //! as long as the map. Which source a slice belongs to is found from its
 //! address.
 
-use std::cell::RefCell;
 use std::fmt;
+use std::sync::Mutex;
 
 /// One piece of source text: a file, or text made during the compilation.
 pub struct Source {
@@ -67,7 +67,7 @@ pub struct SourceMap {
     // Boxed so that a source never moves when the vector grows. Sources
     // are only added, never removed or changed, until the map is dropped.
     #[allow(clippy::vec_box)]
-    sources: RefCell<Vec<Box<Source>>>,
+    sources: Mutex<Vec<Box<Source>>>,
 }
 
 impl SourceMap {
@@ -79,7 +79,7 @@ impl SourceMap {
     pub fn add(&self, source: Source) -> &Source {
         let boxed = Box::new(source);
         let ptr: *const Source = &*boxed;
-        self.sources.borrow_mut().push(boxed);
+        self.sources.lock().unwrap().push(boxed);
         // SAFETY: the box is never dropped or moved out of while the map
         // lives, and the source is never changed after it is added.
         unsafe { &*ptr }
@@ -87,7 +87,7 @@ impl SourceMap {
 
     /// The source holding the slice `s`, if any.
     pub fn find(&self, s: &str) -> Option<&Source> {
-        let sources = self.sources.borrow();
+        let sources = self.sources.lock().unwrap();
         let ptr: *const Source = &**sources.iter().find(|src| src.contains(s))?;
         // SAFETY: as in `add`.
         Some(unsafe { &*ptr })

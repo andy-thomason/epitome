@@ -1,61 +1,64 @@
-//! `epitome-rustc2 [options] file.rs`: for now, parses a file and reports
-//! the first error with its position.
+//! `epitome-rustc2 [options] root.rs...`: for now, loads each crate (its
+//! root file and the files of its modules, all parsed in parallel) and
+//! reports every error with its position.
 //!
 //! Options:
 //!
 //! - `--edition 2015|2018|2021|2024` (default 2024), also `--edition=N`.
-//! - `--dump-ast`: print the syntax tree, one node per line.
-//! - `--sexp`: print the syntax tree on one line.
-//! - `--tokens`: print the tokens, one per line.
-//! - `--pretty`: print the syntax tree back as Rust source.
-//! - `--parse-tree dir`: parse every `.rs` file under `dir`, and report
-//!   each that fails and a count. Each file is read in the edition of the
-//!   nearest `Cargo.toml` above it (2015 if it names none, as for Cargo),
-//!   or `--edition` if there is no `Cargo.toml`. With `--roundtrip`, each
-//!   file is also printed and parsed again, and must give the same tree.
+//! - `--threads N`: worker threads (default one per core).
+//! - `--dump-ast`: print each file's syntax tree, one node per line.
+//! - `--sexp`: print each file's syntax tree on one line.
+//! - `--pretty`: print each file's syntax tree back as Rust source.
+//! - `--tokens file.rs`: print the tokens of one file, one per line.
+//! - `--parse-tree dir`: parse every `.rs` file under `dir` (each on its
+//!   own, not following modules), and report each that fails and a count.
+//!   Each file is read in the edition of the nearest `Cargo.toml` above it
+//!   (2015 if it names none, as for Cargo), or `--edition` if there is no
+//!   `Cargo.toml`. With `--roundtrip`, each file is also printed and
+//!   parsed again, and must give the same tree.
 
+use epitome_rustc2::ast::Ast;
 use epitome_rustc2::lexer::{Edition, lex};
 use epitome_rustc2::parse::parse_str;
-use epitome_rustc2::source::{Source, SourceMap};
+use epitome_rustc2::pretty::{first_difference, pretty};
+use epitome_rustc2::session::{CrateRoot, Options, Session};
+use epitome_rustc2::source::Source;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
-    // The parser recurses as deeply as expressions nest.
-    std::thread::Builder::new().stack_size(1 << 28).spawn(run).unwrap().join().unwrap()
-}
-
-fn run() -> ExitCode {
     let mut edition = Edition::default();
-    let mut dump = false;
-    let mut sexp = false;
-    let mut tokens = false;
-    let mut pretty = false;
-    let mut roundtrip = false;
+    let mut options = Options::default();
+    let (mut dump, mut sexp, mut tokens, mut print, mut roundtrip) = (false, false, false, false, false);
     let mut tree: Option<PathBuf> = None;
     let mut files = Vec::new();
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
-        let value = |args: &mut dyn Iterator<Item = String>, name: &str| {
-            arg.strip_prefix(&format!("{name}=")).map(str::to_string).or_else(|| args.next())
-        };
+        let mut value = |name: &str| arg.strip_prefix(&format!("{name}=")).map(str::to_string).or_else(|| args.next());
         match arg.as_str() {
             "--dump-ast" => dump = true,
             "--sexp" => sexp = true,
             "--tokens" => tokens = true,
-            "--pretty" => pretty = true,
+            "--pretty" => print = true,
             "--roundtrip" => roundtrip = true,
             _ if arg.starts_with("--edition") => {
-                let v = value(&mut args, "--edition").unwrap_or_default();
-                match Edition::parse(&v) {
-                    Some(e) => edition = e,
-                    None => {
-                        eprintln!("error: unknown edition `{v}`");
-                        return ExitCode::FAILURE;
-                    }
-                }
+                let v = value("--edition").unwrap_or_default();
+                let Some(e) = Edition::parse(&v) else {
+                    eprintln!("error: unknown edition `{v}`");
+                    return ExitCode::FAILURE;
+                };
+                edition = e;
             }
-            _ if arg.starts_with("--parse-tree") => tree = value(&mut args, "--parse-tree").map(PathBuf::from),
+            _ if arg.starts_with("--threads") => {
+                let v = value("--threads").unwrap_or_default();
+                let Ok(n) = v.parse() else {
+                    eprintln!("error: bad thread count `{v}`");
+                    return ExitCode::FAILURE;
+                };
+                options.threads = n;
+            }
+            _ if arg.starts_with("--parse-tree") => tree = value("--parse-tree").map(PathBuf::from),
             _ if arg.starts_with('-') => {
                 eprintln!("error: unknown option `{arg}`");
                 return ExitCode::FAILURE;
@@ -64,46 +67,63 @@ fn run() -> ExitCode {
         }
     }
     if let Some(dir) = tree {
-        return parse_tree(&dir, edition, roundtrip);
+        return parse_tree(&dir, edition, roundtrip, options);
     }
     if files.is_empty() {
-        eprintln!("usage: epitome-rustc2 [--edition N] [--dump-ast | --sexp | --tokens] file.rs");
+        eprintln!("usage: epitome-rustc2 [--edition N] [--threads N] [--dump-ast | --sexp | --pretty] root.rs...");
         return ExitCode::FAILURE;
     }
-    let map = SourceMap::new();
-    for file in &files {
-        let text = match std::fs::read_to_string(file) {
-            Ok(t) => t,
+    if tokens {
+        return print_tokens(&files);
+    }
+
+    let session = Session::new(options);
+    let roots = files
+        .iter()
+        .map(|f| {
+            let name = f.file_stem().map_or("main".into(), |s| s.to_string_lossy().into_owned());
+            CrateRoot::new(name, f).edition(edition)
+        })
+        .collect();
+    let crates = session.parse_crates(roots);
+    let mut failed = false;
+    for c in &crates {
+        for f in &c.files {
+            let several = crates.len() > 1 || c.files.len() > 1;
+            if several && (dump || sexp || print) {
+                println!("// {}", f.source.name);
+            }
+            if dump {
+                print!("{}", f.ast.dump(f.ast.root));
+            }
+            if sexp {
+                println!("{}", f.ast.sexp(f.ast.root));
+            }
+            if print {
+                print!("{}", pretty(&f.ast));
+            }
+        }
+        for e in &c.errors {
+            eprint!("{}", e.render_in(&session.sources));
+            failed = true;
+        }
+    }
+    if failed { ExitCode::FAILURE } else { ExitCode::SUCCESS }
+}
+
+fn print_tokens(files: &[PathBuf]) -> ExitCode {
+    for file in files {
+        let src = match std::fs::read_to_string(file) {
+            Ok(t) => Source::new(file.display().to_string(), t),
             Err(e) => {
                 eprintln!("error: {}: {e}", file.display());
                 return ExitCode::FAILURE;
             }
         };
-        let src = map.add(Source::new(file.display().to_string(), text));
-        if tokens {
-            match lex(&src.text) {
-                Ok(ts) => ts.iter().for_each(|t| println!("{}", t.0)),
-                Err(e) => {
-                    eprint!("{}", e.render(src));
-                    return ExitCode::FAILURE;
-                }
-            }
-            continue;
-        }
-        match parse_str(&src.text, edition) {
-            Ok(ast) => {
-                if dump {
-                    print!("{}", ast.dump(ast.root));
-                }
-                if sexp {
-                    println!("{}", ast.sexp(ast.root));
-                }
-                if pretty {
-                    print!("{}", epitome_rustc2::pretty::pretty(&ast));
-                }
-            }
+        match lex(&src.text) {
+            Ok(ts) => ts.iter().for_each(|t| println!("{}", t.0)),
             Err(e) => {
-                eprint!("{}", e.render(src));
+                eprint!("{}", e.render(&src));
                 return ExitCode::FAILURE;
             }
         }
@@ -111,39 +131,43 @@ fn run() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// Parses every `.rs` file under `dir`.
-fn parse_tree(dir: &Path, edition: Edition, roundtrip: bool) -> ExitCode {
+/// Parses every `.rs` file under `dir`, in parallel.
+fn parse_tree(dir: &Path, edition: Edition, roundtrip: bool, options: Options) -> ExitCode {
     let mut files = Vec::new();
     collect(dir, &mut files);
     files.sort();
+    let mut editions = HashMap::new();
+    let roots: Vec<CrateRoot> = files
+        .iter()
+        .map(|f| {
+            let e = f.parent().and_then(|d| crate_edition(d, &mut editions)).unwrap_or(edition);
+            CrateRoot::new(f.display().to_string(), f).edition(e).follow_modules(false)
+        })
+        .collect();
+    let session = Session::new(options);
+    let crates = session.parse_crates(roots);
     let mut failed = 0;
-    let mut editions = std::collections::HashMap::new();
-    for file in &files {
-        let Ok(text) = std::fs::read_to_string(file) else { continue };
-        let src = Source::new(file.display().to_string(), text);
-        let edition = file.parent().and_then(|d| crate_edition(d, &mut editions)).unwrap_or(edition);
-        let ast = match parse_str(&src.text, edition) {
-            Ok(ast) => ast,
-            Err(e) => {
-                failed += 1;
-                eprint!("{}", e.render(&src));
-                continue;
-            }
-        };
-        if roundtrip && let Err(message) = check_roundtrip(&ast, edition) {
-            failed += 1;
-            eprintln!("{}: roundtrip: {message}", src.name);
+    for c in &crates {
+        for e in &c.errors {
+            eprint!("{}", e.render_in(&session.sources));
         }
+        let mut bad = !c.errors.is_empty();
+        if roundtrip
+            && let Some(f) = c.files.first()
+            && let Err(message) = check_roundtrip(&f.ast, c.edition)
+        {
+            eprintln!("{}: roundtrip: {message}", f.source.name);
+            bad = true;
+        }
+        failed += bad as usize;
     }
     println!("{} files, {} failed", files.len(), failed);
     if failed == 0 { ExitCode::SUCCESS } else { ExitCode::FAILURE }
 }
 
 /// Prints `ast`, parses the output, and compares the trees.
-fn check_roundtrip(ast: &epitome_rustc2::ast::Ast, edition: Edition) -> Result<(), String> {
-    use epitome_rustc2::pretty::{first_difference, pretty};
-    let out = pretty(ast);
-    let src = Source::new("<pretty>", out);
+fn check_roundtrip(ast: &Ast, edition: Edition) -> Result<(), String> {
+    let src = Source::new("<pretty>", pretty(ast));
     let again = parse_str(&src.text, edition).map_err(|e| format!("the output does not parse:\n{}", e.render(&src)))?;
     match first_difference(ast, ast.root, &again, again.root) {
         None => Ok(()),
@@ -152,7 +176,7 @@ fn check_roundtrip(ast: &epitome_rustc2::ast::Ast, edition: Edition) -> Result<(
 }
 
 /// The edition of the package whose `Cargo.toml` is nearest above `dir`.
-fn crate_edition(dir: &Path, cache: &mut std::collections::HashMap<PathBuf, Option<Edition>>) -> Option<Edition> {
+fn crate_edition(dir: &Path, cache: &mut HashMap<PathBuf, Option<Edition>>) -> Option<Edition> {
     if let Some(&e) = cache.get(dir) {
         return e;
     }

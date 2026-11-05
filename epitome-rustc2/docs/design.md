@@ -34,10 +34,15 @@ after that is a plan.
 - **Every stage can be printed.** The tree after parsing, after
   expansion, with resolutions, with types, and the IR each function
   becomes, so each step of lowering can be checked by eye against rustc's
-  `-Zunpretty` output (section 10).
-- **Stay linear in the size of the input,** and process functions in
-  parallel with the same output for any number of threads.
-- **Clean room** (section 11).
+  `-Zunpretty` output (section 12).
+- **A library first.** The compiler is a crate with an API (section
+  11); the `epitome-rustc2` program is a thin command line over it. A
+  host can compile several crates in one process.
+- **Parallel everywhere** (section 10): files, modules, items, function
+  bodies and instances are jobs on one pool of threads, across all the
+  crates of a run, with the same output for any number of threads.
+- **Stay linear in the size of the input.**
+- **Clean room** (section 13).
 
 Not goals for now: borrow checking (a program rustc rejects for
 lifetimes or borrows may compile here; we compile programs rustc has
@@ -93,6 +98,8 @@ All text lives in a `SourceMap` (as in `epitome-sv`): every file read,
 and every piece of text made later (proc-macro output, `stringify!`,
 `concat!`), at an address that never changes. A slice of any of it lives
 as long as the map, and `SourceMap::find` says which source it is in.
+The map is shared by all threads (adding a source takes a lock; reading
+one does not).
 
 ### 3.2 What the lexer does
 
@@ -183,7 +190,7 @@ is `pattern: Type` or only a `Type`; a generic argument that is `Item =
 T` or a type) it tries one reading and backs up.
 
 `epitome-rustc2 --parse-tree dir` parses every `.rs` file under a
-directory and lists the failures: the parse corpus of section 10.
+directory and lists the failures: the parse corpus of section 12.
 
 ### 4.3 Printing
 
@@ -372,7 +379,115 @@ stand in for `RUSTC`.
 items; it is the main test of completeness. Until it compiles, programs
 are tested with `#![no_std]` and a small `core` of our own in `tests/`.
 
-## 10. Testing
+## 10. Parallelism
+
+Every stage is split into jobs small enough to keep all cores busy and
+large enough that handing them out costs little: a file, a module, an
+item, a function body, an instance. All the crates of a run share one
+pool (`src/pool.rs`), so a small crate's jobs fill the gaps in a large
+one's.
+
+### 10.1 Rules
+
+- **One writer per piece of data.** Each file's AST, each body's
+  inference tables and each instance's IR belong to the job that makes
+  them. Nothing is shared and written at once except a few append-only or
+  insert-only tables (the source map, interners, caches), which are
+  behind locks split into shards.
+- **Rounds where a stage needs a fixed point.** Name resolution and
+  macro expansion need what other modules define. They run in rounds:
+  in each round every module's job reads only what the previous round
+  published, and the round's results are published together at its end.
+  Inside a round, jobs never see each other's work, so the order they
+  run in cannot matter.
+- **Output does not depend on scheduling.** Results are placed by a key
+  that comes from the input (a file's place in the module tree, an item's
+  path, an instance's symbol name), not by the order jobs finished. Ids
+  handed out by a shared interner can differ between runs; nothing may
+  depend on their order, and anything printed or emitted is sorted by
+  content. A test runs the same input on 1 and on many threads and
+  compares.
+- **No global state.** All of a run's state is in a `Session`, so two
+  sessions in one process do not interact.
+
+### 10.2 Stage by stage
+
+| Stage | Job | Shared state | Done |
+|---|---|---|---|
+| Read and parse | a file; finding `mod foo;` queues `foo.rs` | source map (append-only) | yes |
+| `cfg` stripping | a file | none (the cfg set is read-only) | |
+| Expansion | a module, per round | macro tables, published per round | |
+| Resolution | a module, per round | per-module name tables, published per round | |
+| Item collection | an item | definition table (insert-only) | |
+| Type checking | a function body | type interner and trait cache (sharded) | |
+| Const evaluation | a constant, on demand, once | results (one cell per constant, with cycle detection) | |
+| Lowering | an instance; finding a call queues its callee | instance set (insert-only) | |
+| Optimisation, code generation | a function | none | (Epitome's own) |
+
+Expansion adds AST to the file that held the macro call, and that file
+belongs to one job per round, so its arenas need no locks. Type checking
+of a body needs only signatures, which are fixed before any body is
+checked; bodies are checked in any order. Closures are checked with the
+body they are in.
+
+### 10.3 Crates
+
+In one process, a crate's dependents need its signatures, not its code.
+A dependency's collected items (what its metadata holds) are the only
+barrier: once they are published, dependents start type checking while
+the dependency is still lowering and generating code. Crates with no
+path between them in the dependency graph run side by side.
+
+### 10.4 How far this goes
+
+On this machine (12 cores), loading `core`, `alloc` and `std` from
+`rust-src` (849 files, every module followed) takes 0.40 s on one thread
+and 0.06 s on twelve. Lexing and parsing use no shared state at all, so
+they scale until reading the files becomes the limit.
+
+## 11. The library
+
+`epitome_rustc2` is a library crate; the program is `src/main.rs` over
+it. The entry point is a `Session` (`src/session.rs`):
+
+```rust
+use epitome_rustc2::lexer::Edition;
+use epitome_rustc2::session::{CrateRoot, Options, Session};
+
+let session = Session::new(Options { threads: 0 }); // 0: one per core
+let crates = session.parse_crates(vec![
+    CrateRoot::new("app", "app/src/main.rs").edition(Edition::E2021),
+    CrateRoot::new("util", "util/src/lib.rs"),
+]);
+for c in &crates {
+    for e in &c.errors {
+        eprint!("{}", e.render_in(&session.sources));
+    }
+    for f in &c.files {
+        // f.module is the module path, f.ast the tree, f.parent the file
+        // and `mod` item that declared it.
+    }
+}
+```
+
+Each later stage is a method on the session that takes the previous
+stage's results and returns its own, which a host can inspect or print:
+`parse_crates`, then `expand`, `resolve`, `check`, `lower` (to an
+`epitome_ir::Module` per crate), `compile` (to object files). A host
+that wants only part of the pipeline (an IDE wanting types, a tool
+wanting the expanded AST) stops where it likes. Results borrow from the
+session (tokens are slices of its source map), so a session lives as long
+as anything taken from it.
+
+Errors are values, not output: every stage returns them with its
+results, and the program decides how to print them. A stage carries on
+past an error in one file or body where it can, so that one run reports
+everything it can find.
+
+The library has no dependencies besides Epitome's own crates; the pool
+is plain `std` threads.
+
+## 12. Testing
 
 - **Unit tests** in each module, on small strings, comparing `sexp`.
 - **Parse corpus:** every `.rs` file in the toolchain's `rust-src`
@@ -389,8 +504,9 @@ are tested with `#![no_std]` and a small `core` of our own in `tests/`.
   compared with `RUSTC_WRAPPER=epitome-rustc`.
 
 Every test has a tight time limit, and everything is built `--release`.
+Tests of parallel stages run on one thread and on several, and compare.
 
-## 11. Clean room
+## 13. Clean room
 
 - No rustc code is read or copied: not the lexer (`rustc_lexer`), parser,
   AST, resolver, type checker, trait solver, MIR, or codegen. Knowing
@@ -402,10 +518,11 @@ Every test has a tight time limit, and everything is built `--release`.
 - The standard library's source is compiled by us (it is the input, not
   a reference for how to write a compiler).
 
-## 12. Order of work
+## 14. Order of work
 
 1. Lexer, parser, AST dump and pretty printer (done; `rust-src` and the
-   crates.io cache parse and round-trip).
+   crates.io cache parse and round-trip). The session and pool: whole
+   crates, several at once, loaded in parallel (done).
 2. `cfg`, `macro_rules!`, built-in macros; expansion matches rustc's.
 3. Proc macros through the toolchain's server.
 4. Name resolution and item collection.

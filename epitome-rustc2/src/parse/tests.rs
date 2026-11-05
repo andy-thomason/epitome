@@ -221,7 +221,7 @@ fn types() {
         ty("<T as Tr>::A"),
         "(PathType (Path (QSelf (PathType (Path (Segment (Name T)))) (PathType (Path (Segment (Name Tr))))) (Segment (Name A))))"
     );
-    assert_eq!(ty("[T; { N + 1 }]").starts_with("(ArrayType"), true);
+    assert!(ty("[T; { N + 1 }]").starts_with("(ArrayType"));
 }
 
 #[test]
@@ -274,13 +274,12 @@ fn items() {
         "(ExternBlock (Keyword unsafe) (Abi \"C\") (Fn (Keyword safe) (Name f) (Params)))"
     );
     assert_eq!(item("macro_rules! m { () => {} }"), "(MacroRules (Name m) (TokenTree { () => {} }))");
-    assert_eq!(
+    assert!(
         item("#[derive(Debug)] /// doc\nunion U { a: u8 }")
-            .starts_with("(Union (Attribute (Path (Segment (Name derive))) (TokenTree (Debug))) (DocComment /// doc)"),
-        true
+            .starts_with("(Union (Attribute (Path (Segment (Name derive))) (TokenTree (Debug))) (DocComment /// doc)")
     );
     assert_eq!(item("const _: () = ();"), "(Const (Name _) (TupleType) (Tuple))");
-    assert_eq!(item("trait T: A + B { type X: C; fn f(&self) {} }").starts_with("(Trait (Name T) (Bounds"), true);
+    assert!(item("trait T: A + B { type X: C; fn f(&self) {} }").starts_with("(Trait (Name T) (Bounds"));
     assert_eq!(item("auto trait Send {}"), "(Trait (Keyword auto) (Name Send))");
     assert_eq!(item("extern crate std as s;"), "(ExternCrate (Name std) (Rename (Name s)))");
 }

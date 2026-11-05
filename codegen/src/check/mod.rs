@@ -33,16 +33,17 @@ use crate::{Options, compile};
 /// The smoke program: clang's IR for `smoke.c`, without a triple.
 pub const SMOKE: &str = include_str!("smoke.ll");
 
-/// The roles the code generator cannot do without.
-const NEEDED_ROLES: &[(&str, &str)] = &[
-    ("load.x", "reloading spilled values, and arguments on the stack"),
-    ("store.x", "spilling values, saving registers"),
-    ("addi", "adjusting the stack pointer, addresses of stack slots"),
-    ("add", "addresses of stack slots out of an addi's reach"),
-    ("call", "calls"),
-    ("jump", "branches"),
-    ("ret", "returning"),
-    ("trap", "unreachable"),
+/// The roles the code generator cannot do without, unless the machine
+/// lacks what they are for (`!target.lacks`; none: never).
+const NEEDED_ROLES: &[(&str, &str, &str)] = &[
+    ("load.x", "reloading spilled values, and arguments on the stack", "stack"),
+    ("store.x", "spilling values, saving registers", "stack"),
+    ("addi", "adjusting the stack pointer, addresses of stack slots", "stack"),
+    ("add", "addresses of stack slots out of an addi's reach", "stack"),
+    ("call", "calls", "calls"),
+    ("jump", "branches", ""),
+    ("ret", "returning, or (without calls) ending the program", ""),
+    ("trap", "unreachable", "trap"),
 ];
 
 /// One check's results.
@@ -147,11 +148,22 @@ fn structure(t: &Target) -> Section {
             s.errors.push(msg);
         }
     };
-    for (role, why) in NEEDED_ROLES {
-        need(t.role(role).is_some(), format!("no instruction has role {role} (for {why})"), &mut s);
+    // What the machine lacks needs nothing for it: those requirements are
+    // counted, and not checked.
+    let mut waived = 0;
+    let mut waive = |what: &str| {
+        let w = !what.is_empty() && m.lacks(what);
+        waived += w as usize;
+        w
+    };
+    for (role, why, unless) in NEEDED_ROLES {
+        if !waive(unless) {
+            need(t.role(role).is_some(), format!("no instruction has role {role} (for {why})"), &mut s);
+        }
     }
     // A global's address: in one instruction (addr), or two.
-    if t.role("addr").is_none() {
+    if waive("globals") {
+    } else if t.role("addr").is_none() {
         for role in ["addr.hi", "addr.lo"] {
             need(
                 t.role(role).is_some(),
@@ -169,7 +181,7 @@ fn structure(t: &Target) -> Section {
             );
         }
     }
-    if t.role("callr").is_none() {
+    if t.role("callr").is_none() && !m.lacks("calls") && !m.lacks("indirect") {
         s.warnings.push("no instruction has role callr: calls through pointers cannot be compiled".into());
     }
 
@@ -183,8 +195,15 @@ fn structure(t: &Target) -> Section {
         .flat_map(|i| i.operands.iter())
         .filter_map(|o| if let Kind::Reg(c) = o.kind { Some(c) } else { None })
         .collect();
-    let int_file = m.value_class(Holds::Int, 64).map(|c| m.def(c).file);
-    need(int_file.is_some(), "no register class holds 64-bit integers (\"holds\"=\"int\")".into(), &mut s);
+    let int_file = if waive("i64") {
+        let widest = (8..=64).rev().step_by(8).find_map(|b| m.value_class(Holds::Int, b));
+        need(widest.is_some(), "no register class holds integers (\"holds\"=\"int\")".into(), &mut s);
+        widest.map(|c| m.def(c).file)
+    } else {
+        let c = m.value_class(Holds::Int, 64);
+        need(c.is_some(), "no register class holds 64-bit integers (\"holds\"=\"int\")".into(), &mut s);
+        c.map(|c| m.def(c).file)
+    };
     for (k, c) in m.classes.iter().enumerate() {
         let class = Class(k as u8);
         if c.holds.is_none() || c.sp || !used.contains(&class) {
@@ -236,7 +255,7 @@ fn structure(t: &Target) -> Section {
     if syntaxes.contains("macho") {
         need(m.macho_cpu.is_some(), "a convention writes Mach-O, but macho-cpu is not given".into(), &mut s);
     }
-    if !t.machine.relocs.iter().any(|r| matches!(r.usage, crate::machine::RelocUse::Data(8))) {
+    if !m.lacks("globals") && !t.machine.relocs.iter().any(|r| matches!(r.usage, crate::machine::RelocUse::Data(8))) {
         s.warnings.push("no relocation has use data8: pointers in data cannot be written".into());
     }
 
@@ -265,11 +284,17 @@ fn structure(t: &Target) -> Section {
         let name = |r: &u8| m.lookup_name(*r);
         let names = |v: &[u8]| v.iter().map(name).collect::<Vec<_>>().join(", ");
         let both = |x: &[u8], y: &[u8]| x.iter().copied().filter(|r| y.contains(r)).collect::<Vec<u8>>();
+        // (Without calls, nothing is clobbered or saved across one.)
+        let no_calls = m.lacks("calls");
         let checks: [(&str, Vec<u8>); 6] = [
             ("are both saved and clobbered", both(&a.saved, &a.clobbers)),
             (
                 "are arguments but not clobbered",
-                a.args.iter().copied().filter(|r| !a.clobbers.contains(r) && !a.saved.contains(r)).collect(),
+                a.args
+                    .iter()
+                    .copied()
+                    .filter(|r| !no_calls && !a.clobbers.contains(r) && !a.saved.contains(r))
+                    .collect(),
             ),
             ("are scratch and arguments", both(&a.scratch, &a.args)),
             ("are reserved and saved", both(&a.reserved, &a.saved)),
@@ -282,7 +307,7 @@ fn structure(t: &Target) -> Section {
         for (what, regs) in checks {
             need(regs.is_empty(), format!("convention {}: {} {what}", a.name, names(&regs)), &mut s);
         }
-        if a.scratch.len() < 2 {
+        if a.scratch.len() < 2 && !m.lacks("stack") {
             s.warnings.push(format!("convention {}: fewer than two scratch registers for spill code", a.name));
         }
     }
@@ -296,6 +321,9 @@ fn structure(t: &Target) -> Section {
     let used: BTreeSet<&String> = t.instrs.iter().flat_map(|i| i.features.iter()).collect();
     for f in used.iter().filter(|f| !m.cpus.is_empty() && !on_some_cpu.contains(*f)) {
         s.warnings.push(format!("feature {f} is needed by entries, but no CPU has it (only --mattr=+{f} turns it on)"));
+    }
+    if !m.lacks.is_empty() {
+        s.notes.push(format!("lacks {}: {waived} requirements waived", m.lacks.join(", ")));
     }
     s
 }
@@ -772,10 +800,23 @@ fn smoke(t: &Target) -> Section {
                 continue;
             }
         };
-        for e in &compiled.errors {
+        // Functions that use what the machine lacks are not compiled, and
+        // are not errors: a partial machine runs only some programs.
+        let (unfit, errors): (Vec<&String>, Vec<&String>) =
+            compiled.errors.iter().partition(|e| e.contains(": does not fit: "));
+        for e in &errors {
             s.errors.push(format!("{label}: {e}"));
         }
-        if !compiled.errors.is_empty() {
+        if !unfit.is_empty() {
+            let names: BTreeSet<&str> = unfit.iter().filter_map(|e| e.split(':').next()).collect();
+            s.notes.push(format!(
+                "{label}: {} of the {funcs} smoke functions do not fit the machine (it lacks {}): {}",
+                names.len(),
+                t.machine.lacks.join(", "),
+                names.into_iter().collect::<Vec<_>>().join(" ")
+            ));
+        }
+        if !errors.is_empty() {
             continue;
         }
         let bytes = match compiled.object_file(t) {

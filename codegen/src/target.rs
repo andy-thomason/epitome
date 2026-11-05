@@ -1613,6 +1613,8 @@ impl Target {
             for p in &f.params {
                 let kind = match attr(&p.attrs, "reg") {
                     Some(Some(c)) => Kind::Reg(self.machine.class(c).ok_or_else(|| format!("no register class {c}"))?),
+                    // (A recipe for a branch: compare, then branch.)
+                    _ if attr(&p.attrs, "label").is_some() => Kind::Label,
                     _ => Kind::Imm,
                 };
                 params.push(PParam { kind, bits: type_bits(m, f.locals[p.local.index()].ty) });

@@ -13,6 +13,7 @@ pub mod apint;
 pub mod build;
 pub mod chop;
 pub mod edit;
+pub mod fits;
 pub mod float;
 pub mod io;
 pub mod layout;

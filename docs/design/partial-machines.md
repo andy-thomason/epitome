@@ -174,16 +174,38 @@ which belongs in a plan of its own:
   bundles;
 - scheduling by latency, since results are not ready in the next group.
 
+## A toy machine, and Rust
+
+`codegen/tests/partial/tiny.ll` describes a made-up control core: sixteen
+32-bit registers, arithmetic, compare-and-branch and `halt`, lacking
+memory, calls, floating point, `i64`, `indirect` and `trap`.
+`tests/partial.rs` checks it passes `--check-target`, compiles Rust's
+`fib` (`tests/partial/fib.rs`) for it from rustc's IR and runs it on an
+interpreter of the toy's instructions, and checks that programs using what
+it lacks are turned away with each use named.
+
+A no_std Rust function is compiled for such a machine by way of rustc's IR
+for a bare-metal target with 32-bit `u32` arithmetic, optimised (at
+`opt-level=0` the IR keeps calls and stack slots, which do not fit):
+
+    rustc --crate-type=lib --target riscv64imac-unknown-none-elf \
+          -C opt-level=2 -C panic=abort --emit=llvm-ir fib.rs
+    epitome-llc --target=codegen/tests/partial/tiny.ll fib.ll -o fib.o
+
+The convention names the triple (`riscv64`) among its own, so the module's
+triple selects it.
+
 ## Status
 
 | Item | Status |
 | --- | --- |
 | An empty `result` or `fp-result` list is an error, not a panic | **Done** |
-| `!target.lacks`, and the structure check waiving what it covers | **Partial**: read; `stack` makes `sp` optional; the structure check waives nothing yet |
-| Conventions without `stack` or `fp-*` entries | **Planned** |
-| `fits`, in `epitome-llc` and `epitome-opt` | **Planned** |
-| Smoke program compiled per function, reporting what does not fit | **Planned** |
-| Passes inside the lacks list (section 3) | **Planned** |
+| `!target.lacks`, and the structure check waiving what it covers | **Done**: `load.x`, `store.x`, `add`, `addi` (stack), `call` (calls), `trap`, `addr.*` (globals), the 64-bit class (i64); `structure` notes how many were waived |
+| Conventions without `stack` or `fp-*` entries | **Done**: without a stack, `args` and `result` are enough; without calls, every register is free to use |
+| `fits`, in `epitome-llc` and `epitome-opt` | **Done**, in `epitome_ir::fits`: run on each function before it is lowered (not yet after `prepare`), an error in `epitome-llc`, a warning in `epitome-opt --target` |
+| Smoke program compiled per function, reporting what does not fit | **Done**: noted, not failed |
+| Passes inside the lacks list (section 3) | **Partial**: division by a constant keeps the division without `i64`; spills without a stack are an error naming the function; no unwind tables without calls; no data without globals |
+| `ret` ends the program without `calls`; `unreachable` ends it without `trap` | **Done** |
 | `i64` narrowing | **Planned** |
 | `"epitome-opaque"` | **Planned** |
 | `"role"="launch"` | **Planned** |

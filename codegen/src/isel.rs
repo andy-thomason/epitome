@@ -476,7 +476,20 @@ impl<'a, 'b> Sel<'a, 'b> {
         }
         m.value_class(self.holds(ty), bits)
             .or_else(|| m.value_class(Holds::Int, 64))
+            .or_else(|| self.narrow_int_class())
             .expect("the description has an integer register class")
+    }
+
+    /// On a machine without 64-bit integers (`!target.lacks` i64), its
+    /// widest integer class: `fits` has turned away what needs more, so
+    /// what is asked for wide here (the parts of an aggregate, a pointer
+    /// never used) fits in it.
+    fn narrow_int_class(&self) -> Option<Class> {
+        let m = &self.t.machine;
+        if !m.lacks("i64") {
+            return None;
+        }
+        (8..=64).rev().step_by(8).find_map(|b| m.value_class(Holds::Int, b))
     }
 
     /// The class of integers of 64 bits (`wide`) or 32, as pointers and
@@ -485,6 +498,7 @@ impl<'a, 'b> Sel<'a, 'b> {
         let m = &self.t.machine;
         m.value_class(Holds::Int, if wide { 64 } else { 32 })
             .or_else(|| m.value_class(Holds::Int, 64))
+            .or_else(|| self.narrow_int_class())
             .expect("the description has an integer register class")
     }
 
@@ -1157,6 +1171,10 @@ impl<'a, 'b> Sel<'a, 'b> {
                         self.needed.insert(d);
                     }
                 });
+                continue;
+            }
+            // (Without a trap, `unreachable` ends the program: see emission.)
+            if matches!(inst.op, Op::Unreachable) && self.t.role("trap").is_none() {
                 continue;
             }
             let Some(m) = self.best_match(i, layout_next) else {
@@ -3018,6 +3036,12 @@ impl<'a, 'b> Sel<'a, 'b> {
             }
             match &inst.op {
                 Op::Phi { .. } => continue,
+                // A machine without a trap ends the program where it would
+                // trap (`!target.lacks` trap): reaching it is undefined.
+                Op::Unreachable if self.t.role("trap").is_none() => {
+                    self.push(MInst::new(self.t.by_role("ret"), vec![]));
+                    continue;
+                }
                 Op::Call(call)
                     if prepare::callee_name(self.cx.m, call)
                         .is_some_and(|n| n.starts_with("llvm.stacksave") || n.starts_with("llvm.stackrestore")) =>

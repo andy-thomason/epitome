@@ -485,6 +485,14 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
             .collect()
     };
     let spilled_set: HashSet<VReg> = spilled.iter().copied().filter(|v| !remat.contains_key(v)).collect();
+    // A machine without a stack has nowhere to spill to.
+    if !spilled_set.is_empty() && t.machine.lacks("stack") {
+        let fname = f.name.trim_start_matches('@');
+        return Err(format!(
+            "@{fname}: does not fit: {} values live at once do not fit in its registers, and the machine has no stack",
+            spilled_set.len()
+        ));
+    }
     let mut local: HashMap<(VReg, usize), Vec<(u32, u32, u8)>> = HashMap::new();
     {
         let mut idx = 0u32;

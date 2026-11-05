@@ -183,6 +183,11 @@ pub fn choose_abi(t: &Target, m: &Module, opts: &Options) -> Result<abi::Abi, St
 fn compile_function(t: &Target, abi: &abi::Abi, cx: &mut Ctx, job: &Job, opts: &Options) -> Result<MFunc, String> {
     use std::time::Instant;
     cx.features = features::of_function(t, cx.m, &job.body.fn_attrs, opts.mcpu.as_deref(), &opts.mattr)?;
+    // A function that uses what the machine lacks is reported, not lowered.
+    let problems = epitome_ir::fits::check(&t.machine.fits(abi), cx.m, &job.body, &job.name);
+    if !problems.is_empty() {
+        return Err(problems.join("\n"));
+    }
     let now = Instant::now();
     let prepared = prepare::prepare(cx, &job.body, &job.name)?;
     timing::add(&timing::PREPARE, now);
@@ -349,7 +354,9 @@ pub fn compile(t: &Target, m: &mut Module, opts: &Options) -> Result<Compiled, S
     for text in texts {
         out.push_str(&text?);
     }
-    let mut globals = asm::collect_globals(&cx, &abi)?;
+    // A machine without globals has no data: `fits` has rejected every
+    // function that would use some, so what is left is unused.
+    let mut globals = if t.machine.lacks("globals") { Vec::new() } else { asm::collect_globals(&cx, &abi)? };
     globals.extend(asm::eh_stubs(&funcs, &abi));
     asm::print_globals(&abi, &globals, &mut out);
     let aliases = asm::collect_aliases(&cx, &abi)?;

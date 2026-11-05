@@ -5999,6 +5999,15 @@ fn lower_const_divs(cx: &mut Ctx, f: &mut Function) {
                 k += 1;
                 continue;
             }
+            // The multiply needs a product twice as wide, which a machine
+            // without wide integers does not have: only shifts, for powers
+            // of two, else its division instruction.
+            let mask: u64 = if w == 64 { u64::MAX } else { (1u64 << w) - 1 };
+            let pow2 = (d.unsigned_abs() & mask).is_power_of_two() || ((d as u64) & mask).is_power_of_two();
+            if cx.t.machine.lacks("i64") && !pow2 && d != 1 && d != -1 {
+                k += 1;
+                continue;
+            }
             // Elective (autochop): the division instruction does it too.
             if !epitome_ir::chop::allow(|| {
                 format!("divide by {d} with a multiply at {}", epitome_ir::printer::inst_name(f, i))

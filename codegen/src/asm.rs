@@ -29,7 +29,11 @@ pub fn function(t: &Target, f: &MFunc, index: usize, out: &mut String) -> Result
         let _ = writeln!(out, "\t.type {sym},%function");
     }
     let _ = writeln!(out, "{sym}:");
-    let _ = writeln!(out, "\t.cfi_startproc");
+    // No unwind tables for a machine without calls: nothing unwinds.
+    let cfi = !t.machine.lacks("calls");
+    if cfi {
+        let _ = writeln!(out, "\t.cfi_startproc");
+    }
     if let (Some(eh), Some(_)) = (&f.eh, &table) {
         // Indirect, PC-relative, 4 bytes; and PC-relative (Mach-O's 8
         // bytes, ELF's 4).
@@ -55,7 +59,9 @@ pub fn function(t: &Target, f: &MFunc, index: usize, out: &mut String) -> Result
             let _ = writeln!(out, "\t{}", format_inst(t, f, i));
         }
     }
-    let _ = writeln!(out, "\t.cfi_endproc");
+    if cfi {
+        let _ = writeln!(out, "\t.cfi_endproc");
+    }
     if abi.syntax == Syntax::Elf {
         let _ = writeln!(out, "\t.size {sym}, .-{sym}");
     }

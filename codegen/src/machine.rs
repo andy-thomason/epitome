@@ -76,8 +76,13 @@
 //! programs' object files.
 //!
 //! `!target.lacks` lists what the machine does not have, from `LACKABLE`
-//! (`docs/design/partial-machines.md`). So far only `stack` changes what a
-//! description must say: there is then no `sp`.
+//! (`docs/design/partial-machines.md`). The structure check then does not
+//! ask for the roles what it lacks would need (`load.x` and `sp` without a
+//! stack, `call` without calls, `trap`, `addr.*`, a 64-bit class); a
+//! convention of a machine without a stack needs only `args` and `result`,
+//! and without calls every register is free to use; without a trap,
+//! `unreachable` ends the program; and each function is checked against
+//! it before it is lowered (`epitome_ir::fits`).
 //!
 //! `!target.enums` names sets of values an operand written as a name takes
 //! (`"enum"="chan"` on the operand): each is its name, then pairs of a
@@ -384,7 +389,7 @@ pub struct Machine {
 }
 
 /// What `!target.lacks` may list.
-pub const LACKABLE: &[&str] = &["memory", "stack", "calls", "globals", "float", "i64", "trap", "indirect"];
+pub use epitome_ir::fits::LACKABLE;
 
 /// A set of named values an operand may take (`!target.enums`).
 #[derive(Clone, Debug)]
@@ -469,6 +474,19 @@ impl Machine {
     /// `stack` and `globals`.
     pub fn lacks(&self, what: &str) -> bool {
         self.lacks.iter().any(|l| l == what || (l == "memory" && (what == "stack" || what == "globals")))
+    }
+
+    /// What `epitome_ir::fits` needs to know of the machine, with a
+    /// convention `abi`.
+    pub fn fits(&self, abi: &crate::abi::Abi) -> epitome_ir::fits::Machine {
+        let widest =
+            self.classes.iter().filter(|c| c.holds == Some(Holds::Int) && !c.sp).map(|c| c.bits).max().unwrap_or(0);
+        epitome_ir::fits::Machine {
+            lacks: self.lacks.clone(),
+            widest,
+            arg_regs: abi.args.len(),
+            result_regs: abi.result_list.as_ref().map_or(1, |r| r.len()),
+        }
     }
 
     /// The enum named `name`, by its index.

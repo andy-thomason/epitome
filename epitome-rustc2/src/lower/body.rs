@@ -1386,12 +1386,12 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 Ok(Operand { ty: t, v: Val::Imm(v) })
             }
             TyKind::Float(f) => {
-                let digits: String = tok.trim_end_matches("f32").trim_end_matches("f64").chars().filter(|&c| c != '_').collect();
-                let x: f64 = digits.parse().map_err(|_| format!("bad float literal {tok}"))?;
+                let x = parse_float(tok).ok_or_else(|| format!("bad float literal {tok}"))?;
                 let ft = match f {
+                    FloatTy::F16 => self.b.module().types.half(),
                     FloatTy::F32 => self.b.module().types.float(),
                     FloatTy::F64 => self.b.module().types.double(),
-                    _ => return Err("f16 and f128 are not supported".into()),
+                    FloatTy::F128 => return Err("f128 is not supported".into()),
                 };
                 let v = self.b.const_float(ft, x);
                 Ok(Operand { ty: t, v: Val::Imm(v) })
@@ -1894,10 +1894,13 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                         v
                     }
                 } else if is_float(from_k) {
-                    // Saturating, as Rust's `as` is: not yet; out-of-range
-                    // values give whatever the machine gives.
-                    let op = if self.signed(to) { CastOp::FPToSI } else { CastOp::FPToUI };
-                    self.b.cast(op, v, tt)
+                    // Saturating, as Rust's `as` is: out-of-range values
+                    // give the nearest the integer holds, NaN gives 0.
+                    let fbits = self.layout(o.ty)?.size * 8;
+                    let ibits = self.layout(to)?.size * 8;
+                    let name = format!("llvm.{}.sat.i{ibits}.f{fbits}", if self.signed(to) { "fptosi" } else { "fptoui" });
+                    let g = self.b.module().declare(&name, tt, &[ft], false);
+                    self.b.call(g, &[v]).unwrap()
                 } else if is_float(to_k) {
                     let op = if self.signed(o.ty) { CastOp::SIToFP } else { CastOp::UIToFP };
                     self.b.cast(op, v, tt)
@@ -2438,6 +2441,13 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             _ => Pv::Val(Operand { ty: abi.output, v: Val::Zst }),
         })
     }
+}
+
+/// The value of a float literal, without its suffix (`2.5f16`, `1e3`).
+pub(crate) fn parse_float(tok: &str) -> Option<f64> {
+    let t = ["f16", "f32", "f64", "f128"].iter().fold(tok, |t, s| t.strip_suffix(s).unwrap_or(t));
+    let digits: String = t.chars().filter(|&c| c != '_').collect();
+    digits.parse().ok()
 }
 
 /// The value of an integer literal, without its suffix.

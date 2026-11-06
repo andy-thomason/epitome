@@ -872,9 +872,10 @@ impl<'a, 'b> Sel<'a, 'b> {
                     // lanes of 32-bit comparisons are 256 bits, so an `or`
                     // of them is not a 128-bit `por`.)
                     let (mask, mask_bits) = match self.cx.m.types.get(ty) {
-                        Type::Vector { elem, len, .. } if matches!(self.cx.m.types.get(*elem), Type::Int(1)) => {
+                        Type::Vector { scalable: false, elem, len } if matches!(self.cx.m.types.get(*elem), Type::Int(1)) => {
                             (true, crate::legalize::mask_width(self.cx, self.f, v, &mut Vec::new()).map(|w| *len as u32 * w))
                         }
+                        Type::Vector { elem, .. } => (matches!(self.cx.m.types.get(*elem), Type::Int(1)), None),
                         _ => (false, None),
                     };
                     // (A fixed register, as xmm0 for SSE4.1's blends, holds

@@ -532,6 +532,27 @@ impl<'a, 's> FnCtxt<'a, 's> {
         self.fill_holes(t)
     }
 
+    /// A written generic argument: a type, or a constant (`4`, `{ N + 1
+    /// }`, `{ Ordering::Relaxed }`) as a `ConstArg`.
+    fn written_arg(&mut self, n: NodeId) -> Ty {
+        if !matches!(self.ast.kind(n), Kind::Literal | Kind::Unary | Kind::Block) {
+            return self.written_ty(n);
+        }
+        let mut l = Lower {
+            tcx: self.tcx,
+            env: &self.env,
+            expanding: FastSet::default(),
+            impl_self: None,
+            holes: true,
+            k: self.k,
+            file: self.file,
+            owner: self.owner,
+            failed: false,
+        };
+        let c = l.konst(n);
+        self.mk(TyKind::ConstArg(c))
+    }
+
     /// `t` with each hole (`Infer(u32::MAX)`) replaced by a fresh variable.
     fn fill_holes(&mut self, t: Ty) -> Ty {
         let tcx = self.tcx;
@@ -685,13 +706,13 @@ impl<'a, 's> FnCtxt<'a, 's> {
     fn method_turbofish(&mut self, n: NodeId, item: DefId, seg: NodeId) {
         let ast = self.ast;
         let Some(g) = ast.child(seg, Kind::GenericArgs) else { return };
-        let written: Vec<NodeId> = ast.children(g).iter().copied().filter(|&a| is_type(ast.kind(a))).collect();
+        let written: Vec<NodeId> = ast.children(g).iter().copied().filter(|&a| is_generic_arg(ast.kind(a))).collect();
         let own = self.tcx.generics[item.0 as usize].own.len();
         let Some(args) = self.methods.iter().rev().find(|m| m.0 == n).map(|m| m.2.clone()) else { return };
         let start = args.len().saturating_sub(own);
         for (i, a) in written.into_iter().enumerate() {
             if let Some(&v) = args.get(start + i) {
-                let t = self.written_ty(a);
+                let t = self.written_arg(a);
                 self.infer.unify(v, t);
             }
         }
@@ -822,7 +843,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let segs: Vec<NodeId> = ast.children(path).iter().copied().filter(|&s| ast.kind(s) == Kind::Segment).collect();
         let written = |s: Option<&NodeId>| -> Vec<NodeId> {
             s.and_then(|&s| ast.child(s, Kind::GenericArgs))
-                .map(|g| ast.children(g).iter().copied().filter(|&a| is_type(ast.kind(a))).collect())
+                .map(|g| ast.children(g).iter().copied().filter(|&a| is_generic_arg(ast.kind(a))).collect())
                 .unwrap_or_default()
         };
         // On the last segment: the item's own (a variant's are its
@@ -833,7 +854,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let mut put = |cx: &mut Self, start: usize, ts: Vec<NodeId>| {
             for (i, a) in ts.into_iter().enumerate() {
                 if start + i < args.len() {
-                    args[start + i] = cx.written_ty(a);
+                    args[start + i] = cx.written_arg(a);
                 }
             }
         };
@@ -2411,4 +2432,10 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let fields = variant.map(|v| v.fields.iter().map(|f| (f.name, subst(tcx, f.ty, &params, &args))).collect()).unwrap_or_default();
         (at, fields)
     }
+}
+
+/// Whether a node in generic arguments is an argument: a type, or a
+/// constant written as a literal, a negated one or a block.
+fn is_generic_arg(k: Kind) -> bool {
+    is_type(k) || matches!(k, Kind::Literal | Kind::Unary | Kind::Block)
 }

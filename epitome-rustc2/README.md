@@ -30,10 +30,10 @@ The plan is in [`docs/design.md`](docs/design.md).
 | Proc macros | Working | Run through the toolchain's proc-macro server; in-process loading will come once we can compile proc-macro crates. |
 | Name resolution | Done | 350,676 paths in 0.1 s. Only 1,313 are unresolved, all of them in crates outside the session (libc and others). |
 | Signatures and the type table | Done | 54,641 signatures and 13,886 impls in 0.1 s. The 159 with error types all name external crates. |
-| Type checking bodies | Done (first version) | 32,847 bodies in 0.5 s, 96% typed completely. Most of the rest use libc. |
+| Type checking bodies | Done (first version) | 32,847 bodies in 0.5 s, 97% typed completely. Most of the rest use libc. |
 | Layout and constants | Done | Sizes and alignments match rustc's for the 45 types tested. |
-| Monomorphisation | Done | From every non-generic function of `core`: 27,447 items in 0.09 s. 98% of uses resolve; most of the rest have error types from type checking. |
-| Lowering to Epitome IR | Working | The programs in `tests/run/` lower completely. Of the 16,865 functions `core` reaches outside SIMD, 92% lower; the rest trap, and `--lower-stats` says why. |
+| Monomorphisation | Done | From every non-generic function of `core`: 28,473 items in 0.09 s. 99.9% of uses resolve; most of the rest are specialisations. |
+| Lowering to Epitome IR | Working | The programs in `tests/run/` lower completely. Of the 16,932 functions `core` reaches outside SIMD, 93% lower; the rest trap, and `--lower-stats` says why. |
 | Compiling and running | Working | The six programs in `tests/run/` compile through Epitome's optimiser and code generator, run, and print what rustc's builds print. |
 
 Everything up to and including type checking `core`, `alloc` and `std`

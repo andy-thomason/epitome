@@ -267,8 +267,7 @@ pub fn split(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
                         Some(_) => Some(cur),
                         None => {
                             let ty = rty.unwrap();
-                            let v =
-                                if cx.value_ty(s.f, cur[0]) == ty { cur[0] } else { s.cast(CastOp::Trunc, cur[0], ty) };
+                            let v = if cx.value_ty(s.f, cur[0]) == ty { cur[0] } else { s.cast(CastOp::Trunc, cur[0], ty) };
                             repl.insert(res.unwrap(), v);
                             None
                         }
@@ -379,8 +378,9 @@ pub fn split(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
                         let r = call_intrinsic(cx, &mut s, &format!("llvm.vector.reduce.{red}.{m}"), vec![acc], ty);
                         repl.insert(res.unwrap(), r);
                         None
-                    } else if let Some(base) =
-                        ["smax", "smin", "umax", "umin", "abs"].iter().find(|b| name.starts_with(&format!("llvm.{b}.")))
+                    } else if let Some(base) = ["smax", "smin", "umax", "umin", "abs"]
+                        .iter()
+                        .find(|b| name.starts_with(&format!("llvm.{b}.")))
                         && res_split.is_some()
                     {
                         // Lane-wise intrinsics: of each part.
@@ -404,9 +404,7 @@ pub fn split(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
                                 .collect(),
                         )
                     } else {
-                        return Err(format!(
-                            "{name} of scalable vectors of more than one register is not supported yet"
-                        ));
+                        return Err(format!("{name} of scalable vectors of more than one register is not supported yet"));
                     }
                 }
                 _ => {
@@ -539,8 +537,7 @@ pub fn masked_memory(cx: &mut Ctx, f: &mut Function) {
                     k += 1;
                     continue;
                 }
-                let (p, m, pass) =
-                    if args.len() == 4 { (args[0], args[2], args[3]) } else { (args[0], args[1], args[2]) };
+                let (p, m, pass) = if args.len() == 4 { (args[0], args[2], args[3]) } else { (args[0], args[1], args[2]) };
                 let mn = mangle(cx, vt);
                 let l = call_intrinsic(cx, &mut s, &format!("llvm.aarch64.sve.ld1.{mn}"), vec![m, p], vt);
                 let l = if matches!(pass, Value::Const(c)
@@ -583,7 +580,10 @@ fn container(cx: &mut Ctx, ty: TypeId) -> Option<TypeId> {
 /// A splat of the integer `v` of type `ty` (scalable).
 fn splat_int(cx: &mut Ctx, ty: TypeId, v: i64) -> Value {
     let (_, elem, eb) = scalable(cx, ty).unwrap();
-    let k = cx.m.consts.intern(Constant { ty: elem, kind: ConstKind::Int(epitome_ir::apint::ApInt::from_i64(eb, v)) });
+    let k = cx.m.consts.intern(Constant {
+        ty: elem,
+        kind: ConstKind::Int(epitome_ir::apint::ApInt::from_i64(eb, v)),
+    });
     Value::Const(cx.m.consts.intern(Constant { ty, kind: ConstKind::Splat(k) }))
 }
 
@@ -759,9 +759,9 @@ pub fn unpacked(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
                 }
                 // From one: extended in the container, then to the result's
                 // type (or its container).
-                Op::Cast {
-                    op: op @ (CastOp::SExt | CastOp::ZExt | CastOp::SIToFP | CastOp::UIToFP), value, ..
-                } if container(cx, cx.value_ty(s.f, value)).is_some() => {
+                Op::Cast { op: op @ (CastOp::SExt | CastOp::ZExt | CastOp::SIToFP | CastOp::UIToFP), value, .. }
+                    if container(cx, cx.value_ty(s.f, value)).is_some() =>
+                {
                     let bits = bits_of(cx, &s, value);
                     let signed = matches!(op, CastOp::SExt | CastOp::SIToFP);
                     let x = hold(cx, &mut s, &held, value)?;
@@ -800,13 +800,7 @@ pub fn unpacked(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
                     } else if let Some(m) = name.strip_prefix("llvm.aarch64.sve.st1.") {
                         let x = hold(cx, &mut s, &held, args[0])?;
                         let void = cx.m.types.intern(Type::Void);
-                        call_intrinsic(
-                            cx,
-                            &mut s,
-                            &format!("llvm.epitome.sve.st1.{m}"),
-                            vec![x, args[1], args[2]],
-                            void,
-                        );
+                        call_intrinsic(cx, &mut s, &format!("llvm.epitome.sve.st1.{m}"), vec![x, args[1], args[2]], void);
                         out.extend(std::mem::take(&mut s.new));
                         continue;
                     } else {

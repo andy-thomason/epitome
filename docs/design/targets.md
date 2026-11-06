@@ -769,3 +769,23 @@ llvm-mc writes but does not read back; buffer stores with `tfe`, which
 llvm-mc writes but does not take; `ds_swizzle_b32`'s offset, which
 llvm-mc writes as a pattern (`offset:swizzle(BITMASK_PERM,"ppppp")`), but
 for 0; wave64; and instruction selection.
+
+## Pointers of 32 bits
+
+A description says its machine's pointer size with a data layout of its
+own, `target datalayout = "e-p:32:32-..."`, as `codegen/tests/pointers32/
+mem32.ll` and `stack32.ll` do (made-up 32-bit control cores with memory,
+and with a stack). Without one, pointers are 64 bits.
+
+- A pointer's width is its data layout's, wherever a type's bits are
+  counted (`target::type_bits`): so a pointer operand or result is held in
+  a 32-bit class.
+- A module with no data layout of its own takes the description's; one
+  whose pointers are another size is refused.
+- An address is a sum of offsets as wide as the layout's indices.
+- A pointer in data is `.long symbol`, with the relocation whose use is
+  `data4`.
+- Spills use the `load.<class>` and `store.<class>` roles of the class
+  spilled, so a description with 32-bit registers names its own.
+- A convention for a machine without calls need not say `clobbers`,
+  `saved` or `variadic`, and nothing is written for unwinding.

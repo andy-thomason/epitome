@@ -27,7 +27,7 @@ fn scalable(cx: &Ctx, ty: TypeId) -> Option<(u32, TypeId, u32)> {
                 Type::Float => 32,
                 Type::Double => 64,
                 Type::Half | Type::BFloat => 16,
-                Type::Ptr(_) => 64,
+                Type::Ptr(a) => epitome_ir::layout::pointer_bits(cx.m.data_layout.as_deref(), *a),
                 _ => return None,
             };
             Some((len, elem, eb))

@@ -41,7 +41,7 @@ fn lane_bits(cx: &Ctx, ty: TypeId) -> u32 {
         Type::Float => 32,
         Type::Double => 64,
         Type::Half => 16,
-        Type::Ptr(_) => 64,
+        Type::Ptr(a) => epitome_ir::layout::pointer_bits(cx.m.data_layout.as_deref(), *a),
         _ => 0,
     }
 }

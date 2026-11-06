@@ -255,8 +255,9 @@ fn structure(t: &Target) -> Section {
     if syntaxes.contains("macho") {
         need(m.macho_cpu.is_some(), "a convention writes Mach-O, but macho-cpu is not given".into(), &mut s);
     }
-    if !m.lacks("globals") && !t.machine.relocs.iter().any(|r| matches!(r.usage, crate::machine::RelocUse::Data(8))) {
-        s.warnings.push("no relocation has use data8: pointers in data cannot be written".into());
+    let ptr_bytes = (epitome_ir::layout::pointer_bits(t.module.data_layout.as_deref(), 0) / 8) as u8;
+    if !m.lacks("globals") && t.machine.data_reloc(ptr_bytes).is_none() {
+        s.warnings.push(format!("no relocation has use data{ptr_bytes}: pointers in data cannot be written"));
     }
 
     // Inline assembly: register constraints are written as classes of

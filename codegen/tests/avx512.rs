@@ -1,12 +1,14 @@
-//! AVX-512's 512-bit integer vectors, with masks in k registers:
+//! AVX-512's 512-bit vectors, with masks in k registers:
 //! `tests/avx512/kernels.ll` (arithmetic, shifts, every comparison, selects,
 //! masks as integers and in memory, minimum and maximum, leading and
 //! trailing zeros, over `<16 x i32>`, `<8 x i64>`, `<32 x i16>` and
-//! `<64 x i8>`).
+//! `<64 x i8>`; floats' comparisons and selects; and AVX2's shifts by
+//! vectors).
 //!
 //! - Anywhere: each kernel compiles to code that never touches the stack,
 //!   so none of it was done a lane at a time (which goes through stack
-//!   slots), and its masks are in k registers.
+//!   slots), and its masks are in k registers (but the `lanes_` kernels',
+//!   which are partly done a lane at a time).
 //! - On x86-64 Linux with AVX-512 and clang: built by us and by clang,
 //!   each linked with `main.c` and run, the two print the same.
 
@@ -40,7 +42,7 @@ fn avx512_kernels_stay_in_registers() {
     let mut m = epitome_ir::parse_module(&kernels()).unwrap();
     let asm = compile(&t, &mut m, &Options::default()).unwrap().asm;
     let fs = functions(&asm);
-    assert!(fs.len() >= 29, "{} functions", fs.len());
+    assert!(fs.len() >= 32, "{} functions", fs.len());
     for (name, body) in fs.iter().filter(|(n, _)| !n.starts_with("lanes_")) {
         assert!(!body.contains("%rsp"), "{name} uses the stack:\n{body}");
         // (Those of AVX2 alone: shifts by vectors, in ymm and xmm.)
@@ -52,7 +54,11 @@ fn avx512_kernels_stay_in_registers() {
             "%zmm"
         };
         assert!(body.contains(reg), "{name} has no {reg} registers:\n{body}");
-        if name.starts_with("compares") || name.starts_with("selects") || name.starts_with("mask_memory") {
+        if name.contains("compares")
+            || name.starts_with("fsel")
+            || name.starts_with("selects")
+            || name.starts_with("mask_memory")
+        {
             assert!(body.contains("%k"), "{name} has no k registers:\n{body}");
         }
     }

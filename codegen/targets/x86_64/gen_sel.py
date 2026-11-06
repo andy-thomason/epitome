@@ -1516,6 +1516,21 @@ def avx512_int():
               [f'%i = insertelement {ty} poison, {et} %x, i64 0',
                f'%r = shufflevector {ty} %i, {ty} poison, <{n} x i32> zeroinitializer', f'ret {ty} %r'],
               f' "dclass"="zv" "role"="dup.zv.{eb}"' + feat)
+    # Floats' comparisons into a mask register (vcmp's predicates, as
+    # AVX's), and selects by one.
+    for ty, sfx, n in [('<16 x float>', 'ps', 16), ('<8 x double>', 'pd', 8)]:
+        T = tag(ty)
+        M = f'<{n} x i1>'
+        enc, _ = xed(f'vcmp{sfx} ${{c}}, {{o0}}, {{o1}}, {{o2}}', (Z, Z, 'k'))
+        for pred, k in [('oeq', 0), ('olt', 1), ('ole', 2), ('uno', 3), ('une', 4), ('uge', 5), ('ugt', 6), ('ord', 7),
+                        ('ueq', 8), ('ult', 9), ('ule', 10), ('one', 12), ('oge', 13), ('ogt', 14)]:
+            entry(M, f'VCMP{pred.upper()}{sfx.upper()}z.{T}', [f'{ty} "reg"="zv" %n', f'{ty} "reg"="zv" %m'],
+                  imm(renamed(enc, {'o0': 'm', 'o1': 'n', 'o2': 'd', 'c': str(k)}), k),
+                  f'vcmp{sfx} ${k}, {{m}}, {{n}}, {{d}}', [f'%r = fcmp {pred} {ty} %n, %m', f'ret {M} %r'], ' "dclass"="kw"' + F)
+        enc, _ = xed(f'vblendm{sfx} {{o0}}, {{o1}}, {{o2}} {{lb}}{{o3}}{{rb}}', (Z, Z, Z, 'k'))
+        entry(ty, f'VBLENDM{sfx.upper()}.{T}', [f'{M} "reg"="kw" %k', f'{ty} "reg"="zv" %a', f'{ty} "reg"="zv" %b'],
+              renamed(enc, {'o0': 'a', 'o1': 'b', 'o2': 'd', 'o3': 'k'}), f'vblendm{sfx} {{a}}, {{b}}, {{d}} {{lb}}{{k}}{{rb}}',
+              [f'%r = select {M} %k, {ty} %a, {ty} %b', f'ret {ty} %r'], ' "dclass"="zv"' + F)
     # The masks themselves: as integers (kmovw for 8 and 16 lanes, which
     # avx512f has; kmovd and kmovq with avx512bw), in memory, and their
     # logic.

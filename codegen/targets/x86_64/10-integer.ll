@@ -7013,6 +7013,156 @@ define <8 x i64> @VPBROADCASTQr.8xi64(i64 "reg"="r64" %x) "enc"="evexr(d, x, 2, 
   ret <8 x i64> %r
 }
 
+define <16 x i1> @VCMPOEQPSz.16xf32(<16 x float> "reg"="zv" %n, <16 x float> "reg"="zv" %m) "enc"="{ evexr(d, m, 1, 0, n, 2, 0, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=m&7 | 00000000 ; if(((0&3)==0)|((0&3)==3)) evexr(d, n, 1, 0, m, 2, 0, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=n&7 | 00000000 }" "asm"="vcmpps $0, {m}, {n}, {d}" "dclass"="kw" "feature"="avx512f" "nodecode" {
+  %r = fcmp oeq <16 x float> %n, %m
+  ret <16 x i1> %r
+}
+
+define <16 x i1> @VCMPOLTPSz.16xf32(<16 x float> "reg"="zv" %n, <16 x float> "reg"="zv" %m) "enc"="{ evexr(d, m, 1, 0, n, 2, 0, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=m&7 | 00000001 ; if(((1&3)==0)|((1&3)==3)) evexr(d, n, 1, 0, m, 2, 0, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=n&7 | 00000001 }" "asm"="vcmpps $1, {m}, {n}, {d}" "dclass"="kw" "feature"="avx512f" "nodecode" {
+  %r = fcmp olt <16 x float> %n, %m
+  ret <16 x i1> %r
+}
+
+define <16 x i1> @VCMPOLEPSz.16xf32(<16 x float> "reg"="zv" %n, <16 x float> "reg"="zv" %m) "enc"="{ evexr(d, m, 1, 0, n, 2, 0, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=m&7 | 00000010 ; if(((2&3)==0)|((2&3)==3)) evexr(d, n, 1, 0, m, 2, 0, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=n&7 | 00000010 }" "asm"="vcmpps $2, {m}, {n}, {d}" "dclass"="kw" "feature"="avx512f" "nodecode" {
+  %r = fcmp ole <16 x float> %n, %m
+  ret <16 x i1> %r
+}
+
+define <16 x i1> @VCMPUNOPSz.16xf32(<16 x float> "reg"="zv" %n, <16 x float> "reg"="zv" %m) "enc"="{ evexr(d, m, 1, 0, n, 2, 0, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=m&7 | 00000011 ; if(((3&3)==0)|((3&3)==3)) evexr(d, n, 1, 0, m, 2, 0, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=n&7 | 00000011 }" "asm"="vcmpps $3, {m}, {n}, {d}" "dclass"="kw" "feature"="avx512f" "nodecode" {
+  %r = fcmp uno <16 x float> %n, %m
+  ret <16 x i1> %r
+}
+
+define <16 x i1> @VCMPUNEPSz.16xf32(<16 x float> "reg"="zv" %n, <16 x float> "reg"="zv" %m) "enc"="{ evexr(d, m, 1, 0, n, 2, 0, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=m&7 | 00000100 ; if(((4&3)==0)|((4&3)==3)) evexr(d, n, 1, 0, m, 2, 0, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=n&7 | 00000100 }" "asm"="vcmpps $4, {m}, {n}, {d}" "dclass"="kw" "feature"="avx512f" "nodecode" {
+  %r = fcmp une <16 x float> %n, %m
+  ret <16 x i1> %r
+}
+
+define <16 x i1> @VCMPUGEPSz.16xf32(<16 x float> "reg"="zv" %n, <16 x float> "reg"="zv" %m) "enc"="{ evexr(d, m, 1, 0, n, 2, 0, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=m&7 | 00000101 ; if(((5&3)==0)|((5&3)==3)) evexr(d, n, 1, 0, m, 2, 0, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=n&7 | 00000101 }" "asm"="vcmpps $5, {m}, {n}, {d}" "dclass"="kw" "feature"="avx512f" "nodecode" {
+  %r = fcmp uge <16 x float> %n, %m
+  ret <16 x i1> %r
+}
+
+define <16 x i1> @VCMPUGTPSz.16xf32(<16 x float> "reg"="zv" %n, <16 x float> "reg"="zv" %m) "enc"="{ evexr(d, m, 1, 0, n, 2, 0, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=m&7 | 00000110 ; if(((6&3)==0)|((6&3)==3)) evexr(d, n, 1, 0, m, 2, 0, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=n&7 | 00000110 }" "asm"="vcmpps $6, {m}, {n}, {d}" "dclass"="kw" "feature"="avx512f" "nodecode" {
+  %r = fcmp ugt <16 x float> %n, %m
+  ret <16 x i1> %r
+}
+
+define <16 x i1> @VCMPORDPSz.16xf32(<16 x float> "reg"="zv" %n, <16 x float> "reg"="zv" %m) "enc"="{ evexr(d, m, 1, 0, n, 2, 0, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=m&7 | 00000111 ; if(((7&3)==0)|((7&3)==3)) evexr(d, n, 1, 0, m, 2, 0, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=n&7 | 00000111 }" "asm"="vcmpps $7, {m}, {n}, {d}" "dclass"="kw" "feature"="avx512f" "nodecode" {
+  %r = fcmp ord <16 x float> %n, %m
+  ret <16 x i1> %r
+}
+
+define <16 x i1> @VCMPUEQPSz.16xf32(<16 x float> "reg"="zv" %n, <16 x float> "reg"="zv" %m) "enc"="{ evexr(d, m, 1, 0, n, 2, 0, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=m&7 | 00001000 ; if(((8&3)==0)|((8&3)==3)) evexr(d, n, 1, 0, m, 2, 0, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=n&7 | 00001000 }" "asm"="vcmpps $8, {m}, {n}, {d}" "dclass"="kw" "feature"="avx512f" "nodecode" {
+  %r = fcmp ueq <16 x float> %n, %m
+  ret <16 x i1> %r
+}
+
+define <16 x i1> @VCMPULTPSz.16xf32(<16 x float> "reg"="zv" %n, <16 x float> "reg"="zv" %m) "enc"="{ evexr(d, m, 1, 0, n, 2, 0, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=m&7 | 00001001 ; if(((9&3)==0)|((9&3)==3)) evexr(d, n, 1, 0, m, 2, 0, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=n&7 | 00001001 }" "asm"="vcmpps $9, {m}, {n}, {d}" "dclass"="kw" "feature"="avx512f" "nodecode" {
+  %r = fcmp ult <16 x float> %n, %m
+  ret <16 x i1> %r
+}
+
+define <16 x i1> @VCMPULEPSz.16xf32(<16 x float> "reg"="zv" %n, <16 x float> "reg"="zv" %m) "enc"="{ evexr(d, m, 1, 0, n, 2, 0, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=m&7 | 00001010 ; if(((10&3)==0)|((10&3)==3)) evexr(d, n, 1, 0, m, 2, 0, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=n&7 | 00001010 }" "asm"="vcmpps $10, {m}, {n}, {d}" "dclass"="kw" "feature"="avx512f" "nodecode" {
+  %r = fcmp ule <16 x float> %n, %m
+  ret <16 x i1> %r
+}
+
+define <16 x i1> @VCMPONEPSz.16xf32(<16 x float> "reg"="zv" %n, <16 x float> "reg"="zv" %m) "enc"="{ evexr(d, m, 1, 0, n, 2, 0, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=m&7 | 00001100 ; if(((12&3)==0)|((12&3)==3)) evexr(d, n, 1, 0, m, 2, 0, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=n&7 | 00001100 }" "asm"="vcmpps $12, {m}, {n}, {d}" "dclass"="kw" "feature"="avx512f" "nodecode" {
+  %r = fcmp one <16 x float> %n, %m
+  ret <16 x i1> %r
+}
+
+define <16 x i1> @VCMPOGEPSz.16xf32(<16 x float> "reg"="zv" %n, <16 x float> "reg"="zv" %m) "enc"="{ evexr(d, m, 1, 0, n, 2, 0, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=m&7 | 00001101 ; if(((13&3)==0)|((13&3)==3)) evexr(d, n, 1, 0, m, 2, 0, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=n&7 | 00001101 }" "asm"="vcmpps $13, {m}, {n}, {d}" "dclass"="kw" "feature"="avx512f" "nodecode" {
+  %r = fcmp oge <16 x float> %n, %m
+  ret <16 x i1> %r
+}
+
+define <16 x i1> @VCMPOGTPSz.16xf32(<16 x float> "reg"="zv" %n, <16 x float> "reg"="zv" %m) "enc"="{ evexr(d, m, 1, 0, n, 2, 0, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=m&7 | 00001110 ; if(((14&3)==0)|((14&3)==3)) evexr(d, n, 1, 0, m, 2, 0, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=n&7 | 00001110 }" "asm"="vcmpps $14, {m}, {n}, {d}" "dclass"="kw" "feature"="avx512f" "nodecode" {
+  %r = fcmp ogt <16 x float> %n, %m
+  ret <16 x i1> %r
+}
+
+define <16 x float> @VBLENDMPS.16xf32(<16 x i1> "reg"="kw" %k, <16 x float> "reg"="zv" %a, <16 x float> "reg"="zv" %b) "enc"="{ if(k!=0) evexr(d, a, 2, 0, b, 2, 1, 0, k, 0) | 01100101 | 11 reg:3=d&7 rm:3=a&7 }" "asm"="vblendmps {a}, {b}, {d} {lb}{k}{rb}" "dclass"="zv" "feature"="avx512f" "nodecode" {
+  %r = select <16 x i1> %k, <16 x float> %a, <16 x float> %b
+  ret <16 x float> %r
+}
+
+define <8 x i1> @VCMPOEQPDz.8xf64(<8 x double> "reg"="zv" %n, <8 x double> "reg"="zv" %m) "enc"="{ evexr(d, m, 1, 1, n, 2, 1, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=m&7 | 00000000 ; if(((0&3)==0)|((0&3)==3)) evexr(d, n, 1, 1, m, 2, 1, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=n&7 | 00000000 }" "asm"="vcmppd $0, {m}, {n}, {d}" "dclass"="kw" "feature"="avx512f" "nodecode" {
+  %r = fcmp oeq <8 x double> %n, %m
+  ret <8 x i1> %r
+}
+
+define <8 x i1> @VCMPOLTPDz.8xf64(<8 x double> "reg"="zv" %n, <8 x double> "reg"="zv" %m) "enc"="{ evexr(d, m, 1, 1, n, 2, 1, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=m&7 | 00000001 ; if(((1&3)==0)|((1&3)==3)) evexr(d, n, 1, 1, m, 2, 1, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=n&7 | 00000001 }" "asm"="vcmppd $1, {m}, {n}, {d}" "dclass"="kw" "feature"="avx512f" "nodecode" {
+  %r = fcmp olt <8 x double> %n, %m
+  ret <8 x i1> %r
+}
+
+define <8 x i1> @VCMPOLEPDz.8xf64(<8 x double> "reg"="zv" %n, <8 x double> "reg"="zv" %m) "enc"="{ evexr(d, m, 1, 1, n, 2, 1, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=m&7 | 00000010 ; if(((2&3)==0)|((2&3)==3)) evexr(d, n, 1, 1, m, 2, 1, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=n&7 | 00000010 }" "asm"="vcmppd $2, {m}, {n}, {d}" "dclass"="kw" "feature"="avx512f" "nodecode" {
+  %r = fcmp ole <8 x double> %n, %m
+  ret <8 x i1> %r
+}
+
+define <8 x i1> @VCMPUNOPDz.8xf64(<8 x double> "reg"="zv" %n, <8 x double> "reg"="zv" %m) "enc"="{ evexr(d, m, 1, 1, n, 2, 1, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=m&7 | 00000011 ; if(((3&3)==0)|((3&3)==3)) evexr(d, n, 1, 1, m, 2, 1, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=n&7 | 00000011 }" "asm"="vcmppd $3, {m}, {n}, {d}" "dclass"="kw" "feature"="avx512f" "nodecode" {
+  %r = fcmp uno <8 x double> %n, %m
+  ret <8 x i1> %r
+}
+
+define <8 x i1> @VCMPUNEPDz.8xf64(<8 x double> "reg"="zv" %n, <8 x double> "reg"="zv" %m) "enc"="{ evexr(d, m, 1, 1, n, 2, 1, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=m&7 | 00000100 ; if(((4&3)==0)|((4&3)==3)) evexr(d, n, 1, 1, m, 2, 1, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=n&7 | 00000100 }" "asm"="vcmppd $4, {m}, {n}, {d}" "dclass"="kw" "feature"="avx512f" "nodecode" {
+  %r = fcmp une <8 x double> %n, %m
+  ret <8 x i1> %r
+}
+
+define <8 x i1> @VCMPUGEPDz.8xf64(<8 x double> "reg"="zv" %n, <8 x double> "reg"="zv" %m) "enc"="{ evexr(d, m, 1, 1, n, 2, 1, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=m&7 | 00000101 ; if(((5&3)==0)|((5&3)==3)) evexr(d, n, 1, 1, m, 2, 1, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=n&7 | 00000101 }" "asm"="vcmppd $5, {m}, {n}, {d}" "dclass"="kw" "feature"="avx512f" "nodecode" {
+  %r = fcmp uge <8 x double> %n, %m
+  ret <8 x i1> %r
+}
+
+define <8 x i1> @VCMPUGTPDz.8xf64(<8 x double> "reg"="zv" %n, <8 x double> "reg"="zv" %m) "enc"="{ evexr(d, m, 1, 1, n, 2, 1, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=m&7 | 00000110 ; if(((6&3)==0)|((6&3)==3)) evexr(d, n, 1, 1, m, 2, 1, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=n&7 | 00000110 }" "asm"="vcmppd $6, {m}, {n}, {d}" "dclass"="kw" "feature"="avx512f" "nodecode" {
+  %r = fcmp ugt <8 x double> %n, %m
+  ret <8 x i1> %r
+}
+
+define <8 x i1> @VCMPORDPDz.8xf64(<8 x double> "reg"="zv" %n, <8 x double> "reg"="zv" %m) "enc"="{ evexr(d, m, 1, 1, n, 2, 1, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=m&7 | 00000111 ; if(((7&3)==0)|((7&3)==3)) evexr(d, n, 1, 1, m, 2, 1, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=n&7 | 00000111 }" "asm"="vcmppd $7, {m}, {n}, {d}" "dclass"="kw" "feature"="avx512f" "nodecode" {
+  %r = fcmp ord <8 x double> %n, %m
+  ret <8 x i1> %r
+}
+
+define <8 x i1> @VCMPUEQPDz.8xf64(<8 x double> "reg"="zv" %n, <8 x double> "reg"="zv" %m) "enc"="{ evexr(d, m, 1, 1, n, 2, 1, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=m&7 | 00001000 ; if(((8&3)==0)|((8&3)==3)) evexr(d, n, 1, 1, m, 2, 1, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=n&7 | 00001000 }" "asm"="vcmppd $8, {m}, {n}, {d}" "dclass"="kw" "feature"="avx512f" "nodecode" {
+  %r = fcmp ueq <8 x double> %n, %m
+  ret <8 x i1> %r
+}
+
+define <8 x i1> @VCMPULTPDz.8xf64(<8 x double> "reg"="zv" %n, <8 x double> "reg"="zv" %m) "enc"="{ evexr(d, m, 1, 1, n, 2, 1, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=m&7 | 00001001 ; if(((9&3)==0)|((9&3)==3)) evexr(d, n, 1, 1, m, 2, 1, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=n&7 | 00001001 }" "asm"="vcmppd $9, {m}, {n}, {d}" "dclass"="kw" "feature"="avx512f" "nodecode" {
+  %r = fcmp ult <8 x double> %n, %m
+  ret <8 x i1> %r
+}
+
+define <8 x i1> @VCMPULEPDz.8xf64(<8 x double> "reg"="zv" %n, <8 x double> "reg"="zv" %m) "enc"="{ evexr(d, m, 1, 1, n, 2, 1, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=m&7 | 00001010 ; if(((10&3)==0)|((10&3)==3)) evexr(d, n, 1, 1, m, 2, 1, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=n&7 | 00001010 }" "asm"="vcmppd $10, {m}, {n}, {d}" "dclass"="kw" "feature"="avx512f" "nodecode" {
+  %r = fcmp ule <8 x double> %n, %m
+  ret <8 x i1> %r
+}
+
+define <8 x i1> @VCMPONEPDz.8xf64(<8 x double> "reg"="zv" %n, <8 x double> "reg"="zv" %m) "enc"="{ evexr(d, m, 1, 1, n, 2, 1, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=m&7 | 00001100 ; if(((12&3)==0)|((12&3)==3)) evexr(d, n, 1, 1, m, 2, 1, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=n&7 | 00001100 }" "asm"="vcmppd $12, {m}, {n}, {d}" "dclass"="kw" "feature"="avx512f" "nodecode" {
+  %r = fcmp one <8 x double> %n, %m
+  ret <8 x i1> %r
+}
+
+define <8 x i1> @VCMPOGEPDz.8xf64(<8 x double> "reg"="zv" %n, <8 x double> "reg"="zv" %m) "enc"="{ evexr(d, m, 1, 1, n, 2, 1, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=m&7 | 00001101 ; if(((13&3)==0)|((13&3)==3)) evexr(d, n, 1, 1, m, 2, 1, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=n&7 | 00001101 }" "asm"="vcmppd $13, {m}, {n}, {d}" "dclass"="kw" "feature"="avx512f" "nodecode" {
+  %r = fcmp oge <8 x double> %n, %m
+  ret <8 x i1> %r
+}
+
+define <8 x i1> @VCMPOGTPDz.8xf64(<8 x double> "reg"="zv" %n, <8 x double> "reg"="zv" %m) "enc"="{ evexr(d, m, 1, 1, n, 2, 1, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=m&7 | 00001110 ; if(((14&3)==0)|((14&3)==3)) evexr(d, n, 1, 1, m, 2, 1, 0, 0, 0) | 11000010 | 11 reg:3=d&7 rm:3=n&7 | 00001110 }" "asm"="vcmppd $14, {m}, {n}, {d}" "dclass"="kw" "feature"="avx512f" "nodecode" {
+  %r = fcmp ogt <8 x double> %n, %m
+  ret <8 x i1> %r
+}
+
+define <8 x double> @VBLENDMPD.8xf64(<8 x i1> "reg"="kw" %k, <8 x double> "reg"="zv" %a, <8 x double> "reg"="zv" %b) "enc"="{ if(k!=0) evexr(d, a, 2, 1, b, 2, 1, 0, k, 0) | 01100101 | 11 reg:3=d&7 rm:3=a&7 }" "asm"="vblendmpd {a}, {b}, {d} {lb}{k}{rb}" "dclass"="zv" "feature"="avx512f" "nodecode" {
+  %r = select <8 x i1> %k, <8 x double> %a, <8 x double> %b
+  ret <8 x double> %r
+}
+
 define <8 x i1> @KMOVWkr.8(i8 "reg"="r32" %n) "enc"="vex(d, 0, n, 1, 0, 0, 0, 0) | 10010010 | 11 reg:3=d&7 rm:3=n&7" "asm"="kmovw {n}, {d}" "dclass"="kw" "feature"="avx512f" "nodecode" {
   %r = bitcast i8 %n to <8 x i1>
   ret <8 x i1> %r

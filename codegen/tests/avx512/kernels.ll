@@ -746,10 +746,132 @@ define void @shifts_v2i64(ptr %a, ptr %b, ptr %o) #1 {
   ret void
 }
 
-; Done partly a lane at a time (and so exempt from the check that kernels
-; keep off the stack): a comparison of floats, and a mask of narrower lanes
-; choosing between 512-bit vectors.
-define void @lanes_fsel(ptr %a, ptr %b, ptr %o) #0 {
+define void @fcompares_v16f32(ptr %a, ptr %b, ptr %o) #0 {
+  %x = load <16 x float>, ptr %a
+  %y = load <16 x float>, ptr %b
+  %c0 = fcmp oeq <16 x float> %x, %y
+  %m0 = bitcast <16 x i1> %c0 to i16
+  %p0 = getelementptr i16, ptr %o, i64 0
+  store i16 %m0, ptr %p0
+  %c1 = fcmp olt <16 x float> %x, %y
+  %m1 = bitcast <16 x i1> %c1 to i16
+  %p1 = getelementptr i16, ptr %o, i64 1
+  store i16 %m1, ptr %p1
+  %c2 = fcmp ole <16 x float> %x, %y
+  %m2 = bitcast <16 x i1> %c2 to i16
+  %p2 = getelementptr i16, ptr %o, i64 2
+  store i16 %m2, ptr %p2
+  %c3 = fcmp uno <16 x float> %x, %y
+  %m3 = bitcast <16 x i1> %c3 to i16
+  %p3 = getelementptr i16, ptr %o, i64 3
+  store i16 %m3, ptr %p3
+  %c4 = fcmp une <16 x float> %x, %y
+  %m4 = bitcast <16 x i1> %c4 to i16
+  %p4 = getelementptr i16, ptr %o, i64 4
+  store i16 %m4, ptr %p4
+  %c5 = fcmp uge <16 x float> %x, %y
+  %m5 = bitcast <16 x i1> %c5 to i16
+  %p5 = getelementptr i16, ptr %o, i64 5
+  store i16 %m5, ptr %p5
+  %c6 = fcmp ugt <16 x float> %x, %y
+  %m6 = bitcast <16 x i1> %c6 to i16
+  %p6 = getelementptr i16, ptr %o, i64 6
+  store i16 %m6, ptr %p6
+  %c7 = fcmp ord <16 x float> %x, %y
+  %m7 = bitcast <16 x i1> %c7 to i16
+  %p7 = getelementptr i16, ptr %o, i64 7
+  store i16 %m7, ptr %p7
+  %c8 = fcmp ueq <16 x float> %x, %y
+  %m8 = bitcast <16 x i1> %c8 to i16
+  %p8 = getelementptr i16, ptr %o, i64 8
+  store i16 %m8, ptr %p8
+  %c9 = fcmp ult <16 x float> %x, %y
+  %m9 = bitcast <16 x i1> %c9 to i16
+  %p9 = getelementptr i16, ptr %o, i64 9
+  store i16 %m9, ptr %p9
+  %c10 = fcmp ule <16 x float> %x, %y
+  %m10 = bitcast <16 x i1> %c10 to i16
+  %p10 = getelementptr i16, ptr %o, i64 10
+  store i16 %m10, ptr %p10
+  %c11 = fcmp one <16 x float> %x, %y
+  %m11 = bitcast <16 x i1> %c11 to i16
+  %p11 = getelementptr i16, ptr %o, i64 11
+  store i16 %m11, ptr %p11
+  %c12 = fcmp oge <16 x float> %x, %y
+  %m12 = bitcast <16 x i1> %c12 to i16
+  %p12 = getelementptr i16, ptr %o, i64 12
+  store i16 %m12, ptr %p12
+  %c13 = fcmp ogt <16 x float> %x, %y
+  %m13 = bitcast <16 x i1> %c13 to i16
+  %p13 = getelementptr i16, ptr %o, i64 13
+  store i16 %m13, ptr %p13
+  ret void
+}
+
+define void @fcompares_v8f64(ptr %a, ptr %b, ptr %o) #0 {
+  %x = load <8 x double>, ptr %a
+  %y = load <8 x double>, ptr %b
+  %c0 = fcmp oeq <8 x double> %x, %y
+  %m0 = bitcast <8 x i1> %c0 to i8
+  %p0 = getelementptr i8, ptr %o, i64 0
+  store i8 %m0, ptr %p0
+  %c1 = fcmp olt <8 x double> %x, %y
+  %m1 = bitcast <8 x i1> %c1 to i8
+  %p1 = getelementptr i8, ptr %o, i64 1
+  store i8 %m1, ptr %p1
+  %c2 = fcmp ole <8 x double> %x, %y
+  %m2 = bitcast <8 x i1> %c2 to i8
+  %p2 = getelementptr i8, ptr %o, i64 2
+  store i8 %m2, ptr %p2
+  %c3 = fcmp uno <8 x double> %x, %y
+  %m3 = bitcast <8 x i1> %c3 to i8
+  %p3 = getelementptr i8, ptr %o, i64 3
+  store i8 %m3, ptr %p3
+  %c4 = fcmp une <8 x double> %x, %y
+  %m4 = bitcast <8 x i1> %c4 to i8
+  %p4 = getelementptr i8, ptr %o, i64 4
+  store i8 %m4, ptr %p4
+  %c5 = fcmp uge <8 x double> %x, %y
+  %m5 = bitcast <8 x i1> %c5 to i8
+  %p5 = getelementptr i8, ptr %o, i64 5
+  store i8 %m5, ptr %p5
+  %c6 = fcmp ugt <8 x double> %x, %y
+  %m6 = bitcast <8 x i1> %c6 to i8
+  %p6 = getelementptr i8, ptr %o, i64 6
+  store i8 %m6, ptr %p6
+  %c7 = fcmp ord <8 x double> %x, %y
+  %m7 = bitcast <8 x i1> %c7 to i8
+  %p7 = getelementptr i8, ptr %o, i64 7
+  store i8 %m7, ptr %p7
+  %c8 = fcmp ueq <8 x double> %x, %y
+  %m8 = bitcast <8 x i1> %c8 to i8
+  %p8 = getelementptr i8, ptr %o, i64 8
+  store i8 %m8, ptr %p8
+  %c9 = fcmp ult <8 x double> %x, %y
+  %m9 = bitcast <8 x i1> %c9 to i8
+  %p9 = getelementptr i8, ptr %o, i64 9
+  store i8 %m9, ptr %p9
+  %c10 = fcmp ule <8 x double> %x, %y
+  %m10 = bitcast <8 x i1> %c10 to i8
+  %p10 = getelementptr i8, ptr %o, i64 10
+  store i8 %m10, ptr %p10
+  %c11 = fcmp one <8 x double> %x, %y
+  %m11 = bitcast <8 x i1> %c11 to i8
+  %p11 = getelementptr i8, ptr %o, i64 11
+  store i8 %m11, ptr %p11
+  %c12 = fcmp oge <8 x double> %x, %y
+  %m12 = bitcast <8 x i1> %c12 to i8
+  %p12 = getelementptr i8, ptr %o, i64 12
+  store i8 %m12, ptr %p12
+  %c13 = fcmp ogt <8 x double> %x, %y
+  %m13 = bitcast <8 x i1> %c13 to i8
+  %p13 = getelementptr i8, ptr %o, i64 13
+  store i8 %m13, ptr %p13
+  ret void
+}
+
+; Floats: compared, and chosen between.
+define void @fsel_v16f32(ptr %a, ptr %b, ptr %o) #0 {
   %x = load <16 x float>, ptr %a
   %y = load <16 x float>, ptr %b
   %c = fcmp olt <16 x float> %x, %y
@@ -758,6 +880,9 @@ define void @lanes_fsel(ptr %a, ptr %b, ptr %o) #0 {
   ret void
 }
 
+; Done partly a lane at a time (and so exempt from the check that kernels
+; keep off the stack): a mask of narrower lanes choosing between 512-bit
+; vectors.
 define void @lanes_mixed(ptr %a, ptr %b, ptr %o) #0 {
   %x = load <16 x i8>, ptr %a
   %y = load <16 x i8>, ptr %b

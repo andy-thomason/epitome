@@ -10,3 +10,9 @@ description = "A SystemVerilog (IEEE 1800-2023) compiler: lexer, preprocessor, p
 [[bin]]
 name = "epitome-sv"
 path = "src/main.rs"
+
+[dev-dependencies]
+# The netlist tests build what `netlist` emits and run it.
+epitome-ir = { path = "../ir" }
+epitome-opt = { path = "../opt" }
+epitome-codegen = { path = "../codegen" }

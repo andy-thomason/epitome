@@ -49,6 +49,7 @@ fn run() -> ExitCode {
     let mut parse_only = false;
     let mut elab_only = false;
     let mut gaps = false;
+    let mut netlist = false;
     let mut plusargs = Vec::new();
     let mut tops = Vec::new();
     let mut args = std::env::args().skip(1);
@@ -63,6 +64,8 @@ fn run() -> ExitCode {
             parse_only = true;
         } else if arg == "--elab-only" {
             elab_only = true;
+        } else if arg == "--netlist" {
+            netlist = true;
         } else if arg == "--gaps" {
             (elab_only, gaps) = (true, true);
         } else if arg == "--top" {
@@ -84,7 +87,7 @@ fn run() -> ExitCode {
         }
     }
     if files.is_empty() {
-        eprintln!("usage: epitome-sv [-E] [--ast] [--design] [-I dir] [-D name[=text]] file.sv...");
+        eprintln!("usage: epitome-sv [-E] [--ast] [--design] [--netlist] [-I dir] [-D name[=text]] file.sv...");
         return ExitCode::from(2);
     }
     let map = SourceMap::new();
@@ -105,6 +108,9 @@ fn run() -> ExitCode {
                     Ok(d) => {
                         if design {
                             print!("{}", print_design(&d));
+                        }
+                        if netlist {
+                            return print_netlist(&d);
                         }
                         if design || elab_only {
                             let (unknown, opaque) = d.gaps();
@@ -163,4 +169,31 @@ fn print_gaps(d: &epitome_sv::design::Design, tree: &epitome_sv::ast::Ast) {
     for (k, n) in v {
         eprintln!("{n:6} {k}");
     }
+}
+
+/// The compiled netlist of each top-level instance, as Epitome IR, with
+/// where its ports are in a group's state.
+fn print_netlist(d: &epitome_sv::design::Design) -> ExitCode {
+    for &top in &d.tops {
+        match epitome_sv::netlist::compile(d, top) {
+            Ok(n) => {
+                print!("{}", n.ir);
+                eprintln!(
+                    "epitome-sv: {} instances a group, {} bytes of state; entry {}; {} assertions left out",
+                    epitome_sv::netlist::GROUP,
+                    n.size,
+                    n.entry,
+                    n.dropped
+                );
+                for p in &n.ports {
+                    eprintln!("epitome-sv:   {:?} {} [{}] at {}", p.dir, p.name, p.width, p.offset);
+                }
+            }
+            Err(e) => {
+                eprintln!("epitome-sv: {}: {e}", d.name(d.instance(top).name));
+                return ExitCode::FAILURE;
+            }
+        }
+    }
+    ExitCode::SUCCESS
 }

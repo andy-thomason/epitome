@@ -5,6 +5,7 @@ pub mod ast;
 pub mod design;
 pub mod keywords;
 pub mod lexer;
+pub mod netlist;
 pub mod parse;
 pub mod preprocess;
 pub mod sim;

@@ -38,6 +38,10 @@ short) has to do to work like LLVM. They are split into two halves:
   memory, a stack, calls or floating point; checking that a program fits
   one; fencing off what Epitome must not optimise or lower; and a VLIW
   GPU (TeraScale) to test it on.
+- [VLIW machines: a plan](vliw.md): bundles with a header and a slot per
+  unit, scheduling into them, loops repeated by hardware, rotating
+  registers, FIFOs between units, and one function compiled into
+  programs for several units.
 - [Object files, assembly and disassembly](objects.md): writing Mach-O
   and ELF object files that match clang's assembler; `epitome-as`, which
   assembles with the machine description run backwards; and

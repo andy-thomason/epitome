@@ -9,6 +9,7 @@ pub mod asm_text;
 pub mod assembler;
 pub mod atomics;
 pub mod bitmaps;
+pub mod bundle;
 pub mod check;
 pub mod divconst;
 pub mod eh;

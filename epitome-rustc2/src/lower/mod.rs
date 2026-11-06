@@ -398,6 +398,7 @@ impl Session {
         }
         named.sort_by(|a, b| a.0.cmp(&b.0));
         named.dedup_by(|a, b| a.0 == b.0);
+        let mut static_inits = Vec::new();
         for (name, it) in &named {
             match *it {
                 Item::Fn(d, _) | Item::Foreign(d) => {
@@ -448,8 +449,11 @@ impl Session {
                     cx.fns.insert(*it, Decl { g, abi, name: name.clone() });
                 }
                 Item::Static(d) => match body::define_static(&cx, &mut m, d, name) {
-                    Ok(g) => {
+                    Ok((g, needs_init)) => {
                         cx.statics.insert(d, g);
+                        if needs_init {
+                            static_inits.push((*it, d, g, name.clone()));
+                        }
                     }
                     Err(e) => failures.push(Failure { item: *it, name: name.clone(), why: e }),
                 },
@@ -491,10 +495,48 @@ impl Session {
             body::trap_body(&mut m, &decl);
             failures.push(Failure { item: *it, name: name.clone(), why });
         }
+        // Statics whose values are not known until their initialisers
+        // run: a function each, run before `main`.
+        let mut ctors = Vec::new();
+        for (it, d, g, name) in static_inits {
+            let fname = format!("{name}.init");
+            let got = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| body::lower_static_init(&cx, &mut m, d, g, &fname)));
+            match got {
+                Ok(Ok(f)) => {
+                    functions += 1;
+                    titles.insert(f, format!("the value of static {}", r.def_path(d)));
+                    ctors.push(f);
+                }
+                Ok(Err(e)) => failures.push(Failure { item: it, name: fname, why: e }),
+                Err(_) => failures.push(Failure { item: it, name: fname, why: "internal error".into() }),
+            }
+        }
+        if !ctors.is_empty() {
+            global_ctors(&mut m, &ctors);
+        }
         failures.sort_by(|a, b| a.name.cmp(&b.name));
         partial.sort_by(|a, b| a.name.cmp(&b.name));
         Lowered { module: m, functions, failures, partial, notes, titles }
     }
+}
+
+/// `@llvm.global_ctors`: each of `fs` run before `main`, in order.
+fn global_ctors(m: &mut Module, fs: &[GlobalId]) {
+    use epitome_ir::module::{ConstKind, Constant, Value};
+    let i32t = m.types.int(32);
+    let ptr = m.types.ptr(0);
+    let entry = m.types.struct_of(&[i32t, ptr, ptr]);
+    let mut entries = Vec::new();
+    for &f in fs {
+        let prio = Constant::int(&m.types, i32t, 65535);
+        let prio = m.consts.intern(prio);
+        let Value::Const(fc) = m.global_value(f) else { unreachable!("a global's address is a constant") };
+        let null = m.consts.intern(Constant { ty: ptr, kind: ConstKind::Null });
+        entries.push(m.consts.intern(Constant { ty: entry, kind: ConstKind::Struct(vec![prio, fc, null]) }));
+    }
+    let ty = m.types.array(entries.len() as u64, entry);
+    let init = Value::Const(m.consts.intern(Constant { ty, kind: ConstKind::Array(entries) }));
+    epitome_ir::module::Global::builder("llvm.global_ctors").init(init).linkage(Linkage::Appending).build(m);
 }
 
 /// `fn path<args>`, with the source location.

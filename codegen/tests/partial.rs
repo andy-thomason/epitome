@@ -764,3 +764,31 @@ declare void @tiny.put2(i32, i32)
     let seen: Vec<[u32; 4]> = events.iter().map(|e| e.1).collect();
     assert_eq!(seen, [[0x516, 1239, 7, 0], [0x92, 30, 1239, 0], [0x92, 6, 5, 0]]);
 }
+
+/// A machine with no way to select (the toy without its select recipe):
+/// a select is a branch around a phi.
+#[test]
+fn selects_as_branches_without_select() {
+    let text = std::fs::read_to_string(dir().join("tiny.ll")).unwrap();
+    let start = text.find("define i32 @select(").unwrap();
+    let end = text.find("define i32 @smin(").unwrap();
+    let path = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("tiny-without-select.ll");
+    std::fs::write(&path, format!("{}{}", &text[..start], &text[end..])).unwrap();
+    let t = Target::load_path(path.to_str().unwrap()).unwrap();
+    let ir = r#"
+define i32 @pick(i32 %a, i32 %b, i32 %n) {
+  %last = icmp eq i32 %a, %n
+  %s = select i1 %last, i32 %b, i32 0
+  %t = add i32 %s, 1
+  %big = icmp ult i32 10, %t
+  %u = select i1 %big, i32 %t, i32 %n
+  ret i32 %u
+}
+"#;
+    let funcs = compiled(&t, ir).unwrap();
+    for (a, b, n) in [(3u32, 20u32, 3u32), (3, 20, 4), (5, 2, 5), (1, 9, 1), (0, 0, 7)] {
+        let s = if a == n { b } else { 0 } + 1;
+        let want = if s > 10 { s } else { n };
+        assert_eq!(run(code_of(&funcs, "pick"), &[a, b, n]), want, "pick({a}, {b}, {n})");
+    }
+}

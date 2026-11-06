@@ -313,20 +313,32 @@ def unpacked_memory():
     """Loads and stores of unpacked vectors (<vscale x 8 x i8>, a byte in
     each 16-bit lane), which codegen holds in their containers
     (<vscale x 8 x i16>): ld1b's and st1b's of those lanes, as
-    llvm.epitome.sve.ld1.nxv8i8 and .st1, of the container type."""
+    llvm.epitome.sve.ld1.nxv8i8 and .st1, of the container type. So too
+    the first-faulting and non-faulting loads, the gathers and the
+    scatters (ld1b {z.d}, [x, z.d]), their unpacked offsets (sxtw's of
+    <vscale x 2 x i32>) also in containers, as the instructions read only
+    each lane's low bits."""
+    unpacked = re.compile(r'<vscale x (\d+) x i(\d+)>')
+
+    def contain(m):
+        n, k = int(m.group(1)), int(m.group(2))
+        return m.group(0) if k == 1 or n * k >= 128 else f'<vscale x {n} x i{128 // n}>'
+
+    declares = {}
+    for line in out:
+        m = re.match(r'declare .*@llvm\.aarch64\.sve\.([\w.]+)\(', line)
+        if m:
+            declares[m.group(1)] = line
     for line in list(out):
-        m = re.match(r'define (\S+ |<[^>]*> )@SVE\.(ld1|st1)\.nxv(\d+)i(\d+)\(', line)
-        if not m or int(m.group(3)) * int(m.group(4)) >= 128:
+        m = re.match(r'define (\S+ |<[^>]*> )@SVE\.(ld1|ldff1|ldnf1|ldnt1|st1|stnt1)(\.[\w.]+)\(([^)]*)\)', line)
+        if not m or unpacked.sub(contain, m.group(1) + m.group(4)) == m.group(1) + m.group(4):
             continue
-        n, k = int(m.group(3)), int(m.group(4))
-        u, c = f'<vscale x {n} x i{k}>', f'<vscale x {n} x i{128 // n}>'
-        op = m.group(2)
-        new = (line.replace(u, c).replace(f'@SVE.{op}.nxv{n}i{k}(', f'@SVE.{op}u.nxv{n}i{k}(')
-               .replace(f'@llvm.aarch64.sve.{op}.nxv{n}i{k}(', f'@llvm.epitome.sve.{op}.nxv{n}i{k}('))
+        op, rest = m.group(2), m.group(3)
+        intr = re.search(r'@llvm\.aarch64\.sve\.([\w.]+)\(', line).group(1)
+        new = (unpacked.sub(contain, line).replace(f'@SVE.{op}{rest}(', f'@SVE.{op}u{rest}(')
+               .replace(f'@llvm.aarch64.sve.{intr}(', f'@llvm.epitome.sve.{intr}('))
         out.append(new)
-        ty = f'void @llvm.epitome.sve.st1.nxv{n}i{k}({c}, <vscale x {n} x i1>, ptr)' if op == 'st1' \
-            else f'{c} @llvm.epitome.sve.ld1.nxv{n}i{k}(<vscale x {n} x i1>, ptr)'
-        out.append(f'declare {ty}\n')
+        out.append(unpacked.sub(contain, declares[intr]).replace('@llvm.aarch64.sve.', '@llvm.epitome.sve.'))
 
 
 def sme_modes():

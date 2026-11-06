@@ -378,8 +378,11 @@ fn sample(t: &Target, i: usize, k: usize, spread: usize) -> Option<Env> {
     for (j, o) in ins.operands.iter().enumerate() {
         let v = match o.kind {
             Kind::Reg(c) => {
-                let n = t.machine.def(c).names.len().max(1);
-                ((j * step + k * 3 + shift) % n.min(31)) as i64
+                let names = &t.machine.def(c).names;
+                let n = names.len().max(1);
+                let r = (j * step + k * 3 + shift) % n.min(31);
+                // (Not a gap: kw has no k0.)
+                if names.get(r).is_some_and(|x| x.starts_with('-')) { t.machine.first_in(c) } else { r as i64 }
             }
             Kind::Imm => imm,
             Kind::Label => 0,

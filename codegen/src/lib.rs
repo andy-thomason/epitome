@@ -117,6 +117,9 @@ pub enum Stop {
 #[derive(Clone, Debug, Default)]
 pub struct Options {
     pub stop: Stop,
+    /// Print each function's IR, as preparation leaves it for selection,
+    /// to standard error.
+    pub print_prepared: bool,
     /// The calling convention and platform, by name; by default, the one
     /// the module's target triple names, or else the description's first.
     pub abi: Option<String>,
@@ -196,7 +199,35 @@ pub(crate) fn par_run<S, R: Send>(
 struct Job {
     name: String,
     global: bool,
+    global_id: GlobalId,
     body: Function,
+}
+
+/// Function `g` of `m` with body `f`, as IR text: the module printed with
+/// it in place, and only its definition kept.
+fn print_function(m: &Module, g: GlobalId, f: &Function) -> String {
+    let mut m = m.clone();
+    if let GlobalKind::Function(b) = &mut m.globals[g.index()].kind {
+        **b = f.clone();
+    }
+    let text = epitome_ir::printer::print_module(&m);
+    let name = m.global(g).name.clone().unwrap_or_default();
+    let ident = epitome_ir::printer::ident(&name);
+    let mut out = String::new();
+    let mut inside = false;
+    for line in text.lines() {
+        if line.starts_with("define ") && line.contains(&format!("@{ident}(")) {
+            inside = true;
+        }
+        if inside {
+            out.push_str(line);
+            out.push('\n');
+            if line == "}" {
+                break;
+            }
+        }
+    }
+    out
 }
 
 /// The convention `opts` asks for, for module `m`.
@@ -237,6 +268,9 @@ fn compile_function(t: &Target, abi: &abi::Abi, cx: &mut Ctx, job: &Job, opts: &
     let now = Instant::now();
     let prepared = prepare::prepare(cx, body, &job.name)?;
     timing::add(&timing::PREPARE, now);
+    if opts.print_prepared {
+        eprint!("{}", print_function(cx.m, job.global_id, &prepared));
+    }
     // And what preparing it added: the library calls of division, or of
     // floating point, where the machine has no instruction for them.
     let problems = epitome_ir::fits::check(&machine, cx.m, &prepared, &job.name);
@@ -352,7 +386,7 @@ pub fn compile(t: &Target, m: &mut Module, opts: &Options) -> Result<Compiled, S
         body.fn_attrs = f.fn_attrs.clone();
         body.personality = f.personality;
         body.has_body = true;
-        jobs.push((g, Job { name, global, body }));
+        jobs.push((g, Job { name, global, global_id: g, body }));
     }
     let threads =
         if opts.threads == 0 { std::thread::available_parallelism().map_or(1, |n| n.get()) } else { opts.threads };

@@ -7,6 +7,10 @@ description = "A Rust compiler that does not use rustc: lexer, parser and AST, t
 
 [dependencies]
 epitome-ir = { path = "../ir" }
+# For the program only (`-o`: optimise, compile and link); the library
+# itself uses only epitome-ir.
+epitome-opt = { path = "../opt" }
+epitome-codegen = { path = "../codegen" }
 
 [[bin]]
 name = "epitome-rustc2"

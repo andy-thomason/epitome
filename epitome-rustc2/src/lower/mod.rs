@@ -121,6 +121,10 @@ pub struct Lowered {
     /// Each function lowering could not finish, with why: their bodies
     /// trap.
     pub failures: Vec<Failure>,
+    /// Functions lowered but for something they use that is not supported
+    /// yet (`dyn`, formatting), where they trap: only panics reach these
+    /// in the programs so far.
+    pub partial: Vec<Failure>,
     /// Comments for `--dump-ir`: the source of each statement, before its
     /// first instruction.
     notes: FastMap<GlobalId, Vec<(epitome_ir::module::BlockId, usize, String)>>,
@@ -456,6 +460,7 @@ impl Session {
         let mut notes = FastMap::default();
         let mut titles = FastMap::default();
         let mut functions = 0;
+        let mut partial = Vec::new();
         for (name, it) in &named {
             let (d, l) = match *it {
                 Item::Fn(d, l) | Item::Closure(_, d, l) => (d, l),
@@ -470,8 +475,11 @@ impl Session {
             titles.insert(decl.g, title);
             let got = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| body::lower_fn(&cx, &mut m, *it, &decl)));
             let why = match got {
-                Ok(Ok(n)) => {
+                Ok(Ok((n, t))) => {
                     notes.insert(decl.g, n);
+                    if !t.is_empty() {
+                        partial.push(Failure { item: *it, name: name.clone(), why: format!("traps where it uses {}", t.join(", ")) });
+                    }
                     continue;
                 }
                 Ok(Err(e)) => e,
@@ -484,7 +492,8 @@ impl Session {
             failures.push(Failure { item: *it, name: name.clone(), why });
         }
         failures.sort_by(|a, b| a.name.cmp(&b.name));
-        Lowered { module: m, functions, failures, notes, titles }
+        partial.sort_by(|a, b| a.name.cmp(&b.name));
+        Lowered { module: m, functions, failures, partial, notes, titles }
     }
 }
 

@@ -39,6 +39,12 @@
 //!   comment.
 //! - `--lower-stats`: lower, and list each function that could not be
 //!   lowered (its body traps) with why.
+//! - `-o PATH`: monomorphise from the last crate's `main`, lower, optimise
+//!   with Epitome's optimiser, compile for the host with Epitome's code
+//!   generator, and link with `cc` into the executable `PATH`. It fails if
+//!   any function of the last crate could not be lowered.
+//! - `-O0`: with `-o`, do not optimise.
+//! - `--emit=obj`: with `-o`, write the object file to `PATH`, unlinked.
 //! - `--dump-layout`: the layout of every non-generic struct, enum, union
 //!   and type alias of the last crate given.
 //! - `--parse-tree dir`: parse every `.rs` file under `dir` (each on its
@@ -71,6 +77,8 @@ fn main() -> ExitCode {
     let mut dump_layout = false;
     let (mut dump_mono, mut mono_stats) = (false, false);
     let (mut dump_ir, mut lower_stats) = (false, false);
+    let mut output: Option<PathBuf> = None;
+    let (mut no_opt, mut emit_obj) = (false, false);
     let mut tree: Option<PathBuf> = None;
     let mut cfg = CfgSet::host();
     let mut externs: Vec<(String, PathBuf)> = Vec::new();
@@ -99,6 +107,9 @@ fn main() -> ExitCode {
             "--dump-mono" => dump_mono = true,
             "--mono-stats" => mono_stats = true,
             "--dump-ir" => dump_ir = true,
+            "-O0" => no_opt = true,
+            "--emit=obj" => emit_obj = true,
+            "-o" => output = value("-o").map(PathBuf::from),
             "--lower-stats" => lower_stats = true,
             _ if arg.starts_with("--cfg") => {
                 let v = value("--cfg").unwrap_or_default();
@@ -192,7 +203,7 @@ fn main() -> ExitCode {
             }
         }
     }
-    if dump_sigs || types_stats || dump_types || typeck_stats || dump_layout || dump_mono || mono_stats || dump_ir || lower_stats {
+    if dump_sigs || types_stats || dump_types || typeck_stats || dump_layout || dump_mono || mono_stats || dump_ir || lower_stats || output.is_some() {
         let r = session.resolve(&crates);
         let t = std::time::Instant::now();
         let tcx = session.collect_types(&crates, &r);
@@ -219,7 +230,7 @@ fn main() -> ExitCode {
             let cx = epitome_rustc2::layout::LayoutCx::new(&tcx, &r, &crates, &index, Default::default());
             print!("{}", cx.dump(Some(crates.len() as u32 - 1)));
         }
-        if dump_mono || mono_stats || dump_ir || lower_stats {
+        if dump_mono || mono_stats || dump_ir || lower_stats || output.is_some() {
             let index = epitome_rustc2::typeck::Index::new(&tcx, &r);
             let res = session.typeck_with(&crates, &r, &tcx, &index);
             let t = std::time::Instant::now();
@@ -243,23 +254,38 @@ fn main() -> ExitCode {
                     eprintln!("  {n:6} {why}");
                 }
             }
-            if dump_ir || lower_stats {
+            if dump_ir || lower_stats || output.is_some() {
                 let t = std::time::Instant::now();
                 let target = epitome_rustc2::lower::Target::host();
-                let lowered = session.lower(&crates, &r, &tcx, &index, &res, &mono, target);
+                let mut lowered = session.lower(&crates, &r, &tcx, &index, &res, &mono, target);
                 let elapsed = t.elapsed();
                 if dump_ir {
                     print!("{}", lowered.dump());
                 }
                 if lower_stats {
                     eprintln!(
-                        "lower: {} functions, {} not lowered, in {:.3} s",
+                        "lower: {} functions, {} not lowered, {} that trap where they use something not supported, in {:.3} s",
                         lowered.functions,
                         lowered.failures.len(),
+                        lowered.partial.len(),
                         elapsed.as_secs_f64()
                     );
-                    for f in &lowered.failures {
+                    for f in lowered.failures.iter().chain(&lowered.partial) {
                         eprintln!("  {}: {}", f.name, f.why);
+                    }
+                }
+                if let Some(out) = &output {
+                    let last = crates.len() as u32 - 1;
+                    let own: Vec<_> = lowered.failures.iter().filter(|f| item_crate(&r, f.item) == Some(last)).collect();
+                    if !own.is_empty() {
+                        for f in own {
+                            eprintln!("error: could not lower {}: {}", f.name, f.why);
+                        }
+                        return ExitCode::FAILURE;
+                    }
+                    if let Err(e) = build(&mut lowered.module, target, out, !no_opt, emit_obj) {
+                        eprintln!("error: {e}");
+                        return ExitCode::FAILURE;
                     }
                 }
             }
@@ -352,6 +378,44 @@ fn main() -> ExitCode {
         }
     }
     if failed { ExitCode::FAILURE } else { ExitCode::SUCCESS }
+}
+
+/// The crate an item is defined in.
+fn item_crate(r: &epitome_rustc2::resolve::Resolver, it: epitome_rustc2::mono::Item) -> Option<u32> {
+    use epitome_rustc2::mono::Item;
+    let d = match it {
+        Item::Fn(d, _) | Item::Closure(_, d, _) | Item::Static(d) | Item::Foreign(d) | Item::Intrinsic(d, _) | Item::Const(d, _) => d,
+        Item::VTable(..) => return None,
+    };
+    Some(r.defs[d.0 as usize].krate)
+}
+
+/// Optimises `m` (unless `!optimise`), compiles it for `target` and
+/// writes the object file, then links it with `cc` into `out` (unless
+/// `emit_obj`, when the object file is `out`).
+fn build(m: &mut epitome_ir::Module, target: epitome_rustc2::lower::Target, out: &Path, optimise: bool, emit_obj: bool) -> Result<(), String> {
+    if optimise {
+        epitome_opt::pipeline::run(m, &epitome_opt::pipeline::Options::default());
+    }
+    let t = if target.triple.starts_with("x86_64") {
+        epitome_codegen::target::Target::x86_64()
+    } else {
+        epitome_codegen::target::Target::aarch64()
+    };
+    let compiled = epitome_codegen::compile(&t, m, &epitome_codegen::Options::default())?;
+    let object = compiled.object_file(&t)?;
+    let obj_path = if emit_obj { out.to_path_buf() } else { out.with_extension("o") };
+    std::fs::write(&obj_path, object).map_err(|e| format!("{}: {e}", obj_path.display()))?;
+    if emit_obj {
+        return Ok(());
+    }
+    let status = std::process::Command::new("cc").arg(&obj_path).arg("-o").arg(out).status();
+    let _ = std::fs::remove_file(&obj_path);
+    match status {
+        Ok(s) if s.success() => Ok(()),
+        Ok(s) => Err(format!("linking with cc failed: {s}")),
+        Err(e) => Err(format!("cannot run cc: {e}")),
+    }
 }
 
 /// A crate's name from its root file: the file's name, or for `lib.rs`,

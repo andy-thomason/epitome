@@ -294,6 +294,17 @@ impl Fx<'_, '_, '_, '_> {
                 }
                 self.call_def(f, tcx.tys(l), inner, None)
             }
+            "compare_bytes" => {
+                // libc's `memcmp`.
+                let a = self.imm(args[0])?;
+                let b = self.imm(args[1])?;
+                let n = self.imm(args[2])?;
+                let ptr = self.ptr_t();
+                let i32t = self.b.module().types.int(32);
+                let g = self.b.module().declare("memcmp", i32t, &[ptr, ptr, isz], false);
+                let r = self.b.call(g, &[a, b, n]).unwrap();
+                imm(r)
+            }
             "ptr_guaranteed_cmp" => {
                 let c = self.compare("==", args[0], args[1])?;
                 let r = self.bool_of(c);

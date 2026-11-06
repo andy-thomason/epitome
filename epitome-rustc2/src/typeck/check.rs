@@ -934,12 +934,14 @@ impl<'a, 's> FnCtxt<'a, 's> {
             Res::Partial(base, 1) => {
                 let name = self.last_segment_name(path);
                 let base = (**base).clone();
-                if let Some(q) = self.ast.child(path, Kind::QSelf)
+                let t = if let Some(q) = self.ast.child(path, Kind::QSelf)
                     && let Some(&tr) = self.ast.children(q).get(1)
                 {
-                    return self.qualified_trait_value(n, q, tr, name);
-                }
-                self.assoc_value(n, path, &base, name)
+                    self.qualified_trait_value(n, q, tr, name)
+                } else {
+                    self.assoc_value(n, path, &base, name)
+                };
+                self.path_turbofish(path, t)
             }
             Res::Partial(base, 2) => {
                 // `T::Assoc::item`: the associated type, then its item.
@@ -955,16 +957,37 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     let mut args = impl_args;
                     let fresh = (0..own).map(|_| self.infer.fresh()).collect::<Vec<_>>();
                     args.extend(fresh);
-                    return self.mk(TyKind::FnDef(item, tcx.list(args)));
+                    let t = self.mk(TyKind::FnDef(item, tcx.list(args)));
+                    return self.path_turbofish(path, t);
                 }
                 match self.trait_assoc_value(n, at, name) {
-                    Some(t) => t,
+                    Some(t) => self.path_turbofish(path, t),
                     None => self.err(n, "associated item not found"),
                 }
             }
             Res::Partial(..) => self.err(n, "path through an associated item"),
             Res::PrimTy(_) => self.err(n, "a type used as a value"),
         }
+    }
+
+    /// `Type::f::<A, B>` and `T::f::<A, B>`: the arguments written on the
+    /// last segment, for the function's own parameters (the last of its
+    /// arguments), which the lookup left as variables.
+    fn path_turbofish(&mut self, path: NodeId, t: Ty) -> Ty {
+        let tcx = self.tcx;
+        let ast = self.ast;
+        let TyKind::FnDef(item, l) = tcx.kind(t) else { return t };
+        let Some(&seg) = ast.children(path).iter().rev().find(|&&s| ast.kind(s) == Kind::Segment) else { return t };
+        let Some(g) = ast.child(seg, Kind::GenericArgs) else { return t };
+        let written: Vec<NodeId> = ast.children(g).iter().copied().filter(|&a| is_generic_arg(ast.kind(a))).collect();
+        let args = tcx.tys(l);
+        let own = tcx.generics[item.0 as usize].own.len();
+        let start = args.len().saturating_sub(own);
+        for (i, a) in written.into_iter().enumerate().take(own) {
+            let w = self.written_arg(a);
+            self.infer.unify(args[start + i], w);
+        }
+        t
     }
 
     fn last_segment_name(&self, path: NodeId) -> &'s str {

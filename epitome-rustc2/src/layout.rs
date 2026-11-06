@@ -230,6 +230,8 @@ pub struct LayoutCx<'a, 's> {
     pub crates: &'a [ParsedCrate<'s>],
     pub index: &'a Index<'s>,
     pub target: TargetData,
+    /// Type checking's results, for closures' captures.
+    pub typeck: Option<&'a crate::typeck::TypeckResults>,
     cache: Mutex<FastMap<Ty, Result<Arc<Layout>, LayoutError>>>,
     pub(crate) const_cache: Mutex<FastMap<DefId, Option<Value>>>,
     reprs: Mutex<FastMap<DefId, Repr>>,
@@ -247,10 +249,32 @@ impl<'a, 's> LayoutCx<'a, 's> {
             crates,
             index,
             target,
+            typeck: None,
             cache: Mutex::new(FastMap::default()),
             const_cache: Mutex::new(FastMap::default()),
             reprs: Mutex::new(FastMap::default()),
         }
+    }
+
+    /// The types of what closure `c` (with its owner's arguments `l`)
+    /// captures: a reference to each local captured by reference, the
+    /// local's type for one captured by value.
+    pub fn upvar_tys(&self, c: crate::ty::ClosureId, l: crate::ty::List) -> Option<Vec<Ty>> {
+        let typeck = self.typeck?;
+        let tcx = self.tcx;
+        let caps = typeck.captures.get(&c)?;
+        let owner = *typeck.closure_owners.get(&c)?;
+        let (k, f, _) = tcx.closure_at(c);
+        let params = tcx.all_params(owner);
+        let args = tcx.tys(l);
+        let mut s = Solver::new(tcx, self.r, self.crates, self.index);
+        caps.iter()
+            .map(|cap| {
+                let t = (*typeck.types.get(k as usize)?.get(f as usize)?.get(cap.local.0 as usize)?)?;
+                let t = crate::mono::sub(tcx, &typeck.hidden, &mut s, t, &params, &args);
+                Some(if cap.by_value { t } else { tcx.mk(TyKind::Ref(crate::ty::Mutbl::Mut, t)) })
+            })
+            .collect()
     }
 
     pub fn ptr_bits(&self) -> u32 {
@@ -397,7 +421,11 @@ impl<'a, 's> LayoutCx<'a, 's> {
                 }
                 return self.layout_of(n).map(|l| (*l).clone());
             }
-            TyKind::Closure(..) => return Err(LayoutError::Unsupported("closure (captures not yet known)")),
+            // A closure is a tuple of what it captures.
+            TyKind::Closure(c, _, l) => match self.upvar_tys(c, l) {
+                Some(tys) => (*self.layout_of(tcx.mk(TyKind::Tuple(tcx.list(tys))))?).clone(),
+                None => return Err(LayoutError::Unsupported("closure (captures not known)")),
+            },
             _ => return Err(self.not_concrete(t)),
         })
     }

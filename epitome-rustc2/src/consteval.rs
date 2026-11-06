@@ -87,7 +87,7 @@ impl<'a, 's> LayoutCx<'a, 's> {
             Const::Value(v) => Some(v as i128),
             Const::Param(p) => env.get(&p).copied(),
             Const::Expr(k, f, n) => self.eval(k, f, n, env)?.int(),
-            Const::Error => None,
+            Const::Infer(_) | Const::Error => None,
         }
     }
 

@@ -484,6 +484,8 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     let pt = self.normalize(pt, depth + 1);
                     let pa: Vec<Ty> = tcx.tys(ptr.args).into_iter().map(|x| subst(tcx, x, &params, &args)).collect();
                     let pa: Vec<Ty> = pa.into_iter().map(|x| self.normalize(x, depth + 1)).collect();
+                    // `T: PartialEq` is `T: PartialEq<T>`.
+                    let pa = self.full_trait_args(ptr.def, pt, pa);
                     if !self.select(pt, ptr.def, &pa, depth + 1).holds() {
                         return None;
                     }
@@ -571,6 +573,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
             }
             self.rollback(s);
         }
+        if tcx.lang.get("metadata_type") == Some(&assoc) {
+            return self.pointee_metadata(t, 0);
+        }
         let tr = self.trait_of(assoc)?;
         match self.select(t, tr, &args[1..], depth) {
             Select::Yes(Source::Impl(i, iargs)) => {
@@ -609,6 +614,46 @@ impl<'a, 's> FnCtxt<'a, 's> {
     }
 
     /// `t` with the projections in it worked out where they can be.
+    /// `<t as Pointee>::Metadata`, which the compiler implements: `usize`
+    /// for slices and `str`, `DynMetadata<t>` for `dyn Trait`, `()` for a
+    /// sized type, and a struct's or tuple's last field's for one ending
+    /// in an unsized field. `None` while `t` is not known well enough.
+    fn pointee_metadata(&mut self, t: Ty, depth: u32) -> Option<Ty> {
+        let tcx = self.tcx;
+        if depth > 8 {
+            return None;
+        }
+        let t = self.infer.shallow(t);
+        match tcx.kind(t) {
+            TyKind::Slice(_) | TyKind::Str => Some(self.mk(TyKind::Uint(crate::ty::UintTy::Usize))),
+            TyKind::Dyn(_) => {
+                let d = *tcx.lang.get("dyn_metadata")?;
+                Some(self.mk(TyKind::Adt(d, tcx.list(vec![t]))))
+            }
+            TyKind::Param(_) | TyKind::Infer(_) | TyKind::Projection(..) | TyKind::Opaque(..) | TyKind::Error => None,
+            TyKind::Adt(d, l) => {
+                let adt = tcx.adts.get(&d)?;
+                let last = match adt.kind {
+                    crate::ty::AdtKind::Struct => adt.variants.first().and_then(|v| v.fields.last()),
+                    _ => None,
+                };
+                match last {
+                    Some(f) => {
+                        let ft = subst(tcx, f.ty, &tcx.all_params(d), &tcx.tys(l));
+                        let ft = self.normalize(ft, depth + 1);
+                        self.pointee_metadata(ft, depth + 1)
+                    }
+                    None => Some(self.unit()),
+                }
+            }
+            TyKind::Tuple(l) => match tcx.tys(l).last() {
+                Some(&x) => self.pointee_metadata(x, depth + 1),
+                None => Some(self.unit()),
+            },
+            _ => Some(self.unit()),
+        }
+    }
+
     pub(super) fn normalize(&mut self, t: Ty, depth: u32) -> Ty {
         let tcx = self.tcx;
         if !has_projection(tcx, t) {
@@ -634,6 +679,10 @@ impl<'a, 's> FnCtxt<'a, 's> {
             TyKind::Adt(d, l) => {
                 let v = tcx.tys(l).into_iter().map(|x| self.normalize(x, depth)).collect();
                 self.mk(TyKind::Adt(d, tcx.list(v)))
+            }
+            TyKind::FnDef(d, l) => {
+                let v = tcx.tys(l).into_iter().map(|x| self.normalize(x, depth)).collect();
+                self.mk(TyKind::FnDef(d, tcx.list(v)))
             }
             TyKind::Ref(m, x) => {
                 let x = self.normalize(x, depth);
@@ -886,7 +935,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
 
     /// `T::name` where `T` implements a trait with an item `name` (a
     /// function or constant): its type.
-    pub(super) fn trait_assoc_value(&mut self, t: Ty, name: &str) -> Option<Ty> {
+    pub(super) fn trait_assoc_value(&mut self, n: crate::ast::NodeId, t: Ty, name: &str) -> Option<Ty> {
         let tcx = self.tcx;
         for (tr, item) in self.trait_candidates(name) {
             let s = self.probe();
@@ -903,6 +952,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 DefKind::AssocFn => return Some(self.mk(TyKind::FnDef(item, tcx.list(args)))),
                 DefKind::AssocConst => {
                     if let Some(ct) = tcx.type_of(item) {
+                        self.consts.push((n, item, args.clone()));
                         let ct = subst(tcx, ct, &params, &args);
                         return Some(self.normalize(ct, 0));
                     }
@@ -1068,6 +1118,27 @@ impl<'a, 's> FnCtxt<'a, 's> {
         match (tcx.kind(t), tcx.kind(w)) {
             (TyKind::Array(e, _), TyKind::Slice(f)) => self.infer.unify(e, f),
             (TyKind::Dyn(_), TyKind::Dyn(_)) => true,
+            // A struct whose last field unsizes: `S<[T; N]>` to `S<[T]>`,
+            // the other arguments the same.
+            (TyKind::Adt(a, x), TyKind::Adt(b, y)) if a == b && tcx.adts.get(&a).is_some_and(|d| d.kind == crate::ty::AdtKind::Struct) => {
+                let (xs, ys) = (tcx.tys(x), tcx.tys(y));
+                let mut unsized_at = None;
+                for (i, (&p, &q)) in xs.iter().zip(&ys).enumerate() {
+                    let s = self.probe();
+                    if self.infer.unify(p, q) {
+                        continue;
+                    }
+                    self.rollback(s);
+                    if unsized_at.is_some() {
+                        return false;
+                    }
+                    unsized_at = Some(i);
+                }
+                match unsized_at {
+                    Some(i) => self.unsizes_to(xs[i], ys[i]),
+                    None => false,
+                }
+            }
             (_, TyKind::Dyn(d)) => match tcx.dyn_of(d).traits.first() {
                 Some(tr) => {
                     let args = tcx.tys(tr.args);
@@ -1163,7 +1234,7 @@ fn mentions_rigid(tcx: &crate::ty::TyCtxt, t: Ty) -> bool {
 fn has_projection(tcx: &crate::ty::TyCtxt, t: Ty) -> bool {
     match tcx.kind(t) {
         TyKind::Projection(..) => true,
-        TyKind::Tuple(l) | TyKind::Adt(_, l) | TyKind::Opaque(_, l) => tcx.tys(l).into_iter().any(|x| has_projection(tcx, x)),
+        TyKind::Tuple(l) | TyKind::Adt(_, l) | TyKind::Opaque(_, l) | TyKind::FnDef(_, l) => tcx.tys(l).into_iter().any(|x| has_projection(tcx, x)),
         TyKind::Ref(_, x) | TyKind::Ptr(_, x) | TyKind::Slice(x) | TyKind::Array(x, _) => has_projection(tcx, x),
         TyKind::FnPtr(s) => {
             let s = tcx.sig_of(s);

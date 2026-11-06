@@ -230,6 +230,8 @@ pub(super) struct FnCtxt<'a, 's> {
     /// What each method call (or overloaded operator) calls, and the
     /// arguments, unresolved until the end.
     pub(super) methods: Vec<(NodeId, DefId, Vec<Ty>)>,
+    /// The constant each path to one names, and its arguments.
+    pub(super) consts: Vec<(NodeId, DefId, Vec<Ty>)>,
     adjustments: FastMap<NodeId, Vec<Adjust>>,
     pat_derefs: FastMap<NodeId, u32>,
     bindings: FastMap<NodeId, BindingMode>,
@@ -284,6 +286,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
             owner,
             types: FastMap::default(),
             methods: Vec::new(),
+            consts: Vec::new(),
             adjustments: FastMap::default(),
             pat_derefs: FastMap::default(),
             bindings: FastMap::default(),
@@ -305,10 +308,84 @@ impl<'a, 's> FnCtxt<'a, 's> {
         cx
     }
 
+    /// What closure `c` (of this body) captures: every local of an
+    /// enclosing body it uses, in order of first use. A capture is by value
+    /// in a `move` closure, or where the body moves a value that is not
+    /// `Copy` out of it (directly, or into a `move` closure inside it);
+    /// otherwise by reference. Whole variables are captured, not the
+    /// fields used, which behaves the same while nothing is dropped.
+    fn captures(&mut self, c: crate::ty::ClosureId) -> Vec<super::Capture> {
+        let ast = self.ast;
+        let (_, _, node) = self.tcx.closure_at(c);
+        let is_move = |n: NodeId| ast.children(n).iter().any(|&k| ast.kind(k) == Kind::Keyword && ast.token(k).0 == "move");
+        // The closure's nodes in source order, each with its parent and
+        // the innermost closure it is in.
+        let mut nodes: Vec<(NodeId, NodeId, NodeId)> = Vec::new();
+        let mut stack = vec![(node, node, node)];
+        while let Some((n, parent, closure)) = stack.pop() {
+            nodes.push((n, parent, closure));
+            let inner = if ast.kind(n) == Kind::Closure { n } else { closure };
+            for &k in ast.children(n).iter().rev() {
+                stack.push((k, n, inner));
+            }
+        }
+        let inside: FastSet<NodeId> = nodes.iter().map(|x| x.0).collect();
+        let parent_of: FastMap<NodeId, NodeId> = nodes.iter().map(|x| (x.0, x.1)).collect();
+        let copy = self.lang("copy");
+        let mut out: Vec<super::Capture> = Vec::new();
+        for &(n, parent, closure) in &nodes {
+            if ast.kind(n) != Kind::PathExpr {
+                continue;
+            }
+            let Some(&path) = ast.children(n).first() else { continue };
+            let Some(Res::Local(p)) = self.res(path) else { continue };
+            let p = *p;
+            if inside.contains(&p) {
+                continue;
+            }
+            // Whether this use takes the value (rather than a place).
+            let mut child = n;
+            let mut up = parent;
+            while ast.kind(up) == Kind::Paren && up != node {
+                child = up;
+                up = parent_of.get(&up).copied().unwrap_or(node);
+            }
+            let first = ast.children(up).first() == Some(&child);
+            let borrowed = matches!(self.adjustments.get(&child).and_then(|a| a.first()), Some(Adjust::Borrow(_) | Adjust::Deref));
+            let place_use = borrowed
+                || match ast.kind(up) {
+                    Kind::Borrow | Kind::Unary => true,
+                    Kind::Field | Kind::Index | Kind::Match | Kind::MethodCall => first,
+                    Kind::Let => !first,
+                    Kind::Binary => first && ast.children(up).get(1).is_some_and(|&o| ast.text(o).ends_with('=') && !matches!(ast.text(o).as_str(), "==" | "!=" | "<=" | ">=")),
+                    _ => false,
+                };
+            let value_use = !place_use || closure != node && is_move(closure);
+            let by_value = is_move(node)
+                || value_use && {
+                    let t = self.types.get(&p).copied().map(|t| self.infer.resolve(t));
+                    match (t, copy) {
+                        (Some(t), Some(cp)) => match self.tcx.kind(t) {
+                            TyKind::Ref(Mutbl::Not, _) => false,
+                            _ => !self.select(t, cp, &[], 0).holds(),
+                        },
+                        _ => false,
+                    }
+                };
+            match out.iter_mut().find(|x| x.local == p) {
+                Some(x) => x.by_value |= by_value,
+                None => out.push(super::Capture { local: p, by_value }),
+            }
+        }
+        out
+    }
+
     fn finish(mut self) -> BodyResult {
         self.process_pending();
         self.infer.fallback();
         self.process_pending();
+        let captures: Vec<(crate::ty::ClosureId, Vec<super::Capture>)> =
+            self.closures.clone().into_iter().map(|c| (c, self.captures(c))).collect();
         let mut types = Vec::with_capacity(self.types.len());
         let (mut error_nodes, mut unknown_nodes) = (0, 0);
         let mut nodes: Vec<(NodeId, Ty)> = self.types.iter().map(|(&n, &t)| (n, t)).collect();
@@ -327,6 +404,21 @@ impl<'a, 's> FnCtxt<'a, 's> {
         }
         let methods = std::mem::take(&mut self.methods);
         let methods = methods
+            .into_iter()
+            .map(|(n, d, args)| {
+                let args: Vec<Ty> = args
+                    .into_iter()
+                    .map(|t| {
+                        let t = self.infer.resolve(t);
+                        let t = self.normalize(t, 1);
+                        self.infer.resolve(t)
+                    })
+                    .collect();
+                (n, d, self.tcx.list(args))
+            })
+            .collect();
+        let consts = std::mem::take(&mut self.consts);
+        let consts = consts
             .into_iter()
             .map(|(n, d, args)| {
                 let args: Vec<Ty> = args
@@ -370,10 +462,12 @@ impl<'a, 's> FnCtxt<'a, 's> {
         BodyResult {
             hidden,
             closures: std::mem::take(&mut self.closures).into_iter().map(|c| (c, self.owner)).collect(),
+            captures,
             k: self.k,
             file: self.file,
             types,
             methods,
+            consts,
             adjustments,
             pat_derefs,
             bindings,
@@ -483,6 +577,17 @@ impl<'a, 's> FnCtxt<'a, 's> {
     /// anything, `&mut T` to `&T`, `&[T; N]` to `&[T]`, a function item to a
     /// function pointer).
     fn coerce(&mut self, n: NodeId, got: Ty, want: Ty) -> bool {
+        // A reference to a type waiting on a projection (a method's `&mut
+        // Self::Target`) may be known by now, and must be before it is
+        // unified with what is wanted, or an unsizing would be missed.
+        if !self.pending.is_empty()
+            && let (TyKind::Ref(_, x) | TyKind::Ptr(_, x), TyKind::Ref(_, y) | TyKind::Ptr(_, y)) =
+                (self.tcx.kind(self.infer.shallow(got)), self.tcx.kind(self.infer.shallow(want)))
+            && self.infer.var_kind(self.infer.shallow(x)).is_some()
+            && self.may_be_unsized(y)
+        {
+            self.process_pending();
+        }
         let g = self.infer.shallow(got);
         let w = self.infer.shallow(want);
         let tcx = self.tcx;
@@ -562,6 +667,17 @@ impl<'a, 's> FnCtxt<'a, 's> {
         }
         self.err(n, "mismatched types");
         false
+    }
+
+    /// Whether `t` is, or holds as an argument, a slice, `str` or `dyn`:
+    /// something a pointer might be unsized to.
+    fn may_be_unsized(&self, t: Ty) -> bool {
+        let tcx = self.tcx;
+        match tcx.kind(self.infer.shallow(t)) {
+            TyKind::Slice(_) | TyKind::Str | TyKind::Dyn(_) => true,
+            TyKind::Adt(_, l) | TyKind::Tuple(l) => tcx.tys(l).into_iter().any(|x| self.may_be_unsized(x)),
+            _ => false,
+        }
     }
 
     /// `recv.name::<A, B>(..)`: the written arguments for the method's own
@@ -763,6 +879,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     }
                     DefKind::Const | DefKind::Static | DefKind::AssocConst | DefKind::ForeignStatic => {
                         let args = self.item_args(d, path);
+                        if matches!(self.r.defs[d.0 as usize].kind, DefKind::Const | DefKind::AssocConst) {
+                            self.consts.push((n, d, args.clone()));
+                        }
                         match tcx.type_of(d) {
                             Some(t) => subst(tcx, t, &tcx.all_params(d), &args),
                             None => self.err(n, "constant without a type"),
@@ -817,7 +936,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     args.extend(fresh);
                     return self.mk(TyKind::FnDef(item, tcx.list(args)));
                 }
-                match self.trait_assoc_value(at, name) {
+                match self.trait_assoc_value(n, at, name) {
                     Some(t) => t,
                     None => self.err(n, "associated item not found"),
                 }
@@ -867,6 +986,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
             DefKind::AssocFn => self.mk(TyKind::FnDef(item, tcx.list(args))),
             DefKind::AssocConst => match tcx.type_of(item) {
                 Some(t) => {
+                    self.consts.push((n, item, args.clone()));
                     let t = subst(tcx, t, &params, &args);
                     self.normalize(t, 0)
                 }
@@ -948,6 +1068,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     DefKind::AssocFn => self.mk(TyKind::FnDef(item, tcx.list(args))),
                     DefKind::AssocConst => match tcx.type_of(item) {
                         Some(t) => {
+                            self.consts.push((n, item, args.clone()));
                             let t = subst(tcx, t, &tcx.all_params(item), &args);
                             self.normalize(t, 0)
                         }
@@ -956,7 +1077,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     _ => self.err(n, "associated item is not a value"),
                 }
             }
-            None => match self.trait_assoc_value(bt, name) {
+            None => match self.trait_assoc_value(n, bt, name) {
                 Some(t) => t,
                 None => self.err(n, "associated item not found"),
             },
@@ -1008,25 +1129,34 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 if borrow.is_none() && steps[k].1 == Some(Adjust::Unsize) {
                     continue;
                 }
-                let s = self.probe();
-                if let Some((item, impl_args)) = self.inherent_item(t, name, Ns::Value)
-                    && self.r.defs[item.0 as usize].kind == DefKind::AssocFn
-                {
-                    let own = tcx.generics[item.0 as usize].own.len();
-                    let mut args = impl_args;
-                    let fresh = (0..own).map(|_| self.infer.fresh()).collect::<Vec<_>>();
-                    args.extend(fresh);
-                    if let Some((inputs, output)) = self.callable_sig(item, tcx.list(args.clone()))
-                        && let Some(&sp) = inputs.first()
-                        && self.infer.unify(sp, recv)
-                    {
-                        self.methods.push((n, item, args));
-                        let adj = Self::step_adjustments(&steps, k, borrow);
-                        self.adjust(recv_node, adj, recv);
-                        return Some((item, inputs[1..].to_vec(), output));
+                // Inherent methods first: those of this step's type, or of
+                // a type further along whose receiver is this one (`len(&self)`
+                // of `IndexRange` takes a `&IndexRange` as it is).
+                for j in k..steps.len() {
+                    let tj = steps[j].0;
+                    if self.infer.var_kind(tj) == Some(VarKind::General) {
+                        break;
                     }
+                    let s = self.probe();
+                    if let Some((item, impl_args)) = self.inherent_item(tj, name, Ns::Value)
+                        && self.r.defs[item.0 as usize].kind == DefKind::AssocFn
+                    {
+                        let own = tcx.generics[item.0 as usize].own.len();
+                        let mut args = impl_args;
+                        let fresh = (0..own).map(|_| self.infer.fresh()).collect::<Vec<_>>();
+                        args.extend(fresh);
+                        if let Some((inputs, output)) = self.callable_sig(item, tcx.list(args.clone()))
+                            && let Some(&sp) = inputs.first()
+                            && self.infer.unify(sp, recv)
+                        {
+                            self.methods.push((n, item, args));
+                            let adj = Self::step_adjustments(&steps, k, borrow);
+                            self.adjust(recv_node, adj, recv);
+                            return Some((item, inputs[1..].to_vec(), output));
+                        }
+                    }
+                    self.rollback(s);
                 }
-                self.rollback(s);
                 if let Some((item, args, inputs, output)) = self.trait_method(recv, name) {
                     self.methods.push((n, item, args));
                     let adj = Self::step_adjustments(&steps, k, borrow);
@@ -1105,7 +1235,26 @@ impl<'a, 's> FnCtxt<'a, 's> {
             }
             Kind::Cast => {
                 let target = self.written_ty(kids[1]);
-                let _ = self.expr(kids[0], None);
+                let src = self.expr(kids[0], None);
+                // A `_` in the target: a pointer cast keeps the pointee
+                // (`r as *const _`); otherwise the context says (`n as _`).
+                if tcx.has_infer(self.infer.resolve(target)) {
+                    let p = self.probe();
+                    let by_context = match expect.map(|e| self.infer.shallow(e)) {
+                        Some(e) if self.infer.var_kind(e).is_none() => self.infer.unify(target, e),
+                        _ => false,
+                    };
+                    if !by_context {
+                        self.rollback(p);
+                        let s = self.norm(src);
+                        if let (TyKind::Ref(_, x) | TyKind::Ptr(_, x), TyKind::Ptr(_, y)) = (tcx.kind(s), tcx.kind(self.infer.shallow(target))) {
+                            let p = self.probe();
+                            if !self.infer.unify(y, x) {
+                                self.rollback(p);
+                            }
+                        }
+                    }
+                }
                 target
             }
             Kind::Binary => self.binary(n, &kids),

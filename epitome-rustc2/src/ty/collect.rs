@@ -529,6 +529,8 @@ pub(crate) fn subst_const(tcx: &TyCtxt, c: super::ConstId, params: &[ParamId], a
         super::Const::Param(p) => match params.iter().position(|&q| q == p).and_then(|i| args.get(i)) {
             Some(&a) => match tcx.kind(a) {
                 TyKind::ConstArg(c2) => c2,
+                // A variable while checking a body.
+                TyKind::Infer(v) => tcx.konst(super::Const::Infer(v)),
                 _ => c,
             },
             None => c,
@@ -560,7 +562,15 @@ pub(crate) fn subst(tcx: &TyCtxt, t: Ty, params: &[ParamId], args: &[Ty]) -> Ty 
         TyKind::Slice(x) => tcx.mk(TyKind::Slice(sub(x))),
         TyKind::Pat(x, a, b) => tcx.mk(TyKind::Pat(sub(x), a, b)),
         TyKind::Array(x, c) => tcx.mk(TyKind::Array(sub(x), subst_const(tcx, c, params, args))),
-        TyKind::ConstArg(c) => tcx.mk(TyKind::ConstArg(subst_const(tcx, c, params, args))),
+        // A const parameter as an argument becomes its argument, whatever
+        // that is yet (an inference variable while checking a body).
+        TyKind::ConstArg(c) => match tcx.const_of(c) {
+            super::Const::Param(p) => match params.iter().position(|&q| q == p) {
+                Some(i) if i < args.len() => args[i],
+                _ => t,
+            },
+            _ => t,
+        },
         TyKind::FnPtr(s) => {
             let mut sig = tcx.sig_of(s);
             sig.inputs = sub_list(sig.inputs);

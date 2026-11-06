@@ -6,6 +6,7 @@ repository = "https://github.com/andy-thomason/epitome"
 description = "A Rust compiler that does not use rustc: lexer, parser and AST, then expansion, types and lowering to Epitome IR"
 
 [dependencies]
+epitome-ir = { path = "../ir" }
 
 [[bin]]
 name = "epitome-rustc2"

@@ -109,7 +109,14 @@ impl<'t, 's> Infer<'t, 's> {
             TyKind::Ptr(m, x) => tcx.mk(TyKind::Ptr(m, self.resolve(x))),
             TyKind::Slice(x) => tcx.mk(TyKind::Slice(self.resolve(x))),
             TyKind::Pat(x, a, b) => tcx.mk(TyKind::Pat(self.resolve(x), a, b)),
-            TyKind::Array(x, c) => tcx.mk(TyKind::Array(self.resolve(x), c)),
+            TyKind::Array(x, c) => tcx.mk(TyKind::Array(self.resolve(x), self.resolve_const(c))),
+            TyKind::ConstArg(c) => match tcx.const_of(c) {
+                Const::Infer(v) => match self.shallow(tcx.mk(TyKind::Infer(v))) {
+                    u if matches!(tcx.kind(u), TyKind::Infer(_)) => t,
+                    u => self.resolve(u),
+                },
+                _ => t,
+            },
             TyKind::FnPtr(s) => {
                 let mut sig = tcx.sig_of(s);
                 sig.inputs = list(sig.inputs);
@@ -117,6 +124,18 @@ impl<'t, 's> Infer<'t, 's> {
                 tcx.mk(TyKind::FnPtr(tcx.sig(sig)))
             }
             _ => t,
+        }
+    }
+
+    /// A constant with its variable replaced by what it is bound to.
+    fn resolve_const(&self, c: crate::ty::ConstId) -> crate::ty::ConstId {
+        let tcx = self.tcx;
+        match tcx.const_of(c) {
+            Const::Infer(v) => match tcx.kind(self.shallow(tcx.mk(TyKind::Infer(v)))) {
+                TyKind::ConstArg(d) => self.resolve_const(d),
+                _ => c,
+            },
+            _ => c,
         }
     }
 
@@ -207,13 +226,26 @@ impl<'t, 's> Infer<'t, 's> {
             (TyKind::Ref(m, x), TyKind::Ref(n, y)) | (TyKind::Ptr(m, x), TyKind::Ptr(n, y)) => m == n && self.unify(x, y),
             (TyKind::Slice(x), TyKind::Slice(y)) => self.unify(x, y),
             (TyKind::Pat(x, a, b), TyKind::Pat(y, c, d)) => a == c && b == d && self.unify(x, y),
-            (TyKind::Array(x, c), TyKind::Array(y, d)) => self.consts_agree(c, d) && self.unify(x, y),
+            (TyKind::Array(x, c), TyKind::Array(y, d)) => self.unify_consts(c, d) && self.unify(x, y),
             (TyKind::FnPtr(s), TyKind::FnPtr(t)) => {
                 let (s, t) = (tcx.sig_of(s), tcx.sig_of(t));
                 s.unsafety == t.unsafety && self.unify_lists(s.inputs, t.inputs) && self.unify(s.output, t.output)
             }
-            (TyKind::ConstArg(c), TyKind::ConstArg(d)) => self.consts_agree(c, d),
+            (TyKind::ConstArg(c), TyKind::ConstArg(d)) => self.unify_consts(c, d),
             _ => false,
+        }
+    }
+
+    /// Two constants made the same: a variable is bound to the other.
+    fn unify_consts(&mut self, c: crate::ty::ConstId, d: crate::ty::ConstId) -> bool {
+        let tcx = self.tcx;
+        let c = self.resolve_const(c);
+        let d = self.resolve_const(d);
+        match (tcx.const_of(c), tcx.const_of(d)) {
+            (Const::Infer(v), Const::Infer(w)) => self.unify(tcx.mk(TyKind::Infer(v)), tcx.mk(TyKind::Infer(w))),
+            (Const::Infer(v), _) => self.unify(tcx.mk(TyKind::Infer(v)), tcx.mk(TyKind::ConstArg(d))),
+            (_, Const::Infer(w)) => self.unify(tcx.mk(TyKind::Infer(w)), tcx.mk(TyKind::ConstArg(c))),
+            _ => self.consts_agree(c, d),
         }
     }
 

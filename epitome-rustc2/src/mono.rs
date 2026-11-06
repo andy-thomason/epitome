@@ -141,19 +141,6 @@ impl<'a, 's> Walk<'a, 's> {
         *self.unresolved.entry(why).or_default() += 1;
     }
 
-    /// Whether `d` is a compiler intrinsic.
-    fn is_intrinsic(&self, d: DefId) -> bool {
-        let def = &self.r.defs[d.0 as usize];
-        let ast = &self.crates[def.krate as usize].files[def.file as usize].ast;
-        crate::session::has_attribute(ast, def.node, "rustc_intrinsic")
-    }
-
-    fn has_body(&self, d: DefId) -> bool {
-        let def = &self.r.defs[d.0 as usize];
-        let ast = &self.crates[def.krate as usize].files[def.file as usize].ast;
-        ast.child(def.node, Kind::Block).is_some()
-    }
-
     fn item(&mut self, item: Item) {
         match item {
             Item::Fn(d, args) => self.body(d, args),
@@ -196,6 +183,10 @@ impl<'a, 's> Walk<'a, 's> {
                 let margs = self.sub_list(margs, &params, &args);
                 self.call(m, margs);
             }
+            if let Some(&(c, cargs)) = tables.consts.get(&n) {
+                let cargs = self.sub_list(cargs, &params, &args);
+                self.call(c, cargs);
+            }
             if let Some(calls) = tables.implicit.get(&n) {
                 for &(m, margs) in calls {
                     let margs = self.sub_list(margs, &params, &args);
@@ -214,10 +205,7 @@ impl<'a, 's> Walk<'a, 's> {
     }
 
     fn sub(&mut self, t: Ty, params: &[crate::ty::ParamId], args: &[Ty]) -> Ty {
-        let t = subst(self.tcx, t, params, args);
-        let t = reveal(self.tcx, &self.typeck.hidden, t);
-        let t = self.solver.normalize(t);
-        reveal(self.tcx, &self.typeck.hidden, t)
+        sub(self.tcx, &self.typeck.hidden, &mut self.solver, t, params, args)
     }
 
     fn sub_list(&mut self, l: List, params: &[crate::ty::ParamId], args: &[Ty]) -> Vec<Ty> {
@@ -244,7 +232,6 @@ impl<'a, 's> Walk<'a, 's> {
             match self.r.defs[d.0 as usize].kind {
                 DefKind::Static => self.found.push(Item::Static(d)),
                 DefKind::ForeignStatic => self.found.push(Item::Foreign(d)),
-                DefKind::Const => self.found.push(Item::Const(d, tcx.list(Vec::new()))),
                 _ => {}
             }
         }
@@ -258,43 +245,12 @@ impl<'a, 's> Walk<'a, 's> {
             self.miss(format!("arguments not concrete: {}<{}>", self.r.def_path(d), a.join(", ")));
             return;
         }
-        let kind = self.r.defs[d.0 as usize].kind;
-        match kind {
-            DefKind::Struct | DefKind::Variant => {}
-            DefKind::ForeignFn => self.found.push(Item::Foreign(d)),
-            DefKind::AssocConst => match self.solver.resolve_method(d, &args) {
-                Some((c, a)) => self.found.push(Item::Const(c, tcx.list(a))),
-                None => self.miss("associated constant without an impl".into()),
-            },
-            DefKind::Fn | DefKind::AssocFn => {
-                let (f, a) = if kind == DefKind::AssocFn && self.trait_of(d).is_some() {
-                    match self.solver.resolve_method(d, &args) {
-                        Some(x) => x,
-                        None => {
-                            self.builtin_call(d, &args);
-                            return;
-                        }
-                    }
-                } else {
-                    (d, args)
-                };
-                let l = tcx.list(a);
-                if self.is_intrinsic(f) {
-                    self.found.push(Item::Intrinsic(f, l));
-                } else if !self.has_body(f) {
-                    self.found.push(Item::Foreign(f));
-                } else {
-                    self.found.push(Item::Fn(f, l));
-                }
-            }
-            _ => {}
+        match instance(self.r, self.crates, tcx, &mut self.solver, d, args.clone()) {
+            Resolved::Item(it) => self.found.push(it),
+            Resolved::Builtin => self.builtin_call(d, &args),
+            Resolved::NoImpl => self.miss("associated constant without an impl".into()),
+            Resolved::None => {}
         }
-    }
-
-    fn trait_of(&self, item: DefId) -> Option<DefId> {
-        let m = self.r.defs[item.0 as usize].parent?;
-        let d = self.r.modules[m.0 as usize].def?;
-        (self.r.defs[d.0 as usize].kind == DefKind::Trait).then_some(d)
     }
 
     /// A trait method with a built-in impl: a closure, function item or
@@ -304,7 +260,7 @@ impl<'a, 's> Walk<'a, 's> {
     fn builtin_call(&mut self, d: DefId, args: &[Ty]) {
         let tcx = self.tcx;
         let self_ty = args[0];
-        if self.trait_of(d).is_some_and(|tr| tcx.lang.get("clone") == Some(&tr)) {
+        if trait_of(self.r, d).is_some_and(|tr| tcx.lang.get("clone") == Some(&tr)) {
             match tcx.kind(self_ty) {
                 TyKind::Tuple(l) => {
                     for t in tcx.tys(l) {
@@ -448,15 +404,95 @@ impl<'a, 's> Walk<'a, 's> {
     }
 }
 
+/// `t` at an instance: `args` put for `params`, `impl Trait` revealed,
+/// projections normalised.
+pub(crate) fn sub(
+    tcx: &TyCtxt,
+    hidden: &FastMap<crate::ty::OpaqueId, Ty>,
+    solver: &mut Solver,
+    t: Ty,
+    params: &[crate::ty::ParamId],
+    args: &[Ty],
+) -> Ty {
+    let t = subst(tcx, t, params, args);
+    let t = reveal(tcx, hidden, t);
+    let t = solver.normalize(t);
+    reveal(tcx, hidden, t)
+}
+
+/// What a use of item `d` at concrete `args` is.
+pub(crate) enum Resolved {
+    /// A function, intrinsic, foreign function or constant.
+    Item(Item),
+    /// A trait method with a built-in impl (`Fn` of a closure, `Clone` of
+    /// a `Copy` type, a `dyn` method).
+    Builtin,
+    /// An associated constant with no impl.
+    NoImpl,
+    /// Not code: a constructor, say.
+    None,
+}
+
+/// Whether `d` is a compiler intrinsic.
+pub(crate) fn is_intrinsic(r: &Resolver, crates: &[ParsedCrate], d: DefId) -> bool {
+    let def = &r.defs[d.0 as usize];
+    let ast = &crates[def.krate as usize].files[def.file as usize].ast;
+    crate::session::has_attribute(ast, def.node, "rustc_intrinsic")
+}
+
+/// The trait an associated item is in, if it is in one.
+pub(crate) fn trait_of(r: &Resolver, item: DefId) -> Option<DefId> {
+    let m = r.defs[item.0 as usize].parent?;
+    let d = r.modules[m.0 as usize].def?;
+    (r.defs[d.0 as usize].kind == DefKind::Trait).then_some(d)
+}
+
+/// Resolves a use of `d` at `args` (all concrete): a trait method to the
+/// impl's method (or the trait's default), an associated constant to the
+/// impl's.
+pub(crate) fn instance(r: &Resolver, crates: &[ParsedCrate], tcx: &TyCtxt, solver: &mut Solver, d: DefId, args: Vec<Ty>) -> Resolved {
+    let kind = r.defs[d.0 as usize].kind;
+    match kind {
+        DefKind::ForeignFn => Resolved::Item(Item::Foreign(d)),
+        DefKind::Const => Resolved::Item(Item::Const(d, tcx.list(args))),
+        DefKind::AssocConst => match solver.resolve_method(d, &args) {
+            Some((c, a)) => Resolved::Item(Item::Const(c, tcx.list(a))),
+            None => Resolved::NoImpl,
+        },
+        DefKind::Fn | DefKind::AssocFn => {
+            let (f, a) = if kind == DefKind::AssocFn && trait_of(r, d).is_some() {
+                match solver.resolve_method(d, &args) {
+                    Some(x) => x,
+                    None => return Resolved::Builtin,
+                }
+            } else {
+                (d, args)
+            };
+            let l = tcx.list(a);
+            let def = &r.defs[f.0 as usize];
+            let ast = &crates[def.krate as usize].files[def.file as usize].ast;
+            Resolved::Item(if is_intrinsic(r, crates, f) {
+                Item::Intrinsic(f, l)
+            } else if ast.child(def.node, Kind::Block).is_none() {
+                Item::Foreign(f)
+            } else {
+                Item::Fn(f, l)
+            })
+        }
+        _ => Resolved::None,
+    }
+}
+
 /// Whether a type still has generic parameters or variables in it.
-fn has_param_or_infer(tcx: &TyCtxt, t: Ty) -> bool {
+pub(crate) fn has_param_or_infer(tcx: &TyCtxt, t: Ty) -> bool {
     match tcx.kind(t) {
         TyKind::Param(_) | TyKind::Infer(_) | TyKind::Error => true,
         TyKind::Tuple(l) | TyKind::Adt(_, l) | TyKind::FnDef(_, l) | TyKind::Projection(_, l) => {
             tcx.tys(l).into_iter().any(|x| has_param_or_infer(tcx, x))
         }
-        TyKind::Ref(_, x) | TyKind::Ptr(_, x) | TyKind::Slice(x) | TyKind::Array(x, _) | TyKind::Pat(x, ..) => {
-            has_param_or_infer(tcx, x)
+        TyKind::Ref(_, x) | TyKind::Ptr(_, x) | TyKind::Slice(x) | TyKind::Pat(x, ..) => has_param_or_infer(tcx, x),
+        TyKind::Array(x, c) => {
+            has_param_or_infer(tcx, x) || matches!(tcx.const_of(c), crate::ty::Const::Param(_) | crate::ty::Const::Infer(_) | crate::ty::Const::Error)
         }
         TyKind::FnPtr(s) => {
             let s = tcx.sig_of(s);
@@ -470,8 +506,14 @@ fn has_param_or_infer(tcx: &TyCtxt, t: Ty) -> bool {
         }
         // Not revealed: its owner's body did not say what it is.
         TyKind::Opaque(..) => true,
+        TyKind::ConstArg(c) => matches!(tcx.const_of(c), crate::ty::Const::Param(_) | crate::ty::Const::Infer(_) | crate::ty::Const::Error),
         _ => false,
     }
+}
+
+/// Whether any of `ts` still has generic parameters or variables in it.
+pub(crate) fn has_param_or_infer_list(tcx: &TyCtxt, ts: &[Ty]) -> bool {
+    ts.iter().any(|&t| has_param_or_infer(tcx, t))
 }
 
 /// `t` with each `impl Trait` in it replaced by what it is (its hidden

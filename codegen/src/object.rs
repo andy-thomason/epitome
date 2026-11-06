@@ -406,7 +406,10 @@ pub fn build(
     add_aliases(&mut obj, aliases)?;
     resolve(t, &mut obj, pending, abi.syntax == Syntax::MachO)?;
     let p = crate::unwind::Params { syntax: abi.syntax, data_align: t.machine.data_align(abi.syntax), ra: abi.lr };
-    crate::unwind::add_eh_frame(&mut obj, &t.machine, &p, &frames)?;
+    // (No unwind tables for a machine without calls: nothing unwinds.)
+    if !t.machine.lacks("calls") {
+        crate::unwind::add_eh_frame(&mut obj, &t.machine, &p, &frames)?;
+    }
     Ok(obj)
 }
 

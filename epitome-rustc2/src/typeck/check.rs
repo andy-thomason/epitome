@@ -121,7 +121,7 @@ pub(super) fn check_body<'s>(
             let out = cx.fill_holes(sig.output);
             // `impl Trait`: a variable bound by its bounds, so that a
             // closure returned gets its signature from them.
-            cx.ret = cx.opaque_vars(out, &[], &[]);
+            cx.ret = cx.opaque_vars(out, true);
             // Parameters: their patterns, in order.
             let params = ast.child(item, Kind::Params)?;
             let mut i = 0;
@@ -222,6 +222,9 @@ pub(super) struct FnCtxt<'a, 's> {
     file: u32,
     ast: &'a Ast<'s>,
     pub(super) owner: DefId,
+    /// How deep impls' `where` clauses are checked in selection: shallow
+    /// in bodies, deeper for concrete types after type checking.
+    pub(super) where_depth: u32,
     /// Types of expressions and patterns, unresolved until the end.
     types: FastMap<NodeId, Ty>,
     /// What each method call (or overloaded operator) calls, and the
@@ -230,7 +233,16 @@ pub(super) struct FnCtxt<'a, 's> {
     adjustments: FastMap<NodeId, Vec<Adjust>>,
     pat_derefs: FastMap<NodeId, u32>,
     bindings: FastMap<NodeId, BindingMode>,
-    ret: Ty,
+    /// The type of an adjusted expression after its adjustments.
+    adjusted: FastMap<NodeId, Ty>,
+    /// Calls a node makes without writing them.
+    implicit: FastMap<NodeId, Vec<(DefId, Vec<Ty>)>>,
+    /// The `impl Trait` types this body defines, and the variables that
+    /// stand for them.
+    hidden: Vec<(crate::ty::OpaqueId, Ty)>,
+    /// The closures written in this body.
+    closures: Vec<crate::ty::ClosureId>,
+    pub(super) ret: Ty,
     loops: Vec<Loop<'s>>,
     errors: FastMap<String, usize>,
     /// Nodes already counted as errors.
@@ -275,6 +287,11 @@ impl<'a, 's> FnCtxt<'a, 's> {
             adjustments: FastMap::default(),
             pat_derefs: FastMap::default(),
             bindings: FastMap::default(),
+            adjusted: FastMap::default(),
+            implicit: FastMap::default(),
+            hidden: Vec::new(),
+            closures: Vec::new(),
+            where_depth: 2,
             ret: tcx.unit(),
             loops: Vec::new(),
             errors: FastMap::default(),
@@ -323,13 +340,36 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 (n, d, self.tcx.list(args))
             })
             .collect();
-        let mut adjustments: Vec<(NodeId, Vec<Adjust>)> = self.adjustments.into_iter().collect();
+        let mut adjustments: Vec<(NodeId, Vec<Adjust>)> = std::mem::take(&mut self.adjustments).into_iter().collect();
         adjustments.sort_by_key(|x| x.0);
-        let mut pat_derefs: Vec<(NodeId, u32)> = self.pat_derefs.into_iter().collect();
+        let mut pat_derefs: Vec<(NodeId, u32)> = std::mem::take(&mut self.pat_derefs).into_iter().collect();
         pat_derefs.sort_by_key(|x| x.0);
-        let mut bindings: Vec<(NodeId, BindingMode)> = self.bindings.into_iter().collect();
+        let mut bindings: Vec<(NodeId, BindingMode)> = std::mem::take(&mut self.bindings).into_iter().collect();
         bindings.sort_by_key(|x| x.0);
+        let fin = |cx: &mut Self, t: Ty| {
+            let t = cx.infer.resolve(t);
+            let t = cx.normalize(t, 1);
+            cx.infer.resolve(t)
+        };
+        let mut adjusted: Vec<(NodeId, Ty)> = std::mem::take(&mut self.adjusted).into_iter().collect();
+        adjusted.sort_by_key(|x| x.0);
+        for a in &mut adjusted {
+            a.1 = fin(&mut self, a.1);
+        }
+        let mut implicit: Vec<(NodeId, DefId, crate::ty::List)> = Vec::new();
+        let mut calls: Vec<_> = std::mem::take(&mut self.implicit).into_iter().collect();
+        calls.sort_by_key(|x| x.0);
+        for (n, cs) in calls {
+            for (d, args) in cs {
+                let args: Vec<Ty> = args.into_iter().map(|t| fin(&mut self, t)).collect();
+                implicit.push((n, d, self.tcx.list(args)));
+            }
+        }
+        let hidden_vars = std::mem::take(&mut self.hidden);
+        let hidden: Vec<(crate::ty::OpaqueId, Ty)> = hidden_vars.into_iter().map(|(o, v)| (o, fin(&mut self, v))).collect();
         BodyResult {
+            hidden,
+            closures: std::mem::take(&mut self.closures).into_iter().map(|c| (c, self.owner)).collect(),
             k: self.k,
             file: self.file,
             types,
@@ -337,6 +377,8 @@ impl<'a, 's> FnCtxt<'a, 's> {
             adjustments,
             pat_derefs,
             bindings,
+            adjusted,
+            implicit,
             errors: self.errors,
             error_nodes,
             unknown_nodes,
@@ -447,7 +489,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
         match (tcx.kind(g), tcx.kind(w)) {
             (TyKind::Never, TyKind::Never) => return true,
             (TyKind::Never, _) => {
-                self.adjust(n, vec![Adjust::NeverToAny]);
+                self.adjust(n, vec![Adjust::NeverToAny], w);
                 return true;
             }
             // Reborrowing, unsizing (`&[T; N]` to `&[T]`, `&T` to
@@ -459,12 +501,12 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 }
                 self.rollback(p);
                 if self.unsizes_to(x, y) {
-                    self.adjust(n, vec![Adjust::Unsize]);
+                    self.adjust(n, vec![Adjust::Unsize], w);
                     return true;
                 }
                 self.rollback(p);
                 if let Some(adj) = self.deref_coerces(x, y, m2) {
-                    self.adjust(n, adj);
+                    self.adjust(n, adj, w);
                     return true;
                 }
                 self.rollback(p);
@@ -475,7 +517,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     return true;
                 }
                 if self.unsizes_to(x, y) {
-                    self.adjust(n, vec![Adjust::Unsize]);
+                    self.adjust(n, vec![Adjust::Unsize], w);
                     return true;
                 }
                 self.rollback(p);
@@ -487,7 +529,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     return true;
                 }
                 if self.unsizes_to(x, y) {
-                    self.adjust(n, vec![Adjust::Unsize]);
+                    self.adjust(n, vec![Adjust::Unsize], w);
                     return true;
                 }
                 self.rollback(p);
@@ -500,16 +542,16 @@ impl<'a, 's> FnCtxt<'a, 's> {
                         && inputs.iter().zip(&want_in).all(|(&a, &b)| self.infer.unify(a, b))
                         && self.infer.unify(output, s.output);
                     if ok {
-                        self.adjust(n, vec![Adjust::ReifyFnPointer]);
+                        self.adjust(n, vec![Adjust::ReifyFnPointer], w);
                     }
                     return ok;
                 }
             }
-            (TyKind::Closure(_, cs), TyKind::FnPtr(s)) => {
+            (TyKind::Closure(_, cs, _), TyKind::FnPtr(s)) => {
                 let (c, s) = (tcx.sig_of(cs), tcx.sig_of(s));
                 let ok = self.infer.unify(self.mk(TyKind::FnPtr(tcx.sig(crate::ty::FnSig { unsafety: s.unsafety, abi: s.abi, ..c }))), w);
                 if ok {
-                    self.adjust(n, vec![Adjust::ClosureFnPointer]);
+                    self.adjust(n, vec![Adjust::ClosureFnPointer], w);
                 }
                 return ok;
             }
@@ -539,10 +581,27 @@ impl<'a, 's> FnCtxt<'a, 's> {
         }
     }
 
-    /// Records adjustments of the expression `n`, after any it has.
-    fn adjust(&mut self, n: NodeId, adj: Vec<Adjust>) {
+    /// Records adjustments of the expression `n`, after any it has, and
+    /// the type they give it.
+    fn adjust(&mut self, n: NodeId, adj: Vec<Adjust>, to: Ty) {
         if !adj.is_empty() {
             self.adjustments.entry(n).or_default().extend(adj);
+            self.adjusted.insert(n, to);
+        }
+    }
+
+    /// Records a call that `n` makes without writing it (`for`'s
+    /// `IntoIterator::into_iter` and `Iterator::next`, `?`'s
+    /// `Try::branch` and `FromResidual::from_residual`).
+    pub(super) fn implicit_call(&mut self, n: NodeId, tr: DefId, method: &str, args: Vec<Ty>) {
+        if let Some(m) = self.trait_item(tr, method, Ns::Value) {
+            let full = {
+                let rest = self.full_trait_args(tr, args[0], args[1..].to_vec());
+                let mut a = vec![args[0]];
+                a.extend(rest);
+                a
+            };
+            self.implicit.entry(n).or_default().push((m, full));
         }
     }
 
@@ -573,15 +632,15 @@ impl<'a, 's> FnCtxt<'a, 's> {
             DefKind::Fn | DefKind::AssocFn | DefKind::ForeignFn => {
                 let sig = tcx.sig_of(tcx.fn_sig[d.0 as usize]?);
                 self.oblige_item(d, &args);
-                // `impl Trait`, for a parameter or the result: a variable,
-                // with the bounds as obligations.
-                let inst = |cx: &mut Self, t: Ty| -> Ty {
+                // `impl Trait` for a parameter: a variable, with the bounds
+                // as obligations. For the result, the opaque type itself.
+                let inst = |cx: &mut Self, t: Ty, input: bool| -> Ty {
                     let t = subst(tcx, t, &params, &args);
-                    let t = cx.opaque_vars(t, &params, &args);
+                    let t = if input { cx.opaque_vars(t, false) } else { t };
                     cx.normalize(t, 0)
                 };
-                let inputs = tcx.tys(sig.inputs).into_iter().map(|t| inst(self, t)).collect();
-                let out = inst(self, sig.output);
+                let inputs = tcx.tys(sig.inputs).into_iter().map(|t| inst(self, t, true)).collect();
+                let out = inst(self, sig.output, false);
                 Some((inputs, out))
             }
             DefKind::Struct => {
@@ -602,24 +661,31 @@ impl<'a, 's> FnCtxt<'a, 's> {
     }
 
     /// `t` with each `impl Trait` in it (at the top, or behind a
-    /// reference) replaced by a variable bound by its bounds.
-    fn opaque_vars(&mut self, t: Ty, params: &[crate::ty::ParamId], args: &[Ty]) -> Ty {
+    /// reference) replaced by a variable bound by its bounds. In the body
+    /// that defines them, the variables are what they stand for (their
+    /// hidden types), which are recorded.
+    fn opaque_vars(&mut self, t: Ty, defining: bool) -> Ty {
         let tcx = self.tcx;
         match tcx.kind(t) {
-            TyKind::Opaque(o) => {
+            TyKind::Opaque(o, l) => {
                 let v = self.infer.fresh();
+                let def = tcx.opaque(o);
+                let (params, args) = (tcx.all_params(def.owner), tcx.tys(l));
                 let mut preds = Vec::new();
-                for tr in tcx.opaque(o).bounds {
-                    let tr = super::traits::subst_trait_ref(tcx, &tr, params, args);
+                for tr in def.bounds {
+                    let tr = super::traits::subst_trait_ref(tcx, &tr, &params, &args);
                     self.elaborate(v, &tr, &mut preds);
                 }
                 for p in preds {
                     self.oblige(p);
                 }
+                if defining {
+                    self.hidden.push((o, v));
+                }
                 v
             }
             TyKind::Ref(m, x) => {
-                let x = self.opaque_vars(x, params, args);
+                let x = self.opaque_vars(x, defining);
                 self.mk(TyKind::Ref(m, x))
             }
             _ => t,
@@ -956,7 +1022,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     {
                         self.methods.push((n, item, args));
                         let adj = Self::step_adjustments(&steps, k, borrow);
-                        self.adjust(recv_node, adj);
+                        self.adjust(recv_node, adj, recv);
                         return Some((item, inputs[1..].to_vec(), output));
                     }
                 }
@@ -964,7 +1030,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 if let Some((item, args, inputs, output)) = self.trait_method(recv, name) {
                     self.methods.push((n, item, args));
                     let adj = Self::step_adjustments(&steps, k, borrow);
-                    self.adjust(recv_node, adj);
+                    self.adjust(recv_node, adj, recv);
                     return Some((item, inputs, output));
                 }
             }
@@ -1154,6 +1220,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 let label = kids.first().filter(|&&c| ast.kind(c) == Kind::Lifetime).map(|&c| ast.token(c).0);
                 let it = self.expr(rest[1], None);
                 let item = self.iter_item(rest[1], it);
+                self.record_for(n, it);
                 self.pat(rest[0], item, Mutbl::Not, false);
                 self.loops.push(Loop { label, ty: None, broke: false });
                 let unit = self.unit();
@@ -1207,7 +1274,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
             Kind::Underscore => self.infer.fresh(),
             Kind::Try => {
                 let t = self.expr(kids[0], None);
-                self.try_output(n, t)
+                let o = self.try_output(n, t);
+                self.record_try(n, t);
+                o
             }
             Kind::Closure => self.closure(n, &kids, expect),
             Kind::MacroCall => self.builtin_call(n, &kids),
@@ -1361,7 +1430,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let a = self.expr(kids[0], None);
         let shift = matches!(op.as_str(), "<<" | ">>" | "<<=" | ">>=");
         let b = self.expr(kids[2], if shift { None } else { Some(a) });
-        let (sa, sb) = (self.infer.shallow(a), self.infer.shallow(b));
+        // An operand waiting on a projection (a closure's parameter) may be
+        // known by now; it must be before deciding the operator is built in.
+        let (sa, sb) = (self.norm(a), self.norm(b));
         let prim = |s: Ty| self.infer.is_numeric(s) || matches!(tcx.kind(s), TyKind::Bool | TyKind::Char);
         let both_prim = prim(sa) && prim(sb) || prim(sa) && self.infer.var_kind(sb).is_some() || self.infer.var_kind(sa).is_some() && prim(sb);
         let assign = op.ends_with('=') && !matches!(op.as_str(), "==" | "!=" | "<=" | ">=");
@@ -1488,12 +1559,12 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let s = self.norm(callee);
         let sig = match tcx.kind(s) {
             TyKind::FnDef(d, l) => self.callable_sig(d, l),
-            TyKind::FnPtr(sig) | TyKind::Closure(_, sig) => {
+            TyKind::FnPtr(sig) | TyKind::Closure(_, sig, _) => {
                 let sig = tcx.sig_of(sig);
                 Some((tcx.tys(sig.inputs), sig.output))
             }
             TyKind::Ref(_, x) => match tcx.kind(self.infer.shallow(x)) {
-                TyKind::FnPtr(sig) | TyKind::Closure(_, sig) => {
+                TyKind::FnPtr(sig) | TyKind::Closure(_, sig, _) => {
                     let sig = tcx.sig_of(sig);
                     Some((tcx.tys(sig.inputs), sig.output))
                 }
@@ -1544,13 +1615,13 @@ impl<'a, 's> FnCtxt<'a, 's> {
                         && let Some(f) = adt.variants[0].fields.iter().find(|f| f.name == name)
                     {
                         let ft = subst(tcx, f.ty, &tcx.all_params(d), &tcx.tys(l));
-                        self.adjust(base_node, Self::step_adjustments(&steps, k, None));
+                        self.adjust(base_node, Self::step_adjustments(&steps, k, None), steps[k].0);
                         return self.normalize(ft, 0);
                     }
                 }
                 TyKind::Tuple(l) => {
                     if let Some(x) = name.parse::<usize>().ok().and_then(|i| tcx.tys(l).get(i).copied()) {
-                        self.adjust(base_node, Self::step_adjustments(&steps, k, None));
+                        self.adjust(base_node, Self::step_adjustments(&steps, k, None), steps[k].0);
                         return x;
                     }
                 }
@@ -1566,7 +1637,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
                         let ft = subst(tcx, f.ty, &tcx.all_params(d), &tcx.tys(l));
                         let mut adj = Self::step_adjustments(&steps, k, None);
                         adj.push(Adjust::Deref);
-                        self.adjust(base_node, adj);
+                        self.adjust(base_node, adj, x);
                         return self.normalize(ft, 0);
                     }
                 }
@@ -1594,7 +1665,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     self.infer.unify(i, usize_);
                     // An array's own elements, not its slice's.
                     let k = if steps[k].1 == Some(Adjust::Unsize) { k - 1 } else { k };
-                    self.adjust(base_node, Self::step_adjustments(&steps, k, None));
+                    self.adjust(base_node, Self::step_adjustments(&steps, k, None), steps[k].0);
                     return e;
                 }
                 TyKind::Infer(_) => return self.err(n, "indexing a value whose type is not yet known"),
@@ -1604,7 +1675,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 && self.select(t, tr, &[i], 0).holds()
                 && let Some(out) = self.trait_item(tr, "Output", Ns::Type)
             {
-                self.adjust(base_node, Self::step_adjustments(&steps, k, None));
+                self.adjust(base_node, Self::step_adjustments(&steps, k, None), steps[k].0);
                 self.record_trait_method(n, tr, "index", t, &[i]);
                 return self.project_or_var(out, &[t, i]);
             }
@@ -1760,7 +1831,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
         // function pointer type.
         let mut expected_ret = None;
         let expected_inputs: Option<Vec<Ty>> = match expect.map(|e| (e, tcx.kind(self.infer.shallow(e)))) {
-            Some((_, TyKind::FnPtr(s) | TyKind::Closure(_, s))) => {
+            Some((_, TyKind::FnPtr(s) | TyKind::Closure(_, s, _))) => {
                 let s = tcx.sig_of(s);
                 expected_ret = Some(s.output);
                 Some(tcx.tys(s.inputs))
@@ -1795,8 +1866,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
         self.ret = saved_ret;
         self.loops = saved_loops;
         let id = tcx.closure_id((self.k, self.file, n));
+        self.closures.push(id);
         let sig = tcx.sig(crate::ty::FnSig { inputs: tcx.list(inputs), output: ret, unsafety: false, variadic: false, abi: crate::ty::Abi::Rust });
-        self.mk(TyKind::Closure(id, sig))
+        self.mk(TyKind::Closure(id, sig, tcx.identity_args(self.owner)))
     }
 
     /// Built-in macros left as calls.

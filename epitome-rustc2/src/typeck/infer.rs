@@ -98,12 +98,13 @@ impl<'t, 's> Infer<'t, 's> {
             TyKind::Adt(d, l) => tcx.mk(TyKind::Adt(d, list(l))),
             TyKind::FnDef(d, l) => tcx.mk(TyKind::FnDef(d, list(l))),
             TyKind::Projection(d, l) => tcx.mk(TyKind::Projection(d, list(l))),
-            TyKind::Closure(c, s) => {
+            TyKind::Closure(c, s, l) => {
                 let mut sig = tcx.sig_of(s);
                 sig.inputs = list(sig.inputs);
                 sig.output = self.resolve(sig.output);
-                tcx.mk(TyKind::Closure(c, tcx.sig(sig)))
+                tcx.mk(TyKind::Closure(c, tcx.sig(sig), list(l)))
             }
+            TyKind::Opaque(o, l) => tcx.mk(TyKind::Opaque(o, list(l))),
             TyKind::Ref(m, x) => tcx.mk(TyKind::Ref(m, self.resolve(x))),
             TyKind::Ptr(m, x) => tcx.mk(TyKind::Ptr(m, self.resolve(x))),
             TyKind::Slice(x) => tcx.mk(TyKind::Slice(self.resolve(x))),
@@ -197,10 +198,11 @@ impl<'t, 's> Infer<'t, 's> {
             (TyKind::Adt(d, x), TyKind::Adt(e, y)) | (TyKind::FnDef(d, x), TyKind::FnDef(e, y)) => {
                 d == e && self.unify_lists(x, y)
             }
-            (TyKind::Closure(c, s), TyKind::Closure(d, t)) => {
+            (TyKind::Closure(c, s, x), TyKind::Closure(d, t, y)) => {
                 let (s, t) = (tcx.sig_of(s), tcx.sig_of(t));
-                c == d && self.unify_lists(s.inputs, t.inputs) && self.unify(s.output, t.output)
+                c == d && self.unify_lists(s.inputs, t.inputs) && self.unify(s.output, t.output) && self.unify_lists(x, y)
             }
+            (TyKind::Opaque(o, x), TyKind::Opaque(p, y)) => o == p && self.unify_lists(x, y),
             (TyKind::Projection(d, x), TyKind::Projection(e, y)) => d == e && self.unify_lists(x, y),
             (TyKind::Ref(m, x), TyKind::Ref(n, y)) | (TyKind::Ptr(m, x), TyKind::Ptr(n, y)) => m == n && self.unify(x, y),
             (TyKind::Slice(x), TyKind::Slice(y)) => self.unify(x, y),

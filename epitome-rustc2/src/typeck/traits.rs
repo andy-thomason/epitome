@@ -138,8 +138,12 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     self.elaborate(t, &tr, &mut out);
                 }
             }
-            TyKind::Opaque(o) => {
-                for tr in tcx.opaque(o).bounds {
+            TyKind::Opaque(o, l) => {
+                let def = tcx.opaque(o);
+                let params = tcx.all_params(def.owner);
+                let args = tcx.tys(l);
+                for tr in def.bounds {
+                    let tr = subst_trait_ref(tcx, &tr, &params, &args);
                     self.elaborate(t, &tr, &mut out);
                 }
             }
@@ -289,7 +293,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
             return true;
         }
         let is = |name: &str| tcx.lang.get(name) == Some(&tr);
-        if ["sized", "meta_sized", "pointee_sized", "destruct", "freeze", "unsize", "discriminant_kind", "pointee_trait", "fn_ptr_trait", "transmute_trait", "bikeshed_guaranteed_no_drop"]
+        if ["sized", "meta_sized", "pointee_sized", "destruct", "freeze", "unsize", "discriminant_kind", "pointee_trait", "transmute_trait", "bikeshed_guaranteed_no_drop"]
             .iter()
             .any(|n| is(n))
         {
@@ -297,6 +301,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
         }
         match tcx.kind(t) {
             TyKind::Tuple(_) if is("tuple_trait") => true,
+            TyKind::FnPtr(_) if is("fn_ptr_trait") => true,
             TyKind::Closure(..) | TyKind::FnDef(..) | TyKind::FnPtr(_) | TyKind::Never => is("copy") || is("clone"),
             _ => false,
         }
@@ -330,7 +335,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
         if ["fn", "fn_mut", "fn_once"].iter().any(|l| tcx.lang.get(l) == Some(&tr)) {
             let sig = match tcx.kind(t) {
                 TyKind::FnDef(d, l) => self.callable_sig(d, l),
-                TyKind::FnPtr(s) | TyKind::Closure(_, s) => {
+                TyKind::FnPtr(s) | TyKind::Closure(_, s, _) => {
                     let s = tcx.sig_of(s);
                     Some((tcx.tys(s.inputs), s.output))
                 }
@@ -369,6 +374,60 @@ impl<'a, 's> FnCtxt<'a, 's> {
             },
             None => Select::No,
         }
+    }
+
+    /// For a concrete `t` that several impls match (specialisation): the
+    /// one that is more specific than each of the others, which match its
+    /// header. Its arguments, as `select` gives them.
+    pub(super) fn select_specific(&mut self, t: Ty, tr: DefId, targs: &[Ty]) -> Option<(usize, Vec<Ty>)> {
+        let tcx = self.tcx;
+        let ti = self.index.trait_impls.get(&tr)?;
+        let cands: Vec<usize> = match head(tcx, t) {
+            Some(h) => ti.by_head.get(&h).into_iter().flatten().chain(&ti.blanket).copied().collect(),
+            None => ti.blanket.clone(),
+        };
+        let matching: Vec<usize> = cands
+            .into_iter()
+            .filter(|&i| {
+                let s = self.probe();
+                let ok = self.impl_matches(i, t, targs, 0).is_some();
+                self.rollback(s);
+                ok
+            })
+            .collect();
+        let best: Vec<usize> = matching
+            .iter()
+            .copied()
+            .filter(|&i| {
+                // Each other impl matches impl `i`'s header, its parameters
+                // left as they are and its `where` clauses assumed.
+                let imp = &tcx.impls[i];
+                let Some(itr) = imp.trait_ref.as_ref() else { return false };
+                let iargs = tcx.tys(itr.args);
+                let mut env = Vec::new();
+                for p in &tcx.predicates[imp.def.0 as usize] {
+                    match p {
+                        Pred::Trait(pt, ptr) => self.elaborate(*pt, ptr, &mut env),
+                        _ => env.push(p.clone()),
+                    }
+                }
+                let saved = std::mem::replace(&mut self.env_preds, env);
+                let ok = matching.iter().all(|&j| {
+                    if j == i {
+                        return true;
+                    }
+                    let s = self.probe();
+                    let ok = self.impl_matches(j, imp.self_ty, &iargs, 0).is_some();
+                    self.rollback(s);
+                    ok
+                });
+                self.env_preds = saved;
+                ok
+            })
+            .collect();
+        let [i] = best[..] else { return None };
+        let args = self.impl_matches(i, t, targs, 0)?;
+        Some((i, args))
     }
 
     /// A trait's arguments (after `Self`) with defaults filled in for those
@@ -415,7 +474,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
         if !self.args_unify(&iargs, targs) {
             return None;
         }
-        if depth < 2 {
+        if depth < self.where_depth {
             for p in &tcx.predicates[imp.def.0 as usize] {
                 if let Pred::Trait(pt, ptr) = p {
                     if Some(&ptr.def) == tcx.lang.get("sized") {
@@ -434,6 +493,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
             for p in &tcx.predicates[imp.def.0 as usize] {
                 if let Pred::Projection(_, a, l, ty) = p {
                     let pl: Vec<Ty> = tcx.tys(*l).into_iter().map(|x| subst(tcx, x, &params, &args)).collect();
+                    let pl: Vec<Ty> = pl.into_iter().map(|x| self.normalize(x, depth + 1)).collect();
                     let ty = subst(tcx, *ty, &params, &args);
                     if let Some(got) = self.project(*a, &pl, depth + 1)
                         && !self.infer.unify(got, ty)
@@ -591,16 +651,23 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 let x = self.normalize(x, depth);
                 self.mk(TyKind::Array(x, c))
             }
-            TyKind::FnPtr(s) | TyKind::Closure(_, s) => {
+            TyKind::FnPtr(s) | TyKind::Closure(_, s, _) => {
                 let mut sig = tcx.sig_of(s);
                 let inputs = tcx.tys(sig.inputs).into_iter().map(|x| self.normalize(x, depth)).collect();
                 sig.inputs = tcx.list(inputs);
                 sig.output = self.normalize(sig.output, depth);
                 let sig = tcx.sig(sig);
                 match tcx.kind(t) {
-                    TyKind::Closure(c, _) => self.mk(TyKind::Closure(c, sig)),
+                    TyKind::Closure(c, _, l) => {
+                        let v = tcx.tys(l).into_iter().map(|x| self.normalize(x, depth)).collect();
+                        self.mk(TyKind::Closure(c, sig, tcx.list(v)))
+                    }
                     _ => self.mk(TyKind::FnPtr(sig)),
                 }
+            }
+            TyKind::Opaque(o, l) => {
+                let v = tcx.tys(l).into_iter().map(|x| self.normalize(x, depth)).collect();
+                self.mk(TyKind::Opaque(o, tcx.list(v)))
             }
             _ => t,
         }
@@ -917,6 +984,35 @@ impl<'a, 's> FnCtxt<'a, 's> {
         Some(self.project_or_var(item, &[t]))
     }
 
+    /// Records the calls `for` (node `n`) makes on what it iterates, `t`:
+    /// `IntoIterator::into_iter(t)`, then `Iterator::next` on the result.
+    pub(super) fn record_for(&mut self, n: crate::ast::NodeId, t: Ty) {
+        let t = self.norm(t);
+        let (Some(f), Some(it)) = (self.lang("into_iter"), self.lang("iterator")) else { return };
+        let Some(tr) = self.trait_of(f) else { return };
+        self.implicit_call(n, tr, "into_iter", vec![t]);
+        if let Some(a) = self.trait_item(tr, "IntoIter", Ns::Type) {
+            let iter = self.project_or_var(a, &[t]);
+            self.implicit_call(n, it, "next", vec![iter]);
+        }
+    }
+
+    /// Records the calls `t?` (node `n`) makes: `Try::branch(t)`, and
+    /// `FromResidual::from_residual` of the function's result type.
+    pub(super) fn record_try(&mut self, n: crate::ast::NodeId, t: Ty) {
+        let tcx = self.tcx;
+        let t = self.norm(t);
+        let Some(tr) = self.lang("Try") else { return };
+        self.implicit_call(n, tr, "branch", vec![t]);
+        let Some(res) = self.trait_item(tr, "Residual", Ns::Type) else { return };
+        let residual = self.project_or_var(res, &[t]);
+        let from = tcx.traits.get(&tr).and_then(|d| d.supertraits.iter().find(|s| self.trait_item(s.def, "from_residual", Ns::Value).is_some()).map(|s| s.def));
+        if let Some(fr) = from {
+            let ret = self.ret;
+            self.implicit_call(n, fr, "from_residual", vec![ret, residual]);
+        }
+    }
+
     /// What `t?` gives: `<t as Try>::Output`.
     pub(super) fn try_output_trait(&mut self, t: Ty) -> Option<Ty> {
         let tr = self.lang("Try")?;
@@ -1056,7 +1152,7 @@ pub(super) fn subst_trait_ref(tcx: &crate::ty::TyCtxt, tr: &TraitRef, params: &[
 /// parameter, `dyn`, `impl Trait`, or a projection on one of those.
 fn mentions_rigid(tcx: &crate::ty::TyCtxt, t: Ty) -> bool {
     match tcx.kind(t) {
-        TyKind::Param(_) | TyKind::Opaque(_) | TyKind::Dyn(_) | TyKind::Projection(..) => true,
+        TyKind::Param(_) | TyKind::Opaque(..) | TyKind::Dyn(_) | TyKind::Projection(..) => true,
         TyKind::Tuple(l) | TyKind::Adt(_, l) | TyKind::FnDef(_, l) => tcx.tys(l).into_iter().any(|x| mentions_rigid(tcx, x)),
         TyKind::Ref(_, x) | TyKind::Ptr(_, x) | TyKind::Slice(x) | TyKind::Array(x, _) | TyKind::Pat(x, ..) => mentions_rigid(tcx, x),
         _ => false,
@@ -1067,11 +1163,17 @@ fn mentions_rigid(tcx: &crate::ty::TyCtxt, t: Ty) -> bool {
 fn has_projection(tcx: &crate::ty::TyCtxt, t: Ty) -> bool {
     match tcx.kind(t) {
         TyKind::Projection(..) => true,
-        TyKind::Tuple(l) | TyKind::Adt(_, l) => tcx.tys(l).into_iter().any(|x| has_projection(tcx, x)),
+        TyKind::Tuple(l) | TyKind::Adt(_, l) | TyKind::Opaque(_, l) => tcx.tys(l).into_iter().any(|x| has_projection(tcx, x)),
         TyKind::Ref(_, x) | TyKind::Ptr(_, x) | TyKind::Slice(x) | TyKind::Array(x, _) => has_projection(tcx, x),
-        TyKind::FnPtr(s) | TyKind::Closure(_, s) => {
+        TyKind::FnPtr(s) => {
             let s = tcx.sig_of(s);
             has_projection(tcx, s.output) || tcx.tys(s.inputs).into_iter().any(|x| has_projection(tcx, x))
+        }
+        TyKind::Closure(_, s, l) => {
+            let s = tcx.sig_of(s);
+            has_projection(tcx, s.output)
+                || tcx.tys(s.inputs).into_iter().any(|x| has_projection(tcx, x))
+                || tcx.tys(l).into_iter().any(|x| has_projection(tcx, x))
         }
         _ => false,
     }

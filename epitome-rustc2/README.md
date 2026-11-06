@@ -31,6 +31,8 @@ The plan is in [`docs/design.md`](docs/design.md).
 | Name resolution | Done | 350,676 paths in 0.1 s. Only 1,313 are unresolved, all of them in crates outside the session (libc and others). |
 | Signatures and the type table | Done | 54,641 signatures and 13,886 impls in 0.1 s. The 159 with error types all name external crates. |
 | Type checking bodies | Done (first version) | 32,847 bodies in 0.4 s, 92% typed completely. Most of the rest use libc. |
+| Layout and constants | Done | Sizes and alignments match rustc's for the 45 types tested. |
+| Monomorphisation | Done | From every non-generic function of `core`: 25,498 items in 0.08 s. 95% of uses resolve; most of the rest have error types from type checking. |
 | Lowering to Epitome IR | Next | |
 
 Everything up to and including type checking `core`, `alloc` and `std`
@@ -49,6 +51,8 @@ $B --pretty file.rs        # the tree printed back as Rust, after expansion
 $B --dump-res file.rs      # what each path resolves to
 $B --dump-sigs $L/core/src/lib.rs file.rs    # item signatures (with core)
 $B --dump-types $L/core/src/lib.rs file.rs   # the type of every expression
+$B --dump-layout $L/core/src/lib.rs file.rs  # each type's size, alignment and fields
+$B --dump-mono $L/core/src/lib.rs file.rs    # every function instance main needs
 
 # The statistics for each stage, on the standard library.
 $B --edition 2024 --expand-stats --resolve-stats --types-stats --typeck-stats \
@@ -217,6 +221,8 @@ is checked against `core`:
 | `resolve` | Definitions, modules, imports resolved to a fixed point, and hygiene. |
 | `ty` | Interned types; signatures, ADTs, impls, predicates and lang items. |
 | `typeck` | Bodies in parallel: inference (`infer.rs`), expressions and patterns (`check.rs`), and traits (`traits.rs`). |
+| `layout`, `consteval` | Types' sizes, alignments, fields and niches; constants worked out from the typed tree. |
+| `mono` | Monomorphisation: every function instance, closure, vtable and constant a program needs. |
 | `hash`, `intern` | A fast hasher, and sharded interners for ids. |
 
 ## Tests

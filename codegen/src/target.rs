@@ -572,7 +572,7 @@ pub const X86_64_FILES: &[(&str, &str)] = &[
 pub fn type_bits(m: &Module, ty: TypeId) -> u32 {
     match m.types.get(ty) {
         Type::Int(b) => *b,
-        Type::Ptr(_) => 64,
+        Type::Ptr(a) => epitome_ir::layout::pointer_bits(m.data_layout.as_deref(), *a),
         Type::Double => 64,
         Type::Float => 32,
         Type::Half | Type::BFloat => 16,

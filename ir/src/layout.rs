@@ -101,6 +101,30 @@ fn bytes(bits: &str, what: &str) -> Result<u64, String> {
     Ok(b / 8)
 }
 
+/// The size in bits of a pointer in address space `addrspace`, as data
+/// layout `spec` says (its `p` entries), without parsing the rest of it:
+/// 64 where it says nothing.
+pub fn pointer_bits(spec: Option<&[u8]>, addrspace: u32) -> u32 {
+    let Some(spec) = spec else { return 64 };
+    let mut default = 64;
+    for item in spec.split(|&b| b == b'-') {
+        let Some(rest) = item.strip_prefix(b"p") else { continue };
+        let text = String::from_utf8_lossy(rest);
+        let mut fields = text.split(':');
+        let head = fields.next().unwrap_or("");
+        let digits: String = head.chars().filter(|c| c.is_ascii_digit()).collect();
+        let space: u32 = digits.parse().unwrap_or(0);
+        let Some(size) = fields.next().and_then(|f| f.parse().ok()) else { continue };
+        if space == addrspace {
+            return size;
+        }
+        if space == 0 {
+            default = size;
+        }
+    }
+    default
+}
+
 impl DataLayout {
     pub fn parse(spec: &str) -> Result<DataLayout, String> {
         let mut dl = DataLayout::default();

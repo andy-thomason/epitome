@@ -4050,7 +4050,10 @@ fn lower_switches(cx: &mut Ctx, f: &mut Function) {
 }
 
 fn lower_geps(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
-    let i64t = cx.i64t();
+    // Offsets are as wide as the data layout's indices: 64 bits, or 32
+    // where pointers are 32 bits.
+    let index_bits = cx.dl.pointer(0).index_bits;
+    let i64t = cx.m.types.int(index_bits);
     let i8t = cx.i8t();
     let blocks: Vec<BlockId> = f.layout.clone();
     for b in blocks {
@@ -4105,8 +4108,10 @@ fn lower_geps(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
                 let ity = cx.value_ty(f, idx);
                 let mut v = idx;
                 if ity != i64t {
+                    let wider = matches!(cx.m.types.get(ity), Type::Int(b) if *b > index_bits);
+                    let op = if wider { CastOp::Trunc } else { CastOp::SExt };
                     let c = f.add_inst(
-                        Op::Cast { op: CastOp::SExt, flags: IntFlags::NONE, fmf: FastMath::default(), value: v },
+                        Op::Cast { op, flags: IntFlags::NONE, fmf: FastMath::default(), value: v },
                         Some((None, i64t)),
                     );
                     new.push(c);

@@ -363,6 +363,7 @@ impl Fx<'_, '_, '_, '_> {
                     epitome_ir::types::Type::Half => 16,
                     epitome_ir::types::Type::Float => 32,
                     epitome_ir::types::Type::Double => 64,
+                    epitome_ir::types::Type::Fp128 => 128,
                     _ => return Err(format!("`{name}` of a type not supported")),
                 };
                 let tys: Vec<epitome_ir::types::TypeId> = vals.iter().map(|&v| self.b.type_of(v)).collect();

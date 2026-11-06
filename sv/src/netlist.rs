@@ -102,9 +102,12 @@ pub fn compile(d: &Design, top: InstId) -> Result<Netlist, String> {
         folds: RefCell::default(),
         dropped: Cell::new(0),
         asserts: RefCell::default(),
+        loops: Vec::new(),
+        loop_vars: RefCell::default(),
     };
     let spec = d.instance(top).spec;
     n.layout(spec)?;
+    n.ir.push_str("declare i32 @llvm.umin.i32(i32, i32)\n\n");
     n.function(spec)?;
     let lay = &n.layouts[&spec];
     let mut ports = Vec::new();
@@ -142,7 +145,27 @@ enum Node {
     In(InstId),
     /// The call of a child's function, then its outputs.
     Call(InstId),
+    /// A run of a generate loop's iterations, rolled back into a loop.
+    Loop(usize),
 }
+
+/// Iterations of a generate loop with the same code, which differ only in
+/// constants that step by the same amount each time (the genvar, and
+/// what is worked out from it): run as a loop over `count` iterations.
+struct Rolled {
+    count: u32,
+    /// The first iteration's continuous assignments, the loop's body.
+    body: Vec<DriverId>,
+    /// The first iteration's parameters that step: the parameter, its
+    /// first value and its step.
+    steps: Vec<(ObjId, i64, i64)>,
+    /// Every iteration's continuous assignments, for what the loop reads
+    /// and writes.
+    all: Vec<DriverId>,
+}
+
+/// Fewest iterations worth a loop.
+const ROLL_MIN: usize = 4;
 
 struct Lowering<'d, 'a> {
     d: &'d Design<'a>,
@@ -154,6 +177,10 @@ struct Lowering<'d, 'a> {
     dropped: Cell<usize>,
     /// Immediate assertions left out.
     asserts: RefCell<HashSet<StmtId>>,
+    loops: Vec<Rolled>,
+    /// The parameters that step in the loop being lowered: not constants
+    /// there.
+    loop_vars: RefCell<HashSet<ObjId>>,
 }
 
 impl<'d, 'a> Lowering<'d, 'a> {
@@ -220,6 +247,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 Item::Instance(i) => code.push(Node::In(i)),
                 Item::Cell(_) => return Err("gates and UDPs are not supported yet".into()),
                 Item::Scope(s) => match d.scope(s).kind {
+                    ScopeKind::Generate if self.is_generate_loop(s) => self.generate_loop(s, objs, code)?,
                     ScopeKind::Generate | ScopeKind::Block => self.collect(s, objs, code)?,
                     _ => {}
                 },
@@ -228,6 +256,160 @@ impl<'d, 'a> Lowering<'d, 'a> {
             }
         }
         Ok(())
+    }
+
+    /// Whether a generate scope holds a loop's iterations.
+    fn is_generate_loop(&self, s: ScopeId) -> bool {
+        let d = self.d;
+        let mut kids = d.scope(s).items.iter().filter_map(|i| if let Item::Scope(k) = i { Some(*k) } else { None }).peekable();
+        kids.peek().is_some() && kids.all(|k| d.scope(k).kind == ScopeKind::Generate && d.scope(k).index.is_some())
+    }
+
+    /// A generate loop's iterations: runs of them with the same code become
+    /// loops; the rest are as written.
+    fn generate_loop(&mut self, s: ScopeId, objs: &mut Vec<ObjId>, code: &mut Vec<Node>) -> Result<(), String> {
+        let d = self.d;
+        let iters: Vec<ScopeId> = d.scope(s).items.iter().filter_map(|i| if let Item::Scope(k) = i { Some(*k) } else { None }).collect();
+        // Runs of iterations of the same shape.
+        let shapes: Vec<Option<String>> = iters.iter().map(|&i| self.shape(i)).collect();
+        let mut at = 0;
+        while at < iters.len() {
+            let mut end = at + 1;
+            while end < iters.len() && shapes[at].is_some() && shapes[end] == shapes[at] {
+                end += 1;
+            }
+            let rolled = if end - at >= ROLL_MIN { self.roll(&iters[at..end]) } else { None };
+            match rolled {
+                Some(r) => {
+                    code.push(Node::Loop(self.loops.len()));
+                    self.loops.push(r);
+                }
+                None => {
+                    for &i in &iters[at..end] {
+                        self.collect(i, objs, code)?;
+                    }
+                }
+            }
+            at = end;
+        }
+        Ok(())
+    }
+
+    /// An iteration's code, as the source nodes it was made from, if it is
+    /// only continuous assignments and parameters (in nested generate
+    /// blocks that are not loops).
+    fn shape(&self, s: ScopeId) -> Option<String> {
+        let d = self.d;
+        let mut out = String::new();
+        for item in &d.scope(s).items {
+            match *item {
+                Item::Object(o) if matches!(d.object(o).kind, ObjKind::Param { .. }) => {
+                    let _ = write!(out, "p{} ", d.name(d.object(o).name));
+                }
+                Item::Driver(dr) => {
+                    let drv = &d.drivers[dr.0 as usize];
+                    if !drv.delay.is_empty() || drv.strength.is_some() {
+                        return None;
+                    }
+                    let _ = write!(out, "d{:?} ", drv.node);
+                }
+                Item::Scope(k) if d.scope(k).kind == ScopeKind::Generate && !self.is_generate_loop(k) => {
+                    let _ = write!(out, "s{:?}({}) ", d.scope(k).node, self.shape(k)?);
+                }
+                Item::Typedef(..) | Item::Import(..) => {}
+                _ => return None,
+            }
+        }
+        Some(out)
+    }
+
+    /// An iteration's continuous assignments and parameters, in order.
+    fn gather(&self, s: ScopeId, drivers: &mut Vec<DriverId>, params: &mut Vec<ObjId>) {
+        let d = self.d;
+        for item in &d.scope(s).items {
+            match *item {
+                Item::Object(o) => params.push(o),
+                Item::Driver(dr) => drivers.push(dr),
+                Item::Scope(k) => self.gather(k, drivers, params),
+                _ => {}
+            }
+        }
+    }
+
+    /// The iterations as one loop, if every one's code is the first's with
+    /// parameters that step evenly.
+    fn roll(&self, iters: &[ScopeId]) -> Option<Rolled> {
+        let d = self.d;
+        let mut drivers = Vec::new();
+        let mut params = Vec::new();
+        for &i in iters {
+            let (mut dv, mut pv) = (Vec::new(), Vec::new());
+            self.gather(i, &mut dv, &mut pv);
+            drivers.push(dv);
+            params.push(pv);
+        }
+        let n = iters.len();
+        let mut steps = Vec::new();
+        for (k, &p) in params[0].iter().enumerate() {
+            let val = |t: usize| d.object(params[t][k]).value.and_then(|c| d.konst(c).to_i64());
+            let (a, b) = (val(0)?, val(1)?);
+            if (0..n).any(|t| val(t) != Some(a + (b - a) * t as i64)) {
+                return None;
+            }
+            if b != a {
+                steps.push((p, a, b - a));
+            }
+        }
+        for t in 1..n {
+            let map: HashMap<ObjId, ObjId> = params[t].iter().copied().zip(params[0].iter().copied()).collect();
+            for (&x, &y) in drivers[0].iter().zip(&drivers[t]) {
+                let (x, y) = (&d.drivers[x.0 as usize], &d.drivers[y.0 as usize]);
+                if !self.same_expr(x.lhs, y.lhs, &map) || !self.same_expr(x.rhs, y.rhs, &map) {
+                    return None;
+                }
+            }
+        }
+        // An iteration must not read what another writes, so that running
+        // them in order is running them at once.
+        let mut writes: HashMap<ObjId, Vec<(u32, u32, usize)>> = HashMap::new();
+        let mut reads = Vec::new();
+        for (t, dv) in drivers.iter().enumerate() {
+            let mut r = Vec::new();
+            for &dr in dv {
+                let drv = &d.drivers[dr.0 as usize];
+                let mut w = Vec::new();
+                self.reads(drv.rhs, &mut r);
+                self.writes(drv.lhs, &mut w, &mut r);
+                for (o, lo, hi) in w {
+                    writes.entry(o).or_default().push((lo, hi, t));
+                }
+            }
+            reads.push(r);
+        }
+        for (t, r) in reads.iter().enumerate() {
+            for &(o, lo, hi) in r {
+                if writes.get(&o).is_some_and(|v| v.iter().any(|&(wl, wh, u)| u != t && wl < hi && lo < wh)) {
+                    return None;
+                }
+            }
+        }
+        Some(Rolled { count: n as u32, body: drivers[0].clone(), steps, all: drivers.concat() })
+    }
+
+    /// Whether two expressions are the same, with `map` taking the second's
+    /// parameters to the first's.
+    fn same_expr(&self, a: ExprId, b: ExprId, map: &HashMap<ObjId, ObjId>) -> bool {
+        let d = self.d;
+        let (x, y) = (d.expr(a), d.expr(b));
+        if x.ty != y.ty || x.args.len() != y.args.len() {
+            return false;
+        }
+        let same = match (&x.kind, &y.kind) {
+            (ExprKind::Object(p), ExprKind::Object(q)) => p == q || map.get(q) == Some(p),
+            (ExprKind::Const(p), ExprKind::Const(q)) => ops::const_eq(d.konst(*p), d.konst(*q)),
+            (k, l) => k == l,
+        };
+        same && x.args.iter().zip(&y.args).all(|(&p, &q)| self.same_expr(p, q, map))
     }
 
     /// Whether a statement does nothing but check assertions, so leaving
@@ -348,6 +530,13 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 let drv = &d.drivers[dr.0 as usize];
                 self.reads(drv.rhs, &mut r);
                 self.writes(drv.lhs, &mut w, &mut r);
+            }
+            Node::Loop(l) => {
+                for &dr in &self.loops[l].all {
+                    let drv = &d.drivers[dr.0 as usize];
+                    self.reads(drv.rhs, &mut r);
+                    self.writes(drv.lhs, &mut w, &mut r);
+                }
             }
             Node::In(i) => {
                 for c in &d.instance(i).connections {
@@ -487,6 +676,11 @@ impl<'d, 'a> Lowering<'d, 'a> {
     /// The value of a constant expression: literals, parameters and what
     /// is built from them.
     fn fold(&self, e: ExprId) -> Option<Const> {
+        // In a rolled loop, what is worked out from its stepping
+        // parameters is not constant, and not remembered.
+        if !self.loop_vars.borrow().is_empty() {
+            return self.fold_new(e);
+        }
         if let Some(c) = self.folds.borrow().get(&e) {
             return c.clone();
         }
@@ -504,6 +698,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
             ExprKind::Object(o) => {
                 let ob = d.object(*o);
                 match ob.kind {
+                    _ if self.loop_vars.borrow().contains(o) => None,
                     ObjKind::Param { .. } | ObjKind::EnumConst | ObjKind::Genvar => ob.value.map(|v| d.konst(v).clone()),
                     _ => None,
                 }
@@ -608,6 +803,13 @@ struct Func<'l, 'd, 'a> {
     /// The label of the block being written.
     block: String,
     loops: u32,
+    /// Rolled loops written so far.
+    rolled: u32,
+    /// In a rolled loop: static values are read from and written to the
+    /// state as they are used, not kept for the end of the outer loop.
+    mem: bool,
+    /// The temporaries with the same value in every lane.
+    uniform: HashSet<u32>,
 }
 
 const V16: &str = "<16 x i32>";
@@ -630,7 +832,7 @@ fn ms(m: M) -> String {
 impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     fn new(l: &'l Lowering<'d, 'a>, spec: SpecId) -> Self {
         let out = format!("define void @{}(ptr %s) {{\nentry:\n", fn_name(spec));
-        Func { l, spec, out, next: 0, env: Env::default(), block: "entry".into(), loops: 0 }
+        Func { l, spec, out, next: 0, env: Env::default(), block: "entry".into(), loops: 0, rolled: 0, mem: false, uniform: HashSet::new() }
     }
 
     fn finish(mut self) -> String {
@@ -680,7 +882,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let prev = std::mem::replace(&mut self.block, format!("L{k}"));
         let _ = writeln!(
             self.out,
-            "  br label %L{k}\nL{k}:\n  %c{k} = phi i64 [ 0, %{prev} ], [ %c{k}.next, %L{k} ]\n  %c{k}.off = shl i64 %c{k}, 6\n  \
+            "  br label %L{k}\nL{k}:\n  %c{k} = phi i64 [ 0, %{prev} ], [ %c{k}.next, %L{k}.latch ]\n  %c{k}.off = shl i64 %c{k}, 6\n  \
              %b{k} = getelementptr i8, ptr %s, i64 %c{k}.off"
         );
         self.env = Env::default();
@@ -699,6 +901,8 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             "  %c{k}.next = add i64 %c{k}, 1\n  %c{k}.end = icmp eq i64 %c{k}.next, {CHUNKS}\n  \
              br i1 %c{k}.end, label %X{k}, label %L{k}\nX{k}:"
         );
+        // The back edge leaves from the last block of the body.
+        self.out = self.out.replace(&format!("%L{k}.latch"), &format!("%{}", self.block));
         self.block = format!("X{k}");
         Ok(())
     }
@@ -738,6 +942,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     fn node(&mut self, n: Node) -> Result<(), String> {
         let d = self.d();
         match n {
+            Node::Loop(l) => self.rolled_loop(l),
             Node::Driver(dr) => {
                 let drv = &d.drivers[dr.0 as usize];
                 let v = self.expr(drv.rhs)?;
@@ -1000,8 +1205,12 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     }
 
     fn set(&mut self, o: ObjId, v: Val) {
-        if self.lay().objs.contains_key(&o) {
-            self.env.dirty.insert(o);
+        if let Some(&off) = self.lay().objs.get(&o) {
+            if self.mem {
+                self.store(off, &v);
+            } else {
+                self.env.dirty.insert(o);
+            }
         }
         self.env.vals.insert(o, v);
     }
@@ -1028,6 +1237,14 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             }
             ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_) => {
                 let (o, off, w) = self.place(lhs)?;
+                if self.mem
+                    && w <= 32
+                    && self.lay().objs.contains_key(&o)
+                    && let Some((p, ok)) = self.uniform_off(off)
+                {
+                    self.mem_insert(o, p, ok, w, &v);
+                    return Ok(());
+                }
                 let old = self.read(o);
                 let new = match off {
                     Off::K(k) => self.insert(&old, k, w, &v),
@@ -1122,6 +1339,200 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         Ok((Off::V(bits, ok), w))
     }
 
+    /// A run of iterations as a loop inside the loop over registers.
+    fn rolled_loop(&mut self, l: usize) -> Result<(), String> {
+        let d = self.d();
+        let lp = &self.l.loops[l];
+        // The loop reads and writes the state: what this loop has worked
+        // out goes there first, and is read back after.
+        let mut touched = Vec::new();
+        for &dr in &lp.all {
+            let drv = &d.drivers[dr.0 as usize];
+            let (mut r, mut w) = (Vec::new(), Vec::new());
+            self.l.reads(drv.rhs, &mut r);
+            self.l.writes(drv.lhs, &mut w, &mut r);
+            touched.extend(r.into_iter().chain(w).map(|t| t.0));
+        }
+        touched.sort_unstable_by_key(|o| o.0);
+        touched.dedup();
+        for &o in &touched {
+            if self.env.dirty.remove(&o) {
+                let v = self.env.vals[&o].clone();
+                let off = self.lay().objs[&o];
+                self.store(off, &v);
+            }
+            self.env.vals.remove(&o);
+        }
+        let k = self.rolled;
+        self.rolled += 1;
+        let prev = std::mem::replace(&mut self.block, format!("R{k}"));
+        let _ = writeln!(self.out, "  br label %R{k}\nR{k}:\n  %r{k} = phi i32 [ 0, %{prev} ], [ %r{k}.next, %R{k} ]");
+        let outer = std::mem::take(&mut self.env);
+        self.mem = true;
+        *self.l.loop_vars.borrow_mut() = lp.steps.iter().map(|s| s.0).collect();
+        for &(o, first, step) in &lp.steps {
+            let (a, b, c, t) = (self.tmp(), self.tmp(), self.tmp(), self.tmp());
+            let _ = writeln!(
+                self.out,
+                "  %t{a} = mul i32 %r{k}, {}\n  %t{b} = add i32 %t{a}, {}\n  \
+                 %t{c} = insertelement {V16} poison, i32 %t{b}, i64 0\n  \
+                 %t{t} = shufflevector {V16} %t{c}, {V16} poison, {V16} zeroinitializer",
+                step as i32,
+                first as i32
+            );
+            self.uniform.insert(t);
+            let w = d.types.width(d.object(o).ty);
+            let mut p = vec![P::K(0); pieces(w)];
+            p[0] = P::V(t);
+            if pieces(w) > 1 {
+                let f = self.bin("ashr", P::V(t), P::K(31));
+                for q in &mut p[1..] {
+                    *q = f;
+                }
+            }
+            let v = self.norm(Val { w, p });
+            self.env.vals.insert(o, v);
+        }
+        let result = lp.body.iter().try_for_each(|&dr| {
+            let drv = &d.drivers[dr.0 as usize];
+            let v = self.expr(drv.rhs)?;
+            self.assign(drv.lhs, v)
+        });
+        self.l.loop_vars.borrow_mut().clear();
+        self.mem = false;
+        self.env = outer;
+        result?;
+        let _ = writeln!(
+            self.out,
+            "  %r{k}.next = add i32 %r{k}, 1\n  %r{k}.end = icmp eq i32 %r{k}.next, {}\n  \
+             br i1 %r{k}.end, label %Y{k}, label %R{k}\nY{k}:",
+            lp.count
+        );
+        self.block = format!("Y{k}");
+        Ok(())
+    }
+
+    /// The static object an expression names, in a rolled loop, where
+    /// selects of it go to the state.
+    fn in_memory(&self, e: ExprId) -> Option<ObjId> {
+        match self.d().expr(e).kind {
+            ExprKind::Object(o) if self.mem && self.lay().objs.contains_key(&o) => Some(o),
+            _ => None,
+        }
+    }
+
+    /// A select's offset if it is the same in every lane.
+    fn uniform_off(&self, off: Off) -> Option<(P, M)> {
+        match off {
+            Off::K(k) => Some((P::K(k), M::K(true))),
+            Off::V(p, ok) if self.is_uniform(p) => Some((p, ok)),
+            _ => None,
+        }
+    }
+
+    fn is_uniform(&self, p: P) -> bool {
+        match p {
+            P::K(_) => true,
+            P::V(n) => self.uniform.contains(&n),
+        }
+    }
+
+    /// The addresses of the two pieces holding bits `off..off + 32` of
+    /// `o` (the second held at the last piece), and the shift within the
+    /// first.
+    fn piece_addrs(&mut self, o: ObjId, off: P) -> (String, String, P) {
+        let d = self.d();
+        let base = self.base();
+        let start = self.lay().objs[&o];
+        let last = pieces(d.types.width(d.object(o).ty)) as u64 - 1;
+        let r = self.bin("and", off, P::K(31));
+        if let P::K(k) = off {
+            let q = (k as u64 / 32).min(last);
+            let q1 = (q + 1).min(last);
+            let (a, b) = (self.tmp(), self.tmp());
+            let _ = writeln!(
+                self.out,
+                "  %t{a} = getelementptr i8, ptr {base}, i64 {}\n  %t{b} = getelementptr i8, ptr {base}, i64 {}",
+                start + q * PIECE,
+                start + q1 * PIECE
+            );
+            return (format!("%t{a}"), format!("%t{b}"), r);
+        }
+        let t = self.tmp();
+        let _ = writeln!(self.out, "  %t{t} = extractelement {V16} {}, i64 0", ps(off));
+        let n: Vec<u32> = (0..9).map(|_| self.tmp()).collect();
+        let _ = writeln!(
+            self.out,
+            "  %t{0} = lshr i32 %t{t}, 5\n  %t{1} = call i32 @llvm.umin.i32(i32 %t{0}, i32 {last})\n  \
+             %t{2} = add i32 %t{1}, 1\n  %t{3} = call i32 @llvm.umin.i32(i32 %t{2}, i32 {last})\n  \
+             %t{4} = zext i32 %t{1} to i64\n  %t{5} = zext i32 %t{3} to i64\n  \
+             %t{6} = mul i64 %t{4}, {PIECE}\n  %t{7} = mul i64 %t{5}, {PIECE}\n  \
+             %t{8} = getelementptr i8, ptr {base}, i64 {start}",
+            n[0], n[1], n[2], n[3], n[4], n[5], n[6], n[7], n[8]
+        );
+        let (a, b) = (self.tmp(), self.tmp());
+        let _ = writeln!(
+            self.out,
+            "  %t{a} = getelementptr i8, ptr %t{}, i64 %t{}\n  %t{b} = getelementptr i8, ptr %t{}, i64 %t{}",
+            n[8], n[6], n[8], n[7]
+        );
+        (format!("%t{a}"), format!("%t{b}"), r)
+    }
+
+    fn load_at(&mut self, addr: &str) -> P {
+        let t = self.tmp();
+        let _ = writeln!(self.out, "  %t{t} = load {V16}, ptr {addr}, align 64");
+        P::V(t)
+    }
+
+    /// Bits `off..off + w` (`w` at most 32) of `o`, read from the state.
+    fn mem_extract(&mut self, o: ObjId, off: P, ok: M, w: u32) -> Val {
+        let (a0, a1, r) = self.piece_addrs(o, off);
+        let (v0, v1) = (self.load_at(&a0), self.load_at(&a1));
+        let lo = self.bin("lshr", v0, r);
+        let ri = self.bin("sub", P::K(32), r);
+        let ri = self.bin("and", ri, P::K(31));
+        let rz = self.icmp("eq", r, P::K(0));
+        let hi = self.bin("shl", v1, ri);
+        let hi = self.sel(rz, P::K(0), hi);
+        let v = self.bin("or", lo, hi);
+        let v = self.norm(Val { w, p: vec![v] });
+        let z = Val::zero(w);
+        self.select(ok, &v, &z)
+    }
+
+    /// Writes `x` to bits `off..off + w` (`w` at most 32) of `o` in the
+    /// state.
+    fn mem_insert(&mut self, o: ObjId, off: P, ok: M, w: u32, x: &Val) {
+        let (a0, a1, r) = self.piece_addrs(o, off);
+        let (v0, v1) = (self.load_at(&a0), self.load_at(&a1));
+        let x = self.resize(x, w, false).p[0];
+        let m = P::K(top_mask(w));
+        let ri = self.bin("sub", P::K(32), r);
+        let ri = self.bin("and", ri, P::K(31));
+        let rz = self.icmp("eq", r, P::K(0));
+        let m0 = self.bin("shl", m, r);
+        let x0 = self.bin("shl", x, r);
+        let m1 = self.bin("lshr", m, ri);
+        let m1 = self.sel(rz, P::K(0), m1);
+        let x1 = self.bin("lshr", x, ri);
+        let x1 = self.sel(rz, P::K(0), x1);
+        let put = |f: &mut Self, v: P, m: P, x: P| {
+            let keep = f.bin("xor", m, P::K(!0));
+            let kept = f.bin("and", v, keep);
+            let n = f.bin("or", kept, x);
+            f.sel(ok, n, v)
+        };
+        let n1 = put(self, v1, m1, x1);
+        let n0 = put(self, v0, m0, x0);
+        // The second piece first: where both are the last piece, the
+        // first's write is the one that stays.
+        for (a, n) in [(a1, n1), (a0, n0)] {
+            let _ = writeln!(self.out, "  store {V16} {}, ptr {a}, align 64", ps(n));
+        }
+        self.env.vals.remove(&o);
+    }
+
     // ---- expressions ----
 
     fn expr(&mut self, e: ExprId) -> Result<Val, String> {
@@ -1146,6 +1557,10 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                         Ok(self.read(*o))
                     }
                     _ => {
+                        if let Some(v) = self.env.vals.get(o) {
+                            let v = v.clone();
+                            return Ok(self.resize(&v, w, true));
+                        }
                         let c = self.l.fold(e).ok_or_else(|| format!("{} has no value", d.name(ob.name)))?;
                         self.konst_of(&c, w)
                     }
@@ -1192,6 +1607,14 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 Ok(acc)
             }
             ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_) => {
+                if let Some(o) = self.in_memory(x.args[0]) {
+                    let (off, w2) = self.offset(e)?;
+                    if let Some((p, ok)) = self.uniform_off(off)
+                        && w2 <= 32
+                    {
+                        return Ok(self.mem_extract(o, p, ok, w2));
+                    }
+                }
                 let base = self.expr(x.args[0])?;
                 let (off, w) = self.offset(e)?;
                 Ok(match off {
@@ -1703,6 +2126,9 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         }
         let t = self.tmp();
         let _ = writeln!(self.out, "  %t{t} = {op} {V16} {}, {}", ps(a), ps(b));
+        if self.is_uniform(a) && self.is_uniform(b) {
+            self.uniform.insert(t);
+        }
         P::V(t)
     }
 
@@ -1732,6 +2158,9 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         }
         let t = self.tmp();
         let _ = writeln!(self.out, "  %t{t} = icmp {pred} {V16} {}, {}", ps(a), ps(b));
+        if self.is_uniform(a) && self.is_uniform(b) {
+            self.uniform.insert(t);
+        }
         M::V(t)
     }
 
@@ -1743,6 +2172,9 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             M::V(n) => {
                 let t = self.tmp();
                 let _ = writeln!(self.out, "  %t{t} = select {M16} %t{n}, {V16} {}, {V16} {}", ps(a), ps(b));
+                if self.uniform.contains(&n) && self.is_uniform(a) && self.is_uniform(b) {
+                    self.uniform.insert(t);
+                }
                 P::V(t)
             }
         }

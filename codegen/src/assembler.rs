@@ -144,6 +144,8 @@ pub struct Assembler<'t> {
     /// Templates with a hole in the mnemonic (`b.{c}`), by the literal
     /// text before it.
     by_prefix: Vec<(String, Template)>,
+    /// Entries of bundles' slots, by mnemonic: read only inside a bundle.
+    in_bundles: HashMap<String, Vec<Template>>,
     /// How many lines that cannot be assembled to report.
     pub max_errors: usize,
 }
@@ -195,6 +197,7 @@ impl<'t> Assembler<'t> {
     pub fn new(t: &'t Target) -> Assembler<'t> {
         let mut by_mnemonic: HashMap<String, Vec<Template>> = HashMap::new();
         let mut by_prefix = Vec::new();
+        let mut in_bundles: HashMap<String, Vec<Template>> = HashMap::new();
         for (i, ins) in t.instrs.iter().enumerate() {
             if ins.asm.is_empty() {
                 continue;
@@ -202,12 +205,16 @@ impl<'t> Assembler<'t> {
             let tpl = Template { instr: i, parts: split_template(&ins.asm) };
             // (By the mnemonic in lower case, as lines are looked up.)
             let m = mnemonic(&ins.asm).to_ascii_lowercase();
+            if ins.slot.is_some() {
+                in_bundles.entry(m).or_default().push(tpl);
+                continue;
+            }
             match m.find('{') {
                 Some(k) => by_prefix.push((m[..k].to_string(), tpl)),
                 None => by_mnemonic.entry(m.to_string()).or_default().push(tpl),
             }
         }
-        Assembler { t, by_mnemonic, by_prefix, max_errors: 20 }
+        Assembler { t, by_mnemonic, by_prefix, in_bundles, max_errors: 20 }
     }
 
     /// The holes' texts, if `line` has the template's literal text: a hole
@@ -605,6 +612,50 @@ impl<'t> Assembler<'t> {
 
     /// Assembles `text`: Mach-O assembly if it says so (`.build_version`,
     /// or `__TEXT` and `__DATA` sections), or `syntax` says so; else ELF.
+    /// The bundle format of section `s`'s code, if it is in bundles.
+    fn bundle_format(&self, s: &Section) -> Option<usize> {
+        let name = s.name.as_deref().unwrap_or(match s.kind {
+            SectionKind::Text => ".text",
+            _ => return None,
+        });
+        self.t.machine.bundles.iter().position(|f| f.holds(name))
+    }
+
+    /// Puts the instruction `text`, written in `lane`, in a free slot of
+    /// the bundle `b`, setting the header fields its operands set.
+    fn encode_item(&self, b: &mut crate::bundle::Builder, lane: u8, text: &str) -> Result<(), String> {
+        let line = normalise_item(text);
+        let m = mnemonic(&line).to_ascii_lowercase();
+        let cands = self.in_bundles.get(&m).ok_or("no instruction of a bundle has this mnemonic")?;
+        let mut why = "no instruction of a bundle is written this way, or its values do not fit".to_string();
+        for tpl in cands {
+            let ins = &self.t.instrs[tpl.instr];
+            let Some(slot) = &ins.slot else { continue };
+            if slot.lane.is_some_and(|l| l != lane) {
+                continue;
+            }
+            let Some(holes) = self.holes(tpl, &line) else { continue };
+            let Some(r) = self.read(tpl.instr, &holes, Syntax::Elf) else { continue };
+            // The values must encode, and decode back as themselves.
+            let Some((bytes, alt)) = ins.encode_alt(&r.env) else { continue };
+            let Some((back, _)) = ins.decode_alt(&bytes, alt) else { continue };
+            // (Operands partly in the header are checked there.)
+            let in_header = slot.header_names();
+            if r.env.iter().any(|(n, v)| !in_header.contains(n) && back.get(n).is_some_and(|x| x != v)) {
+                continue;
+            }
+            let Some(k) = b.free_slot(&slot.units, bytes.len()) else {
+                why = format!("no free slot for unit {}", slot.units.join(" or "));
+                continue;
+            };
+            match b.place(k, &bytes, &slot.header, &r.env) {
+                Ok(()) => return Ok(()),
+                Err(e) => why = e,
+            }
+        }
+        Err(why)
+    }
+
     pub fn assemble(&self, text: &str, syntax: Option<Syntax>) -> Result<Assembled, String> {
         // Each instruction's length, by its line: the target's usual one
         // (the shortest, or on RISC-V the uncompressed), until assembling it
@@ -677,6 +728,18 @@ impl<'t> Assembler<'t> {
                 symbol: String,
                 addend: i64,
             },
+            /// A bundle: its format, where it is, its prefix's header
+            /// fields, its instructions by lane, and whether it is its
+            /// section's last.
+            Bundle {
+                format: usize,
+                section: usize,
+                offset: u64,
+                line: usize,
+                prefix: Vec<(String, i64)>,
+                items: Vec<(usize, u8, String)>,
+                last: bool,
+            },
             /// A 4-byte reference to `symbol`'s GOT entry, less `label`.
             Got {
                 section: usize,
@@ -687,10 +750,15 @@ impl<'t> Assembler<'t> {
             },
         }
         let mut later: Vec<Later> = Vec::new();
+        // The bundle being read: its format, section, offset, first line,
+        // prefix and items.
+        #[allow(clippy::type_complexity)]
+        let mut bundle: Option<(usize, usize, u64, usize, Vec<(String, i64)>, Vec<(usize, u8, String)>)> = None;
         let lines: Vec<&str> = text.lines().collect();
 
         let err = |n: usize, msg: String| format!("line {}: {msg}: `{}`", n + 1, lines[n].trim());
-        let stmts = statements(&lines, &self.t.machine.asm_comment, syntax).map_err(|(n, m)| err(n, m))?;
+        let stmts = statements(&lines, &self.t.machine.asm_comments, syntax, &self.t.machine.bundles)
+            .map_err(|(n, m)| err(n, m))?;
         // Instructions with their operands' expressions as numbers, and the
         // pseudo-instructions of several instructions as those
         // (`asm_text::instruction`).
@@ -705,7 +773,9 @@ impl<'t> Assembler<'t> {
             let body = s.trim_start().rsplit_once(':').map_or(s.trim_start(), |(_, b)| b).trim_start();
             let directive = body.starts_with('.') && body[1..].starts_with(|c: char| c.is_ascii_alphabetic());
             let label_only = s.trim_end().ends_with(':');
-            if directive || label_only || body.is_empty() || body.contains('"') {
+            // (A bundle's braces and prefix are not an instruction's.)
+            let bundled = !self.t.machine.bundles.is_empty() && body.contains(['{', '}']);
+            if directive || label_only || body.is_empty() || body.contains('"') || bundled {
                 folded.push((n, s));
                 continue;
             }
@@ -1023,6 +1093,73 @@ impl<'t> Assembler<'t> {
                 return Err(err(n, "an instruction in a section that is not kept".into()));
             }
             let s = section_of(&mut obj, &mut by_kind, &mut cur, SectionKind::Text);
+            // In a section of bundles: `prefix {`, items by lane, `}`.
+            if let Some(f) = self.bundle_format(&obj.sections[s]) {
+                let format = &self.t.machine.bundles[f];
+                let mut rest = line;
+                loop {
+                    match &mut bundle {
+                        None => {
+                            let Some((pre, after)) = rest.split_once('{') else {
+                                if rest.trim().is_empty() {
+                                    break;
+                                }
+                                return Err(err(n, format!("an instruction outside a bundle of {}", format.name)));
+                            };
+                            let pre = pre.trim();
+                            let prefix = if pre.is_empty() {
+                                Vec::new()
+                            } else {
+                                format
+                                    .read_prefix(pre)
+                                    .ok_or_else(|| err(n, format!("{pre}: not a bundle's prefix")))?
+                            };
+                            let sec = &mut obj.sections[s];
+                            let offset = sec.data.len() as u64;
+                            sec.data.resize(sec.data.len() + format.bytes as usize, 0);
+                            bundle = Some((f, s, offset, n, prefix, Vec::new()));
+                            rest = after;
+                        }
+                        Some(open) => {
+                            let (items, close) = match rest.split_once('}') {
+                                Some((a, b)) => (a, Some(b)),
+                                None => (rest, None),
+                            };
+                            let split = match &format.lanes {
+                                Some(sep) => items.split_once(sep.as_str()),
+                                None => None,
+                            };
+                            let lanes = match split {
+                                Some((a, b)) => [(0u8, a), (1u8, b)].to_vec(),
+                                None => [(0u8, items)].to_vec(),
+                            };
+                            for (lane, item) in lanes {
+                                if !item.trim().is_empty() {
+                                    open.5.push((n, lane, item.trim().to_string()));
+                                }
+                            }
+                            match close {
+                                Some(after) => {
+                                    let (format, section, offset, line, prefix, items) =
+                                        bundle.take().expect("a bundle is open");
+                                    later.push(Later::Bundle {
+                                        format,
+                                        section,
+                                        offset,
+                                        line,
+                                        prefix,
+                                        items,
+                                        last: false,
+                                    });
+                                    rest = after;
+                                }
+                                None => break,
+                            }
+                        }
+                    }
+                }
+                continue;
+            }
             let sec = &mut obj.sections[s];
             if sec.kind == SectionKind::Bss {
                 return Err(err(n, "an instruction in .bss".into()));
@@ -1035,6 +1172,33 @@ impl<'t> Assembler<'t> {
             sec.data.resize(sec.data.len() + lens.get(&k_stmt).copied().unwrap_or(unit), 0);
         }
 
+        if let Some((_, _, _, line, _, _)) = bundle {
+            return Err(err(line, "a bundle without its closing brace".into()));
+        }
+        // Each section's last bundle, or, where the format counts the
+        // bundles of a sequence (`body`), the first of the last sequence.
+        let mut in_order: HashMap<usize, Vec<(u64, u64)>> = HashMap::new();
+        for l in &later {
+            if let Later::Bundle { format, section, offset, prefix, .. } = l {
+                let body = self.t.machine.bundles[*format].body.as_ref();
+                let after = body.and_then(|b| prefix.iter().find(|(k, _)| k == b)).map_or(0, |(_, v)| *v as u64);
+                in_order.entry(*section).or_default().push((*offset, after));
+            }
+        }
+        let mut last_bundle: HashMap<usize, u64> = HashMap::new();
+        for (section, mut bundles) in in_order {
+            bundles.sort();
+            let mut k = 0;
+            while k < bundles.len() {
+                last_bundle.insert(section, bundles[k].0);
+                k += 1 + bundles[k].1 as usize;
+            }
+        }
+        for l in &mut later {
+            if let Later::Bundle { section, offset, last, .. } = l {
+                *last = last_bundle.get(section) == Some(offset);
+            }
+        }
         // The second pass: instructions, and references to symbols in order.
         // Every instruction that cannot be read is reported.
         let mut pending = Vec::new();
@@ -1107,6 +1271,22 @@ impl<'t> Assembler<'t> {
                             instr: Some(i),
                         });
                     }
+                }
+                Later::Bundle { format, section, offset, line, prefix, items, last } => {
+                    let f = &self.t.machine.bundles[format];
+                    let mut b = crate::bundle::Builder::new(f);
+                    let ends: &[(String, i64)] = if last { &f.end } else { &[] };
+                    if let Some(e) = prefix.iter().chain(ends).find_map(|(k, v)| b.set(k, *v).err()) {
+                        errors.push(err(line, e));
+                        continue;
+                    }
+                    for (n, lane, text) in &items {
+                        if let Err(e) = self.encode_item(&mut b, *lane, text) {
+                            errors.push(format!("line {}: {e}: `{text}`", n + 1));
+                        }
+                    }
+                    let bytes = b.finish();
+                    obj.sections[section].data[offset as usize..offset as usize + bytes.len()].copy_from_slice(&bytes);
                 }
                 Later::Data { section, offset, symbol, addend } => {
                     let kind =
@@ -1413,7 +1593,7 @@ pub fn rewrite(line: &str, from: &str, to: &str) -> String {
 
 /// The line without a comment: from `comment` (`//`, `#`), or for
 /// Mach-O `;`, outside strings.
-fn strip_comment<'l>(line: &'l str, comment: &str, syntax: Syntax) -> &'l str {
+fn strip_comment<'l>(line: &'l str, comments: &[String], syntax: Syntax) -> &'l str {
     let mut in_str = false;
     let mut escaped = false;
     let b = line.as_bytes();
@@ -1430,7 +1610,7 @@ fn strip_comment<'l>(line: &'l str, comment: &str, syntax: Syntax) -> &'l str {
         match c {
             b'"' => in_str = true,
             b';' if syntax == Syntax::MachO => return &line[..k],
-            _ if line[k..].starts_with(comment) => return &line[..k],
+            _ if comments.iter().any(|c| line[k..].starts_with(c.as_str())) => return &line[..k],
             _ => {}
         }
     }
@@ -1498,12 +1678,17 @@ fn strip_block_comments(line: &str, in_block: &mut bool) -> String {
 /// them) renamed to temporary labels of their own, after macros, `.rept`
 /// and `.if` are done (`asm_text::expand`), so that each use of a macro
 /// has labels of its own.
-fn statements(lines: &[&str], comment: &str, syntax: Syntax) -> Result<Vec<(usize, String)>, (usize, String)> {
+fn statements(
+    lines: &[&str],
+    comments: &[String],
+    syntax: Syntax,
+    bundles: &[crate::bundle::Format],
+) -> Result<Vec<(usize, String)>, (usize, String)> {
     let mut out: Vec<(usize, String)> = Vec::new();
     let mut in_block = false;
     for (n, raw) in lines.iter().enumerate() {
         let unblocked = strip_block_comments(raw, &mut in_block);
-        let line = strip_comment(&unblocked, comment, syntax);
+        let line = strip_comment(&unblocked, comments, syntax);
         // A line starting `#` (but a directive's `#` in an operand) is a
         // comment, as LLVM's assemblers take it (inline assembly's `# x0`).
         let line = if line.trim_start().starts_with('#') { "" } else { line };
@@ -1527,7 +1712,10 @@ fn statements(lines: &[&str], comment: &str, syntax: Syntax) -> Result<Vec<(usiz
         }
         out.push((n, line[start..].to_string()));
     }
-    let mut out = crate::asm_text::expand(out)?;
+    // (A bundle's prefix, `2: {`, is not a label.)
+    let prefix =
+        |l: &str| l.split_once('{').is_some_and(|(p, _)| bundles.iter().any(|f| f.read_prefix(p.trim()).is_some()));
+    let mut out = crate::asm_text::expand_with(out, &prefix)?;
     // Numeric labels: the k-th definition of `N` is `.Ln.N.k`.
     let temp = if syntax == Syntax::MachO { "Ln." } else { ".Ln." };
     let numeric = |s: &str| !s.is_empty() && s.bytes().all(|c| c.is_ascii_digit());
@@ -1536,6 +1724,9 @@ fn statements(lines: &[&str], comment: &str, syntax: Syntax) -> Result<Vec<(usiz
     }
     let mut defined: HashMap<String, usize> = HashMap::new();
     for (_, l) in &mut out {
+        if prefix(l) {
+            continue;
+        }
         let mut text = l.trim_start().to_string();
         let mut head = String::new();
         while let Some((name, rest)) = text.split_once(':')
@@ -1583,6 +1774,18 @@ fn normalise(line: &str) -> String {
     match line.split_once(char::is_whitespace) {
         Some((m, rest)) => format!("{m} {}", rest.trim()),
         None => line.to_string(),
+    }
+}
+
+/// An instruction of a bundle as its template writes it: the mnemonic,
+/// one space, then the operands, each after a comma and a space.
+fn normalise_item(line: &str) -> String {
+    match line.trim().split_once(char::is_whitespace) {
+        Some((m, rest)) => {
+            let ops: Vec<&str> = rest.split(',').map(str::trim).collect();
+            format!("{m} {}", ops.join(", "))
+        }
+        None => line.trim().to_string(),
     }
 }
 

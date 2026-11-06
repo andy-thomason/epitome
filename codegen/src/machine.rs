@@ -349,6 +349,11 @@ pub struct Machine {
     pub asm_modifiers: HashMap<char, AsmModifier>,
     /// How assembly starts a comment.
     pub asm_comment: String,
+    /// Every way a comment starts, for reading (`asm-comment`, several
+    /// separated by spaces: `# ;`); the first is how one is written.
+    pub asm_comments: Vec<String>,
+    /// Bundle formats (`!target.bundles`, `bundle.rs`).
+    pub bundles: Vec<crate::bundle::Format>,
     /// How inline assembly writes an immediate operand (`asm-imm`, with
     /// `{i}` the number: x86's AT&T `${i}`); modifier `c` writes it bare.
     pub asm_imm: String,
@@ -599,6 +604,8 @@ impl Machine {
             asm_constraints: HashMap::new(),
             asm_modifiers: HashMap::new(),
             asm_comment: String::new(),
+            asm_comments: Vec::new(),
+            bundles: Vec::new(),
             asm_imm: "{i}".into(),
             dwarf: HashMap::new(),
             dwarf_each: HashMap::new(),
@@ -688,7 +695,11 @@ impl Machine {
         mc.elf_machine = num("elf-machine")?.unwrap_or(0) as u16;
         mc.elf_flags = num("elf-flags")?.unwrap_or(0) as u32;
         mc.elf_format = params.get("elf-format").cloned().unwrap_or_else(|| "elf64-little".into());
-        mc.asm_comment = params.get("asm-comment").cloned().unwrap_or_else(|| "//".into());
+        mc.asm_comments = params
+            .get("asm-comment")
+            .map_or(vec!["//".to_string()], |c| c.split_whitespace().map(str::to_string).collect());
+        mc.asm_comment = mc.asm_comments.first().cloned().unwrap_or_else(|| "//".into());
+        mc.bundles = crate::bundle::Format::read(m)?;
         mc.asm_imm = params.get("asm-imm").cloned().unwrap_or_else(|| "{i}".into());
         if let Some(t) = all_params.iter().find(|t| t[0] == "cfi-data-align") {
             let v = |k: usize| t.get(k).and_then(|x| x.parse::<i64>().ok());

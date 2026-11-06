@@ -234,7 +234,7 @@ fn main() -> ExitCode {
             let index = epitome_rustc2::typeck::Index::new(&tcx, &r);
             let res = session.typeck_with(&crates, &r, &tcx, &index);
             let t = std::time::Instant::now();
-            let roots = epitome_rustc2::mono::roots(&r, &tcx, crates.len() as u32 - 1);
+            let roots = epitome_rustc2::mono::roots(&r, &tcx, &crates, crates.len() as u32 - 1);
             let mono = session.collect_mono_items(&crates, &r, &tcx, &index, &res, roots);
             let elapsed = t.elapsed();
             if dump_mono {

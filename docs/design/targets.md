@@ -353,8 +353,12 @@ The calling convention adds a few registers, and the stack's alignment:
 
 What a machine has no instructions for, it may do by calling its runtime:
 the description says which runtime functions do what, and how a value no
-register holds is held. AArch64's (`65-runtime.ll`) does quad precision
-(`fp128`) so; a description without such entries cannot compile it, and
+register holds is held. AArch64's and x86-64's (`65-runtime.ll`) do quad
+precision (`fp128`) so, with the same calls (libgcc's `__addtf3` and the
+rest) and the value held as `<2 x i64>` in a vector register, where both
+conventions pass it; their libm functions differ (`sqrtl` on AArch64,
+whose `long double` is quad precision; glibc's `sqrtf128` on x86-64, whose
+is the x87's). A description without such entries cannot compile it, and
 says so.
 
 - **`"libcall"="f"`**: a function whose body is one instruction of its

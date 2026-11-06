@@ -110,13 +110,16 @@ impl Session {
 }
 
 /// The roots of crate `k`: its `main` if it has one, else every function
-/// that is not generic.
-pub fn roots(r: &Resolver, tcx: &TyCtxt, k: u32) -> Vec<Item> {
+/// that is not generic and has a body (not an intrinsic's declaration).
+pub fn roots(r: &Resolver, tcx: &TyCtxt, crates: &[ParsedCrate], k: u32) -> Vec<Item> {
     let fns: Vec<DefId> = (0..r.defs.len() as u32)
         .map(DefId)
         .filter(|&d| {
             let def = &r.defs[d.0 as usize];
-            def.krate == k && matches!(def.kind, DefKind::Fn | DefKind::AssocFn) && tcx.all_params(d).is_empty()
+            def.krate == k
+                && matches!(def.kind, DefKind::Fn | DefKind::AssocFn)
+                && tcx.all_params(d).is_empty()
+                && crates[def.krate as usize].files[def.file as usize].ast.child(def.node, Kind::Block).is_some()
         })
         .collect();
     let empty = tcx.list(Vec::new());
@@ -647,7 +650,7 @@ mod tests {
         let tcx = session.collect_types(&crates, &r);
         let index = crate::typeck::Index::new(&tcx, &r);
         let res = session.typeck_with(&crates, &r, &tcx, &index);
-        let roots = super::roots(&r, &tcx, 1);
+        let roots = super::roots(&r, &tcx, &crates, 1);
         let mono = session.collect_mono_items(&crates, &r, &tcx, &index, &res, roots);
         let dump = mono.dump(&r, &tcx);
         assert!(mono.unresolved.is_empty(), "not resolved: {:?}", mono.unresolved);

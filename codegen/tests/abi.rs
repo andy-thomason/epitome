@@ -147,6 +147,10 @@ fn build(t: &Target, dir: &Path, tmp: &Path, name: &str, by: By) -> Result<PathB
 
 #[test]
 fn aapcs64_against_clang() {
+    if !cfg!(all(target_arch = "aarch64", target_os = "macos")) {
+        eprintln!("runs AArch64 code on an AArch64 Mac; skipping");
+        return;
+    }
     if !Command::new("clang").arg("--version").output().is_ok_and(|o| o.status.success()) {
         eprintln!("clang not found; skipping");
         return;

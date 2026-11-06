@@ -86,9 +86,12 @@ fn check_program(t: &Target, dir: &Path, tmp: &Path, name: &str) -> Result<Vec<S
         .args(wrap)
         .arg(&src)
         .arg(&main)
+        .arg("-lm") // (Linux's libm is not in libc)
         .arg("-o")
         .arg(&reference))?;
-    let want = run(&mut Command::new(&reference))?;
+    // A NaN's sign is the host's: RISC-V's default NaN is positive, x86's
+    // negative (`-nan`), and C does not say which.
+    let want = run(&mut Command::new(&reference))?.replace("-nan", "nan");
     let mut report = Vec::new();
     let configs: &[(&str, &[&str])] =
         &[("O2", &["-O2", "-fno-vectorize", "-fno-slp-vectorize", "-fno-unroll-loops"]), ("vec", &["-O2"])];
@@ -123,11 +126,12 @@ fn check_program(t: &Target, dir: &Path, tmp: &Path, name: &str) -> Result<Vec<S
             let mut m = emu::Machine::link(&[a, b]).map_err(|e| format!("{stem}: linking: {e}"))?;
             let status =
                 m.run(2_000_000_000).map_err(|e| format!("{stem}: running: {e}\nprinted so far:\n{}", m.out))?;
-            if m.out != want || status != 0 {
-                let first = m.out.lines().zip(want.lines()).position(|(x, y)| x != y);
+            let out = m.out.replace("-nan", "nan");
+            if out != want || status != 0 {
+                let first = out.lines().zip(want.lines()).position(|(x, y)| x != y);
                 return Err(format!(
                     "{stem}: printed something else (status {status}); first differing line {first:?}:\n  ours:   {:?}\n  theirs: {:?}",
-                    first.and_then(|k| m.out.lines().nth(k)),
+                    first.and_then(|k| out.lines().nth(k)),
                     first.and_then(|k| want.lines().nth(k))
                 ));
             }

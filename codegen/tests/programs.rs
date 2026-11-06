@@ -300,6 +300,10 @@ fn words_of(dump: &str) -> Vec<(u32, String)> {
 
 #[test]
 fn programs_behave_the_same() {
+    if !cfg!(all(target_arch = "aarch64", target_os = "macos")) {
+        eprintln!("runs AArch64 code on an AArch64 Mac (x86_programs is x86-64 Linux's); skipping");
+        return;
+    }
     if !have_tools() {
         eprintln!("clang or objdump not found; skipping");
         return;

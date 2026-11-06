@@ -2469,7 +2469,7 @@ impl<'a, 'b> Sel<'a, 'b> {
                         .value_class_in(file, holds, bits)
                         .ok_or_else(|| bad(format!("no register class of its file holds {:?}", c.codes)))?;
                     let v = self.mf.new_vreg(class);
-                    (MOp::Reg(Reg::V(v)), print.unwrap_or(class))
+                    (MOp::Reg(Reg::V(v)), print.unwrap_or_else(|| narrow_print(m, file, holds, bits, class)))
                 };
                 let class = match &op {
                     MOp::Reg(Reg::V(v)) => self.mf.vclass[*v as usize],
@@ -2507,6 +2507,16 @@ impl<'a, 'b> Sel<'a, 'b> {
                 ins.push(MOp::Reg(Reg::P(p)));
                 continue;
             }
+            // `s`: a global's address, written as its name.
+            if c.codes.contains('s')
+                && let Value::Const(k) = v
+                && let ConstKind::Global(g) = self.cx.m.consts.get(k).kind
+            {
+                let name = self.cx.m.global(g).name.clone().unwrap_or_default();
+                operands.push((false, ins.len(), AsmPrint::Sym));
+                ins.push(MOp::Sym(name));
+                continue;
+            }
             let konst = match v {
                 Value::Const(_) => self.cx.const_int(v),
                 _ => None,
@@ -2541,7 +2551,7 @@ impl<'a, 'b> Sel<'a, 'b> {
                             before.push(MInst::copy(Reg::V(d), r));
                             r = Reg::V(d);
                         }
-                        operands.push((false, ins.len(), AsmPrint::Reg(print.unwrap_or(class))));
+                        operands.push((false, ins.len(), AsmPrint::Reg(print.unwrap_or_else(|| narrow_print(m, *file, holds, bits, class)))));
                         ins.push(MOp::Reg(r));
                     }
                     (_, Some(AsmCode::Mem(tpl)), _) => {
@@ -3846,4 +3856,16 @@ fn is_atomic(op: &Op) -> bool {
             | Op::CmpXchg { .. }
             | Op::Fence { .. }
     )
+}
+
+/// The class an inline-assembly operand's register is printed in: an
+/// integer narrower than the class it is in is named at its own width
+/// where the file has a class of it (an `i8` in a 32-bit register is
+/// `%al`, not `%eax`, as LLVM prints it).
+fn narrow_print(m: &crate::machine::Machine, file: usize, holds: crate::machine::Holds, bits: u32, class: Class) -> Class {
+    if holds == crate::machine::Holds::Int && bits < m.classes[class.0 as usize].bits {
+        m.width_class_in(file, bits).unwrap_or(class)
+    } else {
+        class
+    }
 }

@@ -32,6 +32,7 @@
 //! becomes a body that traps, and the reason is kept: `--lower-stats`
 //! counts them.
 
+mod asm;
 mod body;
 mod intrinsic;
 mod pat;

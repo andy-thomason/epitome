@@ -266,6 +266,9 @@ pub struct ClassDef {
     pub file: usize,
     /// How wide a value it holds (0 for a view).
     pub bits: u32,
+    /// How wide its registers' names are (`"width"`, else `bits`): a view
+    /// such as x86's r8 (`%al`) holds nothing but names 8 bits.
+    pub width: u32,
     pub holds: Option<Holds>,
     /// The number it shares with the zero register is the stack pointer.
     pub sp: bool,
@@ -557,7 +560,11 @@ impl Machine {
             if fixed.is_some() && holds.is_some() {
                 return Err(format!("register class {class} is fixed, so holds no values"));
             }
-            classes.push(ClassDef { name: class.clone(), file, bits, holds, sp, names, fixed });
+            let width = match p.get("width") {
+                Some(w) => w.parse().map_err(|_| format!("register class {class}: width {w}"))?,
+                None => bits,
+            };
+            classes.push(ClassDef { name: class.clone(), file, bits, width, holds, sp, names, fixed });
         }
         if classes.is_empty() {
             return Err("the description names no registers (!target.registers)".into());
@@ -1001,6 +1008,13 @@ impl Machine {
                 .map(|(k, _)| Class(k as u8))
         };
         pick(&|c| c.holds == Some(holds)).or_else(|| pick(&|_| true))
+    }
+
+    /// The class of file `file` exactly `bits` wide, if there is one: to
+    /// name a register at that width (an `i8` in a 32-bit register is
+    /// printed `%al`, as LLVM prints it).
+    pub fn width_class_in(&self, file: usize, bits: u32) -> Option<Class> {
+        self.classes.iter().position(|c| c.file == file && c.width == bits && !c.sp).map(|k| Class(k as u8))
     }
 
     /// The class of file `file` holding scalars of `bits` bits, for the

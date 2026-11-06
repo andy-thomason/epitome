@@ -413,7 +413,18 @@ macros of crates outside the session are still found by name.
 
 Done in expansion: `cfg_select!`, `cfg!`, `include!`, `stringify!`,
 `concat!`, `line!`, `column!`, `file!`, `module_path!`, `env!`,
-`option_env!`, `compile_error!`. A definition with
+`option_env!`, `compile_error!`. `concat!` expands the built-ins called
+in its arguments first, as rustc does (`concat!(stringify!(u8),
+"::unchecked_add")`, which `core`'s `assert_unsafe_precondition!`
+writes).
+
+`asm!` stays a call, and expansion adds to it what the later stages need
+(`expand/asm.rs` reads its arguments): each template, worked out to a
+string literal (a template may be a macro's call, `concat!` or a
+`macro_rules!` that gives one, expanded now as rustc does), then each
+operand's expressions, parsed. Name resolution and type checking see
+those expressions as any others, and lowering reads what each is from the
+call's tokens. A definition with
 `#[rustc_builtin_macro]` dispatches to these by name.
 
 Left as calls for type checking and lowering: `format_args!` (to a node
@@ -773,6 +784,15 @@ any other; then each is defined.
   (strong and weak) and fences, with the orderings their const arguments
   name (Rust's `Relaxed` is IR's `monotonic`). An atomic pointer is worked
   on as the integer of its size.
+- **`asm!`** (x86-64) becomes an IR inline-assembly call, as rustc writes
+  it (`lower/asm.rs`): templates joined by newlines with `{0}`, `{name}`
+  and `{}` made `${k}` (outputs numbered first) and Rust's modifiers
+  made LLVM's; `out` as `=&` and `lateout` as `=`, `inout` with a tied
+  input, register classes and registers as constraints; `const`
+  operands written in, `sym` operands as `s` inputs; and the flags,
+  memory, side effects, stack alignment and syntax from its options,
+  `clobber_abi("C")` as clobbers of the registers the C convention does
+  not keep.
 - **Panics** become a trap (`llvm.trap`), with no message: a call into
   `core::panicking`, `panic!` and its relatives, an index out of bounds, a
   division by zero, and a failed `assert!`. Arithmetic wraps, as in a
@@ -808,13 +828,13 @@ body:
 ```
 
 From every non-generic function of `core` with a body (on mandelbrot):
-22,308 functions in 3.6 s, of which 3,592 (16%) are not lowered, and 237
-more trap where they reach `dyn` or formatting. 3,017 of those not
-lowered are SIMD (`core::arch`), which is not attempted; of the 17,222
-others, 575 (3%) are not lowered. The most common reasons: `concat!` and
-`asm!` (135), intrinsics not yet supported (95), `builtin #` expressions
-(47), and unsizing an array whose length is an expression the evaluator
-cannot work out (42).
+22,308 functions in 3.4 s, of which 3,444 (15%) are not lowered, and 237
+more trap where they reach `dyn` or formatting. 3,004 of those not
+lowered are SIMD (`core::arch`), which is not attempted (its `asm!` with
+vector operands among them); of the 17,222 others, 440 (3%) are not
+lowered. The most common reasons: intrinsics not yet supported (95),
+`builtin #` expressions (47), and unsizing an array whose length is an
+expression the evaluator cannot work out (42).
 
 Lowering found and fixed these in type checking: it records which
 constant a path names (`tables.consts`, for `u64::MAX` and `T::ZERO`) and
@@ -907,6 +927,7 @@ The programs, which each print what rustc's build prints:
 | `closures.rs` | Closures capturing by reference and by value, `FnMut` state, `impl Fn` arguments and results, function pointers, iterator adapters (`map`, `filter`, `fold`, `max`, `position`, `any`, `all`, `skip`, `take_while`), and `Option` and `Result` combinators. |
 | `floats.rs` | `f16`: arithmetic, comparisons, rounding to half precision, bits, conversions to and from other floats and integers, and its methods in `core` (`abs`, `floor`, `round`, `sqrt`, `mul_add`, `min`, `max`); the `f32` and `f64` methods in `core`; and float-to-integer casts saturating, with NaN giving 0. |
 | `quad.rs` | `f128`: literals rounded exactly (checked by their bits: `0.1`, `PI`, `MAX`, `EPSILON`, the least normal, a subnormal), arithmetic beyond `f64`'s precision, comparisons with NaN, conversions to and from every float and integer width (`u128::MAX` included), saturating casts, and its methods in `core`. |
+| `asm.rs` | `asm!`: outputs, inputs, `inout` (with `=>` and `_`), named, numbered and implicit operands, modifiers, registers, `const` and `sym` operands, `clobber_abi`, AT&T syntax, options; and `core::arch::x86_64`'s `_bittest64` family, `_mm_stream_si32` and `__cpuid_count`, written with it. |
 | `atomics.rs` | `core::sync::atomic`: loads and stores, `fetch_add` and the other read-modify-writes, `compare_exchange` (and `_weak` in a loop), `fetch_update`, `AtomicBool`, `AtomicPtr`, fences, every ordering, and an atomic in a `static`. |
 
 ## 9. Crates and Cargo

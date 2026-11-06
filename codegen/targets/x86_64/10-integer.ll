@@ -6394,7 +6394,7 @@ define <64 x i1> @VBITSMASK.64xi8(<64 x i8> "reg"="zv" %n) "enc"="evexr(d, n, 2,
 declare <64 x i8> @llvm.epitome.mask.bits.v64i8(<64 x i1>)
 declare <64 x i1> @llvm.epitome.bits.mask.v64i8(<64 x i8>)
 
-define <64 x i8> @VPBROADCASTBr.64xi8(i8 "reg"="r32" %x) "enc"="evexr(d, x, 2, 0, 0, 2, 1, 0, 0, 0) | 01111010 | 11 reg:3=d&7 rm:3=x&7" "asm"="vpbroadcastb {x}, {d}" "dclass"="zv" "feature"="avx512f,avx512bw" "nodecode" {
+define <64 x i8> @VPBROADCASTBr.64xi8(i8 "reg"="r32" %x) "enc"="evexr(d, x, 2, 0, 0, 2, 1, 0, 0, 0) | 01111010 | 11 reg:3=d&7 rm:3=x&7" "asm"="vpbroadcastb {x}, {d}" "dclass"="zv" "role"="dup.zv.8" "feature"="avx512f,avx512bw" "nodecode" {
   %i = insertelement <64 x i8> poison, i8 %x, i64 0
   %r = shufflevector <64 x i8> %i, <64 x i8> poison, <64 x i32> zeroinitializer
   ret <64 x i8> %r
@@ -6590,7 +6590,7 @@ define <32 x i1> @VBITSMASK.32xi16(<32 x i16> "reg"="zv" %n) "enc"="evexr(d, n, 
 declare <32 x i16> @llvm.epitome.mask.bits.v32i16(<32 x i1>)
 declare <32 x i1> @llvm.epitome.bits.mask.v32i16(<32 x i16>)
 
-define <32 x i16> @VPBROADCASTWr.32xi16(i16 "reg"="r32" %x) "enc"="evexr(d, x, 2, 0, 0, 2, 1, 0, 0, 0) | 01111011 | 11 reg:3=d&7 rm:3=x&7" "asm"="vpbroadcastw {x}, {d}" "dclass"="zv" "feature"="avx512f,avx512bw" "nodecode" {
+define <32 x i16> @VPBROADCASTWr.32xi16(i16 "reg"="r32" %x) "enc"="evexr(d, x, 2, 0, 0, 2, 1, 0, 0, 0) | 01111011 | 11 reg:3=d&7 rm:3=x&7" "asm"="vpbroadcastw {x}, {d}" "dclass"="zv" "role"="dup.zv.16" "feature"="avx512f,avx512bw" "nodecode" {
   %i = insertelement <32 x i16> poison, i16 %x, i64 0
   %r = shufflevector <32 x i16> %i, <32 x i16> poison, <32 x i32> zeroinitializer
   ret <32 x i16> %r
@@ -6786,7 +6786,7 @@ define <16 x i1> @VBITSMASK.16xi32(<16 x i32> "reg"="zv" %n) "enc"="evexr(d, n, 
 declare <16 x i32> @llvm.epitome.mask.bits.v16i32(<16 x i1>)
 declare <16 x i1> @llvm.epitome.bits.mask.v16i32(<16 x i32>)
 
-define <16 x i32> @VPBROADCASTDr.16xi32(i32 "reg"="r32" %x) "enc"="evexr(d, x, 2, 0, 0, 2, 1, 0, 0, 0) | 01111100 | 11 reg:3=d&7 rm:3=x&7" "asm"="vpbroadcastd {x}, {d}" "dclass"="zv" "feature"="avx512f" "nodecode" {
+define <16 x i32> @VPBROADCASTDr.16xi32(i32 "reg"="r32" %x) "enc"="evexr(d, x, 2, 0, 0, 2, 1, 0, 0, 0) | 01111100 | 11 reg:3=d&7 rm:3=x&7" "asm"="vpbroadcastd {x}, {d}" "dclass"="zv" "role"="dup.zv.32" "feature"="avx512f" "nodecode" {
   %i = insertelement <16 x i32> poison, i32 %x, i64 0
   %r = shufflevector <16 x i32> %i, <16 x i32> poison, <16 x i32> zeroinitializer
   ret <16 x i32> %r
@@ -6982,7 +6982,7 @@ define <8 x i1> @VBITSMASK.8xi64(<8 x i64> "reg"="zv" %n) "enc"="evexr(d, n, 2, 
 declare <8 x i64> @llvm.epitome.mask.bits.v8i64(<8 x i1>)
 declare <8 x i1> @llvm.epitome.bits.mask.v8i64(<8 x i64>)
 
-define <8 x i64> @VPBROADCASTQr.8xi64(i64 "reg"="r64" %x) "enc"="evexr(d, x, 2, 1, 0, 2, 1, 0, 0, 0) | 01111100 | 11 reg:3=d&7 rm:3=x&7" "asm"="vpbroadcastq {x}, {d}" "dclass"="zv" "feature"="avx512f" "nodecode" {
+define <8 x i64> @VPBROADCASTQr.8xi64(i64 "reg"="r64" %x) "enc"="evexr(d, x, 2, 1, 0, 2, 1, 0, 0, 0) | 01111100 | 11 reg:3=d&7 rm:3=x&7" "asm"="vpbroadcastq {x}, {d}" "dclass"="zv" "role"="dup.zv.64" "feature"="avx512f" "nodecode" {
   %i = insertelement <8 x i64> poison, i64 %x, i64 0
   %r = shufflevector <8 x i64> %i, <8 x i64> poison, <8 x i32> zeroinitializer
   ret <8 x i64> %r

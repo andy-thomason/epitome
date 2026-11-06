@@ -1061,12 +1061,14 @@ impl<'a, 'b> Sel<'a, 'b> {
                 self.is_fp(self.ty_of(*value)) == self.is_fp(self.f.locals[r.index()].ty)
                     && self.bits(self.ty_of(*value)) == self.bits(self.f.locals[r.index()].ty)
             }
-            // A mask's lanes are already all ones or all zeros. Where 32-bit
-            // values are kept sign-extended, extending one to 64 bits is
-            // free (and truncating to 32 bits is not).
+            // A mask's lanes are already all ones or all zeros (but not one
+            // in a mask register's bits). Where 32-bit values are kept
+            // sign-extended, extending one to 64 bits is free (and
+            // truncating to 32 bits is not).
             Op::Cast { op: CastOp::SExt, value, .. } => {
                 let r = self.f.insts[i.index()].result.unwrap();
                 matches!(self.cx.m.types.get(self.ty_of(*value)), Type::Vector { elem, .. } if self.bits(*elem) == 1)
+                    && !matches!(value, Value::Local(x) if self.mask_regs.contains(x))
                     || (self.t.machine.narrow == Narrow::Sign
                         && self.bits(self.ty_of(*value)) == 32
                         && self.bits(self.f.locals[r.index()].ty) == 64)
@@ -1602,6 +1604,17 @@ impl<'a, 'b> Sel<'a, 'b> {
         };
         let d = self.mf.new_vreg(class);
         let arr = arrangement(len, ebits);
+        // A splat, from an integer register, where the class has an
+        // instruction for it (`dup.zv.32`: x86's vpbroadcastd).
+        if lanes.iter().all(|&l| l == lanes[0])
+            && lanes[0] != 0
+            && let Some(dup) = self.t.role(&format!("dup.{}.{ebits}", self.t.machine.def(class).name))
+            && self.cx.enabled(dup)
+        {
+            let g = self.int_reg(lanes[0], ebits > 32, false)?;
+            self.push(MInst::new(dup, vec![MOp::Reg(Reg::V(d)), MOp::Reg(g)]));
+            return Ok(Reg::V(d));
+        }
         // From 64-bit words, where the description says how
         // (`vec.from.x`: a word into the low half, the rest zero;
         // `vec.join.d`: a second word into the high half; x86's).

@@ -1506,7 +1506,7 @@ def avx512_int():
               f'vpbroadcast{sfx} {{x}}, {{d}}',
               [f'%i = insertelement {ty} poison, {et} %x, i64 0',
                f'%r = shufflevector {ty} %i, {ty} poison, <{n} x i32> zeroinitializer', f'ret {ty} %r'],
-              ' "dclass"="zv"' + feat)
+              f' "dclass"="zv" "role"="dup.zv.{eb}"' + feat)
     # The masks themselves: as integers (kmovw for 8 and 16 lanes, which
     # avx512f has; kmovd and kmovq with avx512bw), in memory, and their
     # logic.

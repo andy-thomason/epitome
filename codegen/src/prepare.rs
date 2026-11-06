@@ -5519,6 +5519,34 @@ fn expand_intrinsics(cx: &mut Ctx, f: &mut Function) {
                 k += n;
                 continue;
             }
+            // Trailing zeros of vectors by leading zeros, where those have an
+            // instruction (AVX-512's vplzcnt): the zeros below the lowest
+            // one are the ones of ~x & (x - 1), and w - ctlz counts them.
+            if !scalar
+                && base == "llvm.cttz"
+                && !cx.selects_intrinsic(&name)
+                && cx.selects_intrinsic(&name.replacen("cttz", "ctlz", 1))
+                && let Type::Vector { len: _, elem, scalable: false } = *cx.m.types.get(ty)
+                && let Type::Int(eb) = *cx.m.types.get(elem)
+            {
+                let splat = |cx: &mut Ctx, v: i64| {
+                    let Value::Const(c) = cx.int(elem, v) else { unreachable!() };
+                    Value::Const(cx.m.consts.intern(Constant { ty, kind: ConstKind::Splat(c) }))
+                };
+                let (one, ones, width) = (splat(cx, 1), splat(cx, -1), splat(cx, i64::from(eb)));
+                let below = s.bin(BinOp::Sub, args[0], one, ty);
+                let not = s.bin(BinOp::Xor, args[0], ones, ty);
+                let low = s.bin(BinOp::And, not, below, ty);
+                let no = cx.int(i1, 0);
+                let lz = call_intrinsic(cx, &mut s, &name.replacen("cttz", "ctlz", 1), vec![low, no], ty);
+                let v = s.bin(BinOp::Sub, width, lz, ty);
+                let new = std::mem::take(&mut s.new);
+                f.replace_uses(Value::Local(r), v);
+                let n = new.len();
+                f.blocks[b.index()].insts.splice(k..=k, new);
+                k += n;
+                continue;
+            }
             // Bit counts and byte swaps of vectors without an instruction
             // (NEON counts only bytes' bits): lane by lane.
             if !scalar

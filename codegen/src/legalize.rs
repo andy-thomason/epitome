@@ -954,7 +954,10 @@ fn rewrite_vector_ops(cx: &mut Ctx, f: &mut Function) {
             match f.insts[i.index()].op.clone() {
                 Op::ICmp { pred: ICmpPred::Ne, samesign, lhs, rhs }
                     if vec_info(cx, cx.value_ty(f, lhs)).is_some()
-                        && !matches!(rhs, Value::Const(c) if matches!(cx.m.constant(c).kind, ConstKind::Zero)) =>
+                        && !matches!(rhs, Value::Const(c) if matches!(cx.m.constant(c).kind, ConstKind::Zero))
+                        // (AVX-512's comparisons into k registers have ne.)
+                        && !(cx.mask_reg_class().is_some()
+                            && vec_info(cx, cx.value_ty(f, lhs)).is_some_and(|(n, _, e)| n * e == cx.vector_bits())) =>
                 {
                     let t = cx.value_ty(f, lhs);
                     let x = f.add_inst(

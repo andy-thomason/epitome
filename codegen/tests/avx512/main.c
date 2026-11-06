@@ -15,6 +15,7 @@ TYPE(v32i16, uint32_t, int16_t)
 TYPE(v64i8, uint64_t, int8_t)
 PLAIN(shifts_v16i32) PLAIN(shifts_v8i64) PLAIN(shifts_v32i16)
 PLAIN(bits_v16i32) PLAIN(bits_v8i64)
+uint16_t all_v16i32(const void *, const void *, void *, uint16_t);
 PLAIN(fsel_v16f32) PLAIN(lanes_mixed) PLAIN(fcompares_v16f32) PLAIN(fcompares_v8f64)
 PLAIN(shifts_v8i32) PLAIN(shifts_v4i32) PLAIN(shifts_v4i64) PLAIN(shifts_v2i64)
 
@@ -67,6 +68,9 @@ int main(void) {
         RUN(minmax_v16i32, 5 * 64) RUN(minmax_v8i64, 5 * 64) RUN(minmax_v32i16, 5 * 64) RUN(minmax_v64i8, 5 * 64)
         RUN(bits_v16i32, 2 * 64) RUN(bits_v8i64, 2 * 64)
         RUN(lanes_mixed, 64)
+        memset(out, 0, sizeof out);
+        { uint16_t r = all_v16i32(a, b, out, (uint16_t)pattern); memcpy(out + 64, &r, 2); }
+        show("all_v16i32", set, 66);
         RUN(fsel_v16f32, 64) RUN(fcompares_v16f32, 28) RUN(fcompares_v8f64, 14)
         RUN(shifts_v8i32, 3 * 32) RUN(shifts_v4i32, 3 * 16) RUN(shifts_v4i64, 2 * 32) RUN(shifts_v2i64, 2 * 16)
         SELECTS(v16i32, (uint16_t)pattern, (int32_t)next())

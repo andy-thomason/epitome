@@ -42,7 +42,7 @@ fn avx512_kernels_stay_in_registers() {
     let mut m = epitome_ir::parse_module(&kernels()).unwrap();
     let asm = compile(&t, &mut m, &Options::default()).unwrap().asm;
     let fs = functions(&asm);
-    assert!(fs.len() >= 32, "{} functions", fs.len());
+    assert!(fs.len() >= 33, "{} functions", fs.len());
     for (name, body) in fs.iter().filter(|(n, _)| !n.starts_with("lanes_")) {
         assert!(!body.contains("%rsp"), "{name} uses the stack:\n{body}");
         // (Those of AVX2 alone: shifts by vectors, in ymm and xmm.)

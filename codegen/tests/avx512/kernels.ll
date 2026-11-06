@@ -870,6 +870,31 @@ define void @fcompares_v8f64(ptr %a, ptr %b, ptr %o) #0 {
   ret void
 }
 
+; Everything at once, as a netlist's lanes use it: add, logic, shifts by
+; constants and by vectors, unsigned comparisons, selects, masks as i16 (in
+; and out), and leading zeros.
+define i16 @all_v16i32(ptr %a, ptr %b, ptr %o, i16 %enable) #0 {
+  %x = load <16 x i32>, ptr %a
+  %y = load <16 x i32>, ptr %b
+  %s = add <16 x i32> %x, %y
+  %m = and <16 x i32> %s, splat (i32 1048575)
+  %n = xor <16 x i32> %m, %y
+  %sh = and <16 x i32> %x, splat (i32 31)
+  %l = shl <16 x i32> %n, splat (i32 2)
+  %r = lshr <16 x i32> %l, %sh
+  %lo = icmp ult <16 x i32> %r, %y
+  %hi = icmp uge <16 x i32> %r, %x
+  %en = bitcast i16 %enable to <16 x i1>
+  %ok = and <16 x i1> %lo, %en
+  %pick = select <16 x i1> %ok, <16 x i32> %r, <16 x i32> %x
+  %z = call <16 x i32> @llvm.ctlz.v16i32(<16 x i32> %pick, i1 false)
+  %v = select <16 x i1> %hi, <16 x i32> %z, <16 x i32> %pick
+  store <16 x i32> %v, ptr %o
+  %both = or <16 x i1> %ok, %hi
+  %bits = bitcast <16 x i1> %both to i16
+  ret i16 %bits
+}
+
 ; Floats: compared, and chosen between.
 define void @fsel_v16f32(ptr %a, ptr %b, ptr %o) #0 {
   %x = load <16 x float>, ptr %a

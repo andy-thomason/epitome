@@ -61,6 +61,10 @@ short) has to do to work like LLVM. They are split into two halves:
   compiler written from IEEE 1800-2023 and measured against the
   `test1800` conformance tests: lexing, preprocessing, parsing,
   elaboration and compiled simulation.
+- [Rust](../../epitome-rustc2/docs/design.md): `epitome-rustc2`, a Rust
+  compiler that does not use rustc: lexing and parsing to an AST, macro
+  expansion (including existing proc macros), name resolution and types
+  in side tables, and lowering the AST straight to Epitome IR.
 
 ## Clean-room rules
 

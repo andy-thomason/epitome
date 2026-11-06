@@ -44,8 +44,85 @@ impl Logic {
 pub struct Bits {
     width: u32,
     signed: bool,
-    val: Vec<u64>,
-    unk: Vec<u64>,
+    val: Words,
+    unk: Words,
+}
+
+/// A vector's words: one held inline, so values up to 64 bits wide need
+/// no allocation; more on the heap. Never empty.
+#[derive(Clone, PartialEq, Eq, Hash)]
+enum Words {
+    One(u64),
+    Many(Vec<u64>),
+}
+
+impl Words {
+    fn filled(x: u64, n: usize) -> Words {
+        if n <= 1 { Words::One(x) } else { Words::Many(vec![x; n]) }
+    }
+
+    /// Grown with zeros, or cut, to `n` words.
+    fn resize(&mut self, n: usize) {
+        if n == self.len() {
+            return;
+        }
+        let mut v = self.to_vec();
+        v.resize(n.max(1), 0);
+        *self = Words::from(v);
+    }
+}
+
+impl From<Vec<u64>> for Words {
+    fn from(v: Vec<u64>) -> Words {
+        if v.len() <= 1 { Words::One(v.first().copied().unwrap_or(0)) } else { Words::Many(v) }
+    }
+}
+
+impl std::ops::Deref for Words {
+    type Target = [u64];
+    fn deref(&self) -> &[u64] {
+        match self {
+            Words::One(x) => std::slice::from_ref(x),
+            Words::Many(v) => v,
+        }
+    }
+}
+
+impl std::ops::DerefMut for Words {
+    fn deref_mut(&mut self) -> &mut [u64] {
+        match self {
+            Words::One(x) => std::slice::from_mut(x),
+            Words::Many(v) => v,
+        }
+    }
+}
+
+/// `width` (at most 64) bits of `w` from bit `lo`; bits past the end are 0.
+fn get_bits(w: &[u64], lo: u64, width: u32) -> u64 {
+    let (i, off) = ((lo / 64) as usize, (lo % 64) as u32);
+    let mut x = w.get(i).copied().unwrap_or(0) >> off;
+    if off != 0 {
+        x |= w.get(i + 1).copied().unwrap_or(0) << (64 - off);
+    }
+    if width < 64 { x & ((1u64 << width) - 1) } else { x }
+}
+
+/// Puts the low `width` (at most 64) bits of `x` into `w` at bit `lo`;
+/// bits past the end are dropped.
+fn put_bits(w: &mut [u64], lo: u64, width: u32, x: u64) {
+    if width == 0 {
+        return;
+    }
+    let m = if width < 64 { (1u64 << width) - 1 } else { u64::MAX };
+    let x = x & m;
+    let (i, off) = ((lo / 64) as usize, (lo % 64) as u32);
+    if let Some(a) = w.get_mut(i) {
+        *a = *a & !(m << off) | x << off;
+    }
+    if off != 0 && off + width > 64
+        && let Some(a) = w.get_mut(i + 1) {
+            *a = *a & !(m >> (64 - off)) | x >> (64 - off);
+        }
 }
 
 fn words(width: u32) -> usize {
@@ -55,7 +132,7 @@ fn words(width: u32) -> usize {
 impl Bits {
     pub fn zero(width: u32, signed: bool) -> Bits {
         let n = words(width);
-        Bits { width, signed, val: vec![0; n], unk: vec![0; n] }
+        Bits { width, signed, val: Words::filled(0, n), unk: Words::filled(0, n) }
     }
 
     pub fn from_u64(width: u32, signed: bool, v: u64) -> Bits {
@@ -87,8 +164,8 @@ impl Bits {
         let mut b = Bits {
             width,
             signed,
-            val: vec![if v { u64::MAX } else { 0 }; n],
-            unk: vec![if u { u64::MAX } else { 0 }; n],
+            val: Words::filled(if v { u64::MAX } else { 0 }, n),
+            unk: Words::filled(if u { u64::MAX } else { 0 }, n),
         };
         b.mask();
         b
@@ -111,10 +188,13 @@ impl Bits {
         self
     }
 
+    #[inline]
     fn mask(&mut self) {
         let n = words(self.width);
-        self.val.resize(n, 0);
-        self.unk.resize(n, 0);
+        if self.val.len() != n {
+            self.val.resize(n);
+            self.unk.resize(n);
+        }
         let rem = self.width % 64;
         if rem != 0 {
             let m = (1u64 << rem) - 1;
@@ -145,13 +225,23 @@ impl Bits {
         self.unk[w] = self.unk[w] & !(1 << b) | (u as u64) << b;
     }
 
+    /// x and z bits become 0.
+    pub fn known_or_zero(&self) -> Bits {
+        let mut r = self.clone();
+        for k in 0..r.val.len() {
+            r.val[k] &= !r.unk[k];
+            r.unk[k] = 0;
+        }
+        r
+    }
+
     pub fn is_known(&self) -> bool {
         self.unk.iter().all(|&w| w == 0)
     }
 
     /// Whether any bit is `z` (as opposed to `x`).
     pub fn has_z(&self) -> bool {
-        self.unk.iter().zip(&self.val).any(|(&u, &v)| u & !v != 0)
+        self.unk.iter().zip(self.val.iter()).any(|(&u, &v)| u & !v != 0)
     }
 
     pub fn is_zero(&self) -> bool {
@@ -171,6 +261,17 @@ impl Bits {
         if !self.is_known() {
             return None;
         }
+        if self.width <= 64 {
+            let v = self.val[0];
+            return Some(if self.signed && self.width > 0 && self.width < 64 {
+                let sh = 64 - self.width;
+                ((v << sh) as i64) >> sh
+            } else if !self.signed && self.width == 64 && (v as i64) < 0 {
+                return None;
+            } else {
+                v as i64
+            });
+        }
         let neg = self.signed && self.width > 0 && self.bit(self.width - 1) == Logic::One;
         let ext = self.resize(self.width.max(64) + 1, self.signed);
         let top = ext.val[1..].iter().all(|&w| w == if neg { u64::MAX } else { 0 } || ext.width <= 64);
@@ -186,7 +287,7 @@ impl Bits {
 
     /// True if any bit is 1, false if all are 0, `None` otherwise (12.4).
     pub fn truth(&self) -> Option<bool> {
-        let any_one = self.val.iter().zip(&self.unk).any(|(&v, &u)| v & !u != 0);
+        let any_one = self.val.iter().zip(self.unk.iter()).any(|(&v, &u)| v & !u != 0);
         if any_one {
             Some(true)
         } else if self.is_known() {
@@ -204,6 +305,23 @@ impl Bits {
     /// copies of the top bit if `sign` (including `x` and `z`), otherwise
     /// with zeros. Keeps the vector's signedness.
     pub fn resize(&self, width: u32, sign: bool) -> Bits {
+        if width == self.width {
+            return self.clone();
+        }
+        if width <= 64 && self.width <= 64 {
+            // One word: shift the top bit up and back down to fill.
+            let fill = |x: u64| {
+                if width > self.width && sign && self.width > 0 {
+                    let sh = 64 - self.width;
+                    (((x << sh) as i64) >> sh) as u64
+                } else {
+                    x
+                }
+            };
+            let mut b = Bits { width, signed: self.signed, val: Words::One(fill(self.val[0])), unk: Words::One(fill(self.unk[0])) };
+            b.mask();
+            return b;
+        }
         let mut b = Bits::zero(width, self.signed);
         let n = b.val.len().min(self.val.len());
         b.val[..n].copy_from_slice(&self.val[..n]);
@@ -212,9 +330,7 @@ impl Bits {
         if width > self.width && sign && self.width > 0 {
             let top = self.bit(self.width - 1);
             if top != Logic::Zero {
-                for i in self.width..width {
-                    b.set_bit(i, top);
-                }
+                b.set_slice(self.width, &Bits::fill(width - self.width, false, top));
             }
         }
         b
@@ -231,28 +347,56 @@ impl Bits {
         let top = if self.width > 0 { self.bit(self.width - 1) } else { Logic::Zero };
         if width > self.width && matches!(top, Logic::X | Logic::Z) {
             let mut b = self.resize(width, false);
-            for i in self.width..width {
-                b.set_bit(i, top);
-            }
+            b.set_slice(self.width, &Bits::fill(width - self.width, false, top));
             b
         } else {
             self.extend(width)
         }
     }
 
+    /// `width` bits from bit `lo`; bits past the top read as `x`.
     pub fn slice(&self, lo: u32, width: u32) -> Bits {
         let mut b = Bits::zero(width, false);
-        for i in 0..width {
-            let j = lo as u64 + i as u64;
-            b.set_bit(i, if j < self.width as u64 { self.bit(j as u32) } else { Logic::X });
+        for k in 0..b.val.len() {
+            let at = lo as u64 + 64 * k as u64;
+            b.val[k] = get_bits(&self.val, at, 64);
+            b.unk[k] = get_bits(&self.unk, at, 64);
+            // Positions at or past our width are x.
+            let inside = (self.width as u64).saturating_sub(at);
+            if inside < 64 {
+                let out = !((1u64 << inside) - 1);
+                b.val[k] |= out;
+                b.unk[k] |= out;
+            }
         }
+        b.mask();
         b
     }
 
+    /// Overwrites bits from `lo` with `v`; bits past the top are dropped.
     pub fn set_slice(&mut self, lo: u32, v: &Bits) {
-        for i in 0..v.width {
-            self.set_bit(lo + i, v.bit(i));
+        for k in 0..v.val.len() {
+            let w = (v.width - 64 * k as u32).min(64);
+            let at = lo as u64 + 64 * k as u64;
+            put_bits(&mut self.val, at, w, v.val[k]);
+            put_bits(&mut self.unk, at, w, v.unk[k]);
         }
+        self.mask();
+    }
+
+    /// Both operands extended to the wider width, and the word-wise
+    /// result of `f` on (value, unknown) pairs.
+    fn words2(&self, o: &Bits, f: impl Fn(u64, u64, u64, u64) -> (u64, u64)) -> Bits {
+        let w = self.width.max(o.width);
+        let (a, c) = (self.extend(w), o.extend(w));
+        let mut r = Bits::zero(w, self.signed && o.signed);
+        for k in 0..r.val.len() {
+            let (v, u) = f(a.val[k], a.unk[k], c.val[k], c.unk[k]);
+            r.val[k] = v;
+            r.unk[k] = u;
+        }
+        r.mask();
+        r
     }
 
     /// `{a, b, ...}`: the first is the most significant.
@@ -267,54 +411,43 @@ impl Bits {
         b
     }
 
-    fn map2(&self, o: &Bits, f: impl Fn(Logic, Logic) -> Logic) -> Bits {
-        let w = self.width.max(o.width);
-        let (a, c) = (self.extend(w), o.extend(w));
-        let mut r = Bits::zero(w, self.signed && o.signed);
-        for i in 0..w {
-            r.set_bit(i, f(a.bit(i), c.bit(i)));
-        }
-        r
-    }
 
     // ---- bitwise (11.4.8) ----
 
+    // A known 0 is (v, u) = (0, 0), a known 1 (1, 0); an unknown result
+    // bit is x, (1, 1).
+
     pub fn not(&self) -> Bits {
         let mut r = self.clone();
-        for i in 0..self.width {
-            r.set_bit(
-                i,
-                match self.bit(i) {
-                    Logic::Zero => Logic::One,
-                    Logic::One => Logic::Zero,
-                    _ => Logic::X,
-                },
-            );
+        for k in 0..r.val.len() {
+            r.val[k] = !self.val[k] | self.unk[k];
         }
+        r.mask();
         r
     }
 
     pub fn and(&self, o: &Bits) -> Bits {
-        self.map2(o, |a, b| match (a, b) {
-            (Logic::Zero, _) | (_, Logic::Zero) => Logic::Zero,
-            (Logic::One, Logic::One) => Logic::One,
-            _ => Logic::X,
+        self.words2(o, |va, ua, vb, ub| {
+            let zero = (!va & !ua) | (!vb & !ub);
+            let one = (va & !ua) & (vb & !ub);
+            let u = !(zero | one);
+            (one | u, u)
         })
     }
 
     pub fn or(&self, o: &Bits) -> Bits {
-        self.map2(o, |a, b| match (a, b) {
-            (Logic::One, _) | (_, Logic::One) => Logic::One,
-            (Logic::Zero, Logic::Zero) => Logic::Zero,
-            _ => Logic::X,
+        self.words2(o, |va, ua, vb, ub| {
+            let one = (va & !ua) | (vb & !ub);
+            let zero = (!va & !ua) & (!vb & !ub);
+            let u = !(zero | one);
+            (one | u, u)
         })
     }
 
     pub fn xor(&self, o: &Bits) -> Bits {
-        self.map2(o, |a, b| match (a, b) {
-            (Logic::Zero, Logic::Zero) | (Logic::One, Logic::One) => Logic::Zero,
-            (Logic::Zero, Logic::One) | (Logic::One, Logic::Zero) => Logic::One,
-            _ => Logic::X,
+        self.words2(o, |va, ua, vb, ub| {
+            let u = ua | ub;
+            ((va ^ vb) | u, u)
         })
     }
 
@@ -367,7 +500,7 @@ impl Bits {
         let (a, b) = (self.extend(w), o.extend(w));
         match f(&a.val, &b.val, words(w)) {
             Some(val) => {
-                let mut r = Bits { width: w, signed, val, unk: vec![0; words(w)] };
+                let mut r = Bits { width: w, signed, val: Words::from(val), unk: Words::filled(0, words(w)) };
                 r.mask();
                 r
             }
@@ -375,8 +508,23 @@ impl Bits {
         }
     }
 
+    /// Known operands that fit in one word, extended to `w`.
+    fn small(&self, o: &Bits, w: u32) -> Option<(u64, u64)> {
+        if w > 64 || !self.is_known() || !o.is_known() {
+            return None;
+        }
+        Some((self.extend(w).val[0], o.extend(w).val[0]))
+    }
+
+    fn small_result(&self, o: &Bits, w: u32, v: u64) -> Bits {
+        Bits::from_u64(w, self.signed && o.signed, v)
+    }
+
     pub fn add(&self, o: &Bits) -> Bits {
         let w = self.width.max(o.width);
+        if let Some((a, b)) = self.small(o, w) {
+            return self.small_result(o, w, a.wrapping_add(b));
+        }
         self.arith(o, w, |a, b, n| {
             let mut r = vec![0; n];
             let mut carry = false;
@@ -396,6 +544,9 @@ impl Bits {
 
     pub fn sub(&self, o: &Bits) -> Bits {
         let w = self.width.max(o.width);
+        if let Some((a, b)) = self.small(o, w) {
+            return self.small_result(o, w, a.wrapping_sub(b));
+        }
         let mut nb = o.extend(w).not();
         nb.signed = o.signed;
         if !o.is_known() {
@@ -408,6 +559,9 @@ impl Bits {
 
     pub fn mul(&self, o: &Bits) -> Bits {
         let w = self.width.max(o.width);
+        if let Some((a, b)) = self.small(o, w) {
+            return self.small_result(o, w, a.wrapping_mul(b));
+        }
         self.arith(o, w, |a, b, n| {
             let mut r = vec![0u64; n];
             for i in 0..n {
@@ -480,7 +634,8 @@ impl Bits {
     /// `**` (table 11-4). The result has the first operand's width.
     pub fn pow(&self, o: &Bits) -> Bits {
         let w = self.width;
-        let signed = self.signed && o.signed;
+        // The exponent is self-determined: the base sets the signedness.
+        let signed = self.signed;
         if !self.is_known() || !o.is_known() {
             return Bits::x(w).with_signed(signed);
         }
@@ -517,20 +672,16 @@ impl Bits {
 
     pub fn shl(&self, n: u64) -> Bits {
         let mut r = Bits::zero(self.width, self.signed);
-        for i in 0..self.width as u64 {
-            if i >= n {
-                r.set_bit(i as u32, self.bit((i - n) as u32));
-            }
+        if n < self.width as u64 {
+            r.set_slice(n as u32, &self.slice(0, self.width - n as u32));
         }
         r
     }
 
     pub fn lshr(&self, n: u64) -> Bits {
         let mut r = Bits::zero(self.width, self.signed);
-        for i in 0..self.width as u64 {
-            if i + n < self.width as u64 {
-                r.set_bit(i as u32, self.bit((i + n) as u32));
-            }
+        if n < self.width as u64 {
+            r.set_slice(0, &self.slice(n as u32, self.width - n as u32));
         }
         r
     }
@@ -542,10 +693,9 @@ impl Bits {
         }
         let top = self.bit(self.width - 1);
         let mut r = self.lshr(n);
-        for i in 0..self.width as u64 {
-            if i + n >= self.width as u64 {
-                r.set_bit(i as u32, top);
-            }
+        let fill = n.min(self.width as u64) as u32;
+        if fill > 0 && top != Logic::Zero {
+            r.set_slice(self.width - fill, &Bits::fill(fill, false, top));
         }
         r
     }
@@ -563,13 +713,8 @@ impl Bits {
         if na != nb {
             return Some(if na { std::cmp::Ordering::Less } else { std::cmp::Ordering::Greater });
         }
-        for i in (0..w).rev() {
-            let (x, y) = (a.bit(i) == Logic::One, b.bit(i) == Logic::One);
-            if x != y {
-                return Some(if x { std::cmp::Ordering::Greater } else { std::cmp::Ordering::Less });
-            }
-        }
-        Some(std::cmp::Ordering::Equal)
+        // The same sign: two's complement words compare as unsigned.
+        Some(a.val.iter().rev().cmp(b.val.iter().rev()))
     }
 
     pub fn cmp_op(&self, o: &Bits, f: impl Fn(std::cmp::Ordering) -> bool) -> Logic {
@@ -591,15 +736,12 @@ impl Bits {
         let signed = self.signed && o.signed;
         let (a, b) = (self.extend(w).with_signed(signed), o.extend(w).with_signed(signed));
         let mut unknown = false;
-        for i in 0..w {
-            let (x, y) = (a.bit(i), b.bit(i));
-            if x.is_known() && y.is_known() {
-                if x != y {
-                    return Logic::Zero;
-                }
-            } else {
-                unknown = true;
+        for k in 0..a.val.len() {
+            let known = !(a.unk[k] | b.unk[k]);
+            if (a.val[k] ^ b.val[k]) & known != 0 {
+                return Logic::Zero;
             }
+            unknown |= a.unk[k] | b.unk[k] != 0;
         }
         if unknown { Logic::X } else { Logic::One }
     }
@@ -609,7 +751,7 @@ impl Bits {
         let w = self.width.max(o.width);
         let signed = self.signed && o.signed;
         let (a, b) = (self.extend(w).with_signed(signed), o.extend(w).with_signed(signed));
-        (0..w).all(|i| a.bit(i) == b.bit(i))
+        a.val == b.val && a.unk == b.unk
     }
 
     /// `==?`: x and z in the right operand match anything (11.4.6).
@@ -677,9 +819,12 @@ impl Bits {
     /// The bytes of the value as text, skipping zero bytes (6.16).
     pub fn to_str_bytes(&self) -> Vec<u8> {
         let n = self.width.div_ceil(8);
+        // Zero-filled on the left to whole bytes.
+        let full = self.resize(n * 8, false);
+        let me = &full;
         let mut out = Vec::new();
         for k in (0..n).rev() {
-            let c = self.slice(k * 8, 8).to_u64().unwrap_or(0) as u8;
+            let c = me.slice(k * 8, 8).to_u64().unwrap_or(0) as u8;
             if c != 0 {
                 out.push(c);
             }
@@ -862,5 +1007,112 @@ mod tests {
         assert_eq!(a.logic_eq(&b), Logic::Zero);
         assert_eq!(b.wildcard_eq(&parse_digits("1x0z", 2, Some(4), false).unwrap()), Logic::One);
         assert_eq!(Bits::from_i64(4, true, -2).ashr(1).to_i64(), Some(-1));
+    }
+
+    /// A bit at a time, as the reference for the word-wise operators.
+    fn per_bit(a: &Bits, o: &Bits, f: impl Fn(Logic, Logic) -> Logic) -> Bits {
+        let w = a.width.max(o.width);
+        let (x, y) = (a.extend(w), o.extend(w));
+        let mut r = Bits::zero(w, a.signed && o.signed);
+        for i in 0..w {
+            r.set_bit(i, f(x.bit(i), y.bit(i)));
+        }
+        r
+    }
+
+    fn known(l: Logic) -> Logic {
+        if l.is_known() { l } else { Logic::X }
+    }
+
+    /// Word-wise operators agree with a bit at a time, across word
+    /// boundaries and with x and z.
+    #[test]
+    fn word_ops() {
+        let mut seed = 0x1234_5678_9abc_def0u64;
+        let mut rnd = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        let all = [Logic::Zero, Logic::One, Logic::X, Logic::Z];
+        for w in [1u32, 3, 63, 64, 65, 100, 130] {
+            for _ in 0..20 {
+                let make = |rnd: &mut dyn FnMut() -> u64, unknowns: bool| {
+                    let mut b = Bits::zero(w, rnd() & 1 == 0);
+                    for i in 0..w {
+                        let r = rnd();
+                        let l = if unknowns { all[(r % 4) as usize] } else { all[(r % 2) as usize] };
+                        b.set_bit(i, l);
+                    }
+                    b
+                };
+                let (a, b) = (make(&mut rnd, true), make(&mut rnd, true));
+                let and = per_bit(&a, &b, |x, y| match (x, y) {
+                    (Logic::Zero, _) | (_, Logic::Zero) => Logic::Zero,
+                    (Logic::One, Logic::One) => Logic::One,
+                    _ => Logic::X,
+                });
+                assert!(a.and(&b).case_eq(&and), "and {w}");
+                let or = per_bit(&a, &b, |x, y| match (x, y) {
+                    (Logic::One, _) | (_, Logic::One) => Logic::One,
+                    (Logic::Zero, Logic::Zero) => Logic::Zero,
+                    _ => Logic::X,
+                });
+                assert!(a.or(&b).case_eq(&or), "or {w}");
+                let xor = per_bit(&a, &b, |x, y| match (known(x), known(y)) {
+                    (Logic::X, _) | (_, Logic::X) => Logic::X,
+                    (p, q) if p == q => Logic::Zero,
+                    _ => Logic::One,
+                });
+                assert!(a.xor(&b).case_eq(&xor), "xor {w}");
+                let not = per_bit(&a, &a, |x, _| match x {
+                    Logic::Zero => Logic::One,
+                    Logic::One => Logic::Zero,
+                    _ => Logic::X,
+                });
+                assert!(a.not().case_eq(&not.with_signed(a.signed)), "not {w}");
+                let lo = (rnd() % (w as u64 + 10)) as u32;
+                let n = (rnd() % 70) as u32 + 1;
+                let sl = a.slice(lo, n);
+                for i in 0..n {
+                    let want = if lo + i < w { a.bit(lo + i) } else { Logic::X };
+                    assert_eq!(sl.bit(i), want, "slice {w} {lo} {n} bit {i}");
+                }
+                let mut c = a.clone();
+                c.set_slice(lo, &b);
+                for i in 0..w {
+                    let want = if i >= lo && i - lo < b.width { b.bit(i - lo) } else { a.bit(i) };
+                    assert_eq!(c.bit(i), want, "set_slice {w} {lo} bit {i}");
+                }
+                let sh = rnd() % (w as u64 + 2);
+                let (l, r) = (a.shl(sh), a.lshr(sh));
+                for i in 0..w as u64 {
+                    let wl = if i >= sh { a.bit((i - sh) as u32) } else { Logic::Zero };
+                    let wr = if i + sh < w as u64 { a.bit((i + sh) as u32) } else { Logic::Zero };
+                    assert_eq!(l.bit(i as u32), wl, "shl {w} {sh}");
+                    assert_eq!(r.bit(i as u32), wr, "lshr {w} {sh}");
+                }
+                let (p, q) = (make(&mut rnd, false), make(&mut rnd, false));
+                let ord = |x: &Bits, y: &Bits| {
+                    let s = x.signed && y.signed;
+                    let m = x.width.max(y.width);
+                    let (x, y) = (x.extend(m).with_signed(s), y.extend(m).with_signed(s));
+                    let (nx, ny) = (x.is_negative(), y.is_negative());
+                    if nx != ny {
+                        return if nx { std::cmp::Ordering::Less } else { std::cmp::Ordering::Greater };
+                    }
+                    (0..m).rev().map(|i| (x.bit(i) == Logic::One).cmp(&(y.bit(i) == Logic::One))).find(|o| o.is_ne()).unwrap_or(std::cmp::Ordering::Equal)
+                };
+                assert_eq!(p.compare(&q), Some(ord(&p, &q)), "compare {w}");
+                if w <= 64 {
+                    let m = if w == 64 { u64::MAX } else { (1u64 << w) - 1 };
+                    let (x, y) = (p.to_u64().unwrap(), q.to_u64().unwrap());
+                    assert_eq!(p.add(&q).to_u64(), Some(x.wrapping_add(y) & m), "add {w}");
+                    assert_eq!(p.sub(&q).to_u64(), Some(x.wrapping_sub(y) & m), "sub {w}");
+                    assert_eq!(p.mul(&q).to_u64(), Some(x.wrapping_mul(y) & m), "mul {w}");
+                }
+            }
+        }
     }
 }

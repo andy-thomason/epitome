@@ -1024,7 +1024,9 @@ impl<'a> Parser<'a> {
                     self.opt_keyword(&["input", "output", "inout"]);
                 }
                 self.opt_keyword(&["var"]);
-                if self.name_at(0) && matches!(self.tok(1).0, "," | ")" | "=" | "[") {
+                // A name alone is the port; a type name with packed
+                // dimensions, `t [1:0] x`, is a type then the port.
+                if self.name_at(0) && matches!(self.tok(1).0, "," | ")" | "=" | "[") && !self.type_then_name_at(0) {
                     self.empty();
                 } else {
                     self.data_type(true)?;

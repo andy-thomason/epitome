@@ -222,3 +222,9 @@ these are for after.
   instructions on x86, and a scalar one a call of `fmaximumf`.
 - **Acquire loads** use `ldar`; with RCpc (the M1 has it) `ldapr` is
   enough for C++'s and Rust's acquire, as LLVM's back end uses.
+- **SVE's vector length made once**: each `llvm.vscale` is its own
+  `rdvl` and shift (28 in `tests/sve/loops2.c`), where one per function,
+  hoisted, would do; and the predicated recipes make a `ptrue` each, where
+  one per lane width would.
+- **SVE's widening sums** (`partial.reduce.add`) are unpacks and adds,
+  where SVE2 has `saddwb`/`saddwt` and `sdot` for bytes.

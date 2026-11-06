@@ -13,7 +13,8 @@
 //! ```
 //!
 //! Each register class lists the names of its registers in number order;
-//! `x{0-30}` stands for x0 to x30. `!target.classes` says, for each class:
+//! `x{0-30}` stands for x0 to x30, and a name beginning `-` is a number
+//! the class does not have (`-{0-11}`, then `w{12-15}`: SME's w12-w15). `!target.classes` says, for each class:
 //!
 //! - `file`: the register file its registers are in. Classes of one file
 //!   name the same registers (`w3` is `x3`). The code generator numbers
@@ -252,6 +253,11 @@ pub enum Holds {
     Int,
     Float,
     Vector,
+    /// Scalable vectors (SVE's z registers): `bits` is their least width,
+    /// the machine's vector length a multiple of it.
+    Scalable,
+    /// Scalable vectors of booleans (SVE's predicates).
+    Predicate,
 }
 
 #[derive(Clone, Debug)]
@@ -526,6 +532,8 @@ impl Machine {
                 Some("int") => Some(Holds::Int),
                 Some("float") => Some(Holds::Float),
                 Some("vector") => Some(Holds::Vector),
+                Some("scalable") => Some(Holds::Scalable),
+                Some("predicate") => Some(Holds::Predicate),
                 Some(o) => return Err(format!("register class {class}: holds {o}")),
             };
             if holds.is_some() && bits == 0 {
@@ -929,7 +937,23 @@ impl Machine {
     /// the vector file's 32).
     pub fn in_class(&self, c: Class, r: u8) -> bool {
         let d = self.def(c);
-        self.file_of(r) == d.file && (self.index(r) as usize) < d.names.len()
+        self.file_of(r) == d.file && d.names.get(self.index(r) as usize).is_some_and(|n| !n.starts_with('-'))
+    }
+
+    /// Whether every register of class `a` is one of `b`'s.
+    pub fn within(&self, a: Class, b: Class) -> bool {
+        let (da, db) = (self.def(a), self.def(b));
+        da.file == db.file
+            && da
+                .names
+                .iter()
+                .enumerate()
+                .all(|(k, n)| n.starts_with('-') || db.names.get(k).is_some_and(|x| !x.starts_with('-')))
+    }
+
+    /// The number of class `c`'s first register (after its gaps).
+    pub fn first_in(&self, c: Class) -> i64 {
+        self.def(c).names.iter().position(|n| !n.starts_with('-')).unwrap_or(0) as i64
     }
 
     /// The file register `r` is in.

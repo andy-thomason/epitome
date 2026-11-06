@@ -12,6 +12,8 @@ use crate::design::*;
 pub enum Op {
     /// Evaluate for its effect.
     Expr(ExprId),
+    /// A built-in class's task that may block (15.3, 15.4, 9.7).
+    Blocking(ExprId),
     /// An assignment statement: its lhs, rhs, kind and any timing.
     Assign(StmtId),
     Jump(u32),
@@ -60,6 +62,8 @@ pub enum Op {
 /// Compiles bodies into one code vector.
 pub struct Compiler<'d, 'a> {
     pub d: &'d Design<'a>,
+    /// The syntax tree's root, which built-in classes point at.
+    pub root: crate::ast::NodeId,
     pub code: Vec<Op>,
     /// Loop exits and continues, innermost last.
     loops: Vec<(Vec<usize>, Vec<usize>)>,
@@ -68,8 +72,8 @@ pub struct Compiler<'d, 'a> {
 }
 
 impl<'d, 'a> Compiler<'d, 'a> {
-    pub fn new(d: &'d Design<'a>) -> Self {
-        Compiler { d, code: Vec::new(), loops: Vec::new(), blocks: Vec::new() }
+    pub fn new(d: &'d Design<'a>, root: crate::ast::NodeId) -> Self {
+        Compiler { d, root, code: Vec::new(), loops: Vec::new(), blocks: Vec::new() }
     }
 
     fn here(&self) -> u32 {
@@ -164,8 +168,24 @@ impl<'d, 'a> Compiler<'d, 'a> {
                 self.emit(Op::Assign(s));
             }
             StmtKind::Expr(x) => {
-                let is_task = matches!(self.d.expr(x).kind, ExprKind::Call(sub) if self.d.sub(sub).kind == SubKind::Task);
-                self.emit(if is_task { Op::CallTask(x) } else { Op::Expr(x) });
+                let e = self.d.expr(x);
+                let is_task = matches!(e.kind, ExprKind::Call(sub) if self.d.sub(sub).kind == SubKind::Task);
+                let blocks = match (&e.kind, e.args.first()) {
+                    (ExprKind::Method(m), Some(&b)) => match self.d.types.get(self.d.expr(b).ty) {
+                        crate::design::types::Type::Class(c) => {
+                            super::builtin::builtin_class(self.d, *c, self.root).is_some_and(|k| super::builtin::blocking(k, self.d.name(*m)))
+                        }
+                        _ => false,
+                    },
+                    _ => false,
+                };
+                self.emit(if is_task {
+                    Op::CallTask(x)
+                } else if blocks {
+                    Op::Blocking(x)
+                } else {
+                    Op::Expr(x)
+                });
             }
             StmtKind::If { cond, then, else_, .. } => {
                 let j = self.emit(Op::JumpIfNot(cond, 0));

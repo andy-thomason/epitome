@@ -42,6 +42,9 @@ pub struct Operand {
     pub tied: bool,
     /// Read and written: the base register of a post-increment access.
     pub writeback: bool,
+    /// A register operand's least number, its class's first register (12
+    /// for SME's w12-w15): what `fits` tries.
+    pub first: i64,
 }
 
 /// An instruction's encoding, from its text: parsed as the description is
@@ -206,7 +209,16 @@ impl Instr {
 
     fn decode_with(&self, bytes: &[u8], alt: Option<usize>) -> Option<(Env, usize)> {
         let free = self.free();
-        let names: Vec<String> = self.operands.iter().filter(|o| !o.tied).map(|o| o.name.clone()).collect();
+        // (Not a register no field holds: one in a fixed register, as
+        // pcmpistri's result in ecx.)
+        let names: Vec<String> = self
+            .operands
+            .iter()
+            .filter(|o| {
+                !o.tied && (!matches!(o.kind, Kind::Reg(_)) || self.enc.fields().any(|f| f.names.contains(&o.name)))
+            })
+            .map(|o| o.name.clone())
+            .collect();
         let (mut env, len) = match alt {
             Some(k) => {
                 let a = &self.enc.alts[k];
@@ -225,18 +237,22 @@ impl Instr {
     /// survive an encode and decode. `None` values are registers, labels or
     /// symbols, and are given placeholders.
     pub fn fits(&self, values: &[Option<i64>]) -> bool {
-        let mut env = Env::new();
-        for (o, v) in self.operands.iter().zip(values) {
-            env.insert(o.name.clone(), v.unwrap_or(0));
-        }
-        let Some(bytes) = self.encode(&env) else { return false };
-        let Some((back, _)) = self.decode(&bytes) else { return false };
-        self.operands.iter().zip(values).all(|(o, v)| match (o.kind, v) {
-            (Kind::Imm, Some(v)) => {
-                let m = if o.bits >= 64 { u64::MAX } else { (1u64 << o.bits) - 1 };
-                (back[&o.name] as u64) & m == (*v as u64) & m
+        // (The registers not given are any: the first of their classes, or
+        // else the next, as an AVX-512 mask, which k0 cannot be.)
+        [0, 1].into_iter().any(|r| {
+            let mut env = Env::new();
+            for (o, v) in self.operands.iter().zip(values) {
+                env.insert(o.name.clone(), v.unwrap_or(if matches!(o.kind, Kind::Reg(_)) { o.first + r } else { 0 }));
             }
-            _ => true,
+            let Some(bytes) = self.encode(&env) else { return false };
+            let Some((back, _)) = self.decode(&bytes) else { return false };
+            self.operands.iter().zip(values).all(|(o, v)| match (o.kind, v) {
+                (Kind::Imm, Some(v)) => {
+                    let m = if o.bits >= 64 { u64::MAX } else { (1u64 << o.bits) - 1 };
+                    (back[&o.name] as u64) & m == (*v as u64) & m
+                }
+                _ => true,
+            })
         })
     }
 }
@@ -531,6 +547,8 @@ pub const AARCH64_FILES: &[(&str, &str)] = &[
     ("65-runtime.ll", include_str!("../targets/aarch64/65-runtime.ll")),
     ("70-abi.ll", include_str!("../targets/aarch64/70-abi.ll")),
     ("80-asm.ll", include_str!("../targets/aarch64/80-asm.ll")),
+    ("81-scalable.ll", include_str!("../targets/aarch64/81-scalable.ll")),
+    ("82-sve.ll", include_str!("../targets/aarch64/82-sve.ll")),
     ("85-sysregs.ll", include_str!("../targets/aarch64/85-sysregs.ll")),
     ("86-system.ll", include_str!("../targets/aarch64/86-system.ll")),
 ];
@@ -553,11 +571,33 @@ pub fn type_bits(m: &Module, ty: TypeId) -> u32 {
         Type::Ptr(_) => 64,
         Type::Double => 64,
         Type::Float => 32,
+        Type::Half | Type::BFloat => 16,
         // A vector of booleans is a mask, a whole q register of lanes that
         // are all ones or all zeros, as a vector comparison makes it.
         Type::Vector { scalable: false, elem, .. } if type_bits(m, *elem) == 1 => 128,
         Type::Vector { scalable: false, len, elem } => len * type_bits(m, *elem),
+        // A scalable vector: its least width (`<vscale x 4 x i32>`, 128
+        // bits); of booleans, a predicate (one bit to a byte of the least
+        // vector).
+        Type::Vector { scalable: true, elem, .. } if type_bits(m, *elem) == 1 => 16,
+        Type::Vector { scalable: true, len, elem } => len * type_bits(m, *elem),
         _ => 0,
+    }
+}
+
+/// A scalable vector type (`<vscale x 4 x i32>`).
+pub fn is_scalable_type(m: &Module, ty: TypeId) -> bool {
+    matches!(m.types.get(ty), Type::Vector { scalable: true, .. })
+}
+
+/// What a value of type `ty` is, as a register class holds it.
+pub fn holds_of_type(m: &Module, ty: TypeId) -> Holds {
+    match m.types.get(ty) {
+        Type::Vector { scalable: true, elem, .. } if type_bits(m, *elem) == 1 => Holds::Predicate,
+        Type::Vector { scalable: true, .. } => Holds::Scalable,
+        Type::Vector { .. } => Holds::Vector,
+        Type::Double | Type::Float => Holds::Float,
+        _ => Holds::Int,
     }
 }
 
@@ -583,10 +623,16 @@ pub const UNDEF: i64 = 0x7eee_eeee_eeee_eeee;
 /// `double` load and an `i64` load are told apart.
 pub const FP: u32 = 0x1000;
 
+/// Set in the widths of pattern heads for scalable vectors, so that
+/// `<vscale x 4 x i32>` and `<4 x i32>` are told apart.
+pub const SCALABLE: u32 = 0x4000;
+
 /// The width a pattern head records for a value of type `ty`.
 pub fn head_bits(m: &Module, ty: TypeId) -> u32 {
     match m.types.get(ty) {
-        Type::Vector { len, elem, .. } => VEC | (len << 16) | head_bits(m, *elem),
+        Type::Vector { len, elem, scalable } => {
+            VEC | (len << 16) | head_bits(m, *elem) | if *scalable { SCALABLE } else { 0 }
+        }
         Type::Double | Type::Float => type_bits(m, ty) | FP,
         _ => type_bits(m, ty),
     }
@@ -1052,12 +1098,10 @@ impl Target {
                 let class = match attr(&f.fn_attrs, "dclass").flatten() {
                     Some(c) => self.machine.class(c).ok_or_else(|| format!("@{name}: no register class {c}"))?,
                     None => {
-                        let holds = if res_ty.is_some_and(|t| is_vector_type(m, t)) {
-                            Holds::Vector
-                        } else if res_fp {
-                            Holds::Float
-                        } else {
-                            Holds::Int
+                        let holds = match res_ty {
+                            Some(t) if is_vector_type(m, t) => holds_of_type(m, t),
+                            _ if res_fp => Holds::Float,
+                            _ => Holds::Int,
                         };
                         self.machine
                             .value_class(holds, ret_bits)
@@ -1070,6 +1114,7 @@ impl Target {
                     bits: ret_bits,
                     tied: false,
                     writeback: false,
+                    first: 0,
                 });
             }
             // A second register result, `d2`: the second field of the
@@ -1092,6 +1137,7 @@ impl Target {
                     bits,
                     tied: false,
                     writeback: false,
+                    first: 0,
                 });
             }
             for p in &f.params {
@@ -1118,6 +1164,7 @@ impl Target {
                     bits: type_bits(m, local.ty),
                     tied: attr(&p.attrs, "tied").is_some(),
                     writeback: attr(&p.attrs, "writeback").is_some(),
+                    first: 0,
                 });
             }
             // A 32-bit result is zero above 32 bits where the machine zeroes
@@ -1212,6 +1259,13 @@ impl Target {
                     .is_some_and(|c| c.split(',').any(|x| x.trim() == "flags")),
                 func: g,
             });
+        }
+        for ins in &mut instrs {
+            for o in &mut ins.operands {
+                if let Kind::Reg(c) = o.kind {
+                    o.first = self.machine.first_in(c);
+                }
+            }
         }
         for (i, ins) in instrs.iter().enumerate() {
             self.by_name.insert(ins.name.clone(), i);
@@ -2000,6 +2054,8 @@ impl Target {
                             _ => return None,
                         }) & mask(to)
                     }
+                    // (Of no arguments, as llvm.stepvector: not a value to work out.)
+                    Head::Intrinsic(..) if k.is_empty() => return None,
                     Head::Intrinsic(id, bits) => {
                         let m = mask(bits);
                         let (a, b) = (k[0] & m, k.get(1).copied().unwrap_or(0) & m);

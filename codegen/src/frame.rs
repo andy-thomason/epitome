@@ -7,6 +7,10 @@
 //! A function that makes no calls keeps its return address in `x30` and
 //! needs no frame record; with no slots and no saved registers either, it
 //! has no frame at all.
+//!
+//! A function with slots of scalable values (SVE's, a vector length each,
+//! whatever the machine's is) has them between the rest and the saves; see
+//! `scalable_frame`.
 
 use crate::mir::*;
 use crate::target::Target;
@@ -50,6 +54,9 @@ pub fn lower(t: &Target, f: &mut MFunc) -> Result<(), String> {
         None
     };
     saved.sort();
+    if f.slots.iter().any(|s| s.scalable) {
+        return scalable_frame(t, f, saved, base);
+    }
     // Arguments for calls go at the bottom, where the callee finds them;
     // then the slots, smallest first, so that the most of them (spill
     // slots, small locals) are near enough sp for pairs' offsets.
@@ -271,6 +278,132 @@ pub fn lower(t: &Target, f: &mut MFunc) -> Result<(), String> {
     }
     let entry = &mut f.blocks[0].insts;
     entry.splice(0..0, prologue);
+    tidy_branches(t, f);
+    Ok(())
+}
+
+/// The frame of a function with slots of scalable values, from `sp` up:
+/// arguments for calls and the other slots (`fixed` bytes); the scalable
+/// slots, a vector length each (`n` of them); then the saves and the frame
+/// record (`top` bytes), where `x29` points. Its size is not known until
+/// it runs, so the CFA is `x29`'s, once it is set, and incoming arguments
+/// are addressed from it; sp is moved by vector lengths with `addvl`
+/// (role `addvl`). A scalable slot is addressed in vector lengths, from
+/// `sp + fixed` (made in a scratch register where `fixed` is not 0): `ldr
+/// z0, [x16, #k, mul vl]`.
+fn scalable_frame(t: &Target, f: &mut MFunc, saved: Vec<u8>, base: Option<u8>) -> Result<(), String> {
+    if base.is_some() || f.abi.ra_on_stack {
+        return Err(format!("{}: slots of scalable values in a frame whose sp moves are not supported yet", f.name));
+    }
+    let (fp_reg, lr_reg, sp) = (f.abi.fp, f.abi.lr, t.machine.sp);
+    let addvl = t.role("addvl").ok_or("no instruction has role addvl")?;
+    // The other slots, as `lower` lays them out; the scalable ones numbered.
+    let mut off: i64 = f.out_size;
+    let mut n = 0i64;
+    let mut order: Vec<usize> = (0..f.slots.len()).collect();
+    order.sort_by_key(|&k| (f.slots[k].size, k));
+    for k in order {
+        let s = &mut f.slots[k];
+        if s.scalable {
+            s.offset = n;
+            n += 1;
+            continue;
+        }
+        let a = s.align as i64;
+        off = (off + a - 1) / a * a;
+        s.offset = off;
+        off += s.size as i64;
+    }
+    let align = f.abi.stack_align;
+    let fixed = (off + align - 1) / align * align;
+    let top = (8 * saved.len() as i64 + 16 + align - 1) / align * align;
+    let fp_at = top - 16;
+    f.frame_size = top + fixed;
+    // Frame offsets: in bytes from sp, in vector lengths from sp + fixed,
+    // and from x29 (where the CFA is 16 above).
+    for b in &mut f.blocks {
+        let mut old = std::mem::take(&mut b.insts);
+        for j in 0..old.len() {
+            let mut inst = std::mem::replace(&mut old[j], MInst::new(0, vec![]));
+            let mut lengths = false;
+            let mut incoming = None;
+            for (k, op) in inst.ops.iter_mut().enumerate() {
+                match op {
+                    MOp::Frame(s, o) if f.slots[*s].scalable => {
+                        // (In the units the slot's loads take: vector
+                        // lengths, or a predicate's eighths of one.)
+                        let unit = (16 / f.slots[*s].size.max(1)) as i64;
+                        *op = MOp::Imm(f.slots[*s].offset * unit + *o);
+                        lengths = k > 0;
+                    }
+                    MOp::Frame(s, o) => *op = MOp::Imm(f.slots[*s].offset + *o),
+                    MOp::Incoming(o) => {
+                        *op = MOp::Imm(16 + *o);
+                        incoming = Some(k);
+                    }
+                    MOp::OutArea => *op = MOp::Imm(f.out_size),
+                    _ => {}
+                }
+            }
+            if let Some(k) = incoming
+                && k > 0
+                && inst.ops[k - 1] == MOp::Reg(Reg::P(sp))
+            {
+                inst.ops[k - 1] = MOp::Reg(Reg::P(fp_reg));
+            }
+            if lengths && fixed > 0 {
+                let k = inst
+                    .ops
+                    .iter()
+                    .position(|o| *o == MOp::Reg(Reg::P(sp)))
+                    .ok_or_else(|| format!("{}: a scalable slot addressed from other than sp", f.name))?;
+                let tmp = free_scratch(t, &f.abi.scratch, &inst, &old[j + 1..])
+                    .or(f.abi.far_scratch)
+                    .ok_or_else(|| format!("{}: no scratch register for a scalable slot{NEEDS_SCRATCH}", f.name))?;
+                adjust(t, &mut b.insts, tmp, sp, fixed, &f.abi.scratch)?;
+                inst.ops[k] = MOp::Reg(Reg::P(tmp));
+            }
+            b.insts.push(inst);
+        }
+    }
+    let cfi = |c: Cfi| MInst { op: Opcode::Cfi(c), ..MInst::new(0, vec![]) };
+    let mut slots = vec![(fp_reg, fp_at), (lr_reg, fp_at + 8)];
+    slots.extend(saved.iter().enumerate().map(|(k, &r)| (r, 8 * k as i64)));
+    let (saves, restores) = save_restore(t, &slots);
+    // By vector lengths, as many at a time as addvl's immediate holds.
+    let by_lengths = |out: &mut Vec<MInst>, mut v: i64| {
+        while v != 0 {
+            let step = v.clamp(-32, 31);
+            out.push(MInst::new(addvl, vec![MOp::Reg(Reg::P(sp)), MOp::Reg(Reg::P(sp)), MOp::Imm(step)]));
+            v -= step;
+        }
+    };
+    let mut prologue = Vec::new();
+    adjust(t, &mut prologue, sp, sp, -top, &f.abi.scratch)?;
+    prologue.push(cfi(Cfi::DefCfaOffset(top)));
+    prologue.extend(saves);
+    prologue.extend(slots.iter().map(|&(reg, at)| cfi(Cfi::Offset(reg, at - top))));
+    adjust(t, &mut prologue, fp_reg, sp, fp_at, &f.abi.scratch)?;
+    prologue.push(cfi(Cfi::DefCfa(fp_reg, 16)));
+    by_lengths(&mut prologue, -n);
+    if fixed > 0 {
+        adjust(t, &mut prologue, sp, sp, -fixed, &f.abi.scratch)?;
+    }
+    let mut epilogue = Vec::new();
+    adjust(t, &mut epilogue, sp, fp_reg, -fp_at, &f.abi.scratch)?;
+    epilogue.extend(restores);
+    adjust(t, &mut epilogue, sp, sp, top, &f.abi.scratch)?;
+    let leaves = |inst: &MInst| matches!(inst.op, Opcode::Instr(k) if t.has_role(k, "ret") || t.has_role(k, "tailcall") || t.has_role(k, "tailcallr"));
+    for b in &mut f.blocks {
+        let old = std::mem::take(&mut b.insts);
+        for inst in old {
+            if leaves(&inst) {
+                b.insts.extend(epilogue.iter().cloned());
+            }
+            b.insts.push(inst);
+        }
+    }
+    f.blocks[0].insts.splice(0..0, prologue);
     tidy_branches(t, f);
     Ok(())
 }

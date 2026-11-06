@@ -10,7 +10,8 @@ wraps the real rustc and replaces only LLVM's code generation. It stays
 useful as a reference. The same crate built by both must behave the
 same.
 
-**Status:** The front end works, up to name resolution.
+**Status:** The front end works up to name resolution, and type
+checking is under way.
 
 - **Parsing.** The lexer and the parser (sections 3 and 4) are written.
   Every `.rs` file of the toolchain's `rust-src` (2994 files, nightly
@@ -28,6 +29,23 @@ same.
 - **Name resolution** (section 5) is done: on `core`, `alloc` and `std`,
   99.6% of paths resolve, or resolve as far as a type, in 0.1 s. Macros
   are found through the same module tree and imports.
+- **Types** (section 7).
+  - Signatures and the type table (7.1, 7.2) are done: 54,523 signatures
+    of `core`, `alloc` and `std` in 0.07 s. The 159 that have an error
+    type all name crates outside the session.
+  - Bodies (7.3) are checked in parallel, with traits: selection over
+    impls and `where` clauses, associated types, trait methods with
+    autoderef, operators, `Deref`, `Index`, `Fn`, `IntoIterator` and
+    `Try`, and closures typed from the bounds they are passed to.
+  - The 32,847 bodies of `core`, `alloc` and `std` take 0.4 s, and 93%
+    of them type completely. Most of the rest use `libc` and other
+    crates outside the session.
+  - `--dump-types` prints every expression's type.
+
+- **Lowering** (section 8): layout, constants, monomorphisation and
+  bodies are done for small `#![no_std]` programs, which compile through
+  Epitome IR and Epitome's code generator, run, and print what rustc's
+  builds print. Of the functions `core` reaches, 92% lower, SIMD aside.
 
 Everything after that is a plan.
 
@@ -87,8 +105,9 @@ all.
                    epitome-opt ─► epitome-codegen ─► .o / .rlib / binary
 ```
 
-The crate depends on `epitome-ir` only. The binary links the optimiser
-and code generator, as `epitome-sv` does.
+The library uses `epitome-ir` only. The program also uses the optimiser
+and code generator (`-o`, section 8.4); Cargo makes them dependencies of
+the package, but the library does not use them.
 
 ## 3. Source text and tokens
 
@@ -390,6 +409,8 @@ macros of crates outside the session are still found by name.
 
 ### 6.5 Built-in macros and attributes
 
+`assert!(c)` is expanded as rustc expands it: `if !(c) { ::core::panicking::panic("assertion failed: c") }`, or `::core::panic!(message)` with a message.
+
 Done in expansion: `cfg_select!`, `cfg!`, `include!`, `stringify!`,
 `concat!`, `line!`, `column!`, `file!`, `module_path!`, `env!`,
 `option_env!`, `compile_error!`. A definition with
@@ -455,26 +476,67 @@ toolchain as the server.
 
 ### 7.1 Definitions
 
-After expansion, a collection pass records for each item its generics,
-predicates, field types, variant lists, signatures, associated items,
-and impls (inherent impls by self type; trait impls by trait). This is
-also what a crate writes as metadata (section 9).
+**Done** (`src/ty/collect.rs`). Every item gets its signature, keyed by its
+`DefId`, in one pass over the definitions (an item's parent, an impl or
+trait, always comes before it). It records:
+
+- **Generic parameters**, with a trait's `Self` as parameter 0, an impl's
+  or trait's parameters first in its items' lists, and defaults (which
+  may name `Self`).
+- **Predicates** from bounds and `where` clauses. `Item = T` bindings
+  become projection predicates; `?Sized` is dropped.
+- **Fields and variants**, function signatures (the receiver first),
+  impl headers, supertraits and auto traits.
+- **The types of aliases, constants and statics.** An alias is expanded
+  where it is used, worked out when first needed.
+
+`--dump-sigs` prints every signature, one per line:
+
+```text
+fn core::option::{impl}::map<U, F>(Option<T>, F) -> Option<U> where <F as FnOnce<(T,)>>::Output == U, F: FnOnce<(T,), Output = U>
+fn core::iter::traits::iterator::Iterator::next(&mut Self) -> Option<<Self as Iterator>::Item>
+```
+
+On `core`, `alloc` and `std`, the run takes 0.07 s and gives 54,523
+signatures and 13,818 impls. 0.3% of them contain an error type, every
+one naming a crate outside the session (`libc`, `hashbrown`, `unwind`).
 
 ### 7.2 The type table
 
-Types are interned in one arena, `Ty(u32)`, so equality is comparing
-indices:
+**Done** (`src/ty/mod.rs`, `src/intern.rs`). A type is a `Ty(u32)`, an
+index into an interned table of `TyKind`s, so equal types have equal ids.
+Everything inside a `TyKind` is an id as well, so `TyKind` is `Copy`. The
+kinds:
 
-- `Bool`, `Char`, `Int(I8..I128, Isize)`, `Uint(...)`, `Float(F16..F128)`,
-  `Str`, `Never`;
-- `Adt(DefId, Args)`, `Tuple(Tys)`, `Array(Ty, Const)`, `Slice(Ty)`,
-  `Ref(Region, Mutability, Ty)`, `Ptr(Mutability, Ty)`;
-- `FnDef(DefId, Args)`, `FnPtr(Sig)`, `Closure(NodeId, Args)`,
-  `Dyn(Bounds)`, `Param(index)`, `Alias(projection or opaque)`,
-  `Infer(var)`.
+- **Primitives:** `bool`, `char`, `str`, the integers and floats, `!`.
+- **Built-up types:** `Tuple(List)`, `Ref` and `Ptr` (with mutability),
+  `Array(Ty, ConstId)`, `Slice`.
+- **Items:** `Adt(DefId, List)`, `FnDef(DefId, List)`, `FnPtr(SigId)`,
+  `Dyn(DynId)`, `Foreign(DefId)`.
+- **Generic and associated:** `Param(ParamId)`, `Projection(assoc DefId,
+  List)` with the self type first in the list, `Opaque(OpaqueId)` for
+  `impl Trait`, and `ConstArg(ConstId)` for a constant in an argument
+  list.
+- **For checking:** `Infer(var)` and `Error`.
 
-Regions are kept only as far as trait selection and `dyn` need them;
-there is no borrow checker to feed.
+Lifetimes are not kept: they matter for borrow checking, not code
+generation.
+
+The interner is split into 16 shards by hash, each with its own locks,
+so parallel jobs can add types; an id's low bits name its shard. Maps use
+our own hasher (`src/hash.rs`).
+
+Turning written types into `Ty`s (`src/ty/lower.rs`) uses name
+resolution's results:
+
+- Missing generic arguments take their defaults.
+- `T::Item` and `Self::Item` become projections through a trait bounding
+  `T`. The bounds searched are those of the current item and its
+  parents, so a method's `where T: Deref` bounds its impl's `T`.
+- `<T as Tr>::Item` is a projection directly.
+- `Fn(A) -> B` becomes `Fn<(A,)>` with `Output = B`.
+- A module never stands for a type: `u8` in `core` is the primitive,
+  though a module `u8` is in scope.
 
 ### 7.3 Checking a function
 
@@ -493,48 +555,324 @@ a cache, including associated type projection and normalisation, auto
 traits, `Sized`, and the built-in impls (`Copy` for primitives, `Fn` for
 closures, and so on).
 
+So far (`src/typeck/`):
+
+- `infer.rs` holds a body's variables: general, integer or float, bound
+  by unification, with snapshots to undo a probe (trying an impl).
+- `check.rs` checks expressions against the type expected of them, and
+  patterns against the type they match, through references with default
+  binding modes. The types go in a table by node. Method calls find
+  inherent methods through `&` and `Box`, borrowing the receiver for
+  `&self`, and record the method. Impls are indexed by the head of their
+  self type (an ADT, a primitive, `[T]`, `&T`, ...), so lookup does not
+  scan every impl.
+- The coercions so far: `!` to anything, `&mut T` to `&T`, unsizing
+  (`&[T; N]` to `&[T]`, `&T` and `Box<T>` to `dyn Trait`), deref
+  coercion (`&String` to `&str`), `&T` to `*const T`, and function items
+  and closures to `fn` pointers.
+- Unsuffixed integers and floats left unknown become `i32` and `f64`.
+
+Traits (`traits.rs`):
+
+- **What a body may assume**: its item's and parents' `where` clauses,
+  `Self: Trait` inside a trait, every supertrait, and the bounds a trait
+  declares on its associated types (`type IntoIter: Iterator<Item =
+  Self::Item>`) and that `Iterator<Item: Copy>` puts on them.
+- **Selection** (`T: Trait<A>`): what the body assumes; the bounds of a
+  `dyn` or `impl Trait`; obligations on a variable (from a generic
+  function's bounds, or an `impl Trait` it returns); built-ins (`Sized`,
+  `Tuple`, auto traits, `Fn` for closures, function items and pointers);
+  then impls, found by trait and the head of the self type, each tried
+  in a snapshot with its own `where` clauses checked a few levels deep.
+  Missing trait arguments take their defaults (`Add` is `Add<Self>`).
+  One impl is an answer; several is ambiguous, not an error.
+- **Projections** (`<T as Iterator>::Item`) are normalised from what the
+  body assumes, or from the selected impl's associated type. One that
+  waits on a variable becomes a variable itself, with a pending
+  obligation tried again as types become known. One with no variable
+  and no impl stays a projection (rigid, in a generic body).
+- **Method calls**: for each autoderef step (through `&`, `Box` and
+  `Deref`, then an array's slice), the receiver by value, `&` and `&mut`,
+  inherent methods before trait methods. Trait candidates come from an
+  index of trait items by name, bounds first, then traits in scope.
+- **Operators, `*`, `[]`, calls, `for`, `?` and `.await`** go through
+  their lang-item traits when the types are not primitive.
+- **Closures** passed to a generic function take their parameter and
+  result types from its `F: FnMut(A) -> B` obligations. Closure
+  arguments are checked after the others, so that those settle `A`.
+
+What lowering is told (`TypeckResults::tables`, per file, by node):
+
+- `methods`: the function each method call, overloaded operator (`+`,
+  `==`, `+=`, unary `-`, `!` and `*`, `[]`) and call through the `Fn`
+  traits calls, with its generic arguments. A trait's method has `Self`
+  first; monomorphisation picks the impl.
+- `adjustments`: what is done to an expression's value before its use,
+  in order: `Deref` (built in), `OverloadedDeref` (`Deref::deref`),
+  `Borrow(m)` (autoref, or the end of a deref coercion), `Unsize`,
+  `NeverToAny`, `ReifyFnPointer` and `ClosureFnPointer`. A method
+  receiver, a field's base and an index's base carry their autoderef
+  steps; coerced expressions carry their coercion.
+- `pat_derefs` and `bindings`: how many references a pattern matched
+  through (default binding modes), and whether each binding binds by
+  value, `ref` or `ref mut`.
+
+`--dump-types` shows them after each type: `[method]`, `{*, &}`,
+`{through 1 &}`, `{by ref}`.
+
 Const evaluation (array lengths, `const` items, const generics) is an
 interpreter over the typed AST, the same walk as lowering but producing
 values.
 
 ## 8. Lowering to Epitome IR
 
-Lowering is demand-driven monomorphisation: start from `main` (or every
-exported item of a library), and lower each `(DefId, generic args)`
-instance once, walking its AST with the side tables and substituting
-the arguments as it goes. Instances that are found go on a worklist;
-functions are lowered in parallel.
+### 8.1 Layout (`src/layout.rs`) and constants (`src/consteval.rs`)
 
-- **Layout:** our own algorithm for `repr(Rust)` (fields reordered by
-  alignment, niche-filling enums); `repr(C)`, `repr(transparent)`,
-  `repr(u8)`, ... as the Reference specifies. Everything in a program is
-  compiled by us, so our layout need not match rustc's.
-- **Places and values:** every local is an `alloca`; Epitome's mem2reg
-  and SROA turn them into registers. Expressions lower to an operand or
-  a place, following the adjustments table.
-- **Control flow:** blocks, `if`, `loop`, `while`, `for` (through
-  `IntoIterator`/`Iterator::next`), labelled `break` with values, `?`
-  (through `Try`), `let else`.
-- **Matching:** each `match` becomes a decision tree over the scrutinee's
-  places, tested column by column, with guards and or-patterns; the
-  same code serves `if let`, `while let`, `let else` and function
-  parameters.
-- **Drops:** a scope stack records what needs dropping; every exit
-  (fall-through, `break`, `return`, `?`, unwinding) runs the drops in
-  reverse. A value moved on some paths only gets a drop flag. Drop glue
-  for each type is generated on demand.
-- **Panics:** `panic=abort` first; unwinding (`invoke` and landing pads)
-  later, when Epitome's code generator supports it.
-- **Closures** become a struct of captures plus a function; **`dyn`**
-  becomes a vtable (drop, size, align, then methods); **`async` and
-  generators** become state machines (late).
-- **Symbols:** v0 mangling, as documented in the rustc book.
-- **Intrinsics and lang items** are recognised by attribute and lowered
-  to IR instructions or calls.
+Done. A `LayoutCx` works out the layout of concrete types, once each,
+from any thread: size, alignment, fields' offsets, the ABI (`Scalar`,
+`ScalarPair`, or in memory), and the largest niche.
 
-`--dump-ir` prints each function's IR with a comment at the start of the
-instructions for each statement and expression, quoting the source, so
-the IR can be read against the AST.
+- Pointers to slices and `str` carry a length; to `dyn Trait`, a vtable.
+- `repr(Rust)` fields go in order of decreasing alignment; `repr(C)`,
+  `packed(n)`, `align(n)` and `transparent` are followed.
+- Enums have a tag (the `repr`'s integer or the smallest that holds the
+  discriminants), or, when all variants but one carry no data, use a
+  niche in that one (`Option<&T>`, `Option<NonZero<u32>>`).
+- Pattern types (`pattern_type!(u32 is 1..)`, `*const T is !null`, as
+  `NonNull` and the `NonZero` integers are built) are `TyKind::Pat`, with
+  their range; they narrow the scalar.
+- The constant evaluator covers array lengths, discriminants, integer
+  `const`s, `MIN`/`MAX`/`BITS`, `size_of`/`align_of`.
+- `--dump-layout` prints every non-generic type's layout;
+  `tests/layout_vs_rustc.rs` checks 45 types' sizes and alignments
+  against a program rustc builds.
+
+### 8.2 Monomorphisation (`src/mono.rs`)
+
+Done. Starting from `main` (or, with none, every function of the last
+crate that is not generic), it finds every function the program needs at
+the generic arguments it is used with, and the closures, statics,
+constants and vtables. Each item is a job on the pool; finding a new one
+adds a job.
+
+- A body is walked with its arguments put in place of its parameters,
+  and the types it mentions normalised. The calls come from type
+  checking's tables: paths to functions, `methods` (method calls,
+  overloaded operators, `*`, `[]`, calls through `Fn`), `implicit` (the
+  `IntoIterator::into_iter` and `Iterator::next` of `for`, the
+  `Try::branch` and `FromResidual::from_residual` of `?`), and
+  `adjustments` (`Deref::deref`, and unsizing to `dyn`, which needs the
+  type's vtable).
+- A trait method resolves to the impl's method, or the trait's default,
+  by the type checker's own selection. With concrete types, impls'
+  `where` clauses are checked deeper than in bodies, and where several
+  impls match (specialisation), the one more specific than all the
+  others is taken: the others match its header, its `where` clauses
+  assumed.
+- Calls the compiler implements need no item: a closure or function
+  pointer called through `Fn` (a function item's own body runs), a `dyn`
+  method, `Clone` of a tuple or a `Copy` type.
+- `impl Trait` as a result is an opaque type with its owner's generic
+  arguments (`TyKind::Opaque(id, args)`), as a closure's type carries the
+  arguments of the item it is written in. Type checking records what
+  each opaque type is (its hidden type), from its owner's body;
+  monomorphisation puts that in its place. `impl Trait` as a parameter
+  is a generic parameter of its own, after the written ones, so callers
+  choose it as they do the others.
+- `--dump-mono` prints the items, `--mono-stats` counts them and what
+  could not be resolved (all of it with `EPITOME_MONO_ALL` set).
+
+From every non-generic function of `core` (on mandelbrot): 25,498 items
+from 44,998 uses, in 0.08 s. 2,241 uses (5%) are not resolved. 2,202 of
+those carry an error type from type checking, nearly all of them a
+const generic argument written as an expression (SIMD shuffle indices,
+atomic orderings). The other 39 are specialisations it cannot choose
+between and impls with nested associated-type bounds (`FlattenCompat`).
+
+### 8.3 Lowering bodies (`src/lower/`)
+
+Done for the programs in `tests/run/`. Each function instance and
+closure that monomorphisation finds becomes an IR function. Its body is
+walked straight from the syntax tree with type checking's tables, the
+instance's arguments put in place of its generic parameters as it goes.
+Every function is declared first, in order of name, so any body can call
+any other; then each is defined.
+
+- **Values.** A type whose layout is one scalar is an SSA value: `iN` by
+  size (`bool` is `i8`), `float` or `double`, or `ptr`. A type of size
+  zero is no value. Everything else is kept in memory and handled by its
+  address: structs, enums, tuples, arrays, and pointers to unsized types
+  (an address and a length).
+- **Places.** Every local is a stack slot, an `alloca` of its size and
+  alignment in the entry block. A place (`a.b[i]`, `*p`) is an address: a
+  byte offset for a field, from the layout, and `index * stride` for an
+  element, checked against the length. Expressions give a place or a
+  value, and type checking's adjustments are applied to it in order:
+  `*`, `Deref::deref`, `&`, unsizing (`&[T; N]` to `&[T]`, and a struct
+  ending in an array to one ending in a slice), function items made
+  pointers.
+- **Calls.** Between our own functions: a scalar argument is passed as
+  itself, a zero-sized one not at all, and one in memory by the address of
+  a copy the callee may change (the callee copies it into its own slot
+  first, so a caller may pass the address of a place it still uses). A
+  result in memory is written through a pointer passed first. A trait
+  method resolves to the impl's by the same code monomorphisation uses.
+  `extern "C"` functions take and give scalars only, for now.
+- **Control flow.** `if` (with `let` chains), `loop` and labelled blocks
+  with `break` values, `while` and `while let`, `for` through
+  `IntoIterator::into_iter` and `Iterator::next`, `?` through
+  `Try::branch` and `FromResidual::from_residual`, `try` blocks (through
+  `Try::from_output`, a `?` in one giving the block's value), `return`,
+  `let else`.
+- **Patterns.** A pattern is matched against a place: each test branches
+  away when it fails, and bindings are made as the match goes. Enums are
+  read and written through their layout's tag, directly or in a niche.
+  Literals, ranges, constants, tuples, structs and variants, references,
+  slices (with `rest @ ..`), or-patterns (each alternative binding into
+  the same slots) and `@` bindings are lowered. A `match` tries its arms
+  in order.
+- **Closures.** Type checking records what each closure captures: every
+  local of an enclosing body it uses, by value in a `move` closure or
+  where the body moves a value that is not `Copy` out of it, by reference
+  otherwise. Whole variables are captured, not the fields used, which
+  behaves the same while nothing is dropped. A closure's value is a tuple
+  of its captures, and its function takes a pointer to that tuple first.
+  Calls through the `Fn` traits go to the closure's function, the function
+  item's own function, or through a function pointer.
+- **Constants.** One the evaluator can work out is an immediate; any other
+  has its initialiser lowered where it is used. A `static` must have a
+  value the evaluator can work out (an integer, `bool` or `char`) for now.
+  Const generic arguments are values in bodies.
+- **Intrinsics** (`#[rustc_intrinsic]` functions of `core`) are lowered at
+  the call: sizes and alignments, `transmute`, the arithmetic ones
+  (wrapping, unchecked, with overflow, saturating), bit counts and
+  rotations, pointer offsets, metadata and `aggregate_raw_ptr`,
+  `copy_nonoverlapping` and its kin, `compare_bytes` (libc's `memcmp`),
+  `discriminant_value`,
+  `const_eval_select` (the run-time function), and the checks of a build
+  without debug assertions (`ub_checks` is false).
+- **Panics** become a trap (`llvm.trap`), with no message: a call into
+  `core::panicking`, `panic!` and its relatives, an index out of bounds, a
+  division by zero, and a failed `assert!`. Arithmetic wraps, as in a
+  release build.
+- **Symbols** are the item's path and arguments, made safe for an
+  assembler, and a hash of where the item is written and of its
+  arguments in full; `#[no_mangle]`, `#[export_name]` and foreign items
+  keep their own names.
+
+A function whose body uses something not supported yet gets a body that
+traps, and `--lower-stats` lists each with why. Where what is not
+supported is only reached on the way to a panic (unsizing to `dyn`, a
+method of a `dyn`, `format_args!`), the function is lowered with a trap
+there instead, and `--lower-stats` lists those too. `--dump-ir` prints the
+module, each function headed by the item it is and each statement's
+source quoted before its first instruction:
+
+```text
+define internal void @_Rbasics.swap.51a8c55a7a6ca9f4(ptr %0) {
+start:
+  ; fn basics::swap (basics.rs)
+  %1 = alloca [8 x i8], align 8
+  %2 = alloca [8 x i8], align 8
+  br label %body
+body:
+  store ptr %0, ptr %1, align 8
+  ; 69: let t = p.x;
+  %3 = load ptr, ptr %1, align 8
+  %4 = load i64, ptr %3, align 8
+  store i64 %4, ptr %2, align 8
+  ; 70: p.x = p.y;
+  ...
+```
+
+From every non-generic function of `core` (on mandelbrot): 21,933
+functions in 3.1 s, of which 4,334 (20%) are not lowered, and 236 more
+trap where they reach `dyn` or formatting. 3,048 of those not lowered are
+SIMD (`core::arch`), which is not attempted; of the 16,865 others, 1,286
+(8%) are not lowered. The most common reasons: `f16` and `f128` (312),
+intrinsics not yet supported (149), `concat!` and `asm!` (135), calls
+whose arguments type checking left unknown (110), and `builtin #`
+expressions (47).
+
+Lowering found and fixed these in type checking: it records which
+constant a path names (`tables.consts`, for `u64::MAX` and `T::ZERO`) and
+what each closure captures; const parameters are inferred through array
+lengths (`Const::Infer`); `<T as Pointee>::Metadata` is worked out; a
+`where T: PartialEq` bound takes its default `Rhs`; casts to `*const _`
+infer the pointee; structs unsize; and inherent methods of a type further
+along the autoderef chain come before trait methods when their receiver
+fits (`self.len()` in `impl ExactSizeIterator for IndexRange` calls the
+inherent `len`, not itself); only functions that take `self` are methods
+(`Sum::sum(iter)` is not); an inherent impl whose self type has a
+projection among its arguments (`impl<R: Try> ControlFlow<R,
+R::Output>`) is matched argument by argument; an impl's default trait
+arguments are normalised (`FromResidual<<Self as Try>::Residual>`); and
+`<E as DiscriminantKind>::Discriminant` is worked out. Expansion now
+expands `assert!` as rustc does. On `core`, `alloc` and `std`, 96% of bodies now type completely,
+from 93%.
+
+Gaps in type checking that the test programs work around, for later:
+an integer literal is not inferred through a bound such as `S:
+Sum<Self::Item>` (`(1..=5).map(..).sum::<i64>()` takes `i32` for the
+range, and lowering then finds no impl); `StepBy` and `Zip::fold` go
+through specialised associated items (`StepByImpl`, `ZipImpl`) that are
+not worked out; and in some bodies `.min()` is not found on an iterator
+whose item waits on an operator in a closure (`.map(|(a, b)| a * b)`).
+Lowering reports each of these rather than compiling something wrong.
+
+Not done yet (they come after this series): drops and drop glue, `dyn`
+(vtables), `core::fmt` (so panics have no message), unwinding, `Box` and
+allocation, closures made function pointers, string patterns, statics of
+other types, `f16` and `f128`, SIMD, `async`, and v0 symbol mangling.
+
+**Correct but slow or bloated**, to improve later:
+
+- Functions are lowered one after another, not in parallel as section
+  10 plans: the IR builder holds the module mutably. Each function could
+  be built into a module of its own and the results joined.
+- Every value that is not a scalar lives in memory, including pairs (a
+  slice's pointer and length), which SSA could hold. Results in memory
+  go through a fresh slot at every call, aggregates are copied with
+  `memcpy` where they are built (a struct literal is built in a slot,
+  then copied into its place), and every parameter is copied into a slot
+  on entry. Epitome's SROA and `mem2reg` remove much of this.
+- A `match` tests its arms one after another, testing the same tag again
+  for each arm; a decision tree would test each column once.
+- `bool` is an `i8` everywhere, and every condition compares it with 0.
+- A function that cannot be lowered still gets a body (a trap), and
+  every function monomorphisation finds is lowered whether or not it is
+  called (panic paths, say).
+
+### 8.4 Running programs
+
+`-o PATH` lowers, optimises the module with Epitome's optimiser, compiles
+it for the host with Epitome's code generator, and links the object with
+`cc`. `-O0` leaves out the optimiser, and `--emit=obj` writes the object
+file instead of linking. It fails if any function of the program's own
+crate could not be lowered (one of `core`'s only traps if it is reached).
+
+```sh
+$B -o prog $L/core/src/lib.rs prog.rs && ./prog
+```
+
+`tests/run_vs_rustc.rs` compiles each program in `tests/run/` this way,
+with the optimiser and without, and with rustc, runs all three, and
+compares their output and exit status. The programs are `#![no_std]` with
+a C `main`, writing through libc's `putchar`; rustc links them against
+libc, with a stub for `rust_eh_personality` (the precompiled `core`
+refers to it, though nothing unwinds). The test runs on x86-64 Linux with
+rust-src installed.
+
+The programs, which each print what rustc's build prints:
+
+| Program | What it covers |
+|---|---|
+| `basics.rs` | Integers, structs, enums with data, references, slices, a generic function over a trait, `match`, `while`, `for` over a slice, `if let`. |
+| `generics.rs` | Generic structs and impls, derived `Clone`, `Copy` and `PartialEq`, trait default methods, associated types, const generics, methods taking `self` every way. |
+| `control.rs` | Labelled loops and blocks with values, `while let`, guards, ranges, or-patterns and `@` bindings, slice patterns, `let else`, `if let` chains, `?` on `Option` and `Result`, `assert!`. |
+| `numbers.rs` | Signed and unsigned arithmetic, shifts, casts, `u128`, floats, `char`, constants, statics, associated constants, and integer methods of `core`. |
+| `iter.rs` | `for` over ranges, `rev`, `enumerate`, `zip`, `iter_mut`, user iterators, `count`, `sum`, `last`. |
+| `closures.rs` | Closures capturing by reference and by value, `FnMut` state, `impl Fn` arguments and results, function pointers, iterator adapters (`map`, `filter`, `fold`, `max`, `position`, `any`, `all`, `skip`, `take_while`), and `Option` and `Result` combinators. |
 
 ## 9. Crates and Cargo
 
@@ -671,9 +1009,8 @@ is plain `std` threads.
 - **Expansion:** `-Zunpretty=expanded` from the real rustc (run as a
   program) against our `--pretty` after expansion, compared as token
   streams.
-- **Run tests:** programs in `epitome-rustc2/tests/run/` with their
-  expected output, compiled by both rustc and us and run; the outputs
-  must match.
+- **Run tests:** programs in `epitome-rustc2/tests/run/`, compiled by
+  both rustc and us and run; the outputs must match (section 8.4).
 - **Crates:** `cargo test` of crates with `RUSTC=epitome-rustc2`,
   compared with `RUSTC_WRAPPER=epitome-rustc`.
 
@@ -702,9 +1039,12 @@ Tests of parallel stages run on one thread and on several, and compare.
 3. Proc macros (working through the toolchain's server; in-process
    loading once we compile proc-macro crates, section 6.7).
 4. Name resolution and item collection (done).
-5. Type checking for `#![no_std]` programs: integers, structs, enums,
-   references, generics, traits, closures.
-6. Lowering of those to Epitome IR; first run tests pass.
+5. Type checking: signatures and the type table (done); then bodies, for
+   `#![no_std]` programs: integers, structs, enums, references, generics,
+   traits, methods, closures (done; 93% of the bodies of `core`, `alloc`
+   and `std` type completely).
+6. Lowering of those to Epitome IR; first run tests pass (done for the
+   programs in `tests/run/`).
 7. Drops, `dyn`, slices and strings, formatting through `core::fmt`.
 8. `core`, then `alloc` and `std` from `rust-src`; Cargo builds.
 9. Unwinding, `async`, and the long tail.

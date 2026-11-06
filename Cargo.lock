@@ -43,6 +43,11 @@ dependencies = [
 [[package]]
 name = "epitome-rustc2"
 version = "0.1.0"
+dependencies = [
+ "epitome-codegen",
+ "epitome-ir",
+ "epitome-opt",
+]
 
 [[package]]
 name = "epitome-sv"

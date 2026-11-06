@@ -283,9 +283,9 @@ impl<'c, 'r, 's> Collector<'c, 'r, 's> {
                 self.blocks(item, m);
             }
             Kind::Impl => {
-                let d = self.def(DefKind::Impl, "", m, item, vis, None);
-                let _ = d;
                 let sub = self.r.new_module(self.krate, Some(m), false);
+                let d = self.def(DefKind::Impl, "", m, item, vis, Some(sub));
+                self.r.modules[sub.0 as usize].def = Some(d);
                 self.r.modules[sub.0 as usize].normal = m;
                 self.r.module_of.insert((self.krate, self.file, item), sub);
                 self.assoc_items(item, sub, m);

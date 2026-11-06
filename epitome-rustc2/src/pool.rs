@@ -42,7 +42,7 @@ impl<J> Queue<J> {
     /// The next job, waiting while others may still add some; `None` when
     /// all are done.
     fn pop(&self) -> Option<J> {
-        let mut s = self.state.lock().unwrap();
+        let mut s = self.state.lock().unwrap_or_else(|e| e.into_inner());
         loop {
             if let Some(j) = s.jobs.pop_front() {
                 return Some(j);
@@ -50,12 +50,12 @@ impl<J> Queue<J> {
             if s.pending == 0 {
                 return None;
             }
-            s = self.wake.wait(s).unwrap();
+            s = self.wake.wait(s).unwrap_or_else(|e| e.into_inner());
         }
     }
 
     fn done_one(&self) {
-        let mut s = self.state.lock().unwrap();
+        let mut s = self.state.lock().unwrap_or_else(|e| e.into_inner());
         s.pending -= 1;
         if s.pending == 0 {
             self.wake.notify_all();
@@ -78,8 +78,17 @@ where
                 .stack_size(STACK_SIZE)
                 .spawn_scoped(scope, || {
                     while let Some(job) = queue.pop() {
+                        // Counted as done even if it panics, so that the
+                        // other threads finish and the panic is passed on
+                        // rather than every thread waiting for ever.
+                        struct Done<'q, J>(&'q Queue<J>);
+                        impl<J> Drop for Done<'_, J> {
+                            fn drop(&mut self) {
+                                self.0.done_one();
+                            }
+                        }
+                        let _done = Done(&queue);
                         work(job, &queue);
-                        queue.done_one();
                     }
                 })
                 .expect("spawn a worker thread");

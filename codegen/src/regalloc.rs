@@ -563,8 +563,12 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
     // Spill slots, and loads and stores around each use and definition.
     let mut slot_of: HashMap<VReg, usize> = HashMap::new();
     for &v in spilled.iter().filter(|v| !remat.contains_key(v)) {
-        let size = (m.def(f.vclass[v as usize]).bits as u64 / 8).max(8);
-        f.slots.push(Slot { size, align: size, offset: 0 });
+        let def = m.def(f.vclass[v as usize]);
+        // (A scalable value's: a vector length, as frame.rs lays it out; a
+        // predicate's size, 2, says its offset is in eighths of one.)
+        let scalable = matches!(def.holds, Some(crate::machine::Holds::Scalable | crate::machine::Holds::Predicate));
+        let size = if scalable { def.bits as u64 / 8 } else { (def.bits as u64 / 8).max(8) };
+        f.slots.push(Slot { size, align: size, offset: 0, scalable });
         slot_of.insert(v, f.slots.len() - 1);
     }
     // Spill code: a value is spilled as its file's registers are saved
@@ -1016,11 +1020,20 @@ fn lower_copies(t: &Target, f: &mut MFunc) -> Result<(), String> {
             let (fd, fs) = (m.file_of(*d), m.file_of(*s));
             let class = inst.class.or_else(|| m.save_class(fd)).ok_or("a copy of no class")?;
             let bits = m.def(class).bits;
-            let op = if fd == fs {
+            // (Its own class's, first: a scalable vector's is not the
+            // copy of the fixed vector of its least size, which clears
+            // the lanes above.)
+            let scalable = |c: crate::target::Class| {
+                matches!(m.def(c).holds, Some(crate::machine::Holds::Scalable | crate::machine::Holds::Predicate))
+            };
+            let op = if let Some(&i) = t.copies.get(&class).filter(|_| fd == fs) {
+                i
+            } else if fd == fs {
                 let mut within: Vec<(u32, usize)> = t
                     .copies
                     .iter()
                     .filter(|(c, _)| m.def(**c).file == fd && !m.def(**c).sp && m.def(**c).bits >= bits)
+                    .filter(|(c, _)| scalable(**c) == scalable(class))
                     .map(|(c, &i)| (m.def(*c).bits, i))
                     .collect();
                 within.sort();

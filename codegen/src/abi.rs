@@ -83,6 +83,12 @@ pub struct Abi {
     pub fp_clobbers: Vec<u8>,
     pub fp_saved: Vec<u8>,
     pub fp_scratch: Vec<u8>,
+    /// Predicates (SVE's p registers): arguments and the result. Those a
+    /// call may change and the scratch one (`pred-clobbers`,
+    /// `pred-scratch`) are among `fp_clobbers` and `fp_scratch`, where
+    /// their file and class keep them to predicates.
+    pub pred_args: Vec<u8>,
+    pub pred_result: Option<u8>,
     pub fp: u8,
     pub lr: u8,
     /// The return address is on the stack, pushed by the call (x86's
@@ -121,6 +127,8 @@ pub struct Part {
     /// A piece of a struct passed by value in memory (`byval`): its
     /// pieces side by side on the stack, 8 bytes each but the last.
     pub byval: bool,
+    /// A predicate (SVE's), in the convention's predicate registers.
+    pub pred: bool,
 }
 
 /// Where one argument goes.
@@ -187,7 +195,9 @@ impl Abi {
     pub fn assign(&self, sizes: &[u64], named: usize) -> (Vec<ArgLoc>, i64) {
         let parts: Vec<Vec<Part>> = sizes
             .iter()
-            .map(|&s| vec![Part { size: s, fp: false, sret: false, wide: false, hfa: false, byval: false }])
+            .map(|&s| {
+                vec![Part { size: s, fp: false, sret: false, wide: false, hfa: false, byval: false, pred: false }]
+            })
             .collect();
         let (locs, stack) = self.assign_parts(&parts, named);
         (locs.into_iter().map(|l| l[0]).collect(), stack)
@@ -201,6 +211,7 @@ impl Abi {
         let mut locs = Vec::new();
         let mut next_reg = 0;
         let mut next_fp = 0;
+        let mut next_pred = 0;
         let mut stack: i64 = 0;
         for (k, parts) in args.iter().enumerate() {
             if let ([p], Some(r)) = (parts.as_slice(), self.sret)
@@ -230,7 +241,14 @@ impl Abi {
             }
             // Floating-point values take floating-point registers, counted
             // separately; integers and pointers take x0-x7.
-            let (regs, next) = if fp { (&self.fp_args, &mut next_fp) } else { (&self.args, &mut next_reg) };
+            let pred = parts.iter().all(|p| p.pred);
+            let (regs, next) = if pred {
+                (&self.pred_args, &mut next_pred)
+            } else if fp {
+                (&self.fp_args, &mut next_fp)
+            } else {
+                (&self.args, &mut next_reg)
+            };
             let even = self.wide_pairs_even && parts.first().is_some_and(|p| p.wide);
             if even && *next % 2 == 1 && *next + 1 + n <= regs.len() {
                 *next += 1;
@@ -485,9 +503,19 @@ pub fn read(m: &Module, prefix: &str, machine: &crate::machine::Machine) -> Resu
             scratch: regs(&get("scratch")?)?,
             fp_args: regs(&get("fp-args")?)?,
             fp_result: first("fp-result")?,
-            fp_clobbers: regs(&get("fp-clobbers")?)?,
+            fp_clobbers: {
+                let mut r = regs(&get("fp-clobbers")?)?;
+                r.extend(props.get("pred-clobbers").map(|v| regs(v)).transpose()?.unwrap_or_default());
+                r
+            },
             fp_saved: regs(&get("fp-saved")?)?,
-            fp_scratch: regs(&get("fp-scratch")?)?,
+            fp_scratch: {
+                let mut r = regs(&get("fp-scratch")?)?;
+                r.extend(props.get("pred-scratch").map(|v| regs(v)).transpose()?.unwrap_or_default());
+                r
+            },
+            pred_args: props.get("pred-args").map(|v| regs(v)).transpose()?.unwrap_or_default(),
+            pred_result: props.get("pred-result").map(|v| regs(v)).transpose()?.and_then(|v| v.first().copied()),
             fp: frame[0],
             lr: *frame.get(1).unwrap_or(&frame[0]),
             ra_on_stack: props.get("return-address").is_some_and(|v| v.first().is_some_and(|x| x == "stack")),

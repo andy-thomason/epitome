@@ -8,10 +8,15 @@
 
 pub mod ast;
 pub mod cfg;
+pub mod consteval;
 pub mod expand;
 pub mod hash;
+pub mod intern;
 pub mod json;
+pub mod layout;
 pub mod lexer;
+pub mod lower;
+pub mod mono;
 pub mod parse;
 pub mod pool;
 pub mod pretty;
@@ -19,3 +24,5 @@ pub mod proc_macro;
 pub mod resolve;
 pub mod session;
 pub mod source;
+pub mod ty;
+pub mod typeck;

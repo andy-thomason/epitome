@@ -2644,49 +2644,56 @@ fn defparams<'a>(e: &mut Elab<'a, '_>) -> R<'a> {
 
 /// What part of an object an assignment writes.
 #[derive(Clone, Copy, PartialEq, Debug)]
-enum Slice {
-    Whole,
-    /// Bits or elements `lo..=hi` of the outermost dimension.
+enum Step {
+    /// Bits or elements `lo..=hi` of a dimension.
     Range(i64, i64),
     Member(u32),
+    /// A select not known at elaboration.
+    Any,
 }
 
-fn overlaps(a: Slice, b: Slice) -> bool {
-    match (a, b) {
-        (Slice::Whole, _) | (_, Slice::Whole) => true,
-        (Slice::Range(a0, a1), Slice::Range(b0, b1)) => a0 <= b1 && b0 <= a1,
-        (Slice::Member(x), Slice::Member(y)) => x == y,
-        _ => false,
+/// The part of a variable an assignment writes: the selects from the
+/// outside in, up to four deep; deeper ones are taken to overlap.
+#[derive(Clone, Copy, PartialEq, Debug)]
+struct Slice {
+    steps: [Step; 4],
+    len: u8,
+}
+
+impl Slice {
+    const WHOLE: Slice = Slice { steps: [Step::Any; 4], len: 0 };
+
+    fn then(mut self, s: Step) -> Slice {
+        // A select not known at elaboration ends the longest static
+        // prefix (11.5.3).
+        let ended = self.len > 0 && self.steps[self.len as usize - 1] == Step::Any;
+        if !ended && (self.len as usize) < self.steps.len() {
+            self.steps[self.len as usize] = s;
+            self.len += 1;
+        }
+        self
     }
+}
+
+/// Whether two parts may share bits: unless some select on the way
+/// separates them.
+fn overlaps(a: Slice, b: Slice) -> bool {
+    let n = a.len.min(b.len) as usize;
+    (0..n).all(|i| match (a.steps[i], b.steps[i]) {
+        (Step::Range(a0, a1), Step::Range(b0, b1)) => a0 <= b1 && b0 <= a1,
+        (Step::Member(x), Step::Member(y)) => x == y,
+        _ => true,
+    })
 }
 
 /// The objects an assignment target writes, with the part of each.
 fn target_slices(e: &Elab, x: ExprId, out: &mut Vec<(ObjId, Slice)>) {
     let ex = e.ex(x);
     match &ex.kind {
-        ExprKind::Object(o) | ExprKind::Hier { object: Some(o), .. } => out.push((*o, Slice::Whole)),
-        ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_) => {
-            let base = ex.args[0];
-            let bk = &e.ex(base).kind;
-            let Some(o) = (match bk {
-                ExprKind::Object(o) | ExprKind::Hier { object: Some(o), .. } => Some(*o),
-                _ => None,
-            }) else {
-                return target_slices(e, base, out);
-            };
-            let konst = |i: usize| ex.args.get(i).and_then(|&a| const_index(e, a));
-            let slice = match &ex.kind {
-                ExprKind::Member(m) => Slice::Member(*m),
-                ExprKind::Index => konst(1).map_or(Slice::Whole, |i| Slice::Range(i, i)),
-                ExprKind::Part { kind, width } => match (kind, konst(1)) {
-                    (PartKind::Range, Some(a)) => konst(2).map_or(Slice::Whole, |b| Slice::Range(a.min(b), a.max(b))),
-                    (PartKind::Up, Some(a)) => Slice::Range(a, a + *width as i64 - 1),
-                    (PartKind::Down, Some(a)) => Slice::Range(a - *width as i64 + 1, a),
-                    _ => Slice::Whole,
-                },
-                _ => Slice::Whole,
-            };
-            out.push((o, slice));
+        ExprKind::Object(_) | ExprKind::Hier { object: Some(_), .. } | ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_) => {
+            if let Some((o, s)) = select_path(e, x) {
+                out.push((o, s));
+            }
         }
         ExprKind::Concat | ExprKind::Pattern => {
             for &a in &ex.args {
@@ -2698,16 +2705,69 @@ fn target_slices(e: &Elab, x: ExprId, out: &mut Vec<(ObjId, Slice)>) {
     }
 }
 
+/// The object a chain of selects starts from, and the selects.
+fn select_path(e: &Elab, x: ExprId) -> Option<(ObjId, Slice)> {
+    let ex = e.ex(x);
+    match &ex.kind {
+        ExprKind::Object(o) | ExprKind::Hier { object: Some(o), .. } => Some((*o, Slice::WHOLE)),
+        ExprKind::Convert => select_path(e, ex.args[0]),
+        ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_) => {
+            let (o, base) = select_path(e, ex.args[0])?;
+            let konst = |i: usize| ex.args.get(i).and_then(|&a| const_index(e, a));
+            let step = match &ex.kind {
+                ExprKind::Member(m) => Step::Member(*m),
+                ExprKind::Index => konst(1).map_or(Step::Any, |i| Step::Range(i, i)),
+                ExprKind::Part { kind, width } => match (kind, konst(1)) {
+                    (PartKind::Range, Some(a)) => konst(2).map_or(Step::Any, |b| Step::Range(a.min(b), a.max(b))),
+                    (PartKind::Up, Some(a)) => Step::Range(a, a + *width as i64 - 1),
+                    (PartKind::Down, Some(a)) => Step::Range(a - *width as i64 + 1, a),
+                    _ => Step::Any,
+                },
+                _ => Step::Any,
+            };
+            Some((o, base.then(step)))
+        }
+        _ => None,
+    }
+}
+
 /// An index known at elaboration: a literal, or a parameter (such as a
 /// generate loop's genvar), maybe converted.
 fn const_index(e: &Elab, x: ExprId) -> Option<i64> {
-    match &e.ex(x).kind {
-        ExprKind::Const(c) => e.d.consts[c.0 as usize].to_i64(),
-        ExprKind::Convert => const_index(e, e.ex(x).args[0]),
+    const_value(e, x)?.to_i64()
+}
+
+/// The value of an expression of literals, parameters and operators on
+/// them, without running functions.
+fn const_value(e: &Elab, x: ExprId) -> Option<Const> {
+    let ex = e.ex(x);
+    let tys = &e.d.types;
+    match &ex.kind {
+        ExprKind::Const(c) => Some(e.d.consts[c.0 as usize].clone()),
+        ExprKind::Convert => Some(crate::design::ops::convert(tys, &const_value(e, ex.args[0])?, ex.ty)),
         ExprKind::Object(o) => match e.obj(*o).kind {
-            ObjKind::Param { .. } | ObjKind::EnumConst => e.obj(*o).value.and_then(|c| e.d.consts[c.0 as usize].to_i64()),
+            ObjKind::Param { .. } | ObjKind::EnumConst => e.obj(*o).value.map(|c| e.d.consts[c.0 as usize].clone()),
             _ => None,
         },
+        ExprKind::Binary(op) => {
+            let (a, b) = (const_value(e, ex.args[0])?, const_value(e, ex.args[1])?);
+            crate::design::ops::binary(tys, *op, a, b, ex.ty)
+        }
+        ExprKind::Unary(op) => crate::design::ops::unary(tys, *op, const_value(e, ex.args[0])?, ex.ty),
+        ExprKind::Member(i) => {
+            let base = const_value(e, ex.args[0])?;
+            let bt = e.ex(ex.args[0]).ty;
+            match (base, tys.get(bt)) {
+                (Const::Aggregate(items), _) => items.get(*i as usize).cloned(),
+                (Const::Bits(b), Type::Struct { members, union, .. }) => {
+                    let m = members.get(*i as usize)?;
+                    let w = tys.width(m.ty);
+                    let below: u32 = if *union { 0 } else { members[*i as usize + 1..].iter().map(|m| tys.width(m.ty)).sum() };
+                    Some(Const::Bits(b.slice(below, w).with_signed(tys.is_signed(m.ty))))
+                }
+                _ => None,
+            }
+        }
         _ => None,
     }
 }
@@ -2815,14 +2875,15 @@ fn drivers<'a>(e: &mut Elab<'a, '_>) -> R<'a> {
             return Err(e.err(n, what));
         }
     }
-    // Procedural writers.
-    let mut owner: HashMap<ObjId, (ProcKind, NodeId)> = HashMap::new();
+    // Procedural writers: what each writes, by longest static prefix
+    // (9.2.2.2).
+    let mut owner: HashMap<ObjId, Vec<(ProcKind, Slice, usize)>> = HashMap::new();
     let procs: Vec<(ProcKind, StmtId, NodeId, Vec<ObjId>)> =
         e.d.processes.iter().map(|p| (p.kind, p.body, p.node, p.writes.clone())).collect();
-    for (kind, body, node, writes) in procs {
+    for (pi, (kind, body, node, writes)) in procs.into_iter().enumerate() {
         let mut ts = Vec::new();
         proc_targets(e, body, &mut ts);
-        for (o, s) in ts {
+        for &(o, s) in &ts {
             if kind_of(e, o) != ObjKind::Variable || e.d.objects[o.0 as usize].lifetime == Lifetime::Automatic {
                 continue;
             }
@@ -2842,20 +2903,33 @@ fn drivers<'a>(e: &mut Elab<'a, '_>) -> R<'a> {
                 ));
             }
         }
-        for w in writes {
+        // What it writes: its own assignments' parts, and anything else
+        // (through functions) whole.
+        let mut parts: Vec<(ObjId, Slice)> = ts.clone();
+        for &w in &writes {
+            if !parts.iter().any(|&(o, _)| o == w) {
+                parts.push((w, Slice::WHOLE));
+            }
+        }
+        for (w, sl) in parts {
             if kind_of(e, w) != ObjKind::Variable || e.d.objects[w.0 as usize].lifetime == Lifetime::Automatic {
                 continue;
             }
             let exclusive = matches!(kind, ProcKind::AlwaysComb | ProcKind::AlwaysLatch | ProcKind::AlwaysFf);
-            if let Some(&(k, _)) = owner.get(&w)
-                && (exclusive || matches!(k, ProcKind::AlwaysComb | ProcKind::AlwaysLatch | ProcKind::AlwaysFf))
-            {
+            let clash = owner.get(&w).is_some_and(|list| {
+                list.iter().any(|&(k, s2, p2)| {
+                    p2 != pi
+                        && (exclusive || matches!(k, ProcKind::AlwaysComb | ProcKind::AlwaysLatch | ProcKind::AlwaysFf))
+                        && overlaps(sl, s2)
+                })
+            });
+            if clash {
                 return Err(e.err(
                     node,
                     format!("variable `{}` is written by an `always_comb`, `always_latch` or `always_ff` procedure and by another process (9.2.2)", obj_name(e, w)),
                 ));
             }
-            owner.entry(w).or_insert((kind, node));
+            owner.entry(w).or_default().push((kind, sl, pi));
         }
     }
     // A variable's initialiser is a procedural write (6.5); an input port
@@ -3171,3 +3245,126 @@ fn rw_expr(e: &Elab, x: ExprId, r: &mut Set, w: &mut Set, seen: &mut std::collec
 
 #[allow(dead_code)]
 fn unused(_: &eval::Eval) {}
+
+/// Variables an `always_comb` reads only in parts it also writes, which
+/// are left out of its sensitivity (9.2.2.2.1): a block that sets a
+/// struct's member and then tests it is not woken by its own writes.
+pub(crate) fn self_covered(e: &Elab, body: StmtId) -> std::collections::HashSet<ObjId> {
+    let mut writes = Vec::new();
+    proc_targets(e, body, &mut writes);
+    let mut reads = Vec::new();
+    let mut calls = Vec::new();
+    read_paths_stmt(e, body, &mut reads, &mut calls);
+    // What called functions read is not known part by part.
+    let mut fn_reads = Set::new();
+    let mut seen = std::collections::HashSet::new();
+    for s in calls {
+        let mut w = Set::new();
+        for &b in &e.d.subroutines[s.0 as usize].body.clone() {
+            rw_stmt(e, b, &mut fn_reads, &mut w, &mut seen);
+        }
+    }
+    let covers = |w: Slice, r: Slice| {
+        w.len <= r.len
+            && (0..w.len as usize).all(|i| match (w.steps[i], r.steps[i]) {
+                (Step::Range(w0, w1), Step::Range(r0, r1)) => w0 <= r0 && r1 <= w1,
+                (Step::Member(a), Step::Member(b)) => a == b,
+                _ => false,
+            })
+    };
+    let objs: std::collections::HashSet<ObjId> = reads.iter().map(|&(o, _)| o).collect();
+    objs.into_iter()
+        .filter(|o| {
+            !fn_reads.contains(o)
+                && reads.iter().filter(|(x, _)| x == o).all(|&(_, r)| writes.iter().any(|&(w, ws)| w == *o && covers(ws, r)))
+        })
+        .collect()
+}
+
+fn read_paths_stmt(e: &Elab, s: StmtId, out: &mut Vec<(ObjId, Slice)>, calls: &mut Vec<SubId>) {
+    let st = e.d.stmts[s.0 as usize].kind.clone();
+    let x = |x: ExprId, out: &mut Vec<(ObjId, Slice)>, calls: &mut Vec<SubId>| read_paths_expr(e, x, out, calls);
+    match st {
+        StmtKind::Block { stmts, .. } => stmts.into_iter().for_each(|y| read_paths_stmt(e, y, out, calls)),
+        StmtKind::Assign { lhs, rhs, kind, .. } => {
+            x(rhs, out, calls);
+            if matches!(kind, AssignKind::Compound(_)) {
+                x(lhs, out, calls);
+            } else {
+                select_indices(e, lhs, out, calls);
+            }
+        }
+        StmtKind::Expr(y) => x(y, out, calls),
+        StmtKind::If { cond, then, else_, .. } => {
+            x(cond, out, calls);
+            read_paths_stmt(e, then, out, calls);
+            if let Some(y) = else_ {
+                read_paths_stmt(e, y, out, calls);
+            }
+        }
+        StmtKind::Case { expr, items, default, .. } => {
+            x(expr, out, calls);
+            for (xs, b) in items {
+                xs.into_iter().for_each(|y| x(y, out, calls));
+                read_paths_stmt(e, b, out, calls);
+            }
+            if let Some(b) = default {
+                read_paths_stmt(e, b, out, calls);
+            }
+        }
+        StmtKind::For { init, cond, step, body, .. } => {
+            init.into_iter().chain(step).for_each(|y| read_paths_stmt(e, y, out, calls));
+            if let Some(c) = cond {
+                x(c, out, calls);
+            }
+            read_paths_stmt(e, body, out, calls);
+        }
+        StmtKind::While(c, b) | StmtKind::DoWhile(b, c) | StmtKind::Repeat(c, b) => {
+            x(c, out, calls);
+            read_paths_stmt(e, b, out, calls);
+        }
+        StmtKind::Forever(b) | StmtKind::Timed(_, b) | StmtKind::Wait(_, b) => read_paths_stmt(e, b, out, calls),
+        StmtKind::Foreach { array, body, .. } => {
+            x(array, out, calls);
+            read_paths_stmt(e, body, out, calls);
+        }
+        StmtKind::Return(Some(y)) => x(y, out, calls),
+        _ => {}
+    }
+}
+
+/// The parts an expression reads, by longest static prefix.
+fn read_paths_expr(e: &Elab, x: ExprId, out: &mut Vec<(ObjId, Slice)>, calls: &mut Vec<SubId>) {
+    let ex = e.ex(x);
+    match &ex.kind {
+        ExprKind::Object(_) | ExprKind::Hier { object: Some(_), .. } | ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_) => {
+            match select_path(e, x) {
+                Some(p) => {
+                    out.push(p);
+                    select_indices(e, x, out, calls);
+                }
+                None => ex.args.iter().for_each(|&a| read_paths_expr(e, a, out, calls)),
+            }
+        }
+        ExprKind::Call(s) => {
+            calls.push(*s);
+            ex.args.iter().for_each(|&a| read_paths_expr(e, a, out, calls));
+        }
+        _ => ex.args.iter().for_each(|&a| read_paths_expr(e, a, out, calls)),
+    }
+}
+
+/// The index expressions along a chain of selects, which are read.
+fn select_indices(e: &Elab, mut x: ExprId, out: &mut Vec<(ObjId, Slice)>, calls: &mut Vec<SubId>) {
+    loop {
+        let ex = e.ex(x);
+        match ex.kind {
+            ExprKind::Index | ExprKind::Part { .. } => {
+                ex.args[1..].iter().for_each(|&a| read_paths_expr(e, a, out, calls));
+                x = ex.args[0];
+            }
+            ExprKind::Member(_) | ExprKind::Convert => x = ex.args[0],
+            _ => return,
+        }
+    }
+}

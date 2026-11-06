@@ -63,6 +63,10 @@ impl Select {
 /// How deep impls' `where` clauses are checked, and projections followed.
 const MAX_DEPTH: u32 = 4;
 
+/// How deep impls' `where` clauses are checked when a projection's impl is
+/// ambiguous at a body's usual depth.
+const DEEP_WHERE: u32 = 4;
+
 impl<'a, 's> FnCtxt<'a, 's> {
     // ---- the predicates a body starts with ----
 
@@ -583,7 +587,20 @@ impl<'a, 's> FnCtxt<'a, 's> {
             return self.discriminant_type(t);
         }
         let tr = self.trait_of(assoc)?;
-        match self.select(t, tr, &args[1..], depth) {
+        let mut sel = self.select(t, tr, &args[1..], depth);
+        // Two impls that both seem to apply, with every type known: their
+        // `where` clauses checked deeper may rule one out (`u8:
+        // TryFrom<u16>` has core's impl, and the blanket one through `u16:
+        // Into<u8>`, which needs `u8: From<u16>`, which does not hold).
+        if matches!(sel, Select::Ambiguous)
+            && self.where_depth < DEEP_WHERE
+            && !args.iter().any(|&x| tcx.has_infer(self.infer.resolve(x)))
+        {
+            let saved = std::mem::replace(&mut self.where_depth, DEEP_WHERE);
+            sel = self.select(t, tr, &args[1..], depth);
+            self.where_depth = saved;
+        }
+        match sel {
             Select::Yes(Source::Impl(i, iargs)) => {
                 let name = self.r.defs[assoc.0 as usize].name;
                 let item = self.impl_item(i, name, Ns::Type)?;

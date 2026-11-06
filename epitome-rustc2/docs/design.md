@@ -45,7 +45,7 @@ checking is under way.
 - **Lowering** (section 8): layout, constants, monomorphisation and
   bodies are done for small `#![no_std]` programs, which compile through
   Epitome IR and Epitome's code generator, run, and print what rustc's
-  builds print. Of the functions `core` reaches, 92% lower, SIMD aside.
+  builds print. Of the functions `core` reaches, 93% lower, SIMD aside.
 
 Everything after that is a plan.
 
@@ -682,12 +682,12 @@ adds a job.
 - `--dump-mono` prints the items, `--mono-stats` counts them and what
   could not be resolved (all of it with `EPITOME_MONO_ALL` set).
 
-From every non-generic function of `core` (on mandelbrot): 25,498 items
-from 44,998 uses, in 0.08 s. 2,241 uses (5%) are not resolved. 2,202 of
-those carry an error type from type checking, nearly all of them a
-const generic argument written as an expression (SIMD shuffle indices,
-atomic orderings). The other 39 are specialisations it cannot choose
-between and impls with nested associated-type bounds (`FlattenCompat`).
+From every non-generic function of `core` (on mandelbrot): 28,473 items
+from 54,045 uses, in 0.09 s. 62 uses (0.1%) are not resolved: mostly
+specialisation traits it cannot choose an impl of (`SpecAdvanceBy`, the
+sort's `UnstableSmallSortTypeImpl`, `SpecWriteFmt`), and a few calls whose
+arguments type checking left unknown (`array::try_from_fn` with a `dyn`
+in its result).
 
 ### 8.3 Lowering bodies (`src/lower/`)
 
@@ -785,14 +785,13 @@ body:
   ...
 ```
 
-From every non-generic function of `core` (on mandelbrot): 21,933
-functions in 3.1 s, of which 4,334 (20%) are not lowered, and 236 more
-trap where they reach `dyn` or formatting. 3,048 of those not lowered are
-SIMD (`core::arch`), which is not attempted; of the 16,865 others, 1,286
-(8%) are not lowered. The most common reasons: `f16` and `f128` (312),
-intrinsics not yet supported (149), `concat!` and `asm!` (135), calls
-whose arguments type checking left unknown (110), and `builtin #`
-expressions (47).
+From every non-generic function of `core` (on mandelbrot): 22,018
+functions in 3.2 s, of which 4,241 (19%) are not lowered, and 237 more
+trap where they reach `dyn` or formatting. 3,063 of those not lowered are
+SIMD (`core::arch`), which is not attempted; of the 16,932 others, 1,178
+(7%) are not lowered. The most common reasons: `f16` and `f128` (312),
+intrinsics not yet supported (284, of which 135 are the atomics),
+`concat!` and `asm!` (135), and `builtin #` expressions (47).
 
 Lowering found and fixed these in type checking: it records which
 constant a path names (`tables.consts`, for `u64::MAX` and `T::ZERO`) and
@@ -807,9 +806,16 @@ inherent `len`, not itself); only functions that take `self` are methods
 projection among its arguments (`impl<R: Try> ControlFlow<R,
 R::Output>`) is matched argument by argument; an impl's default trait
 arguments are normalised (`FromResidual<<Self as Try>::Residual>`); and
-`<E as DiscriminantKind>::Discriminant` is worked out. Expansion now
-expands `assert!` as rustc does. On `core`, `alloc` and `std`, 96% of bodies now type completely,
-from 93%.
+`<E as DiscriminantKind>::Discriminant` is worked out. A projection
+whose impl is ambiguous with every type known is selected again with
+impls' `where` clauses checked deeper (`u8: TryFrom<u16>` has core's
+impl, and the blanket one through `u16: Into<u8>`, which fails two levels
+down); and const generic arguments written in a path (`swap_chunk::<4>`,
+`atomic_xadd::<T, U, { AO::Relaxed }>`) are arguments in their places,
+where they were skipped and the arguments after them shifted. These two
+took `core`'s unresolved uses in monomorphisation from 1,242 to 62.
+Expansion now expands `assert!` as rustc does. On `core`, `alloc` and
+`std`, 97% of bodies now type completely, from 93%.
 
 Gaps in type checking that the test programs work around, for later:
 an integer literal is not inferred through a bound such as `S:

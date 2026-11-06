@@ -103,11 +103,19 @@ pub(crate) struct Fx<'c, 'a, 's, 'm> {
     fname: String,
     strings: usize,
     blocks: usize,
+    /// What the function traps on where it is reached (see `trap_here`).
+    pub traps: Vec<String>,
+    /// The `try` blocks around: where each ends, and its value's slot.
+    tries: Vec<(BlockId, Place)>,
 }
 
+/// Source comments for `--dump-ir`: block, position in the block, text.
+pub(crate) type Notes = Vec<(BlockId, usize, String)>;
+
 /// Lowers the body of function (or closure) `it` into the function `decl`
-/// declares. Gives the source comments for `--dump-ir`.
-pub(crate) fn lower_fn(cx: &Cx, m: &mut Module, it: Item, decl: &Decl) -> R<Vec<(BlockId, usize, String)>> {
+/// declares. Gives the source comments for `--dump-ir`, and what the
+/// function traps on where it is reached (see `Fx::trap_here`).
+pub(crate) fn lower_fn(cx: &Cx, m: &mut Module, it: Item, decl: &Decl) -> R<(Notes, Vec<String>)> {
     let tcx = cx.tcx;
     let (owner, l, closure) = match it {
         Item::Fn(d, l) => (d, l, None),
@@ -163,6 +171,8 @@ pub(crate) fn lower_fn(cx: &Cx, m: &mut Module, it: Item, decl: &Decl) -> R<Vec<
         fname: decl.name.clone(),
         strings: 0,
         blocks: 0,
+        traps: Vec::new(),
+        tries: Vec::new(),
     };
     fx.entry = fx.b.block("start");
     let first = fx.b.new_block("body");
@@ -241,8 +251,9 @@ pub(crate) fn lower_fn(cx: &Cx, m: &mut Module, it: Item, decl: &Decl) -> R<Vec<
     fx.b.at(entry);
     fx.b.br(first);
     let notes = std::mem::take(&mut fx.notes);
+    let traps = std::mem::take(&mut fx.traps);
     fx.b.finish()?;
-    Ok(notes)
+    Ok((notes, traps))
 }
 
 /// Replaces `decl`'s body (or declaration) with one that traps.
@@ -495,6 +506,17 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         self.dead();
     }
 
+    /// Something not supported yet, used where only a panic would reach
+    /// it (formatting a message, `dyn Debug`): it traps when reached, and
+    /// the rest of the function is lowered. `--lower-stats` lists these.
+    pub fn trap_here(&mut self, t: Ty, what: &str) -> Operand {
+        if !self.traps.iter().any(|x| x == what) {
+            self.traps.push(what.to_string());
+        }
+        self.trap();
+        Operand { ty: t, v: Val::Zst }
+    }
+
     /// Branches to a trap unless `ok` (an `i1`) holds.
     pub fn check(&mut self, ok: Value) {
         let good = self.new_block("ok");
@@ -581,7 +603,12 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 }
                 _ => Err(format!("a scalar was wanted, not {}", self.cx.tcx.display(self.cx.r, o.ty))),
             },
-            Val::Zst => Err("a scalar was wanted, not a zero-sized value".into()),
+            // After a trap or a call that does not return: the code is
+            // dead, and any value will do.
+            Val::Zst => match self.repr(o.ty)? {
+                Repr::Imm(t) => Ok(self.b.module().undef(t)),
+                _ => Err("a scalar was wanted, not a zero-sized value".into()),
+            },
         }
     }
 
@@ -804,7 +831,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         let tcx = self.cx.tcx;
         let (Some(src), Some(dst)) = (self.pointee(o.ty), self.pointee(to)) else { return Err("unsizing of something not a pointer".into()) };
         if let TyKind::Dyn(_) = tcx.kind(dst) {
-            return Err("`dyn` is not supported yet".into());
+            return Ok(self.trap_here(to, "`dyn` (unsizing)"));
         }
         let n = self.unsized_len(src, dst).ok_or_else(|| format!("unsizing {} to {}", tcx.display(self.cx.r, o.ty), tcx.display(self.cx.r, to)))?;
         let addr = self.imm(o)?;
@@ -1048,6 +1075,12 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                         self.trap();
                         Ok(Pv::Val(Operand { ty: tcx.mk(TyKind::Never), v: Val::Zst }))
                     }
+                    // `core::fmt` comes later: where formatting is
+                    // reached, the program traps.
+                    "format_args" | "const_format_args" | "format_args_nl" => {
+                        let t = self.ty(n)?;
+                        Ok(Pv::Val(self.trap_here(t, "`format_args!`")))
+                    }
                     _ => Err(format!("macro `{name}!` is not supported")),
                 }
             }
@@ -1086,8 +1119,11 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
     fn block(&mut self, n: NodeId) -> R<Pv> {
         let ast = self.body.ast;
         let kids = self.kids(n);
-        if kids.iter().any(|&c| ast.kind(c) == Kind::Keyword && matches!(ast.token(c).0, "async" | "try" | "gen")) {
-            return Err("`async`, `try` and `gen` blocks are not supported yet".into());
+        if kids.iter().any(|&c| ast.kind(c) == Kind::Keyword && matches!(ast.token(c).0, "async" | "gen")) {
+            return Err("`async` and `gen` blocks are not supported yet".into());
+        }
+        if kids.iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == "try") {
+            return self.try_block(n, &kids);
         }
         let label = kids.first().filter(|&&c| ast.kind(c) == Kind::Lifetime).map(|&c| ast.token(c).0);
         let stmts: Vec<NodeId> = kids.iter().copied().filter(|&c| !matches!(ast.kind(c), Kind::Lifetime | Kind::Keyword | Kind::InnerAttribute)).collect();
@@ -1144,6 +1180,54 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         // A block whose statements diverge has type `!`: its "value" is
         // never used.
         Ok(value)
+    }
+
+    /// `try { stmts; e }`: `Try::from_output(e)`, and each `?` in it that
+    /// fails gives `FromResidual::from_residual` of its residual as the
+    /// block's value instead of returning.
+    fn try_block(&mut self, n: NodeId, kids: &[NodeId]) -> R<Pv> {
+        let ast = self.body.ast;
+        let tcx = self.cx.tcx;
+        let t = self.ty(n)?;
+        let result = self.temp(t)?;
+        let exit = self.new_block("try.end");
+        self.tries.push((exit, result));
+        let stmts: Vec<NodeId> = kids.iter().copied().filter(|&c| !matches!(ast.kind(c), Kind::Lifetime | Kind::Keyword | Kind::InnerAttribute)).collect();
+        let mut value = Pv::Val(self.unit());
+        let last = stmts.len().checked_sub(1);
+        for (i, &s) in stmts.iter().enumerate() {
+            match ast.kind(s) {
+                Kind::LetStmt => {
+                    self.note(s);
+                    self.let_stmt(s)?;
+                }
+                Kind::ExprStmt => {
+                    let Some(&e) = self.kids(s).last() else { continue };
+                    self.note(s);
+                    self.expr(e)?;
+                }
+                k if super::pat::is_expr(k) => {
+                    self.note(s);
+                    let v = self.expr(s)?;
+                    if Some(i) == last {
+                        value = v;
+                    }
+                }
+                _ => {}
+            }
+        }
+        self.tries.pop();
+        if !self.terminated() {
+            let tr = *tcx.lang.get("Try").ok_or("no `Try`")?;
+            let from_output = self.trait_method(tr, "from_output").ok_or("no `from_output`")?;
+            let v = self.operand_of(value)?;
+            let r = self.call_def(from_output, vec![t], vec![v], None)?;
+            let o = self.operand_of(r)?;
+            self.store(Operand { ty: t, v: o.v }, result)?;
+        }
+        self.goto(exit);
+        self.b.at(exit);
+        Ok(Pv::Place(result))
     }
 
     fn let_stmt(&mut self, s: NodeId) -> R<()> {
@@ -1299,7 +1383,10 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 let pid = *tcx.param_at.get(&(self.body.k, self.body.f, *gp)).ok_or("generic parameter not found")?;
                 let i = self.body.params.iter().position(|&x| x == pid).ok_or("const parameter not in scope")?;
                 let TyKind::ConstArg(c) = tcx.kind(self.body.args[i]) else { return Err("const parameter without a value".into()) };
-                let v = self.cx.lcx.eval_const(c, &Default::default()).ok_or("const argument the evaluator cannot work out")?;
+                let v = self.cx.lcx.eval_const(c, &Default::default()).ok_or_else(|| match tcx.const_of(c) {
+                    crate::ty::Const::Expr(k, f, e) => format!("const argument the evaluator cannot work out: {}", self.cx.crates[k as usize].files[f as usize].ast.text(e)),
+                    c => format!("const argument the evaluator cannot work out: {c:?}"),
+                })?;
                 let t = self.ty(n)?;
                 let Repr::Imm(it) = self.repr(t)? else { return Err("const parameter of a type in memory".into()) };
                 let v = self.int_const(it, v as u128);
@@ -2072,7 +2159,17 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         let residual = self.field(cf, brk, 0)?;
         let r = self.load(residual)?;
         let out = self.call_def(from_residual, l2, vec![r], None)?;
-        self.ret_value(out)?;
+        match self.tries.last().copied() {
+            // In a `try` block: its value.
+            Some((exit, result)) => {
+                if !self.terminated() {
+                    let o = self.operand_of(out)?;
+                    self.store(Operand { ty: result.ty, v: o.v }, result)?;
+                }
+                self.goto(exit);
+            }
+            None => self.ret_value(out)?,
+        }
         self.b.at(go_on);
         Ok(Pv::Place(self.field(cf, cont, 0)?))
     }
@@ -2086,7 +2183,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             // A call through the `Fn` traits: `f(a, b)` is `Fn::call(&f,
             // (a, b))`.
             let margs = self.sub_list(margs);
-            let callee = self.operand(kids[0])?;
+            let callee = self.expr(kids[0])?;
             let mut args = Vec::new();
             for &a in &arg_nodes {
                 args.push(self.operand(a)?);
@@ -2120,15 +2217,21 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 let callee = self.operand(kids[0])?;
                 self.call_fn_ptr(callee, args)
             }
+            // A closure called directly: through its place, so that what
+            // an `FnMut` changes stays changed.
+            TyKind::Closure(..) | TyKind::Ref(..) => {
+                let callee = self.expr(kids[0])?;
+                self.call_value(callee, Vec::new(), args)
+            }
             _ => Err(format!("call of {}", tcx.display(self.cx.r, ct))),
         }
     }
 
     /// A call through the `Fn` traits of a value of type `callee.ty`.
-    fn call_value(&mut self, callee: Operand, margs: Vec<Ty>, args: Vec<Operand>) -> R<Pv> {
+    fn call_value(&mut self, callee: Pv, margs: Vec<Ty>, args: Vec<Operand>) -> R<Pv> {
         let tcx = self.cx.tcx;
         let _ = margs;
-        let mut place = self.place_of(Pv::Val(callee))?;
+        let mut place = self.place_of(callee)?;
         while let TyKind::Ref(..) = tcx.kind(place.ty) {
             let o = self.load(place)?;
             place = self.deref(o)?;
@@ -2182,7 +2285,8 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         let tcx = self.cx.tcx;
         let r = self.cx.r;
         if crate::mono::has_param_or_infer_list(tcx, &targs) {
-            return Err(format!("call of `{}` with arguments not concrete", r.def_path(d)));
+            let a: Vec<String> = targs.iter().map(|&t| tcx.display(r, t)).collect();
+            return Err(format!("call of `{}` with arguments not concrete: <{}>", r.def_path(d), a.join(", ")));
         }
         let resolved = crate::mono::instance(r, self.cx.crates, tcx, &mut self.solver, d, targs.clone());
         match resolved {
@@ -2233,7 +2337,11 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 let fp = self.field(tuple, 0, i)?;
                 inner.push(self.load(fp)?);
             }
-            return self.call_value(args[0], targs, inner);
+            return self.call_value(Pv::Val(args[0]), targs, inner);
+        }
+        if targs.first().is_some_and(|&t| matches!(tcx.kind(t), TyKind::Dyn(_))) {
+            let out = self.cx.signature(&mut self.solver, d, &targs)?.1;
+            return Ok(Pv::Val(self.trap_here(out, "`dyn` (a method)")));
         }
         Err(format!("built-in `{}` on {}", self.cx.r.def_path(d), targs.first().map(|&t| tcx.display(self.cx.r, t)).unwrap_or_default()))
     }

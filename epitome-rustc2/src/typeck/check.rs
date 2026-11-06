@@ -215,7 +215,7 @@ struct Loop<'s> {
 pub(super) struct FnCtxt<'a, 's> {
     pub(super) tcx: &'a TyCtxt<'s>,
     pub(super) r: &'a Resolver<'s>,
-    env: Env<'a, 's>,
+    pub(super) env: Env<'a, 's>,
     pub(super) infer: Infer<'a, 's>,
     pub(super) index: &'a Index<'s>,
     pub(super) k: u32,
@@ -1098,8 +1098,28 @@ impl<'a, 's> FnCtxt<'a, 's> {
             let params = tcx.all_params(imp.def);
             let args = self.infer.instantiate(&params);
             let st = subst(tcx, imp.self_ty, &params, &args);
+            let fresh = self.infer.snapshot();
             if self.infer.unify(st, t) {
                 return Some((item, args));
+            }
+            self.infer.rollback(fresh);
+            // A self type with a projection among its arguments
+            // (`ControlFlow<R, R::Output>`): the other arguments first, which
+            // settle the projection's, then the projection, normalised.
+            if let (TyKind::Adt(d, l), TyKind::Adt(e, m)) = (tcx.kind(st), tcx.kind(self.infer.shallow(t)))
+                && d == e
+                && tcx.tys(l).into_iter().any(|x| matches!(tcx.kind(x), TyKind::Projection(..)))
+            {
+                let (ls, ms) = (tcx.tys(l), tcx.tys(m));
+                let plain = ls.iter().zip(&ms).filter(|(a, _)| !matches!(tcx.kind(**a), TyKind::Projection(..))).all(|(&a, &b)| self.infer.unify(a, b));
+                let ok = plain
+                    && ls.iter().zip(&ms).filter(|(a, _)| matches!(tcx.kind(**a), TyKind::Projection(..))).all(|(&a, &b)| {
+                        let n = self.normalize(a, 0);
+                        self.infer.unify(n, b)
+                    });
+                if ok {
+                    return Some((item, args));
+                }
             }
             self.infer.rollback(s);
         }
@@ -1140,6 +1160,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     let s = self.probe();
                     if let Some((item, impl_args)) = self.inherent_item(tj, name, Ns::Value)
                         && self.r.defs[item.0 as usize].kind == DefKind::AssocFn
+                        && self.has_self(item)
                     {
                         let own = tcx.generics[item.0 as usize].own.len();
                         let mut args = impl_args;

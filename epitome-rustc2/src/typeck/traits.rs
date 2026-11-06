@@ -471,6 +471,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let tr = imp.trait_ref.as_ref()?;
         let iargs: Vec<Ty> = tcx.tys(tr.args).into_iter().map(|x| subst(tcx, x, &params, &args)).collect();
         let iargs = self.full_trait_args(tr.def, st, iargs);
+        // A default may be a projection (`FromResidual<R = <Self as
+        // Try>::Residual>`).
+        let iargs: Vec<Ty> = iargs.into_iter().map(|x| self.normalize(x, depth + 1)).collect();
         if !self.args_unify(&iargs, targs) {
             return None;
         }
@@ -576,6 +579,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
         if tcx.lang.get("metadata_type") == Some(&assoc) {
             return self.pointee_metadata(t, 0);
         }
+        if tcx.lang.get("discriminant_type") == Some(&assoc) {
+            return self.discriminant_type(t);
+        }
         let tr = self.trait_of(assoc)?;
         match self.select(t, tr, &args[1..], depth) {
             Select::Yes(Source::Impl(i, iargs)) => {
@@ -614,6 +620,28 @@ impl<'a, 's> FnCtxt<'a, 's> {
     }
 
     /// `t` with the projections in it worked out where they can be.
+    /// `<t as DiscriminantKind>::Discriminant`, which the compiler
+    /// implements: an enum's `repr` integer (`isize` without one), `u8`
+    /// for anything else. `None` while `t` is not known.
+    fn discriminant_type(&mut self, t: Ty) -> Option<Ty> {
+        let tcx = self.tcx;
+        let t = self.infer.shallow(t);
+        let named = |name: &str| crate::consteval::prim_named(name).map(|k| tcx.mk(k));
+        match tcx.kind(t) {
+            TyKind::Param(_) | TyKind::Infer(_) | TyKind::Projection(..) | TyKind::Opaque(..) | TyKind::Error => None,
+            TyKind::Adt(d, _) if tcx.adts.get(&d).is_some_and(|a| a.kind == crate::ty::AdtKind::Enum) => {
+                let def = &self.r.defs[d.0 as usize];
+                let ast = &self.env.crates[def.krate as usize].files[def.file as usize].ast;
+                let repr = crate::session::attributes(ast, def.node)
+                    .filter(|(n, _)| n == "repr")
+                    .flat_map(|(_, a)| ast.tokens_of(a).iter().map(|t| t.0).collect::<Vec<_>>())
+                    .find(|w| matches!(*w, "u8" | "u16" | "u32" | "u64" | "u128" | "usize" | "i8" | "i16" | "i32" | "i64" | "i128" | "isize"));
+                named(repr.unwrap_or("isize"))
+            }
+            _ => named("u8"),
+        }
+    }
+
     /// `<t as Pointee>::Metadata`, which the compiler implements: `usize`
     /// for slices and `str`, `DynMetadata<t>` for `dyn Trait`, `()` for a
     /// sized type, and a struct's or tuple's last field's for one ending
@@ -908,7 +936,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
     pub(super) fn trait_method(&mut self, recv: Ty, name: &str) -> Option<(DefId, Vec<Ty>, Vec<Ty>, Ty)> {
         let tcx = self.tcx;
         for (tr, item) in self.trait_candidates(name) {
-            if self.r.defs[item.0 as usize].kind != DefKind::AssocFn {
+            if self.r.defs[item.0 as usize].kind != DefKind::AssocFn || !self.has_self(item) {
                 continue;
             }
             let s = self.probe();
@@ -931,6 +959,14 @@ impl<'a, 's> FnCtxt<'a, 's> {
             return Some((item, args, inputs[1..].to_vec(), output));
         }
         None
+    }
+
+    /// Whether function `item` takes `self`: only those are methods
+    /// (`Sum::sum(iter)` is not).
+    pub(super) fn has_self(&self, item: DefId) -> bool {
+        let def = &self.r.defs[item.0 as usize];
+        let ast = &self.env.crates[def.krate as usize].files[def.file as usize].ast;
+        ast.child(def.node, crate::ast::Kind::Params).is_some_and(|p| ast.child(p, crate::ast::Kind::SelfParam).is_some())
     }
 
     /// `T::name` where `T` implements a trait with an item `name` (a

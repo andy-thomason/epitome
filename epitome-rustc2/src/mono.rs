@@ -169,6 +169,19 @@ impl<'a, 's> Walk<'a, 's> {
         for n in nodes {
             match ast.kind(n) {
                 Kind::PathExpr | Kind::IdentPat | Kind::PathPat => self.path_use(k, f, n, &params, &args),
+                // `try { .. }` ends in `Try::from_output`.
+                Kind::Block
+                    if ast.children(n).iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == "try")
+                        && let Some(Some(t)) = types.get(n.0 as usize)
+                        && let Some(&tr) = tcx.lang.get("Try")
+                        && let Some(Res::Def(m)) = self.r.defs[tr.0 as usize]
+                            .module
+                            .and_then(|m| self.r.modules[m.0 as usize].names.get(&("from_output", Ns::Value)))
+                            .map(|b| &b.res) =>
+                {
+                    let (m, t) = (*m, self.sub(*t, &params, &args));
+                    self.call(m, vec![t]);
+                }
                 Kind::Closure => {
                     if let Some(Some(t)) = types.get(n.0 as usize)
                         && let TyKind::Closure(c, _, _) = tcx.kind(*t)

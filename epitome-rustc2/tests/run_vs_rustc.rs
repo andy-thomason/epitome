@@ -4,7 +4,8 @@
 //! statuses must be the same.
 //!
 //! The programs are `#![no_std]` with a C `main`, and write through
-//! libc's `putchar`. rustc links them against libc, with a stub for
+//! libc's `putchar`; `floats.rs` uses `#![feature(f16)]`, which
+//! `RUSTC_BOOTSTRAP=1` lets rustc take. rustc links them against libc, with a stub for
 //! `rust_eh_personality`, which the precompiled `core` refers to although
 //! nothing unwinds. Only on x86-64 Linux, with rust-src and `cc`.
 
@@ -53,7 +54,10 @@ fn programs_match_rustc() {
     for p in &programs {
         let name = p.file_stem().unwrap().to_string_lossy().into_owned();
         let rc = dir.join(format!("{name}.rustc"));
+        // `RUSTC_BOOTSTRAP` lets this stable rustc take the features a
+        // program uses (`f16`).
         let built = Command::new("rustc")
+            .env("RUSTC_BOOTSTRAP", "1")
             .args(["--edition", "2024", "-C", "panic=abort", "-C", "link-arg=-lc"])
             .arg(format!("-Clink-arg={}", eh.display()))
             .arg(p)

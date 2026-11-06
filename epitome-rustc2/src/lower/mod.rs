@@ -193,9 +193,10 @@ impl<'a, 's> Cx<'a, 's> {
             _ if l.size == 0 && l.is_sized() => Repr::Zst,
             Abi::Scalar(s) => Repr::Imm(match s.prim {
                 Prim::Int { size, .. } => m.types.int(size as u32 * 8),
+                Prim::Float { size: 2 } => m.types.half(),
                 Prim::Float { size: 4 } => m.types.float(),
                 Prim::Float { size: 8 } => m.types.double(),
-                Prim::Float { .. } => return Err("f16 and f128 are not supported".into()),
+                Prim::Float { .. } => return Err("f128 is not supported".into()),
                 Prim::Pointer => m.types.ptr(0),
             }),
             _ => Repr::Mem,

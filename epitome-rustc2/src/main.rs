@@ -41,7 +41,7 @@
 //!   lowered (its body traps) with why.
 //! - `-o PATH`: monomorphise from the last crate's `main`, lower, optimise
 //!   with Epitome's optimiser, compile for the host with Epitome's code
-//!   generator, and link with `cc` into the executable `PATH`. It fails if
+//!   generator, and link with `cc` (and libm) into the executable `PATH`. It fails if
 //!   any function of the last crate could not be lowered.
 //! - `-O0`: with `-o`, do not optimise.
 //! - `--emit=obj`: with `-o`, write the object file to `PATH`, unlinked.
@@ -409,7 +409,9 @@ fn build(m: &mut epitome_ir::Module, target: epitome_rustc2::lower::Target, out:
     if emit_obj {
         return Ok(());
     }
-    let status = std::process::Command::new("cc").arg(&obj_path).arg("-o").arg(out).status();
+    // libm: Epitome's code generator calls `floorf`, `fma` and their
+    // kin where the machine has no instruction for them.
+    let status = std::process::Command::new("cc").arg(&obj_path).arg("-o").arg(out).arg("-lm").status();
     let _ = std::fs::remove_file(&obj_path);
     match status {
         Ok(s) if s.success() => Ok(()),

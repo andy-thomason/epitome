@@ -514,8 +514,7 @@ impl Fx<'_, '_, '_, '_> {
                     TyKind::Bool => (tok == "true") as u128,
                     TyKind::Char => super::body::parse_char(tok).ok_or("bad character")? as u128,
                     TyKind::Float(_) => {
-                        let digits: String = tok.trim_end_matches("f32").trim_end_matches("f64").chars().filter(|&c| c != '_').collect();
-                        let x: f64 = digits.parse().map_err(|_| "bad float")?;
+                        let x = super::body::parse_float(tok).ok_or("bad float")?;
                         let c = self.b.const_float(it, x);
                         return Ok(Operand { ty: t, v: Val::Imm(c) });
                     }

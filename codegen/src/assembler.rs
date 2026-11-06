@@ -471,7 +471,7 @@ impl<'t> Assembler<'t> {
     /// address of a label in the same section; and the symbol it refers
     /// to, if it does. (An x86 line written without the size suffix AT&T's
     /// mnemonics have, `mov %rbx, %rsi`, is read with the one its last
-    /// integer register gives, `movq`.)
+    /// integer register gives, `movq`; `call` with `q`.)
     fn encode(
         &self,
         line: &str,
@@ -484,7 +484,11 @@ impl<'t> Assembler<'t> {
             return first;
         }
         let m = mnemonic(line);
+        // `call` of a symbol has no register to size it: on x86-64 it is
+        // `callq`, as an assembler reads it.
+        let near = (m.eq_ignore_ascii_case("call")).then_some('q');
         let suffixed = gpr_suffix(&line[line.find(m).map_or(0, |k| k + m.len())..])
+            .or(near)
             .map(|c| format!("{}{c}", m.to_ascii_lowercase()))
             .filter(|x| self.by_mnemonic.contains_key(x.as_str()));
         match suffixed {

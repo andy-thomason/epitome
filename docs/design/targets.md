@@ -99,6 +99,7 @@ in number order:
 | `bits` | how wide a value it holds |
 | `holds` | `int`, `float` or `vector`; without it, the class is a *view* that only names registers for templates (`{n:b}` is `b3`; `lanes` gives the `v3` of `{n:4s}`, `v3.4s`) |
 | `sp` | `yes` if the number it shares with the zero register is the stack pointer in this class (AArch64's `xsp`), so the zero register cannot be named in it |
+| `width` | how wide its names are, where that is not `bits` (a view's): an inline-assembly operand narrower than its class is named in the class of its own width, as LLVM names it (an `i8` in x86's `r32` is `%al`, from `r8`, of `width` 8) |
 
 Inside the code generator, registers are numbered file after file, in the
 order the files are first named. AArch64's integer registers are 0–31 and
@@ -266,8 +267,16 @@ generator's:
   RISC-V's `{x10}` is `a0`);
 - `~{reg}` and `~{memory}` (clobbers);
 - `i` and `n` (immediates);
+- `s` (a global's address, written as its name: what Rust's `asm!` makes
+  of a `sym` operand, `${n:c}`);
 - the modifiers `c`, `n` and `z`, and `$$`, `${:uid}`, `${:comment}` and
   `${:private}`.
+
+A register operand without a modifier is written as the class it is in
+names it, except an integer narrower than that class, which is named at
+its own width where the file has a class of it (`width`): an `i8` result
+of `=q` is `%al`, as LLVM writes it. x86's assembler reads `call` without
+its suffix as `callq`.
 
 The rest is the description's, in three lists:
 

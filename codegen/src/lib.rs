@@ -252,6 +252,7 @@ fn compile_function(t: &Target, abi: &abi::Abi, cx: &mut Ctx, job: &Job, opts: &
     // A function that uses what the machine lacks is reported, not lowered.
     let mut machine = t.machine.fits(abi);
     machine.launch = t.role("launch").is_some();
+    machine.intrinsics = t.intrinsics.iter().filter(|n| !n.starts_with("llvm.")).cloned().collect();
     // Without i64: wide integers whose high bits are never needed, in the
     // machine's widest (`epitome_ir::narrow`).
     let narrowed;

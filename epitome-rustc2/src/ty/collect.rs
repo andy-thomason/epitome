@@ -150,8 +150,36 @@ fn generics<'s>(tcx: &mut TyCtxt<'s>, env: &Env<'_, 's>, d: DefId) {
             index += 1;
         }
     }
+    // `impl Trait` in a parameter's type is a parameter of its own, after
+    // those written (so callers choose it, as they do written ones).
+    if matches!(env.r.defs[d.0 as usize].kind, DefKind::Fn | DefKind::AssocFn)
+        && let Some(ps) = ast.child(at.2, Kind::Params)
+    {
+        let mut impls = Vec::new();
+        for &p in ast.children(ps) {
+            if ast.kind(p) == Kind::Param {
+                arg_impl_traits(ast, p, &mut impls);
+            }
+        }
+        for n in impls {
+            own.push(new_param(tcx, d, index, "impl", false, (at.0, at.1, n)));
+            index += 1;
+        }
+    }
     let n = own.len();
     tcx.generics[d.0 as usize] = Generics { parent, parent_count, own, defaults: vec![None; n] };
+}
+
+/// The `impl Trait` types under `n` (a parameter), not inside a function
+/// pointer type or `Fn` sugar, where they cannot be.
+fn arg_impl_traits(ast: &Ast, n: NodeId, out: &mut Vec<NodeId>) {
+    for &c in ast.children(n) {
+        match ast.kind(c) {
+            Kind::ImplTraitType => out.push(c),
+            Kind::FnPtrType => {}
+            _ => arg_impl_traits(ast, c, out),
+        }
+    }
 }
 
 /// The defaults of an item's own parameters.
@@ -204,6 +232,18 @@ fn impl_header<'s>(tcx: &TyCtxt<'s>, env: &Env<'_, 's>, d: DefId) -> (ImplDef, b
 /// The predicates of an item's generic parameters and `where` clause.
 fn predicates(l: &mut Lower, item: NodeId, preds: &mut Vec<Pred>) {
     let ast = l.env.ast(l.k, l.file);
+    // The bounds of `impl Trait` parameters.
+    for p in l.tcx.generics[l.owner.0 as usize].own.clone() {
+        let at = l.tcx.params[p.0 as usize].at;
+        if (at.0, at.1) == (l.k, l.file) && ast.kind(at.2) == Kind::ImplTraitType {
+            let t = l.tcx.mk(TyKind::Param(p));
+            if let Some(&b) = ast.children(at.2).first() {
+                for tr in l.bounds(b) {
+                    push_trait(l.tcx, preds, t, tr);
+                }
+            }
+        }
+    }
     if let Some(g) = ast.child(item, Kind::Generics) {
         for &p in ast.children(g) {
             if ast.kind(p) != Kind::TypeParam {
@@ -527,12 +567,13 @@ pub(crate) fn subst(tcx: &TyCtxt, t: Ty, params: &[ParamId], args: &[Ty]) -> Ty 
             sig.output = sub(sig.output);
             tcx.mk(TyKind::FnPtr(tcx.sig(sig)))
         }
-        TyKind::Closure(c, s) => {
+        TyKind::Closure(c, s, l) => {
             let mut sig = tcx.sig_of(s);
             sig.inputs = sub_list(sig.inputs);
             sig.output = sub(sig.output);
-            tcx.mk(TyKind::Closure(c, tcx.sig(sig)))
+            tcx.mk(TyKind::Closure(c, tcx.sig(sig), sub_list(l)))
         }
+        TyKind::Opaque(o, l) => tcx.mk(TyKind::Opaque(o, sub_list(l))),
         TyKind::Dyn(d) => {
             let mut data = tcx.dyn_of(d);
             for tr in &mut data.traits {

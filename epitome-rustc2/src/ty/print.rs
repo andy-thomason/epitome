@@ -155,7 +155,7 @@ impl TyCtxt<'_> {
                 }
                 let _ = write!(out, ">::{}", assoc.name);
             }
-            TyKind::Opaque(o) => {
+            TyKind::Opaque(o, _) => {
                 out.push_str("impl ");
                 for (i, t) in self.opaque(o).bounds.iter().enumerate() {
                     if i > 0 {
@@ -174,7 +174,7 @@ impl TyCtxt<'_> {
                 };
                 out.push_str(&format!(" is {}..={})", v(a), v(b)));
             }
-            TyKind::Closure(_, s) => {
+            TyKind::Closure(_, s, _) => {
                 let s = self.sig_of(s);
                 out.push_str("{closure}(");
                 self.write_list(r, &self.tys(s.inputs), out);

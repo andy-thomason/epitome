@@ -34,6 +34,11 @@ pub struct TypeckResults {
     pub tables: Vec<Vec<Tables>>,
     /// The bodies checked, by owner.
     pub bodies: Vec<DefId>,
+    /// What each `impl Trait` is, in terms of its owner's generic
+    /// parameters (from checking the owner's body).
+    pub hidden: FastMap<crate::ty::OpaqueId, Ty>,
+    /// The item each closure is written in.
+    pub closure_owners: FastMap<crate::ty::ClosureId, DefId>,
     pub stats: TypeckStats,
 }
 
@@ -111,6 +116,13 @@ pub struct Tables {
     pub pat_derefs: FastMap<NodeId, u32>,
     /// How each binding pattern binds.
     pub bindings: FastMap<NodeId, BindingMode>,
+    /// The type of an adjusted expression after its adjustments (an
+    /// unsizing's target, say).
+    pub adjusted: FastMap<NodeId, Ty>,
+    /// Calls a node makes without writing them, in order: a `for`'s
+    /// `IntoIterator::into_iter` and `Iterator::next`, a `?`'s
+    /// `Try::branch` and `FromResidual::from_residual`.
+    pub implicit: FastMap<NodeId, Vec<(DefId, List)>>,
 }
 
 /// One body to check.
@@ -132,6 +144,10 @@ struct BodyResult {
     adjustments: Vec<(NodeId, Vec<Adjust>)>,
     pat_derefs: Vec<(NodeId, u32)>,
     bindings: Vec<(NodeId, BindingMode)>,
+    adjusted: Vec<(NodeId, Ty)>,
+    implicit: Vec<(NodeId, DefId, List)>,
+    hidden: Vec<(crate::ty::OpaqueId, Ty)>,
+    closures: Vec<(crate::ty::ClosureId, DefId)>,
     errors: FastMap<String, usize>,
     error_nodes: usize,
     unknown_nodes: usize,
@@ -161,7 +177,9 @@ impl<'a, 's> Solver<'a, 's> {
         // The first crate's root: no predicates to assume.
         let root = r.defs.iter().position(|d| d.parent.is_none()).map_or(DefId(0), |i| DefId(i as u32));
         let def = &r.defs[root.0 as usize];
-        Solver { cx: check::FnCtxt::new(tcx, r, crates, index, root, def.krate, def.file) }
+        let mut cx = check::FnCtxt::new(tcx, r, crates, index, root, def.krate, def.file);
+        cx.where_depth = 4;
+        Solver { cx }
     }
 
     /// `t` with its projections worked out.
@@ -187,7 +205,11 @@ impl<'a, 's> Solver<'a, 's> {
                 Some(ImplSource::Impl(i, args))
             }
             traits::Select::Yes(_) => Some(ImplSource::Builtin),
-            _ => None,
+            traits::Select::Ambiguous => self.cx.select_specific(t, tr, targs).map(|(i, args)| {
+                let args = args.into_iter().map(|a| self.cx.infer.resolve(a)).collect();
+                ImplSource::Impl(i, args)
+            }),
+            traits::Select::No => None,
         };
         self.cx.rollback(s);
         got
@@ -260,7 +282,11 @@ impl Session {
             crates.iter().map(|c| c.files.iter().map(|_| Tables::default()).collect()).collect();
         let mut stats = TypeckStats::default();
         let mut reasons: FastMap<String, usize> = FastMap::default();
+        let mut hidden = FastMap::default();
+        let mut closure_owners = FastMap::default();
         for res in out.into_inner().unwrap() {
+            hidden.extend(res.hidden);
+            closure_owners.extend(res.closures);
             stats.bodies += 1;
             if res.error_nodes == 0 && res.unknown_nodes == 0 {
                 stats.clean_bodies += 1;
@@ -279,6 +305,10 @@ impl Session {
             t.adjustments.extend(res.adjustments);
             t.pat_derefs.extend(res.pat_derefs);
             t.bindings.extend(res.bindings);
+            t.adjusted.extend(res.adjusted);
+            for (n, d, l) in res.implicit {
+                t.implicit.entry(n).or_default().push((d, l));
+            }
             for (k, v) in res.errors {
                 *reasons.entry(k).or_default() += v;
             }
@@ -288,7 +318,7 @@ impl Session {
         stats.reasons = reasons;
         let mut bodies = checked.into_inner().unwrap();
         bodies.sort();
-        TypeckResults { types, tables, bodies, stats }
+        TypeckResults { types, tables, bodies, hidden, closure_owners, stats }
     }
 }
 
@@ -355,7 +385,7 @@ impl TypeckResults {
 }
 
 /// The nodes under `n`, in source order, not entering nested items.
-fn collect_nodes(ast: &crate::ast::Ast, n: NodeId, out: &mut Vec<NodeId>) {
+pub(crate) fn collect_nodes(ast: &crate::ast::Ast, n: NodeId, out: &mut Vec<NodeId>) {
     for &c in ast.children(n) {
         let k = ast.kind(c);
         if matches!(k, crate::ast::Kind::Fn | crate::ast::Kind::Impl | crate::ast::Kind::Mod | crate::ast::Kind::Struct | crate::ast::Kind::Enum | crate::ast::Kind::Trait) {
@@ -371,13 +401,19 @@ impl TyCtxt<'_> {
     pub fn has_infer(&self, t: Ty) -> bool {
         match self.kind(t) {
             TyKind::Infer(_) => true,
-            TyKind::Tuple(l) | TyKind::Adt(_, l) | TyKind::FnDef(_, l) | TyKind::Projection(_, l) => {
+            TyKind::Tuple(l) | TyKind::Adt(_, l) | TyKind::FnDef(_, l) | TyKind::Projection(_, l) | TyKind::Opaque(_, l) => {
                 self.tys(l).into_iter().any(|x| self.has_infer(x))
             }
             TyKind::Ref(_, x) | TyKind::Ptr(_, x) | TyKind::Slice(x) | TyKind::Array(x, _) | TyKind::Pat(x, ..) => self.has_infer(x),
-            TyKind::FnPtr(s) | TyKind::Closure(_, s) => {
+            TyKind::FnPtr(s) => {
                 let s = self.sig_of(s);
                 self.has_infer(s.output) || self.tys(s.inputs).into_iter().any(|x| self.has_infer(x))
+            }
+            TyKind::Closure(_, s, l) => {
+                let s = self.sig_of(s);
+                self.has_infer(s.output)
+                    || self.tys(s.inputs).into_iter().any(|x| self.has_infer(x))
+                    || self.tys(l).into_iter().any(|x| self.has_infer(x))
             }
             _ => false,
         }
@@ -477,7 +513,7 @@ mod tests {
             "a.parse().ok()? : u8",
             // `Default::default()` and `+` from bounds on an associated type.
             "Default::default() : <I as Iterator>::Item",
-            "a + b : <I as Iterator>::Item",
+            "a + b : <I as Iterator>::Item  [core::ops::arith::Add::add]",
             // A `dyn Trait` method.
             "w.write_str(s) : Result<(), Error>  [core::fmt::Write::write_str]",
             // Patterns through references and iterator adapters.

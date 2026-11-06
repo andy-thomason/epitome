@@ -639,6 +639,47 @@ from any thread: size, alignment, fields' offsets, the ABI (`Scalar`,
   `tests/layout_vs_rustc.rs` checks 45 types' sizes and alignments
   against a program rustc builds.
 
+### 8.2 Monomorphisation (`src/mono.rs`)
+
+Done. Starting from `main` (or, with none, every function of the last
+crate that is not generic), it finds every function the program needs at
+the generic arguments it is used with, and the closures, statics,
+constants and vtables. Each item is a job on the pool; finding a new one
+adds a job.
+
+- A body is walked with its arguments put in place of its parameters,
+  and the types it mentions normalised. The calls come from type
+  checking's tables: paths to functions, `methods` (method calls,
+  overloaded operators, `*`, `[]`, calls through `Fn`), `implicit` (the
+  `IntoIterator::into_iter` and `Iterator::next` of `for`, the
+  `Try::branch` and `FromResidual::from_residual` of `?`), and
+  `adjustments` (`Deref::deref`, and unsizing to `dyn`, which needs the
+  type's vtable).
+- A trait method resolves to the impl's method, or the trait's default,
+  by the type checker's own selection. With concrete types, impls'
+  `where` clauses are checked deeper than in bodies, and where several
+  impls match (specialisation), the one more specific than all the
+  others is taken: the others match its header, its `where` clauses
+  assumed.
+- Calls the compiler implements need no item: a closure or function
+  pointer called through `Fn` (a function item's own body runs), a `dyn`
+  method, `Clone` of a tuple or a `Copy` type.
+- `impl Trait` as a result is an opaque type with its owner's generic
+  arguments (`TyKind::Opaque(id, args)`), as a closure's type carries the
+  arguments of the item it is written in. Type checking records what
+  each opaque type is (its hidden type), from its owner's body;
+  monomorphisation puts that in its place. `impl Trait` as a parameter
+  is a generic parameter of its own, after the written ones, so callers
+  choose it as they do the others.
+- `--dump-mono` prints the items, `--mono-stats` counts them and what
+  could not be resolved (all of it with `EPITOME_MONO_ALL` set).
+
+From every non-generic function of `core` (on mandelbrot): 25,498 items
+from 44,998 uses, in 0.08 s. 2,241 uses (5%) are not resolved. 2,202 of
+those carry an error type from type checking, nearly all of them a
+const generic argument written as an expression (SIMD shuffle indices,
+atomic orderings). The other 39 are specialisations it cannot choose
+between and impls with nested associated-type bounds (`FlattenCompat`).
 
 Lowering is demand-driven monomorphisation: start from `main` (or every
 exported item of a library), and lower each `(DefId, generic args)`

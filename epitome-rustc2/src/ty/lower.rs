@@ -121,10 +121,12 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
             Kind::InferType if self.holes => self.tcx.mk(TyKind::Infer(u32::MAX)),
             Kind::InferType => self.err("`_` in a signature"),
             Kind::FnPtrType => self.fn_ptr(n),
+            // In a parameter's type: the parameter it stands for.
+            Kind::ImplTraitType if let Some(&p) = self.tcx.param_at.get(&(self.k, self.file, n)) => self.tcx.mk(TyKind::Param(p)),
             Kind::ImplTraitType => {
                 let bounds = kids.first().map(|&b| self.bounds(b)).unwrap_or_default();
                 let id = self.tcx.new_opaque(OpaqueDef { owner: self.owner, bounds });
-                self.tcx.mk(TyKind::Opaque(id))
+                self.tcx.mk(TyKind::Opaque(id, self.tcx.identity_args(self.owner)))
             }
             Kind::DynTraitType => {
                 let b = kids.iter().copied().find(|&c| ast.kind(c) == Kind::Bounds);

@@ -100,10 +100,12 @@ pub enum TyKind {
     /// `<Args[0] as Trait<Args[1..]>>::Assoc`: the associated type's
     /// `DefId`, and the trait's arguments with the self type first.
     Projection(DefId, List),
-    /// `impl Trait`.
-    Opaque(OpaqueId),
-    /// A closure (by where it is written) and its signature.
-    Closure(ClosureId, SigId),
+    /// `impl Trait`, with the arguments of its owner's generic parameters
+    /// (`TyCtxt::all_params` of the owner).
+    Opaque(OpaqueId, List),
+    /// A closure (by where it is written), its signature, and the arguments
+    /// of the generic parameters of the item it is written in.
+    Closure(ClosureId, SigId, List),
     /// A type from an `extern` block.
     Foreign(DefId),
     /// A pattern type, `pattern_type!(u32 is 1..)`: the type, holding only
@@ -410,14 +412,20 @@ impl<'s> TyCtxt<'s> {
     pub fn has_error(&self, t: Ty) -> bool {
         match self.kind(t) {
             TyKind::Error => true,
-            TyKind::Tuple(l) | TyKind::Adt(_, l) | TyKind::FnDef(_, l) | TyKind::Projection(_, l) => {
+            TyKind::Tuple(l) | TyKind::Adt(_, l) | TyKind::FnDef(_, l) | TyKind::Projection(_, l) | TyKind::Opaque(_, l) => {
                 self.tys(l).into_iter().any(|x| self.has_error(x))
             }
             TyKind::Ref(_, x) | TyKind::Ptr(_, x) | TyKind::Slice(x) | TyKind::Pat(x, ..) => self.has_error(x),
             TyKind::Array(x, c) => self.has_error(x) || self.const_of(c) == Const::Error,
-            TyKind::FnPtr(s) | TyKind::Closure(_, s) => {
+            TyKind::FnPtr(s) => {
                 let s = self.sig_of(s);
                 self.has_error(s.output) || self.tys(s.inputs).into_iter().any(|x| self.has_error(x))
+            }
+            TyKind::Closure(_, s, l) => {
+                let s = self.sig_of(s);
+                self.has_error(s.output)
+                    || self.tys(s.inputs).into_iter().any(|x| self.has_error(x))
+                    || self.tys(l).into_iter().any(|x| self.has_error(x))
             }
             TyKind::Dyn(d) => self.dyn_of(d).traits.iter().any(|t| self.trait_ref_has_error(t)),
             _ => false,

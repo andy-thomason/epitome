@@ -42,6 +42,10 @@ checking is under way.
     crates outside the session.
   - `--dump-types` prints every expression's type.
 
+- **Lowering** (section 8): layout, constants, monomorphisation and
+  bodies are done for small `#![no_std]` programs, which compile through
+  Epitome IR. Of the functions `core` reaches, 91% lower, SIMD aside.
+
 Everything after that is a plan.
 
 ## 1. Goals
@@ -403,6 +407,8 @@ macros of crates outside the session are still found by name.
 
 ### 6.5 Built-in macros and attributes
 
+`assert!(c)` is expanded as rustc expands it: `if !(c) { ::core::panicking::panic("assertion failed: c") }`, or `::core::panic!(message)` with a message.
+
 Done in expansion: `cfg_select!`, `cfg!`, `include!`, `stringify!`,
 `concat!`, `line!`, `column!`, `file!`, `module_path!`, `env!`,
 `option_env!`, `compile_error!`. A definition with
@@ -681,42 +687,138 @@ const generic argument written as an expression (SIMD shuffle indices,
 atomic orderings). The other 39 are specialisations it cannot choose
 between and impls with nested associated-type bounds (`FlattenCompat`).
 
-Lowering is demand-driven monomorphisation: start from `main` (or every
-exported item of a library), and lower each `(DefId, generic args)`
-instance once, walking its AST with the side tables and substituting
-the arguments as it goes. Instances that are found go on a worklist;
-functions are lowered in parallel.
+### 8.3 Lowering bodies (`src/lower/`)
 
-- **Layout:** our own algorithm for `repr(Rust)` (fields reordered by
-  alignment, niche-filling enums); `repr(C)`, `repr(transparent)`,
-  `repr(u8)`, ... as the Reference specifies. Everything in a program is
-  compiled by us, so our layout need not match rustc's.
-- **Places and values:** every local is an `alloca`; Epitome's mem2reg
-  and SROA turn them into registers. Expressions lower to an operand or
-  a place, following the adjustments table.
-- **Control flow:** blocks, `if`, `loop`, `while`, `for` (through
-  `IntoIterator`/`Iterator::next`), labelled `break` with values, `?`
-  (through `Try`), `let else`.
-- **Matching:** each `match` becomes a decision tree over the scrutinee's
-  places, tested column by column, with guards and or-patterns; the
-  same code serves `if let`, `while let`, `let else` and function
-  parameters.
-- **Drops:** a scope stack records what needs dropping; every exit
-  (fall-through, `break`, `return`, `?`, unwinding) runs the drops in
-  reverse. A value moved on some paths only gets a drop flag. Drop glue
-  for each type is generated on demand.
-- **Panics:** `panic=abort` first; unwinding (`invoke` and landing pads)
-  later, when Epitome's code generator supports it.
-- **Closures** become a struct of captures plus a function; **`dyn`**
-  becomes a vtable (drop, size, align, then methods); **`async` and
-  generators** become state machines (late).
-- **Symbols:** v0 mangling, as documented in the rustc book.
-- **Intrinsics and lang items** are recognised by attribute and lowered
-  to IR instructions or calls.
+Done for the programs in `tests/run/`. Each function instance and
+closure that monomorphisation finds becomes an IR function. Its body is
+walked straight from the syntax tree with type checking's tables, the
+instance's arguments put in place of its generic parameters as it goes.
+Every function is declared first, in order of name, so any body can call
+any other; then each is defined.
 
-`--dump-ir` prints each function's IR with a comment at the start of the
-instructions for each statement and expression, quoting the source, so
-the IR can be read against the AST.
+- **Values.** A type whose layout is one scalar is an SSA value: `iN` by
+  size (`bool` is `i8`), `float` or `double`, or `ptr`. A type of size
+  zero is no value. Everything else is kept in memory and handled by its
+  address: structs, enums, tuples, arrays, and pointers to unsized types
+  (an address and a length).
+- **Places.** Every local is a stack slot, an `alloca` of its size and
+  alignment in the entry block. A place (`a.b[i]`, `*p`) is an address: a
+  byte offset for a field, from the layout, and `index * stride` for an
+  element, checked against the length. Expressions give a place or a
+  value, and type checking's adjustments are applied to it in order:
+  `*`, `Deref::deref`, `&`, unsizing (`&[T; N]` to `&[T]`, and a struct
+  ending in an array to one ending in a slice), function items made
+  pointers.
+- **Calls.** Between our own functions: a scalar argument is passed as
+  itself, a zero-sized one not at all, and one in memory by the address of
+  a copy the callee may change (the callee copies it into its own slot
+  first, so a caller may pass the address of a place it still uses). A
+  result in memory is written through a pointer passed first. A trait
+  method resolves to the impl's by the same code monomorphisation uses.
+  `extern "C"` functions take and give scalars only, for now.
+- **Control flow.** `if` (with `let` chains), `loop` and labelled blocks
+  with `break` values, `while` and `while let`, `for` through
+  `IntoIterator::into_iter` and `Iterator::next`, `?` through
+  `Try::branch` and `FromResidual::from_residual`, `return`, `let else`.
+- **Patterns.** A pattern is matched against a place: each test branches
+  away when it fails, and bindings are made as the match goes. Enums are
+  read and written through their layout's tag, directly or in a niche.
+  Literals, ranges, constants, tuples, structs and variants, references,
+  slices (with `rest @ ..`), or-patterns (each alternative binding into
+  the same slots) and `@` bindings are lowered. A `match` tries its arms
+  in order.
+- **Closures.** Type checking records what each closure captures: every
+  local of an enclosing body it uses, by value in a `move` closure or
+  where the body moves a value that is not `Copy` out of it, by reference
+  otherwise. Whole variables are captured, not the fields used, which
+  behaves the same while nothing is dropped. A closure's value is a tuple
+  of its captures, and its function takes a pointer to that tuple first.
+  Calls through the `Fn` traits go to the closure's function, the function
+  item's own function, or through a function pointer.
+- **Constants.** One the evaluator can work out is an immediate; any other
+  has its initialiser lowered where it is used. A `static` must have a
+  value the evaluator can work out (an integer, `bool` or `char`) for now.
+  Const generic arguments are values in bodies.
+- **Intrinsics** (`#[rustc_intrinsic]` functions of `core`) are lowered at
+  the call: sizes and alignments, `transmute`, the arithmetic ones
+  (wrapping, unchecked, with overflow, saturating), bit counts and
+  rotations, pointer offsets, metadata and `aggregate_raw_ptr`,
+  `copy_nonoverlapping` and its kin, `discriminant_value`,
+  `const_eval_select` (the run-time function), and the checks of a build
+  without debug assertions (`ub_checks` is false).
+- **Panics** become a trap (`llvm.trap`), with no message: a call into
+  `core::panicking`, `panic!` and its relatives, an index out of bounds, a
+  division by zero, and a failed `assert!`. Arithmetic wraps, as in a
+  release build.
+- **Symbols** are the item's path and arguments, made safe for an
+  assembler, and a hash of where the item is written and of its
+  arguments in full; `#[no_mangle]`, `#[export_name]` and foreign items
+  keep their own names.
+
+A function whose body uses something not supported yet gets a body that
+traps, and `--lower-stats` lists each with why. `--dump-ir` prints the
+module, each function headed by the item it is and each statement's
+source quoted before its first instruction:
+
+```text
+define internal void @_Rbasics.swap.51a8c55a7a6ca9f4(ptr %0) {
+start:
+  ; fn basics::swap (basics.rs)
+  %1 = alloca [8 x i8], align 8
+  %2 = alloca [8 x i8], align 8
+  br label %body
+body:
+  store ptr %0, ptr %1, align 8
+  ; 69: let t = p.x;
+  %3 = load ptr, ptr %1, align 8
+  %4 = load i64, ptr %3, align 8
+  store i64 %4, ptr %2, align 8
+  ; 70: p.x = p.y;
+  ...
+```
+
+From every non-generic function of `core` (on mandelbrot): 21,922
+functions in 3.0 s, of which 4,602 (21%) are not lowered. 3,065 of those
+are SIMD (`core::arch`), which is not attempted; of the 16,854 others,
+1,537 (9%) are not lowered. The most common reasons: `f16` and `f128`
+(312), `format_args!`, `concat!` and `asm!` (179), intrinsics not yet
+supported (153), calls whose arguments type checking left unknown (109),
+and `dyn` methods.
+
+Lowering found and fixed these in type checking: it records which
+constant a path names (`tables.consts`, for `u64::MAX` and `T::ZERO`) and
+what each closure captures; const parameters are inferred through array
+lengths (`Const::Infer`); `<T as Pointee>::Metadata` is worked out; a
+`where T: PartialEq` bound takes its default `Rhs`; casts to `*const _`
+infer the pointee; structs unsize; and inherent methods of a type further
+along the autoderef chain come before trait methods when their receiver
+fits (`self.len()` in `impl ExactSizeIterator for IndexRange` calls the
+inherent `len`, not itself). Expansion now expands `assert!` as rustc
+does. On `core`, `alloc` and `std`, 96% of bodies now type completely,
+from 93%.
+
+Not done yet (they come after this series): drops and drop glue, `dyn`
+(vtables), `core::fmt` (so panics have no message), unwinding, `Box` and
+allocation, closures made function pointers, string patterns, statics of
+other types, `f16` and `f128`, SIMD, `async`, and v0 symbol mangling.
+
+**Correct but slow or bloated**, to improve later:
+
+- Functions are lowered one after another, not in parallel as section
+  10 plans: the IR builder holds the module mutably. Each function could
+  be built into a module of its own and the results joined.
+- Every value that is not a scalar lives in memory, including pairs (a
+  slice's pointer and length), which SSA could hold. Results in memory
+  go through a fresh slot at every call, aggregates are copied with
+  `memcpy` where they are built (a struct literal is built in a slot,
+  then copied into its place), and every parameter is copied into a slot
+  on entry. Epitome's SROA and `mem2reg` remove much of this.
+- A `match` tests its arms one after another, testing the same tag again
+  for each arm; a decision tree would test each column once.
+- `bool` is an `i8` everywhere, and every condition compares it with 0.
+- A function that cannot be lowered still gets a body (a trap), and
+  every function monomorphisation finds is lowered whether or not it is
+  called (panic paths, say).
 
 ## 9. Crates and Cargo
 
@@ -888,7 +990,8 @@ Tests of parallel stages run on one thread and on several, and compare.
    `#![no_std]` programs: integers, structs, enums, references, generics,
    traits, methods, closures (done; 93% of the bodies of `core`, `alloc`
    and `std` type completely).
-6. Lowering of those to Epitome IR; first run tests pass.
+6. Lowering of those to Epitome IR (done for the programs in
+   `tests/run/`); first run tests pass.
 7. Drops, `dyn`, slices and strings, formatting through `core::fmt`.
 8. `core`, then `alloc` and `std` from `rust-src`; Cargo builds.
 9. Unwinding, `async`, and the long tail.

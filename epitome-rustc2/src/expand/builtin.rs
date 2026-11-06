@@ -1,6 +1,6 @@
 //! Built-in macros: those expansion does itself (`cfg_select!`, `cfg!`,
 //! `include!`, `stringify!`, `concat!`, `line!`, `column!`, `file!`,
-//! `module_path!`, `env!`, `option_env!`, `compile_error!`), and those it
+//! `module_path!`, `env!`, `option_env!`, `compile_error!`, `assert!`), and those it
 //! leaves as calls for later stages (`format_args!`, `asm!`, ...).
 
 use super::lex_text;
@@ -25,6 +25,7 @@ const EXPANDED: &[&str] = &[
     "option_env",
     "compile_error",
     "pattern_type",
+    "assert",
 ];
 
 /// Built-ins left as calls, for type checking or lowering to handle.
@@ -35,7 +36,6 @@ const LEFT: &[&str] = &[
     "asm",
     "global_asm",
     "naked_asm",
-    "assert",
     "concat_idents",
     "concat_bytes",
     "include_str",
@@ -196,6 +196,52 @@ pub fn expand<'s>(cx: &Context<'_, 's>, name: &str, input: &[Token<'s>]) -> Resu
             Err(cx.error(msg.to_string()))
         }
         "include" => include(cx, input),
+        // `assert!(c)`: `if !(c) { ::core::panicking::panic("assertion
+        // failed: c") }`, as rustc expands it; with a message,
+        // `::core::panic!(message)` instead. The condition keeps its own
+        // tokens, so its names resolve where it was written.
+        "assert" => {
+            // The condition: the shortest run up to a comma at the top
+            // level that is an expression (`Simd<u16, N>` has a comma in
+            // it, which is not the end of the condition).
+            let close = super::mbe_delims(input);
+            let mut end = input.len();
+            let mut i = 0;
+            while i < input.len() {
+                if close[i] != usize::MAX {
+                    i = close[i];
+                } else if input[i].0 == "," {
+                    let part = &input[..i];
+                    let eof = part.last().map_or(Token(""), |t| Token(&t.0[t.0.len()..]));
+                    if crate::parse::parse_fragment(part.to_vec(), eof, Default::default(), crate::parse::Fragment::Expr).is_ok() {
+                        end = i;
+                        break;
+                    }
+                }
+                i += 1;
+            }
+            let cond = &input[..end];
+            if cond.is_empty() {
+                return Ok(None);
+            }
+            let rest = &input[end..];
+            let rest = rest.strip_prefix(&[Token(",")][..]).unwrap_or(rest);
+            let mut out = vec![Token("if"), Token("!"), Token("(")];
+            out.extend_from_slice(cond);
+            out.push(Token(")"));
+            out.push(Token("{"));
+            if rest.is_empty() {
+                let msg = quote(&format!("assertion failed: {}", joined(cond)));
+                out.extend(cx.text("<assert!>", format!("::core::panicking::panic({msg})"))?);
+            } else {
+                out.extend(cx.text("<assert!>", "::core::panic!".to_string())?);
+                out.push(Token("("));
+                out.extend_from_slice(rest);
+                out.push(Token(")"));
+            }
+            out.push(Token("}"));
+            Ok(Some(out))
+        }
         // `pattern_type!(u32 is 1..)`: `(u32 is 1..)`, a type form only
         // this makes, which the parser reads as a `PatternType`.
         "pattern_type" => {

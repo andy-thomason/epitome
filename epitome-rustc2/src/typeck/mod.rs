@@ -39,6 +39,8 @@ pub struct TypeckResults {
     pub hidden: FastMap<crate::ty::OpaqueId, Ty>,
     /// The item each closure is written in.
     pub closure_owners: FastMap<crate::ty::ClosureId, DefId>,
+    /// What each closure captures, in order.
+    pub captures: FastMap<crate::ty::ClosureId, Vec<Capture>>,
     pub stats: TypeckStats,
 }
 
@@ -95,6 +97,14 @@ impl std::fmt::Display for Adjust {
     }
 }
 
+/// A local a closure captures: the pattern that binds it, and whether the
+/// closure holds its value (else a reference to it).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Capture {
+    pub local: NodeId,
+    pub by_value: bool,
+}
+
 /// How a binding binds the value it matches.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum BindingMode {
@@ -123,6 +133,10 @@ pub struct Tables {
     /// `IntoIterator::into_iter` and `Iterator::next`, a `?`'s
     /// `Try::branch` and `FromResidual::from_residual`.
     pub implicit: FastMap<NodeId, Vec<(DefId, List)>>,
+    /// The constant (or associated constant) a path used as a value
+    /// names, and its generic arguments (an associated constant of a
+    /// trait has `Self` first; monomorphisation picks the impl's).
+    pub consts: FastMap<NodeId, (DefId, List)>,
 }
 
 /// One body to check.
@@ -141,6 +155,7 @@ struct BodyResult {
     file: u32,
     types: Vec<(NodeId, Ty)>,
     methods: Vec<(NodeId, DefId, List)>,
+    consts: Vec<(NodeId, DefId, List)>,
     adjustments: Vec<(NodeId, Vec<Adjust>)>,
     pat_derefs: Vec<(NodeId, u32)>,
     bindings: Vec<(NodeId, BindingMode)>,
@@ -148,6 +163,7 @@ struct BodyResult {
     implicit: Vec<(NodeId, DefId, List)>,
     hidden: Vec<(crate::ty::OpaqueId, Ty)>,
     closures: Vec<(crate::ty::ClosureId, DefId)>,
+    captures: Vec<(crate::ty::ClosureId, Vec<Capture>)>,
     errors: FastMap<String, usize>,
     error_nodes: usize,
     unknown_nodes: usize,
@@ -284,9 +300,11 @@ impl Session {
         let mut reasons: FastMap<String, usize> = FastMap::default();
         let mut hidden = FastMap::default();
         let mut closure_owners = FastMap::default();
+        let mut captures = FastMap::default();
         for res in out.into_inner().unwrap() {
             hidden.extend(res.hidden);
             closure_owners.extend(res.closures);
+            captures.extend(res.captures);
             stats.bodies += 1;
             if res.error_nodes == 0 && res.unknown_nodes == 0 {
                 stats.clean_bodies += 1;
@@ -302,6 +320,7 @@ impl Session {
             }
             let t = &mut tables[res.k as usize][res.file as usize];
             t.methods.extend(res.methods.into_iter().map(|(n, d, l)| (n, (d, l))));
+            t.consts.extend(res.consts.into_iter().map(|(n, d, l)| (n, (d, l))));
             t.adjustments.extend(res.adjustments);
             t.pat_derefs.extend(res.pat_derefs);
             t.bindings.extend(res.bindings);
@@ -318,7 +337,7 @@ impl Session {
         stats.reasons = reasons;
         let mut bodies = checked.into_inner().unwrap();
         bodies.sort();
-        TypeckResults { types, tables, bodies, hidden, closure_owners, stats }
+        TypeckResults { types, tables, bodies, hidden, closure_owners, captures, stats }
     }
 }
 
@@ -404,7 +423,9 @@ impl TyCtxt<'_> {
             TyKind::Tuple(l) | TyKind::Adt(_, l) | TyKind::FnDef(_, l) | TyKind::Projection(_, l) | TyKind::Opaque(_, l) => {
                 self.tys(l).into_iter().any(|x| self.has_infer(x))
             }
-            TyKind::Ref(_, x) | TyKind::Ptr(_, x) | TyKind::Slice(x) | TyKind::Array(x, _) | TyKind::Pat(x, ..) => self.has_infer(x),
+            TyKind::Ref(_, x) | TyKind::Ptr(_, x) | TyKind::Slice(x) | TyKind::Pat(x, ..) => self.has_infer(x),
+            TyKind::Array(x, c) => self.has_infer(x) || matches!(self.const_of(c), crate::ty::Const::Infer(_)),
+            TyKind::ConstArg(c) => matches!(self.const_of(c), crate::ty::Const::Infer(_)),
             TyKind::FnPtr(s) => {
                 let s = self.sig_of(s);
                 self.has_infer(s.output) || self.tys(s.inputs).into_iter().any(|x| self.has_infer(x))
@@ -483,7 +504,10 @@ mod tests {
         // What lowering is told: adjustments, binding modes and the
         // methods operators and calls through `Fn` call.
         for want in [
-            "a : &str  {*, &}",
+            // `str::parse(&self)` takes the `&str` as it is: inherent
+            // methods of types further along the autoderef chain count at
+            // the first step their receiver fits.
+            "a : &str",
             "Shape::Circle(r) : Shape  {through 1 &}",
             "r : &u32  {by ref}",
             "3 * r : u32  [core::ops::arith::Mul::mul]",

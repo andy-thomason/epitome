@@ -127,6 +127,9 @@ pub enum Const {
     Param(ParamId),
     /// An expression not yet evaluated: crate, file and node.
     Expr(u32, u32, NodeId),
+    /// While checking a body: the inference variable a const parameter's
+    /// argument is (bound, when known, to a `ConstArg`).
+    Infer(u32),
     Error,
 }
 

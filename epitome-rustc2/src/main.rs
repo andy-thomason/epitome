@@ -34,6 +34,11 @@
 //! - `--dump-mono`: monomorphise from the last crate's `main` (or its
 //!   non-generic functions), and print every item needed.
 //! - `--mono-stats`: monomorphise, and count the items and what failed.
+//! - `--dump-ir`: monomorphise, lower every function instance to Epitome
+//!   IR, and print the module, with the source of each statement as a
+//!   comment.
+//! - `--lower-stats`: lower, and list each function that could not be
+//!   lowered (its body traps) with why.
 //! - `--dump-layout`: the layout of every non-generic struct, enum, union
 //!   and type alias of the last crate given.
 //! - `--parse-tree dir`: parse every `.rs` file under `dir` (each on its
@@ -65,6 +70,7 @@ fn main() -> ExitCode {
     let (mut dump_types, mut typeck_stats) = (false, false);
     let mut dump_layout = false;
     let (mut dump_mono, mut mono_stats) = (false, false);
+    let (mut dump_ir, mut lower_stats) = (false, false);
     let mut tree: Option<PathBuf> = None;
     let mut cfg = CfgSet::host();
     let mut externs: Vec<(String, PathBuf)> = Vec::new();
@@ -92,6 +98,8 @@ fn main() -> ExitCode {
             "--dump-layout" => dump_layout = true,
             "--dump-mono" => dump_mono = true,
             "--mono-stats" => mono_stats = true,
+            "--dump-ir" => dump_ir = true,
+            "--lower-stats" => lower_stats = true,
             _ if arg.starts_with("--cfg") => {
                 let v = value("--cfg").unwrap_or_default();
                 match v.split_once('=') {
@@ -184,7 +192,7 @@ fn main() -> ExitCode {
             }
         }
     }
-    if dump_sigs || types_stats || dump_types || typeck_stats || dump_layout || dump_mono || mono_stats {
+    if dump_sigs || types_stats || dump_types || typeck_stats || dump_layout || dump_mono || mono_stats || dump_ir || lower_stats {
         let r = session.resolve(&crates);
         let t = std::time::Instant::now();
         let tcx = session.collect_types(&crates, &r);
@@ -211,7 +219,7 @@ fn main() -> ExitCode {
             let cx = epitome_rustc2::layout::LayoutCx::new(&tcx, &r, &crates, &index, Default::default());
             print!("{}", cx.dump(Some(crates.len() as u32 - 1)));
         }
-        if dump_mono || mono_stats {
+        if dump_mono || mono_stats || dump_ir || lower_stats {
             let index = epitome_rustc2::typeck::Index::new(&tcx, &r);
             let res = session.typeck_with(&crates, &r, &tcx, &index);
             let t = std::time::Instant::now();
@@ -233,6 +241,26 @@ fn main() -> ExitCode {
                 let shown = if std::env::var_os("EPITOME_MONO_ALL").is_some() { usize::MAX } else { 20 };
                 for (why, n) in mono.unresolved.iter().take(shown) {
                     eprintln!("  {n:6} {why}");
+                }
+            }
+            if dump_ir || lower_stats {
+                let t = std::time::Instant::now();
+                let target = epitome_rustc2::lower::Target::host();
+                let lowered = session.lower(&crates, &r, &tcx, &index, &res, &mono, target);
+                let elapsed = t.elapsed();
+                if dump_ir {
+                    print!("{}", lowered.dump());
+                }
+                if lower_stats {
+                    eprintln!(
+                        "lower: {} functions, {} not lowered, in {:.3} s",
+                        lowered.functions,
+                        lowered.failures.len(),
+                        elapsed.as_secs_f64()
+                    );
+                    for f in &lowered.failures {
+                        eprintln!("  {}: {}", f.name, f.why);
+                    }
                 }
             }
         }

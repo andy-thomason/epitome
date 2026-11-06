@@ -30,10 +30,10 @@ The plan is in [`docs/design.md`](docs/design.md).
 | Proc macros | Working | Run through the toolchain's proc-macro server; in-process loading will come once we can compile proc-macro crates. |
 | Name resolution | Done | 350,676 paths in 0.1 s. Only 1,313 are unresolved, all of them in crates outside the session (libc and others). |
 | Signatures and the type table | Done | 54,641 signatures and 13,886 impls in 0.1 s. The 159 with error types all name external crates. |
-| Type checking bodies | Done (first version) | 32,847 bodies in 0.4 s, 92% typed completely. Most of the rest use libc. |
+| Type checking bodies | Done (first version) | 32,847 bodies in 0.5 s, 96% typed completely. Most of the rest use libc. |
 | Layout and constants | Done | Sizes and alignments match rustc's for the 45 types tested. |
-| Monomorphisation | Done | From every non-generic function of `core`: 25,498 items in 0.08 s. 95% of uses resolve; most of the rest have error types from type checking. |
-| Lowering to Epitome IR | Next | |
+| Monomorphisation | Done | From every non-generic function of `core`: 27,436 items in 0.09 s. 98% of uses resolve; most of the rest have error types from type checking. |
+| Lowering to Epitome IR | Working | The programs in `tests/run/` lower completely. Of the 16,854 functions `core` reaches outside SIMD, 91% lower; the rest trap, and `--lower-stats` says why. |
 
 Everything up to and including type checking `core`, `alloc` and `std`
 together takes 1.3 s of wall time.
@@ -53,6 +53,8 @@ $B --dump-sigs $L/core/src/lib.rs file.rs    # item signatures (with core)
 $B --dump-types $L/core/src/lib.rs file.rs   # the type of every expression
 $B --dump-layout $L/core/src/lib.rs file.rs  # each type's size, alignment and fields
 $B --dump-mono $L/core/src/lib.rs file.rs    # every function instance main needs
+$B --dump-ir $L/core/src/lib.rs file.rs      # the Epitome IR, with the source as comments
+$B --lower-stats $L/core/src/lib.rs file.rs  # what could not be lowered, and why
 
 # The statistics for each stage, on the standard library.
 $B --edition 2024 --expand-stats --resolve-stats --types-stats --typeck-stats \
@@ -223,6 +225,7 @@ is checked against `core`:
 | `typeck` | Bodies in parallel: inference (`infer.rs`), expressions and patterns (`check.rs`), and traits (`traits.rs`). |
 | `layout`, `consteval` | Types' sizes, alignments, fields and niches; constants worked out from the typed tree. |
 | `mono` | Monomorphisation: every function instance, closure, vtable and constant a program needs. |
+| `lower` | Bodies to Epitome IR: values and places (`body.rs`), patterns and enums (`pat.rs`), and intrinsics (`intrinsic.rs`). |
 | `hash`, `intern` | A fast hasher, and sharded interners for ids. |
 
 ## Tests
@@ -232,5 +235,6 @@ cargo test --release -p epitome-rustc2
 ```
 
 The tests cover the parser, expansion against `rustc -Zunpretty=expanded`,
-the proc-macro server, signatures, and type checking (with `core` from
-rust-src, if it is installed).
+the proc-macro server, signatures, type checking, layout against rustc,
+monomorphisation, and lowering the programs in `tests/run/` (with `core`
+from rust-src, if it is installed).

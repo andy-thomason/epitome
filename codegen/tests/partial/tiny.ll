@@ -1,7 +1,7 @@
 ; tiny: a made-up control core, for testing partial machines
 ; (docs/design/partial-machines.md). It has sixteen 32-bit registers,
-; arithmetic, compare-and-branch and an instruction that ends the
-; program, and nothing else: no memory, so no stack and no globals; no
+; arithmetic, compare-and-branch, an instruction that starts another
+; unit's program and one that ends this one, and nothing else: no memory, so no stack and no globals; no
 ; calls; no floating point; nothing wider than 32 bits; no branch through
 ; a register; no trap.
 ;
@@ -22,6 +22,10 @@
 !10 = !{!"r", !"r{0-15}"}
 !target.classes = !{!11}
 !11 = !{!"r", !"file", !"r", !"bits", !"32", !"holds", !"int"}
+
+; The launched program's entry, in words.
+!target.relocs = !{!40}
+!40 = !{!"name", !"launch", !"elf", !"1", !"elf-name", !"R_TINY_LAUNCH"}
 
 !target.params = !{!20, !21, !22, !23}
 !20 = !{!"boolean-branches", !"compare"}
@@ -233,6 +237,13 @@ n:
 }
 define void @jmp(ptr "label" %l) "enc"="101000 00000000 o:s18=l>>2" "asm"="jmp {l}" "role"="jump" {
   indirectbr ptr %l, []
+}
+
+; Starts another unit's program, named by its symbol (an "epitome-opaque"
+; function, compiled by something else), with its arguments in r1-r4, and
+; carries on at once: the launch is not a call, and nothing returns.
+define void @launch(ptr "sym" %s) "enc"="101001 0000000 e:19=s>>2" "asm"="launch {s}" "reloc"="launch" "role"="launch" "nomatch" {
+  ret void
 }
 
 ; The end of the program: with no calls, a return is the end.

@@ -71,6 +71,7 @@ fn read_machine(path: &str) -> Result<epitome_ir::fits::Machine, String> {
         let one = epitome_ir::fits::Machine::read(&d)?;
         mc.lacks.extend(one.lacks);
         mc.widest = mc.widest.max(one.widest);
+        mc.launch |= one.launch;
     }
     Ok(mc)
 }
@@ -206,13 +207,18 @@ fn main() -> ExitCode {
     if let Some(t) = &target {
         match read_machine(t) {
             Ok(mc) => {
-                for &g in &m.global_order {
+                for g in m.global_order.clone() {
                     let gl = &m.globals[g.index()];
+                    // (An opaque function is for another machine.)
                     if let GlobalKind::Function(f) = &gl.kind
                         && f.has_body
+                        && !epitome_ir::fits::opaque(&m, &f.fn_attrs)
                     {
                         let name = gl.name.clone().unwrap_or_default();
-                        for w in epitome_ir::fits::check(&mc, &m, f, &name) {
+                        // As epitome-llc will see it: without i64, narrowed.
+                        let f = (**f).clone();
+                        let f = if mc.lacks("i64") { epitome_ir::narrow::narrow(&mut m, &f, mc.widest) } else { f };
+                        for w in epitome_ir::fits::check(&mc, &m, &f, &name) {
                             eprintln!("warning: {w}");
                         }
                     }

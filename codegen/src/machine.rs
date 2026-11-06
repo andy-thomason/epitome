@@ -497,6 +497,8 @@ impl Machine {
             widest,
             arg_regs: abi.args.len(),
             result_regs: abi.result_list.as_ref().map_or(1, |r| r.len()),
+            // (Known to the target, which sets it: `Target::role`.)
+            launch: false,
         }
     }
 

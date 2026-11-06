@@ -5,10 +5,12 @@
 //! program that cannot be compiled is told why rather than failing
 //! somewhere in the code generator.
 //!
-//! `epitome-llc` runs it on each function before lowering it and reports
-//! what it finds as errors; `epitome-opt --target` runs it after
-//! optimising and reports warnings, where the optimiser can still be asked
-//! to do something about it (inline, unroll, promote to registers).
+//! `epitome-llc` runs it on each function before lowering it, and again
+//! on what preparing it for selection made (which may have added library
+//! calls), and reports what it finds as errors; `epitome-opt --target` runs
+//! it after optimising and reports warnings, where the optimiser can still
+//! be asked to do something about it (inline, unroll, promote to
+//! registers).
 
 use crate::module::*;
 use crate::printer::{inst_name, local_name};
@@ -28,6 +30,20 @@ pub struct Machine {
     pub arg_regs: usize,
     /// How many registers its convention returns a result in.
     pub result_regs: usize,
+    /// Whether it has an instruction that starts another unit's program
+    /// (`"role"="launch"`), which a call to an `"epitome-opaque"` function
+    /// becomes.
+    pub launch: bool,
+}
+
+/// Whether a function with attributes `attrs` is `"epitome-opaque"`: for
+/// another tool, so not optimised, inlined or lowered here.
+pub fn opaque(m: &Module, attrs: &[Attr]) -> bool {
+    attrs.iter().any(|a| match a {
+        Attr::Str { key, .. } => key.as_slice() == b"epitome-opaque",
+        Attr::Group(n) => m.attr_groups.iter().filter(|g| g.id == *n).any(|g| opaque(m, &g.attrs)),
+        _ => false,
+    })
 }
 
 impl Machine {
@@ -50,6 +66,14 @@ impl Machine {
                 mc.lacks.push(what);
             }
         }
+        mc.launch = d.globals.iter().any(|g| {
+            match &g.kind {
+            GlobalKind::Function(f) => f.fn_attrs.iter().any(|a| {
+                matches!(a, Attr::Str { key, value: Some(v) } if key.as_slice() == b"role" && v.as_slice() == b"launch")
+            }),
+            _ => false,
+        }
+        });
         for t in tuples(d, "target.classes") {
             let prop = |k: &str| t.iter().position(|x| x == k).and_then(|i| t.get(i + 1));
             if prop("holds").is_some_and(|h| h == "int") && prop("sp").is_none_or(|s| s != "yes") {
@@ -266,7 +290,31 @@ impl Fits<'_> {
                 None => {}
                 Some(Some(g)) => {
                     let n = self.m.global(g).name.clone().unwrap_or_default();
-                    if let Some(intrinsic) = n.strip_prefix("llvm.") {
+                    let opaque = match &self.m.global(g).kind {
+                        GlobalKind::Function(f) => opaque(self.m, &f.fn_attrs),
+                        _ => false,
+                    };
+                    if opaque && mc.lacks("calls") {
+                        // Started on another unit, by the launch instruction.
+                        if !mc.launch {
+                            out.push(format!(
+                                "a call to @{n}, which is epitome-opaque, and the machine has no calls and no launch \
+                                 instruction"
+                            ));
+                        } else if mc.lacks("stack") && call.args.len() > mc.arg_regs {
+                            out.push(format!(
+                                "a launch of @{n} with {} arguments: only {} are passed in registers, and the \
+                                 machine has no stack",
+                                call.args.len(),
+                                mc.arg_regs
+                            ));
+                        } else if inst
+                            .result
+                            .is_some_and(|r| !matches!(self.m.types.get(self.f.locals[r.index()].ty), Type::Void))
+                        {
+                            out.push(format!("a launch of @{n} that returns a value, and a launch returns nothing"));
+                        }
+                    } else if let Some(intrinsic) = n.strip_prefix("llvm.") {
                         if mc.lacks("memory")
                             && ["memcpy", "memmove", "memset"].iter().any(|p| intrinsic.starts_with(p))
                         {

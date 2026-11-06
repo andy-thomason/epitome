@@ -21,6 +21,7 @@ pub mod lexer;
 pub mod memlimit;
 pub mod metadata;
 pub mod module;
+pub mod narrow;
 pub mod parser;
 pub mod printer;
 pub mod types;

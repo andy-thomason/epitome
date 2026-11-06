@@ -72,6 +72,37 @@ pub struct Compiled {
     pub chop_names: Vec<String>,
     pub chop_counts: Vec<epitome_ir::chop::Counter>,
     pub chop_stopped: Option<(usize, u64, Option<String>)>,
+    /// The module's `"epitome-opaque"` functions, as IR for another tool:
+    /// the module with every other function a declaration. None when it
+    /// has none.
+    pub opaque: Option<String>,
+}
+
+/// `m` as IR text with only the functions `keep` defined: every other
+/// function is a declaration (an internal one made external, as a
+/// declaration must be).
+fn opaque_module(m: &Module, keep: &[GlobalId]) -> String {
+    let mut m = m.clone();
+    for &g in &m.global_order.clone() {
+        if keep.contains(&g) {
+            continue;
+        }
+        let gl = &mut m.globals[g.index()];
+        let GlobalKind::Function(f) = &mut gl.kind else { continue };
+        if !f.has_body {
+            continue;
+        }
+        f.locals.truncate(f.params.len());
+        f.blocks.clear();
+        f.layout.clear();
+        f.insts.clear();
+        f.has_body = false;
+        f.personality = None;
+        if matches!(gl.props.linkage, Linkage::Private | Linkage::Internal) {
+            gl.props.linkage = Linkage::External;
+        }
+    }
+    epitome_ir::printer::print_module(&m)
 }
 
 /// Which stages to stop after, for looking at the machine IR.
@@ -188,13 +219,30 @@ fn compile_function(t: &Target, abi: &abi::Abi, cx: &mut Ctx, job: &Job, opts: &
     use std::time::Instant;
     cx.features = features::of_function(t, cx.m, &job.body.fn_attrs, opts.mcpu.as_deref(), &opts.mattr)?;
     // A function that uses what the machine lacks is reported, not lowered.
-    let problems = epitome_ir::fits::check(&t.machine.fits(abi), cx.m, &job.body, &job.name);
+    let mut machine = t.machine.fits(abi);
+    machine.launch = t.role("launch").is_some();
+    // Without i64: wide integers whose high bits are never needed, in the
+    // machine's widest (`epitome_ir::narrow`).
+    let narrowed;
+    let body = if machine.lacks("i64") {
+        narrowed = epitome_ir::narrow::narrow(cx.m, &job.body, machine.widest);
+        &narrowed
+    } else {
+        &job.body
+    };
+    let problems = epitome_ir::fits::check(&machine, cx.m, body, &job.name);
     if !problems.is_empty() {
         return Err(problems.join("\n"));
     }
     let now = Instant::now();
-    let prepared = prepare::prepare(cx, &job.body, &job.name)?;
+    let prepared = prepare::prepare(cx, body, &job.name)?;
     timing::add(&timing::PREPARE, now);
+    // And what preparing it added: the library calls of division, or of
+    // floating point, where the machine has no instruction for them.
+    let problems = epitome_ir::fits::check(&machine, cx.m, &prepared, &job.name);
+    if !problems.is_empty() {
+        return Err(problems.join("\n"));
+    }
     let now = Instant::now();
     let mut mf = isel::Sel::new(t, abi, cx, &prepared, &job.name, job.global).run()?;
     timing::add(&timing::SELECT, now);
@@ -263,7 +311,28 @@ pub fn compile(t: &Target, m: &mut Module, opts: &Options) -> Result<Compiled, S
     // The bodies come out of the module (its parameters stay, which other
     // functions' calls may look at), and go back at the end.
     let mut jobs: Vec<(GlobalId, Job)> = Vec::new();
+    // An `"epitome-opaque"` function is for another tool: not lowered, but
+    // written out as IR (`Compiled::opaque`).
+    let opaque: Vec<GlobalId> = m
+        .global_order
+        .iter()
+        .copied()
+        .filter(|&g| match &m.globals[g.index()].kind {
+            GlobalKind::Function(f) => f.has_body && epitome_ir::fits::opaque(m, &f.fn_attrs),
+            _ => false,
+        })
+        .collect();
+    let opaque_ir = (!opaque.is_empty()).then(|| opaque_module(m, &opaque));
+    // Here they are declarations, defined elsewhere.
+    for &g in &opaque {
+        if let GlobalKind::Function(f) = &mut m.globals[g.index()].kind {
+            f.has_body = false;
+        }
+    }
     for &g in &m.global_order {
+        if opaque.contains(&g) {
+            continue;
+        }
         let gl = &mut m.globals[g.index()];
         let name = gl.name.clone().unwrap_or_else(|| format!("f{}", g.0));
         let global = !matches!(gl.props.linkage, Linkage::Private | Linkage::Internal);
@@ -307,7 +376,12 @@ pub fn compile(t: &Target, m: &mut Module, opts: &Options) -> Result<Compiled, S
         isel::stats::flush,
     );
     let chop_names: Vec<String> = jobs.iter().map(|(_, j)| j.name.clone()).collect();
-    // The bodies go back.
+    // The bodies go back, the opaque functions' with them.
+    for &g in &opaque {
+        if let GlobalKind::Function(f) = &mut m.globals[g.index()].kind {
+            f.has_body = true;
+        }
+    }
     for (g, job) in jobs {
         if let GlobalKind::Function(f) = &mut m.globals[g.index()].kind {
             f.locals = job.body.locals;
@@ -391,6 +465,7 @@ pub fn compile(t: &Target, m: &mut Module, opts: &Options) -> Result<Compiled, S
         chop_names,
         chop_counts: chop.counts(),
         chop_stopped: chop.stopped_at(),
+        opaque: opaque_ir,
     })
 }
 

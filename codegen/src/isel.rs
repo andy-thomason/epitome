@@ -2931,6 +2931,20 @@ impl<'a, 'b> Sel<'a, 'b> {
             (Some(_), _) => None,
             (None, v) => Some(self.reg_for(v, self.int_class(true))?),
         };
+        // A call to an `"epitome-opaque"` function, on a machine that has a
+        // launch instruction, starts that function's program on another
+        // unit: its arguments where a call's go, then the launch, which
+        // names it by symbol and returns nothing.
+        let launch = self.t.role("launch").filter(|_| match call.callee {
+            Value::Const(k) => match &self.cx.m.constant(k).kind {
+                ConstKind::Global(g) => match &self.cx.m.global(*g).kind {
+                    GlobalKind::Function(callee) => epitome_ir::fits::opaque(self.cx.m, &callee.fn_attrs),
+                    _ => false,
+                },
+                _ => false,
+            },
+            _ => false,
+        });
         // Stack arguments first, while every argument register is free;
         // a variable argument takes a whole 8-byte slot.
         let mut in_regs = Vec::new();
@@ -2972,7 +2986,7 @@ impl<'a, 'b> Sel<'a, 'b> {
         }
         // A tail call: when the call's result is what the function returns,
         // its frame goes first, and the callee returns to its caller.
-        let tail = if self.landing_next.is_some() { None } else { self.tail_ret(i, call, &locs) };
+        let tail = if self.landing_next.is_some() || launch.is_some() { None } else { self.tail_ret(i, call, &locs) };
         // Elective (autochop) unless the call must be a tail call.
         let tail = tail.filter(|_| {
             call.tail == TailKind::MustTail
@@ -3008,6 +3022,12 @@ impl<'a, 'b> Sel<'a, 'b> {
         }
         if call.tail == TailKind::MustTail {
             return self.err("a musttail call that cannot be made a tail call".to_string());
+        }
+        if let (Some(l), Some(s)) = (launch, &target) {
+            let mut m = MInst::new(l, vec![MOp::Sym(s.clone())]);
+            m.imp_uses = in_regs.iter().map(|&(p, _)| p).collect();
+            self.push(m);
+            return Ok(());
         }
         let mut inst_m = match (&target, callee_reg) {
             (Some(s), _) => MInst::new(self.t.by_role("call"), vec![MOp::Sym(s.clone())]),

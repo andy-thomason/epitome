@@ -16,7 +16,9 @@ const USAGE: &str = "usage: epitome-llc [options] <file.ll>
   --chop-counts           print each function's count of elective choices
   -o <file>               write the output here instead of stdout (- is
                           stdout; an input of - is stdin); a name ending in
-                          .o asks for an object file
+                          .o asks for an object file; functions with the
+                          attribute epitome-opaque (for another tool) go to
+                          <file>.opaque.ll as IR, and need -o
   --filetype=asm|obj      assembly (the default) or an object file, Mach-O
                           or ELF as the convention uses
   --target=<name|path>    the machine description: a .ll file, a directory
@@ -235,6 +237,18 @@ fn main() -> ExitCode {
             ms(&timing::FRAME),
             ms(&timing::LAYOUT)
         );
+    }
+    // The opaque functions, beside the output.
+    if let Some(ir) = &compiled.opaque {
+        let Some(path) = output.as_deref().filter(|p| *p != "-") else {
+            eprintln!("epitome-llc: the module has epitome-opaque functions, which need -o <file> (<file>.opaque.ll)");
+            return ExitCode::FAILURE;
+        };
+        let path = format!("{path}.opaque.ll");
+        if let Err(e) = epitome_ir::io::write(&path, ir.as_bytes()) {
+            eprintln!("epitome-llc: {path}: {e}");
+            return ExitCode::FAILURE;
+        }
     }
     let object = filetype.unwrap_or_else(|| output.as_deref().is_some_and(|o| o.ends_with(".o")));
     if object {

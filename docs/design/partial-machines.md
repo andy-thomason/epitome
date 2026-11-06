@@ -76,9 +76,10 @@ error: kernel: call @expf: the machine has no calls, and @expf is not defined he
 
 It runs twice:
 
-- in `epitome-llc`, after `prepare` and legalisation (section 3), so that
-  what those passes remove is not reported. A failure here is an error,
-  and nothing is written;
+- in `epitome-llc`, on each function after narrowing (section 3) and
+  before it is lowered, and again on what `prepare` made of it, so that
+  what that pass adds (a library call, a 64-bit product) is reported too.
+  A failure here is an error, and nothing is written;
 - in `epitome-opt`, when given `--target`, at the end of the pipeline, as a
   warning, so that a program that will not fit is found where the
   optimiser can still be asked to do something about it (inline harder,
@@ -95,21 +96,29 @@ not, or must do it another way:
 
 | Pass | Adds | Instead |
 | --- | --- | --- |
-| `prepare`: `memcpy`, `memset` | calls to the library | loops, or an error from `fits` if the size is not known |
-| `prepare`: division, float runtime calls | calls to the library | recipes only; an error if there is none |
-| switch lowering | jump tables (`globals`, `indirect`) | compare-and-branch trees |
-| constant materialisation | constant pools (`memory`) | building in registers only |
+| `prepare`: `memcpy`, `memmove`, `memset` | calls to the library | loops of byte loads and stores (a `memmove` copying down where its ranges overlap) |
+| `prepare`: division, float runtime calls | calls to the library | recipes only; an error from `fits` if there is none |
+| switch lowering | jump tables (`globals`, `indirect`) | compare-and-branch trees (Epitome makes no jump tables) |
+| constant materialisation | constant pools (`memory`) | building in registers only (Epitome makes no constant pools) |
 | legalisation of wide integers | pairs of registers, which is fine; stack slots for `i128` | pairs only |
 | register allocation | spills (`stack`) | an error naming the function and the number of registers it needed |
 | frame layout | a frame (`stack`) | none, and none needed |
 | the inliner | nothing, but its threshold matters | inline everything that is called once or is small, and report what is left (`calls`) |
 
 Integers wider than the machine's widest class need care. Index arithmetic
-from JAX and PyTorch is `i64` even when every index fits in 32 bits. A
-narrowing pass, before legalisation, rewrites an `i64` computation as `i32`
-where known bits and ranges (trip counts, `zext` from `i32`, constant
-shapes) show that the high half is never needed. What it cannot narrow is
-split into pairs, and with `i64` lacked, `fits` reports it.
+from JAX and PyTorch is `i64` even when every index fits in 32 bits, and so
+is Rust's `usize` on a 64-bit target. A narrowing pass (`ir/src/narrow.rs`),
+before `fits` and `prepare`, rewrites a wide computation in the machine's
+widest integers where only the low bits of its values are needed. It
+bounds each wide value's bits from what it is made of (extensions,
+constants, arithmetic that cannot wrap, shifts) and bounds loop counters
+by their exit tests: up by one while below `n`, up by one until equal to
+`n` (`add nuw`, or from 0 with `n` known not to be 0 on the way in), and
+down by one to zero from a start known not to be zero. A value is
+narrowed when every use needs only its low bits, or compares it with
+another value where both fit. What it cannot narrow (the high half of a
+product, a counter whose end may not fit) is left wide, and `fits`
+reports it.
 
 ## 4. Fencing off part of a program
 
@@ -141,9 +150,15 @@ is `convergent`. Lowering from MLIR can write such calls for operations
 it knows the machine has, keeping the operation's operands as SSA values
 the optimiser still works on.
 
-**Open:** whether opaque functions should be written as IR text or kept in
-a section of the object file. Text is simpler, and nothing reads the
-section yet.
+`epitome-llc` writes the opaque functions to `<output>.opaque.ll`: the
+module with every other function a declaration (an internal one made
+external). The optimiser takes their bodies out of the module while it
+runs, so that no pass reads, changes or inlines them, and puts them back.
+A call to one on a machine with a `launch` entry is that instruction, the
+arguments where a call's go and a relocation naming the function.
+
+**Open:** whether opaque functions should be kept in a section of the
+object file instead. Text is simpler, and nothing reads the section yet.
 
 ## 5. A public target to test it on
 
@@ -202,12 +217,12 @@ triple selects it.
 | An empty `result` or `fp-result` list is an error, not a panic | **Done** |
 | `!target.lacks`, and the structure check waiving what it covers | **Done**: `load.x`, `store.x`, `add`, `addi` (stack), `call` (calls), `trap`, `addr.*` (globals), the 64-bit class (i64); `structure` notes how many were waived |
 | Conventions without `stack` or `fp-*` entries | **Done**: without a stack, `args` and `result` are enough; without calls, every register is free to use |
-| `fits`, in `epitome-llc` and `epitome-opt` | **Done**, in `epitome_ir::fits`: run on each function before it is lowered (not yet after `prepare`), an error in `epitome-llc`, a warning in `epitome-opt --target` |
+| `fits`, in `epitome-llc` and `epitome-opt` | **Done**, in `epitome_ir::fits`: run on each function before it is lowered and again after `prepare`, an error in `epitome-llc`, a warning in `epitome-opt --target` |
 | Smoke program compiled per function, reporting what does not fit | **Done**: noted, not failed |
-| Passes inside the lacks list (section 3) | **Partial**: division by a constant keeps the division without `i64`; spills without a stack are an error naming the function; no unwind tables without calls; no data without globals |
+| Passes inside the lacks list (section 3) | **Done** for the passes of section 3: memory operations as loops without calls; division by a constant keeps the division without `i64`; spills without a stack are an error naming the function; no unwind tables without calls; no data without globals; what `prepare` still adds (the overflow check of a multiplication, made with a 64-bit product) is reported by `fits` |
 | `ret` ends the program without `calls`; `unreachable` ends it without `trap` | **Done** |
-| `i64` narrowing | **Planned** |
-| `"epitome-opaque"` | **Planned** |
-| `"role"="launch"` | **Planned** |
+| `i64` narrowing | **Done**: `epitome_ir::narrow`, in `epitome-llc` and before `epitome-opt --target`'s check |
+| `"epitome-opaque"` | **Done**: kept out of the optimiser and of code generation, written to `<output>.opaque.ll` |
+| `"role"="launch"` | **Done**: a call to an opaque function, on a machine with a launch entry; `fits` reports one that returns a value or passes arguments on a stack the machine lacks |
 | TeraScale description, for assembly and disassembly | **Done**: ALU, control flow, a memory export and a vertex fetch, checked against `llc` |
 | TeraScale compilation: groups, clauses, hardware loops | **Later** |

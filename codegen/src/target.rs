@@ -572,7 +572,7 @@ pub const X86_64_FILES: &[(&str, &str)] = &[
 pub fn type_bits(m: &Module, ty: TypeId) -> u32 {
     match m.types.get(ty) {
         Type::Int(b) => *b,
-        Type::Ptr(_) => 64,
+        Type::Ptr(a) => epitome_ir::layout::pointer_bits(m.data_layout.as_deref(), *a),
         Type::Double => 64,
         Type::Float => 32,
         Type::Half | Type::BFloat => 16,
@@ -1032,10 +1032,15 @@ impl Target {
 
     fn read(&mut self) -> Result<(), String> {
         let m = &self.module;
+        // LLVM's intrinsics the bodies call, and the machine's own: a
+        // declaration marked "intrinsic", a function a program calls to have
+        // an instruction that the IR cannot say (a matrix product on a
+        // fixed-function unit, starting another unit's program), which
+        // the entries' bodies match like any other operation.
         for (g, f) in m.functions() {
             if let Some(name) = &m.global(g).name
-                && name.starts_with("llvm.")
                 && !f.has_body
+                && (name.starts_with("llvm.") || epitome_ir::fits::machine_intrinsic(m, &f.fn_attrs))
             {
                 self.intrinsics.push(name.clone());
             }

@@ -252,6 +252,7 @@ fn compile_function(t: &Target, abi: &abi::Abi, cx: &mut Ctx, job: &Job, opts: &
     // A function that uses what the machine lacks is reported, not lowered.
     let mut machine = t.machine.fits(abi);
     machine.launch = t.role("launch").is_some();
+    machine.intrinsics = t.intrinsics.iter().filter(|n| !n.starts_with("llvm.")).cloned().collect();
     // Without i64: wide integers whose high bits are never needed, in the
     // machine's widest (`epitome_ir::narrow`).
     let narrowed;
@@ -340,6 +341,22 @@ fn compile_function(t: &Target, abi: &abi::Abi, cx: &mut Ctx, job: &Job, opts: &
 /// output is the same for any number of threads.
 pub fn compile(t: &Target, m: &mut Module, opts: &Options) -> Result<Compiled, String> {
     let abi = choose_abi(t, m, opts)?;
+    // A description may say its machine's data layout (its pointers' size
+    // above all): a module that says none takes it, and one that says
+    // another size of pointer is not for this machine.
+    if let Some(own) = &t.module.data_layout {
+        let machine_bits = epitome_ir::layout::pointer_bits(Some(own), 0);
+        match &m.data_layout {
+            None => m.data_layout = Some(own.clone()),
+            Some(d) if epitome_ir::layout::pointer_bits(Some(d), 0) != machine_bits => {
+                return Err(format!(
+                    "the module's pointers are {} bits, and the machine's are {machine_bits}",
+                    epitome_ir::layout::pointer_bits(Some(d), 0)
+                ));
+            }
+            Some(_) => {}
+        }
+    }
     let spec = m.data_layout.as_ref().map(|d| String::from_utf8_lossy(d).into_owned());
     let dl = DataLayout::parse(spec.as_deref().unwrap_or(DARWIN_ARM64_LAYOUT))?;
     // The bodies come out of the module (its parameters stay, which other

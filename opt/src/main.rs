@@ -72,6 +72,7 @@ fn read_machine(path: &str) -> Result<epitome_ir::fits::Machine, String> {
         mc.lacks.extend(one.lacks);
         mc.widest = mc.widest.max(one.widest);
         mc.launch |= one.launch;
+        mc.intrinsics.extend(one.intrinsics);
     }
     Ok(mc)
 }

@@ -18,10 +18,14 @@
 !target.lacks = !{!1}
 !1 = !{!"memory", !"calls", !"float", !"i64", !"indirect", !"trap"}
 
-!target.registers = !{!10}
+!target.registers = !{!10, !12, !13}
 !10 = !{!"r", !"r{0-15}"}
-!target.classes = !{!11}
+!12 = !{!"r5c", !"r{0-15}"}
+!13 = !{!"r6c", !"r{0-15}"}
+!target.classes = !{!11, !14, !15}
 !11 = !{!"r", !"file", !"r", !"bits", !"32", !"holds", !"int"}
+!14 = !{!"r5c", !"file", !"r", !"bits", !"32", !"fixed", !"r5"}
+!15 = !{!"r6c", !"file", !"r", !"bits", !"32", !"fixed", !"r6"}
 
 ; The launched program's entry, in words.
 !target.relocs = !{!40}
@@ -430,3 +434,26 @@ declare i32 @llvm.smax.i32(i32, i32)
 declare i32 @llvm.umin.i32(i32, i32)
 declare i32 @llvm.umax.i32(i32, i32)
 declare i32 @llvm.abs.i32(i32, i1)
+
+; ---------------------------------------------------------------- its own
+; What the IR has no operation for: calls to the machine's intrinsics,
+; declarations marked "intrinsic", which these entries match.
+
+declare i32 @tiny.cycles() "intrinsic"
+declare void @tiny.signal(i32, i32) "intrinsic"
+declare void @tiny.put2(i32, i32) "intrinsic"
+
+define i32 @cycles() "enc"="101010 d:4 0000000000000000000000" "asm"="cycles {d}" {
+  %r = call i32 @tiny.cycles()
+  ret i32 %r
+}
+define void @signal(i32 "reg"="r" %a, i32 "imm" %k) "enc"="101011 0000 a:4 k:s18" "asm"="signal {a}, {k}" {
+  call void @tiny.signal(i32 %a, i32 %k)
+  ret void
+}
+; A pair of registers named by the first: r5 and r6, fixed classes
+; (r5c, r6c), so selection copies the values there just before it.
+define void @put2(i32 "reg"="r5c" %a, i32 "reg"="r6c" %b) "enc"="101100 0101 0000000000000000000000" "asm"="put2 r5" {
+  call void @tiny.put2(i32 %a, i32 %b)
+  ret void
+}

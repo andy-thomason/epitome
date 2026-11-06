@@ -34,6 +34,19 @@ pub struct Machine {
     /// (`"role"="launch"`), which a call to an `"epitome-opaque"` function
     /// becomes.
     pub launch: bool,
+    /// Its own intrinsics (declarations marked `"intrinsic"`): calls to
+    /// them are its instructions, not calls.
+    pub intrinsics: Vec<String>,
+}
+
+/// Whether a declaration with attributes `attrs` is one of a machine's own
+/// intrinsics (`"intrinsic"`), whose calls are instructions.
+pub fn machine_intrinsic(m: &Module, attrs: &[Attr]) -> bool {
+    attrs.iter().any(|a| match a {
+        Attr::Str { key, .. } => key.as_slice() == b"intrinsic",
+        Attr::Group(n) => m.attr_groups.iter().filter(|g| g.id == *n).any(|g| machine_intrinsic(m, &g.attrs)),
+        _ => false,
+    })
 }
 
 /// Whether a function with attributes `attrs` is `"epitome-opaque"`: for
@@ -66,6 +79,12 @@ impl Machine {
                 mc.lacks.push(what);
             }
         }
+        mc.intrinsics = d
+            .globals
+            .iter()
+            .filter(|g| matches!(&g.kind, GlobalKind::Function(f) if !f.has_body && machine_intrinsic(d, &f.fn_attrs)))
+            .filter_map(|g| g.name.clone())
+            .collect();
         mc.launch = d.globals.iter().any(|g| {
             match &g.kind {
             GlobalKind::Function(f) => f.fn_attrs.iter().any(|a| {
@@ -294,7 +313,9 @@ impl Fits<'_> {
                         GlobalKind::Function(f) => opaque(self.m, &f.fn_attrs),
                         _ => false,
                     };
-                    if opaque && mc.lacks("calls") {
+                    if mc.intrinsics.contains(&n) {
+                        // One of the machine's instructions.
+                    } else if opaque && mc.lacks("calls") {
                         // Started on another unit, by the launch instruction.
                         if !mc.launch {
                             out.push(format!(

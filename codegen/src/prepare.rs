@@ -62,6 +62,17 @@ impl Ctx<'_> {
             .unwrap_or(0)
     }
 
+    /// The class of masks of the widest vectors in use, where it is of a
+    /// register file of its own (AVX-512's k registers): only masks of
+    /// vectors that wide are kept there (`legalize::mask_regs`).
+    pub fn mask_reg_class(&self) -> Option<crate::target::Class> {
+        let m = &self.t.machine;
+        let vb = self.vector_bits();
+        let &(_, c) = m.mask_classes.iter().find(|(b, _)| *b == vb)?;
+        let v = m.value_class(crate::machine::Holds::Vector, vb)?;
+        (m.def(c).file != m.def(v).file).then_some(c)
+    }
+
     /// The narrowest vector kept whole in a register: narrower ones are
     /// done lane by lane.
     pub fn min_vector_bits(&self) -> u32 {
@@ -4039,7 +4050,10 @@ fn lower_switches(cx: &mut Ctx, f: &mut Function) {
 }
 
 fn lower_geps(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
-    let i64t = cx.i64t();
+    // Offsets are as wide as the data layout's indices: 64 bits, or 32
+    // where pointers are 32 bits.
+    let index_bits = cx.dl.pointer(0).index_bits;
+    let i64t = cx.m.types.int(index_bits);
     let i8t = cx.i8t();
     let blocks: Vec<BlockId> = f.layout.clone();
     for b in blocks {
@@ -4094,8 +4108,10 @@ fn lower_geps(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
                 let ity = cx.value_ty(f, idx);
                 let mut v = idx;
                 if ity != i64t {
+                    let wider = matches!(cx.m.types.get(ity), Type::Int(b) if *b > index_bits);
+                    let op = if wider { CastOp::Trunc } else { CastOp::SExt };
                     let c = f.add_inst(
-                        Op::Cast { op: CastOp::SExt, flags: IntFlags::NONE, fmf: FastMath::default(), value: v },
+                        Op::Cast { op, flags: IntFlags::NONE, fmf: FastMath::default(), value: v },
                         Some((None, i64t)),
                     );
                     new.push(c);
@@ -5508,6 +5524,34 @@ fn expand_intrinsics(cx: &mut Ctx, f: &mut Function) {
                 k += n;
                 continue;
             }
+            // Trailing zeros of vectors by leading zeros, where those have an
+            // instruction (AVX-512's vplzcnt): the zeros below the lowest
+            // one are the ones of ~x & (x - 1), and w - ctlz counts them.
+            if !scalar
+                && base == "llvm.cttz"
+                && !cx.selects_intrinsic(&name)
+                && cx.selects_intrinsic(&name.replacen("cttz", "ctlz", 1))
+                && let Type::Vector { len: _, elem, scalable: false } = *cx.m.types.get(ty)
+                && let Type::Int(eb) = *cx.m.types.get(elem)
+            {
+                let splat = |cx: &mut Ctx, v: i64| {
+                    let Value::Const(c) = cx.int(elem, v) else { unreachable!() };
+                    Value::Const(cx.m.consts.intern(Constant { ty, kind: ConstKind::Splat(c) }))
+                };
+                let (one, ones, width) = (splat(cx, 1), splat(cx, -1), splat(cx, i64::from(eb)));
+                let below = s.bin(BinOp::Sub, args[0], one, ty);
+                let not = s.bin(BinOp::Xor, args[0], ones, ty);
+                let low = s.bin(BinOp::And, not, below, ty);
+                let no = cx.int(i1, 0);
+                let lz = call_intrinsic(cx, &mut s, &name.replacen("cttz", "ctlz", 1), vec![low, no], ty);
+                let v = s.bin(BinOp::Sub, width, lz, ty);
+                let new = std::mem::take(&mut s.new);
+                f.replace_uses(Value::Local(r), v);
+                let n = new.len();
+                f.blocks[b.index()].insts.splice(k..=k, new);
+                k += n;
+                continue;
+            }
             // Bit counts and byte swaps of vectors without an instruction
             // (NEON counts only bytes' bits): lane by lane.
             if !scalar
@@ -5889,10 +5933,12 @@ fn offset_ptr(cx: &mut Ctx, s: &mut Seq, p: Value, off: u64, i8t: TypeId, i64t: 
 /// the bits or'ed; or the other way, each bit shifted down, truncated and
 /// inserted. Lane k is bit k. Run after `legalize::fix_masks`, which
 /// makes the common `icmp eq (bitcast mask), 0` a reduction; casts left
-/// unused by that are skipped.
+/// unused by that are skipped, and those of masks kept in mask registers
+/// (AVX-512's k), which are moves.
 pub(crate) fn bool_vector_casts(cx: &mut Ctx, f: &mut Function) {
     let i1 = cx.m.types.int(1);
     let i64t = cx.m.types.int(64);
+    let regs = crate::legalize::mask_regs(cx, f);
     let mut used = std::collections::HashSet::new();
     for &b in &f.layout {
         for &i in &f.blocks[b.index()].insts {
@@ -5914,7 +5960,7 @@ pub(crate) fn bool_vector_casts(cx: &mut Ctx, f: &mut Function) {
                 continue;
             };
             let value = *value;
-            if !used.contains(&r) {
+            if !used.contains(&r) || regs.contains(&r) || matches!(value, Value::Local(x) if regs.contains(&x)) {
                 k += 1;
                 continue;
             }

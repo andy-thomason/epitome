@@ -99,6 +99,7 @@ in number order:
 | `bits` | how wide a value it holds |
 | `holds` | `int`, `float` or `vector`; without it, the class is a *view* that only names registers for templates (`{n:b}` is `b3`; `lanes` gives the `v3` of `{n:4s}`, `v3.4s`) |
 | `sp` | `yes` if the number it shares with the zero register is the stack pointer in this class (AArch64's `xsp`), so the zero register cannot be named in it |
+| `width` | how wide its names are, where that is not `bits` (a view's): an inline-assembly operand narrower than its class is named in the class of its own width, as LLVM names it (an `i8` in x86's `r32` is `%al`, from `r8`, of `width` 8) |
 
 Inside the code generator, registers are numbered file after file, in the
 order the files are first named. AArch64's integer registers are 0–31 and
@@ -266,8 +267,16 @@ generator's:
   RISC-V's `{x10}` is `a0`);
 - `~{reg}` and `~{memory}` (clobbers);
 - `i` and `n` (immediates);
+- `s` (a global's address, written as its name: what Rust's `asm!` makes
+  of a `sym` operand, `${n:c}`);
 - the modifiers `c`, `n` and `z`, and `$$`, `${:uid}`, `${:comment}` and
   `${:private}`.
+
+A register operand without a modifier is written as the class it is in
+names it, except an integer narrower than that class, which is named at
+its own width where the file has a class of it (`width`): an `i8` result
+of `=q` is `%al`, as LLVM writes it. x86's assembler reads `call` without
+its suffix as `callq`.
 
 The rest is the description's, in three lists:
 
@@ -353,8 +362,12 @@ The calling convention adds a few registers, and the stack's alignment:
 
 What a machine has no instructions for, it may do by calling its runtime:
 the description says which runtime functions do what, and how a value no
-register holds is held. AArch64's (`65-runtime.ll`) does quad precision
-(`fp128`) so; a description without such entries cannot compile it, and
+register holds is held. AArch64's and x86-64's (`65-runtime.ll`) do quad
+precision (`fp128`) so, with the same calls (libgcc's `__addtf3` and the
+rest) and the value held as `<2 x i64>` in a vector register, where both
+conventions pass it; their libm functions differ (`sqrtl` on AArch64,
+whose `long double` is quad precision; glibc's `sqrtf128` on x86-64, whose
+is the x87's). A description without such entries cannot compile it, and
 says so.
 
 - **`"libcall"="f"`**: a function whose body is one instruction of its
@@ -769,3 +782,23 @@ llvm-mc writes but does not read back; buffer stores with `tfe`, which
 llvm-mc writes but does not take; `ds_swizzle_b32`'s offset, which
 llvm-mc writes as a pattern (`offset:swizzle(BITMASK_PERM,"ppppp")`), but
 for 0; wave64; and instruction selection.
+
+## Pointers of 32 bits
+
+A description says its machine's pointer size with a data layout of its
+own, `target datalayout = "e-p:32:32-..."`, as `codegen/tests/pointers32/
+mem32.ll` and `stack32.ll` do (made-up 32-bit control cores with memory,
+and with a stack). Without one, pointers are 64 bits.
+
+- A pointer's width is its data layout's, wherever a type's bits are
+  counted (`target::type_bits`): so a pointer operand or result is held in
+  a 32-bit class.
+- A module with no data layout of its own takes the description's; one
+  whose pointers are another size is refused.
+- An address is a sum of offsets as wide as the layout's indices.
+- A pointer in data is `.long symbol`, with the relocation whose use is
+  `data4`.
+- Spills use the `load.<class>` and `store.<class>` roles of the class
+  spilled, so a description with 32-bit registers names its own.
+- A convention for a machine without calls need not say `clobbers`,
+  `saved` or `variadic`, and nothing is written for unwinding.

@@ -32,9 +32,11 @@
 //! becomes a body that traps, and the reason is kept: `--lower-stats`
 //! counts them.
 
+mod asm;
 mod body;
 mod intrinsic;
 mod pat;
+mod quad;
 
 use crate::hash::FastMap;
 use crate::layout::{Abi, Layout, LayoutCx, Prim, TargetData};
@@ -196,7 +198,7 @@ impl<'a, 's> Cx<'a, 's> {
                 Prim::Float { size: 2 } => m.types.half(),
                 Prim::Float { size: 4 } => m.types.float(),
                 Prim::Float { size: 8 } => m.types.double(),
-                Prim::Float { .. } => return Err("f128 is not supported".into()),
+                Prim::Float { .. } => m.types.intern(epitome_ir::types::Type::Fp128),
                 Prim::Pointer => m.types.ptr(0),
             }),
             _ => Repr::Mem,
@@ -594,7 +596,7 @@ mod tests {
             let tcx = session.collect_types(&crates, &r);
             let index = crate::typeck::Index::new(&tcx, &r);
             let res = session.typeck_with(&crates, &r, &tcx, &index);
-            let roots = crate::mono::roots(&r, &tcx, 1);
+            let roots = crate::mono::roots(&r, &tcx, &crates, 1);
             let mono = session.collect_mono_items(&crates, &r, &tcx, &index, &res, roots);
             let lowered = session.lower(&crates, &r, &tcx, &index, &res, &mono, super::Target::x86_64_linux());
             let own: Vec<String> = lowered

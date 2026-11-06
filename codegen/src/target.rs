@@ -565,13 +565,14 @@ pub const X86_64_FILES: &[(&str, &str)] = &[
     ("10-integer.ll", include_str!("../targets/x86_64/10-integer.ll")),
     ("15-frame.ll", include_str!("../targets/x86_64/15-frame.ll")),
     ("16-short.ll", include_str!("../targets/x86_64/16-short.ll")),
+    ("65-runtime.ll", include_str!("../targets/x86_64/65-runtime.ll")),
     ("70-abi.ll", include_str!("../targets/x86_64/70-abi.ll")),
 ];
 
 pub fn type_bits(m: &Module, ty: TypeId) -> u32 {
     match m.types.get(ty) {
         Type::Int(b) => *b,
-        Type::Ptr(_) => 64,
+        Type::Ptr(a) => epitome_ir::layout::pointer_bits(m.data_layout.as_deref(), *a),
         Type::Double => 64,
         Type::Float => 32,
         Type::Half | Type::BFloat => 16,

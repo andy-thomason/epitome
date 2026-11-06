@@ -407,12 +407,15 @@ pub fn read(m: &Module, prefix: &str, machine: &crate::machine::Machine) -> Resu
         }
         // What a machine lacks, its conventions need not say
         // (docs/design/partial-machines.md): without a stack, only `args`
-        // and `result` are needed; without floating point, no `fp-*`.
-        // What is left out is empty, or a default, or (a register) none.
+        // and `result` are needed; without calls, nothing is saved across
+        // one; without floating point, no `fp-*`. What is left out is
+        // empty, or a default, or (a register) none.
         let no_stack = machine.lacks("stack");
+        let no_calls = machine.lacks("calls");
         let no_float = machine.lacks("float");
         let waived = |k: &str| {
             (no_float && k.starts_with("fp-"))
+                || (no_calls && matches!(k, "clobbers" | "saved" | "variadic"))
                 || (no_stack
                     && matches!(
                         k,

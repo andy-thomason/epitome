@@ -72,3 +72,21 @@ define void @f64(ptr %o, ptr %a, i64 %m) {
   store <64 x i8> %r, ptr %o
   ret void
 }
+; Selects of vectors split in parts by masks that are not: made from bits,
+; and loaded.
+define void @selbits(ptr %o, ptr %a, ptr %b, i16 %m) {
+  %c = bitcast i16 %m to <16 x i1>
+  %x = load <16 x i32>, ptr %a
+  %y = load <16 x i32>, ptr %b
+  %r = select <16 x i1> %c, <16 x i32> %x, <16 x i32> %y
+  store <16 x i32> %r, ptr %o
+  ret void
+}
+define void @selload(ptr %o, ptr %a, ptr %b, ptr %mp) {
+  %c = load <16 x i1>, ptr %mp
+  %x = load <16 x i32>, ptr %a
+  %y = load <16 x i32>, ptr %b
+  %r = select <16 x i1> %c, <16 x i32> %x, <16 x i32> %y
+  store <16 x i32> %r, ptr %o
+  ret void
+}

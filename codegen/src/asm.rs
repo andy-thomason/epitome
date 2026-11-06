@@ -56,6 +56,9 @@ pub fn function(t: &Target, f: &MFunc, index: usize, out: &mut String) -> Result
             let _ = writeln!(out, "{}:", b.label);
         }
         for i in &b.insts {
+            if !cfi && matches!(i.op, crate::mir::Opcode::Cfi(_)) {
+                continue;
+            }
             let _ = writeln!(out, "\t{}", format_inst(t, f, i));
         }
     }
@@ -118,7 +121,7 @@ pub fn eh_stubs(funcs: &[MFunc], abi: &Abi) -> Vec<GlobalData> {
                 section: SectionKind::Data,
                 section_name: None,
                 align: 8,
-                items: vec![Item::Addr { symbol: abi.symbol(name), offset: 0 }],
+                items: vec![Item::Addr { symbol: abi.symbol(name), offset: 0, size: 8 }],
             });
         }
     }
@@ -183,9 +186,9 @@ pub fn collect_globals(cx: &Ctx, abi: &Abi) -> Result<Vec<GlobalData>, String> {
                 section_name: None,
                 align: 8,
                 items: vec![
-                    Item::Addr { symbol: abi.symbol("_tlv_bootstrap"), offset: 0 },
+                    Item::Addr { symbol: abi.symbol("_tlv_bootstrap"), offset: 0, size: 8 },
                     Item::Int { size: 8, value: 0, hex: false },
-                    Item::Addr { symbol: init, offset: 0 },
+                    Item::Addr { symbol: init, offset: 0, size: 8 },
                 ],
             });
             continue;
@@ -251,7 +254,10 @@ fn init_array(cx: &Ctx, abi: &Abi, init: ConstId, ctors: bool) -> Result<GlobalD
         section: SectionKind::RelRo,
         section_name: Some(section_name.to_string()),
         align: 8,
-        items: list.into_iter().map(|(_, f)| Item::Addr { symbol: abi.symbol(&f), offset: 0 }).collect(),
+        items: list
+            .into_iter()
+            .map(|(_, f)| Item::Addr { symbol: abi.symbol(&f), offset: 0, size: pointer_bytes(m) })
+            .collect(),
     })
 }
 
@@ -342,11 +348,13 @@ pub fn print_globals(abi: &Abi, globals: &[GlobalData], out: &mut String) {
                 Item::Zero(n) => {
                     let _ = writeln!(out, "\t.space {n}");
                 }
-                Item::Addr { symbol, offset: 0 } => {
-                    let _ = writeln!(out, "\t.quad {symbol}");
-                }
-                Item::Addr { symbol, offset } => {
-                    let _ = writeln!(out, "\t.quad {symbol}{offset:+}");
+                Item::Addr { symbol, offset, size } => {
+                    let dir = if *size == 4 { ".long" } else { ".quad" };
+                    if *offset == 0 {
+                        let _ = writeln!(out, "\t{dir} {symbol}");
+                    } else {
+                        let _ = writeln!(out, "\t{dir} {symbol}{offset:+}");
+                    }
                 }
                 Item::Rel32 { symbol, base } => {
                     let _ = writeln!(out, "\t.long {symbol}-{base}");
@@ -374,6 +382,11 @@ fn has_addresses(m: &Module, c: ConstId) -> bool {
         ConstKind::Expr(_) => true,
         _ => false,
     }
+}
+
+/// The size in bytes of a pointer (in address space 0) in module `m`.
+fn pointer_bytes(m: &Module) -> u8 {
+    (epitome_ir::layout::pointer_bits(m.data_layout.as_deref(), 0) / 8) as u8
 }
 
 fn data(cx: &Ctx, abi: &Abi, ty: TypeId, c: ConstId, out: &mut Vec<Item>) -> Result<(), String> {
@@ -470,7 +483,7 @@ fn data(cx: &Ctx, abi: &Abi, ty: TypeId, c: ConstId, out: &mut Vec<Item>) -> Res
         _ => match prepare::const_address(cx, c) {
             Some((g, offset)) => {
                 let name = m.global(g).name.clone().unwrap_or_default();
-                out.push(Item::Addr { symbol: abi.symbol(&name), offset });
+                out.push(Item::Addr { symbol: abi.symbol(&name), offset, size: pointer_bytes(m) });
             }
             None => return Err(format!("unsupported constant in data: {:?}", k.kind)),
         },

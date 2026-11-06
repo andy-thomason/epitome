@@ -471,7 +471,7 @@ impl<'t> Assembler<'t> {
     /// address of a label in the same section; and the symbol it refers
     /// to, if it does. (An x86 line written without the size suffix AT&T's
     /// mnemonics have, `mov %rbx, %rsi`, is read with the one its last
-    /// integer register gives, `movq`.)
+    /// integer register gives, `movq`; `call` with `q`.)
     fn encode(
         &self,
         line: &str,
@@ -484,7 +484,11 @@ impl<'t> Assembler<'t> {
             return first;
         }
         let m = mnemonic(line);
+        // `call` of a symbol has no register to size it: on x86-64 it is
+        // `callq`, as an assembler reads it.
+        let near = (m.eq_ignore_ascii_case("call")).then_some('q');
         let suffixed = gpr_suffix(&line[line.find(m).map_or(0, |k| k + m.len())..])
+            .or(near)
             .map(|c| format!("{}{c}", m.to_ascii_lowercase()))
             .filter(|x| self.by_mnemonic.contains_key(x.as_str()));
         match suffixed {
@@ -727,6 +731,7 @@ impl<'t> Assembler<'t> {
                 offset: u64,
                 symbol: String,
                 addend: i64,
+                bytes: u8,
             },
             /// A bundle: its format, where it is, its prefix's header
             /// fields, its instructions by lane, and whether it is its
@@ -1038,7 +1043,9 @@ impl<'t> Assembler<'t> {
                                     });
                                     sec.data.extend_from_slice(&[0; 4]);
                                 }
-                                None if size == 8 => {
+                                // A pointer: 8 bytes, or 4 on a machine
+                                // with a relocation for 4-byte pointers.
+                                None if size == 8 || (size == 4 && self.t.machine.data_reloc(4).is_some()) => {
                                     let (symbol, addend) =
                                         parse_sym_offset(&v).ok_or_else(|| err(n, format!("a bad value {v}")))?;
                                     later.push(Later::Data {
@@ -1046,8 +1053,9 @@ impl<'t> Assembler<'t> {
                                         offset: sec.data.len() as u64,
                                         symbol,
                                         addend,
+                                        bytes: size as u8,
                                     });
-                                    sec.data.extend_from_slice(&[0; 8]);
+                                    sec.data.resize(sec.data.len() + size, 0);
                                 }
                                 None => return Err(err(n, format!("a value not supported here: {v}"))),
                             }
@@ -1288,9 +1296,10 @@ impl<'t> Assembler<'t> {
                     let bytes = b.finish();
                     obj.sections[section].data[offset as usize..offset as usize + bytes.len()].copy_from_slice(&bytes);
                 }
-                Later::Data { section, offset, symbol, addend } => {
-                    let kind =
-                        self.t.machine.data_reloc(8).ok_or("the description has no relocation for pointers in data")?;
+                Later::Data { section, offset, symbol, addend, bytes } => {
+                    let kind = self.t.machine.data_reloc(bytes).ok_or_else(|| {
+                        format!("the description has no relocation for {bytes}-byte pointers in data")
+                    })?;
                     pending.push(Pending {
                         section,
                         offset,

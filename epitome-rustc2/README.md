@@ -32,9 +32,9 @@ The plan is in [`docs/design.md`](docs/design.md).
 | Signatures and the type table | Done | 54,641 signatures and 13,886 impls in 0.1 s. The 159 with error types all name external crates. |
 | Type checking bodies | Done (first version) | 32,847 bodies in 0.5 s, 97% typed completely. Most of the rest use libc. |
 | Layout and constants | Done | Sizes and alignments match rustc's for the 45 types tested. |
-| Monomorphisation | Done | From every non-generic function of `core`: 28,473 items in 0.09 s. 99.9% of uses resolve; most of the rest are specialisations. |
-| Lowering to Epitome IR | Working | The programs in `tests/run/` lower completely. Of the 17,138 functions `core` reaches outside SIMD, 96% lower; the rest trap, and `--lower-stats` says why. |
-| Compiling and running | Working | The eight programs in `tests/run/` compile through Epitome's optimiser and code generator, run, and print what rustc's builds print. |
+| Monomorphisation | Done | From every non-generic function of `core`: 28,430 items in 0.09 s. 99.9% of uses resolve; most of the rest are specialisations. |
+| Lowering to Epitome IR | Working | The programs in `tests/run/` lower completely. Of the 17,222 functions `core` reaches outside SIMD, 97% lower; the rest trap, and `--lower-stats` says why. |
+| Compiling and running | Working | The ten programs in `tests/run/` compile through Epitome's optimiser and code generator, run, and print what rustc's builds print. |
 
 Everything up to and including type checking `core`, `alloc` and `std`
 together takes 1.3 s of wall time.

@@ -513,9 +513,8 @@ impl Fx<'_, '_, '_, '_> {
                 let v = match tcx.kind(t) {
                     TyKind::Bool => (tok == "true") as u128,
                     TyKind::Char => super::body::parse_char(tok).ok_or("bad character")? as u128,
-                    TyKind::Float(_) => {
-                        let x = super::body::parse_float(tok).ok_or("bad float")?;
-                        let c = self.b.const_float(it, x);
+                    TyKind::Float(f) => {
+                        let c = self.float_const(tok, f)?;
                         return Ok(Operand { ty: t, v: Val::Imm(c) });
                     }
                     _ if tok.starts_with("b'") => super::body::parse_char(&tok[1..]).ok_or("bad byte")? as u128,

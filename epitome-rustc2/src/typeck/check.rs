@@ -2075,7 +2075,18 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 self.mk(TyKind::Ref(Mutbl::Not, s))
             }
             "offset_of" => self.mk(TyKind::Uint(UintTy::Usize)),
-            "asm" | "assert" | "global_asm" | "naked_asm" | "trace_macros" | "log_syntax" => self.unit(),
+            "asm" => {
+                // Its templates and operands' expressions, which expansion
+                // added after its tokens.
+                for &c in &kids[2.min(kids.len())..] {
+                    self.expr(c, None);
+                }
+                let noreturn = kids.get(1).is_some_and(|&tt| {
+                    self.ast.tokens_of(tt).windows(3).any(|w| w[0].0 == "options" && w[1].0 == "(") && self.ast.tokens_of(tt).iter().any(|t| t.0 == "noreturn")
+                });
+                if noreturn { self.mk(TyKind::Never) } else { self.unit() }
+            }
+            "assert" | "global_asm" | "naked_asm" | "trace_macros" | "log_syntax" => self.unit(),
             "core_panic" | "std_panic" | "unreachable_2015" | "unreachable_2021" | "panic" => self.mk(TyKind::Never),
             _ => self.infer.fresh(),
         }

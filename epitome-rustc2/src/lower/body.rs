@@ -1144,6 +1144,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                         self.trap();
                         Ok(Pv::Val(Operand { ty: tcx.mk(TyKind::Never), v: Val::Zst }))
                     }
+                    "asm" => self.inline_asm(n, &kids),
                     // `core::fmt` comes later: where formatting is
                     // reached, the program traps.
                     "format_args" | "const_format_args" | "format_args_nl" => {

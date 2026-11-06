@@ -129,6 +129,11 @@ fn string_arg<'s>(input: &[Token<'s>]) -> Option<&'s str> {
 }
 
 /// `"text"` with `\` and `"` escaped.
+pub(crate) fn quote_text(text: &str) -> String {
+    quote(text)
+}
+
+/// `"text"` with `\` and `"` escaped.
 fn quote(text: &str) -> String {
     let mut s = String::with_capacity(text.len() + 2);
     s.push('"');
@@ -307,6 +312,17 @@ fn cfg_select<'s>(cx: &Context<'_, 's>, input: &[Token<'s>]) -> Result<Option<Ve
 fn concat<'s>(cx: &Context<'_, 's>, input: &[Token<'s>]) -> Result<Option<Vec<Token<'s>>>, Error<'s>> {
     let mut out = String::new();
     for arg in args(input) {
+        // A built-in macro called in an argument is expanded first, as
+        // rustc does (`concat!(stringify!(u8), "::unchecked_add")`).
+        let expanded;
+        let arg = match eager_literal(cx, arg)? {
+            Eager::Literal(t) => {
+                expanded = t;
+                &expanded[..]
+            }
+            Eager::NotACall => arg,
+            Eager::Left => return Ok(None),
+        };
         match arg {
             [t] if t.is_string() && !t.0.starts_with('b') && !t.0.starts_with('c') => {
                 if t.0.starts_with('r') {
@@ -328,6 +344,41 @@ fn concat<'s>(cx: &Context<'_, 's>, input: &[Token<'s>]) -> Result<Option<Vec<To
         }
     }
     cx.text("<concat!>", format!("\"{out}\"")).map(Some)
+}
+
+/// What an argument of `concat!` is, as far as eager expansion goes.
+enum Eager<'s> {
+    /// A built-in's call that expanded to one literal.
+    Literal(Vec<Token<'s>>),
+    /// Not a macro call.
+    NotACall,
+    /// A call that cannot be expanded here (yet).
+    Left,
+}
+
+/// Expands `arg` if it is a call of a built-in that gives a literal:
+/// `path!(..)`, `path![..]` or `path!{..}`, the path's last name one of
+/// `concat`, `stringify`, `line`, `column`, `file`, `module_path`, `env`.
+fn eager_literal<'s>(cx: &Context<'_, 's>, arg: &[Token<'s>]) -> Result<Eager<'s>, Error<'s>> {
+    let Some(bang) = arg.iter().position(|t| t.0 == "!") else { return Ok(Eager::NotACall) };
+    let path = &arg[..bang];
+    let is_path = !path.is_empty() && path.iter().all(|t| t.0 == "::" || t.0 == ":" || t.0 == "$crate" || t.is_ident());
+    let delimited = matches!(
+        (arg.get(bang + 1).map(|t| t.0), arg.last().map(|t| t.0)),
+        (Some("("), Some(")")) | (Some("["), Some("]")) | (Some("{"), Some("}"))
+    );
+    if !is_path || !delimited || arg.len() < bang + 3 {
+        return Ok(Eager::NotACall);
+    }
+    let name = path.iter().rev().find(|t| t.is_ident()).map_or("", |t| t.0);
+    if !matches!(name, "concat" | "stringify" | "line" | "column" | "file" | "module_path" | "env") {
+        return Ok(Eager::Left);
+    }
+    let inner = &arg[bang + 2..arg.len() - 1];
+    Ok(match expand(cx, name, inner)? {
+        Some(t) if t.len() == 1 => Eager::Literal(t),
+        _ => Eager::Left,
+    })
 }
 
 /// `include!("file")`: the file's tokens, relative to the including file.

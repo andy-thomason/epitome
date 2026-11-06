@@ -156,6 +156,9 @@ pub struct Types {
     pub list: Vec<Type>,
     map: HashMap<Type, TypeId>,
     next_uid: u32,
+    /// Default values of unpacked struct members, by struct and member
+    /// (7.2.2); not part of the type's identity.
+    pub member_defaults: HashMap<(TypeId, u32), super::Const>,
 }
 
 impl Default for Types {
@@ -183,7 +186,7 @@ impl Types {
     pub const SHORTREAL: TypeId = TypeId(15);
 
     pub fn new() -> Types {
-        let mut t = Types { list: Vec::new(), map: HashMap::new(), next_uid: 0 };
+        let mut t = Types { list: Vec::new(), map: HashMap::new(), next_uid: 0, member_defaults: HashMap::new() };
         let atom = |a: Atom| Type::Vector { atom: a, signed: a.default_signed(), dims: vec![] };
         for ty in [
             Type::Unknown,
@@ -254,9 +257,16 @@ impl Types {
                 dims.iter().fold(atom.width() as u64, |w, &(l, r)| w * ((l - r).unsigned_abs() + 1)) as u32
             }
             Type::PackedArray { elem, dim: (l, r), .. } => self.width(*elem) * ((l - r).unsigned_abs() as u32 + 1),
-            Type::Struct { packed: true, union, members, .. } => {
+            Type::Struct { packed: true, union, tagged, members, .. } => {
                 let ws = members.iter().map(|m| self.width(m.ty));
-                if *union { ws.max().unwrap_or(0) } else { ws.sum() }
+                if *union {
+                    // A packed tagged union adds the bits its tag needs
+                    // (7.3.2).
+                    let tag = if *tagged { (members.len().max(1) as u32).next_power_of_two().trailing_zeros() } else { 0 };
+                    ws.max().unwrap_or(0) + tag
+                } else {
+                    ws.sum()
+                }
             }
             Type::Enum { base, .. } => self.width(*base),
             Type::Real(RealKind::ShortReal) => 32,

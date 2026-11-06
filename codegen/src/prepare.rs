@@ -165,6 +165,16 @@ impl Ctx<'_> {
 /// Puts a copy of `f` into selection form.
 pub fn prepare(cx: &mut Ctx, f: &Function, fname: &str) -> Result<Function, String> {
     let mut f = f.clone();
+    // (Scalable vectors of more than a register as parts first, before
+    // what follows takes their lanes as countable.)
+    // (Streaming mode and ZA first: the calls of their switches.)
+    if cx.t.machine.class("ws").is_some() {
+        crate::sme::lower(cx, &mut f, fname)?;
+    }
+    crate::scalable::split(cx, &mut f).map_err(|e| format!("@{fname}: {e}"))?;
+    crate::scalable::masked_memory(cx, &mut f);
+    crate::scalable::predicate_casts(cx, &mut f);
+    crate::scalable::unpacked(cx, &mut f).map_err(|e| format!("@{fname}: {e}"))?;
     neon_intrinsics(cx, &mut f);
     crate::neon::lower(cx, &mut f);
     number_min_max(cx, &mut f);
@@ -3133,7 +3143,9 @@ fn vector_int_bitcasts(cx: &mut Ctx, f: &mut Function) {
             };
             let r = f.insts[i.index()].result.unwrap();
             let (from, to) = (cx.value_ty(f, value), f.locals[r.index()].ty);
-            if from == to {
+            // (Scalable vectors in one register are held whole, as their
+            // register is.)
+            if from == to || crate::target::is_scalable_type(cx.m, from) && crate::target::is_scalable_type(cx.m, to) {
                 k += 1;
                 continue;
             }
@@ -3207,9 +3219,20 @@ fn vector_int_bitcasts(cx: &mut Ctx, f: &mut Function) {
 }
 
 /// An `i1` in memory is a byte, 0 or 1: its stores store it zero-extended,
-/// and its loads truncate the byte.
+/// and its loads truncate the byte. A vector of them (`<16 x i1>`, a
+/// comparison's lanes) is packed bits, lane k bit k, in as many bytes as
+/// they fill: its stores store it cast to an integer of its bits,
+/// zero-extended to whole bytes, and its loads cast such an integer back.
 fn bool_memory(cx: &mut Ctx, f: &mut Function) {
     let (i1, i8t) = (cx.m.types.int(1), cx.m.types.int(8));
+    // The integers a vector of booleans is in memory: its bits', and its
+    // bytes'.
+    let packed = |cx: &mut Ctx, t| match *cx.m.types.get(t) {
+        Type::Vector { len, elem, scalable: false } if elem == i1 => {
+            Some((cx.m.types.int(len), cx.m.types.int(len.div_ceil(8) * 8)))
+        }
+        _ => None,
+    };
     let blocks: Vec<BlockId> = f.layout.clone();
     for b in blocks {
         let mut k = 0;
@@ -3227,6 +3250,27 @@ fn bool_memory(cx: &mut Ctx, f: &mut Function) {
                     let r = s.f.insts[i.index()].result.unwrap();
                     let v = s.op(Op::Load { volatile, atomic, ptr, align }, i8t);
                     let t = s.cast(CastOp::Trunc, v, i1);
+                    s.f.replace_uses(Value::Local(r), t);
+                }
+                Op::Store { volatile, atomic, value, ptr, align } if packed(cx, cx.value_ty(s.f, value)).is_some() => {
+                    let (bits, bytes) = packed(cx, cx.value_ty(s.f, value)).unwrap();
+                    let mut v = s.cast(CastOp::BitCast, value, bits);
+                    if bytes != bits {
+                        v = s.cast(CastOp::ZExt, v, bytes);
+                    }
+                    s.op_void(Op::Store { volatile, atomic, value: v, ptr, align });
+                }
+                Op::Load { volatile, atomic, ptr, align }
+                    if s.f.insts[i.index()].result.is_some_and(|r| packed(cx, s.f.locals[r.index()].ty).is_some()) =>
+                {
+                    let r = s.f.insts[i.index()].result.unwrap();
+                    let vty = s.f.locals[r.index()].ty;
+                    let (bits, bytes) = packed(cx, vty).unwrap();
+                    let mut v = s.op(Op::Load { volatile, atomic, ptr, align }, bytes);
+                    if bytes != bits {
+                        v = s.cast(CastOp::Trunc, v, bits);
+                    }
+                    let t = s.cast(CastOp::BitCast, v, vty);
                     s.f.replace_uses(Value::Local(r), t);
                 }
                 _ => {
@@ -3737,8 +3781,9 @@ fn check(cx: &Ctx, f: &Function, fname: &str) -> Result<(), String> {
         Type::Ptr(a) => *a != 0,
         Type::Void | Type::Label | Type::Double | Type::Float => false,
         // Vectors that do not fit a register are split (see
-        // `legalize_vectors`); scalable ones are not supported.
-        Type::Vector { scalable: false, elem, .. } => !matches!(
+        // `legalize_vectors`); scalable ones (SVE's) are in their own
+        // registers.
+        Type::Vector { elem, .. } => !matches!(
             cx.m.types.get(*elem),
             Type::Int(1 | 8 | 16 | 32 | 64) | Type::Float | Type::Double | Type::Ptr(0)
         ),
@@ -4994,7 +5039,7 @@ fn expand_intrinsics(cx: &mut Ctx, f: &mut Function) {
             // An ordered floating-point reduction: the start value, then
             // each lane added (or multiplied) in order, as written.
             if (name.starts_with("llvm.vector.reduce.fadd.") || name.starts_with("llvm.vector.reduce.fmul."))
-                && let Type::Vector { len, elem, .. } = cx.m.types.get(cx.value_ty(s.f, args[1])).clone()
+                && let Type::Vector { len, elem, scalable: false } = cx.m.types.get(cx.value_ty(s.f, args[1])).clone()
             {
                 let i64t = cx.m.types.int(64);
                 let op = if name.contains(".fadd.") { BinOp::FAdd } else { BinOp::FMul };

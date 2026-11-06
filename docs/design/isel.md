@@ -25,9 +25,14 @@ of Arm's is checked in except as below):
 - `check_mrs.py` checks every entry against it. An entry's literal bits must
   lie inside one of Arm's encodings, and its mnemonic must be Arm's for that
   encoding or an alias's. It also says how much of the instruction set the
-  description covers: at present 154 of Arm's 301 base A64 encodings, 151 of
-  1,116 floating-point and SIMD ones, and none of the optional extensions,
-  SVE or SME.
+  description covers: at present (AARCHMRS 2026-09) 296 of Arm's 301 base
+  A64 encodings, 913 of 1,116 floating-point and SIMD ones, 729 of the 824
+  of the optional extensions, 1,241 of SVE's 1,346 and 654 of SME's 842.
+- `gen_mrs_asm.py` writes the assembly-only entries the rest of the
+  description has not: `80-asm.ll` (the base, floating point and SIMD) and,
+  with `--scalable`, `81-scalable.ll` (SVE and SME, their register lists
+  written `{lb}{zn}.s, {zn:+1}.s{rb}`: the registers after a list's first
+  follow from it).
 - `gen_from_mrs.py` writes entries whose bit layouts come from Arm's
   encodings: which bits are fixed, and which belong to which field. How the
   fields are filled from the operands, the assembly template and the body

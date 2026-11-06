@@ -3,7 +3,7 @@ name = "epitome-sv"
 version = "0.1.0"
 edition = "2024"
 repository = "https://github.com/andy-thomason/epitome"
-description = "A SystemVerilog (IEEE 1800-2023) compiler: lexer, parser and, later, elaboration and simulation"
+description = "A SystemVerilog (IEEE 1800-2023) compiler: lexer, preprocessor, parser, elaborator and simulator"
 
 [dependencies]
 

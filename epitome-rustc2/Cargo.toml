@@ -1,0 +1,17 @@
+[package]
+name = "epitome-rustc2"
+version = "0.1.0"
+edition = "2024"
+repository = "https://github.com/andy-thomason/epitome"
+description = "A Rust compiler that does not use rustc: lexer, parser and AST, then expansion, types and lowering to Epitome IR"
+
+[dependencies]
+epitome-ir = { path = "../ir" }
+# For the program only (`-o`: optimise, compile and link); the library
+# itself uses only epitome-ir.
+epitome-opt = { path = "../opt" }
+epitome-codegen = { path = "../codegen" }
+
+[[bin]]
+name = "epitome-rustc2"
+path = "src/main.rs"

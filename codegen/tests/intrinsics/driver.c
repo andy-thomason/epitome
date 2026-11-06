@@ -169,8 +169,8 @@ int main(int argc, char **argv) {
         for (const char *p = cases[c].name; *p; p++) state = (state ^ (unsigned char)*p) * 0x100000001b3ull;
         if (state == 0) state = 1;
         for (int r = 0; r < rounds; r++) {
-            unsigned char in[512] __attribute__((aligned(16)));
-            unsigned char out[512] __attribute__((aligned(16)));
+            unsigned char in[4096] __attribute__((aligned(16)));
+            unsigned char out[4096] __attribute__((aligned(16)));
             memset(in, 0, sizeof in);
             memset(out, 0, sizeof out);
             fill(cases[c].in, in, r);

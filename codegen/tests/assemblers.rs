@@ -19,10 +19,29 @@ use epitome_codegen::objdump::Image;
 use epitome_codegen::target::Target;
 
 /// What clang must be told the machine has, for every extension the
-/// description's instructions need.
-const MARCH: &str = "-march=armv9.4-a+crc+crypto+sha3+sm4+rcpc+rcpc3+lse+lse128+rdm+dotprod+fp16+fp16fml+bf16+i8mm\
-+f64mm+sme+fp8+fp8fma+fp8dot2+fp8dot4+faminmax+lut+cssc+mops+the+d128+gcs+rasv2+ite+flagm+predres+sb+ssbs+ls64+wfxt\
-+hbc+brbe+pauth-lr+fprcvt+lsfe+lsui+occmo+cmpbr+pauth+bti+memtag+rng";
+/// description's instructions need (SVE's and SME's too).
+const FEATURES: &str = "crc+crypto+sha3+sm4+rcpc+rcpc3+lse+lse128+rdm+dotprod+fp16+fp16fml+bf16+i8mm\
++f64mm+sme+fp8+fp8fma+fp8dot2+fp8dot4+faminmax+lut+cssc+mops+the+d128+gcs+rasv2+ite+flagm+predres+sb+ssbs+tme+ls64+wfxt\
++hbc+brbe+pauth-lr+fprcvt+lsfe+lsui+occmo+cmpbr+pauth+bti+memtag+rng+sve+sve2+sve2p1+sve2p2+sve-b16b16+sve-bitperm\
++sve-aes+sve-aes2+sve-sha3+sve-sm4+sve-bfscale+sve-f16f32mm+sme2+sme2p1+sme2p2+sme-f64f64+sme-i16i64+sme-f16f16\
++sme-b16b16+sme-f8f16+sme-f8f32+sme-lutv2+sme-mop4+sme-tmop+ssve-fp8fma+ssve-fp8dot2+ssve-fp8dot4+ssve-aes\
++ssve-bitperm+f8f16mm+f8f32mm+sme-fa64";
+
+/// `-march` with those of FEATURES this clang knows (a newer one has
+/// dropped tme).
+fn march() -> String {
+    let known: Vec<&str> = FEATURES
+        .split('+')
+        .filter(|f| {
+            Command::new("clang")
+                .args(["--target=aarch64-linux-gnu", &format!("-march=armv9.4-a+{f}"), "-c", "-x", "assembler"])
+                .args(["/dev/null", "-o", "/dev/null"])
+                .output()
+                .is_ok_and(|o| o.status.success())
+        })
+        .collect();
+    format!("-march=armv9.4-a+{}", known.join("+"))
+}
 
 /// The sample lines that differ between our object and theirs, their code
 /// split into instructions by `split`.
@@ -76,22 +95,44 @@ fn epitome_as_and_clang_agree() {
         return;
     }
     let t = Target::aarch64();
-    let text = epitome_codegen::check::sample_assembly(&t, Syntax::Elf, 3);
+    let all = epitome_codegen::check::sample_assembly(&t, Syntax::Elf, 3);
     let tmp = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("assemblers");
     std::fs::create_dir_all(&tmp).unwrap();
+    // SVE's movprfx makes clang check the instruction after it against it:
+    // its lines are assembled each alone.
+    let is_prefix = |l: &str| l.split(":\t").nth(1).is_some_and(|i| i.trim_start().starts_with("movprfx"));
+    let head: Vec<&str> = all.lines().filter(|l| !l.contains(":\t")).collect();
+    let prefixes: Vec<&str> = all.lines().filter(|l| is_prefix(l)).collect();
+    let text: String = all.lines().filter(|l| !is_prefix(l)).map(|l| format!("{l}\n")).collect();
     let s = tmp.join("aarch64.s");
     std::fs::write(&s, &text).unwrap();
     let ours = Assembler::new(&t).assemble(&text, Some(Syntax::Elf)).and_then(|a| a.file(&t)).unwrap();
     let o = tmp.join("aarch64.clang.o");
     let out = Command::new("clang")
-        .args(["--target=aarch64-linux-gnu", MARCH, "-ferror-limit=0", "-c"])
+        .args(["--target=aarch64-linux-gnu", &march(), "-ferror-limit=0", "-c"])
         .arg(&s)
         .arg("-o")
         .arg(&o)
         .output()
         .unwrap();
     assert!(out.status.success(), "clang:\n{}", String::from_utf8_lossy(&out.stderr));
-    let wrong = differences(&t, &text, &ours, &std::fs::read(&o).unwrap(), words);
+    let mut wrong = differences(&t, &text, &ours, &std::fs::read(&o).unwrap(), words);
+    for line in prefixes {
+        let one = format!("{}\n{line}\n", head.join("\n"));
+        let s = tmp.join("movprfx.s");
+        std::fs::write(&s, &one).unwrap();
+        let ours = Assembler::new(&t).assemble(&one, Some(Syntax::Elf)).and_then(|a| a.file(&t)).unwrap();
+        let o = tmp.join("movprfx.clang.o");
+        let out = Command::new("clang")
+            .args(["--target=aarch64-linux-gnu", &march(), "-c"])
+            .arg(&s)
+            .arg("-o")
+            .arg(&o)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "clang:\n{}", String::from_utf8_lossy(&out.stderr));
+        wrong.extend(differences(&t, &one, &ours, &std::fs::read(&o).unwrap(), words));
+    }
     assert!(wrong.is_empty(), "these differ:\n{}", wrong.join("\n"));
 }
 

@@ -80,6 +80,8 @@ pub enum Const {
     Unbounded,
     /// A class object, by its index in the simulator's heap.
     Handle(u32),
+    /// A virtual interface: the simulator's instance (25.9).
+    Inst(u32),
 }
 
 impl Const {
@@ -596,6 +598,8 @@ pub struct Connection {
     pub expr: Option<ExprId>,
     /// An interface instance bound to an interface port.
     pub interface: Option<InstId>,
+    /// Or the parent's own interface port, passed on.
+    pub via: Option<Sym>,
 }
 
 pub struct Instance {
@@ -705,6 +709,51 @@ pub struct Design<'a> {
     /// For each hierarchical reference, how to reach its target's instance
     /// from an instance of the specialisation it is written in.
     pub hops: HashMap<ExprId, Vec<Hop>>,
+    /// What a net declaration says beyond the net's kind: a trireg's
+    /// charge strength and the net delay (6.7, 28.16).
+    pub nets: HashMap<ObjId, NetInfo>,
+    /// User-defined primitives, by name (29).
+    pub udps: HashMap<Sym, Udp>,
+}
+
+/// A UDP's state table (29.3).
+#[derive(Clone, Debug)]
+pub struct Udp {
+    /// Whether it has a state: a `reg` output and a current-state field.
+    pub sequential: bool,
+    /// The output's value when simulation starts (29.7): `b'0'`, `b'1'`
+    /// or `b'x'`.
+    pub init: u8,
+    pub rows: Vec<UdpRow>,
+}
+
+#[derive(Clone, Debug)]
+pub struct UdpRow {
+    pub inputs: Vec<UdpIn>,
+    /// The current-state field of a sequential UDP.
+    pub state: Option<u8>,
+    /// `0`, `1`, `x`, or `-` for no change.
+    pub out: u8,
+}
+
+/// An input field (table 29-1): a level (`0 1 x ? b`) or a transition.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UdpIn {
+    Level(u8),
+    /// `(vw)`, `r`, `f` or `*`.
+    Edge(u8, u8),
+    /// `p`: (01), (0x) or (x1).
+    Pos,
+    /// `n`: (10), (1x) or (x0).
+    Neg,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct NetInfo {
+    /// `small`, `medium` or `large`.
+    pub charge: Option<Sym>,
+    /// Rise, fall and, for a trireg, charge decay delays.
+    pub delay: Vec<ExprId>,
 }
 
 /// One step of a hierarchical reference through the instance tree.
@@ -717,6 +766,9 @@ pub enum Hop {
     Up(Sym),
     /// To a top-level instance.
     Top(InstId),
+    /// Through an interface port to the interface instance connected to
+    /// it (25.3).
+    Port(Sym),
 }
 
 impl<'a> Design<'a> {

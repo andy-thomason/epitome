@@ -79,6 +79,10 @@ fn ir_behaves_as_clangs_build() {
         let ll = dir.join(format!("{name}.ll"));
         let main = dir.join(format!("{name}.main.c"));
         let mut ll = ll;
+        // (x86-64's own tests only there.)
+        if !x86 && std::fs::read_to_string(&ll).unwrap().contains("target triple = \"x86_64") {
+            continue;
+        }
         if x86 {
             // This machine's triple and layout; not AArch64's intrinsics.
             let text = std::fs::read_to_string(&ll).unwrap();

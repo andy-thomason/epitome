@@ -89,7 +89,7 @@ fn vec_ty(cx: &mut Ctx, len: u32, elem: TypeId) -> TypeId {
 /// The LLVM name of a type in an intrinsic's name: `v4i32`, `v2f64`.
 pub(crate) fn mangle(cx: &Ctx, ty: TypeId) -> String {
     match cx.m.types.get(ty) {
-        Type::Vector { len, elem, .. } => format!("v{len}{}", mangle(cx, *elem)),
+        Type::Vector { len, elem, scalable } => format!("{}v{len}{}", if *scalable { "nx" } else { "" }, mangle(cx, *elem)),
         Type::Int(b) => format!("i{b}"),
         Type::Float => "f32".into(),
         Type::Double => "f64".into(),
@@ -1482,7 +1482,10 @@ pub fn legalize_vectors(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
             };
             let res_split = res_ty.and_then(|t| split_count(cx, t)).or(mask_phi.map(|m| m.0));
             let odd_shuffle = match &f.insts[i.index()].op {
-                Op::ShuffleVector { .. } => !native_shuffle(cx, f, i),
+                // (A scalable one is a splat, which selection has.)
+                Op::ShuffleVector { .. } => {
+                    !res_ty.is_some_and(|t| crate::target::is_scalable_type(cx.m, t)) && !native_shuffle(cx, f, i)
+                }
                 _ => false,
             };
             if !uses_split && res_split.is_none() && !odd_shuffle {

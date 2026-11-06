@@ -455,6 +455,7 @@ fn struct_type<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, TypeId
     let signed = kws.contains(&"signed");
     let mut members = Vec::new();
     let mut has_default = false;
+    let mut defaults = Vec::new();
     for m in kids.iter().copied().filter(|&k| e.kind(k) == Kind::StructMember).collect::<Vec<_>>() {
         let mk = e.kids(m).to_vec();
         let rand = mk.iter().any(|&k| e.kind(k) == Kind::Keyword && e.text(k).starts_with("rand"));
@@ -471,6 +472,9 @@ fn struct_type<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, TypeId
                 return Err(e.err(dk[0], format!("member `{}` is declared twice", e.name(name))));
             }
             super::checks::struct_member(e, sc, n, union, packed, tagged, t, dk[0], default)?;
+            if let Some(x) = default {
+                defaults.push((members.len() as u32, t, x));
+            }
             members.push(Member { name, ty: t, rand });
         }
     }
@@ -480,6 +484,13 @@ fn struct_type<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, TypeId
     }
     let uid = e.d.types.uid();
     let base = e.d.types.intern(Type::Struct { packed, union, tagged, soft, signed, members, name: None, uid });
+    for (i, t, x) in defaults {
+        // A default that is not constant is left out.
+        if let Ok(v) = super::eval::const_expr(e, sc, x) {
+            let v = super::eval::convert_const(e, &v, t);
+            e.d.types.member_defaults.insert((base, i), v);
+        }
+    }
     let dims: Vec<NodeId> = kids.iter().copied().filter(|&k| is_dim(e.kind(k))).collect();
     if dims.is_empty() { Ok(base) } else { packed_of(e, sc, base, &dims) }
 }
@@ -635,6 +646,12 @@ pub(crate) fn typedef<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a>
         if let Some(nt) = named {
             let old = t;
             t = e.d.types.intern(nt);
+            // The member defaults go with the name.
+            let defaults: Vec<(u32, Const)> =
+                e.d.types.member_defaults.iter().filter(|((ty, _), _)| *ty == old).map(|((_, i), c)| (*i, c.clone())).collect();
+            for (i, c) in defaults {
+                e.d.types.member_defaults.insert((t, i), c);
+            }
             // The enum's constants have the named type.
             for o in e.d.objects.iter_mut() {
                 if o.ty == old && o.kind == ObjKind::EnumConst {

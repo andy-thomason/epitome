@@ -1,8 +1,10 @@
 //! Every intrinsic, from catalogues: `tests/intrinsics/generic.txt` (LLVM's
-//! generic intrinsics) and `tests/intrinsics/aarch64.txt` (AArch64's own).
-//! Each line of one says what is done with an intrinsic:
+//! generic intrinsics), `tests/intrinsics/aarch64.txt` (AArch64's own) and
+//! `tests/intrinsics/x86.txt` (x86's own). Each line of one says what is
+//! done with an intrinsic:
 //!
-//! - `test ; NAME ; SIGNATURE ; TYPES`: for each of the types, a function
+//! - `test ; NAME ; SIGNATURE ; TYPES ; FEATURES`: for each of the types
+//!   (none, when the signature has none to fill in), a function
 //!   that loads the arguments, calls it and stores what it gives, built by
 //!   us and by LLVM's `llc` (the one rustup's llvm-tools has) and run, on
 //!   random and special values (`intrinsics/driver.c`); the two must
@@ -12,9 +14,16 @@
 //! - `skip ; NAME ; REASON`: none of that, for a reason (made by passes
 //!   before code generation, other platforms' runtimes, debug info...).
 //!
+//! FEATURES (optional) are the target's features a case needs, by LLVM's
+//! names, comma-separated: the function has them, and those the machine
+//! running the test has; a case needing one the machine lacks is built,
+//! not run.
+//!
 //! `tests/intrinsics/generic-names.txt` and `aarch64-names.txt` are all the
 //! intrinsics LLVM knows (from rustup's libLLVM, checked as intrinsics by
-//! its verifier); each must have a line. A `NAME` may end in `*` for all
+//! its verifier), and `x86-names.txt` x86's (those of a libLLVM's names
+//! starting `llvm.x86.`, and those Rust's core::arch declares); each must
+//! have a line. A `NAME` may end in `*` for all
 //! the names starting so.
 //!
 //! A signature is `RESULT(ARG, ...)`, a type for each: `0`, `1`... are the
@@ -37,7 +46,12 @@
 //! line as the failures name them: those are reported, not failures; any
 //! other is one. `EPITOME_INTRINSICS_BLESS=1` writes the lists anew.
 //!
-//! On an AArch64 Mac with clang and rustup's llvm-tools only.
+//! The generic and AArch64 catalogues are run on an AArch64 Mac, the x86
+//! one on x86-64 Linux, each with clang and rustup's llvm-tools. On x86-64
+//! Linux the generic and AArch64 ones run too, under qemu (`qemu-aarch64`,
+//! its `max` CPU: SVE2, SME and the rest of what it has), linked static
+//! against Rust's own musl (rustup's `aarch64-unknown-linux-musl` target);
+//! what they get wrong there is listed in `*-linux-todo.txt`.
 //! `EPITOME_INTRINSICS` limits it to the names containing that text.
 
 use std::collections::BTreeSet;
@@ -53,6 +67,9 @@ enum Ty {
     Int(u32),
     Fp(&'static str),
     Vec(u32, Box<Ty>),
+    /// A scalable vector (SVE's): kept in memory as long as the longest
+    /// machine's (16 times its least width); a predicate as svbool.
+    Scalable(u32, Box<Ty>),
     Ptr,
     Void,
     Struct(Vec<Ty>),
@@ -64,6 +81,10 @@ fn fp_name(s: &str) -> Option<&'static str> {
 
 fn parse_ty(s: &str) -> Ty {
     let s = s.trim();
+    if let Some(inner) = s.strip_prefix("<vscale x ").and_then(|s| s.strip_suffix('>')) {
+        let (n, e) = inner.split_once(" x ").unwrap_or_else(|| panic!("bad scalable type {s}"));
+        return Ty::Scalable(n.trim().parse().unwrap(), Box::new(parse_ty(e)));
+    }
     if let Some(b) = s.strip_prefix('i').and_then(|b| b.parse().ok()) {
         return Ty::Int(b);
     }
@@ -92,6 +113,7 @@ impl Ty {
             Ty::Int(b) => format!("i{b}"),
             Ty::Fp(f) => f.to_string(),
             Ty::Vec(n, e) => format!("<{n} x {}>", e.text()),
+            Ty::Scalable(n, e) => format!("<vscale x {n} x {}>", e.text()),
             Ty::Ptr => "ptr".into(),
             Ty::Void => "void".into(),
             Ty::Struct(fs) => format!("{{ {} }}", fs.iter().map(Ty::text).collect::<Vec<_>>().join(", ")),
@@ -107,6 +129,7 @@ impl Ty {
             Ty::Fp("double") => "f64".into(),
             Ty::Fp(_) => "f128".into(),
             Ty::Vec(n, e) => format!("v{n}{}", e.mangle()),
+            Ty::Scalable(n, e) => format!("nxv{n}{}", e.mangle()),
             Ty::Ptr => "p0".into(),
             Ty::Void => "isVoid".into(),
             Ty::Struct(fs) => format!("sl_{}s", fs.iter().map(Ty::mangle).collect::<String>()),
@@ -115,7 +138,7 @@ impl Ty {
 
     fn elem(&self) -> Ty {
         match self {
-            Ty::Vec(_, e) => (**e).clone(),
+            Ty::Vec(_, e) | Ty::Scalable(_, e) => (**e).clone(),
             t => t.clone(),
         }
     }
@@ -124,6 +147,7 @@ impl Ty {
     fn shape_of(&self, e: Ty) -> Ty {
         match self {
             Ty::Vec(n, _) => Ty::Vec(*n, Box::new(e)),
+            Ty::Scalable(n, _) => Ty::Scalable(*n, Box::new(e)),
             _ => e,
         }
     }
@@ -146,6 +170,8 @@ impl Ty {
             Ty::Fp("double") | Ty::Ptr => 8,
             Ty::Fp(_) => 16,
             Ty::Vec(n, e) => n * e.bytes(),
+            Ty::Scalable(_, e) if **e == Ty::Int(1) => 32,
+            Ty::Scalable(n, e) => 16 * n * e.bytes(),
             Ty::Void => 0,
             Ty::Struct(fs) => fs.iter().map(|f| f.bytes().next_multiple_of(16)).sum(),
         }
@@ -154,6 +180,8 @@ impl Ty {
     /// How the driver fills or prints it (`driver.c`), at `off`.
     fn desc(&self, off: u32, domain: &str) -> String {
         let (lanes, e) = match self {
+            Ty::Scalable(_, e) if **e == Ty::Int(1) => (32, Ty::Int(8)),
+            Ty::Scalable(n, e) => (16 * n, (**e).clone()),
             Ty::Vec(n, e) => (*n, (**e).clone()),
             t => (1, t.clone()),
         };
@@ -243,6 +271,7 @@ struct Entry {
     name: String,
     sig: String,
     tuples: Vec<Vec<Ty>>,
+    features: Vec<String>,
 }
 
 fn read_catalogue(path: &Path) -> Vec<Entry> {
@@ -253,7 +282,9 @@ fn read_catalogue(path: &Path) -> Vec<Entry> {
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        let f: Vec<&str> = line.split(" ; ").map(str::trim).collect();
+        // (A skip's reason is the rest of the line.)
+        let fields = if line.starts_with("skip") { 3 } else { 5 };
+        let f: Vec<&str> = line.splitn(fields, ';').map(str::trim).collect();
         let status = match f[0] {
             "test" => Status::Test,
             "build" => Status::Build,
@@ -262,12 +293,12 @@ fn read_catalogue(path: &Path) -> Vec<Entry> {
         };
         if status == Status::Skip {
             assert!(f.len() == 3 && !f[2].is_empty(), "{}:{}: a skip needs a reason", path.display(), n + 1);
-            out.push(Entry { status, name: f[1].into(), sig: String::new(), tuples: Vec::new() });
+            out.push(Entry { status, name: f[1].into(), sig: String::new(), tuples: Vec::new(), features: Vec::new() });
             continue;
         }
-        assert!(f.len() == 3 || f.len() == 4, "{}:{}: fields", path.display(), n + 1);
+        assert!((3..=5).contains(&f.len()), "{}:{}: fields", path.display(), n + 1);
         let mut tuples = Vec::new();
-        if let Some(types) = f.get(3) {
+        if let Some(types) = f.get(3).filter(|t| !t.is_empty()) {
             for t in types.split('|').map(str::trim) {
                 match class(t) {
                     Some(list) => {
@@ -279,7 +310,8 @@ fn read_catalogue(path: &Path) -> Vec<Entry> {
         } else {
             tuples.push(Vec::new());
         }
-        out.push(Entry { status, name: f[1].into(), sig: f[2].into(), tuples });
+        let features = f.get(4).map_or(Vec::new(), |x| x.split(',').map(|x| x.trim().to_string()).collect());
+        out.push(Entry { status, name: f[1].into(), sig: f[2].into(), tuples, features });
     }
     out
 }
@@ -329,9 +361,10 @@ struct Case {
     output: String,
 }
 
-const SCRATCH: u32 = 64;
+// (Enough for SVE's loads of four vectors at qemu's length, 512 bits.)
+const SCRATCH: u32 = 512;
 
-fn make_case(entry: &Entry, tys: &[Ty], sym: &str) -> Case {
+fn make_case(entry: &Entry, tys: &[Ty], sym: &str, host: &Host) -> Case {
     let mut name = entry.name.clone();
     for (k, t) in tys.iter().enumerate() {
         name = name.replace(&format!("{{{k}}}"), &t.mangle());
@@ -346,6 +379,8 @@ fn make_case(entry: &Entry, tys: &[Ty], sym: &str) -> Case {
     let mut args = Vec::new();
     let mut uses_mem = false;
     let mut varargs = false;
+    // Declarations the case needs beyond the intrinsic's.
+    let mut extra: Vec<String> = Vec::new();
     // The arguments as the case's label names them.
     let mut parts: Vec<String> = Vec::new();
     let mut v = 0;
@@ -421,7 +456,24 @@ fn make_case(entry: &Entry, tys: &[Ty], sym: &str) -> Case {
         let p = fresh("p");
         let l = fresh("l");
         let _ = writeln!(body, "  {p} = getelementptr i8, ptr %in, i64 {in_off}");
-        let _ = writeln!(body, "  {l} = load {}, ptr {p}, align 1", st.text());
+        // (A predicate of fewer lanes: as svbool, converted.)
+        let narrow = match &t {
+            Ty::Scalable(n, e) if **e == Ty::Int(1) && *n < 16 => Some(*n),
+            _ => None,
+        };
+        if let Some(n) = narrow {
+            let w = fresh("w");
+            let _ = writeln!(body, "  {w} = load <vscale x 16 x i1>, ptr {p}, align 1");
+            let _ = writeln!(
+                body,
+                "  {l} = call <vscale x {n} x i1> @llvm.aarch64.sve.convert.from.svbool.nxv{n}i1(<vscale x 16 x i1> {w})"
+            );
+            extra.push(format!(
+                "declare <vscale x {n} x i1> @llvm.aarch64.sve.convert.from.svbool.nxv{n}i1(<vscale x 16 x i1>)"
+            ));
+        } else {
+            let _ = writeln!(body, "  {l} = load {}, ptr {p}, align 1", st.text());
+        }
         in_off += st.bytes();
         if st != t {
             let x = fresh("t");
@@ -488,6 +540,21 @@ fn make_case(entry: &Entry, tys: &[Ty], sym: &str) -> Case {
                 let _ = writeln!(body, "  {z} = zext {} {x} to {}", t.text(), st.text());
                 let _ = writeln!(body, "  store {} {z}, ptr {p}, align 1", st.text());
                 output.push(st.desc(off, ""));
+            } else if let Ty::Scalable(n, e) = &t
+                && **e == Ty::Int(1)
+                && *n < 16
+            {
+                // (A predicate of fewer lanes: converted to svbool, stored.)
+                let w = fresh("w");
+                let _ = writeln!(
+                    body,
+                    "  {w} = call <vscale x 16 x i1> @llvm.aarch64.sve.convert.to.svbool.nxv{n}i1(<vscale x {n} x i1> {x})"
+                );
+                let _ = writeln!(body, "  store <vscale x 16 x i1> {w}, ptr {p}, align 1");
+                extra.push(format!(
+                    "declare <vscale x 16 x i1> @llvm.aarch64.sve.convert.to.svbool.nxv{n}i1(<vscale x {n} x i1>)"
+                ));
+                output.push(t.desc(off, ""));
             } else {
                 let _ = writeln!(body, "  store {} {x}, ptr {p}, align 1", t.text());
                 output.push(t.desc(off, ""));
@@ -498,9 +565,23 @@ fn make_case(entry: &Entry, tys: &[Ty], sym: &str) -> Case {
     if uses_mem {
         output.push(format!("i1*{SCRATCH}@{out_mem}"));
     }
+    let mut features: Vec<String> = host.features.iter().map(|f| f.to_string()).collect();
+    features.extend(entry.features.iter().filter(|f| !host.features.contains(&f.as_str())).cloned());
+    let features = if features.is_empty() {
+        String::new()
+    } else {
+        format!(" \"target-features\"=\"{}\"", features.iter().map(|f| format!("+{f}")).collect::<Vec<_>>().join(","))
+    };
     let ir = format!(
-        "target triple = \"arm64-apple-macosx14.0.0\"\n{decl}\ndefine void @{sym}(ptr %out, ptr %in) #0 {{\n{body}  ret void\n}}\n\
-         attributes #0 = {{ \"target-cpu\"=\"apple-m1\" }}\n"
+        "target triple = \"{}\"\n{decl}\n{}define void @{sym}(ptr %out, ptr %in) #0 {{\n{body}  ret void\n}}\n\
+         attributes #0 = {{ \"target-cpu\"=\"{}\"{features} }}\n",
+        host.triple,
+        {
+            extra.sort();
+            extra.dedup();
+            extra.iter().map(|d| format!("{d}\n")).collect::<String>()
+        },
+        host.cpu
     );
     // (Without spaces: the driver's lines start with it.)
     let label = format!("{name}({})", parts.join(","));
@@ -520,10 +601,158 @@ fn arg_type(a: &str) -> String {
 }
 
 fn tool(name: &str) -> Option<PathBuf> {
+    let host = if cfg!(target_arch = "aarch64") { "aarch64-apple-darwin" } else { "x86_64-unknown-linux-gnu" };
     let o = Command::new("rustc").arg("--print").arg("sysroot").output().ok()?;
     let root = String::from_utf8_lossy(&o.stdout).trim().to_string();
-    let p = PathBuf::from(root).join("lib/rustlib/aarch64-apple-darwin/bin").join(name);
+    let p = PathBuf::from(root).join("lib/rustlib").join(host).join("bin").join(name);
     p.exists().then_some(p)
+}
+
+/// What a catalogue's cases are built for, and the machine running them.
+struct Host {
+    target: Target,
+    triple: &'static str,
+    cpu: &'static str,
+    /// The features the functions have: those of the machine, by LLVM's
+    /// names (beyond the CPU's).
+    features: Vec<&'static str>,
+    /// Run under an emulator, linked as it needs.
+    emulated: Option<Emulated>,
+}
+
+/// AArch64 Linux under qemu: the emulator, and what programs are linked
+/// with (musl's start files and C library, Rust's compiler builtins, and
+/// rust-lld).
+struct Emulated {
+    qemu: PathBuf,
+    lld: PathBuf,
+    musl: PathBuf,
+    builtins: PathBuf,
+}
+
+/// What qemu's `max` CPU has (qemu 8), by LLVM's names.
+const QEMU_MAX: &[&str] = &[
+    "fp-armv8",
+    "neon",
+    "crc",
+    "aes",
+    "sha2",
+    "sha3",
+    "sm4",
+    "lse",
+    "rdm",
+    "dotprod",
+    "fullfp16",
+    "fp16fml",
+    "bf16",
+    "i8mm",
+    "f32mm",
+    "f64mm",
+    "sve",
+    "sve2",
+    "sve-aes",
+    "sve-sha3",
+    "sve-sm4",
+    "sve-bitperm",
+    "mte",
+    "rand",
+    "flagm",
+    "sb",
+    "ssbs",
+    "predres",
+    "bti",
+    "pauth",
+    "jsconv",
+    "complxnum",
+    "rcpc",
+    "sme",
+    "sme-f64f64",
+    "sme-i16i64",
+    "sme-fa64",
+];
+
+fn emulated_aarch64() -> Option<Emulated> {
+    let path = std::env::var_os("PATH")?;
+    let qemu = ["qemu-aarch64-static", "qemu-aarch64"]
+        .iter()
+        .flat_map(|q| std::env::split_paths(&path).map(move |d| d.join(q)))
+        .find(|p| p.exists())?;
+    let o = Command::new("rustc").arg("--print").arg("sysroot").output().ok()?;
+    let root = PathBuf::from(String::from_utf8_lossy(&o.stdout).trim());
+    let lib = root.join("lib/rustlib/aarch64-unknown-linux-musl/lib");
+    let builtins = std::fs::read_dir(&lib).ok()?.flatten().map(|e| e.path()).find(|p| {
+        p.extension().is_some_and(|x| x == "rlib")
+            && p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("libcompiler_builtins-"))
+    })?;
+    let lld = root.join("lib/rustlib/x86_64-unknown-linux-gnu/bin/gcc-ld/ld.lld");
+    let musl = lib.join("self-contained");
+    (lld.exists() && musl.join("libc.a").exists()).then_some(Emulated { qemu, lld, musl, builtins })
+}
+
+/// The machine's x86 features, by LLVM's names.
+#[cfg(target_arch = "x86_64")]
+fn x86_features() -> Vec<&'static str> {
+    let mut v = Vec::new();
+    macro_rules! detect {
+        ($($rust:tt => $llvm:expr),* $(,)?) => {
+            $(if std::arch::is_x86_feature_detected!($rust) {
+                v.extend($llvm.split(','));
+            })*
+        };
+    }
+    detect!(
+        "sse" => "sse", "sse2" => "sse2", "sse3" => "sse3", "ssse3" => "ssse3", "sse4.1" => "sse4.1",
+        "sse4.2" => "sse4.2,crc32", "sse4a" => "sse4a", "popcnt" => "popcnt", "lzcnt" => "lzcnt",
+        "bmi1" => "bmi", "bmi2" => "bmi2", "avx" => "avx", "avx2" => "avx2", "fma" => "fma", "f16c" => "f16c",
+        "aes" => "aes", "pclmulqdq" => "pclmul", "sha" => "sha", "adx" => "adx", "rdrand" => "rdrnd",
+        "rdseed" => "rdseed", "movbe" => "movbe", "xsave" => "xsave", "xsaveopt" => "xsaveopt", "xsavec" => "xsavec",
+        "xsaves" => "xsaves", "fxsr" => "fxsr", "cmpxchg16b" => "cx16", "avx512f" => "avx512f", "avx512cd" => "avx512cd",
+        "avx512bw" => "avx512bw", "avx512dq" => "avx512dq", "avx512vl" => "avx512vl", "avx512ifma" => "avx512ifma",
+        "avx512vbmi" => "avx512vbmi", "avx512vbmi2" => "avx512vbmi2", "avx512vnni" => "avx512vnni",
+        "avx512bitalg" => "avx512bitalg", "avx512vpopcntdq" => "avx512vpopcntdq", "avx512bf16" => "avx512bf16",
+        "avx512fp16" => "avx512fp16", "avx512vp2intersect" => "avx512vp2intersect", "gfni" => "gfni",
+        "vaes" => "vaes", "vpclmulqdq" => "vpclmulqdq", "avxvnni" => "avxvnni", "avxifma" => "avxifma",
+        "avxneconvert" => "avxneconvert", "avxvnniint8" => "avxvnniint8", "avxvnniint16" => "avxvnniint16",
+        "tbm" => "tbm", "rtm" => "rtm", "sha512" => "sha512", "sm3" => "sm3", "sm4" => "sm4", "kl" => "kl",
+        "widekl" => "widekl",
+    );
+    v
+}
+
+#[cfg(not(target_arch = "x86_64"))]
+fn x86_features() -> Vec<&'static str> {
+    Vec::new()
+}
+
+/// The catalogue's host, if this machine is one.
+fn host(which: &str) -> Option<Host> {
+    if which == "x86" {
+        (cfg!(target_arch = "x86_64") && cfg!(target_os = "linux")).then(|| Host {
+            target: Target::x86_64(),
+            triple: "x86_64-unknown-linux-gnu",
+            cpu: "x86-64",
+            features: x86_features(),
+            emulated: None,
+        })
+    } else if cfg!(target_arch = "aarch64") && cfg!(target_os = "macos") {
+        Some(Host {
+            target: Target::aarch64(),
+            triple: "arm64-apple-macosx14.0.0",
+            cpu: "apple-m1",
+            features: Vec::new(),
+            emulated: None,
+        })
+    } else if cfg!(target_arch = "x86_64") && cfg!(target_os = "linux") {
+        emulated_aarch64().map(|e| Host {
+            target: Target::aarch64(),
+            triple: "aarch64-unknown-linux-gnu",
+            cpu: "generic",
+            features: QEMU_MAX.to_vec(),
+            emulated: Some(e),
+        })
+    } else {
+        None
+    }
 }
 
 /// The names `NAMES` lists that no line of `entries` is for.
@@ -571,29 +800,38 @@ fn run_catalogue(which: &str) {
     assert!(missing.is_empty(), "intrinsics with no line in {which}.txt:\n{}", missing.join("\n"));
 
     let llc = tool("llc");
-    let ok = cfg!(target_arch = "aarch64")
-        && cfg!(target_os = "macos")
+    let host = host(which);
+    let ok = host.is_some()
         && llc.is_some()
         && Command::new("clang").arg("--version").output().is_ok_and(|o| o.status.success());
     if !ok {
-        eprintln!("needs clang and rustup's llvm-tools (llc) on an AArch64 Mac; skipping");
+        let on = if which == "x86" { "x86-64 Linux" } else { "an AArch64 Mac (or x86-64 Linux, with qemu and musl)" };
+        eprintln!("needs clang and rustup's llvm-tools (llc) on {on}; skipping");
         return;
     }
-    let llc = llc.unwrap();
+    let (llc, host) = (llc.unwrap(), host.unwrap());
     let only = std::env::var("EPITOME_INTRINSICS").ok();
     let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("intrinsics-{which}"));
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).unwrap();
-    let t = Target::aarch64();
-
+    let t = &host.target;
     let mut cases: Vec<(Status, Case)> = Vec::new();
+    // (Those the machine lacks a feature for are built, not run.)
+    let mut unrunnable = 0;
     for e in &entries {
         if e.status == Status::Skip || only.as_ref().is_some_and(|o| !e.name.contains(o.as_str())) {
             continue;
         }
+        let runs = e.features.iter().all(|f| host.features.contains(&f.as_str()));
         for tys in &e.tuples {
             let sym = format!("c{}", cases.len());
-            cases.push((e.status, make_case(e, tys, &sym)));
+            let status = if e.status == Status::Test && !runs {
+                unrunnable += 1;
+                Status::Build
+            } else {
+                e.status
+            };
+            cases.push((status, make_case(e, tys, &sym, &host)));
         }
     }
 
@@ -609,7 +847,7 @@ fn run_catalogue(which: &str) {
         std::fs::write(&ll, &c.ir).unwrap();
         let theirs = tmp.join(format!("c{k}.llc.o"));
         let st = Command::new(&llc)
-            .args(["-O2", "-mcpu=apple-m1", "-filetype=obj", "-o"])
+            .args(["-O2", &format!("-mcpu={}", host.cpu), "-filetype=obj", "-o"])
             .arg(&theirs)
             .arg(&ll)
             .output()
@@ -626,7 +864,7 @@ fn run_catalogue(which: &str) {
         let built = (|| -> Result<(), String> {
             let mut m = epitome_ir::parse_module(&c.ir).map_err(|e| format!("{e:?}"))?;
             let obj = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                compile(&t, &mut m, &Options::default()).and_then(|x| x.object_file(&t))
+                compile(t, &mut m, &Options::default()).and_then(|x| x.object_file(t))
             }))
             .map_err(|_| "the compiler panicked".to_string())??;
             std::fs::write(&ours, obj).map_err(|e| e.to_string())
@@ -664,13 +902,31 @@ fn run_catalogue(which: &str) {
         .map(|side| {
             let exe = tmp.join(format!("run.{side}"));
             let mut cmd = Command::new("clang");
-            cmd.arg("-O1").arg(dir.join("driver.c")).arg(table(side)).arg("-o").arg(&exe);
+            cmd.arg("-O1");
+            if let Some(e) = &host.emulated {
+                // (Static, against musl; the builtins ask for a personality
+                // routine nothing here calls.)
+                let stub = tmp.join("personality.c");
+                std::fs::write(&stub, "void rust_eh_personality(void) {}\n").unwrap();
+                cmd.args(["--target=aarch64-unknown-linux-musl", "-fuse-ld=lld", "-static", "-nostdlib"])
+                    .arg(format!("--ld-path={}", e.lld.display()))
+                    .arg(e.musl.join("crt1.o"))
+                    .arg(e.musl.join("crti.o"))
+                    .arg(&stub);
+            }
+            cmd.arg(dir.join("driver.c")).arg(table(side)).arg("-o").arg(&exe);
             for &k in &run {
                 cmd.arg(tmp.join(format!("c{k}.{side}.o")));
             }
+            if let Some(e) = &host.emulated {
+                cmd.arg(e.musl.join("libc.a")).arg(&e.builtins).arg(e.musl.join("crtn.o"));
+            }
             let st = cmd.status().unwrap();
             assert!(st.success(), "linking the {side} build failed");
-            let o = Command::new(&exe).output().unwrap();
+            let o = match &host.emulated {
+                Some(e) => Command::new(&e.qemu).args(["-cpu", "max"]).arg(&exe).output().unwrap(),
+                None => Command::new(&exe).output().unwrap(),
+            };
             assert!(o.status.success(), "the {side} build failed: {}", String::from_utf8_lossy(&o.stderr));
             String::from_utf8_lossy(&o.stdout).into_owned()
         })
@@ -685,7 +941,7 @@ fn run_catalogue(which: &str) {
         }
     }
     println!(
-        "{which}: {} cases run, {} the same; {} llc cannot build",
+        "{which}: {} cases run, {} the same; {} llc cannot build; {unrunnable} built, not run (features the machine lacks)",
         run.len(),
         run.len() - differ.len(),
         reference_fails.len()
@@ -693,7 +949,8 @@ fn run_catalogue(which: &str) {
     for r in &reference_fails {
         println!("  llc cannot build {r}");
     }
-    let todo_path = dir.join(format!("{which}-todo.txt"));
+    let linux = if host.emulated.is_some() { "-linux" } else { "" };
+    let todo_path = dir.join(format!("{which}{linux}-todo.txt"));
     if std::env::var("EPITOME_INTRINSICS_BLESS").is_ok() && only.is_none() {
         let mut list: Vec<&str> = failures.iter().map(|f| f.0.as_str()).collect();
         list.sort();
@@ -712,8 +969,9 @@ fn run_catalogue(which: &str) {
     let fixed: Vec<&String> =
         todo.iter().filter(|t| !failed.contains(t.as_str()) && cases.iter().any(|c| c.1.label == **t)).collect();
     println!(
-        "{which}: {} cases fail as {which}-todo.txt expects",
-        failures.iter().filter(|f| todo.contains(&f.0)).count()
+        "{which}: {} cases fail as {} expects",
+        failures.iter().filter(|f| todo.contains(&f.0)).count(),
+        todo_path.file_name().unwrap().to_string_lossy()
     );
     if !fixed.is_empty() {
         println!("listed in {which}-todo.txt but now right (take them out):");
@@ -734,4 +992,9 @@ fn generic_intrinsics() {
 #[test]
 fn aarch64_intrinsics() {
     run_catalogue("aarch64");
+}
+
+#[test]
+fn x86_intrinsics() {
+    run_catalogue("x86");
 }

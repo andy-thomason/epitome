@@ -372,6 +372,13 @@ impl<'t> Assembler<'t> {
                     let reg = text.split('.').next()?;
                     let p = self.t.machine.lookup(reg).or_else(|| self.t.machine.lookup(&reg.to_ascii_lowercase()))?;
                     let n = self.t.machine.field(class, p)?;
+                    // A register after the operand in a list (`{n:+1}`): the
+                    // operand is the one that many before it.
+                    if let Some(off) = modifier.and_then(|m| m.strip_prefix('+')).and_then(|m| m.parse::<i64>().ok()) {
+                        let size = self.t.machine.def(class).names.len() as i64;
+                        set(&mut r.env, name, (n - off).rem_euclid(size))?;
+                        continue;
+                    }
                     set(&mut r.env, name, n)?;
                     r.shown.insert(k, Operand::Reg(Reg::P(p)));
                 }
@@ -455,8 +462,35 @@ impl<'t> Assembler<'t> {
 
     /// The instruction `line` is, encoded at `pc`, with `label` giving the
     /// address of a label in the same section; and the symbol it refers
-    /// to, if it does.
+    /// to, if it does. (An x86 line written without the size suffix AT&T's
+    /// mnemonics have, `mov %rbx, %rsi`, is read with the one its last
+    /// integer register gives, `movq`.)
     fn encode(
+        &self,
+        line: &str,
+        pc: u64,
+        syntax: Syntax,
+        label: &dyn Fn(&str) -> Option<u64>,
+    ) -> Result<(usize, Vec<u8>, Option<Sym>), String> {
+        let first = self.encode_as(line, pc, syntax, label);
+        if first.is_ok() {
+            return first;
+        }
+        let m = mnemonic(line);
+        let suffixed = gpr_suffix(&line[line.find(m).map_or(0, |k| k + m.len())..])
+            .map(|c| format!("{}{c}", m.to_ascii_lowercase()))
+            .filter(|x| self.by_mnemonic.contains_key(x.as_str()));
+        match suffixed {
+            Some(x) => {
+                let at = line.find(m).unwrap_or(0);
+                let again = format!("{}{x}{}", &line[..at], &line[at + m.len()..]);
+                self.encode_as(&again, pc, syntax, label).or(first)
+            }
+            None => first,
+        }
+    }
+
+    fn encode_as(
         &self,
         line: &str,
         pc: u64,
@@ -1674,4 +1708,49 @@ fn unescape(s: &str) -> Option<Vec<u8>> {
         k += 1;
     }
     Some(out)
+}
+
+/// AT&T's size suffix for x86 operands (`b`, `w`, `l` or `q`), from the
+/// last integer register among them (not an address's): `%rsi` gives `q`,
+/// `%al` `b`.
+fn gpr_suffix(operands: &str) -> Option<char> {
+    let mut outside = String::new();
+    let mut depth = 0;
+    for c in operands.chars() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            _ if depth == 0 => outside.push(c),
+            _ => {}
+        }
+    }
+    let names = outside.split(|c: char| !(c.is_ascii_alphanumeric() || c == '%')).filter(|w| w.starts_with('%'));
+    let size = |r: &str| -> Option<char> {
+        let r = &r[1..];
+        let legacy = ["ax", "bx", "cx", "dx", "si", "di", "sp", "bp"];
+        if let Some(x) = r.strip_prefix('r') {
+            if legacy.contains(&x) {
+                return Some('q');
+            }
+            let digits: String = x.chars().take_while(|c| c.is_ascii_digit()).collect();
+            if digits.parse::<u32>().is_ok_and(|k| (8..=15).contains(&k)) {
+                return match &x[digits.len()..] {
+                    "" => Some('q'),
+                    "d" => Some('l'),
+                    "w" => Some('w'),
+                    "b" => Some('b'),
+                    _ => None,
+                };
+            }
+            return None;
+        }
+        if let Some(x) = r.strip_prefix('e') {
+            return legacy.contains(&x).then_some('l');
+        }
+        if legacy.contains(&r) {
+            return Some('w');
+        }
+        ["al", "bl", "cl", "dl", "ah", "bh", "ch", "dh", "sil", "dil", "spl", "bpl"].contains(&r).then_some('b')
+    };
+    names.filter_map(size).last()
 }

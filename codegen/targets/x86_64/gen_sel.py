@@ -1330,8 +1330,10 @@ def avx512():
     feat = ' "feature"="avx512f"'
     bf = ' "feature"="avx512f,avx512bf16"'
     Z = 'z'
-    for ty in ('<16 x float>', '<16 x i32>'):
-        T = ty.strip('<>').replace(' x ', 'x').replace('float', 'f32')
+    # (Memory of every 512-bit vector: the intrinsics take them all.)
+    for ty in ('<16 x float>', '<16 x i32>', '<64 x i8>', '<32 x i16>', '<8 x i64>', '<8 x double>',
+               '<32 x half>', '<32 x bfloat>'):
+        T = ty.strip('<>').replace(' x ', 'x').replace('float', 'f32').replace('double', 'f64')
         role = ty == '<16 x i32>'
         enc, _ = xed('vmovups {m.disp}({m.base}), {o0}', (Z,))
         entry(ty, f'VLDZ.{T}', ['ptr "reg"="r64" %n', 'i64 "imm" %off'], renamed(enc, {'o0': 'd', 'm.disp': 'off', 'm.base': 'n'}),
@@ -1345,6 +1347,11 @@ def avx512():
     enc, _ = xed('vmovaps {o0}, {o1}', (Z, Z))
     entry('<16 x i32>', 'VMOVAPSzv', ['<16 x i32> "reg"="zv" %n'], renamed(enc, {'o0': 'n', 'o1': 'd'}), 'vmovaps {n}, {d}',
           ['ret <16 x i32> %n'], ' "copy"="zv" "dclass"="zv"' + feat)
+    # The high 256 bits of a constant, inserted.
+    enc, _ = xed('vinserti64x4 ${c}, {o0}, {o1}, {o2}', ('ye', Z, Z))
+    entry('<8 x i64>', 'VINSERTI64X4hi', ['<8 x i64> "reg"="zv" "tied" %n', '<4 x i64> "reg"="yv" %h'],
+          renamed(enc, {'c': '1', 'o0': 'h', 'o1': 'n', 'o2': 'd'}).replace('i1:8=1', '00000001'),
+          'vinserti64x4 $1, {h}, {d}, {d}', ['ret <8 x i64> %n'], ' "dclass"="zv" "role"="vec.join.y" "nomatch"' + feat)
     enc, _ = xed('vpxord {o0}, {o1}, {o2}', (Z, Z, Z))
     for ty in ('<16 x float>', '<16 x i32>'):
         T = ty.strip('<>').replace(' x ', 'x').replace('float', 'f32')
@@ -1555,6 +1562,108 @@ def vector_copies():
           'vmovaps {n}, {d}', ['ret <8 x i64> %n'], ' "copy"="z" "dclass"="z"')
     entry('i64', 'KMOVQ', ['i64 "reg"="k" %n'], 'vex(d, 0, n, 1, 1, 0, 0, 0) | 10010000 | rr(d, n)', 'kmovq {n}, {d}',
           ['ret i64 %n'], ' "copy"="k" "dclass"="k"')
+    # AVX-512's masks (k1-k7) to and from the integer registers, and their
+    # spills: kmovq, all 64 bits (AVX512BW's; every machine with AVX-512
+    # but the Xeon Phi has it). Only for the allocator.
+    enc, _ = xed('kmovq {o0}, {o1}', ('r64', 'k'))
+    entry('i64', 'KMOVQkr', ['i64 "reg"="r64" %n'], renamed(enc, {'o0': 'n', 'o1': 'd'}), 'kmovq {n}, {d}', ['ret i64 %n'],
+          ' "dclass"="k" "role"="move.k.r64" "nomatch"')
+    enc, _ = xed('kmovq {o0}, {o1}', ('k', 'r64'))
+    entry('i64', 'KMOVQrk', ['i64 "reg"="k" %n'], renamed(enc, {'o0': 'n', 'o1': 'd'}), 'kmovq {n}, {d}', ['ret i64 %n'],
+          ' "dclass"="r64" "role"="move.r64.k" "nomatch"')
+    enc, _ = xed('kmovq {m.disp}({m.base}), {o0}', ('k',))
+    entry('i64', 'KMOVQld', ['ptr "reg"="r64" %n', 'i64 "imm" %off'], renamed(enc, {'o0': 'd', 'm.disp': 'off', 'm.base': 'n'}),
+          'kmovq {off}({n}), {d}', ['%a = getelementptr i8, ptr %n, i64 %off', '%r = load i64, ptr %a', 'ret i64 %r'],
+          ' "dclass"="k" "role"="load.k" "nomatch"')
+    enc, _ = xed('kmovq {o0}, {m.disp}({m.base})', ('k',))
+    entry('void', 'KMOVQst', ['i64 "reg"="k" %t', 'ptr "reg"="r64" %n', 'i64 "imm" %off'],
+          renamed(enc, {'o0': 't', 'm.disp': 'off', 'm.base': 'n'}), 'kmovq {t}, {off}({n})',
+          ['%a = getelementptr i8, ptr %n, i64 %off', 'store i64 %t, ptr %a', 'ret void'], ' "role"="store.k" "nomatch"')
+
+
+def intrinsics():
+    """x86's own intrinsics (llvm.x86.*) that are one instruction of
+    02-xed.ll's, as discover_intrinsics.py found them (intrinsics.txt): the
+    body calls the intrinsic, and the instruction's operands are its
+    arguments and result; the features are those Rust's core::arch asks
+    for it."""
+    import re
+    sel = {'x': 'xv', 'xe': 'xv', 'y': 'yv', 'ye': 'yv', 'z': 'zv'}
+    declared = set(re.findall(r'declare [^@]*@([\w.]+)\(', ''.join(out)))
+
+    def split_top(s):
+        parts, depth, cur = [], 0, ''
+        for ch in s:
+            depth += ch in '<{('
+            depth -= ch in '>})'
+            if ch == ',' and depth == 0:
+                parts.append(cur.strip())
+                cur = ''
+            else:
+                cur += ch
+        return parts + ([cur.strip()] if cur.strip() else [])
+    for line in open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'intrinsics.txt')):
+        f = line.rstrip('\n').split(' ; ')
+        if line.startswith('#') or len(f) < 9 or f[3] != 'entry' or f[0] in declared:
+            continue
+        # (Not yet those of half: x86 has no half values yet.)
+        if 'half' in f[1]:
+            continue
+        name, sig, feats, _, asm, classes, operands, extra = f[:8]
+        ret, args = sig[:-1].split('(', 1)
+        args = split_top(args)
+        enc, _ = xed(asm, classes.split())
+        names = dict(o.split('=') for o in operands.split())
+        extra = extra.split()
+        tied = next((e[5:] for e in extra if e.startswith('tied=')), None)
+        # Operands in registers the instruction takes unnamed (eax, xmm0).
+        fixed = dict(e[6:].split(':') for e in extra if e.startswith('fixed='))
+        clobbers = [c for e in extra if e.startswith('clobbers=') for c in e[9:].split(',')]
+        clobbers += ['flags'] if 'flags' in extra else []
+        # Constants the instruction is for one value of (a rounding).
+        consts = dict(e[6:].split(':') for e in extra if e.startswith('const='))
+        # The class of each register operand, by its name in the template.
+        regs = re.findall(r'\{(o\d+)\}', asm)
+        cls = dict(zip(regs, classes.split()))
+        of = {v: k for k, v in names.items()}
+        params, call = [], []
+        for k, a in enumerate(args):
+            ty, imm = (a[:-4], True) if a.endswith(' imm') else (a, False)
+            if f'a{k}' in consts:
+                call.append(f'{ty} {consts[f"a{k}"]}')
+                continue
+            call.append(f'{ty} %a{k}')
+            if imm:
+                params.append(f'{ty} "imm" %a{k}')
+            elif f'a{k}' in fixed:
+                params.append(f'{ty} "reg"="{fixed[f"a{k}"]}" %a{k}')
+            elif of.get(f'a{k}') == 'm.base':
+                params.append(f'{ty} "reg"="r64" %a{k}')
+            else:
+                o = of.get(f'a{k}') or of['d']
+                params.append(f'{ty} "reg"="{sel.get(cls[o], cls[o])}"' + (' "tied"' if tied == f'a{k}' else '') + f' %a{k}')
+        if 'd' in fixed:
+            attrs = f' "dclass"="{fixed["d"]}"'
+        else:
+            attrs = f' "dclass"="{sel.get(cls[of["d"]], cls[of["d"]])}"' if 'd' in of else ''
+        attrs += f' "feature"="{feats}"' + (f' "clobbers"="{",".join(clobbers)}"' if clobbers else '')
+        template = asm.replace('{m.disp}({m.base})', '0({m.base})')
+        for o, v in names.items():
+            template = template.replace('${' + o + '}', '${' + v + '}').replace('{' + o + '}', '{' + v + '}')
+        if ret == 'void':
+            body = [f'call void @{name}({", ".join(call)})', 'ret void']
+        else:
+            body = [f'%r = call {ret} @{name}({", ".join(call)})', f'ret {ret} %r']
+        # (A byte immediate is read either way, as an i8 is written: Rust's
+        # 0x80 is -128.)
+        enc = renamed(enc, names)
+        for k, a in enumerate(args):
+            if a.endswith(' imm'):
+                enc = re.sub(rf'\bi(\d):8=a{k}\b', rf'{{ i\1:8=a{k} ; i\1:s8=a{k} }}', enc)
+        entry(ret, 'X86.' + name[len('llvm.x86.'):], params, enc, template, body, attrs)
+        types = ', '.join(a.removesuffix(' imm') for a in args)
+        out.append(f'declare {ret} @{name}({types})\n')
+        declared.add(name)
 
 
 def main():
@@ -1584,6 +1693,7 @@ def main():
     more_compares()
     float_minmax()
     vector_copies()
+    intrinsics()
     sys.stdout.write('\n'.join(out))
 
 

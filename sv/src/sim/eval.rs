@@ -7,7 +7,8 @@ use crate::design::ops;
 impl Sim<'_, '_, '_> {
     /// The value of an expression.
     pub(super) fn eval(&mut self, cx: &Cx, x: ExprId) -> Const {
-        let e = self.d.expr(x).clone();
+        let d = self.d;
+        let e = d.expr(x);
         let ty = e.ty;
         let tys = &self.d.types;
         use ExprKind as K;
@@ -21,10 +22,34 @@ impl Sim<'_, '_, '_> {
                 }
                 None => self.read_obj(cx, *o),
             },
+            // An interface instance as a virtual interface (25.9).
+            K::Hier { .. } if matches!(tys.get(ty), Type::Interface { .. }) => match self.hops(cx.inst, x) {
+                Some(i) => Const::Inst(i),
+                None => Const::Null,
+            },
             K::Hier { .. } => Const::Null,
             K::TypeRef(t) => Const::Type(*t),
             K::Convert => {
                 let v = self.eval(cx, e.args[0]);
+                // A stream put into a wider vector is left-justified
+                // (11.4.14.3).
+                if matches!(self.d.expr(e.args[0]).kind, K::Streaming { .. })
+                    && tys.is_integral(ty)
+                    && let Const::Bits(b) = &v
+                    && tys.width(ty) > b.width()
+                {
+                    let w = tys.width(ty);
+                    return ops::convert(tys, &Const::Bits(b.resize(w, false).shl((w - b.width()) as u64)), ty);
+                }
+                // Widening extends by the target's signedness: the
+                // elaborator writes sext or zext as it means (11.8.2).
+                if tys.is_integral(ty)
+                    && let Const::Bits(b) = &v
+                    && tys.width(ty) > b.width()
+                {
+                    let w = tys.width(ty);
+                    return ops::convert(tys, &Const::Bits(b.resize(w, tys.is_signed(ty))), ty);
+                }
                 ops::convert(tys, &v, ty)
             }
             K::Unary(op @ (UnOp::PreInc | UnOp::PreDec | UnOp::PostInc | UnOp::PostDec)) => {
@@ -44,6 +69,15 @@ impl Sim<'_, '_, '_> {
             K::Unary(op) => {
                 let v = self.eval(cx, e.args[0]);
                 ops::unary(tys, *op, v, ty).unwrap_or_else(|| ops::default_value(tys, ty))
+            }
+            K::Binary(BinOp::Implies) => {
+                // `a -> b`: b only when a is not false (11.4.7).
+                let a = self.eval(cx, e.args[0]);
+                if truth(&a) == Some(false) {
+                    return Const::Bits(Bits::from_bool(true));
+                }
+                let b = self.eval(cx, e.args[1]);
+                ops::binary(tys, BinOp::Implies, a, b, ty).unwrap_or_else(|| ops::default_value(tys, ty))
             }
             K::Binary(op) => {
                 if matches!(op, BinOp::LogAnd | BinOp::LogOr) {
@@ -70,7 +104,7 @@ impl Sim<'_, '_, '_> {
                 let b = self.eval(cx, e.args[1]);
                 // Handles and null compare by identity.
                 if matches!(op, BinOp::Eq | BinOp::Ne | BinOp::CaseEq | BinOp::CaseNe)
-                    && (matches!(a, Const::Handle(_) | Const::Null) || matches!(b, Const::Handle(_) | Const::Null))
+                    && (matches!(a, Const::Handle(_) | Const::Inst(_) | Const::Null) || matches!(b, Const::Handle(_) | Const::Inst(_) | Const::Null))
                 {
                     let eq = a == b;
                     let r = if matches!(op, BinOp::Eq | BinOp::CaseEq) { eq } else { !eq };
@@ -103,12 +137,14 @@ impl Sim<'_, '_, '_> {
                                 }
                                 Const::Bits(r)
                             }
+                            // Reals that differ give 0 (11.4.11).
+                            (Const::Real(x), Const::Real(y)) if x != y => Const::Real(0.0),
                             _ => a,
                         }
                     }
                 }
             }
-            K::Concat => self.concat(cx, &e),
+            K::Concat => self.concat(cx, e),
             K::Replicate(k) => {
                 let v = self.eval(cx, e.args[0]);
                 let k = if *k == u32::MAX { self.eval(cx, e.args[1]).to_i64().unwrap_or(0).max(0) as usize } else { *k as usize };
@@ -119,10 +155,23 @@ impl Sim<'_, '_, '_> {
                 }
             }
             K::Index => {
+                // An element of an array variable, without copying the array.
+                if let K::Object(o) = self.d.expr(e.args[0]).kind
+                    && let Some(s) = self.array_slot(cx, o)
+                    && matches!(self.vals[s], Const::Aggregate(_))
+                {
+                    let i = self.eval(cx, e.args[1]);
+                    let bt = self.d.expr(e.args[0]).ty;
+                    return match (self.elem_offset(bt, &i), &self.vals[s]) {
+                        (Some(off), Const::Aggregate(items)) if off < items.len() => items[off].clone(),
+                        _ => ops::default_value(tys, ty),
+                    };
+                }
                 let base = self.eval(cx, e.args[0]);
-                let i = self.eval(cx, e.args[1]);
                 let bt = self.d.expr(e.args[0]).ty;
+                let i = self.index_value(cx, &base, bt, e.args[1]);
                 if let Type::Unpacked { dim: UDim::Assoc(_) | UDim::Wildcard, .. } = tys.get(bt) {
+                    let Some(i) = self.assoc_key(bt, i) else { return ops::default_value(tys, ty) };
                     if let Const::Aggregate(items) = &base {
                         for c in items.chunks(2) {
                             if ops::const_eq(&c[0], &i) {
@@ -144,10 +193,27 @@ impl Sim<'_, '_, '_> {
                 }
                 ops::index(tys, &base, bt, &i, ty).unwrap_or_else(|| ops::default_value(tys, ty))
             }
-            K::Part { kind, width } => self.part(cx, &e, *kind, *width),
+            K::Part { kind, width } => self.part(cx, e, *kind, *width),
             K::Member(i) => {
                 let base = self.eval(cx, e.args[0]);
                 let bt = self.d.expr(e.args[0]).ty;
+                // A tagged union's member can be read only while it is the
+                // one the tag names (7.3.2).
+                if let Type::Struct { tagged: true, members, .. } = tys.get(bt) {
+                    let tag = match &base {
+                        Const::Aggregate(items) => items.last().and_then(|t| t.to_i64()),
+                        Const::Bits(b) => {
+                            let maxw = members.iter().map(|m| tys.width(m.ty)).max().unwrap_or(0);
+                            b.slice(maxw, b.width() - maxw).to_i64()
+                        }
+                        _ => None,
+                    };
+                    if tag != Some(*i as i64) {
+                        let _ = writeln!(self.out, "error: reading member `{}` of a tagged union that holds another member", self.d.name(members[*i as usize].name));
+                        self.outcome.errors += 1;
+                        return ops::default_value(tys, ty);
+                    }
+                }
                 member(tys, base, bt, *i)
             }
             K::Field(o) => {
@@ -158,6 +224,10 @@ impl Sim<'_, '_, '_> {
                 match (h, self.homes[o.0 as usize]) {
                     (Const::Handle(h), Home::Field(f)) => {
                         self.heap.get(h as usize).and_then(|ob| ob.fields.get(f as usize).cloned()).unwrap_or(Const::Null)
+                    }
+                    (Const::Inst(i), _) => {
+                        let c2 = Cx { inst: i, locals: Rc::default(), this: None };
+                        self.read_obj(&c2, *o)
                     }
                     (_, Home::Global(g)) => self.read_slot(g as usize),
                     _ => ops::default_value(tys, ty),
@@ -229,7 +299,7 @@ impl Sim<'_, '_, '_> {
                 }
                 Const::Bits(if any_x { Bits::x(1) } else { Bits::from_bool(false) })
             }
-            K::New => self.new_value(cx, &e, x),
+            K::New => self.new_value(cx, e, x),
             K::Null => Const::Null,
             K::This => cx.this.map_or(Const::Null, Const::Handle),
             K::Assign => {
@@ -238,10 +308,41 @@ impl Sim<'_, '_, '_> {
                 self.write_cx(cx, &t, v.clone(), false);
                 v
             }
-            K::Streaming { left } => self.stream(cx, &e, *left),
-            K::Dollar => Const::Unbounded,
-            K::Range | K::Tagged(_) | K::Opaque => {
-                self.unsupported("an expression the elaborator keeps as syntax".into());
+            K::Streaming { left } => self.stream(cx, e, *left),
+            K::Dollar => match self.dollar.last() {
+                Some(&n) => Const::Bits(Bits::from_i64(32, true, n)),
+                None => Const::Unbounded,
+            },
+            K::Tagged(i) => {
+                let i = *i as usize;
+                let Type::Struct { members, .. } = tys.get(ty).clone() else { return ops::default_value(tys, ty) };
+                let val = match e.args.first() {
+                    Some(&a) => {
+                        let v = self.eval(cx, a);
+                        ops::convert(tys, &v, members[i].ty)
+                    }
+                    None => Const::Null,
+                };
+                if tys.is_integral(ty) {
+                    // Packed: the tag in the top bits, the value at the bottom.
+                    let w = tys.width(ty);
+                    let maxw = members.iter().map(|m| tys.width(m.ty)).max().unwrap_or(0);
+                    let mut b = Bits::zero(w, false);
+                    if let Const::Bits(v) = &val {
+                        b.set_slice(0, v);
+                    }
+                    b.set_slice(maxw, &Bits::from_u64(w - maxw, false, i as u64));
+                    Const::Bits(b)
+                } else {
+                    let mut items: Vec<Const> = members.iter().map(|m| ops::default_value(tys, m.ty)).collect();
+                    items[i] = val;
+                    items.push(Const::Bits(Bits::from_u64(32, false, i as u64)));
+                    Const::Aggregate(items)
+                }
+            }
+            K::Range | K::Opaque => {
+                let what = format!("{:?} `{}`", self.ast.kind(e.node), self.line_of(e.node));
+                self.unsupported(format!("expression kept as syntax: {what}"));
                 ops::default_value(tys, ty)
             }
         }
@@ -304,10 +405,69 @@ impl Sim<'_, '_, '_> {
         Const::Bits(Bits::concat(&parts))
     }
 
+    /// An associative array's key as its index type, or `None` for an
+    /// integral key with x or z bits, which reads the default and writes
+    /// nothing (7.8.6).
+    pub(super) fn assoc_key(&self, bt: TypeId, k: Const) -> Option<Const> {
+        let tys = &self.d.types;
+        match tys.get(bt) {
+            Type::Unpacked { dim: UDim::Assoc(kt), .. } if tys.is_integral(*kt) => {
+                let k = ops::convert(tys, &k, *kt);
+                match &k {
+                    Const::Bits(b) if !b.is_known() => None,
+                    _ => Some(k),
+                }
+            }
+            Type::Unpacked { dim: UDim::Assoc(kt), .. } => Some(ops::convert(tys, &k, *kt)),
+            _ => match &k {
+                Const::Bits(b) if !b.is_known() => None,
+                _ => Some(k),
+            },
+        }
+    }
+
+    /// An associative array's index type, or the array type for `[*]`.
+    pub(super) fn key_type(&self, bt: TypeId) -> TypeId {
+        match self.d.types.get(bt) {
+            Type::Unpacked { dim: UDim::Assoc(kt), .. } => *kt,
+            _ => bt,
+        }
+    }
+
+    /// An index, with `$` bound to a queue's last index.
+    pub(super) fn index_value(&mut self, cx: &Cx, base: &Const, bt: TypeId, x: ExprId) -> Const {
+        if is_queue(&self.d.types, bt) && has_dollar(self.d, x) {
+            let n = match base {
+                Const::Aggregate(items) => items.len() as i64,
+                _ => 0,
+            };
+            self.dollar.push(n - 1);
+            let v = self.eval(cx, x);
+            self.dollar.pop();
+            v
+        } else {
+            self.eval(cx, x)
+        }
+    }
+
     fn part(&mut self, cx: &Cx, e: &Expr, kind: PartKind, width: u32) -> Const {
         let base = self.eval(cx, e.args[0]);
-        let a = self.eval(cx, e.args[1]).to_i64();
         let bt = self.d.expr(e.args[0]).ty;
+        if is_queue(&self.d.types, bt) && kind == PartKind::Range {
+            // `q[a:b]`: the elements from a to b, clipped to the queue;
+            // none if a > b or either is unknown (7.10.1).
+            let a = self.index_value(cx, &base, bt, e.args[1]).to_i64();
+            let b = self.index_value(cx, &base, bt, e.args[2]).to_i64();
+            let Const::Aggregate(items) = &base else { return Const::Aggregate(vec![]) };
+            return match (a, b) {
+                (Some(a), Some(b)) if a <= b && b >= 0 && a < items.len() as i64 => {
+                    let (a, b) = (a.max(0) as usize, (b as usize).min(items.len() - 1));
+                    Const::Aggregate(items[a..=b].to_vec())
+                }
+                _ => Const::Aggregate(vec![]),
+            };
+        }
+        let a = self.eval(cx, e.args[1]).to_i64();
         let tys = &self.d.types;
         let Some(a) = a else { return ops::default_value(tys, e.ty) };
         let (hi, lo) = match kind {
@@ -337,12 +497,30 @@ impl Sim<'_, '_, '_> {
                     None => {
                         // Partly out of range: the bits that are in range,
                         // x for the rest (11.5.1).
-                        Const::Bits(Bits::x(width * ew as u32))
+                        let ew = ew as u32;
+                        let (start, _) = ops::select_span(tys, bt, lo, hi);
+                        let start = start * ew as i64;
+                        let w = width * ew;
+                        let mut r = Bits::x(w);
+                        let (from, to) = (start.max(0), (start + w as i64).min(b.width() as i64));
+                        if from < to {
+                            r.set_slice((from - start) as u32, &b.slice(from as u32, (to - from) as u32));
+                        }
+                        Const::Bits(r)
                     }
                 }
             }
             _ => ops::default_value(tys, e.ty),
         }
+    }
+
+    /// Whether an expression can name storage: the parts of a stream
+    /// rather than its block size.
+    fn is_lvalue_expr(&self, x: ExprId) -> bool {
+        matches!(
+            self.d.expr(x).kind,
+            ExprKind::Object(_) | ExprKind::Hier { .. } | ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_) | ExprKind::Field(_) | ExprKind::Concat
+        )
     }
 
     fn stream(&mut self, cx: &Cx, e: &Expr, left: bool) -> Const {
@@ -351,7 +529,7 @@ impl Sim<'_, '_, '_> {
         let mut args = e.args.clone();
         let mut slice = 1u32;
         if let Some(&first) = args.first()
-            && !matches!(self.d.expr(first).kind, ExprKind::Object(_) | ExprKind::Hier { .. } | ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_) | ExprKind::Field(_) | ExprKind::Concat)
+            && !self.is_lvalue_expr(first)
             && args.len() > 1
         {
             let v = self.eval(cx, first);
@@ -363,35 +541,11 @@ impl Sim<'_, '_, '_> {
         }
         let mut parts = Vec::new();
         for a in args {
-            match self.eval(cx, a) {
-                Const::Bits(b) => parts.push(b),
-                Const::Aggregate(items) => {
-                    for it in items {
-                        if let Const::Bits(b) = it {
-                            parts.push(b);
-                        }
-                    }
-                }
-                Const::Str(s) => parts.push(Bits::from_str_bytes(&s)),
-                _ => {}
-            }
+            let v = self.eval(cx, a);
+            parts.push(ops::pack(&v));
         }
         let all = Bits::concat(&parts);
-        if !left {
-            return Const::Bits(all);
-        }
-        let w = all.width();
-        let mut out = Bits::zero(w, false);
-        let n = w.div_ceil(slice);
-        for k in 0..n {
-            // Slice k from the top goes to slice k from the bottom.
-            let hi = w as i64 - (k * slice) as i64;
-            let lo = (hi - slice as i64).max(0);
-            let piece = all.slice(lo as u32, (hi - lo) as u32);
-            out.set_slice(k * slice, &piece);
-        }
-        // Slices of a width that does not divide are kept at the top.
-        Const::Bits(out)
+        Const::Bits(if left { ops::reverse_blocks(&all, slice) } else { all })
     }
 
     // ---- targets ----
@@ -414,6 +568,10 @@ impl Sim<'_, '_, '_> {
                     Some(&b) => self.eval(cx, b),
                     None => cx.this.map_or(Const::Null, Const::Handle),
                 };
+                if let Const::Inst(i) = h {
+                    let c2 = Cx { inst: i, locals: Rc::default(), this: None };
+                    return self.target_obj(&c2, *o);
+                }
                 let place = match (h, self.homes[o.0 as usize]) {
                     (Const::Handle(h), Home::Field(f)) => Place::Field(h, f),
                     (_, Home::Global(g)) => Place::Slot(g as usize),
@@ -426,17 +584,46 @@ impl Sim<'_, '_, '_> {
                 t.ty = self.d.expr(e.args[0]).ty;
                 t
             }
+            ExprKind::Streaming { left } => {
+                let mut args = e.args.clone();
+                let mut slice = 1u32;
+                if args.len() > 1 && !self.is_lvalue_expr(args[0]) {
+                    slice = match self.eval(cx, args[0]) {
+                        Const::Type(t) => self.d.types.width(t).max(1),
+                        v => v.to_i64().unwrap_or(1).max(1) as u32,
+                    };
+                    args.remove(0);
+                }
+                let parts = args.iter().map(|&a| self.target(cx, a)).collect();
+                Target { place: Place::Stream(parts, *left, slice), path: vec![], ty: e.ty }
+            }
+            ExprKind::Concat => {
+                // `{a, b} = v`: the value split among the parts, the first
+                // most significant (10.10, 11.4.12).
+                let parts = e.args.iter().map(|&a| self.target(cx, a)).collect();
+                Target { place: Place::Concat(parts), path: vec![], ty: e.ty }
+            }
             ExprKind::Index => {
                 let mut t = self.target(cx, e.args[0]);
-                let i = self.eval(cx, e.args[1]);
                 let bt = self.d.expr(e.args[0]).ty;
+                let i = if is_queue(&self.d.types, bt) && has_dollar(self.d, e.args[1]) {
+                    let base = self.eval(cx, e.args[0]);
+                    self.index_value(cx, &base, bt, e.args[1])
+                } else {
+                    self.eval(cx, e.args[1])
+                };
                 let tys = &self.d.types;
                 let sel = match tys.get(bt) {
-                    Type::Unpacked { dim: UDim::Assoc(_) | UDim::Wildcard, .. } => Some(Sel::Key(i)),
+                    Type::Unpacked { dim: UDim::Assoc(_) | UDim::Wildcard, elem } => {
+                        let et = *elem;
+                        self.assoc_key(bt, i).map(|k| Sel::Key(k, et))
+                    }
                     Type::Unpacked { dim: UDim::Range(l, r), .. } => i.to_i64().and_then(|k| {
                         let off = if l <= r { k - l } else { l - k };
                         (off >= 0 && off <= (l - r).abs()).then_some(Sel::Elem(off as usize))
                     }),
+                    Type::Unpacked { dim: UDim::Queue(_), .. } => i.to_i64().filter(|&k| k >= 0).map(|k| Sel::QueueElem(k as usize)),
+                    Type::String => i.to_i64().filter(|&k| k >= 0).map(|k| Sel::Char(k as usize)),
                     Type::Unpacked { .. } => i.to_i64().filter(|&k| k >= 0).map(|k| Sel::Elem(k as usize)),
                     _ => {
                         let ew = tys.width(e.ty).max(1);
@@ -474,7 +661,20 @@ impl Sim<'_, '_, '_> {
                         t.path.push(Sel::Bits(off as u32 * ew, *width * ew));
                         t.ty = e.ty;
                     }
-                    None => t.place = Place::None,
+                    None => {
+                        // Partly out of range: only the bits in range are
+                        // written (11.5.1).
+                        let (start, _) = ops::select_span(tys, bt, lo, hi);
+                        let start = start * ew as i64;
+                        let w = (*width * ew) as i64;
+                        let (from, to) = (start.max(0), (start + w).min(tys.width(bt) as i64));
+                        if from < to {
+                            t.path.push(Sel::Clip(from as u32, (to - from) as u32, (from - start) as u32));
+                            t.ty = e.ty;
+                        } else {
+                            t.place = Place::None;
+                        }
+                    }
                 }
                 t
             }
@@ -768,6 +968,9 @@ impl Sim<'_, '_, '_> {
             children: vec![],
             sensitive: vec![],
             driver: None,
+            armed: false,
+            outs: vec![],
+            round: 0,
         });
         loop {
             if self.over_limit() {
@@ -879,9 +1082,11 @@ impl Sim<'_, '_, '_> {
             }
             Type::Class(c) => {
                 if self.d.class(c).node == self.ast.root {
-                    // A built-in class: an empty object stands for it.
+                    // A built-in class: an empty object stands for it, its
+                    // state kept aside.
                     let h = self.heap.len() as u32;
                     self.heap.push(Object { class: c, fields: vec![] });
+                    self.builtin_new(cx, c, h, &e.args);
                     return Const::Handle(h);
                 }
                 let h = self.alloc(c);
@@ -965,14 +1170,30 @@ impl Sim<'_, '_, '_> {
     pub(super) fn drive(&mut self, p: u32, dr: Driven) {
         let inst = self.procs[p as usize].frames[0].cx.inst;
         let cx = Cx { inst, locals: Rc::default(), this: None };
-        let mut reads: Vec<usize> = Vec::new();
+        let armed = self.procs[p as usize].armed;
+        let mut reads: Vec<(usize, Option<u32>)> = Vec::new();
         match dr {
             Driven::Assign(id) => {
                 let d = &self.d.drivers[id.0 as usize];
                 let (lhs, rhs, delay) = (d.lhs, d.rhs, d.delay.clone());
                 let v = self.eval(&cx, rhs);
-                let t = self.target(&cx, lhs);
-                if let Some(&dl) = delay.first() {
+                // A net's own delay adds to the assignment's (28.16).
+                let net_delay = match self.d.expr(lhs).kind {
+                    ExprKind::Object(o) => self.d.nets.get(&o).map(|i| i.delay.clone()).unwrap_or_default(),
+                    _ => vec![],
+                };
+                if self.procs[p as usize].outs.first().is_some_and(Option::is_some) || !delay.is_empty() || !net_delay.is_empty() {
+                    // A resolved net: the value goes in with the driver's
+                    // strength.
+                    let names: Vec<&str> = match self.d.drivers[id.0 as usize].strength {
+                        Some((a, b)) => vec![self.d.name(a), self.d.name(b)],
+                        None => vec![],
+                    };
+                    let (s0, s1) = net::strengths(&names, (net::STRONG, net::STRONG));
+                    let sig = net::sigs_of(&v, s0, s1);
+                    self.emit_with(p, inst, &delay, &net_delay, vec![(v, sig)]);
+                } else if let Some(&dl) = delay.first() {
+                    let t = self.target(&cx, lhs);
                     let dv = self.eval(&cx, dl);
                     let ticks = self.ticks(inst, &dv);
                     if ticks > 0 {
@@ -981,11 +1202,14 @@ impl Sim<'_, '_, '_> {
                         self.write_cx(&cx, &t, v, false);
                     }
                 } else {
+                    let t = self.target(&cx, lhs);
                     self.write_cx(&cx, &t, v, false);
                 }
-                self.reads(&cx, rhs, &mut reads);
-                for &a in self.d.expr(lhs).args.clone().iter().skip(1) {
-                    self.reads(&cx, a, &mut reads);
+                if !armed {
+                    self.reads_elem(&cx, rhs, &mut reads);
+                    for &a in self.d.expr(lhs).args.clone().iter().skip(1) {
+                        self.reads_elem(&cx, a, &mut reads);
+                    }
                 }
             }
             Driven::Port(child, k) => {
@@ -997,35 +1221,66 @@ impl Sim<'_, '_, '_> {
                 let (Some(x), Some(po)) = (conn.expr, port.object) else { return };
                 let pcx = Cx { inst: parent, locals: Rc::default(), this: None };
                 let ccx = Cx { inst: child, locals: Rc::default(), this: None };
+                let to_net = self.procs[p as usize].outs.first().is_some_and(Option::is_some);
                 if port.dir == Dir::Input {
                     let v = self.eval(&pcx, x);
-                    let t = self.target_obj(&ccx, po);
-                    self.write_cx(&ccx, &t, v, false);
-                    self.reads(&pcx, x, &mut reads);
+                    if to_net {
+                        let sig = self.sigs_of_expr(&pcx, x, &v);
+                        self.put_outputs(p, vec![(v, sig)]);
+                    } else {
+                        let t = self.target_obj(&ccx, po);
+                        self.write_cx(&ccx, &t, v, false);
+                    }
+                    if !armed {
+                        self.reads_elem(&pcx, x, &mut reads);
+                    }
                 } else {
                     let v = self.read_obj(&ccx, po);
-                    let t = self.target(&pcx, x);
-                    self.write_cx(&pcx, &t, v, false);
-                    if let Some(s) = self.slot_of_obj(child, po) {
-                        reads.push(s);
+                    if to_net {
+                        let sig = match self.slot_of_obj(child, po).and_then(|s| self.nets.get(&self.find(s))) {
+                            Some(n) => n.sig.clone(),
+                            None => net::sigs_of(&v, net::STRONG, net::STRONG),
+                        };
+                        self.put_outputs(p, vec![(v, sig)]);
+                    } else {
+                        let t = self.target(&pcx, x);
+                        self.write_cx(&pcx, &t, v, false);
                     }
+                    if let Some(s) = self.slot_of_obj(child, po) {
+                        reads.push((s, None));
+                    }
+                }
+            }
+            Driven::Pcont(s) => {
+                let StmtKind::ProcContinuous { lhs, rhs: Some(rhs), .. } = self.d.stmt(s).kind.clone() else { return };
+                let v = self.eval(&cx, rhs);
+                let t = self.target(&cx, lhs);
+                self.privileged = Some(p);
+                self.write_cx(&cx, &t, v, false);
+                self.privileged = None;
+                if !armed {
+                    self.reads_elem(&cx, rhs, &mut reads);
                 }
             }
             Driven::Cell(c) => {
                 let cell = &self.d.cells[c.0 as usize];
                 let kind = self.d.name(cell.kind).to_string();
+                let cell_kind = cell.kind;
                 let terms = cell.terminals.clone();
-                let ins: Vec<Const> = terms.iter().skip(1).map(|&t| self.eval(&cx, t)).collect();
-                if let Some(v) = gate(&kind, &ins) {
-                    if let Some(&out) = terms.first() {
-                        let t = self.target(&cx, out);
-                        self.write_cx(&cx, &t, v, false);
-                    }
-                } else {
-                    self.unsupported(format!("gate or primitive `{kind}`"));
+                let delay = cell.delay.clone();
+                // A sequential UDP's initial value is not delayed (29.7).
+                let delay = if !armed && self.d.udps.get(&cell_kind).is_some_and(|u| u.sequential) { vec![] } else { delay };
+                match self.cell(p, &cx, c) {
+                    Some(outs) => self.emit(p, inst, &delay, outs),
+                    None => self.unsupported(format!("gate or primitive `{kind}`")),
                 }
-                for &t in terms.iter().skip(1) {
-                    self.reads(&cx, t, &mut reads);
+                if !armed {
+                    let outs = net::cell_outputs(&kind, terms.len());
+                    for (k, &t) in terms.iter().enumerate() {
+                        if !outs.contains(&k) {
+                            self.reads_elem(&cx, t, &mut reads);
+                        }
+                    }
                 }
             }
         }
@@ -1033,8 +1288,9 @@ impl Sim<'_, '_, '_> {
         pr.state = State::Waiting;
         pr.epoch = pr.epoch.wrapping_add(1);
         pr.wait = Wait::Change;
-        for s in reads {
-            self.watch_slot(p, s);
+        if !pr.armed {
+            pr.armed = true;
+            self.arm_driver(p, &reads);
         }
     }
 
@@ -1055,14 +1311,70 @@ impl Sim<'_, '_, '_> {
         }
     }
 
+    /// `assign`, `deassign`, `force` and `release` (10.6).
     pub(super) fn proc_cont(&mut self, cx: &Cx, s: StmtId) {
-        let StmtKind::ProcContinuous { keyword, lhs, rhs } = self.d.stmt(s).kind.clone() else { return };
-        if let ("assign" | "force", Some(r)) = (self.d.name(keyword), rhs) {
-            // Held only until the next write, not continuously: the
-            // full semantics of 10.6 are not modelled yet.
-            let v = self.eval(cx, r);
-            let t = self.target(cx, lhs);
-            self.write_cx(cx, &t, v, false);
+        let StmtKind::ProcContinuous { keyword, lhs, rhs: _ } = self.d.stmt(s).kind.clone() else { return };
+        let kw = self.d.name(keyword);
+        let t = self.target(cx, lhs);
+        let Place::Slot(slot) = t.place else {
+            self.unsupported(format!("`{kw}` of this target"));
+            return;
+        };
+        let slot = self.find(slot);
+        let bits = match t.path.as_slice() {
+            [Sel::Bits(lo, w)] => Some((*lo, *w)),
+            _ => None,
+        };
+        let pc = self.pcont.entry(slot).or_default();
+        let old = match kw {
+            "force" => pc.force.take().map(|(p, _)| p),
+            "assign" => pc.assign.take(),
+            "release" => pc.force.take().map(|(p, _)| p),
+            _ => pc.assign.take(),
+        };
+        if let Some(p) = old {
+            self.end_proc(p);
+        }
+        match kw {
+            "force" | "assign" => {
+                // A driver that keeps the target at the expression's value.
+                let p = self.new_proc(cx.inst, None, Some(Driven::Pcont(s)));
+                let pc = self.pcont.entry(slot).or_default();
+                if kw == "force" {
+                    pc.force = Some((p, bits));
+                } else {
+                    pc.assign = Some(p);
+                }
+            }
+            "release" => {
+                // The object at the root of the target's selects.
+                let mut root = lhs;
+                while matches!(self.d.expr(root).kind, ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_)) {
+                    root = self.d.expr(root).args[0];
+                }
+                let is_net = matches!(self.d.expr(root).kind, ExprKind::Object(o) if matches!(self.d.object(o).kind, ObjKind::Net(_)));
+                if is_net {
+                    // A net goes back to what its drivers drive.
+                    if self.nets.contains_key(&slot) {
+                        self.write_net_pub(slot);
+                    }
+                    for q in 0..self.procs.len() as u32 {
+                        if let Some(dr) = self.procs[q as usize].driver
+                            && !matches!(dr, Driven::Pcont(_))
+                            && self.drives_slot(q, dr, slot)
+                        {
+                            self.wake(q);
+                        }
+                    }
+                } else if let Some(ap) = self.pcont.get(&slot).and_then(|pc| pc.assign) {
+                    // A variable under `assign` goes back to it.
+                    self.wake(ap);
+                }
+            }
+            _ => {}
+        }
+        if self.pcont.get(&slot).is_some_and(|pc| pc.force.is_none() && pc.assign.is_none()) {
+            self.pcont.remove(&slot);
         }
     }
 }
@@ -1083,7 +1395,7 @@ fn member(tys: &Types, base: Const, bt: TypeId, i: u32) -> Const {
 }
 
 /// A gate's output from its inputs (28.4–28.7).
-fn gate(kind: &str, ins: &[Const]) -> Option<Const> {
+pub(super) fn gate(kind: &str, ins: &[Const]) -> Option<Const> {
     let bit = |c: &Const| match c {
         Const::Bits(b) => b.bit(0),
         _ => Logic::X,

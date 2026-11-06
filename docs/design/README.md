@@ -32,6 +32,8 @@ short) has to do to work like LLVM. They are split into two halves:
   (Evergreen) and gfx1151 (RDNA 3.5), for assembly.
 - [x86-64: a plan](x86.md): how x86 instructions are written in a
   description, and what the code generator must learn first.
+- [SVE and SME](sve.md): AArch64's scalable vectors and predicates in
+  registers, how they are tested under qemu, and the plan.
 - [Partial machines: a plan](partial-machines.md): machines without
   memory, a stack, calls or floating point; checking that a program fits
   one; fencing off what Epitome must not optimise or lower; and a VLIW
@@ -63,6 +65,10 @@ short) has to do to work like LLVM. They are split into two halves:
   compiler written from IEEE 1800-2023 and measured against the
   `test1800` conformance tests: lexing, preprocessing, parsing,
   elaboration and compiled simulation.
+- [Rust](../../epitome-rustc2/docs/design.md): `epitome-rustc2`, a Rust
+  compiler that does not use rustc: lexing and parsing to an AST, macro
+  expansion (including existing proc macros), name resolution and types
+  in side tables, and lowering the AST straight to Epitome IR.
 
 ## Clean-room rules
 

@@ -52,6 +52,12 @@
 //!   `fesetenv`; traps with a kind (`llvm.debugtrap`, `llvm.ubsantrap`) as
 //!   AArch64's breakpoints; `llvm.ptrauth.blend` and `.resign` as
 //!   arithmetic and the instructions for the others.
+//! - x86's add and subtract with a carry (`llvm.x86.addcarry.64`...) in
+//!   integers of twice the width; its reads of the time-stamp counter and
+//!   of XCR0 (`llvm.x86.rdtsc`, `rdtscp`, `xgetbv`), which give edx:eax,
+//!   as inline assembly joining the halves; its comparisons of first lanes
+//!   (`comi`, `ucomi`) and tests of bits (`ptest`, `vtest`), which set
+//!   flags, as `fcmp` and as the bits' logic.
 //! - `llvm.minnum` and `llvm.maxnum` of halves, which are done in single
 //!   precision (`prepare::half_as_int`), where the conversion quiets a
 //!   signalling NaN: NaN where either operand is one, as the half
@@ -172,6 +178,17 @@ fn rewrite(
         "llvm.allow.runtime.check" | "llvm.allow.ubsan.check" => {
             let i1 = cx.m.types.int(1);
             return Some(Done::Value(cx.int(i1, 1)));
+        }
+        n if n.starts_with("llvm.x86.addcarry.") || n.starts_with("llvm.x86.subborrow.") => {
+            return Some(Done::Value(carry(cx, s, n.starts_with("llvm.x86.subborrow."), args, ty?)));
+        }
+        "llvm.x86.rdtsc" | "llvm.x86.rdtscp" | "llvm.x86.xgetbv" => {
+            return Some(Done::Value(edx_eax(cx, s, base, args, ty?)));
+        }
+        n if n.starts_with("llvm.x86.") && (n.contains("comi") || n.contains(".ptest") || n.contains(".vtest")) => {
+            if let Some(v) = x86_flag_test(cx, s, n, args, ty?) {
+                return Some(Done::Value(v));
+            }
         }
         _ => {}
     }
@@ -1257,7 +1274,7 @@ pub(crate) fn mangle(cx: &Ctx, ty: TypeId) -> String {
         Type::Double => "f64".into(),
         Type::Fp128 => "f128".into(),
         Type::Ptr(a) => format!("p{a}"),
-        Type::Vector { len, elem, .. } => format!("v{len}{}", mangle(cx, *elem)),
+        Type::Vector { len, elem, scalable } => format!("{}v{len}{}", if *scalable { "nx" } else { "" }, mangle(cx, *elem)),
         _ => "x".into(),
     }
 }
@@ -1367,6 +1384,146 @@ fn lanes(cx: &mut Ctx, s: &mut Seq, name: &str, args: &[Value], ty: TypeId) -> V
         agg = s.op(Op::InsertValue { aggregate: agg, element: v, indices: vec![n as u32].into() }, ty);
     }
     agg
+}
+
+/// x86's add and subtract with a carry in and out (`llvm.x86.addcarry.64`,
+/// `subborrow`: `{ carry, value }` of a carry, as an i8, and two values),
+/// in integers of 128 bits: the carry out is whether anything is left above
+/// the width.
+fn carry(cx: &mut Ctx, s: &mut Seq, sub: bool, args: &[Value], ty: TypeId) -> Value {
+    let (i1, i8t, i128t) = (cx.m.types.int(1), cx.m.types.int(8), cx.m.types.int(128));
+    let ity = cx.value_ty(s.f, args[1]);
+    let zero = cx.int(i8t, 0);
+    let c = s.op(Op::ICmp { pred: ICmpPred::Ne, samesign: false, lhs: args[0], rhs: zero }, i1);
+    let c = s.cast(CastOp::ZExt, c, i128t);
+    let (a, b) = (s.cast(CastOp::ZExt, args[1], i128t), s.cast(CastOp::ZExt, args[2], i128t));
+    let op = if sub { BinOp::Sub } else { BinOp::Add };
+    let t = s.bin(op, a, b, i128t);
+    let t = s.bin(op, t, c, i128t);
+    let r = s.cast(CastOp::Trunc, t, ity);
+    let width = cx.int(i128t, int_bits(cx, ity) as i64);
+    let above = s.bin(BinOp::LShr, t, width, i128t);
+    let none = cx.int(i128t, 0);
+    let out = s.op(Op::ICmp { pred: ICmpPred::Ne, samesign: false, lhs: above, rhs: none }, i1);
+    let out = s.cast(CastOp::ZExt, out, i8t);
+    let undef = Value::Const(cx.m.consts.intern(Constant { ty, kind: ConstKind::Poison }));
+    let agg = s.op(Op::InsertValue { aggregate: undef, element: out, indices: vec![0].into() }, ty);
+    s.op(Op::InsertValue { aggregate: agg, element: r, indices: vec![1].into() }, ty)
+}
+
+/// x86's reads of the time-stamp counter and of an extended control
+/// register (`llvm.x86.rdtsc`, `rdtscp`, `xgetbv`), which give it in
+/// edx:eax: as inline assembly that joins the two halves (and gives
+/// rdtscp's ecx too), so that the counter is read once.
+fn edx_eax(cx: &mut Ctx, s: &mut Seq, base: &str, args: &[Value], ty: TypeId) -> Value {
+    let (op, outs) = match base {
+        "llvm.x86.rdtsc" => ("rdtsc", "={rax}"),
+        "llvm.x86.rdtscp" => ("rdtscp", "={rax},={ecx}"),
+        _ => ("xgetbv", "={rax}"),
+    };
+    let ins = if args.is_empty() { "" } else { ",{ecx}" };
+    let params: Vec<TypeId> = args.iter().map(|&a| cx.value_ty(s.f, a)).collect();
+    let fn_ty = cx.m.types.intern(Type::Function { ret: ty, params, varargs: false });
+    let asm = InlineAsm {
+        fn_ty,
+        side_effect: true,
+        align_stack: false,
+        intel_dialect: false,
+        unwind: false,
+        asm: format!("{op}\n\tshlq $$32, %rdx\n\torq %rdx, %rax").into_bytes(),
+        constraints: format!("{outs}{ins},~{{rdx}},~{{flags}}").into_bytes(),
+    };
+    let ptr = cx.m.types.ptr(0);
+    let callee = Value::Const(cx.m.consts.intern(Constant { ty: ptr, kind: ConstKind::InlineAsm(asm) }));
+    s.op(
+        Op::Call(Box::new(Call {
+            tail: TailKind::None,
+            fmf: FastMath::default(),
+            cconv: CallConv::default(),
+            ret_attrs: vec![],
+            addrspace: None,
+            fn_ty,
+            callee,
+            args: args.iter().map(|&value| CallArg { value, attrs: vec![] }).collect(),
+            fn_attrs: vec![],
+            bundles: vec![],
+        })),
+        ty,
+    )
+}
+
+/// x86's comparisons of the first lanes (`llvm.x86.sse.comilt.ss`,
+/// `ucomi`; without traps the two are the same) and tests of bits (SSE4.1's
+/// `ptestz`, `ptestc` and `ptestnzc`, AVX's `vtestz.ps`... of the lanes'
+/// signs), which give 0 or 1 from the flags: as `fcmp`, and as whether the
+/// bits of `a & b` (z) and of `!a & b` (c) are all zero.
+fn x86_flag_test(cx: &mut Ctx, s: &mut Seq, name: &str, args: &[Value], ty: TypeId) -> Option<Value> {
+    let i1 = cx.m.types.int(1);
+    let i64t = cx.m.types.int(64);
+    let rest = name.strip_prefix("llvm.x86.")?;
+    let one = if let Some(at) = rest.find("comi") {
+        let pred = match rest[at + 4..].split('.').next()? {
+            "eq" => FCmpPred::Oeq,
+            "lt" => FCmpPred::Olt,
+            "le" => FCmpPred::Ole,
+            "gt" => FCmpPred::Ogt,
+            "ge" => FCmpPred::Oge,
+            "neq" => FCmpPred::Une,
+            _ => return None,
+        };
+        if !rest.starts_with("sse") {
+            return None;
+        }
+        let Type::Vector { elem, .. } = *cx.m.types.get(cx.value_ty(s.f, args[0])) else { return None };
+        let zero = cx.int(i64t, 0);
+        let a = s.op(Op::ExtractElement { vector: args[0], index: zero }, elem);
+        let b = s.op(Op::ExtractElement { vector: args[1], index: zero }, elem);
+        s.op(Op::FCmp { pred, fmf: FastMath::default(), lhs: a, rhs: b }, i1)
+    } else {
+        let (sign, kind) = match rest.split_once(".ptest").or_else(|| rest.split_once(".vtest")) {
+            Some((_, k)) => (rest.contains(".vtest"), k.split('.').next()?),
+            None => return None,
+        };
+        // The lanes as integers: of the floats' widths (vtest), or of 64 bits.
+        let vty = cx.value_ty(s.f, args[0]);
+        let bits = match *cx.m.types.get(vty) {
+            Type::Vector { len, elem, .. } => len * crate::target::type_bits(cx.m, elem),
+            _ => return None,
+        };
+        let (n, w) = match *cx.m.types.get(vty) {
+            Type::Vector { len, elem, .. } if sign => (len, crate::target::type_bits(cx.m, elem)),
+            _ => (bits / 64, 64),
+        };
+        let wt = cx.m.types.int(w);
+        let ity = cx.m.types.intern(Type::Vector { scalable: false, len: n, elem: wt });
+        let mty = cx.m.types.intern(Type::Vector { scalable: false, len: n, elem: i1 });
+        let (a, b) = (s.cast(CastOp::BitCast, args[0], ity), s.cast(CastOp::BitCast, args[1], ity));
+        // Whether every bit (or sign) of `x` is zero.
+        let none = |cx: &mut Ctx, s: &mut Seq, x: Value| {
+            let zero = splat_int(cx, ity, 0);
+            let pred = if sign { ICmpPred::Slt } else { ICmpPred::Ne };
+            let on = s.op(Op::ICmp { pred, samesign: false, lhs: x, rhs: zero }, mty);
+            let any = call_intrinsic(cx, s, &format!("llvm.vector.reduce.or.v{n}i1"), vec![on], i1);
+            let t = cx.int(i1, 1);
+            s.bin(BinOp::Xor, any, t, i1)
+        };
+        let z = s.bin(BinOp::And, a, b, ity);
+        let ones = splat_int(cx, ity, -1);
+        let na = s.bin(BinOp::Xor, a, ones, ity);
+        let c = s.bin(BinOp::And, na, b, ity);
+        match kind {
+            "z" => none(cx, s, z),
+            "c" => none(cx, s, c),
+            "nzc" => {
+                let (zf, cf) = (none(cx, s, z), none(cx, s, c));
+                let either = s.bin(BinOp::Or, zf, cf, i1);
+                let t = cx.int(i1, 1);
+                s.bin(BinOp::Xor, either, t, i1)
+            }
+            _ => return None,
+        }
+    };
+    Some(s.cast(CastOp::ZExt, one, ty))
 }
 
 fn int_bits(cx: &Ctx, ty: TypeId) -> u32 {

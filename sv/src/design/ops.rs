@@ -18,6 +18,8 @@ pub fn convert(tys: &Types, v: &Const, t: TypeId) -> Const {
             Const::Bits(b) => b.resize(w, b.signed()).with_signed(s),
             Const::Real(r) => Bits::from_f64(w, s, *r),
             Const::Str(st) => Bits::from_str_bytes(st).resize(w, false).with_signed(s),
+            // A bit-stream cast from an unpacked value (6.24.3).
+            Const::Aggregate(_) => pack(v).resize(w, false).with_signed(s),
             _ => return v.clone(),
         };
         let b = if four { b } else { two_state(&b) };
@@ -37,23 +39,39 @@ pub fn convert(tys: &Types, v: &Const, t: TypeId) -> Const {
         };
     }
     if t == Types::STRING {
+        // A string holds no NUL characters (6.16).
         return match v {
             Const::Bits(b) => Const::Str(b.to_str_bytes()),
+            Const::Str(s) if s.contains(&0) => Const::Str(s.iter().copied().filter(|&c| c != 0).collect()),
             _ => v.clone(),
         };
+    }
+    // A bit-stream cast into an unpacked type, from a vector or from an
+    // unpacked value of another shape (6.24.3).
+    match (ty.get(t), v) {
+        (Type::Struct { packed: false, .. } | Type::Unpacked { dim: UDim::Range(..) | UDim::Dynamic | UDim::Queue(_), .. }, Const::Bits(_)) => {
+            return restream(tys, v, t);
+        }
+        (Type::Struct { packed: false, union: false, tagged: false, members, .. }, Const::Aggregate(items)) if items.len() != members.len() => {
+            return restream(tys, v, t);
+        }
+        (Type::Unpacked { dim: UDim::Range(l, r), .. }, Const::Aggregate(items)) if items.len() as u64 != (l - r).unsigned_abs() + 1 => {
+            return restream(tys, v, t);
+        }
+        _ => {}
+    }
+    // A bounded queue keeps its first n + 1 elements (7.10).
+    if let (Type::Unpacked { dim: UDim::Queue(Some(n)), .. }, Const::Aggregate(items)) = (ty.get(t), v)
+        && items.len() as i64 > n + 1
+    {
+        return Const::Aggregate(items[..(n + 1).max(0) as usize].to_vec());
     }
     v.clone()
 }
 
 /// x and z become 0 (6.3.2.1).
 pub fn two_state(b: &Bits) -> Bits {
-    let mut r = b.clone();
-    for i in 0..b.width() {
-        if !b.bit(i).is_known() {
-            r.set_bit(i, Logic::Zero);
-        }
-    }
-    r
+    b.known_or_zero()
 }
 
 /// Equality for a generate `case` item: bit for bit (27.5).
@@ -94,9 +112,39 @@ pub fn default_value(tys: &Types, t: TypeId) -> Const {
             Const::Aggregate(vec![d; n.min(1 << 20)])
         }
         Type::Unpacked { .. } => Const::Aggregate(vec![]),
-        Type::Struct { members, .. } => Const::Aggregate(members.iter().map(|m| default_value(tys, m.ty)).collect()),
-        Type::Class(_) | Type::Null | Type::Chandle => Const::Null,
+        Type::Struct { members, tagged, .. } => {
+            let mut items: Vec<Const> = members
+                .iter()
+                .enumerate()
+                .map(|(i, m)| match tys.member_defaults.get(&(t, i as u32)) {
+                    Some(c) => c.clone(),
+                    None => default_value(tys, m.ty),
+                })
+                .collect();
+            // An unpacked tagged union keeps its tag after the members.
+            if *tagged {
+                items.push(Const::Bits(Bits::zero(32, false)));
+            }
+            Const::Aggregate(items)
+        }
+        Type::Class(_) | Type::Null | Type::Chandle | Type::Interface { .. } => Const::Null,
         _ => Const::Bits(Bits::x(1)),
+    }
+}
+
+/// A net's value before anything drives it: z throughout, member
+/// defaults ignored (6.5, 7.2.2).
+pub fn net_default(tys: &Types, t: TypeId) -> Const {
+    if tys.is_integral(t) {
+        return Const::Bits(Bits::fill(tys.width(t), tys.is_signed(t), Logic::Z));
+    }
+    match tys.get(t) {
+        Type::Unpacked { elem, dim: UDim::Range(l, r) } => {
+            let n = (l - r).unsigned_abs() as usize + 1;
+            Const::Aggregate(vec![net_default(tys, *elem); n.min(1 << 20)])
+        }
+        Type::Struct { members, .. } => Const::Aggregate(members.iter().map(|m| net_default(tys, m.ty)).collect()),
+        _ => default_value(tys, t),
     }
 }
 
@@ -120,6 +168,14 @@ pub fn lsb_offset(tys: &Types, t: TypeId, lo: i64, hi: i64) -> Option<i64> {
         return None;
     }
     Some(if l >= r { lo - r } else { r - hi })
+}
+
+/// Where a select from `lo` to `hi` starts, in elements from the least
+/// significant end, and how many it covers, in or out of range.
+pub fn select_span(tys: &Types, t: TypeId, lo: i64, hi: i64) -> (i64, i64) {
+    let (l, r) = tys.packed_range(t).unwrap_or((tys.width(t) as i64 - 1, 0));
+    let (lo, hi) = (lo.min(hi), lo.max(hi));
+    (if l >= r { lo - r } else { r - hi }, hi - lo + 1)
 }
 
 /// The range of dimension `dim` (1 is the outermost), unpacked first, for
@@ -300,7 +356,9 @@ pub fn binary(tys: &Types, op: BinOp, a: Const, b: Const, ty: TypeId) -> Option<
     let y = bits_of(&b)?;
     let w = tys.width(ty).max(1);
     let s = tys.is_signed(ty);
-    let fit = |v: &Bits| v.resize(w, v.signed()).with_signed(s);
+    // Operands take the expression's signedness before they are extended
+    // (11.8.2).
+    let fit = |v: &Bits| v.resize(w, s && v.signed()).with_signed(s);
     let r = match op {
         Add => fit(&x).add(&fit(&y)),
         Sub => fit(&x).sub(&fit(&y)),
@@ -378,9 +436,125 @@ pub fn index(tys: &Types, base: &Const, bt: TypeId, i: &Const, ty: TypeId) -> Op
             let ew = tys.width(ty).max(1);
             match lsb_offset(tys, bt, idx, idx) {
                 Some(off) => Some(Const::Bits(b.slice(off as u32 * ew, ew))),
+                // Out of range: x, or 0 for a 2-state vector (11.5.1).
+                None if !tys.is_four_state(bt) => Some(Const::Bits(Bits::zero(ew, false))),
                 None => Some(Const::Bits(Bits::x(ew))),
             }
         }
     }
 }
 
+
+// ---- bit-streams (6.24.3, 11.4.14) ----
+
+/// A value as a generic stream of bits: the first element or member is
+/// the most significant (11.4.14.1).
+pub fn pack(v: &Const) -> Bits {
+    match v {
+        Const::Bits(b) => b.clone(),
+        Const::Str(s) if s.is_empty() => Bits::zero(0, false),
+        Const::Str(s) => Bits::from_str_bytes(s),
+        Const::Real(r) => Bits::from_u64(64, false, r.to_bits()),
+        Const::Aggregate(items) => Bits::concat(&items.iter().map(pack).collect::<Vec<_>>()),
+        _ => Bits::zero(0, false),
+    }
+}
+
+/// Reverses the order of `slice`-bit blocks, cut from the right; the
+/// left-most block may be short (11.4.14.2).
+pub fn reverse_blocks(b: &Bits, slice: u32) -> Bits {
+    let w = b.width();
+    let slice = slice.max(1);
+    let mut out = Bits::zero(w, false);
+    let mut pos = w;
+    let mut lo = 0;
+    while lo < w {
+        let size = slice.min(w - lo);
+        pos -= size;
+        out.set_slice(pos, &b.slice(lo, size));
+        lo += size;
+    }
+    out
+}
+
+/// The bits a type takes in a stream, counting dynamically sized parts
+/// as empty.
+pub fn fixed_bits(tys: &Types, t: TypeId) -> u32 {
+    if tys.is_integral(t) {
+        return tys.width(t);
+    }
+    match tys.get(t) {
+        Type::Real(_) => 64,
+        Type::Unpacked { elem, dim: UDim::Range(l, r) } => ((l - r).unsigned_abs() as u32 + 1) * fixed_bits(tys, *elem),
+        Type::Struct { members, union: false, .. } => members.iter().map(|m| fixed_bits(tys, m.ty)).sum(),
+        Type::Struct { members, union: true, .. } => members.first().map_or(0, |m| fixed_bits(tys, m.ty)),
+        _ => 0,
+    }
+}
+
+/// Fills a value of type `t` from a stream, most significant bits first.
+/// `top` is how many bits are left; `after` is how many the items after
+/// this one need. The first dynamically sized item takes what the rest
+/// leave (6.24.3, 11.4.14.4); a last one is padded on the right.
+pub fn unpack(tys: &Types, b: &Bits, top: &mut u32, t: TypeId, after: u32, greedy: &mut bool) -> Const {
+    let take = |top: &mut u32, w: u32| -> Bits {
+        if *top >= w {
+            *top -= w;
+            b.slice(*top, w)
+        } else {
+            // Short: what is left, padded with zeros on the right.
+            let have = b.slice(0, *top);
+            let mut r = Bits::zero(w, false);
+            r.set_slice(w - *top, &have);
+            *top = 0;
+            r
+        }
+    };
+    if tys.is_integral(t) {
+        let w = tys.width(t);
+        return convert(tys, &Const::Bits(take(top, w)), t);
+    }
+    match tys.get(t).clone() {
+        Type::Real(_) => Const::Real(f64::from_bits(take(top, 64).to_u64().unwrap_or(0))),
+        Type::String => {
+            if *greedy {
+                return Const::Str(vec![]);
+            }
+            *greedy = true;
+            let n = top.saturating_sub(after) / 8;
+            convert(tys, &Const::Bits(take(top, n * 8)), t)
+        }
+        Type::Struct { members, union: false, .. } => {
+            let sizes: Vec<u32> = members.iter().map(|m| fixed_bits(tys, m.ty)).collect();
+            let mut out = Vec::new();
+            for (i, m) in members.iter().enumerate() {
+                let rest: u32 = sizes[i + 1..].iter().sum();
+                out.push(unpack(tys, b, top, m.ty, after + rest, greedy));
+            }
+            Const::Aggregate(out)
+        }
+        Type::Unpacked { elem, dim: UDim::Range(l, r) } => {
+            let n = (l - r).unsigned_abs() as u32 + 1;
+            let ew = fixed_bits(tys, elem);
+            Const::Aggregate((0..n).map(|i| unpack(tys, b, top, elem, after + (n - 1 - i) * ew, greedy)).collect())
+        }
+        Type::Unpacked { elem, dim: UDim::Dynamic | UDim::Queue(_) } => {
+            if *greedy {
+                return Const::Aggregate(vec![]);
+            }
+            *greedy = true;
+            let ew = fixed_bits(tys, elem).max(1);
+            let avail = top.saturating_sub(after);
+            let n = if after == 0 { avail.div_ceil(ew) } else { avail / ew };
+            Const::Aggregate((0..n).map(|_| unpack(tys, b, top, elem, after, &mut true)).collect())
+        }
+        _ => default_value(tys, t),
+    }
+}
+
+/// A bit-stream cast or assignment: the value's stream unpacked into `t`.
+pub fn restream(tys: &Types, v: &Const, t: TypeId) -> Const {
+    let b = pack(v);
+    let mut top = b.width();
+    unpack(tys, &b, &mut top, t, 0, &mut false)
+}

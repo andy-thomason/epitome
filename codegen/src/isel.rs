@@ -452,13 +452,7 @@ impl<'a, 'b> Sel<'a, 'b> {
 
     /// What a value of this type is.
     fn holds(&self, ty: TypeId) -> Holds {
-        if self.is_vector(ty) {
-            Holds::Vector
-        } else if self.is_fp(ty) {
-            Holds::Float
-        } else {
-            Holds::Int
-        }
+        crate::target::holds_of_type(self.cx.m, ty)
     }
 
     /// The register class a value of this type lives in (the description's
@@ -466,6 +460,10 @@ impl<'a, 'b> Sel<'a, 'b> {
     fn class_of_ty(&self, ty: TypeId) -> Class {
         let bits = self.bits(ty).max(1);
         let m = &self.t.machine;
+        // A scalable vector, or a predicate: in its own kind of class.
+        if crate::target::is_scalable_type(self.cx.m, ty) {
+            return m.value_class(self.holds(ty), bits).expect("the description has no class of scalable vectors");
+        }
         // A mask, in the class for the vectors in use, where the
         // description says.
         if let Type::Vector { elem, .. } = self.cx.m.types.get(ty)
@@ -497,7 +495,7 @@ impl<'a, 'b> Sel<'a, 'b> {
     /// Does this class hold floating-point values or vectors (which go in
     /// the convention's fp registers)?
     fn fp_class(&self, c: Class) -> bool {
-        matches!(self.t.machine.def(c).holds, Some(Holds::Float | Holds::Vector))
+        matches!(self.t.machine.def(c).holds, Some(Holds::Float | Holds::Vector | Holds::Scalable))
     }
 
     fn class_of(&self, v: Value) -> Class {
@@ -873,10 +871,17 @@ impl<'a, 'b> Sel<'a, 'b> {
                     // class of vectors holds it.)
                     let mask = matches!(self.cx.m.types.get(ty), Type::Vector { elem, .. }
                         if matches!(self.cx.m.types.get(*elem), Type::Int(1)));
+                    // (A fixed register, as xmm0 for SSE4.1's blends, holds
+                    // what its file's classes do, of any width.)
+                    let m = &self.t.machine;
+                    let fixed = def.fixed.is_some();
+                    let held = m.holds_of(class) == Some(holds)
+                        || fixed && m.classes.iter().any(|c| c.file == def.file && c.holds == Some(holds));
+                    let wide = matches!(holds, Holds::Vector | Holds::Scalable);
                     if bits == 0
-                        || self.t.machine.holds_of(class) != Some(holds)
-                        || (holds == Holds::Vector && bits != def.bits && !mask)
-                        || (holds != Holds::Vector && (bits > 64 || (bits > 32) != (pp.bits > 32)))
+                        || !held
+                        || (wide && bits != def.bits && !mask && !fixed)
+                        || (!wide && holds != Holds::Predicate && (bits > 64 || (bits > 32) != (pp.bits > 32)))
                     {
                         return None;
                     }
@@ -1198,6 +1203,24 @@ impl<'a, 'b> Sel<'a, 'b> {
 
     /// A register holding value `v`, made in the current block if `v` is a
     /// constant. `class` says whether the zero register will do for 0.
+    /// `r`, or, if it is of another register file than `class` or of a
+    /// class with registers `class` has not, a copy of it in a register of
+    /// `class` (a mask, as AVX-512 takes them, from an integer register).
+    fn in_file_of(&mut self, r: Reg, class: Class) -> Reg {
+        let m = &self.t.machine;
+        // (Or of the same file, if `class` has fewer of its registers: SVE's
+        // governing predicates p0-p7, SME's w12-w15.)
+        if let Reg::V(x) = r
+            && (m.def(self.mf.vclass[x as usize]).file != m.def(class).file
+                || m.def(class).fixed.is_none() && !m.within(self.mf.vclass[x as usize], class))
+        {
+            let d = self.mf.new_vreg(class);
+            self.push(MInst::copy(Reg::V(d), r));
+            return Reg::V(d);
+        }
+        r
+    }
+
     fn reg_for(&mut self, v: Value, class: Class) -> Result<Reg, String> {
         match v {
             Value::Local(x) => Ok(Reg::V(self.vreg_of(x))),
@@ -1208,16 +1231,18 @@ impl<'a, 'b> Sel<'a, 'b> {
 
     fn const_reg(&mut self, c: ConstId, class: Class) -> Result<Reg, String> {
         // A global's address, made once per block.
-        let address = !matches!(self.t.machine.def(class).holds, Some(Holds::Float | Holds::Vector))
-            && !matches!(
-                self.cx.m.constant(c).kind,
-                ConstKind::Int(_)
-                    | ConstKind::Null
-                    | ConstKind::Zero
-                    | ConstKind::Undef
-                    | ConstKind::Poison
-                    | ConstKind::Expr(ConstExpr::Cast { op: CastOp::IntToPtr, .. })
-            );
+        let address = !matches!(
+            self.t.machine.def(class).holds,
+            Some(Holds::Float | Holds::Vector | Holds::Scalable | Holds::Predicate)
+        ) && !matches!(
+            self.cx.m.constant(c).kind,
+            ConstKind::Int(_)
+                | ConstKind::Null
+                | ConstKind::Zero
+                | ConstKind::Undef
+                | ConstKind::Poison
+                | ConstKind::Expr(ConstExpr::Cast { op: CastOp::IntToPtr, .. })
+        );
         if !address {
             return self.const_reg_made(c, class);
         }
@@ -1236,6 +1261,72 @@ impl<'a, 'b> Sel<'a, 'b> {
         let holds = self.t.machine.def(class).holds;
         if holds == Some(Holds::Vector) {
             return self.vector_const(c, class);
+        }
+        // A predicate (SVE's): all lanes on, of their width (`ptrue.s`,
+        // for <vscale x 4 x i1>), or none.
+        if holds == Some(Holds::Predicate) {
+            let Type::Vector { len, .. } = *self.cx.m.types.get(k.ty) else {
+                return self.err("a predicate constant of a scalar type");
+            };
+            let on = match &k.kind {
+                ConstKind::Splat(e) => {
+                    matches!(&self.cx.m.constant(*e).kind, ConstKind::Int(a) if a.low_u64() & 1 == 1)
+                }
+                ConstKind::Zero | ConstKind::Undef | ConstKind::Poison => false,
+                other => return self.err(format!("unsupported predicate constant {other:?}")),
+            };
+            let role = if on {
+                let lane = match len {
+                    16 => "b",
+                    8 => "h",
+                    4 => "s",
+                    2 => "d",
+                    _ => return self.err(format!("a predicate of {len} lanes")),
+                };
+                format!("ptrue.{lane}")
+            } else {
+                "pfalse".to_string()
+            };
+            let ins = self.t.role(&role).ok_or_else(|| format!("no instruction has role {role}"))?;
+            let d = self.mf.new_vreg(class);
+            self.push(MInst::new(ins, vec![MOp::Reg(Reg::V(d))]));
+            return Ok(Reg::V(d));
+        }
+        // A scalable vector of one value in every lane: the value, made in
+        // a register of its own, and duplicated (`splat.nxv4i32`'s role).
+        if holds == Some(Holds::Scalable) {
+            let Type::Vector { len, elem, .. } = *self.cx.m.types.get(k.ty) else {
+                return self.err("a scalable constant of a scalar type");
+            };
+            let e = match &k.kind {
+                ConstKind::Splat(e) => Some(*e),
+                ConstKind::Zero | ConstKind::Undef | ConstKind::Poison => None,
+                other => return self.err(format!("unsupported scalable constant {other:?}")),
+            };
+            let lane = match self.cx.m.types.get(elem) {
+                Type::Float => "f32".to_string(),
+                Type::Double => "f64".to_string(),
+                Type::Int(b) => format!("i{b}"),
+                other => return self.err(format!("a scalable constant of {other:?}")),
+            };
+            let role = format!("splat.nxv{len}{lane}");
+            let ins = self.t.role(&role).ok_or_else(|| format!("no instruction has role {role}"))?;
+            let Kind::Reg(sc) = self.t.instrs[ins].operands[1].kind else {
+                return self.err(format!("{role}: its operand is not a register"));
+            };
+            let x = match e {
+                Some(e) => self.const_reg_made(e, sc)?,
+                None if self.t.machine.def(sc).holds == Some(Holds::Float) => {
+                    let g = self.int_reg(0, true, true)?;
+                    let d = self.mf.new_vreg(sc);
+                    self.push(MInst::copy(Reg::V(d), g));
+                    Reg::V(d)
+                }
+                None => self.int_reg(0, self.t.machine.def(sc).bits > 32, false)?,
+            };
+            let d = self.mf.new_vreg(class);
+            self.push(MInst::new(ins, vec![MOp::Reg(Reg::V(d)), MOp::Reg(x)]));
+            return Ok(Reg::V(d));
         }
         // A floating-point constant: its bits, made in an integer register
         // and moved across (zero from the zero register).
@@ -1457,19 +1548,19 @@ impl<'a, 'b> Sel<'a, 'b> {
         // `vec.join.d`: a second word into the high half; x86's).
         if let (Some(from), false) = (self.t.role("vec.from.x"), lanes.iter().all(|&l| l == 0)) {
             let mask = if ebits >= 64 { u64::MAX } else { (1u64 << ebits) - 1 };
-            let mut words = [0u64; 4];
+            let n = (len * ebits).div_ceil(64) as usize;
+            let mut words = vec![0u64; n.max(1)];
             for (k, &l) in lanes.iter().enumerate() {
                 let at = k as u32 * ebits;
                 words[(at / 64) as usize] |= (l as u64 & mask) << (at % 64);
             }
-            let n = (len * ebits).div_ceil(64) as usize;
             // Each 128 bits: a word, the next joined above it.
-            let half = |this: &mut Self, w: &[u64], into: VReg| -> Result<(), String> {
+            let half = |this: &mut Self, w: &[u64], into: VReg, c: Class| -> Result<(), String> {
                 let lo = this.int_reg(w[0] as i64, true, false)?;
                 this.push(MInst::new(from, vec![MOp::Reg(Reg::V(into)), MOp::Reg(lo)]));
                 if w.len() > 1 && w[1] != 0 {
                     let join = this.t.by_role("vec.join.d");
-                    let t = this.mf.new_vreg(class);
+                    let t = this.mf.new_vreg(c);
                     let hi = this.int_reg(w[1] as i64, true, false)?;
                     this.push(MInst::new(from, vec![MOp::Reg(Reg::V(t)), MOp::Reg(hi)]));
                     this.push(MInst::new(
@@ -1479,13 +1570,34 @@ impl<'a, 'b> Sel<'a, 'b> {
                 }
                 Ok(())
             };
-            half(self, &words[..n.min(2)], d)?;
             // Wider (256 bits): the high 128 inserted (`vec.join.q`).
-            if n > 2 {
-                let t = self.mf.new_vreg(class);
-                half(self, &words[2..n], t)?;
-                let join = self.t.by_role("vec.join.q");
-                self.push(MInst::new(join, vec![MOp::Reg(Reg::V(d)), MOp::Reg(Reg::V(d)), MOp::Reg(Reg::V(t))]));
+            let wide = |this: &mut Self, w: &[u64], into: VReg, c: Class| -> Result<(), String> {
+                half(this, &w[..w.len().min(2)], into, c)?;
+                if w.len() > 2 {
+                    let t = this.mf.new_vreg(c);
+                    half(this, &w[2..], t, c)?;
+                    let join = this.t.by_role("vec.join.q");
+                    this.push(MInst::new(
+                        join,
+                        vec![MOp::Reg(Reg::V(into)), MOp::Reg(Reg::V(into)), MOp::Reg(Reg::V(t))],
+                    ));
+                }
+                Ok(())
+            };
+            // Wider still (512 bits): two of those, in the class the
+            // join takes them in, the high one inserted (`vec.join.y`).
+            if n > 4 {
+                let join = self.t.role("vec.join.y").ok_or("no instruction has role vec.join.y")?;
+                let Kind::Reg(c) = self.t.instrs[join].operands[2].kind else {
+                    return self.err("vec.join.y's operand is not a register");
+                };
+                let (lo, hi) = (self.mf.new_vreg(c), self.mf.new_vreg(c));
+                wide(self, &words[..4], lo, c)?;
+                wide(self, &words[4..], hi, c)?;
+                self.push(MInst::copy(Reg::V(d), Reg::V(lo)));
+                self.push(MInst::new(join, vec![MOp::Reg(Reg::V(d)), MOp::Reg(Reg::V(d)), MOp::Reg(Reg::V(hi))]));
+            } else {
+                wide(self, &words[..n], d, class)?;
             }
             return Ok(Reg::V(d));
         }
@@ -1757,7 +1869,10 @@ impl<'a, 'b> Sel<'a, 'b> {
         for (i, pp) in p.params.iter().enumerate() {
             let Some(t) = m.params[i] else { continue };
             vals[i] = Some(match (pp.kind, t) {
-                (Kind::Reg(class), Term::V(v)) => MOp::Reg(self.reg_for(v, class)?),
+                (Kind::Reg(class), Term::V(v)) => {
+                    let r = self.reg_for(v, class)?;
+                    MOp::Reg(self.in_file_of(r, class))
+                }
                 (Kind::Imm, t) => MOp::Imm(self.imm_of(t, pp.bits).unwrap()),
                 (Kind::Sym, Term::V(Value::Const(c))) => {
                     let (g, _) = prepare::const_address(self.cx, c).ok_or("a symbol operand that is not a global")?;
@@ -1810,6 +1925,18 @@ impl<'a, 'b> Sel<'a, 'b> {
                     ops[operand] = MOp::Reg(Reg::V(rx));
                 }
             }
+            // A result written to a register of another file than its
+            // value's (an AVX-512 comparison's mask, in k): copied after.
+            let mut moved = None;
+            if ins.has_result
+                && let MOp::Reg(Reg::V(res)) = ops[0]
+                && let Kind::Reg(c) = ins.operands[0].kind
+                && self.t.machine.def(self.mf.vclass[res as usize]).file != self.t.machine.def(c).file
+            {
+                let w = self.mf.new_vreg(c);
+                ops[0] = MOp::Reg(Reg::V(w));
+                moved = Some((res, w));
+            }
             // A tied operand shares the result's register: copied there
             // first, then updated in place.
             if ins.has_result
@@ -1833,6 +1960,9 @@ impl<'a, 'b> Sel<'a, 'b> {
                 self.set_zbits(r, z);
             }
             self.push_fixed(e.instr, ops);
+            if let Some((res, w)) = moved {
+                self.push(MInst::copy(Reg::V(res), Reg::V(w)));
+            }
         }
         // An `and` alone with a constant whose top bit (in its type) is
         // clear: the bits above the constant's are zero, however the
@@ -1966,7 +2096,8 @@ impl<'a, 'b> Sel<'a, 'b> {
         let sret = attrs.iter().any(|x| matches!(x, Attr::Type { name, .. } if name == "sret"));
         let wide = has_mark(attrs, crate::wide::WIDE);
         let ty = self.ty_of(v);
-        let part = |size, fp| crate::abi::Part { size, fp, sret: false, wide: false, hfa: false, byval: false };
+        let part =
+            |size, fp| crate::abi::Part { size, fp, sret: false, wide: false, hfa: false, byval: false, pred: false };
         // A struct passed in memory: 8-byte pieces of it, on the stack.
         if let Some(size) = self.byval_size(attrs) {
             return (0..size.div_ceil(8))
@@ -1983,6 +2114,10 @@ impl<'a, 'b> Sel<'a, 'b> {
         }
         match self.parts_of(ty) {
             Some(n) => vec![crate::abi::Part { wide, ..part(8, false) }; n],
+            // (A predicate, in the predicate registers.)
+            None if self.holds(ty) == Holds::Predicate => {
+                vec![crate::abi::Part { pred: true, ..part(self.arg_size(v), false) }]
+            }
             None => vec![crate::abi::Part { sret, ..part(self.arg_size(v), self.is_fp(ty)) }],
         }
     }
@@ -2368,7 +2503,7 @@ impl<'a, 'b> Sel<'a, 'b> {
             * 1000
             + id as u64;
         let statements = statements(&template, &m.asm_comment);
-        self.mf.asms.push(AsmBlock { template, operands, uid, statements, early });
+        self.mf.asms.push(AsmBlock { template, operands, uid, statements, early, intel: a.intel_dialect });
         let mut asm = MInst { op: Opcode::Asm { id: id as u32, outs: n_outs as u16 }, ..MInst::new(0, ops) };
         asm.imp_defs = clobbers;
         self.push(asm);
@@ -2886,7 +3021,14 @@ impl<'a, 'b> Sel<'a, 'b> {
                 self.push(MInst::new(self.t.by_role("move.w.h"), vec![MOp::Reg(Reg::V(d)), MOp::Reg(Reg::P(from))]));
                 return Ok(());
             }
-            let from = if self.is_fp(self.f.locals[r.index()].ty) { self.mf.abi.fp_result } else { self.mf.abi.result };
+            let rty = self.f.locals[r.index()].ty;
+            let from = if self.holds(rty) == Holds::Predicate {
+                self.mf.abi.pred_result.ok_or("the convention returns no predicates")?
+            } else if self.is_fp(rty) {
+                self.mf.abi.fp_result
+            } else {
+                self.mf.abi.result
+            };
             self.push(MInst::copy(Reg::V(d), Reg::P(from)));
         }
         Ok(())
@@ -3104,6 +3246,8 @@ impl<'a, 'b> Sel<'a, 'b> {
                             ret.imp_uses = result.into_iter().collect();
                             self.push(ret);
                             continue;
+                        } else if self.t.machine.def(class).holds == Some(Holds::Predicate) {
+                            self.mf.abi.pred_result.ok_or("the convention returns no predicates")?
                         } else if self.fp_class(class) {
                             self.mf.abi.fp_result
                         } else {
@@ -3203,7 +3347,7 @@ impl<'a, 'b> Sel<'a, 'b> {
                     let n = count.and_then(|c| self.cx.const_int(c)).unwrap_or(1) as u64;
                     let size = self.cx.size_of(*ty)? * n;
                     let align = align.map_or(8, Align::bytes);
-                    self.mf.slots.push(Slot { size: size.max(1), align, offset: 0 });
+                    self.mf.slots.push(Slot { size: size.max(1), align, offset: 0, scalable: false });
                     let slot = self.mf.slots.len() - 1;
                     let d = self.vreg_of(r);
                     self.push(MInst::new(
@@ -3400,9 +3544,9 @@ impl<'a, 'b> Sel<'a, 'b> {
                 let (args, fp_args) = (self.mf.abi.args.clone(), self.mf.abi.fp_args.clone());
                 let (ngr, nvr) = (used(&args), used(&fp_args));
                 let (gr, vr) = (8 * (args.len() - ngr) as i64, 16 * (fp_args.len() - nvr) as i64);
-                self.mf.slots.push(Slot { size: gr.max(8) as u64, align: 8, offset: 0 });
+                self.mf.slots.push(Slot { size: gr.max(8) as u64, align: 8, offset: 0, scalable: false });
                 let gs = self.mf.slots.len() - 1;
-                self.mf.slots.push(Slot { size: vr.max(16) as u64, align: 16, offset: 0 });
+                self.mf.slots.push(Slot { size: vr.max(16) as u64, align: 16, offset: 0, scalable: false });
                 let vs = self.mf.slots.len() - 1;
                 let sp = self.t.machine.sp;
                 let (stx, stq) =
@@ -3435,7 +3579,12 @@ impl<'a, 'b> Sel<'a, 'b> {
                 let (args, fp_args) = (self.mf.abi.args.clone(), self.mf.abi.fp_args.clone());
                 let (ngr, nvr) = (used(&args), used(&fp_args));
                 let fp_at = 8 * args.len() as i64;
-                self.mf.slots.push(Slot { size: (fp_at + 16 * fp_args.len() as i64) as u64, align: 16, offset: 0 });
+                self.mf.slots.push(Slot {
+                    size: (fp_at + 16 * fp_args.len() as i64) as u64,
+                    align: 16,
+                    offset: 0,
+                    scalable: false,
+                });
                 let slot = self.mf.slots.len() - 1;
                 let sp = self.t.machine.sp;
                 let (stx, std) = (self.t.by_role("store.x"), self.t.by_role("store.d"));

@@ -471,9 +471,14 @@ pub(crate) fn process<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a>
     let (reads, writes) = super::checks::read_write_sets(e, body);
     let sensitivity = match kind {
         ProcKind::AlwaysComb | ProcKind::AlwaysLatch => {
-            // What the process reads, less what it only uses locally
-            // (9.2.2.2).
-            reads.iter().copied().filter(|o| e.obj(*o).lifetime == Lifetime::Static && !local_to(e, *o, sc)).collect()
+            // What the process reads, less what it only uses locally and
+            // what it reads only where it writes (9.2.2.2.1).
+            let covered = super::checks::self_covered(e, body);
+            reads
+                .iter()
+                .copied()
+                .filter(|o| e.obj(*o).lifetime == Lifetime::Static && !local_to(e, *o, sc) && !covered.contains(o))
+                .collect()
         }
         _ => vec![],
     };
@@ -581,6 +586,12 @@ fn stmt_inner<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, StmtId>
                         let r = expr::context_to(e, r, lt);
                         expr::assign_conv(e, r, lt)
                     }
+                }
+                // Unpacking keeps the source's own width: extra bits are
+                // taken from its left (11.4.14.3).
+                _ if matches!(e.ex(lhs).kind, ExprKind::Streaming { .. }) => {
+                    let r = expr::bind(e, sc, rhs_node)?;
+                    expr::selfdet(e, r)
                 }
                 _ => expr::rvalue(e, sc, rhs_node, lt)?,
             };

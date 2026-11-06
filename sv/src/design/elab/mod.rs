@@ -34,7 +34,14 @@ pub(crate) type R<'a, T = ()> = Result<T, Error<'a>>;
 
 /// Elaborates a parsed compilation unit.
 pub fn elaborate<'a>(ast: &Ast<'a>, out: &Output<'a>) -> Result<Design<'a>, Error<'a>> {
+    elaborate_tops(ast, out, &[])
+}
+
+/// As `elaborate`, with the top-level instances named; none means every
+/// design element nothing instantiates (23.3.1).
+pub fn elaborate_tops<'a>(ast: &Ast<'a>, out: &Output<'a>, tops: &[String]) -> Result<Design<'a>, Error<'a>> {
     let mut e = Elab::new(ast, out);
+    e.chosen_tops = tops.to_vec();
     e.run()?;
     Ok(e.d)
 }
@@ -61,7 +68,7 @@ pub(crate) enum Work {
     Gate(ScopeId, NodeId, Sym),
     Connect(ScopeId, InstId, NodeId),
     Body(SubId),
-    NetInit(ObjId, NodeId),
+    NetInit(ObjId, NodeId, Option<(Sym, Sym)>),
     Alias(ScopeId, NodeId),
     ElabTask(ScopeId, NodeId),
 }
@@ -73,6 +80,8 @@ pub(crate) struct Elab<'a, 'x> {
     pub defs: HashMap<Sym, Def>,
     pub packages: HashMap<Sym, ScopeId>,
     pub spec_cache: HashMap<(NodeId, String), SpecId>,
+    /// The top-level instances asked for, if any.
+    pub chosen_tops: Vec<String>,
     pub work: Vec<(Work, Vec<InstId>)>,
     /// The instances being elaborated, outermost first.
     pub inst_path: Vec<InstId>,
@@ -185,6 +194,8 @@ impl<'a, 'x> Elab<'a, 'x> {
             tops: Vec::new(),
             unit_time: (-9, -9),
             hops: HashMap::new(),
+            nets: HashMap::new(),
+            udps: HashMap::new(),
         };
         Elab {
             ast,
@@ -193,6 +204,7 @@ impl<'a, 'x> Elab<'a, 'x> {
             defs: HashMap::new(),
             packages: HashMap::new(),
             spec_cache: HashMap::new(),
+            chosen_tops: Vec::new(),
             work: Vec::new(),
             inst_path: Vec::new(),
             class_nodes: HashMap::new(),
@@ -437,6 +449,7 @@ impl<'a, 'x> Elab<'a, 'x> {
             self.collect_def(item)?;
             if self.kind(item) == Kind::Udp {
                 checks::udp(self, item)?;
+                self.udp_table(item);
             }
         }
         // Then the compilation unit's own items and packages, in order.
@@ -473,6 +486,16 @@ impl<'a, 'x> Elab<'a, 'x> {
                 }
             }
         }
+        if !self.chosen_tops.is_empty() {
+            tops.clear();
+            for name in self.chosen_tops.clone() {
+                let s = self.sym_owned(name.clone());
+                match self.defs.get(&s) {
+                    Some(&def) => tops.push((s, def)),
+                    None => return Err(self.err(self.ast.root, format!("there is no design element `{name}` to be the top"))),
+                }
+            }
+        }
         for (s, def) in tops {
             let DefKind2::Design(_) = def.kind else { continue };
             let inst = self.instantiate(None, unit, s, def, &[], def.node, None)?;
@@ -504,14 +527,15 @@ impl<'a, 'x> Elab<'a, 'x> {
             Work::Gate(sc, n, kind) => self.gate(sc, n, kind),
             Work::Connect(sc, inst, n) => self.connect(sc, inst, n),
             Work::Body(sub) => stmt::sub_body(self, sub),
-            Work::NetInit(obj, n) => {
+            Work::NetInit(obj, n, strength) => {
                 let sc = self.obj(obj).scope;
                 let ty = self.obj(obj).ty;
                 let rhs = expr::rvalue(self, sc, n, ty)?;
                 let lhs = self.new_expr(ExprKind::Object(obj), ty, n, vec![]);
                 self.obj_mut(obj).init = Some(rhs);
                 let id = DriverId(self.d.drivers.len() as u32);
-                self.d.drivers.push(Driver { lhs, rhs, strength: None, delay: vec![], node: n, scope: sc });
+                // The net's delay applies through the net (28.16).
+                self.d.drivers.push(Driver { lhs, rhs, strength, delay: vec![], node: n, scope: sc });
                 self.push_item(sc, Item::Driver(id));
                 Ok(())
             }
@@ -592,6 +616,33 @@ impl<'a, 'x> Elab<'a, 'x> {
                 implements: vec![],
             });
             self.scope_mut(sc).names.insert(n, Binding::Class(id));
+            if name == "process" {
+                // `typedef enum {FINISHED, RUNNING, WAITING, SUSPENDED,
+                // KILLED} state;` (9.7).
+                let names = ["FINISHED", "RUNNING", "WAITING", "SUSPENDED", "KILLED"];
+                let items: Vec<(Sym, Bits)> =
+                    names.iter().enumerate().map(|(i, k)| (self.sym(k), Bits::from_u64(32, true, i as u64))).collect();
+                let uid = self.d.types.uid();
+                let st = self.sym("state");
+                let t = self.d.types.intern(Type::Enum { base: Types::INT, items: items.clone(), name: Some(st), uid });
+                self.scope_mut(cs).names.insert(st, Binding::Type(t));
+                for (k, v) in items {
+                    let c = self.new_const(Const::Bits(v));
+                    let o = self.new_object(Object {
+                        name: k,
+                        kind: ObjKind::EnumConst,
+                        ty: t,
+                        scope: cs,
+                        node: root,
+                        lifetime: Lifetime::Static,
+                        dir: None,
+                        init: None,
+                        value: Some(c),
+                        qualifiers: vec![],
+                    });
+                    self.scope_mut(cs).names.insert(k, Binding::Object(o));
+                }
+            }
         }
         let n = self.sym("randomize");
         self.scope_mut(sc).names.insert(n, Binding::Other(root));
@@ -1001,10 +1052,10 @@ impl<'a, 'x> Elab<'a, 'x> {
         };
         let v = match over {
             Some(Over::Value(v)) => v,
-            Some(Over::Node(n2, psc)) => eval::const_expr(self, psc, n2)?,
+            Some(Over::Node(n2, psc)) => eval::const_expr_to(self, psc, n2, declared)?,
             Some(Over::Type(_)) => return Err(self.err(name, format!("parameter `{}` is given a type", self.name(s)))),
             None => match value_node {
-                Some(v) => eval::const_expr(self, sc, v)?,
+                Some(v) => eval::const_expr_to(self, sc, v, declared)?,
                 None => {
                     // A parameter with no default needs a value from every
                     // instance (6.20.1).
@@ -1267,6 +1318,24 @@ impl<'a, 'x> Elab<'a, 'x> {
             base
         };
         checks::net_type(self, sc, n, base, user_nettype)?;
+        // A drive strength (for the declaration assignments) or a trireg's
+        // charge strength, and the net delay.
+        let mut strength = None;
+        let mut charge = None;
+        if let Some(st) = kids.iter().copied().find(|&k| self.kind(k) == Kind::Strength) {
+            let ks: Vec<Sym> = self.kids(st).iter().map(|&k| self.sym_of(k)).collect();
+            match ks.as_slice() {
+                [c] if matches!(self.name(*c), "small" | "medium" | "large") => charge = Some(*c),
+                [a, b] => strength = Some((*a, *b)),
+                _ => {}
+            }
+        }
+        let mut delay = Vec::new();
+        if let Some(dl) = kids.iter().copied().find(|&k| self.kind(k) == Kind::Delay) {
+            for &k in self.kids(dl) {
+                delay.push(expr::expr(self, sc, k)?);
+            }
+        }
         for dcl in kids.iter().copied().filter(|&k| self.kind(k) == Kind::Declarator).collect::<Vec<_>>() {
             let dk = self.kids(dcl);
             let name = dk[0];
@@ -1297,8 +1366,11 @@ impl<'a, 'x> Elab<'a, 'x> {
             });
             self.declare(sc, s, Binding::Object(o), name)?;
             self.push_item(sc, Item::Object(o));
+            if charge.is_some() || !delay.is_empty() {
+                self.d.nets.insert(o, NetInfo { charge, delay: delay.clone() });
+            }
             if let Some(i) = init {
-                self.defer(Work::NetInit(o, i));
+                self.defer(Work::NetInit(o, i, strength));
             }
         }
         Ok(())
@@ -1658,6 +1730,23 @@ impl<'a, 'x> Elab<'a, 'x> {
         self.d.instances[id.0 as usize].spec = spec;
         self.d.specs[spec.0 as usize].instances += 1;
         Ok(id)
+    }
+
+    /// The specialisation of a design element with no parameter overrides,
+    /// elaborated now if need be: for a virtual interface used before any
+    /// instance of its interface is elaborated (25.9).
+    pub(crate) fn default_spec(&mut self, name: Sym) -> Option<SpecId> {
+        let def = *self.defs.get(&name)?;
+        if !matches!(def.kind, DefKind2::Design(DefKind::Interface)) {
+            return None;
+        }
+        let key = (def.node, format!("{:?}", Vec::<(Option<Sym>, Over)>::new()));
+        if let Some(&s) = self.spec_cache.get(&key) {
+            return Some(s);
+        }
+        let s = self.elaborate_spec(def, &[]).ok()?;
+        self.spec_cache.insert(key, s);
+        Some(s)
     }
 
     fn elaborate_spec(&mut self, def: Def, overrides: &[(Option<Sym>, Over)]) -> R<'a, SpecId> {
@@ -2099,10 +2188,10 @@ impl<'a, 'x> Elab<'a, 'x> {
                 // `.name` alone connects the same name in the parent.
                 let parens = self.ast.tokens_of(c).iter().any(|t| t.0 == "(");
                 let conn = match ck.get(1) {
-                    Some(&e) if self.kind(e) == Kind::Empty => Connection { port: pname, expr: None, interface: None },
+                    Some(&e) if self.kind(e) == Kind::Empty => Connection { port: pname, expr: None, interface: None, via: None },
                     Some(&e) => self.port_expr(sc, port, e)?,
                     // `.name()`: left open.
-                    None if parens => Connection { port: pname, expr: None, interface: None },
+                    None if parens => Connection { port: pname, expr: None, interface: None, via: None },
                     None => {
                         if lookup::lookup(self, sc, pname).is_none() {
                             return Err(self.err(
@@ -2173,7 +2262,7 @@ impl<'a, 'x> Elab<'a, 'x> {
                         let conn = self.port_expr(sc, port, e)?;
                         out.push(conn);
                     }
-                    _ => out.push(Connection { port: port.name, expr: None, interface: None }),
+                    _ => out.push(Connection { port: port.name, expr: None, interface: None, via: None }),
                 }
             }
         }
@@ -2199,10 +2288,10 @@ impl<'a, 'x> Elab<'a, 'x> {
     fn port_expr_named(&mut self, sc: ScopeId, port: &Port, at: NodeId) -> R<'a, Connection> {
         let b = lookup::lookup(self, sc, port.name);
         if let Some(Binding::Instance(i)) = b {
-            return Ok(Connection { port: port.name, expr: None, interface: Some(i) });
+            return Ok(Connection { port: port.name, expr: None, interface: Some(i), via: None });
         }
         if let Some(Binding::Other(_)) = b {
-            return Ok(Connection { port: port.name, expr: None, interface: None });
+            return Ok(Connection { port: port.name, expr: None, interface: None, via: None });
         }
         let Some(Binding::Object(o)) = b else {
             return Err(self.err(at, format!("`{}` cannot be connected to a port", self.name(port.name))));
@@ -2210,13 +2299,13 @@ impl<'a, 'x> Elab<'a, 'x> {
         let ty = self.obj(o).ty;
         let e = self.new_expr(ExprKind::Object(o), ty, at, vec![]);
         let e = self.port_conv(port, e, at)?;
-        Ok(Connection { port: port.name, expr: Some(e), interface: None })
+        Ok(Connection { port: port.name, expr: Some(e), interface: None, via: None })
     }
 
     fn port_expr(&mut self, sc: ScopeId, port: &Port, e: NodeId) -> R<'a, Connection> {
         if self.connecting_array {
             let x = expr::expr(self, sc, e)?;
-            return Ok(Connection { port: port.name, expr: Some(x), interface: None });
+            return Ok(Connection { port: port.name, expr: Some(x), interface: None, via: None });
         }
         if let Some((iname, _)) = port.interface {
             // An interface instance, or an interface port, passed on.
@@ -2252,9 +2341,17 @@ impl<'a, 'x> Elab<'a, 'x> {
                             ),
                         ));
                     }
-                    return Ok(Connection { port: port.name, expr: None, interface: Some(i) });
+                    return Ok(Connection { port: port.name, expr: None, interface: Some(i), via: None });
                 }
-                Some(_) => return Ok(Connection { port: port.name, expr: None, interface: None }),
+                Some(_) => {
+                    // The parent's own interface port, passed on.
+                    let mut head = e;
+                    while matches!(self.kind(head), Kind::Member | Kind::Index) {
+                        head = self.kids(head)[0];
+                    }
+                    let via = (self.kind(head) == Kind::Name).then(|| self.sym_of(head));
+                    return Ok(Connection { port: port.name, expr: None, interface: None, via });
+                }
                 None => {
                     return Err(self.err(e, format!("port `{}` needs an interface instance", self.name(port.name))));
                 }
@@ -2283,7 +2380,7 @@ impl<'a, 'x> Elab<'a, 'x> {
                 x
             }
         };
-        Ok(Connection { port: port.name, expr: Some(x), interface: None })
+        Ok(Connection { port: port.name, expr: Some(x), interface: None, via: None })
     }
 
     fn port_conv(&mut self, port: &Port, e: ExprId, _at: NodeId) -> R<'a, ExprId> {
@@ -2355,6 +2452,68 @@ impl<'a, 'x> Elab<'a, 'x> {
         Ok(o)
     }
 
+    /// A UDP's table, for simulation (29.3).
+    fn udp_table(&mut self, n: NodeId) {
+        let kids = self.kids(n).to_vec();
+        let Some(&name) = kids.iter().find(|&&k| self.kind(k) == Kind::Name) else { return };
+        let name = self.sym_of(name);
+        let Some(table) = kids.iter().copied().find(|&k| self.kind(k) == Kind::UdpTable) else { return };
+        // `initial q = 1'b1;`, or an ANSI `output reg q = 1'b1`.
+        let last_char = |me: &Self, x: NodeId| {
+            let toks = me.ast.tokens_of(x);
+            toks.last().and_then(|t| t.0.bytes().last()).map(|c| c.to_ascii_lowercase())
+        };
+        let mut init = b'x';
+        for &k in &kids {
+            match self.kind(k) {
+                Kind::UdpInitial => init = last_char(self, self.kids(k)[1]).unwrap_or(b'x'),
+                Kind::AnsiPort | Kind::UdpPortDecl => {
+                    let toks = self.ast.tokens_of(k);
+                    if toks.iter().any(|t| t.0 == "=") {
+                        init = toks.last().and_then(|t| t.0.bytes().last()).map_or(b'x', |c| c.to_ascii_lowercase());
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut rows = Vec::new();
+        let mut sequential = false;
+        for &row in self.kids(table) {
+            let text: String = self.ast.tokens_of(row).iter().map(|t| t.0).collect::<Vec<_>>().join("");
+            let text = text.trim_end_matches(';').to_ascii_lowercase();
+            let parts: Vec<&str> = text.split(':').collect();
+            let mut inputs = Vec::new();
+            let mut cs = parts[0].bytes().filter(|c| !c.is_ascii_whitespace());
+            while let Some(c) = cs.next() {
+                inputs.push(match c {
+                    b'(' => {
+                        let a = cs.next().unwrap_or(b'?');
+                        let b = cs.next().unwrap_or(b'?');
+                        cs.next();
+                        UdpIn::Edge(a, b)
+                    }
+                    b'r' => UdpIn::Edge(b'0', b'1'),
+                    b'f' => UdpIn::Edge(b'1', b'0'),
+                    b'*' => UdpIn::Edge(b'?', b'?'),
+                    b'p' => UdpIn::Pos,
+                    b'n' => UdpIn::Neg,
+                    c => UdpIn::Level(c),
+                });
+            }
+            let field = |s: &str| s.bytes().find(|c| !c.is_ascii_whitespace()).unwrap_or(b'x');
+            let (state, out) = match parts.as_slice() {
+                [_, st, o] => {
+                    sequential = true;
+                    (Some(field(st)), field(o))
+                }
+                [_, o] => (None, field(o)),
+                _ => continue,
+            };
+            rows.push(UdpRow { inputs, state, out });
+        }
+        self.d.udps.insert(name, Udp { sequential, init, rows });
+    }
+
     // ---- continuous assignments, gates ----
 
     fn continuous_assign(&mut self, sc: ScopeId, n: NodeId) -> R<'a> {
@@ -2417,7 +2576,8 @@ impl<'a, 'x> Elab<'a, 'x> {
             None => vec![],
         };
         let mut delay = Vec::new();
-        if let Some(dl) = kids.iter().copied().find(|&k| self.kind(k) == Kind::Delay) {
+        // A UDP instance's `#(3, 6)` parses as parameter values (29.8).
+        if let Some(dl) = kids.iter().copied().find(|&k| matches!(self.kind(k), Kind::Delay | Kind::ParamValues)) {
             for &k in self.kids(dl) {
                 delay.push(expr::expr(self, sc, k)?);
             }

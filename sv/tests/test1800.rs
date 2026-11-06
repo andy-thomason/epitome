@@ -311,7 +311,7 @@ fn simulate_test1800() {
 }
 
 /// The number of simulation tests that pass today.
-const SIM_FLOOR: usize = 369;
+const SIM_FLOOR: usize = 484;
 
 fn simulate_all() {
     let Some(root) = suite() else { return };
@@ -322,7 +322,7 @@ fn simulate_all() {
     let mut fails: Vec<String> = Vec::new();
     let mut unsupported: std::collections::BTreeMap<String, usize> = Default::default();
     let start = std::time::Instant::now();
-    let verbose = std::env::var("SIM_VERBOSE").is_ok();
+    let verbose = std::env::var("SIM_VERBOSE").is_ok_and(|v| !v.is_empty());
     for path in &paths {
         let text = std::fs::read_to_string(path).unwrap();
         let kind = header(&text, "type").unwrap_or_else(|| "simulation".into());

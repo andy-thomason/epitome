@@ -16310,12 +16310,12 @@ define <vscale x 2 x i64> @sve.fptoui.nxv2f64.expand(<vscale x 2 x double> %a) {
   ret <vscale x 2 x i64> %r
 }
 
-define i8 @LANE0.nxv16i8(<vscale x 16 x i8> "reg"="z" %a) "feature"="sve" "enc"="0000111000000001001111 a:5 d:5" "asm"="umov {d}, {a:v}.b[0]" "dclass"="w" "nodecode" {
+define i8 @LANE0.nxv16i8(<vscale x 16 x i8> "reg"="z" %a) "feature"="sve" "enc"="0000111000000001001111 a:5 d:5" "asm"="umov {d}, {a:.b}[0]" "dclass"="w" "nodecode" {
   %r = extractelement <vscale x 16 x i8> %a, i64 0
   ret i8 %r
 }
 
-define i16 @LANE0.nxv8i16(<vscale x 8 x i16> "reg"="z" %a) "feature"="sve" "enc"="0000111000000010001111 a:5 d:5" "asm"="umov {d}, {a:v}.h[0]" "dclass"="w" "nodecode" {
+define i16 @LANE0.nxv8i16(<vscale x 8 x i16> "reg"="z" %a) "feature"="sve" "enc"="0000111000000010001111 a:5 d:5" "asm"="umov {d}, {a:.h}[0]" "dclass"="w" "nodecode" {
   %r = extractelement <vscale x 8 x i16> %a, i64 0
   ret i16 %r
 }

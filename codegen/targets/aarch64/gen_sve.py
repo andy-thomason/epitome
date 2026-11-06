@@ -512,11 +512,11 @@ def generic():
     # (umov for bytes and halves, fmov for words and doublewords).
     for ty, l, t in INTS:
         et = 'i' + str({'b': 8, 'h': 16, 's': 32, 'd': 64}[l])
-        e, asm = {'b': ('0000111000000001001111 a:5 d:5', 'umov {d}, {a:q}.b[0]'),
-                  'h': ('0000111000000010001111 a:5 d:5', 'umov {d}, {a:q}.h[0]'),
+        e, asm = {'b': ('0000111000000001001111 a:5 d:5', 'umov {d}, {a:.b}[0]'),
+                  'h': ('0000111000000010001111 a:5 d:5', 'umov {d}, {a:.h}[0]'),
                   's': ('0001111000100110000000 a:5 d:5', 'fmov {d}, {a:s}'),
                   'd': ('1001111001100110000000 a:5 d:5', 'fmov {d}, {a:d}')}[l]
-        entry(et, f'LANE0.{t}', [f'{ty} "reg"="z" %a'], e, asm.replace('{a:q}', '{a:v}'),
+        entry(et, f'LANE0.{t}', [f'{ty} "reg"="z" %a'], e, asm,
               [f'%r = extractelement {ty} %a, i64 0', f'ret {et} %r'], f' "dclass"="{"x" if l == "d" else "w"}"')
     # Each lane's number (llvm.stepvector): index from zero by one.
     for k, (ty, l, t) in enumerate(INTS):

@@ -45,7 +45,7 @@ checking is under way.
 - **Lowering** (section 8): layout, constants, monomorphisation and
   bodies are done for small `#![no_std]` programs, which compile through
   Epitome IR and Epitome's code generator, run, and print what rustc's
-  builds print. Of the functions `core` reaches, 93% lower, SIMD aside.
+  builds print. Of the functions `core` reaches, 94% lower, SIMD aside.
 
 Everything after that is a plan.
 
@@ -740,17 +740,28 @@ any other; then each is defined.
   Calls through the `Fn` traits go to the closure's function, the function
   item's own function, or through a function pointer.
 - **Constants.** One the evaluator can work out is an immediate; any other
-  has its initialiser lowered where it is used. A `static` must have a
-  value the evaluator can work out (an integer, `bool` or `char`) for now.
-  Const generic arguments are values in bodies.
+  has its initialiser lowered where it is used. A `static` whose value
+  the evaluator can work out (an integer, `bool` or `char`) is constant
+  data. Any other (`AtomicU32::new(5)`) starts as zeros, and a function
+  that runs its initialiser and stores the value is listed in
+  `llvm.global_ctors`, to run before `main`. A static's initialiser is a
+  constant expression, with no effects to run in another order, and in a
+  `no_std` program nothing reads the static before `main`; but such a
+  static is writable memory, and a byte-producing constant evaluator
+  should replace this. Const generic arguments are values in bodies.
 - **Intrinsics** (`#[rustc_intrinsic]` functions of `core`) are lowered at
   the call: sizes and alignments, `transmute`, the arithmetic ones
   (wrapping, unchecked, with overflow, saturating), bit counts and
   rotations, pointer offsets, metadata and `aggregate_raw_ptr`,
   `copy_nonoverlapping` and its kin, `compare_bytes` (libc's `memcmp`),
   `discriminant_value`,
-  `const_eval_select` (the run-time function), and the checks of a build
-  without debug assertions (`ub_checks` is false).
+  `const_eval_select` (the run-time function), the checks of a build
+  without debug assertions (`ub_checks` is false), and the atomics:
+  loads, stores, read-modify-writes (exchange, add, subtract, the bit
+  operations, signed and unsigned maximum and minimum), compare-exchange
+  (strong and weak) and fences, with the orderings their const arguments
+  name (Rust's `Relaxed` is IR's `monotonic`). An atomic pointer is worked
+  on as the integer of its size.
 - **Panics** become a trap (`llvm.trap`), with no message: a call into
   `core::panicking`, `panic!` and its relatives, an index out of bounds, a
   division by zero, and a failed `assert!`. Arithmetic wraps, as in a
@@ -785,13 +796,13 @@ body:
   ...
 ```
 
-From every non-generic function of `core` (on mandelbrot): 22,018
-functions in 3.2 s, of which 4,241 (19%) are not lowered, and 237 more
-trap where they reach `dyn` or formatting. 3,063 of those not lowered are
-SIMD (`core::arch`), which is not attempted; of the 16,932 others, 1,178
-(7%) are not lowered. The most common reasons: `f16` and `f128` (312),
-intrinsics not yet supported (284, of which 135 are the atomics),
-`concat!` and `asm!` (135), and `builtin #` expressions (47).
+From every non-generic function of `core` (on mandelbrot): 22,056
+functions in 3.6 s, of which 4,029 (18%) are not lowered, and 237 more
+trap where they reach `dyn` or formatting. 3,055 of those not lowered are
+SIMD (`core::arch`), which is not attempted; of the 16,970 others, 966
+(6%) are not lowered. The most common reasons: `f16` and `f128` (312),
+intrinsics not yet supported (149), `concat!` and `asm!` (135), and
+`builtin #` expressions (47).
 
 Lowering found and fixed these in type checking: it records which
 constant a path names (`tables.consts`, for `u64::MAX` and `T::ZERO`) and
@@ -828,8 +839,8 @@ Lowering reports each of these rather than compiling something wrong.
 
 Not done yet (they come after this series): drops and drop glue, `dyn`
 (vtables), `core::fmt` (so panics have no message), unwinding, `Box` and
-allocation, closures made function pointers, string patterns, statics of
-other types, `f16` and `f128`, SIMD, `async`, and v0 symbol mangling.
+allocation, closures made function pointers, string patterns, `f16` and
+`f128`, SIMD, `async`, and v0 symbol mangling.
 
 **Correct but slow or bloated**, to improve later:
 
@@ -879,6 +890,7 @@ The programs, which each print what rustc's build prints:
 | `numbers.rs` | Signed and unsigned arithmetic, shifts, casts, `u128`, floats, `char`, constants, statics, associated constants, and integer methods of `core`. |
 | `iter.rs` | `for` over ranges, `rev`, `enumerate`, `zip`, `iter_mut`, user iterators, `count`, `sum`, `last`. |
 | `closures.rs` | Closures capturing by reference and by value, `FnMut` state, `impl Fn` arguments and results, function pointers, iterator adapters (`map`, `filter`, `fold`, `max`, `position`, `any`, `all`, `skip`, `take_while`), and `Option` and `Result` combinators. |
+| `atomics.rs` | `core::sync::atomic`: loads and stores, `fetch_add` and the other read-modify-writes, `compare_exchange` (and `_weak` in a loop), `fetch_update`, `AtomicBool`, `AtomicPtr`, fences, every ordering, and an atomic in a `static`. |
 
 ## 9. Crates and Cargo
 

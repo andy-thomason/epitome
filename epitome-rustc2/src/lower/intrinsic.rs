@@ -5,7 +5,7 @@ use super::Repr;
 use super::body::{Fx, Operand, Place, Pv, R, Val};
 use crate::resolve::DefId;
 use crate::ty::{Ty, TyKind};
-use epitome_ir::module::{BinOp, Value};
+use epitome_ir::module::{BinOp, Ordering, Value};
 
 impl Fx<'_, '_, '_, '_> {
     /// A call of intrinsic `d` at `targs`.
@@ -331,8 +331,136 @@ impl Fx<'_, '_, '_, '_> {
                     }
                 }
             }
+            _ if name.starts_with("atomic_") => self.atomic(name, &targs, args, output),
             _ => Err(format!("intrinsic `{name}` is not supported yet")),
         }
+    }
+
+    /// The atomic intrinsics: loads, stores, read-modify-writes,
+    /// compare-exchanges and fences, with the orderings their const
+    /// arguments name. A pointer is worked on as the integer of its size.
+    fn atomic(&mut self, name: &str, targs: &[Ty], args: Vec<Operand>, output: Ty) -> R<Pv> {
+        use epitome_ir::module::{Atomic, Op, RmwOp};
+        let tcx = self.cx.tcx;
+        // The orderings are the last arguments.
+        let orderings: Vec<Ordering> = targs.iter().filter_map(|&t| match tcx.kind(t) {
+            TyKind::ConstArg(c) => Some(c),
+            _ => None,
+        }).map(|c| self.atomic_ordering(c)).collect::<R<_>>()?;
+        let ord = |i: usize| orderings.get(i).copied().ok_or_else(|| format!("`{name}` without its ordering"));
+        if name == "atomic_fence" || name == "atomic_singlethreadfence" {
+            let scope = (name == "atomic_singlethreadfence").then(|| b"singlethread".to_vec().into_boxed_slice());
+            self.b.push(Op::Fence { scope, ordering: ord(0)? }, None);
+            return Ok(Pv::Val(self.unit()));
+        }
+        let t = *targs.first().ok_or("atomic without a type")?;
+        let size = self.layout(t)?.size;
+        let align = epitome_ir::module::Align::new(size.max(1));
+        let it = self.b.module().types.int(size as u32 * 8);
+        let is_ptr = matches!(tcx.kind(t), TyKind::Ptr(..) | TyKind::Ref(..) | TyKind::FnPtr(_));
+        let dst = self.imm(args[0])?;
+        // A value as the integer the operation works on, and back.
+        let to_int = |fx: &mut Self, o: Operand| -> R<Value> {
+            let v = fx.imm(o)?;
+            let vt = fx.b.type_of(v);
+            let ptr = fx.ptr_t();
+            Ok(if vt == ptr { fx.b.cast(epitome_ir::module::CastOp::PtrToInt, v, it) } else { fx.int_to(v, it, false) })
+        };
+        let from_int = |fx: &mut Self, v: Value| -> Value {
+            if is_ptr {
+                let ptr = fx.ptr_t();
+                fx.b.cast(epitome_ir::module::CastOp::IntToPtr, v, ptr)
+            } else {
+                v
+            }
+        };
+        let atomic = |o: Ordering| Some(Atomic { elementwise: false, scope: None, ordering: o });
+        match name {
+            "atomic_load" => {
+                let v = self.b.push(Op::Load { volatile: false, atomic: atomic(ord(0)?), ptr: dst, align }, Some(it)).unwrap();
+                let v = from_int(self, v);
+                Ok(Pv::Val(Operand { ty: output, v: Val::Imm(v) }))
+            }
+            "atomic_store" => {
+                let v = to_int(self, args[1])?;
+                self.b.push(Op::Store { volatile: false, atomic: atomic(ord(0)?), value: v, ptr: dst, align }, None);
+                Ok(Pv::Val(self.unit()))
+            }
+            "atomic_cxchg" | "atomic_cxchgweak" => {
+                let cmp = to_int(self, args[1])?;
+                let new = to_int(self, args[2])?;
+                let i1 = self.b.module().types.int(1);
+                let pair = self.b.module().types.struct_of(&[it, i1]);
+                let op = Op::CmpXchg {
+                    weak: name == "atomic_cxchgweak",
+                    volatile: false,
+                    ptr: dst,
+                    cmp,
+                    new,
+                    scope: None,
+                    success: ord(0)?,
+                    failure: ord(1)?,
+                    align,
+                };
+                let r = self.b.push(op, Some(pair)).unwrap();
+                let old = self.b.extract_value(r, &[0]);
+                let old = from_int(self, old);
+                let ok = self.b.extract_value(r, &[1]);
+                let ok = self.bool_of(ok);
+                // `(T, bool)`.
+                let p = self.temp(output)?;
+                let f0 = self.field(p, 0, 0)?;
+                self.store(Operand { ty: t, v: Val::Imm(old) }, f0)?;
+                let f1 = self.field(p, 0, 1)?;
+                self.store_imm(ok, f1.addr, 1);
+                Ok(Pv::Place(p))
+            }
+            _ => {
+                let op = match name {
+                    "atomic_xchg" => RmwOp::Xchg,
+                    "atomic_xadd" => RmwOp::Add,
+                    "atomic_xsub" => RmwOp::Sub,
+                    "atomic_and" => RmwOp::And,
+                    "atomic_nand" => RmwOp::Nand,
+                    "atomic_or" => RmwOp::Or,
+                    "atomic_xor" => RmwOp::Xor,
+                    "atomic_max" => RmwOp::Max,
+                    "atomic_min" => RmwOp::Min,
+                    "atomic_umax" => RmwOp::UMax,
+                    "atomic_umin" => RmwOp::UMin,
+                    _ => return Err(format!("intrinsic `{name}` is not supported yet")),
+                };
+                let v = to_int(self, args[1])?;
+                let op = Op::AtomicRmw { op, volatile: false, elementwise: false, ptr: dst, value: v, scope: None, ordering: ord(0)?, align };
+                let r = self.b.push(op, Some(it)).unwrap();
+                let r = from_int(self, r);
+                Ok(Pv::Val(Operand { ty: output, v: Val::Imm(r) }))
+            }
+        }
+    }
+
+    /// The ordering an `AtomicOrdering` const argument names (`{
+    /// AO::Relaxed }`, or `Relaxed` through a const parameter), as IR's:
+    /// Rust's `Relaxed` is `monotonic`.
+    fn atomic_ordering(&mut self, c: crate::ty::ConstId) -> R<Ordering> {
+        let name = match self.cx.tcx.const_of(c) {
+            crate::ty::Const::Expr(k, f, n) => {
+                let ast = &self.cx.crates[k as usize].files[f as usize].ast;
+                // The last name in it: `{ AO::Relaxed }` names `Relaxed`.
+                let text = ast.text(n);
+                text.rsplit(|c: char| !c.is_alphanumeric() && c != '_').find(|w| !w.is_empty()).unwrap_or("").to_string()
+            }
+            crate::ty::Const::Value(v) => ["Relaxed", "Release", "Acquire", "AcqRel", "SeqCst"].get(v as usize).copied().unwrap_or("").to_string(),
+            c => return Err(format!("an atomic ordering not known: {c:?}")),
+        };
+        Ok(match name.as_str() {
+            "Relaxed" => Ordering::Monotonic,
+            "Release" => Ordering::Release,
+            "Acquire" => Ordering::Acquire,
+            "AcqRel" => Ordering::AcqRel,
+            "SeqCst" => Ordering::SeqCst,
+            _ => return Err(format!("an atomic ordering not known: `{name}`")),
+        })
     }
 
     fn bits(&mut self, t: epitome_ir::types::TypeId) -> u32 {

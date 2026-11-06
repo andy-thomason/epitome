@@ -155,28 +155,8 @@ pub(crate) fn lower_fn(cx: &Cx, m: &mut Module, it: Item, decl: &Decl) -> R<(Not
         params: tcx.all_params(owner),
         args: tcx.tys(l),
     };
-    let mut fx = Fx {
-        cx,
-        b,
-        solver: cx.solver(),
-        body,
-        entry: BlockId(0),
-        locals: FastMap::default(),
-        upvars: FastMap::default(),
-        env: None,
-        ret: Ret::Void,
-        ret_ty: decl.abi.output,
-        loops: Vec::new(),
-        notes: Vec::new(),
-        fname: decl.name.clone(),
-        strings: 0,
-        blocks: 0,
-        traps: Vec::new(),
-        tries: Vec::new(),
-    };
-    fx.entry = fx.b.block("start");
-    let first = fx.b.new_block("body");
-    fx.b.at(first);
+    let mut fx = Fx::new(cx, b, body, decl.abi.output, &decl.name);
+    let first = fx.b.current_block().expect("the body block");
     let mut ir_param = 0;
     fx.ret = match decl.abi.ret {
         Repr::Mem => {
@@ -279,27 +259,97 @@ pub(crate) fn trap_body(m: &mut Module, decl: &Decl) {
     let _ = b.finish();
 }
 
-/// Defines a `static`: a global with its value, which must be a constant
-/// the evaluator can work out (an integer, `bool` or `char`) for now.
-pub(crate) fn define_static(cx: &Cx, m: &mut Module, d: DefId, name: &str) -> R<GlobalId> {
+/// Defines a `static`: a global holding its value. A value the evaluator
+/// can work out (an integer, `bool` or `char`) is the global's
+/// initialiser. Any other is not known until its initialiser runs: the
+/// global starts as zeros, and the second result is true, for the caller
+/// to lower the initialiser (`lower_static_init`) to run at start-up.
+pub(crate) fn define_static(cx: &Cx, m: &mut Module, d: DefId, name: &str) -> R<(GlobalId, bool)> {
     let t = cx.tcx.type_of(d).ok_or("static without a type")?;
     let l = cx.layout(t)?;
-    let value = cx.lcx.eval_item(d).and_then(|v| v.int()).ok_or("only statics of integer values are supported")?;
-    let bytes: Vec<u8> = (0..l.size).map(|i| if i < 16 { (value as u128 >> (8 * i)) as u8 } else { 0 }).collect();
+    let value = cx.lcx.eval_item(d).and_then(|v| v.int());
+    let bytes: Vec<u8> = match value {
+        Some(value) => (0..l.size).map(|i| if i < 16 { (value as u128 >> (8 * i)) as u8 } else { 0 }).collect(),
+        None => vec![0; l.size as usize],
+    };
     let init = m.const_bytes(&bytes);
     let (_, _, ast, node) = cx.def_ast(d);
     let mutable = ast.children(node).iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == "mut");
     let mut g = epitome_ir::module::Global::builder(name).init(init).align(l.align.max(1));
-    if !mutable {
+    if !mutable && value.is_some() {
         g = g.constant();
     }
     if !crate::session::has_attribute(ast, node, "no_mangle") {
         g = g.linkage(Linkage::Internal);
     }
-    Ok(g.build(m))
+    Ok((g.build(m), value.is_none()))
+}
+
+/// The function `name` (`void()`, internal) that stores the value of
+/// static `d`'s initialiser in its global `g`, for `llvm.global_ctors` to
+/// run before `main`. A static's initialiser is a constant expression: it
+/// has no effects to run in another order, and in a `no_std` program
+/// nothing reads the static before `main`.
+pub(crate) fn lower_static_init(cx: &Cx, m: &mut Module, d: DefId, g: GlobalId, name: &str) -> R<GlobalId> {
+    let (k, f, ast, node) = cx.def_ast(d);
+    let t = cx.tcx.type_of(d).ok_or("static without a type")?;
+    let init = ast.children(node).iter().rev().copied().find(|&x| super::pat::is_expr(ast.kind(x))).ok_or("static without a value")?;
+    let b = IrFunction::builder(name).linkage(Linkage::Internal).begin(m);
+    let body = Body {
+        k,
+        f,
+        ast,
+        types: &cx.typeck.types[k as usize][f as usize],
+        tables: &cx.typeck.tables[k as usize][f as usize],
+        params: Vec::new(),
+        args: Vec::new(),
+    };
+    let unit = cx.tcx.unit();
+    let mut fx = Fx::new(cx, b, body, unit, name);
+    let first = fx.b.current_block().expect("the body block");
+    let o = fx.operand(init)?;
+    let addr = fx.b.module().global_value(g);
+    if !fx.terminated() {
+        fx.store(Operand { ty: t, v: o.v }, Place { addr, meta: None, ty: t })?;
+        fx.b.ret_void();
+    }
+    fx.close_open_blocks();
+    let entry = fx.entry;
+    fx.b.at(entry);
+    fx.b.br(first);
+    fx.b.finish()
 }
 
 impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
+    /// A body to lower into the function `b` begins (called `name`,
+    /// returning `ret_ty`): its entry block for stack slots, and the block
+    /// its code starts in, which is current.
+    fn new(cx: &'c Cx<'a, 's>, b: FunctionBuilder<'m>, body: Body<'a, 's>, ret_ty: Ty, name: &str) -> Self {
+        let mut fx = Fx {
+            cx,
+            b,
+            solver: cx.solver(),
+            body,
+            entry: BlockId(0),
+            locals: FastMap::default(),
+            upvars: FastMap::default(),
+            env: None,
+            ret: Ret::Void,
+            ret_ty,
+            loops: Vec::new(),
+            notes: Vec::new(),
+            fname: name.to_string(),
+            strings: 0,
+            blocks: 0,
+            traps: Vec::new(),
+            tries: Vec::new(),
+        };
+        fx.entry = fx.b.block("start");
+        let first = fx.b.new_block("body");
+        fx.b.at(first);
+        fx
+    }
+
     // ---- types and layouts ----
 
     /// `t` at this instance's arguments.

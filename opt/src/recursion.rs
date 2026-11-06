@@ -489,7 +489,7 @@ impl<'s, 'm> Transform<'s, 'm> {
             return base;
         }
         let indices = vec![self.sh.int(32, 0), self.sh.int(32, field as i64)];
-        let op = Op::Gep { flags: GepFlags(GepFlags::INBOUNDS), inrange: None, source_ty: ty, ptr: base, indices };
+        let op = Op::Gep { flags: GepFlags(GepFlags::INBOUNDS), source_ty: ty, ptr: base, indices: indices.into() };
         let name = self.name(name);
         let i = f.push_inst(b, op, Some((name, self.ptr)));
         f.result(i)
@@ -530,8 +530,7 @@ impl<'s, 'm> Transform<'s, 'm> {
         path: Vec<Value>,
         name: &str,
     ) -> Value {
-        let op =
-            Op::Gep { flags: GepFlags(GepFlags::INBOUNDS), inrange: None, source_ty: ty, ptr: base, indices: path };
+        let op = Op::Gep { flags: GepFlags(GepFlags::INBOUNDS), source_ty: ty, ptr: base, indices: path.into() };
         let name = self.name(name);
         let i = f.push_inst(b, op, Some((name, self.ptr)));
         f.result(i)

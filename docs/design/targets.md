@@ -151,6 +151,28 @@ read them. A template writes a register as another class names it with
 `boolean-branches = compare` makes `prepare` rewrite a branch on a boolean
 that isn't a comparison into a comparison with zero.
 
+### Operands written by name
+
+Some operands are neither a register of a file nor a number: R600's
+source operand is one of 128 registers, or a constant from one of four
+banks, or an inline constant, each with a channel (`T5.Y`, `KC0[2].X`,
+`0.5`, `PV.W`). `!target.enums` names such sets of values, and an operand
+with `"enum"="src"` is one of them, written by name:
+
+```llvm
+!1200 = !{!"src", !"0", !"T{0-127}.{X,Y,Z,W}", !"512", !"KC0[{0-31}].{X,Y,Z,W}", !"992", !"0.0", ...}
+!1202 = !{!"neg", !"0", !"", !"1", !"-"}
+```
+
+Each pattern's names take values in order from the number before it;
+braces are a range or alternatives, the leftmost varying slowest. So
+`T1.Y` is 5, and the encoding takes it apart with expressions
+(`sel0:9=s0>>2`, `c0:2=s0&3`). A name may be empty: `{n0}{s0}` reads
+`-T1.Y` and `T1.Y` alike. The assembler tries an enum's names in order
+until the rest of the line matches, so enum operands may be side by
+side, and `-1` (an inline constant) is not read as `-` and `1`. Where two
+names have one value, the first is how it is written.
+
 ### CPUs
 
 `!target.cpus` lists CPUs by LLVM's names for them, each followed by its
@@ -444,30 +466,99 @@ selection never uses it. That makes it cheap to cover a whole instruction
 set from a machine-readable source, and to check the entries against
 another assembler rather than write their semantics. AArch64's `80-asm.ll`
 is made this way ([objects.md](objects.md)). So is RISC-V's: `gen_opcodes.py`
-writes 760 entries from riscv-opcodes (RISC-V International, BSD 3-clause).
-That source gives each instruction's fixed bits and the fields of its
-operands, but neither its assembly syntax nor which of its registers are
-integer and which floating-point. So:
+writes 2,773 entries from riscv-opcodes (RISC-V International, BSD
+3-clause). That source gives each instruction's fixed bits and the fields
+of its operands, but neither its assembly syntax nor which of its registers
+are integer and which floating-point. So:
 
-- operands are written in RISC-V's order (`rd, rs1, rs2, rs3`; loads
-  `rd, imm(rs1)`; stores `rs2, imm(rs1)`; branches `rs1, rs2, label`;
-  atomics `rd, rs2, (rs1)`);
-- immediates are laid out as the ISA manual lays them out (the I, S, B, J
-  and U forms);
-- the register files, and the bits of rounding modes (`rtz`) and orderings
-  (`.aqrl`), are found with LLVM's RISC-V assembler. rustc has it, in its
-  `riscv64gc-unknown-none-elf` target, which assembles a crate's
-  `global_asm!`.
+- scalar operands are written in RISC-V's order (`rd, rs1, rs2, rs3`;
+  loads `rd, imm(rs1)`; stores `rs2, imm(rs1)`; branches
+  `rs1, rs2, label`; atomics `rd, rs2, (rs1)`);
+- immediates are laid out as the ISA manual lays them out: the I, S, B, J
+  and U forms, and the compressed forms' scattered bits (`c.addi16sp`'s
+  `nzimm[9|4|6|8:7|5]`), which are a table in the generator;
+- the register files, and the bits of rounding modes (`rtz`), orderings
+  (`.aqrl`), vector types (`e32, m2, ta, ma`), segment counts
+  (`vlseg4e16.v`) and Zcmp's register lists (`{ra, s0-s3}`), are found
+  with LLVM's RISC-V assembler. rustc has it, in its
+  `riscv64gc-unknown-none-elf` and `riscv64imac-unknown-none-elf` targets,
+  which assemble a crate's `global_asm!`;
+- the vector and hypervisor instructions' operand order is found the same
+  way: each order is tried with every operand a different register (v8,
+  v16, v24), so that only the right one gives the assembler's word;
+- the constraints the assembler keeps on registers are found from the
+  lines it refuses, and become guards in the encoding: a vector register
+  group's alignment (`if(vd%4==0)` for `vl4r.v`), a destination other
+  than v0 under a mask, other than a source (`vrgather`, widening), or
+  outside a segment's index (`vloxseg8ei64.v`), and an even pair
+  (`amocas.q`). The compressed forms' x8-x15 is in their fields
+  (`rd_p:3=rd-8`). A constraint the assembler does not keep is left out:
+  `c.addi zero, 3` is a hint, and assembles.
 
-With it, the description has 300 of the 329 RV64 instructions of I, M, A,
-F, D, Zicsr, Zifencei, the Zb* and Zk* extensions, Zfh, Zfa, Zacas, Zabha,
-Zicbo and others. The rest: Zfa's `fli` (a table of constants), Zalasr
-(which this LLVM rejects), Zimop's numbered operations, and a few
-privileged ones. `tests/assemblers.rs` assembles RISC-V's 2,900 sample
-lines with `epitome-as` and with rustc, and they must agree word for
-word. That check found that our own `fcvt.d.w`, `fcvt.d.wu` and `fcvt.d.s`
-wrote a rounding mode other than LLVM's (they are exact, so it never
-mattered).
+The instructions are in three groups, each checked by an assembler of its
+own: the 32-bit ones; the compressed ones (C, Zcb, Zcmop and the
+compressed forms of Zicfiss and Zihintntl), with C on; and Zcmp's and
+Zcmt's, for a machine without D, as they take the encodings of C's
+double-precision loads and stores (so they are not disassembled).
+
+With it, the description has 866 of the 871 RV64 instructions of I, M, A,
+F, D, Q, C, V, H, Zicsr, Zifencei, the Zb*, Zk*, Zc* and Zvk* extensions,
+Zfh, Zfa, Zfbfmin, Zvfbfmin, Zvfbfwma, Zacas, Zabha, Zalasr, Zicbo, Zimop,
+Zicfilp, Zicfiss, Svinval, Sdext, Smrnmi and Ssctr. The rest: `fcvt.q.h`
+and `fcvt.h.q`, which this LLVM does not have, and the names riscv-opcodes
+gives families of numbered instructions (`mop.r.N`), whose members are all
+there. A pseudo-instruction is disassembled as itself where its
+instruction has no entry (`mop.r.5`, `sspopchk ra`); an old name is
+assembled but not disassembled where the description reads the word by
+another (`sbreak`, `fmv.x.s`). Zfinx, Zdinx and Zhinx are not described:
+they are F, D and Zfh on the integer registers, and a machine has them or
+the floating-point registers, not both.
+
+`tests/assemblers.rs` assembles RISC-V's 9,100 sample lines, in the same
+three groups, with `epitome-as` and with rustc, and they must agree
+instruction for instruction. That check found that our own `fcvt.d.w`,
+`fcvt.d.wu` and `fcvt.d.s` wrote a rounding mode other than LLVM's (they
+are exact, so it never mattered).
+
+The assembler reads a compressed form only where it is written (`c.add`):
+it does not compress `add`. The code generator uses neither C nor V.
+
+### The ISA tests
+
+`tests/riscv_tests.rs` runs riscv-tests (RISC-V International's ISA tests,
+`isa/` in the `p` environment: 237 RV64 tests of I, M, A, F, D, C, Zfh,
+Zba, Zbb, Zbc, Zbs, Zbkb, Zbkx, Zicond, Zicbo, Zabha, Zacas, Zalasr, the
+machine and supervisor modes, and the hypervisor) where
+`EPITOME_RISCV_TESTS` names a checkout. Each test is preprocessed by
+clang, assembled by epitome-as, linked by ld.lld with the tests' own
+linker script, and run on QEMU's spike machine (`-cpu max`), whose exit
+status says which test case failed. Each is assembled by clang too, and
+ours must end as clang's does.
+
+They are written for GNU's assembler, so to assemble them it reads what
+GNU's does (`asm_text.rs`):
+
+- macros, `.rept` and `.if`, and expressions of constants as operands
+  (`li a0, 0x6000 & (0x6000 >> 1)`), with GNU's precedence;
+- `li` of any 64-bit value (`lui` and `addiw`, then for 64-bit values,
+  shifts and `addi`s of 12 bits), `la` and `lla` (`auipc` of
+  `%pcrel_hi`, then `addi` of `%pcrel_lo` of the `auipc`'s label, which
+  is kept as a symbol, as linkers look for the high part there), and loads
+  and stores of a symbol (`sw gp, tohost, t5`);
+- CSRs by name (`!target.asm-names`, from riscv-opcodes' `csrs.csv`), the
+  registers by number (`x10`, a class's `names-of`), and the CSR, branch
+  and immediate forms GNU allows (`csrw`, `csrs mstatus, 8`, `bgtu`,
+  `sll a0, a0, 3`, `jalr a0, t1, 0`, an atomic's `0(a0)`), as aliases;
+- branches too far for 12 bits, as the other branch over a `j`
+  (`!target.asm-relax`); code padded with `nop`, not zeros; `.weak`; zeros
+  in `.bss`; `.text.*` sections, without flags, as code.
+
+With QEMU 8.2, all 237 assemble and 201 pass. The other 36 fail as
+clang's do, as this QEMU has neither Zabha, Zacas nor Zalasr (and four of
+the hypervisor's fail with either). Clang does not assemble the seven of
+Zfh (it has no `.float16`); ours pass. Our `li` is sometimes longer than
+LLVM's (`(1 << 53) - 1` is three instructions to its two,
+[later.md](later.md)).
 
 The checks apply to these entries as to any other: encodings, assembly
 round trips, and ambiguity. A register the encoding cannot hold (an odd
@@ -529,7 +620,8 @@ All 30 runs pass. The test was also what found the bugs listed above.
 
 Not yet:
 
-- compressed instructions (C) and vectors (V);
+- compressed instructions (C) and vectors (V) in the code generator (the
+  assembler and disassembler have them);
 - thread-local variables;
 - position-independent code and the GOT;
 - `varargs.c`, whose IR's `va_list` is AArch64's because clang here has
@@ -537,10 +629,143 @@ Not yet:
 
 Adding V would mean:
 
-1. a third register file (`v0`–`v31`), with its classes;
+1. classes holding values in the third register file (`v0`–`v31`, now
+   only named, for assembly);
 2. `vector-bits` with the feature `v`;
 3. vector entries tagged `"feature"="v"`.
 
 The files and classes are now data, but V's vector length is set at run
 time (`vsetvli`). That is state the code generator would have to track
 between instructions, and it has nothing for that yet.
+
+## AMD R600 (Evergreen)
+
+`codegen/targets/r600` describes AMD's Evergreen shader cores (Radeon HD
+5000 and 6000) for assembly and disassembly. `gen_r600.py` writes it from
+the microcode formats of AMD's "Evergreen Family Instruction Set
+Architecture" (2011). The assembly syntax is what LLVM's r600 back end
+writes, since that is the only assembly for it there is, and
+`tests/r600.rs` compares each line `llc -show-mc-encoding` writes, as we
+assemble it, with the bytes llc gives for it.
+
+It is a partial machine ([partial-machines.md](partial-machines.md)):
+`!target.lacks` says it has no stack, calls, globals, indirect branches or
+traps. Its instructions are 64 bits (`instruction-unit` 8), and a vertex
+fetch is 128:
+
+- **ALU instructions** (`ALU_WORD0` with `ALU_WORD1_OP2` or `_OP3`): one
+  entry per opcode and absolute-value combination. Sources, the
+  destination, negation, the end of a group (`* `), predication
+  (`Pred_sel_zero`) and the bank swizzle (`BS:VEC_021/SCL_122`) are
+  enum operands. A group's literal constants follow it, two to a word,
+  written `LITERALS 2, 0` (llc writes `2(2.802597e-45), 0(0.000000e+00)`,
+  which the test reads so);
+- **control flow** (`CF_WORD0/1`, `CF_ALU_WORD0/1`): clauses (`ALU 36, @4,
+  KC0[CB0:0-32], KC1[]`, `TEX 0 @14`), jumps and pops (`JUMP @6 POP:1`),
+  the hardware loops (`LOOP_START_DX10`, `END_LOOP`, `LOOP_BREAK`),
+  `CF_END` and `PAD`;
+- **a memory export** (`MEM_RAT_CACHELESS STORE_RAW`) and **a 32-bit vertex
+  fetch** (`VTX_READ_32`), in the forms llc writes.
+
+Where llc's names differ from AMD's (`LSHR` for `LSHR_INT`, `MULHI` for
+`MULHI_UINT`, `END_LOOP` for `LOOP_END`), the entries take llc's for
+control flow and AMD's for ALU instructions, with llc's as
+`!target.asm-aliases`. AMD's table writes opcode 66 as `PREDE_INT`; it is
+`PRED_SETE_INT`.
+
+Not yet: the other memory exports, fetches other than `VTX_READ_32`,
+`LDS_IDX_OP`, the extended ALU clause (`CF_ALU_WORD0_EXT`), and
+instruction selection, which needs groups and clauses
+([partial-machines.md](partial-machines.md), section 5).
+
+## AMD gfx1151 (RDNA 3.5)
+
+`codegen/targets/gfx1151` describes AMD's RDNA 3.5 GPUs (gfx1151, Strix
+Halo's Radeon 8060S) for assembly and disassembly, in wave32.
+`gen_gfx1151.py` writes it from AMD's machine-readable ISA specification of
+RDNA 3.5 (`amdgpu_isa_rdna3_5.xml`, from AMD GPUOpen's "Machine-Readable GPU
+ISA", MIT). That gives every encoding's fields and every instruction's
+opcode in each encoding it has, with its operands' fields, types and sizes,
+but no assembly syntax. The syntax is LLVM's (`llvm-mc
+-triple=amdgcn-amd-amdhsa -mcpu=gfx1151`), and the generator finds it with
+llvm-mc, as RISC-V's does with rustc:
+
+- each operand's values are put in a word one at a time, the others held,
+  and what llvm-mc's disassembler writes for each value is its name (so a
+  source's 512 values are `s0` to `s105`, `vcc_lo`, `ttmp0`, `null`, `m0`,
+  `exec_lo`, the inline constants `0` to `64`, `-1` to `-16`, `0.5` and
+  the like, `src_scc`, and `v0` to `v255`; and `v0.l` and `v0.h` in a
+  16-bit operand);
+- where in the line those names are written makes the template;
+- values llvm-mc writes but does not read back as the same word are left
+  out: odd register pairs (`s5` read as `s[4:5]`), names its assembler does
+  not take (`src_flat_scratch_base_lo`), a literal it writes `lit(...)`
+  because an inline constant could hold it;
+- each entry is then checked on random operand values: the line llvm-mc
+  writes for each must be the one the template writes.
+
+It writes 15,796 entries, with 79 enums. It leaves out MIMG's 168 forms and
+255 others, which it lists: most are VOP3 forms with a literal and op_sel or
+source modifiers, which llvm-mc writes in ways the generator does not yet
+follow, or does not read back.
+
+It is a partial machine ([partial-machines.md](partial-machines.md)), like
+R600: `!target.lacks` says it has no stack, calls, globals, indirect
+branches or traps. Its instructions are multiples of 32 bits
+(`instruction-unit` 4), with a 32-bit literal after some.
+
+An operand is one or more fields. A VOP3 source is its 9-bit field, its
+negation and absolute-value bits (`-|v2|`, `neg(2)`) and its op_sel bit
+(`v2.h`); a destination is its register and op_sel bit. The clamp and
+output modifier are one operand (` clamp mul:2`), and so are VOP3P's
+modifiers, and the cache flags (` glc slc dlc`). A 16-bit VOP3 operation
+writes its op_sel bits twice, in its operands' halves and again after them
+(`v_add_f16_e64 v1.l, v2.h, v3.l op_sel:[1,0,0]`); its entry writes the
+second from the first, `op_sel:[{=(src0>>11)&1},...]`, a computed hole the
+assembler checks against the operands it has read. Some fields have
+entries of their own for each way of writing them:
+
+- an offset, which is not written when 0 (`offset:16`), and wait counts,
+  which are not written at their most (`s_waitcnt vmcnt(0) lgkmcnt(0)`);
+- flags that change the operands as well as being written: `idxen` and
+  `offen` (the address is `off` without them), `tfe` (one more data
+  register), `sve`, and `glc` in atomics (which then return a value);
+- a global access's address register, 64-bit without `saddr` and 32-bit
+  with it;
+- an immediate llvm-mc writes in decimal up to 64 and in hex above
+  (`s_movk_i32 s0, 64`, `s_movk_i32 s0, 0x41`), and `hwreg(id)` beside
+  `hwreg(id, offset, size)`.
+
+Three ways of writing a line are read but not written (`"nodecode"`
+entries), as clang writes them: a branch to a label (`s_cbranch_execz
+.LBB0_2`; the field is the distance in words from the next instruction,
+which llvm-mc writes as a number); a scalar load's zero offset written
+`0x0`, where llvm-mc's disassembler writes `null`; and a 16-bit operation's
+halves written only in its operands' names (`v_cmp_gt_f16_e64 s0, v2.h,
+v3.h`), without the op_sel after them.
+
+An enum is written once for the operands that share it: an operand whose
+names are a larger table's, but for a few runs of values (a source without
+`vcc_lo`, say), uses that table, with guards leaving the others out.
+
+A VOPD (dual-issue) entry is an X and a Y operation together, for each
+parity of the first destination: the second's low bit is not held, but is
+the other of the first's. The register banks the two halves' sources must
+be in are guards. So is the constant bus, in VOPD and VOP3 alike: at most
+two scalar values (a register read twice is one, and the literal is one),
+and one in the 64-bit shifts.
+
+`tests/gfx1151.rs` assembles every entry's sample lines with `epitome-as`
+and with llvm-mc, which must give the same bytes, and disassembles each of
+llvm-mc's instructions, which must be read as llvm-mc's disassembler writes
+it (34,597 lines; llvm-mc's disassembler crashes on a few words, which the
+test lists and leaves out). It is skipped where there is no llvm-mc 22 or
+later with the AMDGPU target (the syntax is LLVM 22's; LLVM 18's assembler
+refuses some of it).
+
+Not yet: images (MIMG), whose data and address registers' sizes depend on
+`dmask`, `d16`, `tfe`, `dim` and `a16` together; `s_version`, which
+llvm-mc writes but does not read back; buffer stores with `tfe`, which
+llvm-mc writes but does not take; `ds_swizzle_b32`'s offset, which
+llvm-mc writes as a pattern (`offset:swizzle(BITMASK_PERM,"ppppp")`), but
+for 0; wave64; and instruction selection.

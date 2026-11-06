@@ -726,10 +726,7 @@ impl<'m> FunctionBuilder<'m> {
     /// `getelementptr source_ty, ptr p, indices...`
     pub fn gep(&mut self, source_ty: TypeId, p: Value, indices: &[Value]) -> Value {
         let ptr = self.m.types.ptr(0);
-        self.value(
-            Op::Gep { flags: GepFlags::default(), inrange: None, source_ty, ptr: p, indices: indices.to_vec() },
-            ptr,
-        )
+        self.value(Op::Gep { flags: GepFlags::default(), source_ty, ptr: p, indices: indices.into() }, ptr)
     }
 
     // Aggregates and vectors ---------------------------------------------------
@@ -739,12 +736,12 @@ impl<'m> FunctionBuilder<'m> {
         for &k in indices {
             ty = self.m.types.member(ty, k as u64).expect("extractvalue: an index past the aggregate's members");
         }
-        self.value(Op::ExtractValue { aggregate: agg, indices: indices.to_vec() }, ty)
+        self.value(Op::ExtractValue { aggregate: agg, indices: indices.into() }, ty)
     }
 
     pub fn insert_value(&mut self, agg: Value, element: Value, indices: &[u32]) -> Value {
         let ty = self.type_of(agg);
-        self.value(Op::InsertValue { aggregate: agg, element, indices: indices.to_vec() }, ty)
+        self.value(Op::InsertValue { aggregate: agg, element, indices: indices.into() }, ty)
     }
 
     pub fn extract_element(&mut self, vector: Value, index: Value) -> Value {
@@ -1012,13 +1009,13 @@ pub struct LoadSpec<'b, 'm> {
     b: &'b mut FunctionBuilder<'m>,
     ty: TypeId,
     ptr: Value,
-    align: Option<u64>,
+    align: Option<Align>,
     volatile: bool,
 }
 
 impl LoadSpec<'_, '_> {
     pub fn align(mut self, align: u64) -> Self {
-        self.align = Some(align);
+        self.align = Some(Align::new(align).expect("an alignment must be a power of two"));
         self
     }
     pub fn volatile(mut self) -> Self {
@@ -1036,13 +1033,13 @@ pub struct StoreSpec<'b, 'm> {
     b: &'b mut FunctionBuilder<'m>,
     value: Value,
     ptr: Value,
-    align: Option<u64>,
+    align: Option<Align>,
     volatile: bool,
 }
 
 impl StoreSpec<'_, '_> {
     pub fn align(mut self, align: u64) -> Self {
-        self.align = Some(align);
+        self.align = Some(Align::new(align).expect("an alignment must be a power of two"));
         self
     }
     pub fn volatile(mut self) -> Self {
@@ -1091,10 +1088,9 @@ impl GepSpec<'_, '_> {
         let ptr = self.b.m.types.ptr(0);
         let op = Op::Gep {
             flags: GepFlags(self.flags),
-            inrange: None,
             source_ty: self.source_ty,
             ptr: self.ptr,
-            indices: self.indices,
+            indices: self.indices.into(),
         };
         self.b.value(op, ptr)
     }

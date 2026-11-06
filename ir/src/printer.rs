@@ -1034,13 +1034,9 @@ impl<'m> Printer<'m> {
                 }
                 s
             }
-            Op::Gep { flags, inrange, source_ty, ptr, indices } => {
-                let mut s = format!(
-                    "getelementptr{} {}, {}",
-                    gep_flags(*flags, *inrange),
-                    self.ty(*source_ty),
-                    self.typed(*ptr)
-                );
+            Op::Gep { flags, source_ty, ptr, indices } => {
+                let mut s =
+                    format!("getelementptr{} {}, {}", gep_flags(*flags, None), self.ty(*source_ty), self.typed(*ptr));
                 for &i in indices {
                     write!(s, ", {}", self.typed(i)).unwrap();
                 }
@@ -1247,7 +1243,7 @@ fn gep_flags(f: GepFlags, inrange: Option<(i64, i64)>) -> String {
     s
 }
 
-fn atomic_suffix(scope: &Option<Vec<u8>>, ordering: Ordering) -> String {
+fn atomic_suffix(scope: &Option<Box<[u8]>>, ordering: Ordering) -> String {
     match scope {
         Some(sc) => format!(" syncscope({}) {}", quote(sc), ordering.keyword()),
         None => format!(" {}", ordering.keyword()),

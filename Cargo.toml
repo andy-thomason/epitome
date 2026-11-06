@@ -11,7 +11,7 @@ epitome-codegen = { path = "codegen" }
 epitome-mlir = { path = "mlir" }
 
 [workspace]
-members = ["ir", "opt", "codegen", "mlir", "sv"]
+members = ["ir", "opt", "codegen", "mlir", "sv", "epitome-rustc2"]
 
 # The SystemVerilog front end and interpreter are only useful optimised,
 # so even plain `cargo test` and `cargo run` builds of it are.

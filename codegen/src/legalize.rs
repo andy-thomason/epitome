@@ -1745,18 +1745,12 @@ pub fn legalize_vectors(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
                                 kind: ConstKind::Int(epitome_ir::apint::ApInt::from_i64(64, step * p as i64)),
                             }));
                             bld.op(
-                                Op::Gep {
-                                    flags: GepFlags::default(),
-                                    inrange: None,
-                                    source_ty: i8t,
-                                    ptr,
-                                    indices: vec![off],
-                                },
+                                Op::Gep { flags: GepFlags::default(), source_ty: i8t, ptr, indices: vec![off].into() },
                                 Some(ptr_ty),
                             )
                         };
                         ps.push(bld.op(
-                            Op::Load { volatile, atomic: None, ptr: at, align: align.map(|a| a.min(step as u64)) },
+                            Op::Load { volatile, atomic: None, ptr: at, align: align.map(|a| a.at_most(step as u64)) },
                             Some(pt),
                         ));
                     }
@@ -1781,13 +1775,7 @@ pub fn legalize_vectors(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
                                 kind: ConstKind::Int(epitome_ir::apint::ApInt::from_i64(64, step * p as i64)),
                             }));
                             bld.op(
-                                Op::Gep {
-                                    flags: GepFlags::default(),
-                                    inrange: None,
-                                    source_ty: i8t,
-                                    ptr,
-                                    indices: vec![off],
-                                },
+                                Op::Gep { flags: GepFlags::default(), source_ty: i8t, ptr, indices: vec![off].into() },
                                 Some(ptr_ty),
                             )
                         };
@@ -1797,7 +1785,7 @@ pub fn legalize_vectors(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
                                 atomic: None,
                                 value: v,
                                 ptr: at,
-                                align: align.map(|a| a.min(step as u64)),
+                                align: align.map(|a| a.at_most(step as u64)),
                             },
                             None,
                         );

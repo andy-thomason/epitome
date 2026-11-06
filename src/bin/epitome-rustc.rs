@@ -260,7 +260,7 @@ fn object_of_inner(ll: &Path, ours_opt: bool) -> Result<Vec<u8>, String> {
     if ours_opt {
         epitome_opt::pipeline::run(&mut m, &epitome_opt::pipeline::Options { threads, ..Default::default() });
     }
-    let t = Target::aarch64();
+    let t = if cfg!(target_arch = "x86_64") { Target::x86_64() } else { Target::aarch64() };
     // A chop limit, as epitome-llc takes, to search a miscompiled crate
     // (with `EPITOME_RUSTC_ONLY` naming it).
     let chop = epitome_ir::chop::limit_from(None, "EPITOME_LLC_CHOP")?;
@@ -275,8 +275,14 @@ fn object_of_inner(ll: &Path, ours_opt: bool) -> Result<Vec<u8>, String> {
     compiled.object_file(&t)
 }
 
-/// The size of an object's machine code: its `__text` sections.
+/// The size of an object's machine code: its `__text` sections (Mach-O),
+/// or `.text` ones (ELF).
 fn text_size(object: &[u8]) -> u64 {
+    if object.starts_with(b"\x7fELF") {
+        return epitome_codegen::elf::read(object)
+            .map(|e| e.sections.iter().filter(|s| s.name.starts_with(".text")).map(|s| s.size).sum())
+            .unwrap_or(0);
+    }
     epitome_codegen::macho::read(object)
         .map(|m| m.sections.iter().filter(|s| s.name == "__text").map(|s| s.size).sum())
         .unwrap_or(0)

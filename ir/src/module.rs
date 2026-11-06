@@ -6,6 +6,7 @@
 //! blocks and instructions.
 
 use std::collections::HashMap;
+use std::num::NonZeroU8;
 
 use crate::apint::ApInt;
 use crate::types::{TypeId, Types};
@@ -745,6 +746,55 @@ impl FastMath {
     }
 }
 
+/// The alignment of a memory instruction: a power of two, in bytes. It is
+/// kept as its log2 plus one, so that `Option<Align>` is one byte.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
+pub struct Align(NonZeroU8);
+
+impl Align {
+    /// The largest alignment LLVM allows, 2^32.
+    pub const MAX_LOG2: u8 = 32;
+
+    /// `None` unless `bytes` is a power of two no larger than 2^32.
+    pub fn new(bytes: u64) -> Option<Align> {
+        if !bytes.is_power_of_two() || bytes.trailing_zeros() > Self::MAX_LOG2 as u32 {
+            return None;
+        }
+        Some(Self::from_log2(bytes.trailing_zeros() as u8))
+    }
+
+    /// `bytes`, which must be a power of two no larger than 2^32.
+    pub const fn of(bytes: u64) -> Align {
+        assert!(bytes.is_power_of_two() && bytes.trailing_zeros() <= Self::MAX_LOG2 as u32);
+        Align(NonZeroU8::new(bytes.trailing_zeros() as u8 + 1).unwrap())
+    }
+
+    /// This alignment, or the largest power of two no larger than `bytes`
+    /// if that is less.
+    pub fn at_most(self, bytes: u64) -> Align {
+        self.min(Self::from_log2(bytes.max(1).ilog2().min(Self::MAX_LOG2 as u32) as u8))
+    }
+
+    pub fn from_log2(log2: u8) -> Align {
+        assert!(log2 <= Self::MAX_LOG2, "alignment 2^{log2} is too large");
+        Align(NonZeroU8::new(log2 + 1).unwrap())
+    }
+
+    pub fn log2(self) -> u8 {
+        self.0.get() - 1
+    }
+
+    pub fn bytes(self) -> u64 {
+        1 << self.log2()
+    }
+}
+
+impl std::fmt::Display for Align {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.bytes())
+    }
+}
+
 /// `getelementptr` flags.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
 pub struct GepFlags(pub u8);
@@ -863,7 +913,7 @@ impl Ordering {
 pub struct Atomic {
     pub elementwise: bool,
     /// `syncscope("...")`
-    pub scope: Option<Vec<u8>>,
+    pub scope: Option<Box<[u8]>>,
     pub ordering: Ordering,
 }
 
@@ -983,11 +1033,11 @@ pub enum Op {
     Switch {
         value: Value,
         default: BlockId,
-        cases: Vec<(ConstId, BlockId)>,
+        cases: Box<[(ConstId, BlockId)]>,
     },
     IndirectBr {
         addr: Value,
-        dests: Vec<BlockId>,
+        dests: Box<[BlockId]>,
     },
     Invoke {
         call: Box<Call>,
@@ -997,13 +1047,13 @@ pub enum Op {
     CallBr {
         call: Box<Call>,
         default: BlockId,
-        indirect: Vec<BlockId>,
+        indirect: Box<[BlockId]>,
     },
     Resume(Value),
     /// `parent` is `None` for `within none`; `unwind` is `None` for `unwind to caller`.
     CatchSwitch {
         parent: Option<Value>,
-        handlers: Vec<BlockId>,
+        handlers: Box<[BlockId]>,
         unwind: Option<BlockId>,
     },
     CatchRet {
@@ -1055,12 +1105,12 @@ pub enum Op {
     },
     ExtractValue {
         aggregate: Value,
-        indices: Vec<u32>,
+        indices: Box<[u32]>,
     },
     InsertValue {
         aggregate: Value,
         element: Value,
-        indices: Vec<u32>,
+        indices: Box<[u32]>,
     },
 
     // Memory
@@ -1068,24 +1118,24 @@ pub enum Op {
         inalloca: bool,
         ty: TypeId,
         count: Option<Value>,
-        align: Option<u64>,
+        align: Option<Align>,
         addrspace: Option<u32>,
     },
     Load {
         volatile: bool,
         atomic: Option<Atomic>,
         ptr: Value,
-        align: Option<u64>,
+        align: Option<Align>,
     },
     Store {
         volatile: bool,
         atomic: Option<Atomic>,
         value: Value,
         ptr: Value,
-        align: Option<u64>,
+        align: Option<Align>,
     },
     Fence {
-        scope: Option<Vec<u8>>,
+        scope: Option<Box<[u8]>>,
         ordering: Ordering,
     },
     CmpXchg {
@@ -1094,10 +1144,10 @@ pub enum Op {
         ptr: Value,
         cmp: Value,
         new: Value,
-        scope: Option<Vec<u8>>,
+        scope: Option<Box<[u8]>>,
         success: Ordering,
         failure: Ordering,
-        align: Option<u64>,
+        align: Option<Align>,
     },
     AtomicRmw {
         op: RmwOp,
@@ -1105,16 +1155,15 @@ pub enum Op {
         elementwise: bool,
         ptr: Value,
         value: Value,
-        scope: Option<Vec<u8>>,
+        scope: Option<Box<[u8]>>,
         ordering: Ordering,
-        align: Option<u64>,
+        align: Option<Align>,
     },
     Gep {
         flags: GepFlags,
-        inrange: Option<(i64, i64)>,
         source_ty: TypeId,
         ptr: Value,
-        indices: Vec<Value>,
+        indices: Box<[Value]>,
     },
 
     // Other
@@ -1153,16 +1202,16 @@ pub enum Op {
     },
     LandingPad {
         cleanup: bool,
-        clauses: Vec<Clause>,
+        clauses: Box<[Clause]>,
     },
     /// `within` is the parent pad (a `catchswitch` for `catchpad`), or `None` for `within none`.
     CatchPad {
         within: Value,
-        args: Vec<Value>,
+        args: Box<[Value]>,
     },
     CleanupPad {
         within: Option<Value>,
-        args: Vec<Value>,
+        args: Box<[Value]>,
     },
 }
 
@@ -1206,7 +1255,7 @@ impl Op {
             Op::Br(b) => vec![*b],
             Op::CondBr { then_dest, else_dest, .. } => vec![*then_dest, *else_dest],
             Op::Switch { default, cases, .. } => std::iter::once(*default).chain(cases.iter().map(|c| c.1)).collect(),
-            Op::IndirectBr { dests, .. } => dests.clone(),
+            Op::IndirectBr { dests, .. } => dests.to_vec(),
             Op::Invoke { normal, unwind, .. } => vec![*normal, *unwind],
             Op::CallBr { default, indirect, .. } => std::iter::once(*default).chain(indirect.iter().copied()).collect(),
             Op::CatchSwitch { handlers, unwind, .. } => handlers.iter().copied().chain(*unwind).collect(),
@@ -1214,5 +1263,30 @@ impl Op {
             Op::CleanupRet { unwind, .. } => unwind.iter().copied().collect(),
             _ => Vec::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every instruction holds an `Op`, so its size matters: keep rare,
+    /// large operands behind a pointer.
+    #[test]
+    fn op_is_small() {
+        assert!(size_of::<Op>() <= 64, "Op is {} bytes", size_of::<Op>());
+        assert_eq!(size_of::<Option<Align>>(), 1);
+    }
+
+    #[test]
+    fn alignments() {
+        assert_eq!(Align::new(0), None);
+        assert_eq!(Align::new(12), None);
+        assert_eq!(Align::new(1 << 33), None);
+        assert_eq!(Align::new(16).map(Align::bytes), Some(16));
+        assert_eq!(Align::of(1 << 32).log2(), 32);
+        assert_eq!(Align::of(16).at_most(12), Align::of(8));
+        assert_eq!(Align::of(4).at_most(64), Align::of(4));
+        assert_eq!(Align::of(8).to_string(), "8");
     }
 }

@@ -5,6 +5,7 @@
 pub mod abi;
 pub mod aggregates;
 pub mod asm;
+pub mod asm_text;
 pub mod assembler;
 pub mod atomics;
 pub mod bitmaps;

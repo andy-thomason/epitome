@@ -40,7 +40,18 @@
 //! or `.long symbol-label` (ELF), with the label at the field (exception
 //! tables' references to types) or, for ELF, earlier in its section (a
 //! relative lookup table's entries); and
-//! `.subsections_via_symbols`, which is accepted and ignored.
+//! `.subsections_via_symbols`, which is accepted and ignored. Also those
+//! of hand-written assembly, as GNU assemblers take them: `.weak`,
+//! `.word`, `.dword`, `.half`, `.float16`, `.float`, `.double`, `.fill`,
+//! `.balign`, `.option` (ignored), and `.macro`, `.rept` and `.if`
+//! (`asm_text`), with expressions of constants wherever a number goes.
+//!
+//! Before an instruction is read, its operands that are expressions become
+//! numbers, names of numbers and other names of registers the description
+//! gives become what the templates write, and its pseudo-instructions of
+//! several instructions become those (`asm_text::instruction`). One that
+//! does not fit (a branch too far) is read as the longer form the
+//! description gives (`!target.asm-relax`).
 
 use std::collections::{HashMap, HashSet};
 
@@ -149,8 +160,10 @@ struct Sym {
 struct Reading {
     env: Env,
     shown: HashMap<usize, Operand>,
-    /// The symbol operand: its index and the symbol's name.
+    /// The symbol operand: its index and the symbol's name, and the offset
+    /// from it written.
     sym: Option<(usize, String)>,
+    sym_offset: i64,
     /// The label operand: its index and the label.
     label: Option<(usize, String)>,
 }
@@ -162,10 +175,14 @@ fn parse_int(s: &str) -> Option<i64> {
         None => (false, s.strip_prefix('+').unwrap_or(s)),
     };
     let v = match body.strip_prefix("0x").or_else(|| body.strip_prefix("0X")) {
-        Some(h) => u64::from_str_radix(h, 16).ok()? as i64,
-        None => body.parse::<u64>().ok()? as i64,
+        Some(h) => u64::from_str_radix(h, 16).ok(),
+        None => body.parse::<u64>().ok(),
     };
-    Some(if neg { v.wrapping_neg() } else { v })
+    // (Else an expression of constants: `0x6000 & (0x6000 >> 1)`.)
+    match v {
+        Some(v) => Some(if neg { (v as i64).wrapping_neg() } else { v as i64 }),
+        None => crate::asm_text::eval(s),
+    }
 }
 
 fn valid_symbol(s: &str) -> bool {
@@ -183,7 +200,8 @@ impl<'t> Assembler<'t> {
                 continue;
             }
             let tpl = Template { instr: i, parts: split_template(&ins.asm) };
-            let m = mnemonic(&ins.asm);
+            // (By the mnemonic in lower case, as lines are looked up.)
+            let m = mnemonic(&ins.asm).to_ascii_lowercase();
             match m.find('{') {
                 Some(k) => by_prefix.push((m[..k].to_string(), tpl)),
                 None => by_mnemonic.entry(m.to_string()).or_default().push(tpl),
@@ -192,48 +210,140 @@ impl<'t> Assembler<'t> {
         Assembler { t, by_mnemonic, by_prefix, max_errors: 20 }
     }
 
-    /// The holes' texts, if `line` has the template's literal text.
+    /// The holes' texts, if `line` has the template's literal text: a hole
+    /// takes the text to the nearest occurrence of the literal text after
+    /// it, outside brackets; or, before a bracket, the nearest from which
+    /// the rest of the template matches (`%pcrel_lo(.L1)` before `(t5)`).
     fn holes<'l>(&self, tpl: &Template, line: &'l str) -> Option<Vec<(String, &'l str)>> {
-        let mut pos = 0;
         let mut out = Vec::new();
-        for (k, part) in tpl.parts.iter().enumerate() {
-            match part {
-                Part::Lit(l) => {
-                    if !line[pos..].starts_with(l.as_str()) {
-                        return None;
+        self.holes_from(tpl, 0, line, 0, &mut out).then_some(out)
+    }
+
+    /// Whether `line` from `pos` matches the template from part `k`, the
+    /// holes' texts pushed to `out`. A hole of an enum operand is one of its
+    /// names (perhaps empty), each tried in turn until the rest matches, so
+    /// enum holes may be side by side (`{neg}{src}`); any other hole is not
+    /// empty, is balanced in brackets, and runs to an occurrence of the next
+    /// literal text, the first unless that text has a bracket.
+    fn holes_from<'l>(
+        &self,
+        tpl: &Template,
+        k: usize,
+        line: &'l str,
+        pos: usize,
+        out: &mut Vec<(String, &'l str)>,
+    ) -> bool {
+        let Some(part) = tpl.parts.get(k) else { return pos == line.len() };
+        match part {
+            Part::Lit(l) => {
+                line[pos..].starts_with(l.as_str()) && self.holes_from(tpl, k + 1, line, pos + l.len(), out)
+            }
+            Part::Hole(inner) => {
+                if let Some(e) = self.enum_of(tpl.instr, inner) {
+                    for (name, _) in &e.names {
+                        if line[pos..].starts_with(name.as_str()) {
+                            out.push((inner.clone(), &line[pos..pos + name.len()]));
+                            if self.holes_from(tpl, k + 1, line, pos + name.len(), out) {
+                                return true;
+                            }
+                            out.pop();
+                        }
                     }
-                    pos += l.len();
+                    return false;
                 }
-                Part::Hole(inner) => {
-                    let end = match tpl.parts.get(k + 1) {
-                        Some(Part::Lit(l)) => pos + line[pos..].find(l.as_str())?,
-                        Some(Part::Hole(_)) => return None,
-                        None => line.len(),
-                    };
-                    if end == pos {
+                let balanced = |s: &str| {
+                    if !s.contains(['(', ')']) {
+                        return true;
+                    }
+                    let mut depth = 0i32;
+                    s.chars().all(|c| {
+                        depth += (c == '(') as i32 - (c == ')') as i32;
+                        depth >= 0
+                    }) && depth == 0
+                };
+                let take = |end: usize, out: &mut Vec<(String, &'l str)>| {
+                    if end == pos || !balanced(&line[pos..end]) {
                         return None;
                     }
                     out.push((inner.clone(), &line[pos..end]));
-                    pos = end;
+                    let ok = self.holes_from(tpl, k + 1, line, end, out);
+                    if !ok {
+                        out.pop();
+                    }
+                    Some(ok)
+                };
+                match tpl.parts.get(k + 1) {
+                    None => take(line.len(), out) == Some(true),
+                    // Before an enum's hole (gfx1151's `offset:{offset}{cpol}`,
+                    // cpol ` glc` or nothing): each end up to the next space,
+                    // the shortest first, until the rest matches.
+                    Some(Part::Hole(next)) if self.enum_of(tpl.instr, next).is_some() => {
+                        let stop = line[pos..].find(' ').map_or(line.len(), |e| pos + e);
+                        (pos + 1..=stop).filter(|&e| line.is_char_boundary(e)).any(|end| take(end, out) == Some(true))
+                    }
+                    Some(Part::Hole(_)) => false,
+                    Some(Part::Lit(l)) => {
+                        let again = l.contains('(');
+                        for (at, _) in line[pos..].match_indices(l.as_str()) {
+                            match take(pos + at, out) {
+                                Some(true) => return true,
+                                Some(false) if !again => return false,
+                                _ => {}
+                            }
+                        }
+                        false
+                    }
                 }
             }
         }
-        (pos == line.len()).then_some(out)
+    }
+
+    /// The enum a template's hole is an operand of, if it is one.
+    fn enum_of(&self, i: usize, hole: &str) -> Option<&crate::machine::EnumDef> {
+        let o = self.t.instrs[i].operands.iter().find(|o| o.name == hole)?;
+        match o.kind {
+            Kind::Enum(e) => Some(&self.t.machine.enums[e as usize]),
+            _ => None,
+        }
     }
 
     /// Reads a line as instruction `i`, by the holes' texts.
     fn read(&self, i: usize, holes: &[(String, &str)], syntax: Syntax) -> Option<Reading> {
         let ins = &self.t.instrs[i];
-        let mut r = Reading { env: Env::new(), shown: HashMap::new(), sym: None, label: None };
+        let mut r = Reading { env: Env::new(), shown: HashMap::new(), sym: None, sym_offset: 0, label: None };
         let set = |env: &mut Env, name: &str, v: i64| -> Option<()> {
             match env.insert(name.to_string(), v) {
                 Some(old) if old != v => None,
                 _ => Some(()),
             }
         };
-        for (inner, text) in holes {
+        // Computed holes last: one whose operands the others have given is
+        // checked against them (gfx1151's `op_sel:[{=(src0>>11)&1},...]`,
+        // its sources' halves written again); any other gives its operand.
+        let (computed, plain): (Vec<_>, Vec<_>) = holes.iter().partition(|(inner, _)| inner.starts_with('='));
+        let mut enum_texts: HashMap<&str, (&crate::machine::EnumDef, &str)> = HashMap::new();
+        for (inner, text) in plain.into_iter().chain(computed) {
             if let Some(expr) = inner.strip_prefix('=') {
                 let e = enc::parse_expr(expr).ok()?;
+                if let Some(v) = enc::eval(&e, &r.env) {
+                    let want = parse_int(text)?;
+                    if want != v {
+                        // An operand two of whose values are written alike
+                        // (gfx1151's `v4` for its register with or without
+                        // its op_sel bit): the other, if it agrees.
+                        let mut names = Vec::new();
+                        enc::names_in(&e, &mut names);
+                        let [n] = names.as_slice() else { return None };
+                        let (ed, written) = enum_texts.get(n.as_str())?;
+                        let other = ed.names.iter().filter(|(m, _)| m == written).map(|&(_, x)| x).find(|&x| {
+                            let mut env = r.env.clone();
+                            env.insert(n.clone(), x);
+                            enc::eval(&e, &env) == Some(want)
+                        })?;
+                        r.env.insert(n.clone(), other);
+                    }
+                    continue;
+                }
                 let mut x = parse_int(text)?;
                 // A value written masked to n bits (`{=(imm>>12)&1048575}`,
                 // as RISC-V's lui is written) is read as n bits, signed.
@@ -273,6 +383,11 @@ impl<'t> Assembler<'t> {
                     set(&mut r.env, name, text.parse::<f32>().ok()?.to_bits() as i64)?
                 }
                 Kind::Imm => set(&mut r.env, name, parse_int(text)?)?,
+                Kind::Enum(e) => {
+                    let ed = &self.t.machine.enums[e as usize];
+                    set(&mut r.env, name, ed.value(text)?)?;
+                    enum_texts.insert(name, (ed, *text));
+                }
                 Kind::Cond => {
                     // (In either case: `NE` is `ne`.)
                     let c = self.t.conds.iter().find(|c| c.asm.eq_ignore_ascii_case(text))?;
@@ -284,13 +399,19 @@ impl<'t> Assembler<'t> {
                         Some(rk) => self.t.machine.relocs[rk.0 as usize].unspell(syntax, text)?,
                         None => text,
                     };
-                    let s = valid_symbol(sym).then(|| sym.to_string())?;
+                    // (A symbol and an offset, `tohost + 4`, are the symbol
+                    // with an addend.)
+                    let (s, off) = match valid_symbol(sym) {
+                        true => (sym.to_string(), 0),
+                        false => parse_sym_offset(&sym.replace(' ', ""))?,
+                    };
                     set(&mut r.env, name, 0)?;
                     r.sym = Some((k, s));
+                    r.sym_offset = off;
                     r.shown.insert(k, Operand::Text(text.to_string()));
                 }
                 Kind::Label => {
-                    if !valid_symbol(text) {
+                    if !valid_symbol(text) && here_relative(text).is_none() {
                         return None;
                     }
                     r.label = Some((k, text.to_string()));
@@ -362,7 +483,7 @@ impl<'t> Assembler<'t> {
             let ins = &self.t.instrs[tpl.instr];
             if let Some((k, name)) = &r.label {
                 // Not a label here: perhaps a symbol, as another entry reads it.
-                let Some(at) = label(name) else {
+                let Some(at) = here_relative(name).map(|d| pc.wrapping_add_signed(d)).or_else(|| label(name)) else {
                     no_label = Some(format!("no label {name} in this section"));
                     continue;
                 };
@@ -404,7 +525,7 @@ impl<'t> Assembler<'t> {
                     if addend != 0 {
                         ins.enc.alts[alt].clear(&mut bytes, &ins.operands[k].name);
                     }
-                    Sym { name, at, addend }
+                    Sym { name, at, addend: addend + r.sym_offset }
                 });
                 best = Some((sp_classes, tpl.instr, bytes, sym));
             }
@@ -414,12 +535,47 @@ impl<'t> Assembler<'t> {
         })
     }
 
+    /// An instruction that does not fit (a branch too far), as the
+    /// longer form the description gives: its statements, each where the
+    /// one before ends, one after the other (with no symbols).
+    fn relaxed(
+        &self,
+        line: &str,
+        pc: u64,
+        syntax: Syntax,
+        label: &dyn Fn(&str) -> Option<u64>,
+    ) -> Option<(usize, Vec<u8>, Option<Sym>)> {
+        let canonical = self.t.machine.asm_aliases.iter().fold(line.to_string(), |l, (a, b)| rewrite(&l, a, b));
+        for text in [line, canonical.as_str()] {
+            for (from, to) in &self.t.machine.asm_relax {
+                let long = rewrite(text, from, to);
+                if long == text {
+                    continue;
+                }
+                let mut bytes = Vec::new();
+                let mut last = None;
+                for part in long.split(';') {
+                    let (i, b, sym) =
+                        self.encode(&normalise(part.trim()), pc + bytes.len() as u64, syntax, label).ok()?;
+                    if sym.is_some() {
+                        return None;
+                    }
+                    bytes.extend(b);
+                    last = Some(i);
+                }
+                return Some((last?, bytes, None));
+            }
+        }
+        None
+    }
+
     /// Assembles `text`: Mach-O assembly if it says so (`.build_version`,
     /// or `__TEXT` and `__DATA` sections), or `syntax` says so; else ELF.
     pub fn assemble(&self, text: &str, syntax: Option<Syntax>) -> Result<Assembled, String> {
-        // Each instruction's length, by its line: the shortest a target's
-        // instructions are, until assembling it says otherwise. Lengths
-        // only grow, so distances do, so this ends.
+        // Each instruction's length, by its line: the target's usual one
+        // (the shortest, or on RISC-V the uncompressed), until assembling it
+        // says otherwise. After that first word, lengths only grow, so
+        // distances do, so this ends.
         let mut lens: HashMap<usize, usize> = HashMap::new();
         loop {
             match self.assemble_sized(text, syntax, &lens)? {
@@ -430,7 +586,8 @@ impl<'t> Assembler<'t> {
     }
 
     /// Assembles `text` with instructions of the lengths `lens` gives, or
-    /// gives the lengths of those that turned out longer.
+    /// gives the lengths of those that turned out longer (or, not yet
+    /// given one, shorter).
     fn assemble_sized(
         &self,
         text: &str,
@@ -476,6 +633,8 @@ impl<'t> Assembler<'t> {
                 section: usize,
                 offset: u64,
                 line: usize,
+                /// Its statement's number, by which its length is kept.
+                stmt: usize,
                 text: String,
             },
             Data {
@@ -497,8 +656,39 @@ impl<'t> Assembler<'t> {
         let lines: Vec<&str> = text.lines().collect();
 
         let err = |n: usize, msg: String| format!("line {}: {msg}: `{}`", n + 1, lines[n].trim());
-        let stmts = statements(&lines, &self.t.machine.asm_comment, syntax);
-        for (n, stmt) in &stmts {
+        let stmts = statements(&lines, &self.t.machine.asm_comment, syntax).map_err(|(n, m)| err(n, m))?;
+        // Instructions with their operands' expressions as numbers, and the
+        // pseudo-instructions of several instructions as those
+        // (`asm_text::instruction`).
+        // An instruction folding changed is also kept as written, by its
+        // statement's number, to be read so where the folded one is not
+        // (gfx1151's templates write `0x0`, where RISC-V's CSRs are read
+        // as numbers).
+        let mut pcrel = 0;
+        let mut asis: HashMap<usize, String> = HashMap::new();
+        let mut folded: Vec<(usize, String)> = Vec::new();
+        for (n, s) in stmts {
+            let body = s.trim_start().rsplit_once(':').map_or(s.trim_start(), |(_, b)| b).trim_start();
+            let directive = body.starts_with('.') && body[1..].starts_with(|c: char| c.is_ascii_alphabetic());
+            let label_only = s.trim_end().ends_with(':');
+            if directive || label_only || body.is_empty() || body.contains('"') {
+                folded.push((n, s));
+                continue;
+            }
+            let mut fresh = || {
+                pcrel += 1;
+                format!(".Lpcrel_hi{pcrel}")
+            };
+            let out = crate::asm_text::instruction(&self.t.machine, &s, &mut fresh);
+            if let [one] = out.as_slice()
+                && *one != s
+            {
+                asis.insert(folded.len(), crate::asm_text::labels(&s).1.to_string());
+            }
+            folded.extend(out.into_iter().map(|t| (n, t)));
+        }
+        let stmts = folded;
+        for (k_stmt, (n, stmt)) in stmts.iter().enumerate() {
             let n = *n;
             let mut line = stmt.trim();
             // Labels, perhaps followed by more on the line.
@@ -553,6 +743,13 @@ impl<'t> Assembler<'t> {
                     "globl" | "global" => {
                         globals.insert(args.to_string());
                     }
+                    "weak" => {
+                        globals.insert(args.to_string());
+                        obj.weak.push(args.to_string());
+                    }
+                    // Which instructions may be compressed, and relaxed: only
+                    // those written so are, and none are.
+                    "option" => {}
                     // Another name for a label (plus an offset): an alias.
                     "set" | "equ" => {
                         let (name, value) =
@@ -661,16 +858,60 @@ impl<'t> Assembler<'t> {
                         };
                         sizes.insert(sym.clone(), size);
                     }
-                    "byte" | "short" | "hword" | "2byte" | "long" | "word" | "4byte" | "quad" | "xword" | "8byte" => {
+                    "float16" | "half_float" | "float" | "single" | "double" => {
+                        let s = section_of(&mut obj, &mut by_kind, &mut cur, SectionKind::Data);
+                        for v in list() {
+                            // (`0h:7c00` is the bits themselves.)
+                            if let Some(bits) = v.split_once(':').filter(|(p, _)| p.len() == 2 && p.starts_with('0'))
+                                && let Ok(bits) = u64::from_str_radix(bits.1, 16)
+                            {
+                                let size = match name {
+                                    "float16" | "half_float" => 2,
+                                    "double" => 8,
+                                    _ => 4,
+                                };
+                                obj.sections[s].data.extend_from_slice(&bits.to_le_bytes()[..size]);
+                                continue;
+                            }
+                            let x: f64 = float_literal(&v).ok_or_else(|| err(n, format!("a bad number {v}")))?;
+                            let bytes = match name {
+                                "float16" | "half_float" => f16_bits(x).to_le_bytes().to_vec(),
+                                "double" => x.to_bits().to_le_bytes().to_vec(),
+                                _ => (x as f32).to_bits().to_le_bytes().to_vec(),
+                            };
+                            obj.sections[s].data.extend_from_slice(&bytes);
+                        }
+                    }
+                    "fill" => {
+                        let a = list();
+                        let num = |k: usize, d: i64| a.get(k).map_or(Some(d), |x| parse_int(x));
+                        let (Some(count), Some(size), Some(value)) = (num(0, 0), num(1, 1), num(2, 0)) else {
+                            return Err(err(n, "a bad .fill".into()));
+                        };
+                        let size = size.clamp(0, 8) as usize;
+                        let s = section_of(&mut obj, &mut by_kind, &mut cur, SectionKind::Data);
+                        for _ in 0..count {
+                            // (A value of 4 bytes or more is 4 bytes, then zeros.)
+                            let v = if size > 4 { value as u32 as u64 } else { value as u64 };
+                            obj.sections[s].data.extend_from_slice(&v.to_le_bytes()[..size]);
+                        }
+                    }
+                    "byte" | "short" | "hword" | "half" | "2byte" | "long" | "word" | "4byte" | "quad" | "dword"
+                    | "xword" | "8byte" => {
                         let size = match name {
                             "byte" => 1,
-                            "short" | "hword" | "2byte" => 2,
+                            "short" | "hword" | "half" | "2byte" => 2,
                             "long" | "word" | "4byte" => 4,
                             _ => 8,
                         };
                         let s = section_of(&mut obj, &mut by_kind, &mut cur, SectionKind::Data);
                         for v in list() {
                             let sec = &mut obj.sections[s];
+                            // (Zeros in .bss are room, as GNU assemblers take them.)
+                            if sec.kind == SectionKind::Bss && parse_int(&v) == Some(0) {
+                                sec.bss_size += size as u64;
+                                continue;
+                            }
                             if sec.kind == SectionKind::Bss {
                                 return Err(err(n, "data in .bss".into()));
                             }
@@ -756,8 +997,8 @@ impl<'t> Assembler<'t> {
                 Some(h) => format!("{h}\n\t{}", normalise(line)),
                 None => normalise(line),
             };
-            later.push(Later::Instr { section: s, offset: sec.data.len() as u64, line: n, text });
-            sec.data.resize(sec.data.len() + lens.get(&n).copied().unwrap_or(unit), 0);
+            later.push(Later::Instr { section: s, offset: sec.data.len() as u64, line: n, stmt: k_stmt, text });
+            sec.data.resize(sec.data.len() + lens.get(&k_stmt).copied().unwrap_or(unit), 0);
         }
 
         // The second pass: instructions, and references to symbols in order.
@@ -766,7 +1007,7 @@ impl<'t> Assembler<'t> {
         let mut errors = Vec::new();
         for l in later {
             match l {
-                Later::Instr { section, offset, line, text } => {
+                Later::Instr { section, offset, line, stmt, text } => {
                     // A branch to a global symbol is relocated, as another
                     // definition may take its place; to a local label, it
                     // is resolved here.
@@ -775,7 +1016,13 @@ impl<'t> Assembler<'t> {
                     };
                     // As written, or as the description's aliases write it
                     // the way its templates do.
-                    let read = self.encode(&text, offset, syntax, &find).or_else(|e| {
+                    let read = self.encode(&text, offset, syntax, &find);
+                    // As written, before its operands were folded.
+                    let read = read.or_else(|e| match asis.get(&stmt) {
+                        Some(w) => self.encode(&normalise(w), offset, syntax, &find).map_err(|_| e),
+                        None => Err(e),
+                    });
+                    let read = read.or_else(|e| {
                         let canonical =
                             self.t.machine.asm_aliases.iter().fold(text.clone(), |l, (a, b)| rewrite(&l, a, b));
                         if canonical == text { Err(e) } else { self.encode(&canonical, offset, syntax, &find) }
@@ -786,16 +1033,25 @@ impl<'t> Assembler<'t> {
                         let lower = self.lower_names(&text);
                         if lower == text { Err(e) } else { self.encode(&lower, offset, syntax, &find) }
                     });
+                    // A branch too far: as the description's longer form
+                    // (`!target.asm-relax`).
+                    let read = read.or_else(|e| self.relaxed(&text, offset, syntax, &find).ok_or(e));
                     let (i, bytes, sym) = match read {
                         Ok(x) => x,
+                        // (The statement, not its line: a line may hold
+                        // several, or a macro's.)
                         Err(e) => {
-                            errors.push(err(line, e));
+                            errors.push(format!("line {}: {e}: `{text}`", line + 1));
                             continue;
                         }
                     };
-                    let room = lens.get(&line).copied().unwrap_or(unit);
+                    let room = lens.get(&stmt).copied().unwrap_or(unit);
                     if bytes.len() > room {
-                        longer.insert(line, bytes.len());
+                        longer.insert(stmt, bytes.len());
+                        continue;
+                    }
+                    if bytes.len() < room && !lens.contains_key(&stmt) {
+                        longer.insert(stmt, bytes.len());
                         continue;
                     }
                     if bytes.len() < room {
@@ -894,6 +1150,22 @@ impl<'t> Assembler<'t> {
             .map(|(symbol, target, offset)| object::Alias { global: globals.contains(&symbol), symbol, target, offset })
             .collect();
         object::add_aliases(&mut obj, &aliases)?;
+        // Temporary labels a relocation refers to are local symbols (the
+        // `auipc` that `%pcrel_lo` names).
+        for p in &pending {
+            if let Some(&(s, value)) = labels.get(&p.symbol)
+                && !obj.symbols.iter().any(|x| x.name == p.symbol)
+            {
+                obj.symbols.push(Symbol {
+                    name: p.symbol.clone(),
+                    section: Some(s),
+                    value,
+                    size: 0,
+                    global: false,
+                    kind: SymbolKind::NoType,
+                });
+            }
+        }
         object::resolve(self.t, &mut obj, pending, syntax == Syntax::MachO)?;
         // The unwind tables, as the convention of this dialect has them.
         if !frames.is_empty() {
@@ -971,7 +1243,16 @@ fn named_section_kind(parts: &[&str], syntax: Syntax) -> (SectionKind, Option<St
         }
         Syntax::Elf => {
             let flags = parts.get(1).copied().unwrap_or("").trim_matches('"');
-            if parts.get(2).is_some_and(|t| t.ends_with("nobits")) {
+            // Without flags, those of its name, as GNU assemblers take them
+            // (`.text.init` is code).
+            let named = |p: &str| parts[0] == p || parts[0].starts_with(&format!("{p}."));
+            if parts.get(1).is_none() && named(".text") {
+                SectionKind::Text
+            } else if parts.get(1).is_none() && (named(".data") || named(".sdata")) {
+                SectionKind::Data
+            } else if parts.get(1).is_none() && (named(".bss") || named(".sbss")) {
+                SectionKind::Bss
+            } else if parts.get(2).is_some_and(|t| t.ends_with("nobits")) {
                 SectionKind::Bss
             } else if flags.contains('x') {
                 SectionKind::Text
@@ -1180,8 +1461,10 @@ fn strip_block_comments(line: &str, in_block: &mut bool) -> String {
 /// The statements of the text, each with its line's number: lines without
 /// comments, split at `;` (for ELF; outside strings), with numeric local
 /// labels (`1:`, referred to as `1b` and `1f`, as inline assembly writes
-/// them) renamed to temporary labels of their own.
-fn statements(lines: &[&str], comment: &str, syntax: Syntax) -> Vec<(usize, String)> {
+/// them) renamed to temporary labels of their own, after macros, `.rept`
+/// and `.if` are done (`asm_text::expand`), so that each use of a macro
+/// has labels of its own.
+fn statements(lines: &[&str], comment: &str, syntax: Syntax) -> Result<Vec<(usize, String)>, (usize, String)> {
     let mut out: Vec<(usize, String)> = Vec::new();
     let mut in_block = false;
     for (n, raw) in lines.iter().enumerate() {
@@ -1210,11 +1493,12 @@ fn statements(lines: &[&str], comment: &str, syntax: Syntax) -> Vec<(usize, Stri
         }
         out.push((n, line[start..].to_string()));
     }
+    let mut out = crate::asm_text::expand(out)?;
     // Numeric labels: the k-th definition of `N` is `.Ln.N.k`.
     let temp = if syntax == Syntax::MachO { "Ln." } else { ".Ln." };
     let numeric = |s: &str| !s.is_empty() && s.bytes().all(|c| c.is_ascii_digit());
     if !out.iter().any(|(_, l)| l.trim_start().split_once(':').is_some_and(|(n, _)| numeric(n))) {
-        return out;
+        return Ok(out);
     }
     let mut defined: HashMap<String, usize> = HashMap::new();
     for (_, l) in &mut out {
@@ -1256,7 +1540,7 @@ fn statements(lines: &[&str], comment: &str, syntax: Syntax) -> Vec<(usize, Stri
         }
         *l = head + &body;
     }
-    out
+    Ok(out)
 }
 
 /// An instruction line as the printer writes it: the mnemonic, one space,
@@ -1287,6 +1571,59 @@ fn split_args(args: &str) -> Vec<String> {
         out.push(cur.trim().to_string());
     }
     out
+}
+
+/// A floating-point number as data directives write them: `1.5`, `-2e3`,
+/// `0x3f800000` (its bits are not meant: the number), `inf`, `nan`.
+fn float_literal(s: &str) -> Option<f64> {
+    let s = s.trim();
+    s.parse::<f64>().ok().or_else(|| parse_int(s).map(|v| v as f64))
+}
+
+/// A number's nearest half-precision bits (ties to even), rounded once,
+/// from the double.
+fn f16_bits(x: f64) -> u16 {
+    let sign = if x.is_sign_negative() { 0x8000 } else { 0 };
+    if x.is_nan() {
+        return sign | 0x7e00;
+    }
+    let bits = x.abs().to_bits();
+    let exp = ((bits >> 52) & 0x7ff) as i32 - 1023;
+    if (bits >> 52) & 0x7ff == 0 {
+        return sign; // (Below any half: zero, or a double's subnormal.)
+    }
+    // Its 53 bits, from which a half keeps 11 (10 below a subnormal's
+    // exponent of -14, fewer the smaller it is).
+    let mant = (bits & ((1 << 52) - 1)) | (1 << 52);
+    let shift = 42 + (-14 - exp).max(0) as u32;
+    let round = |m: u64, s: u32| -> u64 {
+        if s >= 64 {
+            return 0;
+        }
+        let (kept, rest, half) = (m >> s, m & ((1 << s) - 1), 1u64 << (s - 1));
+        kept + (rest > half || (rest == half && kept & 1 == 1)) as u64
+    };
+    let kept = round(mant, shift);
+    let v = if exp < -14 {
+        kept // A subnormal (or, rounded up, the least normal).
+    } else {
+        // (Rounding up to 2^11 is the next exponent's 1.)
+        let e = (exp + 15) as u64 + (kept >> 11);
+        (e << 10) + (kept >> (kept >> 11) & 0x3ff)
+    };
+    if v >= 0x7c00 { sign | 0x7c00 } else { sign | v as u16 }
+}
+
+/// A branch target written relative to the instruction: `.`, `.+8`, `.-4`.
+fn here_relative(s: &str) -> Option<i64> {
+    let rest = s.trim().strip_prefix('.')?;
+    if rest.is_empty() {
+        return Some(0);
+    }
+    if !rest.starts_with(['+', '-']) {
+        return None;
+    }
+    parse_int(rest)
 }
 
 /// `sym`, `sym+8` or `sym-8`.

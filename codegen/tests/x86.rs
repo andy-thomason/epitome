@@ -87,6 +87,7 @@ fn samples(t: &Target, all: bool) -> String {
                 }
                 Kind::Label => vec![V::Text(back.clone())],
                 Kind::Cond => t.conds.iter().map(|c| V::Imm(c.value)).collect(),
+                Kind::Enum(e) => t.machine.enums[e as usize].names.iter().map(|&(_, v)| V::Imm(v)).collect(),
             })
             .collect();
         let n = lists.iter().map(Vec::len).max().unwrap_or(1).max(1);

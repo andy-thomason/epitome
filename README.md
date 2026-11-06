@@ -52,10 +52,175 @@ cargo test --release --workspace
 The tests in `opt/tests/programs.rs` and `opt/tests/examples.rs` also build
 and run their output with `clang` when it is installed.
 
+## On x86-64 Linux
+
+Everything below was run on an x86-64 Linux machine (AMD EPYC, Zen 5) with
+clang and Rust installed. Build first, in this directory, then work in a
+scratch one:
+
+```sh
+cargo build --release --workspace --bins --examples
+EPI=$PWD E=$PWD/target/release
+mkdir -p /tmp/epitome-demo && cd /tmp/epitome-demo
+```
+
+### Hello, world in C
+
+clang makes the IR (unoptimised, so that Epitome's optimiser does the
+work), and Epitome optimises it and compiles it to an ELF object, which
+clang links:
+
+```sh
+cat > hello.c <<'C'
+#include <stdio.h>
+
+int main(void) {
+    printf("Hello, world!\n");
+    return 0;
+}
+C
+clang -O1 -Xclang -disable-llvm-passes -S -emit-llvm hello.c -o hello.ll
+$E/epitome-opt -O2 hello.ll -o hello.opt.ll
+$E/epitome-llc --target=x86_64 hello.opt.ll -o hello.o    # or -o hello.s
+clang hello.o -o hello && ./hello
+```
+
+### Hello, world in Rust
+
+`epitome-rustc` compiles each crate's code in place of LLVM (see
+[Building Rust crates with Epitome](#building-rust-crates-with-epitome)):
+
+```sh
+cargo new hello-rs && cd hello-rs
+RUSTC_WRAPPER=$E/epitome-rustc cargo run --release
+cat target/release/epitome-rustc.log    # hello_rs: ours (binary)
+cd ..
+```
+
+### A PyTorch model
+
+`docs/mlir/examples/pytorch` has small models as torch-mlir imports them.
+Epitome lowers one through every stage (`torch` to `linalg`, buffers,
+loops, the `llvm` dialect) to LLVM IR, then optimises and compiles it. The
+model's tensors become plain pointers, its result the last:
+
+```sh
+P=$EPI/docs/mlir/examples/pytorch
+$E/epitome-mlir-opt $P/matmul_bias.torch.mlir --pass=torch-to-linalg,bufferize   # see a stage
+$E/epitome-mlir-translate $P/matmul_bias.torch.mlir --pass=torch-to-llvm -o matmul_bias.ll
+$E/epitome-opt -O2 matmul_bias.ll -o matmul_bias.opt.ll
+$E/epitome-llc --target=x86_64 matmul_bias.opt.ll -o matmul_bias.o
+cat > main.c <<'C'
+#include <stdio.h>
+
+// The model: out = a (2x3) @ b (3x4) + bias (4).
+void matmul_bias(const float *a, const float *b, const float *bias, float *out);
+
+int main(void) {
+    float a[6] = {1, 2, 3, 4, 5, 6};
+    float b[12] = {1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 1};
+    float bias[4] = {10, 20, 30, 40}, out[8];
+    matmul_bias(a, b, bias, out);
+    for (int i = 0; i < 8; i++)
+        printf("%g%s", out[i], i % 4 == 3 ? "\n" : " ");
+    return 0;
+}
+C
+clang main.c matmul_bias.o -o matmul_bias && ./matmul_bias   # 11 22 33 46 / 14 25 36 55, as PyTorch
+```
+
+A whole language model from Hugging Face, exported from PyTorch as MLIR
+(with torch-mlir's Python environment and `transformers`), and compiled
+into an executable with a Rust driver. Without a flag, matrix products are
+loops vectorised for AVX2 and FMA; `--avx512 --weights=bf16` uses the
+AVX-512 BF16 kernels of `mlir/targets/x86-avx512.mlir`:
+
+```sh
+cd $EPI
+python examples/llm/export.py target/tinystories          # roneneldan/TinyStories-1M
+cargo run --release --example llm -- target/tinystories
+target/tinystories/llm "Once upon a time, there was a little dog called"
+target/tinystories/llm --bench 5                          # 80 ms a forward pass
+cargo run --release --example llm -- target/tinystories --avx512 --weights=bf16
+target/tinystories/llm-bf16 --bench 5                     # 10.4 ms a forward pass
+```
+
+### A JAX model
+
+`examples/jax/export.py` exports a block of a model written in JAX
+(attention over 64 positions with four heads, GELU and a causal softmax)
+as StableHLO, with an input and JAX's output. `examples/jax.rs` takes it
+from StableHLO to machine code in Epitome and links a driver that checks
+the result against JAX's:
+
+```sh
+cd $EPI
+pip install "jax[cpu]"
+python examples/jax/export.py target/jax
+cargo run --release --example jax -- target/jax
+target/jax/jax              # largest difference from JAX 7.2e-7; 414 us a call
+cargo run --release --example jax -- target/jax --avx512 --weights=bf16
+target/jax/jax-bf16         # BF16 weights: 1.9e-3; 376 us a call
+```
+
+## Status
+
+What each target can do:
+
+- **AArch64** (macOS Mach-O, and ELF): the main target. It compiles C,
+  C++ with exceptions, Rust (256 crates' own test suites pass), SQLite,
+  and the PyTorch and JAX examples, with NEON and SME kernels (Apple M4).
+- **x86-64** (Linux ELF): compiles C, C++ with exceptions, Rust, SQLite
+  and the PyTorch and JAX examples, with SSE2, AVX2 and FMA, AVX-512 BF16
+  kernels and the x87 for `long double`. It assembles and disassembles
+  every XED form llvm-mc 18 takes.
+- **RISC-V RV64** (ELF): compiles scalar code (RV64IMFD and Zbb). It
+  assembles and disassembles 866 of the 871 RV64 instructions, C and V
+  included, and runs riscv-tests on QEMU.
+- **AMD R600** (Evergreen): assembly and disassembly only, for ALU
+  instructions, control flow, a memory export and a vertex fetch.
+- **AMD gfx1151** (RDNA 3.5): assembly and disassembly only, of everything
+  but images. It agrees with llvm-mc 22 on 34,597 lines.
+
+Optimisations in `epitome-opt` (each call-graph SCC bottom-up, on many
+threads; `opt/src/pipeline.rs`):
+
+- `sroa` and `mem2reg` (allocas to SSA values), again after inlining;
+- inlining with a cost model, and recursion removal (self-recursion to
+  loops or an explicit stack; tail calls eliminated);
+- the combiner (`opt/rules/combine.rules`), which does the work of
+  instcombine, DCE, DSE, reassociate, store-to-load forwarding over memory
+  SSA, and parts of bdce, aggressive-instcombine and globalopt;
+- constant calls folded (part of ipsccp), and simplifycfg;
+- loop rotation, LICM (no promotion of memory to registers), induction
+  variables (exit values, widening and trip counts, without SCEV), loop
+  idioms to `memset`, and strength reduction (`loop-reduce`, in part);
+- early CSE and GVN (no partial redundancy elimination), memcpyopt (store
+  runs to `memset`), tail-call marking, and dead internal functions
+  removed.
+
+Optimisations in `epitome-llc`:
+
+- selection by the longest, cheapest match in a trie built from the
+  description;
+- address sinking (part of codegenprepare), constants and addresses used
+  again within a block and hoisted out of loops, post-increment loads and
+  stores, and division by constants without a divide;
+- linear-scan register allocation with copy hints and eviction by weight,
+  then copy propagation;
+- peepholes: frame addresses, redundant compares, load and store pairs
+  (`ldp`/`stp`), and single-bit branches (`tbz`);
+- block placement with branch inversion, branch relaxation, part of the
+  branch folder, and tail calls as jumps.
+
 ## Crates
 
 - `epitome` (the root package): `epitome-rustc`, which builds Rust crates
   with Epitome (see below), and `examples/factorial.rs`.
+- `epitome-rustc2`: a Rust compiler that does not use rustc. Parsing,
+  macro expansion, name resolution and type checking work, and run on
+  `core`, `alloc` and `std` in 1.3 s; lowering to Epitome IR is next. See
+  `epitome-rustc2/README.md`.
 - `ir` (`epitome-ir`): the IR, with a parser and printer for `.ll` files,
   and builders for making it in code (`epitome_ir::build`).
 - `opt` (`epitome-opt`): optimisation passes, run on many functions in
@@ -67,9 +232,10 @@ and run their output with `clang` when it is installed.
   descriptions written in LLVM IR: instruction selection, register
   allocation, frames, and assembly, object files (Mach-O and ELF) and
   disassembly; `epitome-as` assembles, and `epitome-objdump`
-  disassembles. AArch64 (`codegen/targets/aarch64/*.ll`) is built in;
-  other machines and CPUs are description files read at run time, such as
-  RISC-V RV64 (`codegen/targets/riscv64/`). See `docs/design/isel.md`,
+  disassembles. AArch64 and x86-64 (`codegen/targets/aarch64/`,
+  `codegen/targets/x86_64/`) are built in; other machines and CPUs are
+  description files read at run time, such as RISC-V RV64
+  (`codegen/targets/riscv64/`). See `docs/design/isel.md`,
   `docs/design/targets.md` and `docs/design/objects.md`.
 
 - `mlir` (`epitome-mlir`): MLIR. A parser and printer for the generic
@@ -253,3 +419,77 @@ missing from the package, or failing under plain rustc) are not listed.
 - **w**: walkdir 2.5.0, wide 0.7.33, winnow 1.0.4
 - **y**: yansi 1.0.1
 - **z**: zeroize 1.9.1, zmij 1.0.23
+
+## Gap to LLVM
+
+Where Epitome stands against clang and LLVM, from the measurements in
+`docs/design` (`backend-plan.md`, `later.md`, `x86.md`, `isel.md`,
+`ir.md`), and what it would take to catch up.
+
+**Code size and speed now:**
+
+- **AArch64 test programs.** Ours: 3,323 instructions (1.08×). Clang's IR
+  and our code generator: 3,412 (1.11×). Clang `-O2`: 3,085. The start was
+  1.24× and 1.20×.
+- **AArch64 vectorised programs** are further behind. Instructions, LLVM's
+  against ours:
+  - `vectors.c`: 1,719 against 2,381
+  - `loops.c`: 619 against 885
+  - `basic.c`: 901 against 1,147
+- **Rust crates (AArch64)**, against llc:
+
+  | | llc | Ours | Ratio |
+  | --- | --- | --- | --- |
+  | Instructions | 68,885 | 79,899 | 1.16× |
+  | Moves | 11,769 | 15,210 | |
+  | Spill loads | 4,871 | 7,356 | |
+  | Spill stores | 2,674 | 4,675 | |
+- **x86-64.** Code is 1.31× llc's size, with 30,013 moves to llc's 17,880.
+  SQLite runs in 1.47× clang's build's time, down from 1.85×.
+- **SQLite on AArch64** runs in about 2× clang's build's time.
+- **The LLM examples** have no LLVM-compiled build to compare with.
+- **Compile speed.** Assembling SQLite (430,000 lines) takes 2.2 s, where
+  clang takes 4.5 s. Every pass is kept close to linear in block size, and
+  runs on many threads. No other compile times are measured against LLVM's.
+
+**What we need to do**, in order of what it would gain:
+
+1. **Register allocation.** This is most of the gap that remains:
+   - rematerialise constants instead of spilling them;
+   - split live ranges, especially around calls;
+   - coalesce copies before allocation;
+   - colour stack slots (a frame takes 1,088 bytes of slots where llc's
+     takes 336);
+   - on x86, fold reloads into memory operands.
+2. **Vectorisation in the IR optimiser.** There is no loop or SLP
+   vectoriser. The MLIR examples vectorise before they reach LLVM IR
+   (`linalg-vectorize`), but C, C++ and Rust code does not, and many
+   vector operations are still done a lane at a time (`later.md`).
+3. **Scheduling.** Instructions come out in source order, and there is no
+   machine model. On M4, emitted NEON loops take 1.56 against 0.70 cycles
+   per four elements for an element-wise multiply, and 2.42 against 0.68
+   for a row sum (as emitted against a hand-written order).
+4. **Machine passes.** Missing: a rule-driven peephole pass, shrink
+   wrapping, general `cbz` folding, if-conversion, conditional compares
+   (`ccmp`: llc uses 126 in regex-syntax alone), sibling calls and jump
+   tables. Also missing: the flags model for `i128` arithmetic (`adds`
+   and `adc`), and on x86, AVX-512 mask registers, `vpternlog` and general
+   shuffles.
+5. **The middle end.**
+   - Planned:
+     - analyses: dominator trees, scalar evolution, lazy value info;
+     - scalar passes: sccp, adce, jump threading;
+     - loops: loop-simplify, LCSSA, loop deletion, loop unrolling;
+     - interprocedural: function attributes, dead-argument elimination,
+       globaldce, constmerge;
+     - the verifier.
+   - Later: sink, loop unswitching, partial inlining, argument promotion,
+     mergefunc, and dependence analysis.
+   - Only in part: GVN, which has no PRE, and LICM, which doesn't promote
+     memory to registers.
+6. **Targets.**
+   - RISC-V: compressed instructions and V in the code generator,
+     thread-locals, and position-independent code.
+   - R600 and gfx1151: instruction selection, which needs the
+     partial-machine work (`docs/design/partial-machines.md`).
+   - x86-64: the APX, XOP and VSIB encodings.

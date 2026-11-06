@@ -75,6 +75,25 @@
 //! Relocations with only a number and a name are for reading other
 //! programs' object files.
 //!
+//! `!target.lacks` lists what the machine does not have, from `LACKABLE`
+//! (`docs/design/partial-machines.md`). So far only `stack` changes what a
+//! description must say: there is then no `sp`.
+//!
+//! `!target.enums` names sets of values an operand written as a name takes
+//! (`"enum"="chan"` on the operand): each is its name, then pairs of a
+//! first value and a pattern of names, which take values from it in order.
+//! A pattern's braces are a range, `{0-127}`, or alternatives, `{X,Y,Z,W}`,
+//! the leftmost varying slowest:
+//!
+//! ```llvm
+//! !5 = !{!"src", !"0", !"T{0-127}.{X,Y,Z,W}", !"1016", !"PV.{X,Y,Z,W}", !"1020", !"PS"}
+//! !6 = !{!"neg", !"0", !"", !"1", !"-"}
+//! ```
+//!
+//! So `T1.Y` is 5 and `PS` 1020. A name may be empty: an operand that is
+//! sometimes written as nothing (no negation). Where two names have one
+//! value, the first is how it is written.
+//!
 //! Inline assembly's target-specific parts are two more lists. The codes
 //! of its constraints (`"=r,w,I"`; the generic ones, `=`, `&`, `*`,
 //! digits, `{reg}`, `~{...}`, `i`, `n`, are the code generator's):
@@ -135,6 +154,10 @@ pub enum RelocUse {
     /// A 32-bit PC-relative reference to a symbol's GOT entry: unwind and
     /// exception tables' personality routines and types caught.
     GotPcRel32,
+    /// The low part of a PC-relative address, whose symbol is the
+    /// instruction with the high part (RISC-V's `%pcrel_lo`): kept against
+    /// that symbol, as linkers look for it there.
+    PcRelLo,
 }
 
 #[derive(Clone, Debug)]
@@ -340,6 +363,66 @@ pub struct Machine {
     /// (`!target.asm-aliases`: `[{r}]` is `[{r}, #0]`), for assembly that
     /// other compilers or people write.
     pub asm_aliases: Vec<(String, String)>,
+    /// Names of numbers in the operands of instructions whose mnemonic
+    /// starts so (`!target.asm-names`: `csr`, `mstatus`, `0x300`).
+    pub asm_names: Vec<(String, String, i64)>,
+    /// The pseudo-instructions of several instructions assembly may use
+    /// (`asm-pseudos`: `riscv`, `asm_text`'s).
+    pub asm_pseudos: String,
+    /// Registers' other names, as the templates name them (a class's
+    /// `names-of`: RISC-V's `x10` is `a0`).
+    pub asm_register_names: Vec<(String, String)>,
+    /// Longer forms of instructions that do not fit, as `asm_aliases`
+    /// write them, their statements separated by `;` (`!target.asm-relax`:
+    /// a branch too far, over a jump).
+    pub asm_relax: Vec<(String, String)>,
+    /// Sets of named values (`!target.enums`).
+    pub enums: Vec<EnumDef>,
+    /// What the machine does not have (`!target.lacks`; see
+    /// `docs/design/partial-machines.md`).
+    pub lacks: Vec<String>,
+}
+
+/// What `!target.lacks` may list.
+pub const LACKABLE: &[&str] = &["memory", "stack", "calls", "globals", "float", "i64", "trap", "indirect"];
+
+/// A set of named values an operand may take (`!target.enums`).
+#[derive(Clone, Debug)]
+pub struct EnumDef {
+    pub name: String,
+    /// Each name and its value, in the order the description gives them.
+    pub names: Vec<(String, i64)>,
+}
+
+impl EnumDef {
+    /// The value written `text`.
+    pub fn value(&self, text: &str) -> Option<i64> {
+        self.names.iter().find(|(n, _)| n == text).map(|&(_, v)| v)
+    }
+
+    /// How value `v` is written: the first of its names.
+    pub fn name(&self, v: i64) -> Option<&str> {
+        self.names.iter().find(|&&(_, x)| x == v).map(|(n, _)| n.as_str())
+    }
+}
+
+/// The names of an enum's pattern, in order: `T{0-1}.{X,Y}` is T0.X, T0.Y,
+/// T1.X, T1.Y.
+fn expand_pattern(p: &str) -> Result<Vec<String>, String> {
+    let Some((pre, rest)) = p.split_once('{') else { return Ok(vec![p.to_string()]) };
+    let (group, post) = rest.split_once('}').ok_or_else(|| format!("bad enum pattern {p}"))?;
+    let choices: Vec<String> = match group.split_once('-') {
+        Some((a, b)) if !group.contains(',') => {
+            let (a, b): (u32, u32) = (
+                a.parse().map_err(|_| format!("bad enum pattern {p}"))?,
+                b.parse().map_err(|_| format!("bad enum pattern {p}"))?,
+            );
+            (a..=b).map(|k| k.to_string()).collect()
+        }
+        _ => group.split(',').map(str::to_string).collect(),
+    };
+    let tails = expand_pattern(post)?;
+    Ok(choices.iter().flat_map(|c| tails.iter().map(move |t| format!("{pre}{c}{t}"))).collect())
 }
 
 fn strings(m: &Module, id: MdId) -> Vec<String> {
@@ -382,6 +465,17 @@ fn expand(names: &[String]) -> Result<Vec<String>, String> {
 }
 
 impl Machine {
+    /// Whether the machine lacks `what` (`!target.lacks`): `memory` implies
+    /// `stack` and `globals`.
+    pub fn lacks(&self, what: &str) -> bool {
+        self.lacks.iter().any(|l| l == what || (l == "memory" && (what == "stack" || what == "globals")))
+    }
+
+    /// The enum named `name`, by its index.
+    pub fn enum_index(&self, name: &str) -> Option<usize> {
+        self.enums.iter().position(|e| e.name == name)
+    }
+
     pub fn read(m: &Module) -> Result<Machine, String> {
         let props: HashMap<String, HashMap<String, String>> = tuples(m, "target.classes")
             .into_iter()
@@ -489,6 +583,12 @@ impl Machine {
             seq_cst_swap: false,
             cfi_data_align: (-8, -8),
             asm_aliases: Vec::new(),
+            asm_names: Vec::new(),
+            asm_pseudos: String::new(),
+            asm_register_names: Vec::new(),
+            asm_relax: Vec::new(),
+            enums: Vec::new(),
+            lacks: Vec::new(),
         };
         let num = |k: &str| -> Result<Option<u64>, String> {
             params
@@ -503,7 +603,21 @@ impl Machine {
                 })
                 .transpose()
         };
-        mc.sp = mc.reg(params.get("sp").ok_or("no stack pointer (target parameter sp)")?)?;
+        for t in tuples(m, "target.lacks") {
+            for what in t {
+                if !LACKABLE.contains(&what.as_str()) {
+                    return Err(format!("!target.lacks: {what} is not one of {}", LACKABLE.join(", ")));
+                }
+                mc.lacks.push(what);
+            }
+        }
+        // (A machine without a stack has no stack pointer; nothing that
+        // reads `sp` runs for it.)
+        mc.sp = match params.get("sp") {
+            Some(sp) => mc.reg(sp)?,
+            None if mc.lacks("stack") => u8::MAX,
+            None => return Err("no stack pointer (target parameter sp)".into()),
+        };
         mc.zero = params.get("zero").map(|z| mc.reg(z)).transpose()?;
         mc.vector_bits = num("vector-bits")?.unwrap_or(0) as u32;
         mc.vector_feature = all_params.iter().find(|t| t[0] == "vector-bits").and_then(|t| t.get(2).cloned());
@@ -623,6 +737,37 @@ impl Machine {
                 mc.asm_aliases.push((from.clone(), to.clone()));
             }
         }
+        for t in tuples(m, "target.asm-relax") {
+            if let [from, to] = &t[..] {
+                mc.asm_relax.push((from.clone(), to.clone()));
+            }
+        }
+        for t in tuples(m, "target.asm-names") {
+            if let [prefix, name, value] = &t[..] {
+                let v = crate::asm_text::eval(value).ok_or_else(|| format!("!target.asm-names: {name} = {value}"))?;
+                mc.asm_names.push((prefix.clone(), name.clone(), v));
+            }
+        }
+        mc.asm_pseudos = params.get("asm-pseudos").cloned().unwrap_or_default();
+        for t in tuples(m, "target.classes") {
+            let Some(k) = t.iter().position(|x| x == "names-of") else { continue };
+            let (Some(from), Some(to)) = (mc.class(&t[0]), t.get(k + 1).and_then(|c| mc.class(c))) else {
+                return Err(format!("register class {}: names-of", t[0]));
+            };
+            let pairs = mc.def(from).names.iter().zip(&mc.def(to).names);
+            let pairs: Vec<(String, String)> = pairs.map(|(a, b)| (a.clone(), b.clone())).collect();
+            mc.asm_register_names.extend(pairs);
+        }
+        for t in tuples(m, "target.enums") {
+            let Some((name, pairs)) = t.split_first() else { continue };
+            let mut names = Vec::new();
+            for pair in pairs.chunks(2) {
+                let [first, pattern] = pair else { return Err(format!("!target.enums {name}: a value without names")) };
+                let first: i64 = first.parse().map_err(|_| format!("!target.enums {name}: {first}"))?;
+                names.extend(expand_pattern(pattern)?.into_iter().zip(first..));
+            }
+            mc.enums.push(EnumDef { name: name.clone(), names });
+        }
         for t in tuples(m, "target.asm-modifiers") {
             let Some(code) = t.first() else { continue };
             let def = match (t.get(1).map(String::as_str), t.get(2)) {
@@ -662,6 +807,7 @@ impl Machine {
                     Some("got-pcrel32") => RelocUse::GotPcRel32,
                     Some("got") => RelocUse::Got,
                     Some("tls") => RelocUse::Tls,
+                    Some("pcrel-lo") => RelocUse::PcRelLo,
                     Some(d) if d.starts_with("data") => RelocUse::Data(
                         d.trim_start_matches("data").parse().map_err(|_| format!("relocation {name}: use {d}"))?,
                     ),
@@ -950,5 +1096,34 @@ mod tests {
         assert!(m.zero_in(r) && !m.zero_in(rsp));
         assert_eq!(m.save_class(1), m.class("f"));
         assert_eq!(m.save_class(3), None);
+    }
+
+    /// Enums' names take values in order, the leftmost brace varying
+    /// slowest; a machine that lacks a stack needs no stack pointer, and
+    /// one that lacks memory lacks a stack too.
+    #[test]
+    fn enums_and_lacks() {
+        let src = r#"
+!target.registers = !{!0}
+!0 = !{!"t", !"T{0-3}"}
+!target.classes = !{!1}
+!1 = !{!"t", !"file", !"t"}
+!target.lacks = !{!2}
+!2 = !{!"memory", !"calls"}
+!target.enums = !{!3, !4}
+!3 = !{!"src", !"0", !"T{0-1}.{X,Y}", !"10", !"PS", !"0", !"T0"}
+!4 = !{!"neg", !"0", !"", !"1", !"-"}
+"#;
+        let m = Machine::read(&epitome_ir::parse_module(src).unwrap()).unwrap();
+        assert!(m.lacks("stack") && m.lacks("globals") && m.lacks("calls") && !m.lacks("float"));
+        let src_enum = &m.enums[m.enum_index("src").unwrap()];
+        let names: Vec<(&str, i64)> = src_enum.names.iter().map(|(n, v)| (n.as_str(), *v)).collect();
+        assert_eq!(names, [("T0.X", 0), ("T0.Y", 1), ("T1.X", 2), ("T1.Y", 3), ("PS", 10), ("T0", 0)]);
+        // The first name of a value is how it is written; any is read.
+        assert_eq!(src_enum.name(0), Some("T0.X"));
+        assert_eq!(src_enum.value("T0"), Some(0));
+        assert_eq!(m.enums[m.enum_index("neg").unwrap()].value(""), Some(0));
+        let bad = src.replace(r#"!"calls""#, r#"!"cats""#);
+        assert!(Machine::read(&epitome_ir::parse_module(&bad).unwrap()).is_err());
     }
 }

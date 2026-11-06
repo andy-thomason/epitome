@@ -63,7 +63,7 @@ fn address(sh: &Shared, f: &Function, v: Value, depth: u32) -> Option<(GlobalId,
         },
         Value::Local(l) => match f.locals[l.index()].def {
             LocalDef::Inst(i) => match &f.insts[i.index()].op {
-                Op::Gep { source_ty, ptr, indices, .. } => gep(*source_ty, *ptr, indices.clone()),
+                Op::Gep { source_ty, ptr, indices, .. } => gep(*source_ty, *ptr, indices.to_vec()),
                 Op::Cast { op: CastOp::BitCast, value, .. } => address(sh, f, *value, depth + 1),
                 _ => None,
             },

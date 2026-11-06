@@ -150,15 +150,14 @@ pub fn scalarize(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
                                     s.op(
                                         Op::Gep {
                                             flags: GepFlags::default(),
-                                            inrange: None,
                                             source_ty: i8t,
                                             ptr,
-                                            indices: vec![off],
+                                            indices: vec![off].into(),
                                         },
                                         pt,
                                     )
                                 };
-                                let a = align.map(|a| a.min(size as u64));
+                                let a = align.map(|a| a.at_most(size as u64));
                                 s.op(Op::Load { volatile, atomic: None, ptr: at, align: a }, e)
                             })
                             .collect(),
@@ -175,17 +174,11 @@ pub fn scalarize(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
                         } else {
                             let off = cx.int(i64t, l as i64 * size);
                             s.op(
-                                Op::Gep {
-                                    flags: GepFlags::default(),
-                                    inrange: None,
-                                    source_ty: i8t,
-                                    ptr,
-                                    indices: vec![off],
-                                },
+                                Op::Gep { flags: GepFlags::default(), source_ty: i8t, ptr, indices: vec![off].into() },
                                 pt,
                             )
                         };
-                        let a = align.map(|a| a.min(size as u64));
+                        let a = align.map(|a| a.at_most(size as u64));
                         s.op_void(Op::Store { volatile, atomic: None, value: x, ptr: at, align: a });
                     }
                     out.extend(std::mem::take(&mut s.new));

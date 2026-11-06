@@ -28,6 +28,9 @@ pub enum Kind {
     Label,
     Sym,
     Cond,
+    /// A value of the machine's enum with this index, written by name
+    /// (`machine.rs`).
+    Enum(u16),
 }
 
 #[derive(Clone, Debug)]
@@ -1104,6 +1107,8 @@ impl Target {
                     Kind::Sym
                 } else if attr(&p.attrs, "cond").is_some() {
                     Kind::Cond
+                } else if let Some(Some(e)) = attr(&p.attrs, "enum") {
+                    Kind::Enum(self.machine.enum_index(e).ok_or_else(|| format!("@{name}: no enum {e}"))? as u16)
                 } else {
                     return Err(format!("@{name}: operand %{pname} has no kind"));
                 };
@@ -1307,7 +1312,7 @@ impl Target {
             {
                 mk(Head::Gep, vec![ev(*ptr)?, ev(indices[0])?])
             }
-            Op::ExtractValue { aggregate, indices } => match (ev(*aggregate)?, indices.as_slice()) {
+            Op::ExtractValue { aggregate, indices } => match (ev(*aggregate)?, &indices[..]) {
                 (Tree::Flags(a, _), [0]) => *a,
                 (Tree::Flags(_, b), [1]) => *b,
                 (t, _) => return Err(format!("extractvalue from {t:?}")),
@@ -1319,7 +1324,7 @@ impl Target {
                     t => return Err(format!("insertvalue into {t:?}")),
                 };
                 let e = ev(*element)?;
-                match indices.as_slice() {
+                match &indices[..] {
                     [0] => Tree::Flags(Box::new(e), Box::new(b)),
                     [1] => Tree::Flags(Box::new(a), Box::new(e)),
                     _ => return Err("insertvalue index".into()),

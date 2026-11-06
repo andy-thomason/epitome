@@ -2185,26 +2185,33 @@ impl<'a> Parser<'a> {
             .ok_or_else(|| self.error_at(tok, "expected an atomic ordering"))
     }
 
-    fn parse_syncscope(&mut self) -> Result<Option<Vec<u8>>> {
+    fn parse_syncscope(&mut self) -> Result<Option<Box<[u8]>>> {
         if self.eat("syncscope") {
             self.expect("(")?;
             let s = self.expect_string()?;
             self.expect(")")?;
-            Ok(Some(s))
+            Ok(Some(s.into()))
         } else {
             Ok(None)
         }
     }
 
     /// `, align N` if present.
-    fn parse_opt_align(&mut self) -> Result<Option<u64>> {
+    fn parse_opt_align(&mut self) -> Result<Option<Align>> {
         if self.peek().0 == "," && self.peek_at(1).0 == "align" {
             self.next();
             self.next();
-            Ok(Some(self.parse_align()?))
+            Ok(Some(self.parse_inst_align()?))
         } else {
             Ok(None)
         }
+    }
+
+    /// An instruction's `align N`: unlike a global's, it may not be 0.
+    fn parse_inst_align(&mut self) -> Result<Align> {
+        let tok = self.peek();
+        let v = self.expect_u64()?;
+        Align::new(v).ok_or_else(|| self.error_at(tok, "alignment must be a power of two no larger than 2^32"))
     }
 
     /// Parses an instruction after any `%name =`, returning it and its result type.
@@ -2245,7 +2252,7 @@ impl<'a> Parser<'a> {
                     let dest = self.label_ref()?;
                     cases.push((c, dest));
                 }
-                (Op::Switch { value, default, cases }, void)
+                (Op::Switch { value, default, cases: cases.into() }, void)
             }
             "indirectbr" => {
                 let addr = self.parse_typed_value()?;
@@ -2261,7 +2268,7 @@ impl<'a> Parser<'a> {
                         self.expect(",")?;
                     }
                 }
-                (Op::IndirectBr { addr, dests }, void)
+                (Op::IndirectBr { addr, dests: dests.into() }, void)
             }
             "invoke" => {
                 let call = self.parse_call(TailKind::None)?;
@@ -2288,7 +2295,7 @@ impl<'a> Parser<'a> {
                         self.expect(",")?;
                     }
                 }
-                (Op::CallBr { call: Box::new(call), default, indirect }, ret)
+                (Op::CallBr { call: Box::new(call), default, indirect: indirect.into() }, ret)
             }
             "resume" => (Op::Resume(self.parse_typed_value()?), void),
             "catchswitch" => {
@@ -2311,7 +2318,7 @@ impl<'a> Parser<'a> {
                 } else {
                     Some(self.label_ref()?)
                 };
-                (Op::CatchSwitch { parent, handlers, unwind }, token)
+                (Op::CatchSwitch { parent, handlers: handlers.into(), unwind }, token)
             }
             "catchret" => {
                 self.expect("from")?;
@@ -2405,7 +2412,7 @@ impl<'a> Parser<'a> {
                 if indices.is_empty() {
                     return Err(self.error_here("expected an index"));
                 }
-                (Op::ExtractValue { aggregate, indices }, ty)
+                (Op::ExtractValue { aggregate, indices: indices.into() }, ty)
             }
             "insertvalue" => {
                 let aggregate = self.parse_typed_value()?;
@@ -2420,7 +2427,7 @@ impl<'a> Parser<'a> {
                 if indices.is_empty() {
                     return Err(self.error_here("expected an index"));
                 }
-                (Op::InsertValue { aggregate, element, indices }, ty)
+                (Op::InsertValue { aggregate, element, indices: indices.into() }, ty)
             }
             "alloca" => {
                 let inalloca = self.eat("inalloca");
@@ -2433,7 +2440,7 @@ impl<'a> Parser<'a> {
                     match self.peek().0 {
                         "align" => {
                             self.next();
-                            align = Some(self.parse_align()?);
+                            align = Some(self.parse_inst_align()?);
                         }
                         "addrspace" => addrspace = Some(self.parse_addrspace()?),
                         _ => count = Some(self.parse_typed_value()?),
@@ -2517,7 +2524,11 @@ impl<'a> Parser<'a> {
                 (Op::AtomicRmw { op, volatile, elementwise, ptr, value, scope, ordering, align }, ty)
             }
             "getelementptr" => {
+                let flags_tok = self.peek();
                 let (flags, inrange) = self.parse_gep_flags()?;
+                if inrange.is_some() {
+                    return Err(self.error_at(flags_tok, "inrange is allowed only on a constant getelementptr"));
+                }
                 let source_ty = self.parse_type()?;
                 self.expect(",")?;
                 let ptr = self.parse_typed_value()?;
@@ -2536,7 +2547,7 @@ impl<'a> Parser<'a> {
                         ty = self.m.types.with_elem(ity, scalar);
                     }
                 }
-                (Op::Gep { flags, inrange, source_ty, ptr, indices }, ty)
+                (Op::Gep { flags, source_ty, ptr, indices: indices.into() }, ty)
             }
             "icmp" => {
                 let samesign = self.eat("samesign");
@@ -2639,7 +2650,7 @@ impl<'a> Parser<'a> {
                 if !cleanup && clauses.is_empty() {
                     return Err(self.error_here("landingpad needs 'cleanup' or at least one clause"));
                 }
-                (Op::LandingPad { cleanup, clauses }, ty)
+                (Op::LandingPad { cleanup, clauses: clauses.into() }, ty)
             }
             "catchpad" | "cleanuppad" => {
                 self.expect("within")?;
@@ -2658,8 +2669,8 @@ impl<'a> Parser<'a> {
                     }
                 }
                 let op = match (tok.0, within) {
-                    ("catchpad", Some(within)) => Op::CatchPad { within, args },
-                    (_, within) => Op::CleanupPad { within, args },
+                    ("catchpad", Some(within)) => Op::CatchPad { within, args: args.into() },
+                    (_, within) => Op::CleanupPad { within, args: args.into() },
                 };
                 (op, token)
             }

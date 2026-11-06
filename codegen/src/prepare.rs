@@ -233,6 +233,7 @@ pub fn prepare(cx: &mut Ctx, f: &Function, fname: &str) -> Result<Function, Stri
     split_aggregate_memory(cx, &mut f);
     bool_memory(cx, &mut f);
     expand_small_mem_ops(cx, &mut f);
+    mem_op_loops(cx, &mut f);
     crate::legalize::legalize_vectors(cx, &mut f).map_err(|e| format!("@{fname}: {e}"))?;
     // Lanes of masks legalisation leaves (it handles those of split masks,
     // at their comparisons' widths; before it, this would get in its way).
@@ -368,6 +369,79 @@ fn memset_patterns(cx: &mut Ctx, f: &mut Function) {
             let one = cx.int(i64t, 1);
             let next = s.bin(BinOp::Add, n, one, i64t);
             let more = s.op(Op::ICmp { pred: ICmpPred::Ult, samesign: false, lhs: next, rhs: count }, i1);
+            let body = std::mem::take(&mut s.new);
+            f.insts[phi.index()].op = Op::Phi { fmf: FastMath::default(), incoming: vec![(zero, blk), (next, lp)] };
+            f.blocks[blk.index()].insts.extend(pre);
+            f.push_inst(blk, Op::CondBr { cond: none, then_dest: done, else_dest: lp }, None);
+            f.blocks[lp.index()].insts.push(phi);
+            f.blocks[lp.index()].insts.extend(body);
+            f.push_inst(lp, Op::CondBr { cond: more, then_dest: lp, else_dest: done }, None);
+            b = f.layout.iter().position(|&x| x == done).unwrap();
+            continue 'blocks;
+        }
+        b += 1;
+    }
+}
+
+/// On a machine without calls (but with memory), the `llvm.memcpy`,
+/// `llvm.memmove` and `llvm.memset` that `expand_small_mem_ops` leaves
+/// would be calls to the C library: each is a loop of byte loads and
+/// stores instead, counting in the length's own type.
+///
+/// blk: len == 0 ? done : lp
+/// lp:  n = phi [0, blk], [n + 1, lp]; at = n, or len - 1 - n for a
+///      memmove copying down onto its source; dst[at] = src[at] (or val);
+///      n + 1 < len ? lp : done
+fn mem_op_loops(cx: &mut Ctx, f: &mut Function) {
+    if !cx.t.machine.lacks("calls") || cx.t.machine.lacks("memory") {
+        return;
+    }
+    let (i1, i8t, ptr) = (cx.m.types.int(1), cx.m.types.int(8), cx.m.types.ptr(0));
+    let mut b = 0;
+    'blocks: while b < f.layout.len() {
+        let blk = f.layout[b];
+        for (k, &i) in f.blocks[blk.index()].insts.iter().enumerate() {
+            let Op::Call(call) = &f.insts[i.index()].op else { continue };
+            let name = callee_name(cx.m, call).unwrap_or_default();
+            let kind = ["llvm.memcpy.", "llvm.memmove.", "llvm.memset."].iter().position(|p| name.starts_with(p));
+            let Some(kind) = kind.filter(|_| call.args.len() == 4) else { continue };
+            let (dst, from, len) = (call.args[0].value, call.args[1].value, call.args[2].value);
+            let volatile = cx.const_int(call.args[3].value).is_some_and(|v| v != 0);
+            let len_ty = cx.value_ty(f, len);
+            let lp = f.split_block(blk, k, None);
+            let done = f.split_block(lp, 1, None);
+            f.blocks[lp.index()].insts.clear();
+            let mut s = Seq { f, new: Vec::new() };
+            let zero = cx.int(len_ty, 0);
+            let one = cx.int(len_ty, 1);
+            let none = s.op(Op::ICmp { pred: ICmpPred::Eq, samesign: false, lhs: len, rhs: zero }, i1);
+            // A memmove whose destination is above its source copies from the top down.
+            let down =
+                (kind == 1).then(|| s.op(Op::ICmp { pred: ICmpPred::Ugt, samesign: false, lhs: dst, rhs: from }, i1));
+            let last = down.map(|_| s.bin(BinOp::Sub, len, one, len_ty));
+            let pre = std::mem::take(&mut s.new);
+            let phi = s.f.add_inst(Op::Phi { fmf: FastMath::default(), incoming: vec![] }, Some((None, len_ty)));
+            let n = s.f.result(phi);
+            let at = match (down, last) {
+                (Some(down), Some(last)) => {
+                    let back = s.bin(BinOp::Sub, last, n, len_ty);
+                    s.op(Op::Select { fmf: FastMath::default(), cond: down, then_value: back, else_value: n }, len_ty)
+                }
+                _ => n,
+            };
+            let gep = |s: &mut Seq, base: Value| {
+                s.op(Op::Gep { flags: GepFlags::default(), source_ty: i8t, ptr: base, indices: vec![at].into() }, ptr)
+            };
+            let value = if kind == 2 {
+                from
+            } else {
+                let p = gep(&mut s, from);
+                s.op(Op::Load { volatile, atomic: None, ptr: p, align: None }, i8t)
+            };
+            let p = gep(&mut s, dst);
+            s.op_void(Op::Store { volatile, atomic: None, value, ptr: p, align: None });
+            let next = s.bin(BinOp::Add, n, one, len_ty);
+            let more = s.op(Op::ICmp { pred: ICmpPred::Ult, samesign: false, lhs: next, rhs: len }, i1);
             let body = std::mem::take(&mut s.new);
             f.insts[phi.index()].op = Op::Phi { fmf: FastMath::default(), incoming: vec![(zero, blk), (next, lp)] };
             f.blocks[blk.index()].insts.extend(pre);
@@ -6041,6 +6115,15 @@ fn lower_const_divs(cx: &mut Ctx, f: &mut Function) {
                 continue;
             };
             if !matches!(op, BinOp::SDiv | BinOp::SRem | BinOp::UDiv | BinOp::URem) || !(w == 32 || w == 64) || d == 0 {
+                k += 1;
+                continue;
+            }
+            // The multiply needs a product twice as wide, which a machine
+            // without wide integers does not have: only shifts, for powers
+            // of two, else its division instruction.
+            let mask: u64 = if w == 64 { u64::MAX } else { (1u64 << w) - 1 };
+            let pow2 = (d.unsigned_abs() & mask).is_power_of_two() || ((d as u64) & mask).is_power_of_two();
+            if cx.t.machine.lacks("i64") && !pow2 && d != 1 && d != -1 {
                 k += 1;
                 continue;
             }

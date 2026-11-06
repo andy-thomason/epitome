@@ -474,7 +474,20 @@ impl<'a, 'b> Sel<'a, 'b> {
         }
         m.value_class(self.holds(ty), bits)
             .or_else(|| m.value_class(Holds::Int, 64))
+            .or_else(|| self.narrow_int_class())
             .expect("the description has an integer register class")
+    }
+
+    /// On a machine without 64-bit integers (`!target.lacks` i64), its
+    /// widest integer class: `fits` has turned away what needs more, so
+    /// what is asked for wide here (the parts of an aggregate, a pointer
+    /// never used) fits in it.
+    fn narrow_int_class(&self) -> Option<Class> {
+        let m = &self.t.machine;
+        if !m.lacks("i64") {
+            return None;
+        }
+        (8..=64).rev().step_by(8).find_map(|b| m.value_class(Holds::Int, b))
     }
 
     /// The class of integers of 64 bits (`wide`) or 32, as pointers and
@@ -483,6 +496,7 @@ impl<'a, 'b> Sel<'a, 'b> {
         let m = &self.t.machine;
         m.value_class(Holds::Int, if wide { 64 } else { 32 })
             .or_else(|| m.value_class(Holds::Int, 64))
+            .or_else(|| self.narrow_int_class())
             .expect("the description has an integer register class")
     }
 
@@ -1162,6 +1176,10 @@ impl<'a, 'b> Sel<'a, 'b> {
                         self.needed.insert(d);
                     }
                 });
+                continue;
+            }
+            // (Without a trap, `unreachable` ends the program: see emission.)
+            if matches!(inst.op, Op::Unreachable) && self.t.role("trap").is_none() {
                 continue;
             }
             let Some(m) = self.best_match(i, layout_next) else {
@@ -2913,6 +2931,20 @@ impl<'a, 'b> Sel<'a, 'b> {
             (Some(_), _) => None,
             (None, v) => Some(self.reg_for(v, self.int_class(true))?),
         };
+        // A call to an `"epitome-opaque"` function, on a machine that has a
+        // launch instruction, starts that function's program on another
+        // unit: its arguments where a call's go, then the launch, which
+        // names it by symbol and returns nothing.
+        let launch = self.t.role("launch").filter(|_| match call.callee {
+            Value::Const(k) => match &self.cx.m.constant(k).kind {
+                ConstKind::Global(g) => match &self.cx.m.global(*g).kind {
+                    GlobalKind::Function(callee) => epitome_ir::fits::opaque(self.cx.m, &callee.fn_attrs),
+                    _ => false,
+                },
+                _ => false,
+            },
+            _ => false,
+        });
         // Stack arguments first, while every argument register is free;
         // a variable argument takes a whole 8-byte slot.
         let mut in_regs = Vec::new();
@@ -2954,7 +2986,7 @@ impl<'a, 'b> Sel<'a, 'b> {
         }
         // A tail call: when the call's result is what the function returns,
         // its frame goes first, and the callee returns to its caller.
-        let tail = if self.landing_next.is_some() { None } else { self.tail_ret(i, call, &locs) };
+        let tail = if self.landing_next.is_some() || launch.is_some() { None } else { self.tail_ret(i, call, &locs) };
         // Elective (autochop) unless the call must be a tail call.
         let tail = tail.filter(|_| {
             call.tail == TailKind::MustTail
@@ -2990,6 +3022,12 @@ impl<'a, 'b> Sel<'a, 'b> {
         }
         if call.tail == TailKind::MustTail {
             return self.err("a musttail call that cannot be made a tail call".to_string());
+        }
+        if let (Some(l), Some(s)) = (launch, &target) {
+            let mut m = MInst::new(l, vec![MOp::Sym(s.clone())]);
+            m.imp_uses = in_regs.iter().map(|&(p, _)| p).collect();
+            self.push(m);
+            return Ok(());
         }
         let mut inst_m = match (&target, callee_reg) {
             (Some(s), _) => MInst::new(self.t.by_role("call"), vec![MOp::Sym(s.clone())]),
@@ -3160,6 +3198,12 @@ impl<'a, 'b> Sel<'a, 'b> {
             }
             match &inst.op {
                 Op::Phi { .. } => continue,
+                // A machine without a trap ends the program where it would
+                // trap (`!target.lacks` trap): reaching it is undefined.
+                Op::Unreachable if self.t.role("trap").is_none() => {
+                    self.push(MInst::new(self.t.by_role("ret"), vec![]));
+                    continue;
+                }
                 Op::Call(call)
                     if prepare::callee_name(self.cx.m, call)
                         .is_some_and(|n| n.starts_with("llvm.stacksave") || n.starts_with("llvm.stackrestore")) =>

@@ -140,7 +140,18 @@ to an opaque function must have a role that turns it into something the
 machine does do (`"role"="launch"`, an instruction that starts another
 unit's program by its symbol), or `fits` reports it.
 
-**Operations.** Inside a function, inline assembly naming entries of the
+**Operations.** A description may declare the machine's own intrinsics:
+declarations marked `"intrinsic"` (`declare void @tiny.signal(i32, i32)
+"intrinsic"`), which its entries' bodies call as they call LLVM's. A
+program calls them to have an instruction the IR has no operation for (a
+matrix product on a fixed-function unit, a signal to another unit); the
+call is selected as that instruction, a constant argument as an
+immediate, and `fits` does not count it as a call. An operand that must be
+in one register (one of a pair the instruction names by its first) is of
+a `"fixed"` class, and selection copies the value there just before it.
+`tests/partial.rs` (`machine_intrinsics_are_instructions`) has both.
+
+Inside a function, inline assembly naming entries of the
 description already passes through untouched. An entry marked `"asmonly"`
 needs only an encoding and a template, so a description can cover a whole
 instruction set without saying what each instruction computes. To the

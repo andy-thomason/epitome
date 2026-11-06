@@ -92,6 +92,11 @@ fn run_with(code: &[u8], args: &[u32], launches: &mut Vec<(usize, [u32; 4])>) ->
             0x19 => set(imm << 14),
             0x1f => set(x),
             0x29 => launches.push((pc, [r[1], r[2], r[3], r[4]])),
+            // The machine's own: a cycle count (1234 here), and two that
+            // are recorded with the launches, tagged.
+            0x2a => set(1234),
+            0x2b => launches.push((pc, [0x516, x, imm, 0])),
+            0x2c => launches.push((pc, [0x92, r[5], r[6], 0])),
             0x20..=0x28 => {
                 let (p, q) = (r[d], r[a]);
                 let taken = match op {
@@ -728,4 +733,34 @@ fn rust_usize_loops_from_rustc() {
         let want = (1..=n).rev().fold(0u32, |s, i| s.rotate_left(3) ^ i);
         assert_eq!(run(code_of(&funcs, "mix_down"), &[n]), want, "mix_down({n})");
     }
+}
+
+/// The machine's own intrinsics: calls to declarations marked "intrinsic"
+/// are its instructions (`fits` does not count them as calls), with an
+/// immediate taken from a constant argument, and values put in the one
+/// register a class of one register holds (a pair, r5 and r6).
+#[test]
+fn machine_intrinsics_are_instructions() {
+    let ir = r#"
+define i32 @work(i32 %a, i32 %b) {
+  %c = call i32 @tiny.cycles()
+  %x = add i32 %a, %c
+  call void @tiny.signal(i32 %x, i32 7)
+  %y = mul i32 %a, %b
+  call void @tiny.put2(i32 %y, i32 %x)
+  call void @tiny.put2(i32 %b, i32 %a)
+  %r = sub i32 %x, %y
+  ret i32 %r
+}
+declare i32 @tiny.cycles()
+declare void @tiny.signal(i32, i32)
+declare void @tiny.put2(i32, i32)
+"#;
+    let t = tiny();
+    let funcs = compiled(&t, ir).unwrap();
+    let mut events = Vec::new();
+    let r = run_with(code_of(&funcs, "work"), &[5, 6], &mut events);
+    assert_eq!(r, (5 + 1234) - 30);
+    let seen: Vec<[u32; 4]> = events.iter().map(|e| e.1).collect();
+    assert_eq!(seen, [[0x516, 1239, 7, 0], [0x92, 30, 1239, 0], [0x92, 6, 5, 0]]);
 }

@@ -228,3 +228,10 @@ these are for after.
   one per lane width would.
 - **SVE's widening sums** (`partial.reduce.add`) are unpacks and adds,
   where SVE2 has `saddwb`/`saddwt` and `sdot` for bytes.
+
+- **A constant for a fixed operand is made twice.** A constant used as an
+  operand of a `"fixed"` class (one register) is made in a register of
+  its own and then made again in the fixed register (`push_fixed`), leaving
+  the first dead (`ldconst s6, 512` then `ldconst s2, 512`). Better: make
+  it straight into the fixed register, or drop the dead one after
+  allocation.

@@ -1031,10 +1031,15 @@ impl Target {
 
     fn read(&mut self) -> Result<(), String> {
         let m = &self.module;
+        // LLVM's intrinsics the bodies call, and the machine's own: a
+        // declaration marked "intrinsic", a function a program calls to have
+        // an instruction that the IR cannot say (a matrix product on a
+        // fixed-function unit, starting another unit's program), which
+        // the entries' bodies match like any other operation.
         for (g, f) in m.functions() {
             if let Some(name) = &m.global(g).name
-                && name.starts_with("llvm.")
                 && !f.has_body
+                && (name.starts_with("llvm.") || epitome_ir::fits::machine_intrinsic(m, &f.fn_attrs))
             {
                 self.intrinsics.push(name.clone());
             }

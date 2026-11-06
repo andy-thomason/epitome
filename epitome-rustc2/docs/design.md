@@ -775,7 +775,9 @@ any other; then each is defined.
   `copy_nonoverlapping` and its kin, `compare_bytes` (libc's `memcmp`),
   `discriminant_value`, the float maths of `core`'s float methods
   (`sqrtf16`, `floorf32`, `fmaf64`, `copysign`, `round_ties_even`, the
-  minimums and maximums, `powi`) as LLVM's intrinsics of the same names,
+  minimums and maximums, `powi`) and of the C library's (`sinf32`,
+  `expf64`, `powf32`, `log10f16`) as LLVM's intrinsics of the same names,
+  which the back end makes calls of the C library's functions,
   `float_to_int_unchecked`, the `*_algebraic` arithmetic as plain
   arithmetic, `const_eval_select` (the run-time function), the checks of a build
   without debug assertions (`ub_checks` is false), and the atomics:
@@ -783,7 +785,19 @@ any other; then each is defined.
   operations, signed and unsigned maximum and minimum), compare-exchange
   (strong and weak) and fences, with the orderings their const arguments
   name (Rust's `Relaxed` is IR's `monotonic`). An atomic pointer is worked
-  on as the integer of its size.
+  on as the integer of its size. Also: funnel shifts (`llvm.fshl` and
+  `llvm.fshr`), `disjoint_bitor` as a plain `or`, `carrying_mul_add` at
+  twice the width (from products of 64-bit halves for 128-bit integers,
+  as the back end has no wider arithmetic), `carryless_mul` as a loop over
+  the bits (one iteration a bit: correct, not fast), `raw_eq` as a
+  `memcmp`, `typed_swap_nonoverlapping` through a temporary, `breakpoint`
+  as x86-64's `int3`, and `type_id` as a 128-bit FNV-1a hash of the
+  type's key (the paths of the items in it and where each is written,
+  the key symbols use), equal only for the same type within one program;
+  `type_id_eq` compares the two as integers. Not done: the intrinsics
+  that only run at compile time (`type_of`, `size_of_type_id`,
+  `type_id_vtable` and the other reflection ones), which need a constant
+  evaluator, and `va_copy` and `va_end`, which need C variadics.
 - **`asm!`** (x86-64) becomes an IR inline-assembly call, as rustc writes
   it (`lower/asm.rs`): templates joined by newlines with `{0}`, `{name}`
   and `{}` made `${k}` (outputs numbered first) and Rust's modifiers
@@ -828,13 +842,15 @@ body:
 ```
 
 From every non-generic function of `core` with a body (on mandelbrot):
-22,308 functions in 3.4 s, of which 3,444 (15%) are not lowered, and 237
-more trap where they reach `dyn` or formatting. 3,004 of those not
-lowered are SIMD (`core::arch`), which is not attempted (its `asm!` with
-vector operands among them); of the 17,222 others, 440 (3%) are not
-lowered. The most common reasons: intrinsics not yet supported (95),
-`builtin #` expressions (47), and unsizing an array whose length is an
-expression the evaluator cannot work out (42).
+22,310 functions in 3.3 s, of which 3,363 (15%) are not lowered, and 243
+more trap where they reach `dyn` or formatting. 3,003 of those not
+lowered are SIMD (`core::arch` and `core::simd`, 5,408 functions), which
+is not attempted (its `asm!` with vector operands among them); of the
+16,902 others, 360 (2%) are not lowered. The most common reasons:
+`builtin #` expressions (47), unsizing an array whose length is an
+expression the evaluator cannot work out (43), and calls of instances
+monomorphisation did not find (28). The 14 intrinsics left are the
+compile-time and variadic ones.
 
 Lowering found and fixed these in type checking: it records which
 constant a path names (`tables.consts`, for `u64::MAX` and `T::ZERO`) and
@@ -856,7 +872,9 @@ impl, and the blanket one through `u16: Into<u8>`, which fails two levels
 down); and const generic arguments written in a path (`swap_chunk::<4>`,
 `atomic_xadd::<T, U, { AO::Relaxed }>`) are arguments in their places,
 where they were skipped and the arguments after them shifted. These two
-took `core`'s unresolved uses in monomorphisation from 1,242 to 62.
+took `core`'s unresolved uses in monomorphisation from 1,242 to 62. Type
+arguments written on an associated function's path (`TypeId::of::<u32>`,
+`T::f::<u8>`) are its arguments, where they were left to inference.
 Expansion now expands `assert!` as rustc does. On `core`, `alloc` and
 `std`, 97% of bodies now type completely, from 93%.
 

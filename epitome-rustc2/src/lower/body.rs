@@ -455,6 +455,25 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         epitome_ir::module::Value::Const(self.b.module().consts.intern(c))
     }
 
+    /// A float literal of type `f`: through `f64` for the narrower types,
+    /// and rounded exactly for `f128`, which holds more digits.
+    pub fn float_const(&mut self, tok: &str, f: FloatTy) -> R<Value> {
+        let ft = match f {
+            FloatTy::F16 => self.b.module().types.half(),
+            FloatTy::F32 => self.b.module().types.float(),
+            FloatTy::F64 => self.b.module().types.double(),
+            FloatTy::F128 => {
+                let body = ["f16", "f32", "f64", "f128"].iter().fold(tok, |t, s| t.strip_suffix(s).unwrap_or(t));
+                let bits = super::quad::decimal_to_quad(body).ok_or_else(|| format!("bad float literal {tok}"))?;
+                let ty = self.b.module().types.intern(epitome_ir::types::Type::Fp128);
+                let c = epitome_ir::module::Constant { ty, kind: epitome_ir::module::ConstKind::Float(bits) };
+                return Ok(Value::Const(self.b.module().consts.intern(c)));
+            }
+        };
+        let x = parse_float(tok).ok_or_else(|| format!("bad float literal {tok}"))?;
+        Ok(self.b.const_float(ft, x))
+    }
+
     /// A stack slot for a value of type `t`, in the entry block.
     pub fn temp(&mut self, t: Ty) -> R<Place> {
         let l = self.layout(t)?;
@@ -1386,14 +1405,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 Ok(Operand { ty: t, v: Val::Imm(v) })
             }
             TyKind::Float(f) => {
-                let digits: String = tok.trim_end_matches("f32").trim_end_matches("f64").chars().filter(|&c| c != '_').collect();
-                let x: f64 = digits.parse().map_err(|_| format!("bad float literal {tok}"))?;
-                let ft = match f {
-                    FloatTy::F32 => self.b.module().types.float(),
-                    FloatTy::F64 => self.b.module().types.double(),
-                    _ => return Err("f16 and f128 are not supported".into()),
-                };
-                let v = self.b.const_float(ft, x);
+                let v = self.float_const(tok, f)?;
                 Ok(Operand { ty: t, v: Val::Imm(v) })
             }
             TyKind::Ref(_, inner) => {
@@ -1893,11 +1905,23 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                     } else {
                         v
                     }
+                } else if is_float(from_k) && from_k == TyKind::Float(FloatTy::F128) {
+                    self.f128_to_int(v, tt, self.signed(to))
+                } else if is_float(to_k) && to_k == TyKind::Float(FloatTy::F128) {
+                    // Through 128 bits, which the runtime converts.
+                    let i128t = self.b.module().types.int(128);
+                    let signed = self.signed(o.ty) || from_k == TyKind::Bool;
+                    let w = self.int_to(v, i128t, self.signed(o.ty));
+                    let op = if signed { CastOp::SIToFP } else { CastOp::UIToFP };
+                    self.b.cast(op, w, tt)
                 } else if is_float(from_k) {
-                    // Saturating, as Rust's `as` is: not yet; out-of-range
-                    // values give whatever the machine gives.
-                    let op = if self.signed(to) { CastOp::FPToSI } else { CastOp::FPToUI };
-                    self.b.cast(op, v, tt)
+                    // Saturating, as Rust's `as` is: out-of-range values
+                    // give the nearest the integer holds, NaN gives 0.
+                    let fbits = self.layout(o.ty)?.size * 8;
+                    let ibits = self.layout(to)?.size * 8;
+                    let name = format!("llvm.{}.sat.i{ibits}.f{fbits}", if self.signed(to) { "fptosi" } else { "fptoui" });
+                    let g = self.b.module().declare(&name, tt, &[ft], false);
+                    self.b.call(g, &[v]).unwrap()
                 } else if is_float(to_k) {
                     let op = if self.signed(o.ty) { CastOp::SIToFP } else { CastOp::UIToFP };
                     self.b.cast(op, v, tt)
@@ -1919,6 +1943,39 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             (Repr::Imm(_), Repr::Mem) if self.pointee(o.ty).is_some() && self.pointee(to).is_some() => self.unsize(o, to),
             _ => Err(format!("cast from {} to {}", tcx.display(self.cx.r, o.ty), tcx.display(self.cx.r, to))),
         }
+    }
+
+    /// An `f128` cast to integer type `to`, saturating as Rust's `as` does
+    /// (NaN gives 0), built from comparisons: the runtime converts through
+    /// 128 bits, and the value is in range wherever that result is used.
+    fn f128_to_int(&mut self, v: Value, to: TypeId, signed: bool) -> Value {
+        let bits = match self.b.module().types.get(to) {
+            epitome_ir::types::Type::Int(n) => *n,
+            _ => 64,
+        };
+        let qt = self.b.type_of(v);
+        let quad = |fx: &mut Self, b: u128| {
+            let c = epitome_ir::module::Constant { ty: qt, kind: epitome_ir::module::ConstKind::Float(b) };
+            Value::Const(fx.b.module().consts.intern(c))
+        };
+        // 2^k as a binary128, and -2^k.
+        let pow2 = |k: u32| (k as u128 + 16383) << 112;
+        let (lo, hi) = if signed { (pow2(bits - 1) | 1 << 127, pow2(bits - 1)) } else { (0, pow2(bits)) };
+        let (lo, hi) = (quad(self, lo), quad(self, hi));
+        let i128t = self.b.module().types.int(128);
+        let op = if signed { CastOp::FPToSI } else { CastOp::FPToUI };
+        let r = self.b.cast(op, v, i128t);
+        let r = self.int_to(r, to, signed);
+        let min = if signed { 1u128 << (bits - 1) } else { 0 };
+        let max = if signed { (1u128 << (bits - 1)) - 1 } else if bits == 128 { u128::MAX } else { (1u128 << bits) - 1 };
+        let (min, max) = (self.int_const(to, min), self.int_const(to, max));
+        let zero = self.int_const(to, 0);
+        let below = self.b.fcmp(FCmpPred::Olt, v, lo);
+        let above = self.b.fcmp(FCmpPred::Oge, v, hi);
+        let nan = self.b.fcmp(FCmpPred::Uno, v, v);
+        let r = self.b.select(below, min, r);
+        let r = self.b.select(above, max, r);
+        self.b.select(nan, zero, r)
     }
 
     /// An integer made `to` wide (truncated, or extended by `signed`).
@@ -2438,6 +2495,13 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             _ => Pv::Val(Operand { ty: abi.output, v: Val::Zst }),
         })
     }
+}
+
+/// The value of a float literal, without its suffix (`2.5f16`, `1e3`).
+pub(crate) fn parse_float(tok: &str) -> Option<f64> {
+    let t = ["f16", "f32", "f64", "f128"].iter().fold(tok, |t, s| t.strip_suffix(s).unwrap_or(t));
+    let digits: String = t.chars().filter(|&c| c != '_').collect();
+    digits.parse().ok()
 }
 
 /// The value of an integer literal, without its suffix.

@@ -35,6 +35,7 @@
 mod body;
 mod intrinsic;
 mod pat;
+mod quad;
 
 use crate::hash::FastMap;
 use crate::layout::{Abi, Layout, LayoutCx, Prim, TargetData};
@@ -193,9 +194,10 @@ impl<'a, 's> Cx<'a, 's> {
             _ if l.size == 0 && l.is_sized() => Repr::Zst,
             Abi::Scalar(s) => Repr::Imm(match s.prim {
                 Prim::Int { size, .. } => m.types.int(size as u32 * 8),
+                Prim::Float { size: 2 } => m.types.half(),
                 Prim::Float { size: 4 } => m.types.float(),
                 Prim::Float { size: 8 } => m.types.double(),
-                Prim::Float { .. } => return Err("f16 and f128 are not supported".into()),
+                Prim::Float { .. } => m.types.intern(epitome_ir::types::Type::Fp128),
                 Prim::Pointer => m.types.ptr(0),
             }),
             _ => Repr::Mem,
@@ -593,7 +595,7 @@ mod tests {
             let tcx = session.collect_types(&crates, &r);
             let index = crate::typeck::Index::new(&tcx, &r);
             let res = session.typeck_with(&crates, &r, &tcx, &index);
-            let roots = crate::mono::roots(&r, &tcx, 1);
+            let roots = crate::mono::roots(&r, &tcx, &crates, 1);
             let mono = session.collect_mono_items(&crates, &r, &tcx, &index, &res, roots);
             let lowered = session.lower(&crates, &r, &tcx, &index, &res, &mono, super::Target::x86_64_linux());
             let own: Vec<String> = lowered

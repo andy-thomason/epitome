@@ -45,7 +45,7 @@ checking is under way.
 - **Lowering** (section 8): layout, constants, monomorphisation and
   bodies are done for small `#![no_std]` programs, which compile through
   Epitome IR and Epitome's code generator, run, and print what rustc's
-  builds print. Of the functions `core` reaches, 94% lower, SIMD aside.
+  builds print. Of the functions `core` reaches, 97% lower, SIMD aside.
 
 Everything after that is a plan.
 
@@ -682,8 +682,8 @@ adds a job.
 - `--dump-mono` prints the items, `--mono-stats` counts them and what
   could not be resolved (all of it with `EPITOME_MONO_ALL` set).
 
-From every non-generic function of `core` (on mandelbrot): 28,473 items
-from 54,045 uses, in 0.09 s. 62 uses (0.1%) are not resolved: mostly
+From every non-generic function of `core` with a body (on mandelbrot):
+28,430 items from 54,045 uses, in 0.09 s. 62 uses (0.1%) are not resolved: mostly
 specialisation traits it cannot choose an impl of (`SpecAdvanceBy`, the
 sort's `UnstableSmallSortTypeImpl`, `SpecWriteFmt`), and a few calls whose
 arguments type checking left unknown (`array::try_from_fn` with a `dyn`
@@ -699,7 +699,15 @@ Every function is declared first, in order of name, so any body can call
 any other; then each is defined.
 
 - **Values.** A type whose layout is one scalar is an SSA value: `iN` by
-  size (`bool` is `i8`), `float` or `double`, or `ptr`. A type of size
+  size (`bool` is `i8`), `half` (`f16`), `float`, `double` or `fp128`
+  (`f128`), or `ptr`, as rustc's IR has them. Epitome's code generator
+  computes `half` in `float` where the machine has no half-precision
+  instructions, and `fp128` by calling the runtime (`__addtf3` and the
+  rest), as LLVM does. An `f128` literal is rounded to quad precision
+  exactly (`quad.rs`), not through `f64`. A cast from a float to an integer saturates, as Rust's `as` does
+  (`llvm.fptosi.sat`; for `f128`, comparisons and selects around a
+  conversion through 128 bits): out-of-range values give the nearest the
+  integer holds, and NaN gives 0. A type of size
   zero is no value. Everything else is kept in memory and handled by its
   address: structs, enums, tuples, arrays, and pointers to unsized types
   (an address and a length).
@@ -754,8 +762,11 @@ any other; then each is defined.
   (wrapping, unchecked, with overflow, saturating), bit counts and
   rotations, pointer offsets, metadata and `aggregate_raw_ptr`,
   `copy_nonoverlapping` and its kin, `compare_bytes` (libc's `memcmp`),
-  `discriminant_value`,
-  `const_eval_select` (the run-time function), the checks of a build
+  `discriminant_value`, the float maths of `core`'s float methods
+  (`sqrtf16`, `floorf32`, `fmaf64`, `copysign`, `round_ties_even`, the
+  minimums and maximums, `powi`) as LLVM's intrinsics of the same names,
+  `float_to_int_unchecked`, the `*_algebraic` arithmetic as plain
+  arithmetic, `const_eval_select` (the run-time function), the checks of a build
   without debug assertions (`ub_checks` is false), and the atomics:
   loads, stores, read-modify-writes (exchange, add, subtract, the bit
   operations, signed and unsigned maximum and minimum), compare-exchange
@@ -796,13 +807,14 @@ body:
   ...
 ```
 
-From every non-generic function of `core` (on mandelbrot): 22,056
-functions in 3.6 s, of which 4,029 (18%) are not lowered, and 237 more
-trap where they reach `dyn` or formatting. 3,055 of those not lowered are
-SIMD (`core::arch`), which is not attempted; of the 16,970 others, 966
-(6%) are not lowered. The most common reasons: `f16` and `f128` (312),
-intrinsics not yet supported (149), `concat!` and `asm!` (135), and
-`builtin #` expressions (47).
+From every non-generic function of `core` with a body (on mandelbrot):
+22,308 functions in 3.6 s, of which 3,592 (16%) are not lowered, and 237
+more trap where they reach `dyn` or formatting. 3,017 of those not
+lowered are SIMD (`core::arch`), which is not attempted; of the 17,222
+others, 575 (3%) are not lowered. The most common reasons: `concat!` and
+`asm!` (135), intrinsics not yet supported (95), `builtin #` expressions
+(47), and unsizing an array whose length is an expression the evaluator
+cannot work out (42).
 
 Lowering found and fixed these in type checking: it records which
 constant a path names (`tables.consts`, for `u64::MAX` and `T::ZERO`) and
@@ -839,8 +851,8 @@ Lowering reports each of these rather than compiling something wrong.
 
 Not done yet (they come after this series): drops and drop glue, `dyn`
 (vtables), `core::fmt` (so panics have no message), unwinding, `Box` and
-allocation, closures made function pointers, string patterns, `f16` and
-`f128`, SIMD, `async`, and v0 symbol mangling.
+allocation, closures made function pointers, string patterns, SIMD,
+`async`, and v0 symbol mangling.
 
 **Correct but slow or bloated**, to improve later:
 
@@ -864,7 +876,9 @@ allocation, closures made function pointers, string patterns, `f16` and
 
 `-o PATH` lowers, optimises the module with Epitome's optimiser, compiles
 it for the host with Epitome's code generator, and links the object with
-`cc`. `-O0` leaves out the optimiser, and `--emit=obj` writes the object
+`cc` and libm (the code generator calls `floorf`, `fma` and their kin
+where the machine has no instruction for them, as LLVM does; rustc's
+builds get these from `compiler-builtins`). `-O0` leaves out the optimiser, and `--emit=obj` writes the object
 file instead of linking. It fails if any function of the program's own
 crate could not be lowered (one of `core`'s only traps if it is reached).
 
@@ -877,7 +891,8 @@ with the optimiser and without, and with rustc, runs all three, and
 compares their output and exit status. The programs are `#![no_std]` with
 a C `main`, writing through libc's `putchar`; rustc links them against
 libc, with a stub for `rust_eh_personality` (the precompiled `core`
-refers to it, though nothing unwinds). The test runs on x86-64 Linux with
+refers to it, though nothing unwinds), and `RUSTC_BOOTSTRAP=1` lets it
+take the features a program uses (`f16`). The test runs on x86-64 Linux with
 rust-src installed.
 
 The programs, which each print what rustc's build prints:
@@ -890,6 +905,8 @@ The programs, which each print what rustc's build prints:
 | `numbers.rs` | Signed and unsigned arithmetic, shifts, casts, `u128`, floats, `char`, constants, statics, associated constants, and integer methods of `core`. |
 | `iter.rs` | `for` over ranges, `rev`, `enumerate`, `zip`, `iter_mut`, user iterators, `count`, `sum`, `last`. |
 | `closures.rs` | Closures capturing by reference and by value, `FnMut` state, `impl Fn` arguments and results, function pointers, iterator adapters (`map`, `filter`, `fold`, `max`, `position`, `any`, `all`, `skip`, `take_while`), and `Option` and `Result` combinators. |
+| `floats.rs` | `f16`: arithmetic, comparisons, rounding to half precision, bits, conversions to and from other floats and integers, and its methods in `core` (`abs`, `floor`, `round`, `sqrt`, `mul_add`, `min`, `max`); the `f32` and `f64` methods in `core`; and float-to-integer casts saturating, with NaN giving 0. |
+| `quad.rs` | `f128`: literals rounded exactly (checked by their bits: `0.1`, `PI`, `MAX`, `EPSILON`, the least normal, a subnormal), arithmetic beyond `f64`'s precision, comparisons with NaN, conversions to and from every float and integer width (`u128::MAX` included), saturating casts, and its methods in `core`. |
 | `atomics.rs` | `core::sync::atomic`: loads and stores, `fetch_add` and the other read-modify-writes, `compare_exchange` (and `_weak` in a loop), `fetch_update`, `AtomicBool`, `AtomicPtr`, fences, every ordering, and an atomic in a `static`. |
 
 ## 9. Crates and Cargo

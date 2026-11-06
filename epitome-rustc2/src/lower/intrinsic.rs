@@ -332,6 +332,46 @@ impl Fx<'_, '_, '_, '_> {
                 }
             }
             _ if name.starts_with("atomic_") => self.atomic(name, &targs, args, output),
+            "float_to_int_unchecked" => {
+                // Not saturating: the value is known to fit.
+                let v = self.imm(args[0])?;
+                let Repr::Imm(it) = self.repr(output)? else { return Err("float_to_int_unchecked to a type in memory".into()) };
+                let op = if self.signed(output) { epitome_ir::module::CastOp::FPToSI } else { epitome_ir::module::CastOp::FPToUI };
+                let r = self.b.cast(op, v, it);
+                imm(r)
+            }
+            // Algebraic: free to reassociate, which the plain operation
+            // does not need to.
+            "fadd_algebraic" | "fsub_algebraic" | "fmul_algebraic" | "fdiv_algebraic" | "frem_algebraic" => {
+                let x = self.imm(args[0])?;
+                let y = self.imm(args[1])?;
+                let op = match &name[..4] {
+                    "fadd" => BinOp::FAdd,
+                    "fsub" => BinOp::FSub,
+                    "fmul" => BinOp::FMul,
+                    "fdiv" => BinOp::FDiv,
+                    _ => BinOp::FRem,
+                };
+                let r = self.b.binary(op, x, y);
+                imm(r)
+            }
+            _ if float_math(name).is_some() => {
+                let (op, _) = float_math(name).unwrap();
+                let vals = args.iter().map(|&a| self.imm(a)).collect::<R<Vec<Value>>>()?;
+                let ft = self.b.type_of(vals[0]);
+                let fbits = match self.b.module().types.get(ft) {
+                    epitome_ir::types::Type::Half => 16,
+                    epitome_ir::types::Type::Float => 32,
+                    epitome_ir::types::Type::Double => 64,
+                    epitome_ir::types::Type::Fp128 => 128,
+                    _ => return Err(format!("`{name}` of a type not supported")),
+                };
+                let tys: Vec<epitome_ir::types::TypeId> = vals.iter().map(|&v| self.b.type_of(v)).collect();
+                let f = if op == "powi" { format!("llvm.powi.f{fbits}.i32") } else { format!("llvm.{op}.f{fbits}") };
+                let g = self.b.module().declare(&f, ft, &tys, false);
+                let r = self.b.call(g, &vals).unwrap();
+                imm(r)
+            }
             _ => Err(format!("intrinsic `{name}` is not supported yet")),
         }
     }
@@ -487,4 +527,34 @@ impl Fx<'_, '_, '_, '_> {
         }
         Ok(Pv::Val(self.arith(op, args[0], args[1])?))
     }
+}
+
+/// A float maths intrinsic of `core` (`sqrtf32`, `fabs`,
+/// `round_ties_even_f64`, `fmaf16`): the LLVM intrinsic it is, and its
+/// type's width if the name says it.
+fn float_math(name: &str) -> Option<(&'static str, Option<u32>)> {
+    let (base, bits) = ["f16", "f32", "f64", "f128"]
+        .iter()
+        .find_map(|w| name.strip_suffix(w).map(|b| (b.trim_end_matches('_'), w[1..].parse().ok())))
+        .unwrap_or((name, None));
+    let op = match base {
+        "sqrt" => "sqrt",
+        "floor" => "floor",
+        "ceil" => "ceil",
+        "trunc" => "trunc",
+        "round" => "round",
+        "round_ties_even" | "rint" | "nearbyint" => "roundeven",
+        "fabs" => "fabs",
+        "copysign" => "copysign",
+        "fma" => "fma",
+        "fmuladd" => "fmuladd",
+        // `maximum_number_nsz`: NaN loses, and either zero may win.
+        "minnum" | "minimum_number_nsz" => "minnum",
+        "maxnum" | "maximum_number_nsz" => "maxnum",
+        "minimum" => "minimum",
+        "maximum" => "maximum",
+        "powi" => "powi",
+        _ => return None,
+    };
+    Some((op, bits))
 }

@@ -1222,6 +1222,15 @@ def avx2():
         entry(ty, f'VPBLENDVB.{T}', [f'{M} "reg"="yv" %c', f'{ty} "reg"="yv" %a', f'{ty} "reg"="yv" %b'],
               renamed(enc, {'o0': 'c', 'o1': 'a', 'o2': 'b', 'o3': 'd'}).replace('o3', 'd'), 'vpblendvb {c}, {a}, {b}, {d}',
               [f'%r = select {M} %c, {ty} %a, {ty} %b', f'ret {ty} %r'], ' "dclass"="yv"' + feat)
+    # Shifts of 128-bit vectors by vectors.
+    for ty, sfx in [('<4 x i32>', 'd'), ('<2 x i64>', 'q')]:
+        for ir, mn in [('shl', 'vpsll'), ('lshr', 'vpsrl'), ('ashr', 'vpsra')]:
+            if ir == 'ashr' and sfx == 'q':
+                continue
+            enc, _ = xed(f'{mn}v{sfx} {{o0}}, {{o1}}, {{o2}}', ('xe', 'xe', 'xe'))
+            entry(ty, f'{mn.upper()}V{sfx.upper()}x.{tag(ty)}', [f'{ty} "reg"="xv" %n', f'{ty} "reg"="xv" %m'],
+                  renamed(enc, {'o0': 'm', 'o1': 'n', 'o2': 'd'}), f'{mn}v{sfx} {{m}}, {{n}}, {{d}}',
+                  [f'%r = {ir} {ty} %n, %m', f'ret {ty} %r'], ' "dclass"="xv"' + feat)
     # Floating point.
     for ty, sfx, et, n, eb in FLT:
         T = tag(ty)

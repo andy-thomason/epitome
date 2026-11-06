@@ -1791,7 +1791,17 @@ pub fn legalize_vectors(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
                                 })
                                 .collect()
                         }
-                        _ => return Err("a select whose mask is not split as its values are".into()),
+                        // A mask not split, of values that are (one made
+                        // from bits: a load of `<16 x i1>`, a bitcast of an
+                        // `i16`): cut into parts, a lane at a time.
+                        v => match *cx.m.types.get(pt) {
+                            Type::Vector { len: pl, .. } => {
+                                let i1 = cx.m.types.int(1);
+                                let mt = vec_ty(cx, pl, i1);
+                                mask_parts(cx, &parts, &mut bld, v, n, mt)?
+                            }
+                            _ => return Err("a select whose mask is not split as its values are".into()),
+                        },
                     };
                     if c.len() != n {
                         return Err("a select whose mask is not split as its values are".into());

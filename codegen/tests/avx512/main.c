@@ -15,6 +15,8 @@ TYPE(v32i16, uint32_t, int16_t)
 TYPE(v64i8, uint64_t, int8_t)
 PLAIN(shifts_v16i32) PLAIN(shifts_v8i64) PLAIN(shifts_v32i16)
 PLAIN(bits_v16i32) PLAIN(bits_v8i64)
+PLAIN(lanes_fsel) PLAIN(lanes_mixed)
+PLAIN(shifts_v8i32) PLAIN(shifts_v4i32) PLAIN(shifts_v4i64) PLAIN(shifts_v2i64)
 
 static unsigned char a[64] __attribute__((aligned(64))), b[64] __attribute__((aligned(64)));
 static unsigned char out[1024] __attribute__((aligned(64)));
@@ -64,6 +66,9 @@ int main(void) {
         RUN(compares_v16i32, 20) RUN(compares_v8i64, 10) RUN(compares_v32i16, 40) RUN(compares_v64i8, 80)
         RUN(minmax_v16i32, 5 * 64) RUN(minmax_v8i64, 5 * 64) RUN(minmax_v32i16, 5 * 64) RUN(minmax_v64i8, 5 * 64)
         RUN(bits_v16i32, 2 * 64) RUN(bits_v8i64, 2 * 64)
+        RUN(lanes_mixed, 64)
+        RUN(lanes_fsel, 64)
+        RUN(shifts_v8i32, 3 * 32) RUN(shifts_v4i32, 3 * 16) RUN(shifts_v4i64, 2 * 32) RUN(shifts_v2i64, 2 * 16)
         SELECTS(v16i32, (uint16_t)pattern, (int32_t)next())
         SELECTS(v8i64, (uint8_t)pattern, (int64_t)(next() << 20))
         SELECTS(v32i16, (uint32_t)pattern, (int16_t)next())

@@ -687,4 +687,87 @@ define void @minmax_v64i8(ptr %a, ptr %b, ptr %o) #0 {
   ret void
 }
 
+; Shifts by vectors with AVX2 alone, at 256 and 128 bits.
+define void @shifts_v8i32(ptr %a, ptr %b, ptr %o) #1 {
+  %x = load <8 x i32>, ptr %a
+  %y = load <8 x i32>, ptr %b
+  %s = and <8 x i32> %y, splat (i32 31)
+  %v0 = shl <8 x i32> %x, %s
+  %p0 = getelementptr <8 x i32>, ptr %o, i64 0
+  store <8 x i32> %v0, ptr %p0
+  %v1 = lshr <8 x i32> %x, %s
+  %p1 = getelementptr <8 x i32>, ptr %o, i64 1
+  store <8 x i32> %v1, ptr %p1
+  %v2 = ashr <8 x i32> %x, %s
+  %p2 = getelementptr <8 x i32>, ptr %o, i64 2
+  store <8 x i32> %v2, ptr %p2
+  ret void
+}
+
+define void @shifts_v4i32(ptr %a, ptr %b, ptr %o) #1 {
+  %x = load <4 x i32>, ptr %a
+  %y = load <4 x i32>, ptr %b
+  %s = and <4 x i32> %y, splat (i32 31)
+  %v0 = shl <4 x i32> %x, %s
+  %p0 = getelementptr <4 x i32>, ptr %o, i64 0
+  store <4 x i32> %v0, ptr %p0
+  %v1 = lshr <4 x i32> %x, %s
+  %p1 = getelementptr <4 x i32>, ptr %o, i64 1
+  store <4 x i32> %v1, ptr %p1
+  %v2 = ashr <4 x i32> %x, %s
+  %p2 = getelementptr <4 x i32>, ptr %o, i64 2
+  store <4 x i32> %v2, ptr %p2
+  ret void
+}
+
+define void @shifts_v4i64(ptr %a, ptr %b, ptr %o) #1 {
+  %x = load <4 x i64>, ptr %a
+  %y = load <4 x i64>, ptr %b
+  %s = and <4 x i64> %y, splat (i64 63)
+  %v0 = shl <4 x i64> %x, %s
+  %p0 = getelementptr <4 x i64>, ptr %o, i64 0
+  store <4 x i64> %v0, ptr %p0
+  %v1 = lshr <4 x i64> %x, %s
+  %p1 = getelementptr <4 x i64>, ptr %o, i64 1
+  store <4 x i64> %v1, ptr %p1
+  ret void
+}
+
+define void @shifts_v2i64(ptr %a, ptr %b, ptr %o) #1 {
+  %x = load <2 x i64>, ptr %a
+  %y = load <2 x i64>, ptr %b
+  %s = and <2 x i64> %y, splat (i64 63)
+  %v0 = shl <2 x i64> %x, %s
+  %p0 = getelementptr <2 x i64>, ptr %o, i64 0
+  store <2 x i64> %v0, ptr %p0
+  %v1 = lshr <2 x i64> %x, %s
+  %p1 = getelementptr <2 x i64>, ptr %o, i64 1
+  store <2 x i64> %v1, ptr %p1
+  ret void
+}
+
+; Done partly a lane at a time (and so exempt from the check that kernels
+; keep off the stack): a comparison of floats, and a mask of narrower lanes
+; choosing between 512-bit vectors.
+define void @lanes_fsel(ptr %a, ptr %b, ptr %o) #0 {
+  %x = load <16 x float>, ptr %a
+  %y = load <16 x float>, ptr %b
+  %c = fcmp olt <16 x float> %x, %y
+  %s = select <16 x i1> %c, <16 x float> %x, <16 x float> %y
+  store <16 x float> %s, ptr %o
+  ret void
+}
+
+define void @lanes_mixed(ptr %a, ptr %b, ptr %o) #0 {
+  %x = load <16 x i8>, ptr %a
+  %y = load <16 x i8>, ptr %b
+  %c = icmp ult <16 x i8> %x, %y
+  %p = load <16 x i32>, ptr %a
+  %q = load <16 x i32>, ptr %b
+  %s = select <16 x i1> %c, <16 x i32> %p, <16 x i32> %q
+  store <16 x i32> %s, ptr %o
+  ret void
+}
+
 attributes #0 = { nounwind "target-features"="+avx512f,+avx512bw,+avx512cd,+avx512dq,+avx512vl,+avx2,+avx,+fma" }
+attributes #1 = { nounwind "target-features"="+avx2,+avx" }

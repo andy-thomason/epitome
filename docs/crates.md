@@ -97,10 +97,12 @@ re-run.
   assembly in Intel's syntax is turned into AT&T's (`codegen/src/intel.rs`).
 - [ ] autocfg 1.5.1's test `wrappers` and idna 1.1.0's test `tests`: `0 objects for the crate in the archive, not one`. In: autocfg, idna
 
-- [ ] A `select` by a vector of booleans that came from bits (a load of a
+- [x] A `select` by a vector of booleans that came from bits (a load of a
   `<4 x i1>`, or a `bitcast` of an `i4`) fails with `a select of split
   vectors with a legal result`, on both targets. No crate in batch 1 hits
-  it; found while testing the fix for 1.
+  it; found while testing the fix for 1. Fixed: a mask not split, of
+  values that are, is cut into parts a lane at a time
+  (`tests/masks/wide.ll`'s `selbits` and `selload`).
 
 ### 5. Tests that differ
 

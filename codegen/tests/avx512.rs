@@ -40,10 +40,18 @@ fn avx512_kernels_stay_in_registers() {
     let mut m = epitome_ir::parse_module(&kernels()).unwrap();
     let asm = compile(&t, &mut m, &Options::default()).unwrap().asm;
     let fs = functions(&asm);
-    assert!(fs.len() >= 25, "{} functions", fs.len());
-    for (name, body) in &fs {
+    assert!(fs.len() >= 29, "{} functions", fs.len());
+    for (name, body) in fs.iter().filter(|(n, _)| !n.starts_with("lanes_")) {
         assert!(!body.contains("%rsp"), "{name} uses the stack:\n{body}");
-        assert!(body.contains("%zmm"), "{name} has no zmm registers:\n{body}");
+        // (Those of AVX2 alone: shifts by vectors, in ymm and xmm.)
+        let reg = if name.starts_with("shifts_v8i32") || name.starts_with("shifts_v4i64") {
+            "%ymm"
+        } else if name.starts_with("shifts_v4i32") || name.starts_with("shifts_v2i64") {
+            "%xmm"
+        } else {
+            "%zmm"
+        };
+        assert!(body.contains(reg), "{name} has no {reg} registers:\n{body}");
         if name.starts_with("compares") || name.starts_with("selects") || name.starts_with("mask_memory") {
             assert!(body.contains("%k"), "{name} has no k registers:\n{body}");
         }

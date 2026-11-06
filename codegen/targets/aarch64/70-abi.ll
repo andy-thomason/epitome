@@ -44,11 +44,16 @@
 ;                 slot too far for an instruction's offset
 ;   fp-args, fp-result, fp-clobbers, fp-saved, fp-scratch
 ;                 the same, for floating-point values in d0-d31 (only
-;                 the low 64 bits of d8-d15 are preserved)
+;                 the low 64 bits of d8-d15 are preserved; SVE's z0-z31,
+;                 these registers, are passed and returned as they are)
+;   pred-args, pred-result, pred-clobbers, pred-scratch
+;                 the same, for SVE's predicates (p0-p3 for arguments, p0
+;                 for a result; none preserved but under the SVE
+;                 convention, which is not this one)
 
 ; Apple's arm64 ABI: AAPCS64 with x18 reserved, stack arguments packed,
 ; variadic arguments on the stack.
-!abi.darwin = !{!100, !101, !102, !103, !104, !105, !106, !107, !108, !109, !110, !111, !112, !113, !114, !115, !116, !117, !118, !119, !120}
+!abi.darwin = !{!100, !101, !102, !103, !104, !105, !106, !107, !108, !109, !110, !111, !112, !113, !114, !115, !116, !117, !118, !119, !120, !121, !122, !123, !124}
 !100 = !{!"args", !"x0-x7"}
 !101 = !{!"result", !"x0"}
 !102 = !{!"clobbers", !"x0-x18", !"x30"}
@@ -70,11 +75,15 @@
 !118 = !{!"stack-align", !"16"}
 !119 = !{!"hfa", !"yes"}
 !120 = !{!"far-scratch", !"x14"}
+!121 = !{!"pred-args", !"p0-p3"}
+!122 = !{!"pred-result", !"p0"}
+!123 = !{!"pred-clobbers", !"p0-p14"}
+!124 = !{!"pred-scratch", !"p15"}
 
 ; The Procedure Call Standard for the Arm 64-bit Architecture, as used by
 ; Linux: x18 is an ordinary temporary, stack arguments take 8-byte slots,
 ; and variadic arguments go where named ones would.
-!abi.aapcs64 = !{!200, !201, !202, !203, !204, !205, !206, !207, !208, !209, !210, !211, !212, !213, !214, !215, !216, !217, !218, !219, !220, !221, !222}
+!abi.aapcs64 = !{!200, !201, !202, !203, !204, !205, !206, !207, !208, !209, !210, !211, !212, !213, !214, !215, !216, !217, !218, !219, !220, !221, !222, !223, !224, !225, !226}
 !200 = !{!"args", !"x0-x7"}
 !201 = !{!"result", !"x0"}
 !202 = !{!"clobbers", !"x0-x18", !"x30"}
@@ -98,3 +107,7 @@
 !220 = !{!"stack-align", !"16"}
 !221 = !{!"hfa", !"yes"}
 !222 = !{!"far-scratch", !"x14"}
+!223 = !{!"pred-args", !"p0-p3"}
+!224 = !{!"pred-result", !"p0"}
+!225 = !{!"pred-clobbers", !"p0-p14"}
+!226 = !{!"pred-scratch", !"p15"}

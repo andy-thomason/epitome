@@ -32,6 +32,8 @@ short) has to do to work like LLVM. They are split into two halves:
   (Evergreen) and gfx1151 (RDNA 3.5), for assembly.
 - [x86-64: a plan](x86.md): how x86 instructions are written in a
   description, and what the code generator must learn first.
+- [SVE and SME](sve.md): AArch64's scalable vectors and predicates in
+  registers, how they are tested under qemu, and the plan.
 - [Partial machines: a plan](partial-machines.md): machines without
   memory, a stack, calls or floating point; checking that a program fits
   one; fencing off what Epitome must not optimise or lower; and a VLIW

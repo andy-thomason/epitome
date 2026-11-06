@@ -64,16 +64,40 @@ def records(path):
             rec[k] = v
 
 
-def instruction_files(xed):
-    """The files of instructions, as each directory's files.cfg lists them
-    (dec-instructions)."""
+def listed(cfgs):
+    """The files of instructions configuration files list (dec-instructions)."""
     out = set()
-    for cfg in glob.glob(os.path.join(xed, 'datafiles', '**', 'files.cfg'), recursive=True):
+    for cfg in cfgs:
         for line in open(cfg):
             m = re.match(r'\s*dec-instructions\s*:\s*(\S+)', line)
             if m:
                 out.add(os.path.join(os.path.dirname(cfg), m.group(1)))
-    return sorted(out)
+    return out
+
+
+# Files of instructions their directories list otherwise (files-*.cfg):
+# GFNI, VAES and the wider VPCLMULQDQ, and AMD's SSE4a, clzero, monitorx
+# and rdpru. (Not AMD's BSR and LZCNT, which the SSE4a file has as well:
+# its BSR would be written with LZCNT's prefix.)
+EXTRA = ['gfni-vaes-vpcl/gfni-sse-isa.xed.txt', 'gfni-vaes-vpcl/gfni-vex-isa.xed.txt',
+         'gfni-vaes-vpcl/gfni-evex-isa.xed.txt', 'gfni-vaes-vpcl/vaes-vex-isa.xed.txt',
+         'gfni-vaes-vpcl/vaes-evex-isa.xed.txt', 'amd/xed-amd-sse4a.txt', 'amd/xed-amd-clzero.txt',
+         'amd/xed-amd-monitorx.txt', 'amd/xed-amd-rdpru.txt']
+EXTRA_LEFT_OUT = {'BSR', 'LZCNT'}
+# Nor, yet, GFNI's EVEX forms: their broadcasts' compressed displacements
+# are not llvm-mc's. (Numbered, so that the forms after keep theirs.)
+EXTRA_FILES_LEFT_OUT = {'gfni-vaes-vpcl/gfni-evex-isa.xed.txt'}
+
+
+def instruction_files(xed):
+    """The files of instructions, as each directory's files.cfg lists them,
+    then EXTRA (after, so that the forms before keep their numbers)."""
+    out = listed(glob.glob(os.path.join(xed, 'datafiles', '**', 'files.cfg'), recursive=True))
+    return sorted(out) + [os.path.join(xed, 'datafiles', f) for f in EXTRA]
+
+
+def extra_files(xed):
+    return {os.path.join(xed, 'datafiles', f) for f in EXTRA}
 
 
 def all_forms(xed):
@@ -81,7 +105,11 @@ def all_forms(xed):
     file deletes (UDELETE, by IFORM: where another file replaces them)."""
     files = instruction_files(xed)
     deleted = set()
+    # (Not what EXTRA's files delete: AMD's SSE4a its own BSR.)
+    extra = extra_files(xed)
     for path in files:
+        if path in extra:
+            continue
         for line in lines(path):
             m = re.match(r'\s*UDELETE\s*:\s*(\S+)', line)
             if m:
@@ -90,7 +118,9 @@ def all_forms(xed):
     for path in files:
         for r in records(path):
             for f in r['forms']:
-                if f['IFORM'] not in deleted:
+                left_out = path in extra and (r['ICLASS'] in EXTRA_LEFT_OUT or any(
+                    path.endswith(x) for x in EXTRA_FILES_LEFT_OUT))
+                if f['IFORM'] not in deleted and not left_out:
                     yield r, n, f
                 n += 1
 
@@ -888,4 +918,5 @@ def main():
     sys.stdout.write('\n'.join(out))
 
 
-main()
+if __name__ == "__main__":
+    main()

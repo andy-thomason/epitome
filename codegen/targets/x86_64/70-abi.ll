@@ -12,7 +12,9 @@
 !100 = !{!"args", !"%rdi", !"%rsi", !"%rdx", !"%rcx", !"%r8", !"%r9"}
 !101 = !{!"result", !"%rax"}
 !102 = !{!"results", !"%rax", !"%rdx"}
-!103 = !{!"clobbers", !"%rax", !"%rcx", !"%rdx", !"%rsi", !"%rdi", !"%r8", !"%r9", !"%r10", !"%r11"}
+; AVX-512's masks are not kept across calls either (k0, which as a mask
+; means none, is not allocated).
+!103 = !{!"clobbers", !"%rax", !"%rcx", !"%rdx", !"%rsi", !"%rdi", !"%r8", !"%r9", !"%r10", !"%r11", !"%k1-%k7"}
 !104 = !{!"saved", !"%rbx", !"%rbp", !"%r12", !"%r13", !"%r14", !"%r15"}
 !105 = !{!"reserved"}
 !106 = !{!"scratch", !"%r11", !"%r10"}

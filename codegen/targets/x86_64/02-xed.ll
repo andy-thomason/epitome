@@ -1576,67 +1576,67 @@ define void @X_VAESKEYGENASSIST_493_p(i64 "imm" %c, ptr "sym" %m.sym, i64 "reg"=
   ret void
 }
 
-define void @X_VAESENC_494(i64 "reg"="x" %o0, i64 "reg"="x" %o1, i64 "reg"="x" %o2) "enc"="vex(o2, 0, o0, 2, 0, o1, 0, 1) | 11011100 | 11 reg:3=o2&7 rm:3=o0&7" "asm"="vaesenc {o0}, {o1}, {o2}" "asmonly" {
+define void @X_VAESENC_494(i64 "reg"="xe" %o0, i64 "reg"="xe" %o1, i64 "reg"="xe" %o2) "enc"="{ vex(o2, 0, o0, 2, 0, o1, 0, 1) | 11011100 | 11 reg:3=o2&7 rm:3=o0&7 ; evexr(o2, o0, 2, 0, o1, 0, 1, 0, 0, 0) | 11011100 | 11 reg:3=o2&7 rm:3=o0&7 }" "asm"="vaesenc {o0}, {o1}, {o2}" "asmonly" {
   ret void
 }
 
-define void @X_VAESENC_495_m(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="x" %o0, i64 "reg"="x" %o1) "enc"="vexm(o1, m.base, 4, 2, 0, o0, 0, 1) | 11011100 | rm(o1, m.base, 4, 1, m.disp, 0, 1)" "asm"="vaesenc {m.disp}({m.base}), {o0}, {o1}" "asmonly" {
+define void @X_VAESENC_495_m(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="xe" %o0, i64 "reg"="xe" %o1) "enc"="{ vexm(o1, m.base, 4, 2, 0, o0, 0, 1) | 11011100 | rm(o1, m.base, 4, 1, m.disp, 0, 1) ; evexm(o1, m.base, 4, 2, 0, o0, 0, 1, 0, 0, 0) | 11011100 | rm(o1, m.base, 4, 1, m.disp, 0, 16) }" "asm"="vaesenc {m.disp}({m.base}), {o0}, {o1}" "asmonly" {
   ret void
 }
 
-define void @X_VAESENC_495_x(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="r64" %m.index, i64 "imm" %m.scale, i64 "reg"="x" %o0, i64 "reg"="x" %o1) "enc"="vexm(o1, m.base, m.index, 2, 0, o0, 0, 1) | 11011100 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 1)" "asm"="vaesenc {m.disp}({m.base},{m.index},{m.scale}), {o0}, {o1}" "asmonly" {
+define void @X_VAESENC_495_x(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="r64" %m.index, i64 "imm" %m.scale, i64 "reg"="xe" %o0, i64 "reg"="xe" %o1) "enc"="{ vexm(o1, m.base, m.index, 2, 0, o0, 0, 1) | 11011100 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 1) ; evexm(o1, m.base, m.index, 2, 0, o0, 0, 1, 0, 0, 0) | 11011100 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 16) }" "asm"="vaesenc {m.disp}({m.base},{m.index},{m.scale}), {o0}, {o1}" "asmonly" {
   ret void
 }
 
-define void @X_VAESENC_495_p(ptr "sym" %m.sym, i64 "reg"="x" %o0, i64 "reg"="x" %o1) "enc"="vexm(o1, 16, 4, 2, 0, o0, 0, 1) | 11011100 | rm(o1, 16, 4, 1, 0, m.sym, 1)" "asm"="vaesenc {m.sym}(%rip), {o0}, {o1}" "asmonly" "reloc"="pc32x" {
+define void @X_VAESENC_495_p(ptr "sym" %m.sym, i64 "reg"="xe" %o0, i64 "reg"="xe" %o1) "enc"="{ vexm(o1, 16, 4, 2, 0, o0, 0, 1) | 11011100 | rm(o1, 16, 4, 1, 0, m.sym, 1) ; evexm(o1, 16, 4, 2, 0, o0, 0, 1, 0, 0, 0) | 11011100 | rm(o1, 16, 4, 1, 0, m.sym, 16) }" "asm"="vaesenc {m.sym}(%rip), {o0}, {o1}" "asmonly" "reloc"="pc32x" {
   ret void
 }
 
-define void @X_VAESENCLAST_496(i64 "reg"="x" %o0, i64 "reg"="x" %o1, i64 "reg"="x" %o2) "enc"="vex(o2, 0, o0, 2, 0, o1, 0, 1) | 11011101 | 11 reg:3=o2&7 rm:3=o0&7" "asm"="vaesenclast {o0}, {o1}, {o2}" "asmonly" {
+define void @X_VAESENCLAST_496(i64 "reg"="xe" %o0, i64 "reg"="xe" %o1, i64 "reg"="xe" %o2) "enc"="{ vex(o2, 0, o0, 2, 0, o1, 0, 1) | 11011101 | 11 reg:3=o2&7 rm:3=o0&7 ; evexr(o2, o0, 2, 0, o1, 0, 1, 0, 0, 0) | 11011101 | 11 reg:3=o2&7 rm:3=o0&7 }" "asm"="vaesenclast {o0}, {o1}, {o2}" "asmonly" {
   ret void
 }
 
-define void @X_VAESENCLAST_497_m(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="x" %o0, i64 "reg"="x" %o1) "enc"="vexm(o1, m.base, 4, 2, 0, o0, 0, 1) | 11011101 | rm(o1, m.base, 4, 1, m.disp, 0, 1)" "asm"="vaesenclast {m.disp}({m.base}), {o0}, {o1}" "asmonly" {
+define void @X_VAESENCLAST_497_m(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="xe" %o0, i64 "reg"="xe" %o1) "enc"="{ vexm(o1, m.base, 4, 2, 0, o0, 0, 1) | 11011101 | rm(o1, m.base, 4, 1, m.disp, 0, 1) ; evexm(o1, m.base, 4, 2, 0, o0, 0, 1, 0, 0, 0) | 11011101 | rm(o1, m.base, 4, 1, m.disp, 0, 16) }" "asm"="vaesenclast {m.disp}({m.base}), {o0}, {o1}" "asmonly" {
   ret void
 }
 
-define void @X_VAESENCLAST_497_x(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="r64" %m.index, i64 "imm" %m.scale, i64 "reg"="x" %o0, i64 "reg"="x" %o1) "enc"="vexm(o1, m.base, m.index, 2, 0, o0, 0, 1) | 11011101 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 1)" "asm"="vaesenclast {m.disp}({m.base},{m.index},{m.scale}), {o0}, {o1}" "asmonly" {
+define void @X_VAESENCLAST_497_x(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="r64" %m.index, i64 "imm" %m.scale, i64 "reg"="xe" %o0, i64 "reg"="xe" %o1) "enc"="{ vexm(o1, m.base, m.index, 2, 0, o0, 0, 1) | 11011101 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 1) ; evexm(o1, m.base, m.index, 2, 0, o0, 0, 1, 0, 0, 0) | 11011101 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 16) }" "asm"="vaesenclast {m.disp}({m.base},{m.index},{m.scale}), {o0}, {o1}" "asmonly" {
   ret void
 }
 
-define void @X_VAESENCLAST_497_p(ptr "sym" %m.sym, i64 "reg"="x" %o0, i64 "reg"="x" %o1) "enc"="vexm(o1, 16, 4, 2, 0, o0, 0, 1) | 11011101 | rm(o1, 16, 4, 1, 0, m.sym, 1)" "asm"="vaesenclast {m.sym}(%rip), {o0}, {o1}" "asmonly" "reloc"="pc32x" {
+define void @X_VAESENCLAST_497_p(ptr "sym" %m.sym, i64 "reg"="xe" %o0, i64 "reg"="xe" %o1) "enc"="{ vexm(o1, 16, 4, 2, 0, o0, 0, 1) | 11011101 | rm(o1, 16, 4, 1, 0, m.sym, 1) ; evexm(o1, 16, 4, 2, 0, o0, 0, 1, 0, 0, 0) | 11011101 | rm(o1, 16, 4, 1, 0, m.sym, 16) }" "asm"="vaesenclast {m.sym}(%rip), {o0}, {o1}" "asmonly" "reloc"="pc32x" {
   ret void
 }
 
-define void @X_VAESDEC_498(i64 "reg"="x" %o0, i64 "reg"="x" %o1, i64 "reg"="x" %o2) "enc"="vex(o2, 0, o0, 2, 0, o1, 0, 1) | 11011110 | 11 reg:3=o2&7 rm:3=o0&7" "asm"="vaesdec {o0}, {o1}, {o2}" "asmonly" {
+define void @X_VAESDEC_498(i64 "reg"="xe" %o0, i64 "reg"="xe" %o1, i64 "reg"="xe" %o2) "enc"="{ vex(o2, 0, o0, 2, 0, o1, 0, 1) | 11011110 | 11 reg:3=o2&7 rm:3=o0&7 ; evexr(o2, o0, 2, 0, o1, 0, 1, 0, 0, 0) | 11011110 | 11 reg:3=o2&7 rm:3=o0&7 }" "asm"="vaesdec {o0}, {o1}, {o2}" "asmonly" {
   ret void
 }
 
-define void @X_VAESDEC_499_m(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="x" %o0, i64 "reg"="x" %o1) "enc"="vexm(o1, m.base, 4, 2, 0, o0, 0, 1) | 11011110 | rm(o1, m.base, 4, 1, m.disp, 0, 1)" "asm"="vaesdec {m.disp}({m.base}), {o0}, {o1}" "asmonly" {
+define void @X_VAESDEC_499_m(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="xe" %o0, i64 "reg"="xe" %o1) "enc"="{ vexm(o1, m.base, 4, 2, 0, o0, 0, 1) | 11011110 | rm(o1, m.base, 4, 1, m.disp, 0, 1) ; evexm(o1, m.base, 4, 2, 0, o0, 0, 1, 0, 0, 0) | 11011110 | rm(o1, m.base, 4, 1, m.disp, 0, 16) }" "asm"="vaesdec {m.disp}({m.base}), {o0}, {o1}" "asmonly" {
   ret void
 }
 
-define void @X_VAESDEC_499_x(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="r64" %m.index, i64 "imm" %m.scale, i64 "reg"="x" %o0, i64 "reg"="x" %o1) "enc"="vexm(o1, m.base, m.index, 2, 0, o0, 0, 1) | 11011110 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 1)" "asm"="vaesdec {m.disp}({m.base},{m.index},{m.scale}), {o0}, {o1}" "asmonly" {
+define void @X_VAESDEC_499_x(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="r64" %m.index, i64 "imm" %m.scale, i64 "reg"="xe" %o0, i64 "reg"="xe" %o1) "enc"="{ vexm(o1, m.base, m.index, 2, 0, o0, 0, 1) | 11011110 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 1) ; evexm(o1, m.base, m.index, 2, 0, o0, 0, 1, 0, 0, 0) | 11011110 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 16) }" "asm"="vaesdec {m.disp}({m.base},{m.index},{m.scale}), {o0}, {o1}" "asmonly" {
   ret void
 }
 
-define void @X_VAESDEC_499_p(ptr "sym" %m.sym, i64 "reg"="x" %o0, i64 "reg"="x" %o1) "enc"="vexm(o1, 16, 4, 2, 0, o0, 0, 1) | 11011110 | rm(o1, 16, 4, 1, 0, m.sym, 1)" "asm"="vaesdec {m.sym}(%rip), {o0}, {o1}" "asmonly" "reloc"="pc32x" {
+define void @X_VAESDEC_499_p(ptr "sym" %m.sym, i64 "reg"="xe" %o0, i64 "reg"="xe" %o1) "enc"="{ vexm(o1, 16, 4, 2, 0, o0, 0, 1) | 11011110 | rm(o1, 16, 4, 1, 0, m.sym, 1) ; evexm(o1, 16, 4, 2, 0, o0, 0, 1, 0, 0, 0) | 11011110 | rm(o1, 16, 4, 1, 0, m.sym, 16) }" "asm"="vaesdec {m.sym}(%rip), {o0}, {o1}" "asmonly" "reloc"="pc32x" {
   ret void
 }
 
-define void @X_VAESDECLAST_500(i64 "reg"="x" %o0, i64 "reg"="x" %o1, i64 "reg"="x" %o2) "enc"="vex(o2, 0, o0, 2, 0, o1, 0, 1) | 11011111 | 11 reg:3=o2&7 rm:3=o0&7" "asm"="vaesdeclast {o0}, {o1}, {o2}" "asmonly" {
+define void @X_VAESDECLAST_500(i64 "reg"="xe" %o0, i64 "reg"="xe" %o1, i64 "reg"="xe" %o2) "enc"="{ vex(o2, 0, o0, 2, 0, o1, 0, 1) | 11011111 | 11 reg:3=o2&7 rm:3=o0&7 ; evexr(o2, o0, 2, 0, o1, 0, 1, 0, 0, 0) | 11011111 | 11 reg:3=o2&7 rm:3=o0&7 }" "asm"="vaesdeclast {o0}, {o1}, {o2}" "asmonly" {
   ret void
 }
 
-define void @X_VAESDECLAST_501_m(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="x" %o0, i64 "reg"="x" %o1) "enc"="vexm(o1, m.base, 4, 2, 0, o0, 0, 1) | 11011111 | rm(o1, m.base, 4, 1, m.disp, 0, 1)" "asm"="vaesdeclast {m.disp}({m.base}), {o0}, {o1}" "asmonly" {
+define void @X_VAESDECLAST_501_m(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="xe" %o0, i64 "reg"="xe" %o1) "enc"="{ vexm(o1, m.base, 4, 2, 0, o0, 0, 1) | 11011111 | rm(o1, m.base, 4, 1, m.disp, 0, 1) ; evexm(o1, m.base, 4, 2, 0, o0, 0, 1, 0, 0, 0) | 11011111 | rm(o1, m.base, 4, 1, m.disp, 0, 16) }" "asm"="vaesdeclast {m.disp}({m.base}), {o0}, {o1}" "asmonly" {
   ret void
 }
 
-define void @X_VAESDECLAST_501_x(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="r64" %m.index, i64 "imm" %m.scale, i64 "reg"="x" %o0, i64 "reg"="x" %o1) "enc"="vexm(o1, m.base, m.index, 2, 0, o0, 0, 1) | 11011111 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 1)" "asm"="vaesdeclast {m.disp}({m.base},{m.index},{m.scale}), {o0}, {o1}" "asmonly" {
+define void @X_VAESDECLAST_501_x(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="r64" %m.index, i64 "imm" %m.scale, i64 "reg"="xe" %o0, i64 "reg"="xe" %o1) "enc"="{ vexm(o1, m.base, m.index, 2, 0, o0, 0, 1) | 11011111 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 1) ; evexm(o1, m.base, m.index, 2, 0, o0, 0, 1, 0, 0, 0) | 11011111 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 16) }" "asm"="vaesdeclast {m.disp}({m.base},{m.index},{m.scale}), {o0}, {o1}" "asmonly" {
   ret void
 }
 
-define void @X_VAESDECLAST_501_p(ptr "sym" %m.sym, i64 "reg"="x" %o0, i64 "reg"="x" %o1) "enc"="vexm(o1, 16, 4, 2, 0, o0, 0, 1) | 11011111 | rm(o1, 16, 4, 1, 0, m.sym, 1)" "asm"="vaesdeclast {m.sym}(%rip), {o0}, {o1}" "asmonly" "reloc"="pc32x" {
+define void @X_VAESDECLAST_501_p(ptr "sym" %m.sym, i64 "reg"="xe" %o0, i64 "reg"="xe" %o1) "enc"="{ vexm(o1, 16, 4, 2, 0, o0, 0, 1) | 11011111 | rm(o1, 16, 4, 1, 0, m.sym, 1) ; evexm(o1, 16, 4, 2, 0, o0, 0, 1, 0, 0, 0) | 11011111 | rm(o1, 16, 4, 1, 0, m.sym, 16) }" "asm"="vaesdeclast {m.sym}(%rip), {o0}, {o1}" "asmonly" "reloc"="pc32x" {
   ret void
 }
 
@@ -7144,19 +7144,19 @@ define void @X_VMOVNTPS_1229_p(i64 "reg"="ye" %o0, ptr "sym" %m.sym) "enc"="{ ve
   ret void
 }
 
-define void @X_VPCLMULQDQ_1230(i64 "imm" %c, i64 "reg"="x" %o0, i64 "reg"="x" %o1, i64 "reg"="x" %o2) "enc"="vex(o2, 0, o0, 3, 0, o1, 0, 1) | 01000100 | 11 reg:3=o2&7 rm:3=o0&7 | i1:8=c" "asm"="vpclmulqdq ${c}, {o0}, {o1}, {o2}" "asmonly" {
+define void @X_VPCLMULQDQ_1230(i64 "imm" %c, i64 "reg"="xe" %o0, i64 "reg"="xe" %o1, i64 "reg"="xe" %o2) "enc"="{ vex(o2, 0, o0, 3, 0, o1, 0, 1) | 01000100 | 11 reg:3=o2&7 rm:3=o0&7 | i1:8=c ; evexr(o2, o0, 3, 0, o1, 0, 1, 0, 0, 0) | 01000100 | 11 reg:3=o2&7 rm:3=o0&7 | i1:8=c }" "asm"="vpclmulqdq ${c}, {o0}, {o1}, {o2}" "asmonly" {
   ret void
 }
 
-define void @X_VPCLMULQDQ_1231_m(i64 "imm" %c, i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="x" %o0, i64 "reg"="x" %o1) "enc"="vexm(o1, m.base, 4, 3, 0, o0, 0, 1) | 01000100 | rm(o1, m.base, 4, 1, m.disp, 0, 1) | i1:8=c" "asm"="vpclmulqdq ${c}, {m.disp}({m.base}), {o0}, {o1}" "asmonly" {
+define void @X_VPCLMULQDQ_1231_m(i64 "imm" %c, i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="xe" %o0, i64 "reg"="xe" %o1) "enc"="{ vexm(o1, m.base, 4, 3, 0, o0, 0, 1) | 01000100 | rm(o1, m.base, 4, 1, m.disp, 0, 1) | i1:8=c ; evexm(o1, m.base, 4, 3, 0, o0, 0, 1, 0, 0, 0) | 01000100 | rm(o1, m.base, 4, 1, m.disp, 0, 16) | i1:8=c }" "asm"="vpclmulqdq ${c}, {m.disp}({m.base}), {o0}, {o1}" "asmonly" {
   ret void
 }
 
-define void @X_VPCLMULQDQ_1231_x(i64 "imm" %c, i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="r64" %m.index, i64 "imm" %m.scale, i64 "reg"="x" %o0, i64 "reg"="x" %o1) "enc"="vexm(o1, m.base, m.index, 3, 0, o0, 0, 1) | 01000100 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 1) | i1:8=c" "asm"="vpclmulqdq ${c}, {m.disp}({m.base},{m.index},{m.scale}), {o0}, {o1}" "asmonly" {
+define void @X_VPCLMULQDQ_1231_x(i64 "imm" %c, i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="r64" %m.index, i64 "imm" %m.scale, i64 "reg"="xe" %o0, i64 "reg"="xe" %o1) "enc"="{ vexm(o1, m.base, m.index, 3, 0, o0, 0, 1) | 01000100 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 1) | i1:8=c ; evexm(o1, m.base, m.index, 3, 0, o0, 0, 1, 0, 0, 0) | 01000100 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 16) | i1:8=c }" "asm"="vpclmulqdq ${c}, {m.disp}({m.base},{m.index},{m.scale}), {o0}, {o1}" "asmonly" {
   ret void
 }
 
-define void @X_VPCLMULQDQ_1231_p(i64 "imm" %c, ptr "sym" %m.sym, i64 "reg"="x" %o0, i64 "reg"="x" %o1) "enc"="vexm(o1, 16, 4, 3, 0, o0, 0, 1) | 01000100 | rm(o1, 16, 4, 1, 0, m.sym, 1) | i1:8=c" "asm"="vpclmulqdq ${c}, {m.sym}(%rip), {o0}, {o1}" "asmonly" "reloc"="pc32x" {
+define void @X_VPCLMULQDQ_1231_p(i64 "imm" %c, ptr "sym" %m.sym, i64 "reg"="xe" %o0, i64 "reg"="xe" %o1) "enc"="{ vexm(o1, 16, 4, 3, 0, o0, 0, 1) | 01000100 | rm(o1, 16, 4, 1, 0, m.sym, 1) | i1:8=c ; evexm(o1, 16, 4, 3, 0, o0, 0, 1, 0, 0, 0) | 01000100 | rm(o1, 16, 4, 1, 0, m.sym, 16) | i1:8=c }" "asm"="vpclmulqdq ${c}, {m.sym}(%rip), {o0}, {o1}" "asmonly" "reloc"="pc32x" {
   ret void
 }
 
@@ -130745,5 +130745,365 @@ define void @X_XRSTORS64_8381_64_x(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i
 }
 
 define void @X_XRSTORS64_8381_64_p(ptr "sym" %m.sym) "enc"="rex(1, 0, 0, 0) | 00001111 | 11000111 | rm(3, 16, 4, 1, 0, m.sym, 1)" "asm"="xrstors64 {m.sym}(%rip)" "asmonly" "reloc"="pc32x" {
+  ret void
+}
+
+define void @X_GF2P8AFFINEINVQB_8382(i64 "imm" %c, i64 "reg"="x" %o0, i64 "reg"="x" %o1) "enc"="01100110 | rex(0, o1, 0, o0) | 00001111 | 00111010 | 11001111 | 11 reg:3=o1&7 rm:3=o0&7 | i1:8=c" "asm"="gf2p8affineinvqb ${c}, {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_GF2P8AFFINEINVQB_8383_m(i64 "imm" %c, i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="x" %o0) "enc"="01100110 | rex(0, o0, 4, m.base) | 00001111 | 00111010 | 11001111 | rm(o0, m.base, 4, 1, m.disp, 0, 1) | i1:8=c" "asm"="gf2p8affineinvqb ${c}, {m.disp}({m.base}), {o0}" "asmonly" {
+  ret void
+}
+
+define void @X_GF2P8AFFINEINVQB_8383_x(i64 "imm" %c, i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="r64" %m.index, i64 "imm" %m.scale, i64 "reg"="x" %o0) "enc"="01100110 | rex(0, o0, m.index, m.base) | 00001111 | 00111010 | 11001111 | rm(o0, m.base, m.index, m.scale, m.disp, 0, 1) | i1:8=c" "asm"="gf2p8affineinvqb ${c}, {m.disp}({m.base},{m.index},{m.scale}), {o0}" "asmonly" {
+  ret void
+}
+
+define void @X_GF2P8AFFINEINVQB_8383_p(i64 "imm" %c, ptr "sym" %m.sym, i64 "reg"="x" %o0) "enc"="01100110 | rex(0, o0, 0, 0) | 00001111 | 00111010 | 11001111 | rm(o0, 16, 4, 1, 0, m.sym, 1) | i1:8=c" "asm"="gf2p8affineinvqb ${c}, {m.sym}(%rip), {o0}" "asmonly" "reloc"="pc32x" {
+  ret void
+}
+
+define void @X_GF2P8AFFINEQB_8384(i64 "imm" %c, i64 "reg"="x" %o0, i64 "reg"="x" %o1) "enc"="01100110 | rex(0, o1, 0, o0) | 00001111 | 00111010 | 11001110 | 11 reg:3=o1&7 rm:3=o0&7 | i1:8=c" "asm"="gf2p8affineqb ${c}, {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_GF2P8AFFINEQB_8385_m(i64 "imm" %c, i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="x" %o0) "enc"="01100110 | rex(0, o0, 4, m.base) | 00001111 | 00111010 | 11001110 | rm(o0, m.base, 4, 1, m.disp, 0, 1) | i1:8=c" "asm"="gf2p8affineqb ${c}, {m.disp}({m.base}), {o0}" "asmonly" {
+  ret void
+}
+
+define void @X_GF2P8AFFINEQB_8385_x(i64 "imm" %c, i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="r64" %m.index, i64 "imm" %m.scale, i64 "reg"="x" %o0) "enc"="01100110 | rex(0, o0, m.index, m.base) | 00001111 | 00111010 | 11001110 | rm(o0, m.base, m.index, m.scale, m.disp, 0, 1) | i1:8=c" "asm"="gf2p8affineqb ${c}, {m.disp}({m.base},{m.index},{m.scale}), {o0}" "asmonly" {
+  ret void
+}
+
+define void @X_GF2P8AFFINEQB_8385_p(i64 "imm" %c, ptr "sym" %m.sym, i64 "reg"="x" %o0) "enc"="01100110 | rex(0, o0, 0, 0) | 00001111 | 00111010 | 11001110 | rm(o0, 16, 4, 1, 0, m.sym, 1) | i1:8=c" "asm"="gf2p8affineqb ${c}, {m.sym}(%rip), {o0}" "asmonly" "reloc"="pc32x" {
+  ret void
+}
+
+define void @X_GF2P8MULB_8386(i64 "reg"="x" %o0, i64 "reg"="x" %o1) "enc"="01100110 | rex(0, o1, 0, o0) | 00001111 | 00111000 | 11001111 | 11 reg:3=o1&7 rm:3=o0&7" "asm"="gf2p8mulb {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_GF2P8MULB_8387_m(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="x" %o0) "enc"="01100110 | rex(0, o0, 4, m.base) | 00001111 | 00111000 | 11001111 | rm(o0, m.base, 4, 1, m.disp, 0, 1)" "asm"="gf2p8mulb {m.disp}({m.base}), {o0}" "asmonly" {
+  ret void
+}
+
+define void @X_GF2P8MULB_8387_x(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="r64" %m.index, i64 "imm" %m.scale, i64 "reg"="x" %o0) "enc"="01100110 | rex(0, o0, m.index, m.base) | 00001111 | 00111000 | 11001111 | rm(o0, m.base, m.index, m.scale, m.disp, 0, 1)" "asm"="gf2p8mulb {m.disp}({m.base},{m.index},{m.scale}), {o0}" "asmonly" {
+  ret void
+}
+
+define void @X_GF2P8MULB_8387_p(ptr "sym" %m.sym, i64 "reg"="x" %o0) "enc"="01100110 | rex(0, o0, 0, 0) | 00001111 | 00111000 | 11001111 | rm(o0, 16, 4, 1, 0, m.sym, 1)" "asm"="gf2p8mulb {m.sym}(%rip), {o0}" "asmonly" "reloc"="pc32x" {
+  ret void
+}
+
+define void @X_VGF2P8AFFINEINVQB_8388(i64 "imm" %c, i64 "reg"="x" %o0, i64 "reg"="x" %o1, i64 "reg"="x" %o2) "enc"="vex(o2, 0, o0, 3, 1, o1, 0, 1) | 11001111 | 11 reg:3=o2&7 rm:3=o0&7 | i1:8=c" "asm"="vgf2p8affineinvqb ${c}, {o0}, {o1}, {o2}" "asmonly" {
+  ret void
+}
+
+define void @X_VGF2P8AFFINEINVQB_8389_m(i64 "imm" %c, i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="x" %o0, i64 "reg"="x" %o1) "enc"="vexm(o1, m.base, 4, 3, 1, o0, 0, 1) | 11001111 | rm(o1, m.base, 4, 1, m.disp, 0, 1) | i1:8=c" "asm"="vgf2p8affineinvqb ${c}, {m.disp}({m.base}), {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_VGF2P8AFFINEINVQB_8389_x(i64 "imm" %c, i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="r64" %m.index, i64 "imm" %m.scale, i64 "reg"="x" %o0, i64 "reg"="x" %o1) "enc"="vexm(o1, m.base, m.index, 3, 1, o0, 0, 1) | 11001111 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 1) | i1:8=c" "asm"="vgf2p8affineinvqb ${c}, {m.disp}({m.base},{m.index},{m.scale}), {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_VGF2P8AFFINEINVQB_8389_p(i64 "imm" %c, ptr "sym" %m.sym, i64 "reg"="x" %o0, i64 "reg"="x" %o1) "enc"="vexm(o1, 16, 4, 3, 1, o0, 0, 1) | 11001111 | rm(o1, 16, 4, 1, 0, m.sym, 1) | i1:8=c" "asm"="vgf2p8affineinvqb ${c}, {m.sym}(%rip), {o0}, {o1}" "asmonly" "reloc"="pc32x" {
+  ret void
+}
+
+define void @X_VGF2P8AFFINEINVQB_8390(i64 "imm" %c, i64 "reg"="y" %o0, i64 "reg"="y" %o1, i64 "reg"="y" %o2) "enc"="vex(o2, 0, o0, 3, 1, o1, 1, 1) | 11001111 | 11 reg:3=o2&7 rm:3=o0&7 | i1:8=c" "asm"="vgf2p8affineinvqb ${c}, {o0}, {o1}, {o2}" "asmonly" {
+  ret void
+}
+
+define void @X_VGF2P8AFFINEINVQB_8391_m(i64 "imm" %c, i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="y" %o0, i64 "reg"="y" %o1) "enc"="vexm(o1, m.base, 4, 3, 1, o0, 1, 1) | 11001111 | rm(o1, m.base, 4, 1, m.disp, 0, 1) | i1:8=c" "asm"="vgf2p8affineinvqb ${c}, {m.disp}({m.base}), {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_VGF2P8AFFINEINVQB_8391_x(i64 "imm" %c, i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="r64" %m.index, i64 "imm" %m.scale, i64 "reg"="y" %o0, i64 "reg"="y" %o1) "enc"="vexm(o1, m.base, m.index, 3, 1, o0, 1, 1) | 11001111 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 1) | i1:8=c" "asm"="vgf2p8affineinvqb ${c}, {m.disp}({m.base},{m.index},{m.scale}), {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_VGF2P8AFFINEINVQB_8391_p(i64 "imm" %c, ptr "sym" %m.sym, i64 "reg"="y" %o0, i64 "reg"="y" %o1) "enc"="vexm(o1, 16, 4, 3, 1, o0, 1, 1) | 11001111 | rm(o1, 16, 4, 1, 0, m.sym, 1) | i1:8=c" "asm"="vgf2p8affineinvqb ${c}, {m.sym}(%rip), {o0}, {o1}" "asmonly" "reloc"="pc32x" {
+  ret void
+}
+
+define void @X_VGF2P8AFFINEQB_8392(i64 "imm" %c, i64 "reg"="x" %o0, i64 "reg"="x" %o1, i64 "reg"="x" %o2) "enc"="vex(o2, 0, o0, 3, 1, o1, 0, 1) | 11001110 | 11 reg:3=o2&7 rm:3=o0&7 | i1:8=c" "asm"="vgf2p8affineqb ${c}, {o0}, {o1}, {o2}" "asmonly" {
+  ret void
+}
+
+define void @X_VGF2P8AFFINEQB_8393_m(i64 "imm" %c, i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="x" %o0, i64 "reg"="x" %o1) "enc"="vexm(o1, m.base, 4, 3, 1, o0, 0, 1) | 11001110 | rm(o1, m.base, 4, 1, m.disp, 0, 1) | i1:8=c" "asm"="vgf2p8affineqb ${c}, {m.disp}({m.base}), {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_VGF2P8AFFINEQB_8393_x(i64 "imm" %c, i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="r64" %m.index, i64 "imm" %m.scale, i64 "reg"="x" %o0, i64 "reg"="x" %o1) "enc"="vexm(o1, m.base, m.index, 3, 1, o0, 0, 1) | 11001110 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 1) | i1:8=c" "asm"="vgf2p8affineqb ${c}, {m.disp}({m.base},{m.index},{m.scale}), {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_VGF2P8AFFINEQB_8393_p(i64 "imm" %c, ptr "sym" %m.sym, i64 "reg"="x" %o0, i64 "reg"="x" %o1) "enc"="vexm(o1, 16, 4, 3, 1, o0, 0, 1) | 11001110 | rm(o1, 16, 4, 1, 0, m.sym, 1) | i1:8=c" "asm"="vgf2p8affineqb ${c}, {m.sym}(%rip), {o0}, {o1}" "asmonly" "reloc"="pc32x" {
+  ret void
+}
+
+define void @X_VGF2P8AFFINEQB_8394(i64 "imm" %c, i64 "reg"="y" %o0, i64 "reg"="y" %o1, i64 "reg"="y" %o2) "enc"="vex(o2, 0, o0, 3, 1, o1, 1, 1) | 11001110 | 11 reg:3=o2&7 rm:3=o0&7 | i1:8=c" "asm"="vgf2p8affineqb ${c}, {o0}, {o1}, {o2}" "asmonly" {
+  ret void
+}
+
+define void @X_VGF2P8AFFINEQB_8395_m(i64 "imm" %c, i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="y" %o0, i64 "reg"="y" %o1) "enc"="vexm(o1, m.base, 4, 3, 1, o0, 1, 1) | 11001110 | rm(o1, m.base, 4, 1, m.disp, 0, 1) | i1:8=c" "asm"="vgf2p8affineqb ${c}, {m.disp}({m.base}), {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_VGF2P8AFFINEQB_8395_x(i64 "imm" %c, i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="r64" %m.index, i64 "imm" %m.scale, i64 "reg"="y" %o0, i64 "reg"="y" %o1) "enc"="vexm(o1, m.base, m.index, 3, 1, o0, 1, 1) | 11001110 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 1) | i1:8=c" "asm"="vgf2p8affineqb ${c}, {m.disp}({m.base},{m.index},{m.scale}), {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_VGF2P8AFFINEQB_8395_p(i64 "imm" %c, ptr "sym" %m.sym, i64 "reg"="y" %o0, i64 "reg"="y" %o1) "enc"="vexm(o1, 16, 4, 3, 1, o0, 1, 1) | 11001110 | rm(o1, 16, 4, 1, 0, m.sym, 1) | i1:8=c" "asm"="vgf2p8affineqb ${c}, {m.sym}(%rip), {o0}, {o1}" "asmonly" "reloc"="pc32x" {
+  ret void
+}
+
+define void @X_VGF2P8MULB_8396(i64 "reg"="x" %o0, i64 "reg"="x" %o1, i64 "reg"="x" %o2) "enc"="vex(o2, 0, o0, 2, 0, o1, 0, 1) | 11001111 | 11 reg:3=o2&7 rm:3=o0&7" "asm"="vgf2p8mulb {o0}, {o1}, {o2}" "asmonly" {
+  ret void
+}
+
+define void @X_VGF2P8MULB_8397_m(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="x" %o0, i64 "reg"="x" %o1) "enc"="vexm(o1, m.base, 4, 2, 0, o0, 0, 1) | 11001111 | rm(o1, m.base, 4, 1, m.disp, 0, 1)" "asm"="vgf2p8mulb {m.disp}({m.base}), {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_VGF2P8MULB_8397_x(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="r64" %m.index, i64 "imm" %m.scale, i64 "reg"="x" %o0, i64 "reg"="x" %o1) "enc"="vexm(o1, m.base, m.index, 2, 0, o0, 0, 1) | 11001111 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 1)" "asm"="vgf2p8mulb {m.disp}({m.base},{m.index},{m.scale}), {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_VGF2P8MULB_8397_p(ptr "sym" %m.sym, i64 "reg"="x" %o0, i64 "reg"="x" %o1) "enc"="vexm(o1, 16, 4, 2, 0, o0, 0, 1) | 11001111 | rm(o1, 16, 4, 1, 0, m.sym, 1)" "asm"="vgf2p8mulb {m.sym}(%rip), {o0}, {o1}" "asmonly" "reloc"="pc32x" {
+  ret void
+}
+
+define void @X_VGF2P8MULB_8398(i64 "reg"="y" %o0, i64 "reg"="y" %o1, i64 "reg"="y" %o2) "enc"="vex(o2, 0, o0, 2, 0, o1, 1, 1) | 11001111 | 11 reg:3=o2&7 rm:3=o0&7" "asm"="vgf2p8mulb {o0}, {o1}, {o2}" "asmonly" {
+  ret void
+}
+
+define void @X_VGF2P8MULB_8399_m(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="y" %o0, i64 "reg"="y" %o1) "enc"="vexm(o1, m.base, 4, 2, 0, o0, 1, 1) | 11001111 | rm(o1, m.base, 4, 1, m.disp, 0, 1)" "asm"="vgf2p8mulb {m.disp}({m.base}), {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_VGF2P8MULB_8399_x(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="r64" %m.index, i64 "imm" %m.scale, i64 "reg"="y" %o0, i64 "reg"="y" %o1) "enc"="vexm(o1, m.base, m.index, 2, 0, o0, 1, 1) | 11001111 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 1)" "asm"="vgf2p8mulb {m.disp}({m.base},{m.index},{m.scale}), {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_VGF2P8MULB_8399_p(ptr "sym" %m.sym, i64 "reg"="y" %o0, i64 "reg"="y" %o1) "enc"="vexm(o1, 16, 4, 2, 0, o0, 1, 1) | 11001111 | rm(o1, 16, 4, 1, 0, m.sym, 1)" "asm"="vgf2p8mulb {m.sym}(%rip), {o0}, {o1}" "asmonly" "reloc"="pc32x" {
+  ret void
+}
+
+define void @X_VAESDEC_8418(i64 "reg"="ye" %o0, i64 "reg"="ye" %o1, i64 "reg"="ye" %o2) "enc"="{ vex(o2, 0, o0, 2, 0, o1, 1, 1) | 11011110 | 11 reg:3=o2&7 rm:3=o0&7 ; evexr(o2, o0, 2, 0, o1, 1, 1, 0, 0, 0) | 11011110 | 11 reg:3=o2&7 rm:3=o0&7 }" "asm"="vaesdec {o0}, {o1}, {o2}" "asmonly" {
+  ret void
+}
+
+define void @X_VAESDEC_8419_m(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="ye" %o0, i64 "reg"="ye" %o1) "enc"="{ vexm(o1, m.base, 4, 2, 0, o0, 1, 1) | 11011110 | rm(o1, m.base, 4, 1, m.disp, 0, 1) ; evexm(o1, m.base, 4, 2, 0, o0, 1, 1, 0, 0, 0) | 11011110 | rm(o1, m.base, 4, 1, m.disp, 0, 32) }" "asm"="vaesdec {m.disp}({m.base}), {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_VAESDEC_8419_x(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="r64" %m.index, i64 "imm" %m.scale, i64 "reg"="ye" %o0, i64 "reg"="ye" %o1) "enc"="{ vexm(o1, m.base, m.index, 2, 0, o0, 1, 1) | 11011110 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 1) ; evexm(o1, m.base, m.index, 2, 0, o0, 1, 1, 0, 0, 0) | 11011110 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 32) }" "asm"="vaesdec {m.disp}({m.base},{m.index},{m.scale}), {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_VAESDEC_8419_p(ptr "sym" %m.sym, i64 "reg"="ye" %o0, i64 "reg"="ye" %o1) "enc"="{ vexm(o1, 16, 4, 2, 0, o0, 1, 1) | 11011110 | rm(o1, 16, 4, 1, 0, m.sym, 1) ; evexm(o1, 16, 4, 2, 0, o0, 1, 1, 0, 0, 0) | 11011110 | rm(o1, 16, 4, 1, 0, m.sym, 32) }" "asm"="vaesdec {m.sym}(%rip), {o0}, {o1}" "asmonly" "reloc"="pc32x" {
+  ret void
+}
+
+define void @X_VAESDECLAST_8420(i64 "reg"="ye" %o0, i64 "reg"="ye" %o1, i64 "reg"="ye" %o2) "enc"="{ vex(o2, 0, o0, 2, 0, o1, 1, 1) | 11011111 | 11 reg:3=o2&7 rm:3=o0&7 ; evexr(o2, o0, 2, 0, o1, 1, 1, 0, 0, 0) | 11011111 | 11 reg:3=o2&7 rm:3=o0&7 }" "asm"="vaesdeclast {o0}, {o1}, {o2}" "asmonly" {
+  ret void
+}
+
+define void @X_VAESDECLAST_8421_m(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="ye" %o0, i64 "reg"="ye" %o1) "enc"="{ vexm(o1, m.base, 4, 2, 0, o0, 1, 1) | 11011111 | rm(o1, m.base, 4, 1, m.disp, 0, 1) ; evexm(o1, m.base, 4, 2, 0, o0, 1, 1, 0, 0, 0) | 11011111 | rm(o1, m.base, 4, 1, m.disp, 0, 32) }" "asm"="vaesdeclast {m.disp}({m.base}), {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_VAESDECLAST_8421_x(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="r64" %m.index, i64 "imm" %m.scale, i64 "reg"="ye" %o0, i64 "reg"="ye" %o1) "enc"="{ vexm(o1, m.base, m.index, 2, 0, o0, 1, 1) | 11011111 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 1) ; evexm(o1, m.base, m.index, 2, 0, o0, 1, 1, 0, 0, 0) | 11011111 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 32) }" "asm"="vaesdeclast {m.disp}({m.base},{m.index},{m.scale}), {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_VAESDECLAST_8421_p(ptr "sym" %m.sym, i64 "reg"="ye" %o0, i64 "reg"="ye" %o1) "enc"="{ vexm(o1, 16, 4, 2, 0, o0, 1, 1) | 11011111 | rm(o1, 16, 4, 1, 0, m.sym, 1) ; evexm(o1, 16, 4, 2, 0, o0, 1, 1, 0, 0, 0) | 11011111 | rm(o1, 16, 4, 1, 0, m.sym, 32) }" "asm"="vaesdeclast {m.sym}(%rip), {o0}, {o1}" "asmonly" "reloc"="pc32x" {
+  ret void
+}
+
+define void @X_VAESENC_8422(i64 "reg"="ye" %o0, i64 "reg"="ye" %o1, i64 "reg"="ye" %o2) "enc"="{ vex(o2, 0, o0, 2, 0, o1, 1, 1) | 11011100 | 11 reg:3=o2&7 rm:3=o0&7 ; evexr(o2, o0, 2, 0, o1, 1, 1, 0, 0, 0) | 11011100 | 11 reg:3=o2&7 rm:3=o0&7 }" "asm"="vaesenc {o0}, {o1}, {o2}" "asmonly" {
+  ret void
+}
+
+define void @X_VAESENC_8423_m(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="ye" %o0, i64 "reg"="ye" %o1) "enc"="{ vexm(o1, m.base, 4, 2, 0, o0, 1, 1) | 11011100 | rm(o1, m.base, 4, 1, m.disp, 0, 1) ; evexm(o1, m.base, 4, 2, 0, o0, 1, 1, 0, 0, 0) | 11011100 | rm(o1, m.base, 4, 1, m.disp, 0, 32) }" "asm"="vaesenc {m.disp}({m.base}), {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_VAESENC_8423_x(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="r64" %m.index, i64 "imm" %m.scale, i64 "reg"="ye" %o0, i64 "reg"="ye" %o1) "enc"="{ vexm(o1, m.base, m.index, 2, 0, o0, 1, 1) | 11011100 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 1) ; evexm(o1, m.base, m.index, 2, 0, o0, 1, 1, 0, 0, 0) | 11011100 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 32) }" "asm"="vaesenc {m.disp}({m.base},{m.index},{m.scale}), {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_VAESENC_8423_p(ptr "sym" %m.sym, i64 "reg"="ye" %o0, i64 "reg"="ye" %o1) "enc"="{ vexm(o1, 16, 4, 2, 0, o0, 1, 1) | 11011100 | rm(o1, 16, 4, 1, 0, m.sym, 1) ; evexm(o1, 16, 4, 2, 0, o0, 1, 1, 0, 0, 0) | 11011100 | rm(o1, 16, 4, 1, 0, m.sym, 32) }" "asm"="vaesenc {m.sym}(%rip), {o0}, {o1}" "asmonly" "reloc"="pc32x" {
+  ret void
+}
+
+define void @X_VAESENCLAST_8424(i64 "reg"="ye" %o0, i64 "reg"="ye" %o1, i64 "reg"="ye" %o2) "enc"="{ vex(o2, 0, o0, 2, 0, o1, 1, 1) | 11011101 | 11 reg:3=o2&7 rm:3=o0&7 ; evexr(o2, o0, 2, 0, o1, 1, 1, 0, 0, 0) | 11011101 | 11 reg:3=o2&7 rm:3=o0&7 }" "asm"="vaesenclast {o0}, {o1}, {o2}" "asmonly" {
+  ret void
+}
+
+define void @X_VAESENCLAST_8425_m(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="ye" %o0, i64 "reg"="ye" %o1) "enc"="{ vexm(o1, m.base, 4, 2, 0, o0, 1, 1) | 11011101 | rm(o1, m.base, 4, 1, m.disp, 0, 1) ; evexm(o1, m.base, 4, 2, 0, o0, 1, 1, 0, 0, 0) | 11011101 | rm(o1, m.base, 4, 1, m.disp, 0, 32) }" "asm"="vaesenclast {m.disp}({m.base}), {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_VAESENCLAST_8425_x(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="r64" %m.index, i64 "imm" %m.scale, i64 "reg"="ye" %o0, i64 "reg"="ye" %o1) "enc"="{ vexm(o1, m.base, m.index, 2, 0, o0, 1, 1) | 11011101 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 1) ; evexm(o1, m.base, m.index, 2, 0, o0, 1, 1, 0, 0, 0) | 11011101 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 32) }" "asm"="vaesenclast {m.disp}({m.base},{m.index},{m.scale}), {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_VAESENCLAST_8425_p(ptr "sym" %m.sym, i64 "reg"="ye" %o0, i64 "reg"="ye" %o1) "enc"="{ vexm(o1, 16, 4, 2, 0, o0, 1, 1) | 11011101 | rm(o1, 16, 4, 1, 0, m.sym, 1) ; evexm(o1, 16, 4, 2, 0, o0, 1, 1, 0, 0, 0) | 11011101 | rm(o1, 16, 4, 1, 0, m.sym, 32) }" "asm"="vaesenclast {m.sym}(%rip), {o0}, {o1}" "asmonly" "reloc"="pc32x" {
+  ret void
+}
+
+define void @X_VPCLMULQDQ_8426(i64 "imm" %c, i64 "reg"="ye" %o0, i64 "reg"="ye" %o1, i64 "reg"="ye" %o2) "enc"="{ vex(o2, 0, o0, 3, 0, o1, 1, 1) | 01000100 | 11 reg:3=o2&7 rm:3=o0&7 | i1:8=c ; evexr(o2, o0, 3, 0, o1, 1, 1, 0, 0, 0) | 01000100 | 11 reg:3=o2&7 rm:3=o0&7 | i1:8=c }" "asm"="vpclmulqdq ${c}, {o0}, {o1}, {o2}" "asmonly" {
+  ret void
+}
+
+define void @X_VPCLMULQDQ_8427_m(i64 "imm" %c, i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="ye" %o0, i64 "reg"="ye" %o1) "enc"="{ vexm(o1, m.base, 4, 3, 0, o0, 1, 1) | 01000100 | rm(o1, m.base, 4, 1, m.disp, 0, 1) | i1:8=c ; evexm(o1, m.base, 4, 3, 0, o0, 1, 1, 0, 0, 0) | 01000100 | rm(o1, m.base, 4, 1, m.disp, 0, 32) | i1:8=c }" "asm"="vpclmulqdq ${c}, {m.disp}({m.base}), {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_VPCLMULQDQ_8427_x(i64 "imm" %c, i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="r64" %m.index, i64 "imm" %m.scale, i64 "reg"="ye" %o0, i64 "reg"="ye" %o1) "enc"="{ vexm(o1, m.base, m.index, 3, 0, o0, 1, 1) | 01000100 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 1) | i1:8=c ; evexm(o1, m.base, m.index, 3, 0, o0, 1, 1, 0, 0, 0) | 01000100 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 32) | i1:8=c }" "asm"="vpclmulqdq ${c}, {m.disp}({m.base},{m.index},{m.scale}), {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_VPCLMULQDQ_8427_p(i64 "imm" %c, ptr "sym" %m.sym, i64 "reg"="ye" %o0, i64 "reg"="ye" %o1) "enc"="{ vexm(o1, 16, 4, 3, 0, o0, 1, 1) | 01000100 | rm(o1, 16, 4, 1, 0, m.sym, 1) | i1:8=c ; evexm(o1, 16, 4, 3, 0, o0, 1, 1, 0, 0, 0) | 01000100 | rm(o1, 16, 4, 1, 0, m.sym, 32) | i1:8=c }" "asm"="vpclmulqdq ${c}, {m.sym}(%rip), {o0}, {o1}" "asmonly" "reloc"="pc32x" {
+  ret void
+}
+
+define void @X_VAESDEC_8432_u(i64 "reg"="z" %o0, i64 "reg"="z" %o1, i64 "reg"="z" %o2) "enc"="evexr(o2, o0, 2, 0, o1, 2, 1, 0, 0, 0) | 11011110 | 11 reg:3=o2&7 rm:3=o0&7" "asm"="vaesdec {o0}, {o1}, {o2}" "asmonly" {
+  ret void
+}
+
+define void @X_VAESDEC_8433_m_u(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="z" %o0, i64 "reg"="z" %o1) "enc"="evexm(o1, m.base, 4, 2, 0, o0, 2, 1, 0, 0, 0) | 11011110 | rm(o1, m.base, 4, 1, m.disp, 0, 64)" "asm"="vaesdec {m.disp}({m.base}), {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_VAESDEC_8433_x_u(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="r64" %m.index, i64 "imm" %m.scale, i64 "reg"="z" %o0, i64 "reg"="z" %o1) "enc"="evexm(o1, m.base, m.index, 2, 0, o0, 2, 1, 0, 0, 0) | 11011110 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 64)" "asm"="vaesdec {m.disp}({m.base},{m.index},{m.scale}), {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_VAESDEC_8433_p_u(ptr "sym" %m.sym, i64 "reg"="z" %o0, i64 "reg"="z" %o1) "enc"="evexm(o1, 16, 4, 2, 0, o0, 2, 1, 0, 0, 0) | 11011110 | rm(o1, 16, 4, 1, 0, m.sym, 64)" "asm"="vaesdec {m.sym}(%rip), {o0}, {o1}" "asmonly" "reloc"="pc32x" {
+  ret void
+}
+
+define void @X_VAESDECLAST_8438_u(i64 "reg"="z" %o0, i64 "reg"="z" %o1, i64 "reg"="z" %o2) "enc"="evexr(o2, o0, 2, 0, o1, 2, 1, 0, 0, 0) | 11011111 | 11 reg:3=o2&7 rm:3=o0&7" "asm"="vaesdeclast {o0}, {o1}, {o2}" "asmonly" {
+  ret void
+}
+
+define void @X_VAESDECLAST_8439_m_u(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="z" %o0, i64 "reg"="z" %o1) "enc"="evexm(o1, m.base, 4, 2, 0, o0, 2, 1, 0, 0, 0) | 11011111 | rm(o1, m.base, 4, 1, m.disp, 0, 64)" "asm"="vaesdeclast {m.disp}({m.base}), {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_VAESDECLAST_8439_x_u(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="r64" %m.index, i64 "imm" %m.scale, i64 "reg"="z" %o0, i64 "reg"="z" %o1) "enc"="evexm(o1, m.base, m.index, 2, 0, o0, 2, 1, 0, 0, 0) | 11011111 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 64)" "asm"="vaesdeclast {m.disp}({m.base},{m.index},{m.scale}), {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_VAESDECLAST_8439_p_u(ptr "sym" %m.sym, i64 "reg"="z" %o0, i64 "reg"="z" %o1) "enc"="evexm(o1, 16, 4, 2, 0, o0, 2, 1, 0, 0, 0) | 11011111 | rm(o1, 16, 4, 1, 0, m.sym, 64)" "asm"="vaesdeclast {m.sym}(%rip), {o0}, {o1}" "asmonly" "reloc"="pc32x" {
+  ret void
+}
+
+define void @X_VAESENC_8444_u(i64 "reg"="z" %o0, i64 "reg"="z" %o1, i64 "reg"="z" %o2) "enc"="evexr(o2, o0, 2, 0, o1, 2, 1, 0, 0, 0) | 11011100 | 11 reg:3=o2&7 rm:3=o0&7" "asm"="vaesenc {o0}, {o1}, {o2}" "asmonly" {
+  ret void
+}
+
+define void @X_VAESENC_8445_m_u(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="z" %o0, i64 "reg"="z" %o1) "enc"="evexm(o1, m.base, 4, 2, 0, o0, 2, 1, 0, 0, 0) | 11011100 | rm(o1, m.base, 4, 1, m.disp, 0, 64)" "asm"="vaesenc {m.disp}({m.base}), {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_VAESENC_8445_x_u(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="r64" %m.index, i64 "imm" %m.scale, i64 "reg"="z" %o0, i64 "reg"="z" %o1) "enc"="evexm(o1, m.base, m.index, 2, 0, o0, 2, 1, 0, 0, 0) | 11011100 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 64)" "asm"="vaesenc {m.disp}({m.base},{m.index},{m.scale}), {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_VAESENC_8445_p_u(ptr "sym" %m.sym, i64 "reg"="z" %o0, i64 "reg"="z" %o1) "enc"="evexm(o1, 16, 4, 2, 0, o0, 2, 1, 0, 0, 0) | 11011100 | rm(o1, 16, 4, 1, 0, m.sym, 64)" "asm"="vaesenc {m.sym}(%rip), {o0}, {o1}" "asmonly" "reloc"="pc32x" {
+  ret void
+}
+
+define void @X_VAESENCLAST_8450_u(i64 "reg"="z" %o0, i64 "reg"="z" %o1, i64 "reg"="z" %o2) "enc"="evexr(o2, o0, 2, 0, o1, 2, 1, 0, 0, 0) | 11011101 | 11 reg:3=o2&7 rm:3=o0&7" "asm"="vaesenclast {o0}, {o1}, {o2}" "asmonly" {
+  ret void
+}
+
+define void @X_VAESENCLAST_8451_m_u(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="z" %o0, i64 "reg"="z" %o1) "enc"="evexm(o1, m.base, 4, 2, 0, o0, 2, 1, 0, 0, 0) | 11011101 | rm(o1, m.base, 4, 1, m.disp, 0, 64)" "asm"="vaesenclast {m.disp}({m.base}), {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_VAESENCLAST_8451_x_u(i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="r64" %m.index, i64 "imm" %m.scale, i64 "reg"="z" %o0, i64 "reg"="z" %o1) "enc"="evexm(o1, m.base, m.index, 2, 0, o0, 2, 1, 0, 0, 0) | 11011101 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 64)" "asm"="vaesenclast {m.disp}({m.base},{m.index},{m.scale}), {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_VAESENCLAST_8451_p_u(ptr "sym" %m.sym, i64 "reg"="z" %o0, i64 "reg"="z" %o1) "enc"="evexm(o1, 16, 4, 2, 0, o0, 2, 1, 0, 0, 0) | 11011101 | rm(o1, 16, 4, 1, 0, m.sym, 64)" "asm"="vaesenclast {m.sym}(%rip), {o0}, {o1}" "asmonly" "reloc"="pc32x" {
+  ret void
+}
+
+define void @X_VPCLMULQDQ_8456_u(i64 "imm" %c, i64 "reg"="z" %o0, i64 "reg"="z" %o1, i64 "reg"="z" %o2) "enc"="evexr(o2, o0, 3, 0, o1, 2, 1, 0, 0, 0) | 01000100 | 11 reg:3=o2&7 rm:3=o0&7 | i1:8=c" "asm"="vpclmulqdq ${c}, {o0}, {o1}, {o2}" "asmonly" {
+  ret void
+}
+
+define void @X_VPCLMULQDQ_8457_m_u(i64 "imm" %c, i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="z" %o0, i64 "reg"="z" %o1) "enc"="evexm(o1, m.base, 4, 3, 0, o0, 2, 1, 0, 0, 0) | 01000100 | rm(o1, m.base, 4, 1, m.disp, 0, 64) | i1:8=c" "asm"="vpclmulqdq ${c}, {m.disp}({m.base}), {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_VPCLMULQDQ_8457_x_u(i64 "imm" %c, i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="r64" %m.index, i64 "imm" %m.scale, i64 "reg"="z" %o0, i64 "reg"="z" %o1) "enc"="evexm(o1, m.base, m.index, 3, 0, o0, 2, 1, 0, 0, 0) | 01000100 | rm(o1, m.base, m.index, m.scale, m.disp, 0, 64) | i1:8=c" "asm"="vpclmulqdq ${c}, {m.disp}({m.base},{m.index},{m.scale}), {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_VPCLMULQDQ_8457_p_u(i64 "imm" %c, ptr "sym" %m.sym, i64 "reg"="z" %o0, i64 "reg"="z" %o1) "enc"="evexm(o1, 16, 4, 3, 0, o0, 2, 1, 0, 0, 0) | 01000100 | rm(o1, 16, 4, 1, 0, m.sym, 64) | i1:8=c" "asm"="vpclmulqdq ${c}, {m.sym}(%rip), {o0}, {o1}" "asmonly" "reloc"="pc32x" {
+  ret void
+}
+
+define void @X_EXTRQ_8458(i64 "imm" %c, i64 "imm" %c2, i64 "reg"="x" %o0) "enc"="01100110 | rex(0, 0, 0, o0) | 00001111 | 01111000 | 11 000 rm:3=o0&7 | i1:8=c2 | i2:8=c" "asm"="extrq ${c}, ${c2}, {o0}" "asmonly" {
+  ret void
+}
+
+define void @X_EXTRQ_8459(i64 "reg"="x" %o0, i64 "reg"="x" %o1) "enc"="01100110 | rex(0, o1, 0, o0) | 00001111 | 01111001 | 11 reg:3=o1&7 rm:3=o0&7" "asm"="extrq {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_INSERTQ_8460(i64 "imm" %c, i64 "imm" %c2, i64 "reg"="x" %o0, i64 "reg"="x" %o1) "enc"="11110010 | rex(0, o1, 0, o0) | 00001111 | 01111000 | 11 reg:3=o1&7 rm:3=o0&7 | i1:8=c2 | i2:8=c" "asm"="insertq ${c}, ${c2}, {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_INSERTQ_8461(i64 "reg"="x" %o0, i64 "reg"="x" %o1) "enc"="11110010 | rex(0, o1, 0, o0) | 00001111 | 01111001 | 11 reg:3=o1&7 rm:3=o0&7" "asm"="insertq {o0}, {o1}" "asmonly" {
+  ret void
+}
+
+define void @X_MOVNTSD_8462_m(i64 "reg"="x" %o0, i64 "imm" %m.disp, i64 "reg"="r64" %m.base) "enc"="11110010 | rex(0, o0, 4, m.base) | 00001111 | 00101011 | rm(o0, m.base, 4, 1, m.disp, 0, 1)" "asm"="movntsd {o0}, {m.disp}({m.base})" "asmonly" {
+  ret void
+}
+
+define void @X_MOVNTSD_8462_x(i64 "reg"="x" %o0, i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="r64" %m.index, i64 "imm" %m.scale) "enc"="11110010 | rex(0, o0, m.index, m.base) | 00001111 | 00101011 | rm(o0, m.base, m.index, m.scale, m.disp, 0, 1)" "asm"="movntsd {o0}, {m.disp}({m.base},{m.index},{m.scale})" "asmonly" {
+  ret void
+}
+
+define void @X_MOVNTSD_8462_p(i64 "reg"="x" %o0, ptr "sym" %m.sym) "enc"="11110010 | rex(0, o0, 0, 0) | 00001111 | 00101011 | rm(o0, 16, 4, 1, 0, m.sym, 1)" "asm"="movntsd {o0}, {m.sym}(%rip)" "asmonly" "reloc"="pc32x" {
+  ret void
+}
+
+define void @X_MOVNTSS_8463_m(i64 "reg"="x" %o0, i64 "imm" %m.disp, i64 "reg"="r64" %m.base) "enc"="11110011 | rex(0, o0, 4, m.base) | 00001111 | 00101011 | rm(o0, m.base, 4, 1, m.disp, 0, 1)" "asm"="movntss {o0}, {m.disp}({m.base})" "asmonly" {
+  ret void
+}
+
+define void @X_MOVNTSS_8463_x(i64 "reg"="x" %o0, i64 "imm" %m.disp, i64 "reg"="r64" %m.base, i64 "reg"="r64" %m.index, i64 "imm" %m.scale) "enc"="11110011 | rex(0, o0, m.index, m.base) | 00001111 | 00101011 | rm(o0, m.base, m.index, m.scale, m.disp, 0, 1)" "asm"="movntss {o0}, {m.disp}({m.base},{m.index},{m.scale})" "asmonly" {
+  ret void
+}
+
+define void @X_MOVNTSS_8463_p(i64 "reg"="x" %o0, ptr "sym" %m.sym) "enc"="11110011 | rex(0, o0, 0, 0) | 00001111 | 00101011 | rm(o0, 16, 4, 1, 0, m.sym, 1)" "asm"="movntss {o0}, {m.sym}(%rip)" "asmonly" "reloc"="pc32x" {
+  ret void
+}
+
+define void @X_CLZERO_8468() "enc"="rex(0, 0, 0, 0) | 00001111 | 00000001 | 11 111 100" "asm"="clzero" "asmonly" {
+  ret void
+}
+
+define void @X_MONITORX_8471() "enc"="rex(0, 0, 0, 0) | 00001111 | 00000001 | 11 111 010" "asm"="monitorx" "asmonly" {
+  ret void
+}
+
+define void @X_MWAITX_8473() "enc"="rex(0, 0, 0, 0) | 00001111 | 00000001 | 11 111 011" "asm"="mwaitx" "asmonly" {
+  ret void
+}
+
+define void @X_RDPRU_8474() "enc"="rex(0, 0, 0, 0) | 00001111 | 00000001 | 11 111 101" "asm"="rdpru" "asmonly" {
   ret void
 }

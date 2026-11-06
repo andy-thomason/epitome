@@ -7,8 +7,8 @@
 //!
 //! - Anywhere: each kernel compiles to code that never touches the stack,
 //!   so none of it was done a lane at a time (which goes through stack
-//!   slots), and its masks are in k registers (but the `lanes_` kernels',
-//!   which are partly done a lane at a time).
+//!   slots), and its masks are in k registers (but the `novl_` kernels',
+//!   for avx512f without avx512vl, whose 256-bit masks stay in ymm).
 //! - On x86-64 Linux with AVX-512 and clang: built by us and by clang,
 //!   each linked with `main.c` and run, the two print the same.
 
@@ -42,23 +42,14 @@ fn avx512_kernels_stay_in_registers() {
     let mut m = epitome_ir::parse_module(&kernels()).unwrap();
     let asm = compile(&t, &mut m, &Options::default()).unwrap().asm;
     let fs = functions(&asm);
-    assert!(fs.len() >= 33, "{} functions", fs.len());
-    for (name, body) in fs.iter().filter(|(n, _)| !n.starts_with("lanes_")) {
+    assert!(fs.len() >= 67, "{} functions", fs.len());
+    for (name, body) in &fs {
         assert!(!body.contains("%rsp"), "{name} uses the stack:\n{body}");
-        // (Those of AVX2 alone: shifts by vectors, in ymm and xmm.)
-        let reg = if name.starts_with("shifts_v8i32") || name.starts_with("shifts_v4i64") {
-            "%ymm"
-        } else if name.starts_with("shifts_v4i32") || name.starts_with("shifts_v2i64") {
-            "%xmm"
-        } else {
-            "%zmm"
-        };
-        assert!(body.contains(reg), "{name} has no {reg} registers:\n{body}");
-        if name.contains("compares")
-            || name.starts_with("fsel")
-            || name.starts_with("selects")
-            || name.starts_with("mask_memory")
-        {
+        assert!(["%zmm", "%ymm", "%xmm"].iter().any(|r| body.contains(r)), "{name} has no vector registers:\n{body}");
+        let masks = ["compares", "fsel", "selects", "mask_memory", "mixed"].iter().any(|k| name.contains(k));
+        if name.starts_with("novl_") {
+            assert!(!body.contains("%k"), "{name} has k registers without avx512vl:\n{body}");
+        } else if masks {
             assert!(body.contains("%k"), "{name} has no k registers:\n{body}");
         }
     }

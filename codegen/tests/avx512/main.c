@@ -16,7 +16,24 @@ TYPE(v64i8, uint64_t, int8_t)
 PLAIN(shifts_v16i32) PLAIN(shifts_v8i64) PLAIN(shifts_v32i16)
 PLAIN(bits_v16i32) PLAIN(bits_v8i64)
 uint16_t all_v16i32(const void *, const void *, void *, uint16_t);
-PLAIN(fsel_v16f32) PLAIN(lanes_mixed) PLAIN(fcompares_v16f32) PLAIN(fcompares_v8f64)
+PLAIN(fsel_v16f32) PLAIN(mixed_v16i8_v16i32) PLAIN(fcompares_v16f32) PLAIN(fcompares_v8f64)
+PLAIN(compares_v32i8) void selects_v32i8(const void *, const void *, void *, uint64_t); void mask_memory_v32i8(const void *, const void *, void *, void *);
+PLAIN(compares_v16i16) void selects_v16i16(const void *, const void *, void *, uint64_t); void mask_memory_v16i16(const void *, const void *, void *, void *);
+PLAIN(compares_v8i32) void selects_v8i32(const void *, const void *, void *, uint64_t); void mask_memory_v8i32(const void *, const void *, void *, void *);
+PLAIN(compares_v4i64) void selects_v4i64(const void *, const void *, void *, uint64_t); void mask_memory_v4i64(const void *, const void *, void *, void *);
+PLAIN(fcompares_v8f32)
+PLAIN(fcompares_v4f64)
+PLAIN(compares_v16i8) void selects_v16i8(const void *, const void *, void *, uint64_t); void mask_memory_v16i8(const void *, const void *, void *, void *);
+PLAIN(compares_v8i16) void selects_v8i16(const void *, const void *, void *, uint64_t); void mask_memory_v8i16(const void *, const void *, void *, void *);
+PLAIN(compares_v4i32) void selects_v4i32(const void *, const void *, void *, uint64_t); void mask_memory_v4i32(const void *, const void *, void *, void *);
+PLAIN(compares_v2i64) void selects_v2i64(const void *, const void *, void *, uint64_t); void mask_memory_v2i64(const void *, const void *, void *, void *);
+PLAIN(fcompares_v4f32)
+PLAIN(fcompares_v2f64)
+PLAIN(mixed_v8i32_v8i64)
+PLAIN(mixed_v4i64_v4f32)
+PLAIN(mixed_v16i16_v16i8)
+PLAIN(mixed_v4f64_v4i32)
+PLAIN(novl_selects_v8i32)
 PLAIN(shifts_v8i32) PLAIN(shifts_v4i32) PLAIN(shifts_v4i64) PLAIN(shifts_v2i64)
 
 static unsigned char a[64] __attribute__((aligned(64))), b[64] __attribute__((aligned(64)));
@@ -67,7 +84,7 @@ int main(void) {
         RUN(compares_v16i32, 20) RUN(compares_v8i64, 10) RUN(compares_v32i16, 40) RUN(compares_v64i8, 80)
         RUN(minmax_v16i32, 5 * 64) RUN(minmax_v8i64, 5 * 64) RUN(minmax_v32i16, 5 * 64) RUN(minmax_v64i8, 5 * 64)
         RUN(bits_v16i32, 2 * 64) RUN(bits_v8i64, 2 * 64)
-        RUN(lanes_mixed, 64)
+        RUN(mixed_v16i8_v16i32, 64)
         memset(out, 0, sizeof out);
         { uint16_t r = all_v16i32(a, b, out, (uint16_t)pattern); memcpy(out + 64, &r, 2); }
         show("all_v16i32", set, 66);
@@ -77,6 +94,39 @@ int main(void) {
         SELECTS(v8i64, (uint8_t)pattern, (int64_t)(next() << 20))
         SELECTS(v32i16, (uint32_t)pattern, (int16_t)next())
         SELECTS(v64i8, pattern, (int8_t)next())
+        RUN(compares_v32i8, 40)
+        memset(out, 0, sizeof out); selects_v32i8(a, b, out, pattern); show("selects_v32i8", set, 68);
+        memset(out, 0, sizeof out); memcpy(m, &pattern, 8); mask_memory_v32i8(a, b, out, m); memcpy(out + 64, m, 8); show("mask_memory_v32i8", set, 72);
+        RUN(compares_v16i16, 20)
+        memset(out, 0, sizeof out); selects_v16i16(a, b, out, pattern); show("selects_v16i16", set, 66);
+        memset(out, 0, sizeof out); memcpy(m, &pattern, 8); mask_memory_v16i16(a, b, out, m); memcpy(out + 64, m, 8); show("mask_memory_v16i16", set, 72);
+        RUN(compares_v8i32, 10)
+        memset(out, 0, sizeof out); selects_v8i32(a, b, out, pattern); show("selects_v8i32", set, 65);
+        memset(out, 0, sizeof out); memcpy(m, &pattern, 8); mask_memory_v8i32(a, b, out, m); memcpy(out + 64, m, 8); show("mask_memory_v8i32", set, 72);
+        RUN(compares_v4i64, 10)
+        memset(out, 0, sizeof out); selects_v4i64(a, b, out, pattern); show("selects_v4i64", set, 65);
+        memset(out, 0, sizeof out); memcpy(m, &pattern, 8); mask_memory_v4i64(a, b, out, m); memcpy(out + 64, m, 8); show("mask_memory_v4i64", set, 72);
+        RUN(fcompares_v8f32, 96)
+        RUN(fcompares_v4f64, 96)
+        RUN(compares_v16i8, 20)
+        memset(out, 0, sizeof out); selects_v16i8(a, b, out, pattern); show("selects_v16i8", set, 34);
+        memset(out, 0, sizeof out); memcpy(m, &pattern, 8); mask_memory_v16i8(a, b, out, m); memcpy(out + 64, m, 8); show("mask_memory_v16i8", set, 72);
+        RUN(compares_v8i16, 10)
+        memset(out, 0, sizeof out); selects_v8i16(a, b, out, pattern); show("selects_v8i16", set, 33);
+        memset(out, 0, sizeof out); memcpy(m, &pattern, 8); mask_memory_v8i16(a, b, out, m); memcpy(out + 64, m, 8); show("mask_memory_v8i16", set, 72);
+        RUN(compares_v4i32, 10)
+        memset(out, 0, sizeof out); selects_v4i32(a, b, out, pattern); show("selects_v4i32", set, 33);
+        memset(out, 0, sizeof out); memcpy(m, &pattern, 8); mask_memory_v4i32(a, b, out, m); memcpy(out + 64, m, 8); show("mask_memory_v4i32", set, 72);
+        RUN(compares_v2i64, 10)
+        memset(out, 0, sizeof out); selects_v2i64(a, b, out, pattern); show("selects_v2i64", set, 33);
+        memset(out, 0, sizeof out); memcpy(m, &pattern, 8); mask_memory_v2i64(a, b, out, m); memcpy(out + 64, m, 8); show("mask_memory_v2i64", set, 72);
+        RUN(fcompares_v4f32, 80)
+        RUN(fcompares_v2f64, 80)
+        RUN(mixed_v8i32_v8i64, 64)
+        RUN(mixed_v4i64_v4f32, 64)
+        RUN(mixed_v16i16_v16i8, 64)
+        RUN(mixed_v4f64_v4i32, 64)
+        RUN(novl_selects_v8i32, 32)
         MASKS(v16i32) MASKS(v8i64) MASKS(v32i16) MASKS(v64i8)
     }
     return 0;

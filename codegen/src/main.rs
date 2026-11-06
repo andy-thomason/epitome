@@ -38,6 +38,8 @@ const USAGE: &str = "usage: epitome-llc [options] <file.ll>
   --reserve=x18,...       keep these registers out of allocation
   --syntax=macho|elf      the assembler dialect, if not the convention's
   --stop-after=isel|ra    print machine IR after selection or allocation
+  --print-after-prepare   print each function's IR, as selection gets it,
+                          to standard error
   --hex                   print each function's machine code in hex
   --disasm                disassemble each function's machine code
   --patterns              list the selection patterns and exit
@@ -67,6 +69,7 @@ fn main() -> ExitCode {
     let mut reserve: Vec<String> = Vec::new();
     let mut filetype = None;
     let mut stop = Stop::Done;
+    let mut print_prepared = false;
     let mut opts = Options::default();
     let (mut chop, mut chop_counts) = (None, false);
     let mut it = args.iter();
@@ -94,6 +97,7 @@ fn main() -> ExitCode {
             "--filetype=obj" => filetype = Some(true),
             "--stop-after=isel" => stop = Stop::AfterSelection,
             "--stop-after=ra" => stop = Stop::AfterAllocation,
+            "--print-after-prepare" => print_prepared = true,
             s if s.starts_with("--target=") => target_file = Some(s["--target=".len()..].to_string()),
             s if s.starts_with("--target-add=") => adds.push(s["--target-add=".len()..].to_string()),
             s if s.starts_with("--abi=") => opts.abi = Some(s["--abi=".len()..].to_string()),
@@ -166,6 +170,7 @@ fn main() -> ExitCode {
     }
     let started = std::time::Instant::now();
     opts.stop = stop;
+    opts.print_prepared = print_prepared;
     opts.chop = match epitome_ir::chop::limit_from(chop.as_deref(), "EPITOME_LLC_CHOP") {
         Ok(l) => l,
         Err(e) => {

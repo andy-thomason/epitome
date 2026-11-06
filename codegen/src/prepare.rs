@@ -62,6 +62,17 @@ impl Ctx<'_> {
             .unwrap_or(0)
     }
 
+    /// The class of masks of the widest vectors in use, where it is of a
+    /// register file of its own (AVX-512's k registers): only masks of
+    /// vectors that wide are kept there (`legalize::mask_regs`).
+    pub fn mask_reg_class(&self) -> Option<crate::target::Class> {
+        let m = &self.t.machine;
+        let vb = self.vector_bits();
+        let &(_, c) = m.mask_classes.iter().find(|(b, _)| *b == vb)?;
+        let v = m.value_class(crate::machine::Holds::Vector, vb)?;
+        (m.def(c).file != m.def(v).file).then_some(c)
+    }
+
     /// The narrowest vector kept whole in a register: narrower ones are
     /// done lane by lane.
     pub fn min_vector_bits(&self) -> u32 {
@@ -5889,10 +5900,12 @@ fn offset_ptr(cx: &mut Ctx, s: &mut Seq, p: Value, off: u64, i8t: TypeId, i64t: 
 /// the bits or'ed; or the other way, each bit shifted down, truncated and
 /// inserted. Lane k is bit k. Run after `legalize::fix_masks`, which
 /// makes the common `icmp eq (bitcast mask), 0` a reduction; casts left
-/// unused by that are skipped.
+/// unused by that are skipped, and those of masks kept in mask registers
+/// (AVX-512's k), which are moves.
 pub(crate) fn bool_vector_casts(cx: &mut Ctx, f: &mut Function) {
     let i1 = cx.m.types.int(1);
     let i64t = cx.m.types.int(64);
+    let regs = crate::legalize::mask_regs(cx, f);
     let mut used = std::collections::HashSet::new();
     for &b in &f.layout {
         for &i in &f.blocks[b.index()].insts {
@@ -5914,7 +5927,7 @@ pub(crate) fn bool_vector_casts(cx: &mut Ctx, f: &mut Function) {
                 continue;
             };
             let value = *value;
-            if !used.contains(&r) {
+            if !used.contains(&r) || regs.contains(&r) || matches!(value, Value::Local(x) if regs.contains(&x)) {
                 k += 1;
                 continue;
             }

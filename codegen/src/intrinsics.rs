@@ -1274,7 +1274,9 @@ pub(crate) fn mangle(cx: &Ctx, ty: TypeId) -> String {
         Type::Double => "f64".into(),
         Type::Fp128 => "f128".into(),
         Type::Ptr(a) => format!("p{a}"),
-        Type::Vector { len, elem, scalable } => format!("{}v{len}{}", if *scalable { "nx" } else { "" }, mangle(cx, *elem)),
+        Type::Vector { len, elem, scalable } => {
+            format!("{}v{len}{}", if *scalable { "nx" } else { "" }, mangle(cx, *elem))
+        }
         _ => "x".into(),
     }
 }

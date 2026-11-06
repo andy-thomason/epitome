@@ -162,6 +162,10 @@ pub struct Sel<'a, 'b> {
     /// For the next call emitted, from an invoke: its landing pad's block
     /// and action.
     landing_next: Option<(usize, usize)>,
+    /// Masks kept in mask registers (`legalize::mask_regs`), and their
+    /// class.
+    mask_regs: HashSet<LocalId>,
+    mask_reg_class: Option<Class>,
 }
 
 /// The inline assembly a call calls, if it does.
@@ -371,6 +375,8 @@ impl<'a, 'b> Sel<'a, 'b> {
             }
         }
         let clean = clean_bools(cx, f);
+        let mask_regs = crate::legalize::mask_regs(cx, f);
+        let mask_reg_class = cx.mask_reg_class();
         let mut bmap = HashMap::new();
         for (k, &b) in f.layout.iter().enumerate() {
             bmap.insert(b, k);
@@ -411,6 +417,8 @@ impl<'a, 'b> Sel<'a, 'b> {
             va_sysv: None,
             tail_blocks: HashSet::new(),
             landing_next: None,
+            mask_regs,
+            mask_reg_class,
         }
     }
 
@@ -466,9 +474,16 @@ impl<'a, 'b> Sel<'a, 'b> {
         }
         // A mask, in the class for the vectors in use, where the
         // description says.
+        // (Where that class is of a file of its own, as AVX-512's k
+        // registers are, only the masks `mask_regs` says are there; the
+        // others are in the widest class of vectors' masks.)
         if let Type::Vector { elem, .. } = self.cx.m.types.get(ty)
             && matches!(self.cx.m.types.get(*elem), Type::Int(1))
-            && let Some(&(_, c)) = m.mask_classes.iter().find(|(b, _)| *b == self.cx.vector_bits())
+            && let Some(&(_, c)) = m
+                .mask_classes
+                .iter()
+                .filter(|(b, c)| *b <= self.cx.vector_bits() && Some(*c) != self.mask_reg_class)
+                .max_by_key(|(b, _)| *b)
         {
             return c;
         }
@@ -513,15 +528,23 @@ impl<'a, 'b> Sel<'a, 'b> {
     }
 
     fn class_of(&self, v: Value) -> Class {
-        self.class_of_ty(self.ty_of(v))
+        match (v, self.mask_reg_class) {
+            (Value::Local(x), Some(c)) if self.mask_regs.contains(&x) => c,
+            _ => self.class_of_ty(self.ty_of(v)),
+        }
+    }
+
+    /// Is `class` of the file masks kept in mask registers are in?
+    fn mask_reg_file(&self, class: Class) -> bool {
+        let m = &self.t.machine;
+        self.mask_reg_class.is_some_and(|c| m.def(c).file == m.def(class).file)
     }
 
     fn vreg_of(&mut self, x: LocalId) -> VReg {
         if let Some(&v) = self.vreg.get(&x) {
             return v;
         }
-        let ty = self.f.locals[x.index()].ty;
-        let class = self.class_of_ty(ty);
+        let class = self.class_of(Value::Local(x));
         let v = self.mf.new_vreg(class);
         self.vreg.insert(x, v);
         v
@@ -889,8 +912,15 @@ impl<'a, 'b> Sel<'a, 'b> {
                     // what its file's classes do, of any width.)
                     let m = &self.t.machine;
                     let fixed = def.fixed.is_some();
+                    // (A mask kept in a mask register only where the
+                    // pattern takes one there, and others only elsewhere.)
+                    let in_mask_reg = matches!(v, Value::Local(x) if self.mask_regs.contains(&x));
+                    if mask && in_mask_reg != self.mask_reg_file(class) {
+                        return None;
+                    }
                     let held = m.holds_of(class) == Some(holds)
-                        || fixed && m.classes.iter().any(|c| c.file == def.file && c.holds == Some(holds));
+                        || fixed && m.classes.iter().any(|c| c.file == def.file && c.holds == Some(holds))
+                        || mask && in_mask_reg;
                     let wide = matches!(holds, Holds::Vector | Holds::Scalable);
                     if bits == 0
                         || !held
@@ -926,6 +956,17 @@ impl<'a, 'b> Sel<'a, 'b> {
                 }
                 Kind::Cond | Kind::Enum(_) => return None,
             }
+        }
+        // A mask made where its value is kept: in a mask register or not.
+        if self.mask_reg_class.is_some()
+            && let Some(r) = self.f.insts[covered[0].index()].result
+            && matches!(self.cx.m.types.get(self.f.locals[r.index()].ty), Type::Vector { elem, .. }
+                if matches!(self.cx.m.types.get(*elem), Type::Int(1)))
+            && let Some(e) = p.emit.iter().rev().find(|e| self.t.instrs[e.instr].has_result)
+            && let Kind::Reg(c) = self.t.instrs[e.instr].operands[0].kind
+            && self.mask_reg_file(c) != self.mask_regs.contains(&r)
+        {
+            return None;
         }
         // Immediates must fit their instructions.
         for e in &p.emit {
@@ -3463,8 +3504,7 @@ impl<'a, 'b> Sel<'a, 'b> {
                         continue;
                     }
                     let Some(&(v, _)) = incoming.iter().find(|(_, from)| *from == p) else { continue };
-                    let ty = f.locals[r.index()].ty;
-                    let class = self.class_of_ty(ty);
+                    let class = self.class_of(Value::Local(r));
                     let src = self.reg_for(v, class)?;
                     let d = Reg::V(self.vreg_of(r));
                     if src != d {

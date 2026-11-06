@@ -89,7 +89,9 @@ fn vec_ty(cx: &mut Ctx, len: u32, elem: TypeId) -> TypeId {
 /// The LLVM name of a type in an intrinsic's name: `v4i32`, `v2f64`.
 pub(crate) fn mangle(cx: &Ctx, ty: TypeId) -> String {
     match cx.m.types.get(ty) {
-        Type::Vector { len, elem, scalable } => format!("{}v{len}{}", if *scalable { "nx" } else { "" }, mangle(cx, *elem)),
+        Type::Vector { len, elem, scalable } => {
+            format!("{}v{len}{}", if *scalable { "nx" } else { "" }, mangle(cx, *elem))
+        }
         Type::Int(b) => format!("i{b}"),
         Type::Float => "f32".into(),
         Type::Double => "f64".into(),
@@ -1209,6 +1211,112 @@ pub(crate) fn mask_width(cx: &Ctx, f: &Function, v: Value, seen: &mut Vec<LocalI
     };
     seen.pop();
     w
+}
+
+/// The masks kept in mask registers, where the description has them for
+/// the vectors in use (`Ctx::mask_reg_class`, AVX-512's k): masks are
+/// joined into groups by what makes masks of masks (logic, selects, phis,
+/// freezes), and a group is kept there if something in it compares or
+/// chooses between vectors of that width (or widens to them), and nothing
+/// in it does so for narrower vectors. The rest stay in vector registers
+/// as lanes.
+pub(crate) fn mask_regs(cx: &Ctx, f: &Function) -> std::collections::HashSet<LocalId> {
+    let mut out = std::collections::HashSet::new();
+    if cx.mask_reg_class().is_none() {
+        return out;
+    }
+    let vb = cx.vector_bits();
+    let mask_local = |v: Value| match v {
+        Value::Local(x) => matches!(cx.m.types.get(f.locals[x.index()].ty),
+            Type::Vector { elem, scalable: false, .. } if matches!(cx.m.types.get(*elem), Type::Int(1)))
+        .then_some(x),
+        _ => None,
+    };
+    let vec_bits = |ty: TypeId| vec_info(cx, ty).map(|(len, _, eb)| len * eb);
+    let mut parent: Vec<usize> = (0..f.locals.len()).collect();
+    fn find(p: &mut [usize], mut x: usize) -> usize {
+        while p[x] != x {
+            p[x] = p[p[x]];
+            x = p[x];
+        }
+        x
+    }
+    // (wide, narrow) for each local, then each group.
+    let mut seen = vec![(false, false); f.locals.len()];
+    let mark = |seen: &mut Vec<(bool, bool)>, x: LocalId, bits: Option<u32>| match bits {
+        Some(b) if b == vb => seen[x.index()].0 = true,
+        Some(_) => seen[x.index()].1 = true,
+        None => {}
+    };
+    for i in f.insts_in_order() {
+        let inst = &f.insts[i.index()];
+        let r = inst.result.and_then(|r| mask_local(Value::Local(r)));
+        let join = |p: &mut Vec<usize>, a: Value| {
+            if let (Some(r), Some(a)) = (r, mask_local(a)) {
+                let (x, y) = (find(p, r.index()), find(p, a.index()));
+                p[x] = y;
+            }
+        };
+        match &inst.op {
+            Op::ICmp { lhs, .. } | Op::FCmp { lhs, .. } => {
+                if let Some(r) = r {
+                    mark(&mut seen, r, vec_bits(cx.value_ty(f, *lhs)));
+                }
+            }
+            Op::Binary { lhs, rhs, .. } => {
+                join(&mut parent, *lhs);
+                join(&mut parent, *rhs);
+            }
+            Op::Freeze(a) => join(&mut parent, *a),
+            Op::Phi { incoming, .. } => {
+                for (v, _) in incoming.iter() {
+                    join(&mut parent, *v);
+                }
+            }
+            Op::Select { cond, then_value, else_value, .. } => {
+                if r.is_some() {
+                    join(&mut parent, *cond);
+                    join(&mut parent, *then_value);
+                    join(&mut parent, *else_value);
+                } else if let (Some(c), Some(res)) = (mask_local(*cond), inst.result) {
+                    mark(&mut seen, c, vec_bits(f.locals[res.index()].ty));
+                }
+            }
+            Op::Cast { op: CastOp::SExt | CastOp::ZExt, value, .. } => {
+                if let (Some(c), Some(res)) = (mask_local(*value), inst.result) {
+                    mark(&mut seen, c, vec_bits(f.locals[res.index()].ty));
+                }
+            }
+            // Masks' bits as lanes, and lanes as masks.
+            Op::Call(c) => {
+                let name = callee_name(cx.m, c).unwrap_or_default();
+                if name.starts_with("llvm.epitome.mask.bits.")
+                    && let (Some(a), Some(res)) = (c.args.first().and_then(|a| mask_local(a.value)), inst.result)
+                {
+                    mark(&mut seen, a, vec_bits(f.locals[res.index()].ty));
+                }
+                if name.starts_with("llvm.epitome.bits.mask.")
+                    && let (Some(r), Some(a)) = (r, c.args.first())
+                {
+                    mark(&mut seen, r, vec_bits(cx.value_ty(f, a.value)));
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut group = vec![(false, false); f.locals.len()];
+    for x in 0..f.locals.len() {
+        let g = find(&mut parent, x);
+        group[g].0 |= seen[x].0;
+        group[g].1 |= seen[x].1;
+    }
+    for x in 0..f.locals.len() {
+        let g = find(&mut parent, x);
+        if group[g] == (true, false) && mask_local(Value::Local(LocalId(x as u32))).is_some() {
+            out.insert(LocalId(x as u32));
+        }
+    }
+    out
 }
 
 /// A constant mask combined with a mask (`xor <8 x i1> %m, <i1 true,

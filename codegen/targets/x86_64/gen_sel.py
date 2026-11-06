@@ -1531,15 +1531,18 @@ def avx512_int():
         entry(ty, f'VBLENDM{sfx.upper()}.{T}', [f'{M} "reg"="kw" %k', f'{ty} "reg"="zv" %a', f'{ty} "reg"="zv" %b'],
               renamed(enc, {'o0': 'a', 'o1': 'b', 'o2': 'd', 'o3': 'k'}), f'vblendm{sfx} {{a}}, {{b}}, {{d}} {{lb}}{{k}}{{rb}}',
               [f'%r = select {M} %k, {ty} %a, {ty} %b', f'ret {ty} %r'], ' "dclass"="zv"' + F)
-    # The masks themselves: as integers (kmovw for 8 and 16 lanes, which
+    # The masks themselves: as integers (kmovw for 2 to 16 lanes, which
     # avx512f has; kmovd and kmovq with avx512bw), in memory, and their
     # logic.
-    for n, mn, ity, rcls, feat in [(8, 'kmovw', 'i8', 'r32', F), (16, 'kmovw', 'i16', 'r32', F),
+    for n, mn, ity, rcls, feat in [(2, 'kmovw', 'i2', 'r32', F), (4, 'kmovw', 'i4', 'r32', F), (8, 'kmovw', 'i8', 'r32', F), (16, 'kmovw', 'i16', 'r32', F),
                                    (32, 'kmovd', 'i32', 'r32', BW), (64, 'kmovq', 'i64', 'r64', BW)]:
         M = f'<{n} x i1>'
         enc, _ = xed(f'{mn} {{o0}}, {{o1}}', (rcls, 'k'))
-        entry(M, f'{mn.upper()}kr.{n}', [f'{ity} "reg"="{rcls}" %n'], renamed(enc, {'o0': 'n', 'o1': 'd'}), f'{mn} {{n}}, {{d}}',
-              [f'%r = bitcast {ity} %n to {M}', f'ret {M} %r'], ' "dclass"="kw"' + feat)
+        # (Integers of 2 and 4 bits are held in 32, as prepare.rs's
+        # promote_odd leaves them: from those.)
+        src = 'i32' if n < 8 else ity
+        entry(M, f'{mn.upper()}kr.{n}', [f'{src} "reg"="{rcls}" %n'], renamed(enc, {'o0': 'n', 'o1': 'd'}), f'{mn} {{n}}, {{d}}',
+              [f'%r = bitcast {src} %n to {M}', f'ret {M} %r'], ' "dclass"="kw"' + feat)
         enc, _ = xed(f'{mn} {{o0}}, {{o1}}', ('k', rcls))
         entry(ity, f'{mn.upper()}rk.{n}', [f'{M} "reg"="kw" %n'], renamed(enc, {'o0': 'n', 'o1': 'd'}), f'{mn} {{n}}, {{d}}',
               [f'%r = bitcast {M} %n to {ity}', f'ret {ity} %r'],
@@ -1575,6 +1578,80 @@ def avx512_int():
                   f'vpopcnt{sfx} {{n}}, {{d}}', [f'%r = call {ty} @llvm.ctpop.v{n}i{eb}({ty} %n)', f'ret {ty} %r'],
                   f' "dclass"="{sel}" "feature"="avx512f,avx512vpopcntdq{vl}"')
             out.append(f'declare {ty} @llvm.ctpop.v{n}i{eb}({ty})\n')
+
+
+def avx512vl_masks():
+    """With avx512vl, the masks of 128- and 256-bit vectors in k registers
+    too (kw; isel.rs keeps a mask there when every comparison and select it
+    meets has an entry making or taking it there, at any of these widths):
+    comparisons into them, selects by them, and their lanes as all ones or
+    zeros and back. Bytes and words need avx512bw as well."""
+    VL = ' "feature"="avx512f,avx512vl"'
+    VLBW = ' "feature"="avx512f,avx512vl,avx512bw"'
+    tag = lambda ty: ty.strip('<>').replace(' x ', 'x').replace('float', 'f32').replace('double', 'f64')
+    imm = lambda enc, k: enc.replace(f'i1:8={k}', bits(k))
+    for bits_, cls, sel in [(256, 'ye', 'yv'), (128, 'xe', 'xv')]:
+        for sfx, eb in [('b', 8), ('w', 16), ('d', 32), ('q', 64)]:
+            n = bits_ // eb
+            ty = f'<{n} x i{eb}>'
+            T = tag(ty)
+            S = sfx.upper()
+            M = f'<{n} x i1>'
+            feat = VLBW if eb <= 16 else VL
+            for pred, mn, k in [('eq', 'vpcmp', 0), ('ne', 'vpcmp', 4), ('slt', 'vpcmp', 1), ('sle', 'vpcmp', 2),
+                                ('sge', 'vpcmp', 5), ('sgt', 'vpcmp', 6), ('ult', 'vpcmpu', 1), ('ule', 'vpcmpu', 2),
+                                ('uge', 'vpcmpu', 5), ('ugt', 'vpcmpu', 6)]:
+                enc, _ = xed(f'{mn}{sfx} ${{c}}, {{o0}}, {{o1}}, {{o2}}', (cls, cls, 'k'))
+                entry(M, f'{mn.upper()}{S}.{pred}.{T}', [f'{ty} "reg"="{sel}" %n', f'{ty} "reg"="{sel}" %m'],
+                      imm(renamed(enc, {'o0': 'm', 'o1': 'n', 'o2': 'd', 'c': str(k)}), k),
+                      f'{mn}{sfx} ${k}, {{m}}, {{n}}, {{d}}', [f'%r = icmp {pred} {ty} %n, %m', f'ret {M} %r'],
+                      ' "dclass"="kw"' + feat)
+            enc, _ = xed(f'vpblendm{sfx} {{o0}}, {{o1}}, {{o2}} {{lb}}{{o3}}{{rb}}', (cls, cls, cls, 'k'))
+            entry(ty, f'VPBLENDM{S}.{T}', [f'{M} "reg"="kw" %k', f'{ty} "reg"="{sel}" %a', f'{ty} "reg"="{sel}" %b'],
+                  renamed(enc, {'o0': 'a', 'o1': 'b', 'o2': 'd', 'o3': 'k'}),
+                  f'vpblendm{sfx} {{a}}, {{b}}, {{d}} {{lb}}{{k}}{{rb}}',
+                  [f'%r = select {M} %k, {ty} %a, {ty} %b', f'ret {ty} %r'], f' "dclass"="{sel}"' + feat)
+            # Lanes of all ones or zeros, as at 512 bits; 0 or 1 as their
+            # absolute values (vpabsq is AVX-512's).
+            if eb >= 32:
+                enc, _ = xed(f'vpternlog{sfx} ${{c}}, {{o0}}, {{o1}}, {{o2}} {{lb}}{{o3}}{{rb}} {{lb}}z{{rb}}',
+                             (cls, cls, cls, 'k'))
+                enc = imm(renamed(enc, {'o0': 'd', 'o1': 'd', 'o2': 'd', 'o3': 'k', 'c': '255'}), 255)
+                asm = f'vpternlog{sfx} $255, {{d}}, {{d}}, {{d}} {{lb}}{{k}}{{rb}} {{lb}}z{{rb}}'
+            else:
+                enc, _ = xed(f'vpmovm2{sfx} {{o0}}, {{o1}}', ('k', cls))
+                enc = renamed(enc, {'o0': 'k', 'o1': 'd'})
+                asm = f'vpmovm2{sfx} {{k}}, {{d}}'
+            entry(ty, f'VPMOVM2{S}.{T}', [f'{M} "reg"="kw" %k'], enc, asm, [f'%r = sext {M} %k to {ty}', f'ret {ty} %r'],
+                  f' "dclass"="{sel}"' + feat)
+            entry(ty, f'VMASKBITS.{T}', [f'{M} "reg"="kw" %k'], enc, asm,
+                  [f'%r = call {ty} @llvm.epitome.mask.bits.v{n}i{eb}({M} %k)', f'ret {ty} %r'], f' "dclass"="{sel}"' + feat)
+            enc, _ = xed(f'vpabs{sfx} {{o0}}, {{o1}}', (cls, cls))
+            entry(ty, f'VPABS{S}k.{T}', [f'{ty} "reg"="{sel}" %n'], renamed(enc, {'o0': 'n', 'o1': 'd'}),
+                  f'vpabs{sfx} {{n}}, {{d}}', [f'ret {ty} %n'], f' "dclass"="{sel}" "nomatch"' + feat)
+            out.append(f'define {ty} @zextk.{T}({M} "reg"="kw" %k) "recipe"="zextk.{T}.expand"{feat} {{\n'
+                       f'  %r = zext {M} %k to {ty}\n  ret {ty} %r\n}}\n')
+            out.append(f'define {ty} @zextk.{T}.expand({M} %k) {{\n  %s = call {ty} @VPMOVM2{S}.{T}({M} %k)\n'
+                       f'  %r = call {ty} @VPABS{S}k.{T}({ty} %s)\n  ret {ty} %r\n}}\n')
+            enc, _ = xed(f'vptestm{sfx} {{o0}}, {{o1}}, {{o2}}', (cls, cls, 'k'))
+            entry(M, f'VBITSMASK.{T}', [f'{ty} "reg"="{sel}" %n'], renamed(enc, {'o0': 'n', 'o1': 'n', 'o2': 'd'}),
+                  f'vptestm{sfx} {{n}}, {{n}}, {{d}}',
+                  [f'%r = call {M} @llvm.epitome.bits.mask.v{n}i{eb}({ty} %n)', f'ret {M} %r'], ' "dclass"="kw"' + feat)
+        for fty, sfx, n in [(f'<{bits_ // 32} x float>', 'ps', bits_ // 32), (f'<{bits_ // 64} x double>', 'pd', bits_ // 64)]:
+            T = tag(fty)
+            M = f'<{n} x i1>'
+            enc, _ = xed(f'vcmp{sfx} ${{c}}, {{o0}}, {{o1}}, {{o2}}', (cls, cls, 'k'))
+            for pred, k in [('oeq', 0), ('olt', 1), ('ole', 2), ('uno', 3), ('une', 4), ('uge', 5), ('ugt', 6), ('ord', 7),
+                            ('ueq', 8), ('ult', 9), ('ule', 10), ('one', 12), ('oge', 13), ('ogt', 14)]:
+                entry(M, f'VCMP{pred.upper()}{sfx.upper()}k.{T}', [f'{fty} "reg"="{sel}" %n', f'{fty} "reg"="{sel}" %m'],
+                      imm(renamed(enc, {'o0': 'm', 'o1': 'n', 'o2': 'd', 'c': str(k)}), k),
+                      f'vcmp{sfx} ${k}, {{m}}, {{n}}, {{d}}', [f'%r = fcmp {pred} {fty} %n, %m', f'ret {M} %r'],
+                      ' "dclass"="kw"' + VL)
+            enc, _ = xed(f'vblendm{sfx} {{o0}}, {{o1}}, {{o2}} {{lb}}{{o3}}{{rb}}', (cls, cls, cls, 'k'))
+            entry(fty, f'VBLENDM{sfx.upper()}.{T}', [f'{M} "reg"="kw" %k', f'{fty} "reg"="{sel}" %a', f'{fty} "reg"="{sel}" %b'],
+                  renamed(enc, {'o0': 'a', 'o1': 'b', 'o2': 'd', 'o3': 'k'}),
+                  f'vblendm{sfx} {{a}}, {{b}}, {{d}} {{lb}}{{k}}{{rb}}',
+                  [f'%r = select {M} %k, {fty} %a, {fty} %b', f'ret {fty} %r'], f' "dclass"="{sel}"' + VL)
 
 
 def reductions():
@@ -1868,6 +1945,7 @@ def main():
     avx2()
     avx512()
     avx512_int()
+    avx512vl_masks()
     reductions()
     mul64()
     more_compares()

@@ -73,6 +73,30 @@ impl Ctx<'_> {
         (m.def(c).file != m.def(v).file).then_some(c)
     }
 
+    /// Do comparisons of vectors of type `ty` have an instruction (of those
+    /// that are on) that writes the mask register class's file? Masks of
+    /// them may be kept there (`legalize::mask_regs`): AVX-512's 512-bit
+    /// vectors, and with avx512vl, 128- and 256-bit ones.
+    pub fn compares_into_mask_regs(&self, ty: TypeId) -> bool {
+        let Some(kc) = self.mask_reg_class() else { return false };
+        let Type::Vector { elem, scalable: false, .. } = *self.m.types.get(ty) else { return false };
+        let hb = crate::target::head_bits(self.m, ty);
+        let head = if matches!(self.m.types.get(elem), Type::Float | Type::Double) {
+            Head::FCmp(FCmpPred::Oeq, hb)
+        } else {
+            Head::ICmp(ICmpPred::Eq, hb)
+        };
+        let m = &self.t.machine;
+        self.t.patterns.iter().any(|p| {
+            matches!(&p.tree, Tree::Op(h, _) if *h == head)
+                && p.emit.iter().all(|e| self.enabled(e.instr))
+                && p.emit.last().is_some_and(|e| {
+                    matches!(self.t.instrs[e.instr].operands.first().map(|o| o.kind),
+                        Some(crate::target::Kind::Reg(c)) if m.def(c).file == m.def(kc).file)
+                })
+        })
+    }
+
     /// The narrowest vector kept whole in a register: narrower ones are
     /// done lane by lane.
     pub fn min_vector_bits(&self) -> u32 {

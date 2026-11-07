@@ -151,7 +151,7 @@ fn bitfn3_tables() {
         }
         ll.push_str("  ret void\n}\n");
     }
-    ll.push_str("attributes #0 = { nounwind \"target-features\"=\"+avx512f,+avx512vl\" }\n");
+    ll.push_str("attributes #0 = { nounwind \"target-features\"=\"+avx512f,+avx512vl,+avx2,+avx\" }\n");
     let t = Target::x86_64();
     let mut m = epitome_ir::parse_module(&ll).unwrap();
     std::fs::write(tmp.join("tables.o"), compile(&t, &mut m, &Options::default()).unwrap().object_file(&t).unwrap())

@@ -4,8 +4,7 @@
 //! at a CVA6 checkout) against a scalar model of it.
 //!
 //! On an AArch64 Mac or x86-64 Linux with `cc`; elsewhere the tests skip.
-//! x86-64 uses the AVX2 tier until the back end selects AVX-512 integer
-//! code.
+//! x86-64 uses AVX2 unless `NETLIST_MATTR` names other features.
 
 use std::ffi::{CString, c_char, c_int, c_void};
 use std::path::PathBuf;
@@ -33,7 +32,9 @@ fn host() -> Option<(Target, &'static str, Vec<String>)> {
         return None;
     }
     if cfg!(all(target_arch = "x86_64", target_os = "linux")) {
-        Some((Target::x86_64(), "x86_64-unknown-linux-gnu", vec!["+avx2".into()]))
+        // NETLIST_MATTR picks the features, as `+avx512f,+avx512bw`.
+        let mattr = std::env::var("NETLIST_MATTR").unwrap_or_else(|_| "+avx2".into());
+        Some((Target::x86_64(), "x86_64-unknown-linux-gnu", mattr.split(',').map(String::from).collect()))
     } else if cfg!(all(target_arch = "aarch64", target_os = "macos")) {
         Some((Target::aarch64(), "arm64-apple-macosx14.0.0", Vec::new()))
     } else {

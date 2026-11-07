@@ -660,8 +660,14 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 None => lay.place(o, w, Lane::of(w, planes)),
             }
         }
-        // The registers' next values, and the edges' last values.
+        // The registers' next values, and the edges' last values. Only a
+        // port below the top needs a slot for its next value: its storage
+        // may be its parent's, read by the parent's clocked processes,
+        // which run after its own. The rest are written in place.
         for o in lay.regs.clone() {
+            if !(below_top && d.object(o).dir.is_some()) {
+                continue;
+            }
             let w = tw(&d.types, d.object(o).ty);
             let lane = lay.lane(o);
             lay.shadow.insert(o, lay.size);
@@ -2558,7 +2564,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             }
             ExprKind::Object(_) | ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_) => {
                 let (o, off, w) = self.place(lhs)?;
-                if !self.lay().shadow.contains_key(&o) {
+                if !self.lay().regs.contains(&o) {
                     return Err(format!("{} is assigned nonblocking but is not a register here", d.name(d.object(o).name)));
                 }
                 let old = match self.env.nba.get(&o) {
@@ -2624,10 +2630,11 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 );
                 Ok(format!("%t{o}"))
             }
+            Phase::Commit if self.lay().shadow.is_empty() => Ok(any),
             Phase::Commit => self.run_loop_with(|f| {
                 for o in f.lay().regs.clone() {
                     let w = tw(&d.types, d.object(o).ty);
-                    let at = f.lay().shadow[&o];
+                    let Some(&at) = f.lay().shadow.get(&o) else { continue };
                     let lane = f.lay().lane(o);
                     let v = f.load(Base::State(at), lane, w);
                     f.set(o, v);
@@ -2714,13 +2721,18 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         }
         self.ff = false;
         for o in self.lay().regs.clone() {
-            let v = match self.env.nba.get(&o) {
-                Some(v) => v.clone(),
-                None => self.read(o),
+            let shadow = self.lay().shadow.get(&o).copied();
+            let v = match (self.env.nba.get(&o), shadow) {
+                (Some(v), _) => v.clone(),
+                (None, Some(_)) => self.read(o),
+                (None, None) => continue,
             };
-            let at = self.lay().shadow[&o];
             let lane = self.lay().lane(o);
-            self.store(Base::State(at), lane, &v);
+            let at = match shadow {
+                Some(at) => Base::State(at),
+                None => self.slot(o).expect("a register has a slot"),
+            };
+            self.store(at, lane, &v);
         }
         Ok(())
     }

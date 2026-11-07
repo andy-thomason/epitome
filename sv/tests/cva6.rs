@@ -480,3 +480,31 @@ fn cva6_id_stage() {
     let ns = time_netlist(&b, Some("clk_i"), 200);
     eprintln!("id_stage: {n} instances, {cycles} cycles agree with Verilator; {ns:.2} ns an instance a cycle; Verilator {}", v.bench(cycles, n, &stim, 3));
 }
+
+#[test]
+fn cva6_mult() {
+    let Some((cva6, (t, triple, mattr))) = setup() else { return };
+    let (files, incs) = slice_files(
+        &cva6,
+        "mult_top",
+        include_str!("cva6/mult_top.sv"),
+        &["vendor/pulp-platform/common_cells/src/lzc.sv", "core/serdiv.sv", "core/multiplier.sv", "core/mult.sv"],
+    );
+    let b = build("mult", netlist_of(files.clone(), incs.clone(), "mult_top"), &t, triple, &mattr);
+    report("mult", &b);
+    let Some(v) = verilate("mult", &files, &incs, "mult_top", &b.net.ports, Some("clk_i")) else { return };
+    let (cycles, n) = (200, GROUP);
+    let mut rng = Rng(0x3017_0000_0000_0001);
+    // MUL..REMUW are 87..99, CLMUL..CLMULR 159..161.
+    let stim = stimulus(&v, cycles, n, &mut rng, &mut |name, c, rng| match name {
+        "rst_ni" => Some((c > 0 && rng.next() % 512 != 0) as u64),
+        "flush_i" => Some((rng.next() % 64 == 0) as u64),
+        "mult_valid_i" => Some((rng.next() % 3 == 0) as u64),
+        "operation_i" => Some(if rng.next() % 4 == 0 { 159 + rng.next() % 3 } else { 87 + rng.next() % 13 }),
+        "a_i" | "b_i" => Some(operand(rng)),
+        _ => None,
+    });
+    check_against(&b, &v, cycles, n, &stim, &|w| format!("{w:x?}"));
+    let ns = time_netlist(&b, Some("clk_i"), 200);
+    eprintln!("mult: {n} instances, {cycles} cycles agree with Verilator; {ns:.2} ns an instance a cycle; Verilator {}", v.bench(cycles, n, &stim, 3));
+}

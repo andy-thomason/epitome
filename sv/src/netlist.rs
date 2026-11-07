@@ -3714,6 +3714,10 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 let p = self.bin("mul", a.p[0], b.p[0]);
                 self.norm(Val { w, p: vec![p] })
             }
+            BinOp::Mul => {
+                let (a, b) = (self.resize(&a, w, false), self.resize(&b, w, false));
+                self.mul_wide(&a, &b)
+            }
             BinOp::Shl | BinOp::AShl | BinOp::Shr | BinOp::AShr => {
                 let a = self.resize(&a, w, false);
                 let fill = (op == BinOp::AShr && tys.is_signed(ty)).then(|| self.sign_fill(&a));
@@ -3788,6 +3792,63 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     }
 
     // ---- values ----
+
+    /// `a * b` in `a`'s width, wider than a piece: each pair of pieces
+    /// multiplied in 64-bit lanes, the products' halves added by column in
+    /// 64-bit lanes, and the carries passed up.
+    fn mul_wide(&mut self, a: &Val, b: &Val) -> Val {
+        const V64: &str = "<16 x i64>";
+        let n = a.p.len();
+        let wide = |f: &mut Self, p: P| -> String {
+            match p {
+                P::K(k) => format!("splat (i64 {k})"),
+                P::V(t) => {
+                    let x = f.tmp();
+                    let _ = writeln!(f.out, "  %t{x} = zext {V16} %t{t} to {V64}");
+                    format!("%t{x}")
+                }
+            }
+        };
+        let a64: Vec<Option<String>> = a.p.iter().map(|&p| (p != P::K(0)).then(|| wide(self, p))).collect();
+        let b64: Vec<Option<String>> = b.p.iter().map(|&p| (p != P::K(0)).then(|| wide(self, p))).collect();
+        // The columns' sums: the low halves of the products of pieces i and
+        // j in column i + j, their high halves in the next.
+        let mut cols: Vec<Vec<String>> = vec![Vec::new(); n];
+        for i in 0..n {
+            for j in 0..n - i {
+                let (Some(x), Some(y)) = (&a64[i], &b64[j]) else { continue };
+                let p = self.tmp();
+                let _ = writeln!(self.out, "  %t{p} = mul {V64} {x}, {y}");
+                let (lo, hi) = (self.tmp(), self.tmp());
+                let _ = writeln!(self.out, "  %t{lo} = and {V64} %t{p}, splat (i64 4294967295)\n  %t{hi} = lshr {V64} %t{p}, splat (i64 32)");
+                cols[i + j].push(format!("%t{lo}"));
+                if i + j + 1 < n {
+                    cols[i + j + 1].push(format!("%t{hi}"));
+                }
+            }
+        }
+        let mut carry: Option<String> = None;
+        let mut out = Vec::with_capacity(n);
+        for col in cols.iter_mut().take(n) {
+            col.extend(carry.take());
+            let mut sum = col.first().cloned();
+            for t in col.iter().skip(1) {
+                let s = self.tmp();
+                let _ = writeln!(self.out, "  %t{s} = add {V64} {}, {t}", sum.unwrap());
+                sum = Some(format!("%t{s}"));
+            }
+            match sum {
+                None => out.push(P::K(0)),
+                Some(s) => {
+                    let (lo, c) = (self.tmp(), self.tmp());
+                    let _ = writeln!(self.out, "  %t{lo} = trunc {V64} {s} to {V16}\n  %t{c} = lshr {V64} {s}, splat (i64 32)");
+                    out.push(P::V(lo));
+                    carry = Some(format!("%t{c}"));
+                }
+            }
+        }
+        self.norm(Val { w: a.w, p: out })
+    }
 
     /// A mask as a `w`-bit 0 or 1.
     fn bit(&mut self, m: M, w: u32) -> Val {

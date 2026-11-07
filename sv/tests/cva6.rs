@@ -389,3 +389,94 @@ fn clocked_basics() {
     });
     check_against(&b, &v, cycles, n, &stim, &|w| format!("{w:x?}"));
 }
+
+#[test]
+fn cva6_serdiv() {
+    let Some((cva6, (t, triple, mattr))) = setup() else { return };
+    let (files, incs) = slice_files(
+        &cva6,
+        "serdiv_top",
+        include_str!("cva6/serdiv_top.sv"),
+        &["vendor/pulp-platform/common_cells/src/lzc.sv", "core/serdiv.sv"],
+    );
+    let b = build("serdiv", netlist_of(files.clone(), incs.clone(), "serdiv_top"), &t, triple, &mattr);
+    report("serdiv", &b);
+    let Some(v) = verilate("serdiv", &files, &incs, "serdiv_top", &b.net.ports, Some("clk_i")) else { return };
+    let (cycles, n) = (300, GROUP);
+    let mut rng = Rng(0x5E2D_1700_0000_0001);
+    let stim = stimulus(&v, cycles, n, &mut rng, &mut |name, c, rng| match name {
+        "rst_ni" => Some((c > 0 && rng.next() % 512 != 0) as u64),
+        "in_vld_i" => Some((rng.next() % 4 == 0) as u64),
+        "out_rdy_i" => Some((rng.next() % 8 != 0) as u64),
+        "flush_i" => Some((rng.next() % 128 == 0) as u64),
+        "op_a_i" | "op_b_i" => Some(operand(rng)),
+        _ => None,
+    });
+    check_against(&b, &v, cycles, n, &stim, &|w| format!("{w:x?}"));
+    let ns = time_netlist(&b, Some("clk_i"), 200);
+    eprintln!("serdiv: {n} instances, {cycles} cycles agree with Verilator; {ns:.2} ns an instance a cycle; Verilator {}", v.bench(cycles, n, &stim, 3));
+}
+
+/// For looking into a mismatch: `NETLIST_ADHOC=top[,clock]` and
+/// `NETLIST_ADHOC_FILES=a.sv:b.sv:...` (with CVA6's packages before them)
+/// check any design against Verilator on random stimulus.
+#[test]
+fn adhoc() {
+    let (Ok(spec), Ok(list)) = (std::env::var("NETLIST_ADHOC"), std::env::var("NETLIST_ADHOC_FILES")) else { return };
+    let Some((cva6, (t, triple, mattr))) = setup() else { return };
+    let mut it = spec.split(',');
+    let top = it.next().unwrap().to_string();
+    let clock = it.next();
+    let rest: Vec<&str> = list.split(':').collect();
+    let (files, incs) = cva6_files(&cva6, &rest);
+    let b = build("adhoc", netlist_of(files.clone(), incs.clone(), &top), &t, triple, &mattr);
+    report("adhoc", &b);
+    let Some(v) = verilate("adhoc", &files, &incs, &top, &b.net.ports, clock) else { return };
+    let cycles = if clock.is_some() { 8 } else { 1 };
+    let mut rng = Rng(0xAD40C);
+    let stim = stimulus(&v, cycles, GROUP, &mut rng, &mut |name, c, rng| match name {
+        "rst_ni" => Some((c > 0) as u64),
+        "in_vld_i" | "flush_i" => Some((rng.next() % 4 == 0) as u64),
+        "op_a_i" | "op_b_i" => Some(operand(rng)),
+        _ => None,
+    });
+    check_against(&b, &v, cycles, GROUP, &stim, &|w| format!("{w:x?}"));
+}
+
+#[test]
+fn cva6_id_stage() {
+    let Some((cva6, (t, triple, mattr))) = setup() else { return };
+    let (files, incs) = slice_files(
+        &cva6,
+        "id_top",
+        include_str!("cva6/id_top.sv"),
+        &["core/compressed_decoder.sv", "core/decoder.sv", "core/cvxif_compressed_if_driver.sv", "core/id_stage.sv"],
+    );
+    let b = build("id_stage", netlist_of(files.clone(), incs.clone(), "id_top"), &t, triple, &mattr);
+    report("id_stage", &b);
+    let Some(v) = verilate("id_stage", &files, &incs, "id_top", &b.net.ports, Some("clk_i")) else { return };
+    // fetch_entry_t: address, instruction, branch prediction (68 bits),
+    // then the exception, whose valid bit is bit 1.
+    let fe = b.net.port("fetch_entry_i").unwrap().width as usize;
+    let ex = fe - 64 - 32 - 68;
+    let (cycles, n) = (60, GROUP);
+    let mut rng = Rng(0x1D57_A6E0_0000_0001);
+    let stim = stimulus_with(&v, cycles, n, &mut rng, &mut |name, c, rng, w| match name {
+        "rst_ni" => w[0] = (c > 0 && rng.next() % 64 != 0) as u32,
+        "flush_i" => w[0] = (rng.next() % 16 == 0) as u32,
+        "debug_req_i" | "debug_mode_i" => w[0] = (rng.next() % 16 == 0) as u32,
+        "fetch_entry_valid_i" => w[0] = (rng.next() % 4 != 0) as u32,
+        "issue_instr_ack_i" => w[0] = (rng.next() % 2 == 0) as u32,
+        "compressed_ready_i" => w[0] = (rng.next() % 4 != 0) as u32,
+        "fetch_entry_i" => {
+            // Compressed instructions a third of the time.
+            let i = if rng.next() % 3 == 0 { rng.next() as u32 & !3 | (rng.next() % 3) as u32 } else { rv_instruction(rng) };
+            set_bits(w, ex + 68, 32, i as u64);
+            set_bits(w, 1, 1, (rng.next() % 8 == 0) as u64);
+        }
+        _ => {}
+    });
+    check_against(&b, &v, cycles, n, &stim, &|w| format!("{w:x?}"));
+    let ns = time_netlist(&b, Some("clk_i"), 200);
+    eprintln!("id_stage: {n} instances, {cycles} cycles agree with Verilator; {ns:.2} ns an instance a cycle; Verilator {}", v.bench(cycles, n, &stim, 3));
+}

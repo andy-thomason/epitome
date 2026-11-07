@@ -26,7 +26,7 @@ use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::fmt::Write;
 
 use crate::bdd::{Bdd, FALSE, Manager, TRUE, TooBig};
-use crate::design::types::{Type, TypeId};
+use crate::design::types::{Type, TypeId, UDim};
 use crate::hash::FxMap;
 use crate::design::value::{Bits, Logic};
 use crate::design::{
@@ -172,6 +172,64 @@ impl Netlist {
     }
 }
 
+/// A type's width in the netlist: an integral type's, or a fixed-size
+/// unpacked array's, whose elements are side by side as those of a packed
+/// array with the same bounds would be; 0 for other types.
+fn tw(tys: &crate::design::types::Types, t: TypeId) -> u32 {
+    match tys.get(t) {
+        Type::Unpacked { elem, dim: UDim::Range(l, r) } => tw(tys, *elem) * ((l - r).unsigned_abs() as u32 + 1),
+        _ if tys.is_integral(t) => tys.width(t),
+        _ => 0,
+    }
+}
+
+/// The bounds of a type's first dimension, unpacked or packed.
+fn range_of(tys: &crate::design::types::Types, t: TypeId) -> (i64, i64) {
+    match tys.get(t) {
+        Type::Unpacked { dim: UDim::Range(l, r), .. } => (*l, *r),
+        _ => tys.packed_range(t).unwrap_or((tw(tys, t) as i64 - 1, 0)),
+    }
+}
+
+/// The width of one element of a type's first dimension.
+fn elem_bits(tys: &crate::design::types::Types, t: TypeId) -> u32 {
+    match tys.get(t) {
+        Type::Unpacked { elem, .. } => tw(tys, *elem),
+        _ => tys.elem_width(t),
+    }
+}
+
+/// Where elements `lo..=hi` of `t` start, in elements from the least
+/// significant end, if they are in range.
+fn lsb_off(tys: &crate::design::types::Types, t: TypeId, lo: i64, hi: i64) -> Option<i64> {
+    let (l, r) = range_of(tys, t);
+    if lo < l.min(r) || hi > l.max(r) {
+        return None;
+    }
+    Some(if l >= r { lo - r } else { r - hi })
+}
+
+/// Where a select from `lo` to `hi` starts, in elements from the least
+/// significant end, in range or out.
+fn sel_start(tys: &crate::design::types::Types, t: TypeId, lo: i64, hi: i64) -> i64 {
+    let (l, r) = range_of(tys, t);
+    let (lo, hi) = (lo.min(hi), lo.max(hi));
+    if l >= r { lo - r } else { r - hi }
+}
+
+/// A constant's bits in `w` bits: an unpacked one's elements side by side,
+/// the first the most significant.
+fn const_bits(c: &Const, w: u32) -> Option<Bits> {
+    match c {
+        Const::Aggregate(items) if !items.is_empty() && w % items.len() as u32 == 0 => {
+            let ew = w / items.len() as u32;
+            let parts: Option<Vec<Bits>> = items.iter().map(|i| const_bits(i, ew)).collect();
+            Some(Bits::concat(&parts?))
+        }
+        _ => ops::bits_of(c).map(|b| b.resize(w, b.signed())),
+    }
+}
+
 fn pieces(w: u32) -> usize {
     (w as usize).div_ceil(32).max(1)
 }
@@ -252,7 +310,7 @@ pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, 
             name: d.name(p.name).to_string(),
             dir: p.dir,
             offset: lay.objs[&o] as usize,
-            width: d.types.width(d.object(o).ty),
+            width: tw(&d.types, d.object(o).ty),
             lane: lay.lane(o),
         });
     }
@@ -482,8 +540,8 @@ impl<'d, 'a> Lowering<'d, 'a> {
         self.collect(d.spec(spec).scope, &mut objs, &mut code)?;
         for &o in &objs {
             let ob = d.object(o);
-            if !d.types.is_integral(ob.ty) {
-                return Err(format!("{}: only integral values are supported yet", d.name(ob.name)));
+            if tw(&d.types, ob.ty) == 0 {
+                return Err(format!("{}: only integral values and fixed-size arrays of them are supported yet", d.name(ob.name)));
             }
         }
         let mut lay = Layout::new();
@@ -532,7 +590,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let port_lanes = |lay: &mut Layout| {
             for (k, p) in d.spec(spec).ports.iter().enumerate() {
                 if let Some(o) = p.object {
-                    let lane = Lane::of(d.types.width(d.object(o).ty), planes);
+                    let lane = Lane::of(tw(&d.types, d.object(o).ty), planes);
                     if lane != Lane::W32 {
                         lay.lanes.insert(o, lane);
                     }
@@ -552,7 +610,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 let o = p.object.expect("recognised specialisations have plain ports");
                 lay.statics.insert(o);
                 if !below_top {
-                    let w = d.types.width(d.object(o).ty);
+                    let w = tw(&d.types, d.object(o).ty);
                     lay.place(o, w, Lane::of(w, planes));
                 }
             }
@@ -590,7 +648,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
             if local.contains(&o) && !aliased.contains(&o) || lay.port_ix.contains_key(&o) {
                 continue;
             }
-            let w = d.types.width(d.object(o).ty);
+            let w = tw(&d.types, d.object(o).ty);
             match lay.elems.get(&o) {
                 Some(&e) => {
                     lay.objs.insert(o, lay.size);
@@ -601,7 +659,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         }
         // The registers' next values, and the edges' last values.
         for o in lay.regs.clone() {
-            let w = d.types.width(d.object(o).ty);
+            let w = tw(&d.types, d.object(o).ty);
             let lane = lay.lane(o);
             lay.shadow.insert(o, lay.size);
             lay.size = (lay.size + lane.bytes(w)).next_multiple_of(REG);
@@ -623,7 +681,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     Some(o) => Arg::Alias(o),
                     None => {
                         let po = p.object.ok_or("interface ports are not supported yet")?;
-                        let w = d.types.width(d.object(po).ty);
+                        let w = tw(&d.types, d.object(po).ty);
                         let at = lay.size;
                         lay.size = (lay.size + Lane::of(w, planes).bytes(w)).next_multiple_of(REG);
                         Arg::Slot(at)
@@ -649,8 +707,8 @@ impl<'d, 'a> Lowering<'d, 'a> {
     fn alias_target(&self, lay: &Layout, e: ExprId, port: ObjId) -> Option<ObjId> {
         let d = self.d;
         let mut x = d.expr(e);
-        let w = d.types.width(d.object(port).ty);
-        while matches!(x.kind, ExprKind::Convert) && d.types.width(x.ty) == w && d.types.is_integral(d.expr(x.args[0]).ty) {
+        let w = tw(&d.types, d.object(port).ty);
+        while matches!(x.kind, ExprKind::Convert) && tw(&d.types, x.ty) == w && d.types.is_integral(d.expr(x.args[0]).ty) {
             x = d.expr(x.args[0]);
         }
         match x.kind {
@@ -658,7 +716,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 if matches!(d.object(o).kind, ObjKind::Variable | ObjKind::Net(_))
                     && lay.statics.contains(&o)
                     && !lay.elems.contains_key(&o)
-                    && d.types.width(d.object(o).ty) == w =>
+                    && tw(&d.types, d.object(o).ty) == w =>
             {
                 Some(o)
             }
@@ -804,12 +862,12 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let mut out = HashMap::new();
         for &o in objs {
             let ob = d.object(o);
-            let w = d.types.width(ob.ty);
+            let w = tw(&d.types, ob.ty);
             if let (None, Some(Some(ew))) = (ob.dir, uses.get(&o))
                 && *ew <= 32
                 && w % ew == 0
                 && w / ew >= 2
-                && d.types.packed_range(ob.ty).is_some()
+                && (d.types.packed_range(ob.ty).is_some() || d.types.is_unpacked_array(ob.ty))
             {
                 out.insert(o, Elems { ew: *ew, n: w / ew, bits: *ew == 1 && self.opts.bit_planes });
             }
@@ -832,7 +890,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
             ExprKind::Object(o) => note(*o, None),
             ExprKind::Index if matches!(d.expr(x.args[0]).kind, ExprKind::Object(_)) => {
                 let ExprKind::Object(o) = d.expr(x.args[0]).kind else { unreachable!() };
-                note(o, Some(d.types.width(x.ty)));
+                note(o, Some(tw(&d.types, x.ty)));
                 self.expr_uses(x.args[1], uses);
             }
             _ => {
@@ -1151,7 +1209,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let x = d.expr(e);
         let bt = d.expr(x.args[0]).ty;
         let Some(k) = self.fold(x.args[1]).and_then(|c| c.to_i64()) else { return false };
-        let (l, r) = d.types.packed_range(bt).unwrap_or((d.types.width(bt) as i64 - 1, 0));
+        let (l, r) = range_of(&d.types, bt);
         k >= l.min(r) && k <= l.max(r)
     }
 
@@ -1343,7 +1401,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let lay = &self.layouts[&spec];
         let mut r = Vec::new();
         let mut w = Vec::new();
-        let whole = |o: ObjId| (o, 0, d.types.width(d.object(o).ty).max(1));
+        let whole = |o: ObjId| (o, 0, tw(&d.types, d.object(o).ty).max(1));
         match node {
             Node::Proc(p) => {
                 // The bits it reads and writes, as its statements select
@@ -1473,7 +1531,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         match &x.kind {
             ExprKind::Object(o) => {
                 if matches!(self.d.object(*o).kind, ObjKind::Variable | ObjKind::Net(_)) {
-                    out.push((*o, 0, self.d.types.width(self.d.object(*o).ty).max(1)));
+                    out.push((*o, 0, tw(&self.d.types, self.d.object(*o).ty).max(1)));
                 }
             }
             ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_) => {
@@ -1525,11 +1583,11 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let x = d.expr(e);
         match &x.kind {
             ExprKind::Object(o) => {
-                matches!(d.object(*o).kind, ObjKind::Variable | ObjKind::Net(_)).then(|| (*o, 0, d.types.width(d.object(*o).ty).max(1)))
+                matches!(d.object(*o).kind, ObjKind::Variable | ObjKind::Net(_)).then(|| (*o, 0, tw(&d.types, d.object(*o).ty).max(1)))
             }
             ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_) => {
                 let (o, lo, hi) = self.span(x.args[0])?;
-                let whole = (o, 0, d.types.width(d.object(o).ty).max(1));
+                let whole = (o, 0, tw(&d.types, d.object(o).ty).max(1));
                 match self.const_select(e) {
                     Some(Some((off, w))) if off >= 0 && (lo as i64 + off + w as i64) <= hi as i64 => {
                         let lo = lo + off as u32;
@@ -1551,12 +1609,15 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let bt = d.expr(x.args[0]).ty;
         match &x.kind {
             ExprKind::Index => {
-                if !matches!(tys.get(bt), Type::Vector { .. } | Type::PackedArray { .. } | Type::Struct { packed: true, .. } | Type::Enum { .. }) {
+                if !matches!(
+                    tys.get(bt),
+                    Type::Vector { .. } | Type::PackedArray { .. } | Type::Struct { packed: true, .. } | Type::Enum { .. } | Type::Unpacked { .. }
+                ) {
                     return None;
                 }
                 let k = self.fold(x.args[1])?.to_i64()?;
-                let ew = tys.width(x.ty).max(1);
-                Some(ops::lsb_offset(tys, bt, k, k).map(|off| (off * ew as i64, ew)))
+                let ew = tw(tys, x.ty).max(1);
+                Some(lsb_off(tys, bt, k, k).map(|off| (off * ew as i64, ew)))
             }
             ExprKind::Part { kind, width } => {
                 let a = self.fold(x.args[1])?.to_i64()?;
@@ -1565,14 +1626,14 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     PartKind::Up => (a + *width as i64 - 1, a),
                     PartKind::Down => (a, a - *width as i64 + 1),
                 };
-                let ew = tys.elem_width(bt).max(1);
-                let (start, _) = ops::select_span(tys, bt, lo, hi);
+                let ew = elem_bits(tys, bt).max(1);
+                let start = sel_start(tys, bt, lo, hi);
                 Some(Some((start * ew as i64, *width * ew)))
             }
             ExprKind::Member(i) => match tys.get(bt) {
                 Type::Struct { packed: true, members, union, .. } => {
-                    let w = tys.width(members[*i as usize].ty);
-                    let below: u32 = if *union { 0 } else { members[*i as usize + 1..].iter().map(|m| tys.width(m.ty)).sum() };
+                    let w = tw(tys, members[*i as usize].ty);
+                    let below: u32 = if *union { 0 } else { members[*i as usize + 1..].iter().map(|m| tw(tys, m.ty)).sum() };
                     Some(Some((below as i64, w)))
                 }
                 _ => None,
@@ -1635,9 +1696,25 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 "$clog2" => {
                     let v = ops::bits_of(&self.fold(x.args[0])?)?.to_u64()?;
                     let c = if v <= 1 { 0 } else { 64 - (v - 1).leading_zeros() as u64 };
-                    Some(Const::Bits(Bits::from_u64(tys.width(x.ty), tys.is_signed(x.ty), c)))
+                    Some(Const::Bits(Bits::from_u64(tw(tys, x.ty), tys.is_signed(x.ty), c)))
                 }
                 "$signed" | "$unsigned" => Some(ops::convert(tys, &self.fold(x.args[0])?, x.ty)),
+                // The bounds of a packed type's first dimension (20.7), and
+                // its width (20.6.2), from the argument's type.
+                name @ ("$left" | "$right" | "$low" | "$high" | "$size" | "$bits") => {
+                    let a = d.expr(x.args[0]);
+                    let t = if let ExprKind::TypeRef(t) = a.kind { t } else { a.ty };
+                    let (l, r) = range_of(tys, t);
+                    let v = match name {
+                        "$left" => l,
+                        "$right" => r,
+                        "$low" => l.min(r),
+                        "$high" => l.max(r),
+                        "$size" => (l - r).abs() + 1,
+                        _ => tw(tys, t) as i64,
+                    };
+                    Some(Const::Bits(Bits::from_u64(tw(tys, x.ty), tys.is_signed(x.ty), v as u64)))
+                }
                 _ => None,
             },
             ExprKind::Cond => {
@@ -1656,8 +1733,8 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 let bt = d.expr(x.args[0]).ty;
                 match (tys.get(bt), &b) {
                     (Type::Struct { packed: true, members, union, .. }, Const::Bits(bits)) => {
-                        let w = tys.width(members[*i as usize].ty);
-                        let below: u32 = if *union { 0 } else { members[*i as usize + 1..].iter().map(|m| tys.width(m.ty)).sum() };
+                        let w = tw(tys, members[*i as usize].ty);
+                        let below: u32 = if *union { 0 } else { members[*i as usize + 1..].iter().map(|m| tw(tys, m.ty)).sum() };
                         Some(Const::Bits(bits.slice(below, w).with_signed(tys.is_signed(x.ty))))
                     }
                     (_, Const::Aggregate(v)) => v.get(*i as usize).cloned(),
@@ -2060,7 +2137,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     let (Dir::Input, Arg::Slot(at)) = (port.dir, arg) else { continue };
                     let Some(e) = inst.connections.iter().find(|c| c.port == port.name).and_then(|c| c.expr) else { continue };
                     let o = port.object.ok_or("interface ports are not supported yet")?;
-                    let w = d.types.width(d.object(o).ty);
+                    let w = tw(&d.types, d.object(o).ty);
                     let v = self.expr(e)?;
                     let v = self.resize(&v, w, false);
                     self.store(Base::State(at), child.lane(o), &v);
@@ -2077,8 +2154,8 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                             let Some(e) = inst.connections.iter().find(|c| c.port == port.name).and_then(|c| c.expr) else { continue };
                             let o = port.object.ok_or("interface ports are not supported yet")?;
                             let ty = d.object(o).ty;
-                            let v = self.load(Base::State(at), child.lane(o), d.types.width(ty));
-                            let w = d.types.width(d.expr(e).ty);
+                            let v = self.load(Base::State(at), child.lane(o), tw(&d.types, ty));
+                            let w = tw(&d.types, d.expr(e).ty);
                             let v = self.resize(&v, w, d.types.is_signed(ty));
                             self.assign(e, v)?;
                         }
@@ -2106,7 +2183,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                         if let Item::Object(o) = *item {
                             let ob = d.object(o);
                             if ob.lifetime == Lifetime::Automatic && ob.kind == ObjKind::Variable {
-                                let w = d.types.width(ob.ty);
+                                let w = tw(&d.types, ob.ty);
                                 let v = match ob.init {
                                     Some(e) => {
                                         let v = self.expr(e)?;
@@ -2237,7 +2314,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 let Some(&(_, r)) = self.calls.last() else { return Err("return outside a function".into()) };
                 if let (Some(e), Some(r)) = (v, r) {
                     let x = self.expr(*e)?;
-                    let w = d.types.width(d.object(r).ty);
+                    let w = tw(&d.types, d.object(r).ty);
                     let x = self.resize(&x, w, d.types.is_signed(d.expr(*e).ty));
                     self.env.vals.insert(r, x);
                 }
@@ -2354,7 +2431,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             return Ok(self.mnot(out));
         }
         let signed = tys.is_signed(vt) && tys.is_signed(x.ty);
-        let n = v.w.max(tys.width(x.ty));
+        let n = v.w.max(tw(tys, x.ty));
         let v = self.resize(v, n, signed);
         if let Some(Const::Bits(b)) = self.l.fold(item)
             && !b.is_known()
@@ -2449,9 +2526,9 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let x = d.expr(lhs);
         match &x.kind {
             ExprKind::Concat => {
-                let mut top: u32 = x.args.iter().map(|&a| d.types.width(d.expr(a).ty)).sum();
+                let mut top: u32 = x.args.iter().map(|&a| tw(&d.types, d.expr(a).ty)).sum();
                 for &a in &x.args {
-                    let w = d.types.width(d.expr(a).ty);
+                    let w = tw(&d.types, d.expr(a).ty);
                     top -= w;
                     let part = self.extract(&v, top, w);
                     self.assign_nb(a, part)?;
@@ -2500,7 +2577,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             Phase::Ff => self.run_loop_with(|f| f.ff_procs()),
             Phase::Commit => self.run_loop_with(|f| {
                 for o in f.lay().regs.clone() {
-                    let w = d.types.width(d.object(o).ty);
+                    let w = tw(&d.types, d.object(o).ty);
                     let at = f.lay().shadow[&o];
                     let lane = f.lay().lane(o);
                     let v = f.load(Base::State(at), lane, w);
@@ -2620,7 +2697,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         }
         let mut ins = Vec::new();
         for (i, &f) in s.args.iter().enumerate() {
-            let w = d.types.width(d.object(f).ty);
+            let w = tw(&d.types, d.object(f).ty);
             let v = match (d.object(f).dir, args.get(i)) {
                 (Some(Dir::Input) | None, Some(&a)) => {
                     let v = self.expr(a)?;
@@ -2644,7 +2721,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             self.env.vals.insert(f, v);
         }
         if let Some(r) = r {
-            self.env.vals.insert(r, Val::zero(d.types.width(d.object(r).ty)));
+            self.env.vals.insert(r, Val::zero(tw(&d.types, d.object(r).ty)));
         }
         let outer = (self.env.brk.take(), self.env.ret.take());
         self.calls.push((sub, r));
@@ -2653,7 +2730,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             if s.args.contains(&o) {
                 continue;
             }
-            let w = d.types.width(d.object(o).ty);
+            let w = tw(&d.types, d.object(o).ty);
             let v = match d.object(o).init {
                 Some(e) => self.expr(e).map(|v| self.resize(&v, w, false)),
                 None => Ok(Val::zero(w)),
@@ -2824,9 +2901,9 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let d = self.d();
         let x = d.expr(e);
         let bt = d.expr(x.args[0]).ty;
-        let (l, r) = d.types.packed_range(bt).unwrap_or((d.types.width(bt) as i64 - 1, 0));
+        let (l, r) = range_of(&d.types, bt);
         let idx = match self.l.fold(x.args[1]) {
-            Some(c) => self.konst_of(&c, d.types.width(d.expr(x.args[1]).ty))?,
+            Some(c) => self.konst_of(&c, tw(&d.types, d.expr(x.args[1]).ty))?,
             None => self.expr(x.args[1])?,
         };
         let signed = d.types.is_signed(d.expr(x.args[1]).ty);
@@ -2932,7 +3009,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         }
         let ExprKind::Object(o) = d.expr(x.args[0]).kind else { return None };
         let el = self.lay().elems.get(&o)?;
-        (d.types.width(x.ty) == el.ew).then_some(o)
+        (tw(&d.types, x.ty) == el.ew).then_some(o)
     }
 
     /// An object's value: from this loop's values, from the state, or zero
@@ -2951,7 +3028,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             return v.clone();
         }
         let d = self.d();
-        let w = d.types.width(d.object(o).ty);
+        let w = tw(&d.types, d.object(o).ty);
         let v = match self.slot(o) {
             Some(base) => {
                 let lane = self.lay().lane(o);
@@ -2987,15 +3064,15 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let x = d.expr(lhs);
         match &x.kind {
             ExprKind::Object(o) => {
-                let w = d.types.width(d.object(*o).ty);
+                let w = tw(&d.types, d.object(*o).ty);
                 let v = self.resize(&v, w, false);
                 self.set(*o, v);
                 Ok(())
             }
             ExprKind::Concat => {
-                let mut top: u32 = x.args.iter().map(|&a| d.types.width(d.expr(a).ty)).sum();
+                let mut top: u32 = x.args.iter().map(|&a| tw(&d.types, d.expr(a).ty)).sum();
                 for &a in &x.args {
-                    let w = d.types.width(d.expr(a).ty);
+                    let w = tw(&d.types, d.expr(a).ty);
                     top -= w;
                     let part = self.extract(&v, top, w);
                     self.assign(a, part)?;
@@ -3036,7 +3113,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let d = self.d();
         let x = d.expr(e);
         if let ExprKind::Object(o) = x.kind {
-            return Ok((o, Off::K(0), d.types.width(x.ty)));
+            return Ok((o, Off::K(0), tw(&d.types, x.ty)));
         }
         let (o, base, _) = self.place(x.args[0])?;
         let (off, w) = self.offset(e)?;
@@ -3062,20 +3139,20 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         if let Some(c) = self.l.const_select(e) {
             return Ok(match c {
                 Some((off, w)) => (Off::K(off as u32).with_sign(off), w),
-                None => (Off::V(P::K(0), M::K(false)), tys.width(x.ty)),
+                None => (Off::V(P::K(0), M::K(false)), tw(tys, x.ty)),
             });
         }
         let bt = d.expr(x.args[0]).ty;
-        let (l, r) = tys.packed_range(bt).unwrap_or((tys.width(bt) as i64 - 1, 0));
+        let (l, r) = range_of(tys, bt);
         let idx = self.expr(x.args[1])?;
         let signed = tys.is_signed(d.expr(x.args[1]).ty);
         let (lo_index, ew, w) = match &x.kind {
             ExprKind::Index => {
-                let ew = tys.width(x.ty).max(1);
+                let ew = tw(tys, x.ty).max(1);
                 (idx.clone(), ew, ew)
             }
             ExprKind::Part { kind, width } => {
-                let ew = tys.elem_width(bt).max(1);
+                let ew = elem_bits(tys, bt).max(1);
                 let lo = match kind {
                     PartKind::Up => idx.clone(),
                     PartKind::Down => {
@@ -3134,7 +3211,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 first as i32
             );
             self.uniform.insert(t);
-            let w = d.types.width(d.object(o).ty);
+            let w = tw(&d.types, d.object(o).ty);
             let mut p = vec![P::K(0); pieces(w)];
             p[0] = P::V(t);
             if pieces(w) > 1 {
@@ -3211,7 +3288,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let d = self.d();
         let base = self.base();
         let start = self.lay().objs[&o];
-        let last = pieces(d.types.width(d.object(o).ty)) as u64 - 1;
+        let last = pieces(tw(&d.types, d.object(o).ty)) as u64 - 1;
         let r = self.bin("and", off, P::K(31));
         if let P::K(k) = off {
             let q = (k as u64 / 32).min(last);
@@ -3358,7 +3435,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         };
         let d = self.d();
         for &(o, out) in &k.outs {
-            let w = d.types.width(d.object(o).ty);
+            let w = tw(&d.types, d.object(o).ty);
             let v = match out {
                 Out::Count { at_zero } => {
                     let c = if k.count == Count::Ones && at_zero == 0 { count } else { self.sel(zero, P::K(at_zero as u32), count) };
@@ -3394,9 +3471,9 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         if !matches!(x.kind, ExprKind::Object(_) | ExprKind::Const(_))
             && let Some(c) = self.l.fold(e)
         {
-            return self.konst_of(&c, tys.width(x.ty));
+            return self.konst_of(&c, tw(tys, x.ty));
         }
-        let w = tys.width(x.ty);
+        let w = tw(tys, x.ty);
         match &x.kind {
             ExprKind::Const(c) => self.konst_of(d.konst(*c), w),
             ExprKind::Object(o) => {
@@ -3498,9 +3575,10 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             },
             // A packed target's pattern is its elements concatenated, the
             // first the most significant (10.9).
-            ExprKind::Pattern if tys.is_integral(x.ty) && !x.args.is_empty() => {
+            ExprKind::Pattern if tw(tys, x.ty) > 0 && !x.args.is_empty() => {
                 let widths: Vec<u32> = match tys.get(x.ty) {
-                    Type::Struct { packed: true, union: false, members, .. } => members.iter().map(|m| tys.width(m.ty)).collect(),
+                    Type::Struct { packed: true, union: false, members, .. } => members.iter().map(|m| tw(tys, m.ty)).collect(),
+                    Type::Unpacked { elem, .. } => vec![tw(tys, *elem); x.args.len()],
                     Type::Struct { .. } => return Err("an assignment pattern for a packed union is not supported yet".into()),
                     _ => vec![w / x.args.len() as u32; x.args.len()],
                 };
@@ -3544,7 +3622,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     }
 
     fn konst_of(&mut self, c: &Const, w: u32) -> Result<Val, String> {
-        let b = ops::bits_of(c).ok_or("a constant that is not a packed value")?;
+        let b = const_bits(c, w).ok_or("a constant that is not a packed value")?;
         let b = b.known_or_zero();
         Ok(self.resize(&self.konst(&b), w, b.signed()))
     }
@@ -3561,7 +3639,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     }
 
     fn unary(&mut self, op: UnOp, a: Val, ty: TypeId) -> Result<Val, String> {
-        let w = self.d().types.width(ty);
+        let w = tw(&self.d().types, ty);
         Ok(match op {
             UnOp::Plus => self.resize(&a, w, false),
             UnOp::Neg => {
@@ -3615,7 +3693,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     /// `op` on `a` and `b`; `ty` is the result's type, `at` the operands'.
     fn binary(&mut self, op: BinOp, a: Val, b: Val, ty: TypeId, at: TypeId) -> Result<Val, String> {
         let tys = &self.d().types;
-        let w = tys.width(ty);
+        let w = tw(tys, ty);
         let signed = tys.is_signed(at);
         Ok(match op {
             BinOp::And | BinOp::Or | BinOp::Xor | BinOp::Xnor => {
@@ -4264,7 +4342,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
             }
         }
         let input = input?;
-        let w = d.types.width(d.object(input).ty);
+        let w = tw(&d.types, d.object(input).ty);
         if !(2..=64).contains(&w) || outs.is_empty() {
             return None;
         }
@@ -4302,7 +4380,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let mut dir = None;
         let mut known = Vec::new();
         for o in outs {
-            let ow = d.types.width(d.object(o).ty) as usize;
+            let ow = tw(&d.types, d.object(o).ty) as usize;
             let bits = s.env.get(&o).cloned().unwrap_or_else(|| vec![FALSE; ow]);
             let out = if bits.iter().all(|&b| b <= TRUE) {
                 Out::Const(bits.iter().enumerate().fold(0, |v, (i, &b)| v | ((b == TRUE) as u64) << i))
@@ -4417,7 +4495,7 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
         for p in &d.spec(inst.spec).ports {
             let o = p.object.ok_or(Unproved)?;
             if p.dir == Dir::Input {
-                let w = d.types.width(d.object(o).ty) as usize;
+                let w = tw(&d.types, d.object(o).ty) as usize;
                 let v = match conn(p) {
                     Some(e) => self.expr(e)?,
                     None => vec![FALSE; w],
@@ -4436,8 +4514,8 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
                     let o = p.object.ok_or(Unproved)?;
                     let Some(e) = conn(p) else { continue };
                     let ty = d.object(o).ty;
-                    let v = inner.get(&o).cloned().unwrap_or_else(|| vec![FALSE; d.types.width(ty) as usize]);
-                    let v = self.resize(&v, d.types.width(d.expr(e).ty) as usize, d.types.is_signed(ty));
+                    let v = inner.get(&o).cloned().unwrap_or_else(|| vec![FALSE; tw(&d.types, ty) as usize]);
+                    let v = self.resize(&v, tw(&d.types, d.expr(e).ty) as usize, d.types.is_signed(ty));
                     self.assign(e, v)?;
                 }
                 _ => return Err(Unproved),
@@ -4508,15 +4586,15 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
         };
         match &x.kind {
             ExprKind::Index => {
-                let ew = tys.width(x.ty).max(1) as i64;
+                let ew = tw(tys, x.ty).max(1) as i64;
                 // Out of range: past the top, so that it reads zeros.
-                let off = ops::lsb_offset(tys, bt, k, k).unwrap_or(tys.width(bt) as i64);
+                let off = lsb_off(tys, bt, k, k).unwrap_or(tw(tys, bt) as i64);
                 Ok((off * ew, ew as usize))
             }
             ExprKind::Part { kind: kind @ (PartKind::Up | PartKind::Down), width } => {
-                let ew = tys.elem_width(bt).max(1) as i64;
+                let ew = elem_bits(tys, bt).max(1) as i64;
                 let (hi, lo) = if *kind == PartKind::Up { (k + *width as i64 - 1, k) } else { (k, k - *width as i64 + 1) };
-                let (start, _) = ops::select_span(tys, bt, lo, hi);
+                let start = sel_start(tys, bt, lo, hi);
                 Ok((start * ew, (*width as i64 * ew) as usize))
             }
             _ => Err(Unproved),
@@ -4527,7 +4605,7 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
         let d = self.d();
         let tys = &d.types;
         let x = d.expr(e);
-        let w = tys.width(x.ty) as usize;
+        let w = tw(tys, x.ty) as usize;
         if !matches!(x.kind, ExprKind::Object(_)) && let Some(c) = self.l.fold(e) {
             return self.const_of(&c, w);
         }
@@ -4540,7 +4618,7 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
             ExprKind::Const(c) => self.const_of(d.konst(*c), w)?,
             ExprKind::Object(o) => match d.object(*o).kind {
                 ObjKind::Variable | ObjKind::Net(_) => {
-                    let ow = tys.width(d.object(*o).ty) as usize;
+                    let ow = tw(tys, d.object(*o).ty) as usize;
                     let v = self.env.get(o).cloned().unwrap_or_else(|| vec![FALSE; ow]);
                     self.resize(&v, w, false)
                 }
@@ -4602,7 +4680,7 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
             ExprKind::Binary(op) if matches!(op, BinOp::Eq | BinOp::Ne | BinOp::CaseEq | BinOp::CaseNe | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge) => {
                 let at = d.expr(x.args[0]).ty;
                 let signed = tys.is_signed(at);
-                let n = tys.width(at).max(tys.width(d.expr(x.args[1]).ty)) as usize;
+                let n = tw(tys, at).max(tw(tys, d.expr(x.args[1]).ty)) as usize;
                 let a = self.expr(x.args[0])?;
                 let b = self.expr(x.args[1])?;
                 let (mut a, mut b) = (self.resize(&a, n, signed), self.resize(&b, n, signed));
@@ -4693,7 +4771,7 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
             ExprKind::Concat => {
                 let mut at = 0;
                 for &a in x.args.iter().rev() {
-                    let w = d.types.width(d.expr(a).ty) as usize;
+                    let w = tw(&d.types, d.expr(a).ty) as usize;
                     let part: Bits2 = (0..w).map(|i| v.get(at + i).copied().unwrap_or(FALSE)).collect();
                     self.assign(a, part)?;
                     at += w;
@@ -4702,7 +4780,7 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
             }
             _ => {
                 let (o, off, w) = self.place(lhs)?;
-                let ow = d.types.width(d.object(o).ty) as usize;
+                let ow = tw(&d.types, d.object(o).ty) as usize;
                 let mut cur = self.env.get(&o).cloned().unwrap_or_else(|| vec![FALSE; ow]);
                 for i in 0..w {
                     let at = off + i as i64;
@@ -4722,7 +4800,7 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
         let x = d.expr(e);
         match &x.kind {
             ExprKind::Object(o) if matches!(d.object(*o).kind, ObjKind::Variable | ObjKind::Net(_)) => {
-                Ok((*o, 0, d.types.width(x.ty) as usize))
+                Ok((*o, 0, tw(&d.types, x.ty) as usize))
             }
             ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_) => {
                 let (o, base, _) = self.place(x.args[0])?;
@@ -4747,7 +4825,7 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
                         if let Item::Object(o) = *item
                             && d.object(o).lifetime == Lifetime::Automatic
                         {
-                            let w = d.types.width(d.object(o).ty) as usize;
+                            let w = tw(&d.types, d.object(o).ty) as usize;
                             let v = match d.object(o).init {
                                 Some(e) => self.expr(e)?,
                                 None => vec![FALSE; w],
@@ -4821,7 +4899,7 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
         keys.sort_unstable_by_key(|o| o.0);
         keys.dedup();
         for o in keys {
-            let ow = self.d().types.width(self.d().object(o).ty) as usize;
+            let ow = tw(&self.d().types, self.d().object(o).ty) as usize;
             let va = a.get(&o).cloned().unwrap_or_else(|| vec![FALSE; ow]);
             let vb = b.get(&o).cloned().unwrap_or_else(|| vec![FALSE; ow]);
             let v = self.ite_vec(c, &va, &vb)?;

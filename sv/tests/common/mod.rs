@@ -87,7 +87,11 @@ pub fn build(name: &str, net: Netlist, t: &Target, triple: &str, mattr: &[String
     let ir = format!("target triple = \"{triple}\"\n{}", net.ir);
     std::fs::write(tmp.join(format!("{name}.ll")), &ir).unwrap();
     let mut m = epitome_ir::parse_module(&ir).unwrap_or_else(|e| panic!("{name}.ll: {e:?}"));
-    epitome_opt::pipeline::run(&mut m, &Default::default());
+    // NETLIST_NO_OPT=1 leaves the IR as generated, for telling a bug in
+    // the optimiser from one in code generation.
+    if std::env::var("NETLIST_NO_OPT").map_or(true, |v| v != "1") {
+        epitome_opt::pipeline::run(&mut m, &Default::default());
+    }
     let opts = epitome_codegen::Options { mattr: mattr.to_vec(), ..Default::default() };
     let c = epitome_codegen::compile(t, &mut m, &opts).unwrap_or_else(|e| panic!("{name}: {e}"));
     std::fs::write(tmp.join(format!("{name}.s")), &c.asm).unwrap();
@@ -101,6 +105,16 @@ pub fn build(name: &str, net: Netlist, t: &Target, triple: &str, mattr: &[String
     sizes.sort();
     let obj = tmp.join(format!("{name}.o"));
     std::fs::write(&obj, c.object_file(t).unwrap()).unwrap();
+    // NETLIST_CC_IR=1 has the system's C compiler build the IR instead, as
+    // a check of Epitome's code generation (a lib by another name, as a
+    // loaded library is not loaded again).
+    let name = &if std::env::var("NETLIST_CC_IR").is_ok_and(|v| v == "1") {
+        let st = Command::new("cc").args(["-O1", "-c", "-o"]).arg(&obj).arg(tmp.join(format!("{name}.ll"))).status().unwrap();
+        assert!(st.success(), "cc on {name}.ll");
+        format!("{name}_cc")
+    } else {
+        name.to_string()
+    };
     let lib = tmp.join(format!("lib{name}.so"));
     let st = Command::new("cc").arg("-shared").arg("-o").arg(&lib).arg(&obj).status().unwrap();
     assert!(st.success(), "linking {name}");
@@ -475,19 +489,15 @@ pub fn cva6_files(cva6: &Path, rest: &[&str]) -> (Vec<PathBuf>, Vec<PathBuf>) {
 }
 
 /// Stimulus for `v`'s inputs: for each cycle and instance, each input's
-/// words, from `pick` where it gives them and random bits otherwise.
-pub fn stimulus(v: &Verilated, cycles: usize, n: usize, rng: &mut Rng, pick: &mut dyn FnMut(&str, usize, &mut Rng) -> Option<u64>) -> Vec<u32> {
+/// words, random bits that `pick` may then change (a port's name, the
+/// cycle, and its words).
+pub fn stimulus_with(v: &Verilated, cycles: usize, n: usize, rng: &mut Rng, pick: &mut dyn FnMut(&str, usize, &mut Rng, &mut [u32])) -> Vec<u32> {
     let mut out = Vec::with_capacity(cycles * n * v.in_words());
     for c in 0..cycles {
         for _ in 0..n {
             for (name, w) in &v.ins {
                 let mut words: Vec<u32> = (0..words(*w)).map(|_| rng.next() as u32).collect();
-                if let Some(x) = pick(name, c, rng) {
-                    words[0] = x as u32;
-                    if words.len() > 1 {
-                        words[1] = (x >> 32) as u32;
-                    }
-                }
+                pick(name, c, rng, &mut words);
                 if w % 32 != 0 {
                     *words.last_mut().unwrap() &= (1u32 << (w % 32)) - 1;
                 }
@@ -496,6 +506,26 @@ pub fn stimulus(v: &Verilated, cycles: usize, n: usize, rng: &mut Rng, pick: &mu
         }
     }
     out
+}
+
+/// [`stimulus_with`], where `pick` gives the low 64 bits of a port.
+pub fn stimulus(v: &Verilated, cycles: usize, n: usize, rng: &mut Rng, pick: &mut dyn FnMut(&str, usize, &mut Rng) -> Option<u64>) -> Vec<u32> {
+    stimulus_with(v, cycles, n, rng, &mut |name, c, rng, words| {
+        if let Some(x) = pick(name, c, rng) {
+            words[0] = x as u32;
+            if words.len() > 1 {
+                words[1] = (x >> 32) as u32;
+            }
+        }
+    })
+}
+
+/// Writes `x` into bits `lo..lo + w` (`w` at most 64) of `words`.
+pub fn set_bits(words: &mut [u32], lo: usize, w: usize, x: u64) {
+    for i in 0..w {
+        let (k, b) = ((lo + i) / 32, (lo + i) % 32);
+        words[k] = words[k] & !(1 << b) | (((x >> i) & 1) as u32) << b;
+    }
 }
 
 /// A random RISC-V instruction word: mostly the major opcodes there are,

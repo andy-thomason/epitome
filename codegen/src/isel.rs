@@ -2025,6 +2025,21 @@ impl<'a, 'b> Sel<'a, 'b> {
                     }
                 }
             }
+            // A list of registers (`{zt1}, {zt1:+1}`): each member, the
+            // head too, copied into a value of its own, which allocation
+            // places with the others (`regalloc.rs`); the copies go where
+            // the values are already there. (One value may be in two
+            // places of a list, or in lists at different places.)
+            let heads: Vec<usize> = ins.operands.iter().filter_map(|o| o.list.map(|l| l.0)).collect();
+            for (j, o) in ins.operands.iter().enumerate() {
+                if (o.list.is_some() || heads.contains(&j))
+                    && let (Kind::Reg(c), MOp::Reg(src)) = (o.kind, &ops[j])
+                {
+                    let (w, src) = (self.mf.new_vreg(c), *src);
+                    self.push(MInst::copy(Reg::V(w), src));
+                    ops[j] = MOp::Reg(Reg::V(w));
+                }
+            }
             let z = ins.zext;
             if ins.has_result
                 && let MOp::Reg(r) = ops[0]

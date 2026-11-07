@@ -45,6 +45,11 @@ pub struct Operand {
     /// A register operand's least number, its class's first register (12
     /// for SME's w12-w15): what `fits` tries.
     pub first: i64,
+    /// A member of a list of registers (`"list"="zt1:+1"`): the operand
+    /// whose register heads the list, and how far after it this one's is
+    /// (`{zt1:+1}` in the template). No field holds it; allocation puts it
+    /// there (`regalloc.rs`).
+    pub list: Option<(usize, u8)>,
 }
 
 /// An instruction's encoding, from its text: parsed as the description is
@@ -234,6 +239,28 @@ impl Instr {
             env.insert(o.name.clone(), d?);
         }
         Some((env, len))
+    }
+
+    /// Whether a list of registers may start at register number `n` (in
+    /// its file), for the operand `head` that heads it: whether `n`
+    /// survives an encode and decode. (SME2's lists of two or four start
+    /// at a multiple of two or four: their fields hold `n >> 1`, `n >> 2`.)
+    pub fn list_starts(&self, head: usize, n: i64) -> bool {
+        [0, 1].into_iter().any(|r| {
+            let mut env = Env::new();
+            for (k, o) in self.operands.iter().enumerate() {
+                let v = if k == head {
+                    n
+                } else if matches!(o.kind, Kind::Reg(_)) {
+                    o.first + r
+                } else {
+                    0
+                };
+                env.insert(o.name.clone(), v);
+            }
+            let Some(bytes) = self.encode(&env) else { return false };
+            self.decode(&bytes).is_some_and(|(back, _)| back.get(&self.operands[head].name) == Some(&n))
+        })
     }
 
     /// Whether these operand values can be encoded: each immediate must
@@ -1124,6 +1151,7 @@ impl Target {
                     tied: false,
                     writeback: false,
                     first: 0,
+                    list: None,
                 });
             }
             // A second register result, `d2`: the second field of the
@@ -1147,6 +1175,7 @@ impl Target {
                     tied: false,
                     writeback: false,
                     first: 0,
+                    list: None,
                 });
             }
             for p in &f.params {
@@ -1174,7 +1203,22 @@ impl Target {
                     tied: attr(&p.attrs, "tied").is_some(),
                     writeback: attr(&p.attrs, "writeback").is_some(),
                     first: 0,
+                    list: None,
                 });
+            }
+            // Members of lists of registers: after the operand heading
+            // theirs.
+            for (k, p) in f.params.iter().enumerate() {
+                let Some(Some(l)) = attr(&p.attrs, "list") else { continue };
+                let bad = || format!("@{name}: \"list\"=\"{l}\": not head:+k");
+                let (head, off) = l.split_once(":+").ok_or_else(bad)?;
+                let off: u8 = off.parse().map_err(|_| bad())?;
+                let h = operands.iter().position(|o| o.name == head).ok_or_else(bad)?;
+                let j = operands.len() - f.params.len() + k;
+                if off == 0 || !matches!(operands[h].kind, Kind::Reg(_)) || operands[j].kind != operands[h].kind {
+                    return Err(bad());
+                }
+                operands[j].list = Some((h, off));
             }
             // A 32-bit result is zero above 32 bits where the machine zeroes
             // the top half of the register; where it sign-extends, nothing

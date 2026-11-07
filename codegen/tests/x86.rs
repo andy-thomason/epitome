@@ -220,3 +220,24 @@ fn x86_instructions_round_trip() {
     let _ = std::fs::remove_dir_all(&tmp);
     eprintln!("{lines} lines: the same {} bytes and {} relocations as {mc}", ours_code.len(), ours_rel.len());
 }
+
+/// A relocated instruction is read by an entry for reading where one has
+/// its relocation, not by one only for selection, which may name its
+/// registers otherwise: a compare into k0 from a broadcast operand reads
+/// back as XED's entry writes it, not as `-` (k0 in the class of masks
+/// selection uses, where an instruction's mask cannot be k0).
+#[test]
+fn x86_relocated_instructions_read_by_reading_entries() {
+    let t = Target::x86_64();
+    let lines = [
+        "vpcmpd $0, sym(%rip){1to16}, %zmm0, %k0",
+        "vpcmpd $4, sym(%rip){1to16}, %zmm0, %k1",
+        "vpcmpud $1, sym(%rip){1to16}, %zmm3, %k0",
+        "vpandd sym(%rip){1to16}, %zmm0, %zmm1",
+        "movq sym@GOTPCREL(%rip), %rax",
+    ];
+    let asm: String = std::iter::once(".text\nf:\n".to_string()).chain(lines.iter().map(|l| format!("\t{l}\n"))).collect();
+    let object = Assembler::new(&t).assemble(&asm, Some(Syntax::Elf)).and_then(|a| a.file(&t)).unwrap();
+    let img = Image::read(&object, &t.machine).unwrap();
+    assert_eq!(objdump::reads_back(&t, &img, &asm, &[]).unwrap(), lines.len());
+}

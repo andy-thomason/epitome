@@ -358,6 +358,10 @@ struct Layout {
     clocked: bool,
     /// Where its `_ff` function notes whether an edge came.
     fired: u64,
+    /// The values only continuous assignments write, all in one loop:
+    /// each starts there from zero, not from its last value, as every bit
+    /// it has is one they drive or zero.
+    fresh: HashSet<ObjId>,
 }
 
 /// What a parent passes for a child's port.
@@ -398,6 +402,7 @@ impl Layout {
             prev: HashMap::new(),
             clocked: false,
             fired: 0,
+            fresh: HashSet::new(),
         }
     }
 
@@ -646,6 +651,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         self.layouts.insert(spec, lay);
         let mut local = self.loop_locals(spec)?;
         local.retain(|o| !ff_reads.contains(o));
+        let fresh = self.fresh_values(spec)?;
         let mut lay = self.layouts.remove(&spec).unwrap();
         for o in objs {
             if local.contains(&o) && !aliased.contains(&o) || lay.port_ix.contains_key(&o) {
@@ -660,6 +666,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 None => lay.place(o, w, Lane::of(w, planes)),
             }
         }
+        lay.fresh = fresh;
         // The registers' next values, and the edges' last values. Only a
         // port below the top needs a slot for its next value: its storage
         // may be its parent's, read by the parent's clocked processes,
@@ -788,6 +795,36 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     && *first_write != usize::MAX
                     && first_write <= first_read
             })
+            .map(|(o, _)| o)
+            .collect())
+    }
+
+    /// The values written only by continuous assignments, all of them in
+    /// one loop over the registers (see `Layout::fresh`).
+    fn fresh_values(&self, spec: SpecId) -> Result<HashSet<ObjId>, String> {
+        let lay = &self.layouts[&spec];
+        let mut seg = 0usize;
+        // For each value written: the loop its writers are in, if one, and
+        // whether they are all continuous assignments.
+        let mut writers: HashMap<ObjId, (Option<usize>, bool)> = HashMap::new();
+        for node in self.order(spec)? {
+            match node {
+                Node::Loop(_) => seg += 2,
+                Node::Call(_) => seg += 1,
+                _ => {}
+            }
+            let (_, w) = self.access(spec, node)?;
+            for (o, _, _) in w {
+                let e = writers.entry(o).or_insert((Some(seg), true));
+                if e.0 != Some(seg) {
+                    e.0 = None;
+                }
+                e.1 &= matches!(node, Node::Driver(_));
+            }
+        }
+        Ok(writers
+            .into_iter()
+            .filter(|(o, (one, drivers))| one.is_some() && *drivers && lay.statics.contains(o) && !lay.elems.contains_key(o) && !lay.regs.contains(o))
             .map(|(o, _)| o)
             .collect())
     }
@@ -1853,6 +1890,8 @@ struct Func<'l, 'd, 'a> {
     in_range: HashSet<ExprId>,
     /// The functions being run, innermost last, with their results.
     calls: Vec<(SubId, Option<ObjId>)>,
+    /// Bits of temporaries known to be zero in every lane.
+    zeros: HashMap<u32, u32>,
     /// Running clocked processes: nonblocking assignments are allowed.
     ff: bool,
 }
@@ -1884,7 +1923,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             }
         }
         let out = format!("define void @{}({params}) {{\nentry:\n", fn_name(spec));
-        Func { l, spec, out, next: 0, env: Env::default(), block: "entry".into(), loops: 0, rolled: 0, mem: false, uniform: HashSet::new(), mask_of: HashMap::new(), bits_of: HashMap::new(), in_range: HashSet::new(), calls: Vec::new(), ff: false }
+        Func { l, spec, out, next: 0, env: Env::default(), block: "entry".into(), loops: 0, rolled: 0, mem: false, uniform: HashSet::new(), mask_of: HashMap::new(), bits_of: HashMap::new(), in_range: HashSet::new(), calls: Vec::new(), ff: false, zeros: HashMap::new() }
     }
 
     fn finish(mut self) -> String {
@@ -2080,6 +2119,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     "  %t{a} = getelementptr i8, ptr {base}, i64 {off}\n  %t{v} = load {ty}, ptr %t{a}, align {align}\n  \
                      %t{z} = zext {ty} %t{v} to {V16}"
                 );
+                self.zeros.insert(z, if lane == Lane::B8 { !0xff } else { !0xffff });
                 Val { w, p: vec![P::V(z)] }
             }
         }
@@ -2365,7 +2405,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     /// with the values it starts with, which must be constants.
     fn trip_count(&mut self, cond: Option<ExprId>, step: &[StmtId]) -> Result<u32, String> {
         let saved = (self.env.clone(), self.out.len(), self.next);
-        let tables = (self.mask_of.clone(), self.bits_of.clone(), self.uniform.clone());
+        let tables = (self.mask_of.clone(), self.bits_of.clone(), self.uniform.clone(), self.zeros.clone());
         let mut n = 0u32;
         let r = loop {
             let go = match cond {
@@ -2390,7 +2430,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         self.env = saved.0;
         self.out.truncate(saved.1);
         self.next = saved.2;
-        (self.mask_of, self.bits_of, self.uniform) = tables;
+        (self.mask_of, self.bits_of, self.uniform, self.zeros) = tables;
         r
     }
 
@@ -3177,7 +3217,11 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     self.mem_insert(o, p, ok, w, &v);
                     return Ok(());
                 }
-                let old = self.read(o);
+                let old = if self.lay().fresh.contains(&o) && !self.env.vals.contains_key(&o) {
+                    Val::zero(tw(&d.types, d.object(o).ty))
+                } else {
+                    self.read(o)
+                };
                 let new = match off {
                     Off::K(k) => self.insert(&old, k, w, &v),
                     Off::V(p, ok) => self.insert_var(&old, p, ok, w, &v),
@@ -3614,6 +3658,23 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             }
             ExprKind::Replicate(n) => {
                 let v = self.expr(x.args[0])?;
+                // One bit: all ones or none, the bit's negation; a few
+                // that fit a piece, a multiply.
+                if v.w == 1 && w > 1 {
+                    let fill = match v.p[0] {
+                        P::V(t) if self.mask_of.contains_key(&t) => {
+                            let m = self.mask_of[&t];
+                            self.sel(m, P::K(!0), P::K(0))
+                        }
+                        p => self.bin("sub", P::K(0), p),
+                    };
+                    return Ok(self.norm(Val { w, p: vec![fill; pieces(w)] }));
+                }
+                if v.w > 0 && w <= 32 && *n > 1 {
+                    let k: u32 = (0..*n).fold(0u32, |k, i| k | 1 << (i * v.w));
+                    let p = self.bin("mul", v.p[0], P::K(k));
+                    return Ok(self.norm(Val { w, p: vec![p] }));
+                }
                 let mut acc = Val::zero(w);
                 for k in 0..*n {
                     acc = self.insert(&acc, k * v.w, v.w, &v);
@@ -3942,6 +4003,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 let t = self.tmp();
                 let _ = writeln!(self.out, "  %t{t} = zext {M16} %t{n} to {V16}");
                 self.mask_of.insert(t, m);
+                self.zeros.insert(t, !1);
                 if self.uniform.contains(&n) {
                     self.uniform.insert(t);
                 }
@@ -4240,7 +4302,26 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
 
     // ---- instructions, folding constants ----
 
+    /// The bits of `p` known to be zero in every lane.
+    fn kz(&self, p: P) -> u32 {
+        match p {
+            P::K(c) => !c,
+            P::V(t) => self.zeros.get(&t).copied().unwrap_or(0),
+        }
+    }
+
     fn bin(&mut self, op: &str, a: P, b: P) -> P {
+        // A mask that clears only bits known to be zero changes nothing;
+        // one that keeps only those, everything.
+        let (za, zb) = (self.kz(a), self.kz(b));
+        match op {
+            "and" if za | zb == !0 => return P::K(0),
+            "and" if matches!(b, P::K(m) if !za & !m == 0) => return a,
+            "and" if matches!(a, P::K(m) if !zb & !m == 0) => return b,
+            "or" | "xor" if za == !0 => return b,
+            "or" | "xor" if zb == !0 => return a,
+            _ => {}
+        }
         // Logic on values made from masks is logic on the masks.
         if let ("and" | "or" | "xor", P::V(x), P::V(y)) = (op, a, b)
             && let (Some(&mx), Some(&my)) = (self.mask_of.get(&x), self.mask_of.get(&y))
@@ -4279,6 +4360,23 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let _ = writeln!(self.out, "  %t{t} = {op} {V16} {}, {}", ps(a), ps(b));
         if self.is_uniform(a) && self.is_uniform(b) {
             self.uniform.insert(t);
+        }
+        // What is known of its bits.
+        let lead = |z: u32| (!z).leading_zeros();
+        let z = match (op, b) {
+            ("and", _) => za | zb,
+            ("or" | "xor", _) => za & zb,
+            ("shl", P::K(s)) => (za << s) | ((1u32 << s) - 1),
+            ("lshr", P::K(s)) => (za >> s) | !(u32::MAX >> s),
+            // A sum has at most one bit more than its wider operand.
+            ("add", _) => match lead(za).min(lead(zb)).saturating_sub(1) {
+                0 => 0,
+                l => !(u32::MAX >> l),
+            },
+            _ => 0,
+        };
+        if z != 0 {
+            self.zeros.insert(t, z);
         }
         P::V(t)
     }
@@ -4330,6 +4428,10 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 let _ = writeln!(self.out, "  %t{t} = select {M16} %t{n}, {V16} {}, {V16} {}", ps(a), ps(b));
                 if self.uniform.contains(&n) && self.is_uniform(a) && self.is_uniform(b) {
                     self.uniform.insert(t);
+                }
+                let z = self.kz(a) & self.kz(b);
+                if z != 0 {
+                    self.zeros.insert(t, z);
                 }
                 P::V(t)
             }

@@ -194,7 +194,8 @@ impl Layout {
 /// Why a type has no layout.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum LayoutError {
-    /// It still has generic parameters, projections or variables.
+    /// It still has generic parameters, projections or variables: the
+    /// type, printed.
     NotConcrete(String),
     /// An array length or discriminant that could not be evaluated.
     BadConst,
@@ -325,7 +326,7 @@ impl<'a, 's> LayoutCx<'a, 's> {
     }
 
     fn not_concrete(&self, t: Ty) -> LayoutError {
-        LayoutError::NotConcrete(format!("{:?}", self.tcx.kind(t)))
+        LayoutError::NotConcrete(self.tcx.display(self.r, t))
     }
 
     fn compute(&self, t: Ty) -> Result<Layout, LayoutError> {

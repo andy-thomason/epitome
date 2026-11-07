@@ -305,9 +305,23 @@ impl<'a, 's> Cx<'a, 's> {
             TyKind::Array(x, c) => {
                 out.push('[');
                 self.type_key(x, out);
-                out.push_str(&format!("; {:?}]", self.lcx.eval_const(c, &Default::default())));
+                out.push_str("; ");
+                self.const_key(c, out);
+                out.push(']');
             }
+            TyKind::ConstArg(c) => self.const_key(c, out),
             _ => out.push_str(&tcx.display(self.r, t)),
+        }
+    }
+
+    /// A constant for `type_key`: its value, or, when the evaluator cannot
+    /// work it out, where it is written, so that two such constants are
+    /// not taken for the same one.
+    fn const_key(&self, c: crate::ty::ConstId, out: &mut String) {
+        match (self.lcx.eval_const(c, &Default::default()), self.tcx.const_of(c)) {
+            (Some(v), _) => out.push_str(&v.to_string()),
+            (None, crate::ty::Const::Expr(k, f, n)) => out.push_str(&format!("expr@{k}:{f}:{}", n.0)),
+            (None, c) => out.push_str(&format!("{c:?}")),
         }
     }
 
@@ -400,7 +414,17 @@ impl Session {
             }
         }
         named.sort_by(|a, b| a.0.cmp(&b.0));
-        named.dedup_by(|a, b| a.0 == b.0);
+        // Items of one name are one instance (constant arguments written
+        // apart, of the same value): the first is declared, and the
+        // others share its declaration, whichever order they came in.
+        let mut same = Vec::new();
+        named.dedup_by(|a, b| {
+            let dup = a.0 == b.0;
+            if dup {
+                same.push((a.1, b.1));
+            }
+            dup
+        });
         let mut static_inits = Vec::new();
         for (name, it) in &named {
             match *it {
@@ -461,6 +485,12 @@ impl Session {
                     Err(e) => failures.push(Failure { item: *it, name: name.clone(), why: e }),
                 },
                 _ => {}
+            }
+        }
+
+        for (it, first) in same {
+            if let Some(d) = cx.fns.get(&first).cloned() {
+                cx.fns.insert(it, d);
             }
         }
 

@@ -132,11 +132,7 @@ impl State {
 
     fn put(&mut self, net: &Netlist, port: &str, n: usize, v: u64) {
         let f = net.port(port).unwrap_or_else(|| panic!("no port {port}"));
-        let v = if f.width < 64 { v & ((1u64 << f.width) - 1) } else { v };
-        for k in 0..f.pieces() {
-            let piece = if k < 2 { (v >> (32 * k)) as u32 } else { 0 };
-            unsafe { (self.ptr.add(f.at(k, n)) as *mut u32).write(piece) };
-        }
+        unsafe { f.put(self.ptr, n, v) };
     }
 
     /// A value wider than 64 bits, as 64-bit words, low first.
@@ -155,7 +151,7 @@ impl State {
 
     fn get(&self, net: &Netlist, port: &str, n: usize) -> u64 {
         let f = net.port(port).unwrap_or_else(|| panic!("no port {port}"));
-        (0..f.pieces().min(2)).map(|k| (unsafe { (self.ptr.add(f.at(k, n)) as *const u32).read() } as u64) << (32 * k)).sum()
+        unsafe { f.get(self.ptr, n) }
     }
 }
 

@@ -222,10 +222,12 @@ these are for after.
   instructions on x86, and a scalar one a call of `fmaximumf`.
 - **Acquire loads** use `ldar`; with RCpc (the M1 has it) `ldapr` is
   enough for C++'s and Rust's acquire, as LLVM's back end uses.
-- **SVE's vector length made once**: each `llvm.vscale` is its own
-  `rdvl` and shift (28 in `tests/sve/loops2.c`), where one per function,
-  hoisted, would do; and the predicated recipes make a `ptrue` each, where
-  one per lane width would.
+- **SVE's `fma` overwrites the addend** (`fmla`), with a copy where the
+  addend is still needed; `fmad` overwrites a multiplicand, so where one
+  of those dies it would need none (`peephole::overwrite_dying` swaps two
+  sources; this is three). And SVE's loops step by `incw` and end on
+  `whilelo`'s flags (`b.mi`) in LLVM's code, where ours adds a `cntw` and
+  tests a lane of the predicate made integers (`tests/sve/folded.c`).
 - **SVE's widening sums** (`partial.reduce.add`) are unpacks and adds,
   where SVE2 has `saddwb`/`saddwt` and `sdot` for bytes.
 

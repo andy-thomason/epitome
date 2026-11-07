@@ -292,8 +292,85 @@ pub fn prepare(cx: &mut Ctx, f: &Function, fname: &str) -> Result<Function, Stri
     } else {
         compares_per_use(cx, &mut f);
     }
+    vscale_per_use(cx, &mut f);
     split_phi_edges(&mut f);
     Ok(f)
+}
+
+/// The vector length (`llvm.vscale`, SVE's) used by more than one
+/// instruction, or in another block: each user gets its own, just before
+/// it, so that selection folds it into what uses it (`rdvl x0, #2` of
+/// `vscale << 5`, `cntw` of `vscale << 2`). What that makes alike is made
+/// once again after selection (`peephole::shared_constants`). Not for a
+/// phi, which keeps the one it has. Each copy is an elective change
+/// (autochop).
+fn vscale_per_use(cx: &Ctx, f: &mut Function) {
+    let is_vscale = |f: &Function, l: LocalId| match f.locals[l.index()].def {
+        LocalDef::Inst(d) => match &f.insts[d.index()].op {
+            Op::Call(c) => callee_name(cx.m, c).is_some_and(|n| n == "llvm.vscale.i64"),
+            _ => false,
+        },
+        _ => false,
+    };
+    let mut count = vec![0u32; f.locals.len()];
+    for i in f.insts_in_order() {
+        f.insts[i.index()].op.for_each_value(|v| {
+            if let Value::Local(l) = v {
+                count[l.index()] += 1;
+            }
+        });
+    }
+    let blocks = f.inst_blocks();
+    let mut gone = Vec::new();
+    for b in f.layout.clone() {
+        let mut k = 0;
+        while k < f.blocks[b.index()].insts.len() {
+            let i = f.blocks[b.index()].insts[k];
+            k += 1;
+            if f.insts[i.index()].op.is_phi() {
+                continue;
+            }
+            let mut uses = Vec::new();
+            f.insts[i.index()].op.for_each_value(|v| {
+                if let Value::Local(l) = v
+                    && !uses.contains(l)
+                {
+                    uses.push(*l);
+                }
+            });
+            for l in uses {
+                let LocalDef::Inst(d) = f.locals[l.index()].def else { continue };
+                if !is_vscale(f, l)
+                    || (count[l.index()] < 2 && blocks[d.index()] == Some(b))
+                    || !epitome_ir::chop::allow(|| {
+                        format!("a vector length {} of its own for one use", epitome_ir::printer::local_name(f, l))
+                    })
+                {
+                    continue;
+                }
+                let ty = f.locals[l.index()].ty;
+                let copy = f.add_inst(f.insts[d.index()].op.clone(), Some((None, ty)));
+                f.blocks[b.index()].insts.insert(k - 1, copy);
+                k += 1;
+                let new = f.result(copy);
+                f.insts[i.index()].op.for_each_value_mut(|v| {
+                    if *v == Value::Local(l) {
+                        *v = new;
+                    }
+                });
+                count[l.index()] -= 1;
+                if count[l.index()] == 0 {
+                    gone.push(d);
+                }
+            }
+        }
+    }
+    // Those every user now has its own of.
+    for d in gone {
+        if let Some(b) = blocks[d.index()] {
+            f.blocks[b.index()].insts.retain(|&x| x != d);
+        }
+    }
 }
 
 /// Field `k` of struct value `v` (of field type `fty`): a constant's, or
@@ -2577,6 +2654,16 @@ fn const_multiplies(cx: &mut Ctx, f: &mut Function) {
                 _ => continue,
             };
             if w > 64 || c <= 1 || (w < 64 && c >= 1 << (w - 1)) {
+                continue;
+            }
+            // (Not of the vector length by a multiple of 16, which the
+            // machine makes in one instruction: AArch64's `rdvl x0, #3`.)
+            if c % 16 == 0
+                && cx.t.by_name.contains_key("VL.mul")
+                && let Value::Local(l) = x
+                && let LocalDef::Inst(d) = f.locals[l.index()].def
+                && matches!(&f.insts[d.index()].op, Op::Call(call) if callee_name(cx.m, call).is_some_and(|n| n == "llvm.vscale.i64"))
+            {
                 continue;
             }
             let c = c as u64;

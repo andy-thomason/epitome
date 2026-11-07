@@ -62,8 +62,11 @@ roles `load.z` and `store.z`, the steps `addvl`.
 Predicates are a third file in the calling convention (`pred-args` p0-p3,
 `pred-result` p0, the rest clobbered), allocated as z values are and
 spilt in predicate lengths (an eighth of a vector length: `ldr p0, [x16,
-#k, mul vl]`). An all-true constant is `ptrue` of its lanes' width, a
-false one `pfalse`.
+#k, mul vl]`). Spill code's scratch predicate is p7 (`pred-scratch`),
+which a governing predicate (class `pg`, p0-p7) can be, so that one
+spilled or made again is loaded or made where the instruction can read it
+(the allocator takes a scratch register of the value's class). An
+all-true constant is `ptrue` of its lanes' width, a false one `pfalse`.
 
 ## SVE's intrinsics (done)
 
@@ -81,15 +84,47 @@ generic`):
 - Operations SVE has only predicated (`mul`, divisions, shifts, min and
   max, `fdiv`, `fneg`, `fabs`, `sqrt`, `fma`, `minnum`, conversions) are
   recipes: the predicated instruction under `ptrue` of the lanes.
+- **One `ptrue`.** Each recipe makes its own `ptrue`;
+  `peephole::shared_constants` (before allocation) makes alike values
+  that SVE's instructions make from nothing (`ptrue p0.s`, `rdvl x0, #1`,
+  `mov z0.s, #1`) once, in the block that dominates them all, or above
+  it out of any loop. Where one cannot stay in a register (across a call,
+  a switch of streaming mode), the allocator makes it again before each
+  use rather than spilling it. Streaming mode's switches change the vector
+  length, so a function with one keeps its vector lengths where they are
+  (role `sm.switch`).
+- **The source that dies is the one overwritten.** The predicated forms
+  overwrite their first source, which selection copies into the result
+  first. Where that source is needed after and the other dies there,
+  `peephole::overwrite_dying` takes the entry's `"swap"`: itself for one
+  that commutes (`mul`, `smax`, `fadd`...), the reversed form for one that
+  does not (`sdivr` of `sdiv`, `subr`, `lslr`, `lsrr`, `asrr` (entries of
+  their own: no intrinsic has them), `fdivr`, `fsubr`), so the copy
+  goes. Only under an all-true predicate, where no lane keeps the first
+  source. Where both die, it overwrites the one from the register the
+  result is copied to (an argument returned). A copy still left before an
+  operation that overwrites it is `movprfx` (`peephole::prefixes`, after
+  allocation; entries marked `"movprfx"`).
+- **Immediates.** With a splat of a constant: `add`, `sub`, `subr` (0 to
+  255), `mul`, `smax`, `smin` (-128 to 127), `umax`, `umin`, and `and`,
+  `orr`, `eor` of words and doublewords (logical immediates), overwriting
+  their operand; shifts from another register (`lsl z0.s, z1.s, #3`). A
+  constant splat of -128 to 127 is `mov z0.s, #k` (role
+  `splat.imm.nxv4i32`), other ones made in a register and duplicated.
 - Comparisons are into predicates (`cmpgt p0.s, p1/z, z0.s, z1.s`); those
   SVE has not (`slt`, `ult`, `olt`) are the others with their operands
   swapped. Selects are `sel`; a predicate extended to integers is a select
   of one (or minus one) and zero.
-- Splats are `dup` (`mov z0.s, w0`), of a constant too (made in a
-  register first); reductions are the across-lanes instructions (`uaddv`,
-  `smaxv`, `fadda`; a byte's or half's read through the s register of the
-  same number, which they clear above it); `llvm.vscale` is `rdvl` over
-  16.
+- Splats are `dup` (`mov z0.s, w0`); reductions are the across-lanes
+  instructions (`uaddv`, `smaxv`, `fadda`; a byte's or half's read through
+  the s register of the same number, which they clear above it).
+- `llvm.vscale` alone is `rdvl` over 16; its multiples are one
+  instruction: `cntd`, `cntw`, `cnth` (shifted by 1 to 3), `rdvl x0, #k`
+  (by 16k), and added to a register or address `addvl x0, x1, #k`.
+  `prepare::vscale_per_use` gives each instruction that uses one its own,
+  so selection folds it in, and `shared_constants` makes alike ones once;
+  a call of it nothing wants is not made, and `const_multiplies` leaves
+  its multiples of 16 alone.
 - Copies of z values are `mov z0.d, z1.d`, never the q register's copy,
   which would clear the lanes above 128 bits (`regalloc::lower_copies`
   takes a class's own copy first).

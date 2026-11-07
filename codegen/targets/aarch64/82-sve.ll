@@ -366,28 +366,28 @@ define <vscale x 2 x double> @FMULz.nx2double(<vscale x 2 x double> "reg"="z" %n
   ret <vscale x 2 x double> %r
 }
 
-define <vscale x 16 x i8> @SVE.abs.nxv16i8(<vscale x 16 x i8> "reg"="z" "tied" %a0, <vscale x 16 x i1> "reg"="pg" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000010110101 a1:3 a2:5 d:5" "asm"="abs {d}.b, {a1}/m, {a2}.b" "dclass"="z" "nodecode" {
+define <vscale x 16 x i8> @SVE.abs.nxv16i8(<vscale x 16 x i8> "reg"="z" "tied" %a0, <vscale x 16 x i1> "reg"="pg" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000010110101 a1:3 a2:5 d:5" "asm"="abs {d}.b, {a1}/m, {a2}.b" "dclass"="z" "movprfx" "nodecode" {
   %r = call <vscale x 16 x i8> @llvm.aarch64.sve.abs.nxv16i8(<vscale x 16 x i8> %a0, <vscale x 16 x i1> %a1, <vscale x 16 x i8> %a2)
   ret <vscale x 16 x i8> %r
 }
 
 declare <vscale x 16 x i8> @llvm.aarch64.sve.abs.nxv16i8(<vscale x 16 x i8>, <vscale x 16 x i1>, <vscale x 16 x i8>)
 
-define <vscale x 2 x i64> @SVE.abs.nxv2i64(<vscale x 2 x i64> "reg"="z" "tied" %a0, <vscale x 2 x i1> "reg"="pg" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011010110101 a1:3 a2:5 d:5" "asm"="abs {d}.d, {a1}/m, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x i64> @SVE.abs.nxv2i64(<vscale x 2 x i64> "reg"="z" "tied" %a0, <vscale x 2 x i1> "reg"="pg" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011010110101 a1:3 a2:5 d:5" "asm"="abs {d}.d, {a1}/m, {a2}.d" "dclass"="z" "movprfx" "nodecode" {
   %r = call <vscale x 2 x i64> @llvm.aarch64.sve.abs.nxv2i64(<vscale x 2 x i64> %a0, <vscale x 2 x i1> %a1, <vscale x 2 x i64> %a2)
   ret <vscale x 2 x i64> %r
 }
 
 declare <vscale x 2 x i64> @llvm.aarch64.sve.abs.nxv2i64(<vscale x 2 x i64>, <vscale x 2 x i1>, <vscale x 2 x i64>)
 
-define <vscale x 4 x i32> @SVE.abs.nxv4i32(<vscale x 4 x i32> "reg"="z" "tied" %a0, <vscale x 4 x i1> "reg"="pg" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010010110101 a1:3 a2:5 d:5" "asm"="abs {d}.s, {a1}/m, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x i32> @SVE.abs.nxv4i32(<vscale x 4 x i32> "reg"="z" "tied" %a0, <vscale x 4 x i1> "reg"="pg" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010010110101 a1:3 a2:5 d:5" "asm"="abs {d}.s, {a1}/m, {a2}.s" "dclass"="z" "movprfx" "nodecode" {
   %r = call <vscale x 4 x i32> @llvm.aarch64.sve.abs.nxv4i32(<vscale x 4 x i32> %a0, <vscale x 4 x i1> %a1, <vscale x 4 x i32> %a2)
   ret <vscale x 4 x i32> %r
 }
 
 declare <vscale x 4 x i32> @llvm.aarch64.sve.abs.nxv4i32(<vscale x 4 x i32>, <vscale x 4 x i1>, <vscale x 4 x i32>)
 
-define <vscale x 8 x i16> @SVE.abs.nxv8i16(<vscale x 8 x i16> "reg"="z" "tied" %a0, <vscale x 8 x i1> "reg"="pg" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001010110101 a1:3 a2:5 d:5" "asm"="abs {d}.h, {a1}/m, {a2}.h" "dclass"="z" "nodecode" {
+define <vscale x 8 x i16> @SVE.abs.nxv8i16(<vscale x 8 x i16> "reg"="z" "tied" %a0, <vscale x 8 x i1> "reg"="pg" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001010110101 a1:3 a2:5 d:5" "asm"="abs {d}.h, {a1}/m, {a2}.h" "dclass"="z" "movprfx" "nodecode" {
   %r = call <vscale x 8 x i16> @llvm.aarch64.sve.abs.nxv8i16(<vscale x 8 x i16> %a0, <vscale x 8 x i1> %a1, <vscale x 8 x i16> %a2)
   ret <vscale x 8 x i16> %r
 }
@@ -422,28 +422,28 @@ define <vscale x 4 x i32> @SVE.adclt.nxv4i32(<vscale x 4 x i32> "reg"="z" "tied"
 
 declare <vscale x 4 x i32> @llvm.aarch64.sve.adclt.nxv4i32(<vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i32>)
 
-define <vscale x 16 x i8> @SVE.add.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000000000000 a0:3 a2:5 d:5" "asm"="add {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "nodecode" {
+define <vscale x 16 x i8> @SVE.add.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000000000000 a0:3 a2:5 d:5" "asm"="add {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "swap"="SVE.add.nxv16i8" "movprfx" "nodecode" {
   %r = call <vscale x 16 x i8> @llvm.aarch64.sve.add.nxv16i8(<vscale x 16 x i1> %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
   ret <vscale x 16 x i8> %r
 }
 
 declare <vscale x 16 x i8> @llvm.aarch64.sve.add.nxv16i8(<vscale x 16 x i1>, <vscale x 16 x i8>, <vscale x 16 x i8>)
 
-define <vscale x 2 x i64> @SVE.add.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011000000000 a0:3 a2:5 d:5" "asm"="add {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x i64> @SVE.add.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011000000000 a0:3 a2:5 d:5" "asm"="add {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "swap"="SVE.add.nxv2i64" "movprfx" "nodecode" {
   %r = call <vscale x 2 x i64> @llvm.aarch64.sve.add.nxv2i64(<vscale x 2 x i1> %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2)
   ret <vscale x 2 x i64> %r
 }
 
 declare <vscale x 2 x i64> @llvm.aarch64.sve.add.nxv2i64(<vscale x 2 x i1>, <vscale x 2 x i64>, <vscale x 2 x i64>)
 
-define <vscale x 4 x i32> @SVE.add.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010000000000 a0:3 a2:5 d:5" "asm"="add {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x i32> @SVE.add.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010000000000 a0:3 a2:5 d:5" "asm"="add {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "swap"="SVE.add.nxv4i32" "movprfx" "nodecode" {
   %r = call <vscale x 4 x i32> @llvm.aarch64.sve.add.nxv4i32(<vscale x 4 x i1> %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2)
   ret <vscale x 4 x i32> %r
 }
 
 declare <vscale x 4 x i32> @llvm.aarch64.sve.add.nxv4i32(<vscale x 4 x i1>, <vscale x 4 x i32>, <vscale x 4 x i32>)
 
-define <vscale x 8 x i16> @SVE.add.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001000000000 a0:3 a2:5 d:5" "asm"="add {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "nodecode" {
+define <vscale x 8 x i16> @SVE.add.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001000000000 a0:3 a2:5 d:5" "asm"="add {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "swap"="SVE.add.nxv8i16" "movprfx" "nodecode" {
   %r = call <vscale x 8 x i16> @llvm.aarch64.sve.add.nxv8i16(<vscale x 8 x i1> %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
   ret <vscale x 8 x i16> %r
 }
@@ -604,28 +604,28 @@ define <vscale x 16 x i8> @SVE.aesmc(<vscale x 16 x i8> "reg"="z" "tied" %a0) "f
 
 declare <vscale x 16 x i8> @llvm.aarch64.sve.aesmc(<vscale x 16 x i8>)
 
-define <vscale x 16 x i8> @SVE.and.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000011010000 a0:3 a2:5 d:5" "asm"="and {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "nodecode" {
+define <vscale x 16 x i8> @SVE.and.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000011010000 a0:3 a2:5 d:5" "asm"="and {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "swap"="SVE.and.nxv16i8" "movprfx" "nodecode" {
   %r = call <vscale x 16 x i8> @llvm.aarch64.sve.and.nxv16i8(<vscale x 16 x i1> %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
   ret <vscale x 16 x i8> %r
 }
 
 declare <vscale x 16 x i8> @llvm.aarch64.sve.and.nxv16i8(<vscale x 16 x i1>, <vscale x 16 x i8>, <vscale x 16 x i8>)
 
-define <vscale x 2 x i64> @SVE.and.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011011010000 a0:3 a2:5 d:5" "asm"="and {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x i64> @SVE.and.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011011010000 a0:3 a2:5 d:5" "asm"="and {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "swap"="SVE.and.nxv2i64" "movprfx" "nodecode" {
   %r = call <vscale x 2 x i64> @llvm.aarch64.sve.and.nxv2i64(<vscale x 2 x i1> %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2)
   ret <vscale x 2 x i64> %r
 }
 
 declare <vscale x 2 x i64> @llvm.aarch64.sve.and.nxv2i64(<vscale x 2 x i1>, <vscale x 2 x i64>, <vscale x 2 x i64>)
 
-define <vscale x 4 x i32> @SVE.and.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010011010000 a0:3 a2:5 d:5" "asm"="and {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x i32> @SVE.and.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010011010000 a0:3 a2:5 d:5" "asm"="and {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "swap"="SVE.and.nxv4i32" "movprfx" "nodecode" {
   %r = call <vscale x 4 x i32> @llvm.aarch64.sve.and.nxv4i32(<vscale x 4 x i1> %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2)
   ret <vscale x 4 x i32> %r
 }
 
 declare <vscale x 4 x i32> @llvm.aarch64.sve.and.nxv4i32(<vscale x 4 x i1>, <vscale x 4 x i32>, <vscale x 4 x i32>)
 
-define <vscale x 8 x i16> @SVE.and.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001011010000 a0:3 a2:5 d:5" "asm"="and {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "nodecode" {
+define <vscale x 8 x i16> @SVE.and.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001011010000 a0:3 a2:5 d:5" "asm"="and {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "swap"="SVE.and.nxv8i16" "movprfx" "nodecode" {
   %r = call <vscale x 8 x i16> @llvm.aarch64.sve.and.nxv8i16(<vscale x 8 x i1> %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
   ret <vscale x 8 x i16> %r
 }
@@ -653,28 +653,28 @@ define i32 @SVE.andv.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32
 
 declare i32 @llvm.aarch64.sve.andv.nxv4i32(<vscale x 4 x i1>, <vscale x 4 x i32>)
 
-define <vscale x 16 x i8> @SVE.asr.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000010000100 a0:3 a2:5 d:5" "asm"="asr {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "nodecode" {
+define <vscale x 16 x i8> @SVE.asr.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000010000100 a0:3 a2:5 d:5" "asm"="asr {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "swap"="SVE.asrr.nxv16i8" "movprfx" "nodecode" {
   %r = call <vscale x 16 x i8> @llvm.aarch64.sve.asr.nxv16i8(<vscale x 16 x i1> %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
   ret <vscale x 16 x i8> %r
 }
 
 declare <vscale x 16 x i8> @llvm.aarch64.sve.asr.nxv16i8(<vscale x 16 x i1>, <vscale x 16 x i8>, <vscale x 16 x i8>)
 
-define <vscale x 2 x i64> @SVE.asr.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011010000100 a0:3 a2:5 d:5" "asm"="asr {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x i64> @SVE.asr.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011010000100 a0:3 a2:5 d:5" "asm"="asr {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "swap"="SVE.asrr.nxv2i64" "movprfx" "nodecode" {
   %r = call <vscale x 2 x i64> @llvm.aarch64.sve.asr.nxv2i64(<vscale x 2 x i1> %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2)
   ret <vscale x 2 x i64> %r
 }
 
 declare <vscale x 2 x i64> @llvm.aarch64.sve.asr.nxv2i64(<vscale x 2 x i1>, <vscale x 2 x i64>, <vscale x 2 x i64>)
 
-define <vscale x 4 x i32> @SVE.asr.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010010000100 a0:3 a2:5 d:5" "asm"="asr {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x i32> @SVE.asr.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010010000100 a0:3 a2:5 d:5" "asm"="asr {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "swap"="SVE.asrr.nxv4i32" "movprfx" "nodecode" {
   %r = call <vscale x 4 x i32> @llvm.aarch64.sve.asr.nxv4i32(<vscale x 4 x i1> %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2)
   ret <vscale x 4 x i32> %r
 }
 
 declare <vscale x 4 x i32> @llvm.aarch64.sve.asr.nxv4i32(<vscale x 4 x i1>, <vscale x 4 x i32>, <vscale x 4 x i32>)
 
-define <vscale x 8 x i16> @SVE.asr.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001010000100 a0:3 a2:5 d:5" "asm"="asr {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "nodecode" {
+define <vscale x 8 x i16> @SVE.asr.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001010000100 a0:3 a2:5 d:5" "asm"="asr {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "swap"="SVE.asrr.nxv8i16" "movprfx" "nodecode" {
   %r = call <vscale x 8 x i16> @llvm.aarch64.sve.asr.nxv8i16(<vscale x 8 x i1> %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
   ret <vscale x 8 x i16> %r
 }
@@ -1941,28 +1941,28 @@ define <vscale x 8 x i16> @SVE.dup.x.nxv8i16(i16 "reg"="wsp" %a0) "feature"="sve
 
 declare <vscale x 8 x i16> @llvm.aarch64.sve.dup.x.nxv8i16(i16)
 
-define <vscale x 16 x i8> @SVE.eor.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000011001000 a0:3 a2:5 d:5" "asm"="eor {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "nodecode" {
+define <vscale x 16 x i8> @SVE.eor.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000011001000 a0:3 a2:5 d:5" "asm"="eor {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "swap"="SVE.eor.nxv16i8" "movprfx" "nodecode" {
   %r = call <vscale x 16 x i8> @llvm.aarch64.sve.eor.nxv16i8(<vscale x 16 x i1> %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
   ret <vscale x 16 x i8> %r
 }
 
 declare <vscale x 16 x i8> @llvm.aarch64.sve.eor.nxv16i8(<vscale x 16 x i1>, <vscale x 16 x i8>, <vscale x 16 x i8>)
 
-define <vscale x 2 x i64> @SVE.eor.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011011001000 a0:3 a2:5 d:5" "asm"="eor {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x i64> @SVE.eor.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011011001000 a0:3 a2:5 d:5" "asm"="eor {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "swap"="SVE.eor.nxv2i64" "movprfx" "nodecode" {
   %r = call <vscale x 2 x i64> @llvm.aarch64.sve.eor.nxv2i64(<vscale x 2 x i1> %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2)
   ret <vscale x 2 x i64> %r
 }
 
 declare <vscale x 2 x i64> @llvm.aarch64.sve.eor.nxv2i64(<vscale x 2 x i1>, <vscale x 2 x i64>, <vscale x 2 x i64>)
 
-define <vscale x 4 x i32> @SVE.eor.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010011001000 a0:3 a2:5 d:5" "asm"="eor {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x i32> @SVE.eor.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010011001000 a0:3 a2:5 d:5" "asm"="eor {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "swap"="SVE.eor.nxv4i32" "movprfx" "nodecode" {
   %r = call <vscale x 4 x i32> @llvm.aarch64.sve.eor.nxv4i32(<vscale x 4 x i1> %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2)
   ret <vscale x 4 x i32> %r
 }
 
 declare <vscale x 4 x i32> @llvm.aarch64.sve.eor.nxv4i32(<vscale x 4 x i1>, <vscale x 4 x i32>, <vscale x 4 x i32>)
 
-define <vscale x 8 x i16> @SVE.eor.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001011001000 a0:3 a2:5 d:5" "asm"="eor {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "nodecode" {
+define <vscale x 8 x i16> @SVE.eor.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001011001000 a0:3 a2:5 d:5" "asm"="eor {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "swap"="SVE.eor.nxv8i16" "movprfx" "nodecode" {
   %r = call <vscale x 8 x i16> @llvm.aarch64.sve.eor.nxv8i16(<vscale x 8 x i1> %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
   ret <vscale x 8 x i16> %r
 }
@@ -2116,28 +2116,28 @@ define <vscale x 8 x i16> @SVE.ext.nxv8i16(<vscale x 8 x i16> "reg"="z" "tied" %
 
 declare <vscale x 8 x i16> @llvm.aarch64.sve.ext.nxv8i16(<vscale x 8 x i16>, <vscale x 8 x i16>, i32)
 
-define <vscale x 2 x double> @SVE.fabd.nxv2f64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x double> "reg"="z" "tied" %a1, <vscale x 2 x double> "reg"="z" %a2) "feature"="sve" "enc"="0110010111001000100 a0:3 a2:5 d:5" "asm"="fabd {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x double> @SVE.fabd.nxv2f64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x double> "reg"="z" "tied" %a1, <vscale x 2 x double> "reg"="z" %a2) "feature"="sve" "enc"="0110010111001000100 a0:3 a2:5 d:5" "asm"="fabd {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "swap"="SVE.fabd.nxv2f64" "movprfx" "nodecode" {
   %r = call <vscale x 2 x double> @llvm.aarch64.sve.fabd.nxv2f64(<vscale x 2 x i1> %a0, <vscale x 2 x double> %a1, <vscale x 2 x double> %a2)
   ret <vscale x 2 x double> %r
 }
 
 declare <vscale x 2 x double> @llvm.aarch64.sve.fabd.nxv2f64(<vscale x 2 x i1>, <vscale x 2 x double>, <vscale x 2 x double>)
 
-define <vscale x 4 x float> @SVE.fabd.nxv4f32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x float> "reg"="z" "tied" %a1, <vscale x 4 x float> "reg"="z" %a2) "feature"="sve" "enc"="0110010110001000100 a0:3 a2:5 d:5" "asm"="fabd {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x float> @SVE.fabd.nxv4f32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x float> "reg"="z" "tied" %a1, <vscale x 4 x float> "reg"="z" %a2) "feature"="sve" "enc"="0110010110001000100 a0:3 a2:5 d:5" "asm"="fabd {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "swap"="SVE.fabd.nxv4f32" "movprfx" "nodecode" {
   %r = call <vscale x 4 x float> @llvm.aarch64.sve.fabd.nxv4f32(<vscale x 4 x i1> %a0, <vscale x 4 x float> %a1, <vscale x 4 x float> %a2)
   ret <vscale x 4 x float> %r
 }
 
 declare <vscale x 4 x float> @llvm.aarch64.sve.fabd.nxv4f32(<vscale x 4 x i1>, <vscale x 4 x float>, <vscale x 4 x float>)
 
-define <vscale x 2 x double> @SVE.fabs.nxv2f64(<vscale x 2 x double> "reg"="z" "tied" %a0, <vscale x 2 x i1> "reg"="pg" %a1, <vscale x 2 x double> "reg"="z" %a2) "feature"="sve" "enc"="0000010011011100101 a1:3 a2:5 d:5" "asm"="fabs {d}.d, {a1}/m, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x double> @SVE.fabs.nxv2f64(<vscale x 2 x double> "reg"="z" "tied" %a0, <vscale x 2 x i1> "reg"="pg" %a1, <vscale x 2 x double> "reg"="z" %a2) "feature"="sve" "enc"="0000010011011100101 a1:3 a2:5 d:5" "asm"="fabs {d}.d, {a1}/m, {a2}.d" "dclass"="z" "movprfx" "nodecode" {
   %r = call <vscale x 2 x double> @llvm.aarch64.sve.fabs.nxv2f64(<vscale x 2 x double> %a0, <vscale x 2 x i1> %a1, <vscale x 2 x double> %a2)
   ret <vscale x 2 x double> %r
 }
 
 declare <vscale x 2 x double> @llvm.aarch64.sve.fabs.nxv2f64(<vscale x 2 x double>, <vscale x 2 x i1>, <vscale x 2 x double>)
 
-define <vscale x 4 x float> @SVE.fabs.nxv4f32(<vscale x 4 x float> "reg"="z" "tied" %a0, <vscale x 4 x i1> "reg"="pg" %a1, <vscale x 4 x float> "reg"="z" %a2) "feature"="sve" "enc"="0000010010011100101 a1:3 a2:5 d:5" "asm"="fabs {d}.s, {a1}/m, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x float> @SVE.fabs.nxv4f32(<vscale x 4 x float> "reg"="z" "tied" %a0, <vscale x 4 x i1> "reg"="pg" %a1, <vscale x 4 x float> "reg"="z" %a2) "feature"="sve" "enc"="0000010010011100101 a1:3 a2:5 d:5" "asm"="fabs {d}.s, {a1}/m, {a2}.s" "dclass"="z" "movprfx" "nodecode" {
   %r = call <vscale x 4 x float> @llvm.aarch64.sve.fabs.nxv4f32(<vscale x 4 x float> %a0, <vscale x 4 x i1> %a1, <vscale x 4 x float> %a2)
   ret <vscale x 4 x float> %r
 }
@@ -2172,14 +2172,14 @@ define <vscale x 4 x i1> @SVE.facgt.nxv4f32(<vscale x 4 x i1> "reg"="pg" %a0, <v
 
 declare <vscale x 4 x i1> @llvm.aarch64.sve.facgt.nxv4f32(<vscale x 4 x i1>, <vscale x 4 x float>, <vscale x 4 x float>)
 
-define <vscale x 2 x double> @SVE.fadd.nxv2f64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x double> "reg"="z" "tied" %a1, <vscale x 2 x double> "reg"="z" %a2) "feature"="sve" "enc"="0110010111000000100 a0:3 a2:5 d:5" "asm"="fadd {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x double> @SVE.fadd.nxv2f64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x double> "reg"="z" "tied" %a1, <vscale x 2 x double> "reg"="z" %a2) "feature"="sve" "enc"="0110010111000000100 a0:3 a2:5 d:5" "asm"="fadd {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "swap"="SVE.fadd.nxv2f64" "movprfx" "nodecode" {
   %r = call <vscale x 2 x double> @llvm.aarch64.sve.fadd.nxv2f64(<vscale x 2 x i1> %a0, <vscale x 2 x double> %a1, <vscale x 2 x double> %a2)
   ret <vscale x 2 x double> %r
 }
 
 declare <vscale x 2 x double> @llvm.aarch64.sve.fadd.nxv2f64(<vscale x 2 x i1>, <vscale x 2 x double>, <vscale x 2 x double>)
 
-define <vscale x 4 x float> @SVE.fadd.nxv4f32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x float> "reg"="z" "tied" %a1, <vscale x 4 x float> "reg"="z" %a2) "feature"="sve" "enc"="0110010110000000100 a0:3 a2:5 d:5" "asm"="fadd {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x float> @SVE.fadd.nxv4f32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x float> "reg"="z" "tied" %a1, <vscale x 4 x float> "reg"="z" %a2) "feature"="sve" "enc"="0110010110000000100 a0:3 a2:5 d:5" "asm"="fadd {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "swap"="SVE.fadd.nxv4f32" "movprfx" "nodecode" {
   %r = call <vscale x 4 x float> @llvm.aarch64.sve.fadd.nxv4f32(<vscale x 4 x i1> %a0, <vscale x 4 x float> %a1, <vscale x 4 x float> %a2)
   ret <vscale x 4 x float> %r
 }
@@ -2431,28 +2431,28 @@ define <vscale x 4 x i32> @SVE.fcvtzu.nxv4i32.nxv4f32(<vscale x 4 x i32> "reg"="
 
 declare <vscale x 4 x i32> @llvm.aarch64.sve.fcvtzu.nxv4i32.nxv4f32(<vscale x 4 x i32>, <vscale x 4 x i1>, <vscale x 4 x float>)
 
-define <vscale x 2 x double> @SVE.fdiv.nxv2f64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x double> "reg"="z" "tied" %a1, <vscale x 2 x double> "reg"="z" %a2) "feature"="sve" "enc"="0110010111001101100 a0:3 a2:5 d:5" "asm"="fdiv {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x double> @SVE.fdiv.nxv2f64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x double> "reg"="z" "tied" %a1, <vscale x 2 x double> "reg"="z" %a2) "feature"="sve" "enc"="0110010111001101100 a0:3 a2:5 d:5" "asm"="fdiv {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "swap"="SVE.fdivr.nxv2f64" "movprfx" "nodecode" {
   %r = call <vscale x 2 x double> @llvm.aarch64.sve.fdiv.nxv2f64(<vscale x 2 x i1> %a0, <vscale x 2 x double> %a1, <vscale x 2 x double> %a2)
   ret <vscale x 2 x double> %r
 }
 
 declare <vscale x 2 x double> @llvm.aarch64.sve.fdiv.nxv2f64(<vscale x 2 x i1>, <vscale x 2 x double>, <vscale x 2 x double>)
 
-define <vscale x 4 x float> @SVE.fdiv.nxv4f32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x float> "reg"="z" "tied" %a1, <vscale x 4 x float> "reg"="z" %a2) "feature"="sve" "enc"="0110010110001101100 a0:3 a2:5 d:5" "asm"="fdiv {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x float> @SVE.fdiv.nxv4f32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x float> "reg"="z" "tied" %a1, <vscale x 4 x float> "reg"="z" %a2) "feature"="sve" "enc"="0110010110001101100 a0:3 a2:5 d:5" "asm"="fdiv {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "swap"="SVE.fdivr.nxv4f32" "movprfx" "nodecode" {
   %r = call <vscale x 4 x float> @llvm.aarch64.sve.fdiv.nxv4f32(<vscale x 4 x i1> %a0, <vscale x 4 x float> %a1, <vscale x 4 x float> %a2)
   ret <vscale x 4 x float> %r
 }
 
 declare <vscale x 4 x float> @llvm.aarch64.sve.fdiv.nxv4f32(<vscale x 4 x i1>, <vscale x 4 x float>, <vscale x 4 x float>)
 
-define <vscale x 2 x double> @SVE.fdivr.nxv2f64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x double> "reg"="z" "tied" %a1, <vscale x 2 x double> "reg"="z" %a2) "feature"="sve" "enc"="0110010111001100100 a0:3 a2:5 d:5" "asm"="fdivr {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x double> @SVE.fdivr.nxv2f64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x double> "reg"="z" "tied" %a1, <vscale x 2 x double> "reg"="z" %a2) "feature"="sve" "enc"="0110010111001100100 a0:3 a2:5 d:5" "asm"="fdivr {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "swap"="SVE.fdiv.nxv2f64" "movprfx" "nodecode" {
   %r = call <vscale x 2 x double> @llvm.aarch64.sve.fdivr.nxv2f64(<vscale x 2 x i1> %a0, <vscale x 2 x double> %a1, <vscale x 2 x double> %a2)
   ret <vscale x 2 x double> %r
 }
 
 declare <vscale x 2 x double> @llvm.aarch64.sve.fdivr.nxv2f64(<vscale x 2 x i1>, <vscale x 2 x double>, <vscale x 2 x double>)
 
-define <vscale x 4 x float> @SVE.fdivr.nxv4f32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x float> "reg"="z" "tied" %a1, <vscale x 4 x float> "reg"="z" %a2) "feature"="sve" "enc"="0110010110001100100 a0:3 a2:5 d:5" "asm"="fdivr {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x float> @SVE.fdivr.nxv4f32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x float> "reg"="z" "tied" %a1, <vscale x 4 x float> "reg"="z" %a2) "feature"="sve" "enc"="0110010110001100100 a0:3 a2:5 d:5" "asm"="fdivr {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "swap"="SVE.fdiv.nxv4f32" "movprfx" "nodecode" {
   %r = call <vscale x 4 x float> @llvm.aarch64.sve.fdivr.nxv4f32(<vscale x 4 x i1> %a0, <vscale x 4 x float> %a1, <vscale x 4 x float> %a2)
   ret <vscale x 4 x float> %r
 }
@@ -2501,28 +2501,28 @@ define <vscale x 4 x float> @SVE.fmad.nxv4f32(<vscale x 4 x i1> "reg"="pg" %a0, 
 
 declare <vscale x 4 x float> @llvm.aarch64.sve.fmad.nxv4f32(<vscale x 4 x i1>, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>)
 
-define <vscale x 2 x double> @SVE.fmax.nxv2f64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x double> "reg"="z" "tied" %a1, <vscale x 2 x double> "reg"="z" %a2) "feature"="sve" "enc"="0110010111000110100 a0:3 a2:5 d:5" "asm"="fmax {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x double> @SVE.fmax.nxv2f64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x double> "reg"="z" "tied" %a1, <vscale x 2 x double> "reg"="z" %a2) "feature"="sve" "enc"="0110010111000110100 a0:3 a2:5 d:5" "asm"="fmax {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "swap"="SVE.fmax.nxv2f64" "movprfx" "nodecode" {
   %r = call <vscale x 2 x double> @llvm.aarch64.sve.fmax.nxv2f64(<vscale x 2 x i1> %a0, <vscale x 2 x double> %a1, <vscale x 2 x double> %a2)
   ret <vscale x 2 x double> %r
 }
 
 declare <vscale x 2 x double> @llvm.aarch64.sve.fmax.nxv2f64(<vscale x 2 x i1>, <vscale x 2 x double>, <vscale x 2 x double>)
 
-define <vscale x 4 x float> @SVE.fmax.nxv4f32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x float> "reg"="z" "tied" %a1, <vscale x 4 x float> "reg"="z" %a2) "feature"="sve" "enc"="0110010110000110100 a0:3 a2:5 d:5" "asm"="fmax {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x float> @SVE.fmax.nxv4f32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x float> "reg"="z" "tied" %a1, <vscale x 4 x float> "reg"="z" %a2) "feature"="sve" "enc"="0110010110000110100 a0:3 a2:5 d:5" "asm"="fmax {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "swap"="SVE.fmax.nxv4f32" "movprfx" "nodecode" {
   %r = call <vscale x 4 x float> @llvm.aarch64.sve.fmax.nxv4f32(<vscale x 4 x i1> %a0, <vscale x 4 x float> %a1, <vscale x 4 x float> %a2)
   ret <vscale x 4 x float> %r
 }
 
 declare <vscale x 4 x float> @llvm.aarch64.sve.fmax.nxv4f32(<vscale x 4 x i1>, <vscale x 4 x float>, <vscale x 4 x float>)
 
-define <vscale x 2 x double> @SVE.fmaxnm.nxv2f64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x double> "reg"="z" "tied" %a1, <vscale x 2 x double> "reg"="z" %a2) "feature"="sve" "enc"="0110010111000100100 a0:3 a2:5 d:5" "asm"="fmaxnm {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x double> @SVE.fmaxnm.nxv2f64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x double> "reg"="z" "tied" %a1, <vscale x 2 x double> "reg"="z" %a2) "feature"="sve" "enc"="0110010111000100100 a0:3 a2:5 d:5" "asm"="fmaxnm {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "swap"="SVE.fmaxnm.nxv2f64" "movprfx" "nodecode" {
   %r = call <vscale x 2 x double> @llvm.aarch64.sve.fmaxnm.nxv2f64(<vscale x 2 x i1> %a0, <vscale x 2 x double> %a1, <vscale x 2 x double> %a2)
   ret <vscale x 2 x double> %r
 }
 
 declare <vscale x 2 x double> @llvm.aarch64.sve.fmaxnm.nxv2f64(<vscale x 2 x i1>, <vscale x 2 x double>, <vscale x 2 x double>)
 
-define <vscale x 4 x float> @SVE.fmaxnm.nxv4f32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x float> "reg"="z" "tied" %a1, <vscale x 4 x float> "reg"="z" %a2) "feature"="sve" "enc"="0110010110000100100 a0:3 a2:5 d:5" "asm"="fmaxnm {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x float> @SVE.fmaxnm.nxv4f32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x float> "reg"="z" "tied" %a1, <vscale x 4 x float> "reg"="z" %a2) "feature"="sve" "enc"="0110010110000100100 a0:3 a2:5 d:5" "asm"="fmaxnm {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "swap"="SVE.fmaxnm.nxv4f32" "movprfx" "nodecode" {
   %r = call <vscale x 4 x float> @llvm.aarch64.sve.fmaxnm.nxv4f32(<vscale x 4 x i1> %a0, <vscale x 4 x float> %a1, <vscale x 4 x float> %a2)
   ret <vscale x 4 x float> %r
 }
@@ -2585,28 +2585,28 @@ define float @SVE.fmaxv.nxv4f32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x 
 
 declare float @llvm.aarch64.sve.fmaxv.nxv4f32(<vscale x 4 x i1>, <vscale x 4 x float>)
 
-define <vscale x 2 x double> @SVE.fmin.nxv2f64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x double> "reg"="z" "tied" %a1, <vscale x 2 x double> "reg"="z" %a2) "feature"="sve" "enc"="0110010111000111100 a0:3 a2:5 d:5" "asm"="fmin {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x double> @SVE.fmin.nxv2f64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x double> "reg"="z" "tied" %a1, <vscale x 2 x double> "reg"="z" %a2) "feature"="sve" "enc"="0110010111000111100 a0:3 a2:5 d:5" "asm"="fmin {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "swap"="SVE.fmin.nxv2f64" "movprfx" "nodecode" {
   %r = call <vscale x 2 x double> @llvm.aarch64.sve.fmin.nxv2f64(<vscale x 2 x i1> %a0, <vscale x 2 x double> %a1, <vscale x 2 x double> %a2)
   ret <vscale x 2 x double> %r
 }
 
 declare <vscale x 2 x double> @llvm.aarch64.sve.fmin.nxv2f64(<vscale x 2 x i1>, <vscale x 2 x double>, <vscale x 2 x double>)
 
-define <vscale x 4 x float> @SVE.fmin.nxv4f32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x float> "reg"="z" "tied" %a1, <vscale x 4 x float> "reg"="z" %a2) "feature"="sve" "enc"="0110010110000111100 a0:3 a2:5 d:5" "asm"="fmin {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x float> @SVE.fmin.nxv4f32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x float> "reg"="z" "tied" %a1, <vscale x 4 x float> "reg"="z" %a2) "feature"="sve" "enc"="0110010110000111100 a0:3 a2:5 d:5" "asm"="fmin {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "swap"="SVE.fmin.nxv4f32" "movprfx" "nodecode" {
   %r = call <vscale x 4 x float> @llvm.aarch64.sve.fmin.nxv4f32(<vscale x 4 x i1> %a0, <vscale x 4 x float> %a1, <vscale x 4 x float> %a2)
   ret <vscale x 4 x float> %r
 }
 
 declare <vscale x 4 x float> @llvm.aarch64.sve.fmin.nxv4f32(<vscale x 4 x i1>, <vscale x 4 x float>, <vscale x 4 x float>)
 
-define <vscale x 2 x double> @SVE.fminnm.nxv2f64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x double> "reg"="z" "tied" %a1, <vscale x 2 x double> "reg"="z" %a2) "feature"="sve" "enc"="0110010111000101100 a0:3 a2:5 d:5" "asm"="fminnm {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x double> @SVE.fminnm.nxv2f64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x double> "reg"="z" "tied" %a1, <vscale x 2 x double> "reg"="z" %a2) "feature"="sve" "enc"="0110010111000101100 a0:3 a2:5 d:5" "asm"="fminnm {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "swap"="SVE.fminnm.nxv2f64" "movprfx" "nodecode" {
   %r = call <vscale x 2 x double> @llvm.aarch64.sve.fminnm.nxv2f64(<vscale x 2 x i1> %a0, <vscale x 2 x double> %a1, <vscale x 2 x double> %a2)
   ret <vscale x 2 x double> %r
 }
 
 declare <vscale x 2 x double> @llvm.aarch64.sve.fminnm.nxv2f64(<vscale x 2 x i1>, <vscale x 2 x double>, <vscale x 2 x double>)
 
-define <vscale x 4 x float> @SVE.fminnm.nxv4f32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x float> "reg"="z" "tied" %a1, <vscale x 4 x float> "reg"="z" %a2) "feature"="sve" "enc"="0110010110000101100 a0:3 a2:5 d:5" "asm"="fminnm {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x float> @SVE.fminnm.nxv4f32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x float> "reg"="z" "tied" %a1, <vscale x 4 x float> "reg"="z" %a2) "feature"="sve" "enc"="0110010110000101100 a0:3 a2:5 d:5" "asm"="fminnm {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "swap"="SVE.fminnm.nxv4f32" "movprfx" "nodecode" {
   %r = call <vscale x 4 x float> @llvm.aarch64.sve.fminnm.nxv4f32(<vscale x 4 x i1> %a0, <vscale x 4 x float> %a1, <vscale x 4 x float> %a2)
   ret <vscale x 4 x float> %r
 }
@@ -2683,14 +2683,14 @@ define <vscale x 4 x float> @SVE.fmla.lane.nxv4f32(<vscale x 4 x float> "reg"="z
 
 declare <vscale x 4 x float> @llvm.aarch64.sve.fmla.lane.nxv4f32(<vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>, i32)
 
-define <vscale x 2 x double> @SVE.fmla.nxv2f64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x double> "reg"="z" "tied" %a1, <vscale x 2 x double> "reg"="z" %a2, <vscale x 2 x double> "reg"="z" %a3) "feature"="sve" "enc"="01100101111 a3:5 000 a0:3 a2:5 d:5" "asm"="fmla {d}.d, {a0}/m, {a2}.d, {a3}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x double> @SVE.fmla.nxv2f64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x double> "reg"="z" "tied" %a1, <vscale x 2 x double> "reg"="z" %a2, <vscale x 2 x double> "reg"="z" %a3) "feature"="sve" "enc"="01100101111 a3:5 000 a0:3 a2:5 d:5" "asm"="fmla {d}.d, {a0}/m, {a2}.d, {a3}.d" "dclass"="z" "movprfx" "nodecode" {
   %r = call <vscale x 2 x double> @llvm.aarch64.sve.fmla.nxv2f64(<vscale x 2 x i1> %a0, <vscale x 2 x double> %a1, <vscale x 2 x double> %a2, <vscale x 2 x double> %a3)
   ret <vscale x 2 x double> %r
 }
 
 declare <vscale x 2 x double> @llvm.aarch64.sve.fmla.nxv2f64(<vscale x 2 x i1>, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>)
 
-define <vscale x 4 x float> @SVE.fmla.nxv4f32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x float> "reg"="z" "tied" %a1, <vscale x 4 x float> "reg"="z" %a2, <vscale x 4 x float> "reg"="z" %a3) "feature"="sve" "enc"="01100101101 a3:5 000 a0:3 a2:5 d:5" "asm"="fmla {d}.s, {a0}/m, {a2}.s, {a3}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x float> @SVE.fmla.nxv4f32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x float> "reg"="z" "tied" %a1, <vscale x 4 x float> "reg"="z" %a2, <vscale x 4 x float> "reg"="z" %a3) "feature"="sve" "enc"="01100101101 a3:5 000 a0:3 a2:5 d:5" "asm"="fmla {d}.s, {a0}/m, {a2}.s, {a3}.s" "dclass"="z" "movprfx" "nodecode" {
   %r = call <vscale x 4 x float> @llvm.aarch64.sve.fmla.nxv4f32(<vscale x 4 x i1> %a0, <vscale x 4 x float> %a1, <vscale x 4 x float> %a2, <vscale x 4 x float> %a3)
   ret <vscale x 4 x float> %r
 }
@@ -2760,14 +2760,14 @@ define <vscale x 4 x float> @SVE.fmul.lane.nxv4f32(<vscale x 4 x float> "reg"="z
 
 declare <vscale x 4 x float> @llvm.aarch64.sve.fmul.lane.nxv4f32(<vscale x 4 x float>, <vscale x 4 x float>, i32)
 
-define <vscale x 2 x double> @SVE.fmul.nxv2f64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x double> "reg"="z" "tied" %a1, <vscale x 2 x double> "reg"="z" %a2) "feature"="sve" "enc"="0110010111000010100 a0:3 a2:5 d:5" "asm"="fmul {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x double> @SVE.fmul.nxv2f64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x double> "reg"="z" "tied" %a1, <vscale x 2 x double> "reg"="z" %a2) "feature"="sve" "enc"="0110010111000010100 a0:3 a2:5 d:5" "asm"="fmul {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "swap"="SVE.fmul.nxv2f64" "movprfx" "nodecode" {
   %r = call <vscale x 2 x double> @llvm.aarch64.sve.fmul.nxv2f64(<vscale x 2 x i1> %a0, <vscale x 2 x double> %a1, <vscale x 2 x double> %a2)
   ret <vscale x 2 x double> %r
 }
 
 declare <vscale x 2 x double> @llvm.aarch64.sve.fmul.nxv2f64(<vscale x 2 x i1>, <vscale x 2 x double>, <vscale x 2 x double>)
 
-define <vscale x 4 x float> @SVE.fmul.nxv4f32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x float> "reg"="z" "tied" %a1, <vscale x 4 x float> "reg"="z" %a2) "feature"="sve" "enc"="0110010110000010100 a0:3 a2:5 d:5" "asm"="fmul {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x float> @SVE.fmul.nxv4f32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x float> "reg"="z" "tied" %a1, <vscale x 4 x float> "reg"="z" %a2) "feature"="sve" "enc"="0110010110000010100 a0:3 a2:5 d:5" "asm"="fmul {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "swap"="SVE.fmul.nxv4f32" "movprfx" "nodecode" {
   %r = call <vscale x 4 x float> @llvm.aarch64.sve.fmul.nxv4f32(<vscale x 4 x i1> %a0, <vscale x 4 x float> %a1, <vscale x 4 x float> %a2)
   ret <vscale x 4 x float> %r
 }
@@ -2788,14 +2788,14 @@ define <vscale x 4 x float> @SVE.fmulx.nxv4f32(<vscale x 4 x i1> "reg"="pg" %a0,
 
 declare <vscale x 4 x float> @llvm.aarch64.sve.fmulx.nxv4f32(<vscale x 4 x i1>, <vscale x 4 x float>, <vscale x 4 x float>)
 
-define <vscale x 2 x double> @SVE.fneg.nxv2f64(<vscale x 2 x double> "reg"="z" "tied" %a0, <vscale x 2 x i1> "reg"="pg" %a1, <vscale x 2 x double> "reg"="z" %a2) "feature"="sve" "enc"="0000010011011101101 a1:3 a2:5 d:5" "asm"="fneg {d}.d, {a1}/m, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x double> @SVE.fneg.nxv2f64(<vscale x 2 x double> "reg"="z" "tied" %a0, <vscale x 2 x i1> "reg"="pg" %a1, <vscale x 2 x double> "reg"="z" %a2) "feature"="sve" "enc"="0000010011011101101 a1:3 a2:5 d:5" "asm"="fneg {d}.d, {a1}/m, {a2}.d" "dclass"="z" "movprfx" "nodecode" {
   %r = call <vscale x 2 x double> @llvm.aarch64.sve.fneg.nxv2f64(<vscale x 2 x double> %a0, <vscale x 2 x i1> %a1, <vscale x 2 x double> %a2)
   ret <vscale x 2 x double> %r
 }
 
 declare <vscale x 2 x double> @llvm.aarch64.sve.fneg.nxv2f64(<vscale x 2 x double>, <vscale x 2 x i1>, <vscale x 2 x double>)
 
-define <vscale x 4 x float> @SVE.fneg.nxv4f32(<vscale x 4 x float> "reg"="z" "tied" %a0, <vscale x 4 x i1> "reg"="pg" %a1, <vscale x 4 x float> "reg"="z" %a2) "feature"="sve" "enc"="0000010010011101101 a1:3 a2:5 d:5" "asm"="fneg {d}.s, {a1}/m, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x float> @SVE.fneg.nxv4f32(<vscale x 4 x float> "reg"="z" "tied" %a0, <vscale x 4 x i1> "reg"="pg" %a1, <vscale x 4 x float> "reg"="z" %a2) "feature"="sve" "enc"="0000010010011101101 a1:3 a2:5 d:5" "asm"="fneg {d}.s, {a1}/m, {a2}.s" "dclass"="z" "movprfx" "nodecode" {
   %r = call <vscale x 4 x float> @llvm.aarch64.sve.fneg.nxv4f32(<vscale x 4 x float> %a0, <vscale x 4 x i1> %a1, <vscale x 4 x float> %a2)
   ret <vscale x 4 x float> %r
 }
@@ -3040,42 +3040,42 @@ define <vscale x 4 x float> @SVE.fscale.nxv4f32(<vscale x 4 x i1> "reg"="pg" %a0
 
 declare <vscale x 4 x float> @llvm.aarch64.sve.fscale.nxv4f32(<vscale x 4 x i1>, <vscale x 4 x float>, <vscale x 4 x i32>)
 
-define <vscale x 2 x double> @SVE.fsqrt.nxv2f64(<vscale x 2 x double> "reg"="z" "tied" %a0, <vscale x 2 x i1> "reg"="pg" %a1, <vscale x 2 x double> "reg"="z" %a2) "feature"="sve" "enc"="0110010111001101101 a1:3 a2:5 d:5" "asm"="fsqrt {d}.d, {a1}/m, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x double> @SVE.fsqrt.nxv2f64(<vscale x 2 x double> "reg"="z" "tied" %a0, <vscale x 2 x i1> "reg"="pg" %a1, <vscale x 2 x double> "reg"="z" %a2) "feature"="sve" "enc"="0110010111001101101 a1:3 a2:5 d:5" "asm"="fsqrt {d}.d, {a1}/m, {a2}.d" "dclass"="z" "movprfx" "nodecode" {
   %r = call <vscale x 2 x double> @llvm.aarch64.sve.fsqrt.nxv2f64(<vscale x 2 x double> %a0, <vscale x 2 x i1> %a1, <vscale x 2 x double> %a2)
   ret <vscale x 2 x double> %r
 }
 
 declare <vscale x 2 x double> @llvm.aarch64.sve.fsqrt.nxv2f64(<vscale x 2 x double>, <vscale x 2 x i1>, <vscale x 2 x double>)
 
-define <vscale x 4 x float> @SVE.fsqrt.nxv4f32(<vscale x 4 x float> "reg"="z" "tied" %a0, <vscale x 4 x i1> "reg"="pg" %a1, <vscale x 4 x float> "reg"="z" %a2) "feature"="sve" "enc"="0110010110001101101 a1:3 a2:5 d:5" "asm"="fsqrt {d}.s, {a1}/m, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x float> @SVE.fsqrt.nxv4f32(<vscale x 4 x float> "reg"="z" "tied" %a0, <vscale x 4 x i1> "reg"="pg" %a1, <vscale x 4 x float> "reg"="z" %a2) "feature"="sve" "enc"="0110010110001101101 a1:3 a2:5 d:5" "asm"="fsqrt {d}.s, {a1}/m, {a2}.s" "dclass"="z" "movprfx" "nodecode" {
   %r = call <vscale x 4 x float> @llvm.aarch64.sve.fsqrt.nxv4f32(<vscale x 4 x float> %a0, <vscale x 4 x i1> %a1, <vscale x 4 x float> %a2)
   ret <vscale x 4 x float> %r
 }
 
 declare <vscale x 4 x float> @llvm.aarch64.sve.fsqrt.nxv4f32(<vscale x 4 x float>, <vscale x 4 x i1>, <vscale x 4 x float>)
 
-define <vscale x 2 x double> @SVE.fsub.nxv2f64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x double> "reg"="z" "tied" %a1, <vscale x 2 x double> "reg"="z" %a2) "feature"="sve" "enc"="0110010111000001100 a0:3 a2:5 d:5" "asm"="fsub {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x double> @SVE.fsub.nxv2f64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x double> "reg"="z" "tied" %a1, <vscale x 2 x double> "reg"="z" %a2) "feature"="sve" "enc"="0110010111000001100 a0:3 a2:5 d:5" "asm"="fsub {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "swap"="SVE.fsubr.nxv2f64" "movprfx" "nodecode" {
   %r = call <vscale x 2 x double> @llvm.aarch64.sve.fsub.nxv2f64(<vscale x 2 x i1> %a0, <vscale x 2 x double> %a1, <vscale x 2 x double> %a2)
   ret <vscale x 2 x double> %r
 }
 
 declare <vscale x 2 x double> @llvm.aarch64.sve.fsub.nxv2f64(<vscale x 2 x i1>, <vscale x 2 x double>, <vscale x 2 x double>)
 
-define <vscale x 4 x float> @SVE.fsub.nxv4f32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x float> "reg"="z" "tied" %a1, <vscale x 4 x float> "reg"="z" %a2) "feature"="sve" "enc"="0110010110000001100 a0:3 a2:5 d:5" "asm"="fsub {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x float> @SVE.fsub.nxv4f32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x float> "reg"="z" "tied" %a1, <vscale x 4 x float> "reg"="z" %a2) "feature"="sve" "enc"="0110010110000001100 a0:3 a2:5 d:5" "asm"="fsub {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "swap"="SVE.fsubr.nxv4f32" "movprfx" "nodecode" {
   %r = call <vscale x 4 x float> @llvm.aarch64.sve.fsub.nxv4f32(<vscale x 4 x i1> %a0, <vscale x 4 x float> %a1, <vscale x 4 x float> %a2)
   ret <vscale x 4 x float> %r
 }
 
 declare <vscale x 4 x float> @llvm.aarch64.sve.fsub.nxv4f32(<vscale x 4 x i1>, <vscale x 4 x float>, <vscale x 4 x float>)
 
-define <vscale x 2 x double> @SVE.fsubr.nxv2f64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x double> "reg"="z" "tied" %a1, <vscale x 2 x double> "reg"="z" %a2) "feature"="sve" "enc"="0110010111000011100 a0:3 a2:5 d:5" "asm"="fsubr {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x double> @SVE.fsubr.nxv2f64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x double> "reg"="z" "tied" %a1, <vscale x 2 x double> "reg"="z" %a2) "feature"="sve" "enc"="0110010111000011100 a0:3 a2:5 d:5" "asm"="fsubr {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "swap"="SVE.fsub.nxv2f64" "movprfx" "nodecode" {
   %r = call <vscale x 2 x double> @llvm.aarch64.sve.fsubr.nxv2f64(<vscale x 2 x i1> %a0, <vscale x 2 x double> %a1, <vscale x 2 x double> %a2)
   ret <vscale x 2 x double> %r
 }
 
 declare <vscale x 2 x double> @llvm.aarch64.sve.fsubr.nxv2f64(<vscale x 2 x i1>, <vscale x 2 x double>, <vscale x 2 x double>)
 
-define <vscale x 4 x float> @SVE.fsubr.nxv4f32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x float> "reg"="z" "tied" %a1, <vscale x 4 x float> "reg"="z" %a2) "feature"="sve" "enc"="0110010110000011100 a0:3 a2:5 d:5" "asm"="fsubr {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x float> @SVE.fsubr.nxv4f32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x float> "reg"="z" "tied" %a1, <vscale x 4 x float> "reg"="z" %a2) "feature"="sve" "enc"="0110010110000011100 a0:3 a2:5 d:5" "asm"="fsubr {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "swap"="SVE.fsub.nxv4f32" "movprfx" "nodecode" {
   %r = call <vscale x 4 x float> @llvm.aarch64.sve.fsubr.nxv4f32(<vscale x 4 x i1> %a0, <vscale x 4 x float> %a1, <vscale x 4 x float> %a2)
   ret <vscale x 4 x float> %r
 }
@@ -4251,28 +4251,28 @@ define <vscale x 8 x i16> @SVE.ldnt1.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, p
 
 declare <vscale x 8 x i16> @llvm.aarch64.sve.ldnt1.nxv8i16(<vscale x 8 x i1>, ptr)
 
-define <vscale x 16 x i8> @SVE.lsl.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000010011100 a0:3 a2:5 d:5" "asm"="lsl {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "nodecode" {
+define <vscale x 16 x i8> @SVE.lsl.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000010011100 a0:3 a2:5 d:5" "asm"="lsl {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "swap"="SVE.lslr.nxv16i8" "movprfx" "nodecode" {
   %r = call <vscale x 16 x i8> @llvm.aarch64.sve.lsl.nxv16i8(<vscale x 16 x i1> %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
   ret <vscale x 16 x i8> %r
 }
 
 declare <vscale x 16 x i8> @llvm.aarch64.sve.lsl.nxv16i8(<vscale x 16 x i1>, <vscale x 16 x i8>, <vscale x 16 x i8>)
 
-define <vscale x 2 x i64> @SVE.lsl.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011010011100 a0:3 a2:5 d:5" "asm"="lsl {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x i64> @SVE.lsl.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011010011100 a0:3 a2:5 d:5" "asm"="lsl {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "swap"="SVE.lslr.nxv2i64" "movprfx" "nodecode" {
   %r = call <vscale x 2 x i64> @llvm.aarch64.sve.lsl.nxv2i64(<vscale x 2 x i1> %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2)
   ret <vscale x 2 x i64> %r
 }
 
 declare <vscale x 2 x i64> @llvm.aarch64.sve.lsl.nxv2i64(<vscale x 2 x i1>, <vscale x 2 x i64>, <vscale x 2 x i64>)
 
-define <vscale x 4 x i32> @SVE.lsl.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010010011100 a0:3 a2:5 d:5" "asm"="lsl {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x i32> @SVE.lsl.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010010011100 a0:3 a2:5 d:5" "asm"="lsl {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "swap"="SVE.lslr.nxv4i32" "movprfx" "nodecode" {
   %r = call <vscale x 4 x i32> @llvm.aarch64.sve.lsl.nxv4i32(<vscale x 4 x i1> %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2)
   ret <vscale x 4 x i32> %r
 }
 
 declare <vscale x 4 x i32> @llvm.aarch64.sve.lsl.nxv4i32(<vscale x 4 x i1>, <vscale x 4 x i32>, <vscale x 4 x i32>)
 
-define <vscale x 8 x i16> @SVE.lsl.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001010011100 a0:3 a2:5 d:5" "asm"="lsl {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "nodecode" {
+define <vscale x 8 x i16> @SVE.lsl.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001010011100 a0:3 a2:5 d:5" "asm"="lsl {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "swap"="SVE.lslr.nxv8i16" "movprfx" "nodecode" {
   %r = call <vscale x 8 x i16> @llvm.aarch64.sve.lsl.nxv8i16(<vscale x 8 x i1> %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
   ret <vscale x 8 x i16> %r
 }
@@ -4300,28 +4300,28 @@ define <vscale x 8 x i16> @SVE.lsl.wide.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0
 
 declare <vscale x 8 x i16> @llvm.aarch64.sve.lsl.wide.nxv8i16(<vscale x 8 x i1>, <vscale x 8 x i16>, <vscale x 2 x i64>)
 
-define <vscale x 16 x i8> @SVE.lsr.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000010001100 a0:3 a2:5 d:5" "asm"="lsr {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "nodecode" {
+define <vscale x 16 x i8> @SVE.lsr.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000010001100 a0:3 a2:5 d:5" "asm"="lsr {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "swap"="SVE.lsrr.nxv16i8" "movprfx" "nodecode" {
   %r = call <vscale x 16 x i8> @llvm.aarch64.sve.lsr.nxv16i8(<vscale x 16 x i1> %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
   ret <vscale x 16 x i8> %r
 }
 
 declare <vscale x 16 x i8> @llvm.aarch64.sve.lsr.nxv16i8(<vscale x 16 x i1>, <vscale x 16 x i8>, <vscale x 16 x i8>)
 
-define <vscale x 2 x i64> @SVE.lsr.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011010001100 a0:3 a2:5 d:5" "asm"="lsr {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x i64> @SVE.lsr.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011010001100 a0:3 a2:5 d:5" "asm"="lsr {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "swap"="SVE.lsrr.nxv2i64" "movprfx" "nodecode" {
   %r = call <vscale x 2 x i64> @llvm.aarch64.sve.lsr.nxv2i64(<vscale x 2 x i1> %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2)
   ret <vscale x 2 x i64> %r
 }
 
 declare <vscale x 2 x i64> @llvm.aarch64.sve.lsr.nxv2i64(<vscale x 2 x i1>, <vscale x 2 x i64>, <vscale x 2 x i64>)
 
-define <vscale x 4 x i32> @SVE.lsr.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010010001100 a0:3 a2:5 d:5" "asm"="lsr {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x i32> @SVE.lsr.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010010001100 a0:3 a2:5 d:5" "asm"="lsr {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "swap"="SVE.lsrr.nxv4i32" "movprfx" "nodecode" {
   %r = call <vscale x 4 x i32> @llvm.aarch64.sve.lsr.nxv4i32(<vscale x 4 x i1> %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2)
   ret <vscale x 4 x i32> %r
 }
 
 declare <vscale x 4 x i32> @llvm.aarch64.sve.lsr.nxv4i32(<vscale x 4 x i1>, <vscale x 4 x i32>, <vscale x 4 x i32>)
 
-define <vscale x 8 x i16> @SVE.lsr.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001010001100 a0:3 a2:5 d:5" "asm"="lsr {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "nodecode" {
+define <vscale x 8 x i16> @SVE.lsr.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001010001100 a0:3 a2:5 d:5" "asm"="lsr {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "swap"="SVE.lsrr.nxv8i16" "movprfx" "nodecode" {
   %r = call <vscale x 8 x i16> @llvm.aarch64.sve.lsr.nxv8i16(<vscale x 8 x i1> %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
   ret <vscale x 8 x i16> %r
 }
@@ -4538,28 +4538,28 @@ define <vscale x 8 x i16> @SVE.mul.lane.nxv8i16(<vscale x 8 x i16> "reg"="z" %a0
 
 declare <vscale x 8 x i16> @llvm.aarch64.sve.mul.lane.nxv8i16(<vscale x 8 x i16>, <vscale x 8 x i16>, i32)
 
-define <vscale x 16 x i8> @SVE.mul.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000010000000 a0:3 a2:5 d:5" "asm"="mul {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "nodecode" {
+define <vscale x 16 x i8> @SVE.mul.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000010000000 a0:3 a2:5 d:5" "asm"="mul {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "swap"="SVE.mul.nxv16i8" "movprfx" "nodecode" {
   %r = call <vscale x 16 x i8> @llvm.aarch64.sve.mul.nxv16i8(<vscale x 16 x i1> %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
   ret <vscale x 16 x i8> %r
 }
 
 declare <vscale x 16 x i8> @llvm.aarch64.sve.mul.nxv16i8(<vscale x 16 x i1>, <vscale x 16 x i8>, <vscale x 16 x i8>)
 
-define <vscale x 2 x i64> @SVE.mul.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011010000000 a0:3 a2:5 d:5" "asm"="mul {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x i64> @SVE.mul.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011010000000 a0:3 a2:5 d:5" "asm"="mul {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "swap"="SVE.mul.nxv2i64" "movprfx" "nodecode" {
   %r = call <vscale x 2 x i64> @llvm.aarch64.sve.mul.nxv2i64(<vscale x 2 x i1> %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2)
   ret <vscale x 2 x i64> %r
 }
 
 declare <vscale x 2 x i64> @llvm.aarch64.sve.mul.nxv2i64(<vscale x 2 x i1>, <vscale x 2 x i64>, <vscale x 2 x i64>)
 
-define <vscale x 4 x i32> @SVE.mul.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010010000000 a0:3 a2:5 d:5" "asm"="mul {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x i32> @SVE.mul.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010010000000 a0:3 a2:5 d:5" "asm"="mul {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "swap"="SVE.mul.nxv4i32" "movprfx" "nodecode" {
   %r = call <vscale x 4 x i32> @llvm.aarch64.sve.mul.nxv4i32(<vscale x 4 x i1> %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2)
   ret <vscale x 4 x i32> %r
 }
 
 declare <vscale x 4 x i32> @llvm.aarch64.sve.mul.nxv4i32(<vscale x 4 x i1>, <vscale x 4 x i32>, <vscale x 4 x i32>)
 
-define <vscale x 8 x i16> @SVE.mul.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001010000000 a0:3 a2:5 d:5" "asm"="mul {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "nodecode" {
+define <vscale x 8 x i16> @SVE.mul.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001010000000 a0:3 a2:5 d:5" "asm"="mul {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "swap"="SVE.mul.nxv8i16" "movprfx" "nodecode" {
   %r = call <vscale x 8 x i16> @llvm.aarch64.sve.mul.nxv8i16(<vscale x 8 x i1> %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
   ret <vscale x 8 x i16> %r
 }
@@ -4685,28 +4685,28 @@ define <vscale x 16 x i1> @SVE.orn.z.nxv16i1(<vscale x 16 x i1> "reg"="p" %a0, <
 
 declare <vscale x 16 x i1> @llvm.aarch64.sve.orn.z.nxv16i1(<vscale x 16 x i1>, <vscale x 16 x i1>, <vscale x 16 x i1>)
 
-define <vscale x 16 x i8> @SVE.orr.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000011000000 a0:3 a2:5 d:5" "asm"="orr {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "nodecode" {
+define <vscale x 16 x i8> @SVE.orr.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000011000000 a0:3 a2:5 d:5" "asm"="orr {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "swap"="SVE.orr.nxv16i8" "movprfx" "nodecode" {
   %r = call <vscale x 16 x i8> @llvm.aarch64.sve.orr.nxv16i8(<vscale x 16 x i1> %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
   ret <vscale x 16 x i8> %r
 }
 
 declare <vscale x 16 x i8> @llvm.aarch64.sve.orr.nxv16i8(<vscale x 16 x i1>, <vscale x 16 x i8>, <vscale x 16 x i8>)
 
-define <vscale x 2 x i64> @SVE.orr.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011011000000 a0:3 a2:5 d:5" "asm"="orr {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x i64> @SVE.orr.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011011000000 a0:3 a2:5 d:5" "asm"="orr {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "swap"="SVE.orr.nxv2i64" "movprfx" "nodecode" {
   %r = call <vscale x 2 x i64> @llvm.aarch64.sve.orr.nxv2i64(<vscale x 2 x i1> %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2)
   ret <vscale x 2 x i64> %r
 }
 
 declare <vscale x 2 x i64> @llvm.aarch64.sve.orr.nxv2i64(<vscale x 2 x i1>, <vscale x 2 x i64>, <vscale x 2 x i64>)
 
-define <vscale x 4 x i32> @SVE.orr.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010011000000 a0:3 a2:5 d:5" "asm"="orr {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x i32> @SVE.orr.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010011000000 a0:3 a2:5 d:5" "asm"="orr {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "swap"="SVE.orr.nxv4i32" "movprfx" "nodecode" {
   %r = call <vscale x 4 x i32> @llvm.aarch64.sve.orr.nxv4i32(<vscale x 4 x i1> %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2)
   ret <vscale x 4 x i32> %r
 }
 
 declare <vscale x 4 x i32> @llvm.aarch64.sve.orr.nxv4i32(<vscale x 4 x i1>, <vscale x 4 x i32>, <vscale x 4 x i32>)
 
-define <vscale x 8 x i16> @SVE.orr.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001011000000 a0:3 a2:5 d:5" "asm"="orr {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "nodecode" {
+define <vscale x 8 x i16> @SVE.orr.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001011000000 a0:3 a2:5 d:5" "asm"="orr {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "swap"="SVE.orr.nxv8i16" "movprfx" "nodecode" {
   %r = call <vscale x 8 x i16> @llvm.aarch64.sve.orr.nxv8i16(<vscale x 8 x i1> %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
   ret <vscale x 8 x i16> %r
 }
@@ -5287,28 +5287,28 @@ define <vscale x 8 x i16> @SVE.sabalt.nxv8i16(<vscale x 8 x i16> "reg"="z" "tied
 
 declare <vscale x 8 x i16> @llvm.aarch64.sve.sabalt.nxv8i16(<vscale x 8 x i16>, <vscale x 16 x i8>, <vscale x 16 x i8>)
 
-define <vscale x 16 x i8> @SVE.sabd.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000001100000 a0:3 a2:5 d:5" "asm"="sabd {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "nodecode" {
+define <vscale x 16 x i8> @SVE.sabd.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000001100000 a0:3 a2:5 d:5" "asm"="sabd {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "swap"="SVE.sabd.nxv16i8" "movprfx" "nodecode" {
   %r = call <vscale x 16 x i8> @llvm.aarch64.sve.sabd.nxv16i8(<vscale x 16 x i1> %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
   ret <vscale x 16 x i8> %r
 }
 
 declare <vscale x 16 x i8> @llvm.aarch64.sve.sabd.nxv16i8(<vscale x 16 x i1>, <vscale x 16 x i8>, <vscale x 16 x i8>)
 
-define <vscale x 2 x i64> @SVE.sabd.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011001100000 a0:3 a2:5 d:5" "asm"="sabd {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x i64> @SVE.sabd.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011001100000 a0:3 a2:5 d:5" "asm"="sabd {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "swap"="SVE.sabd.nxv2i64" "movprfx" "nodecode" {
   %r = call <vscale x 2 x i64> @llvm.aarch64.sve.sabd.nxv2i64(<vscale x 2 x i1> %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2)
   ret <vscale x 2 x i64> %r
 }
 
 declare <vscale x 2 x i64> @llvm.aarch64.sve.sabd.nxv2i64(<vscale x 2 x i1>, <vscale x 2 x i64>, <vscale x 2 x i64>)
 
-define <vscale x 4 x i32> @SVE.sabd.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010001100000 a0:3 a2:5 d:5" "asm"="sabd {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x i32> @SVE.sabd.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010001100000 a0:3 a2:5 d:5" "asm"="sabd {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "swap"="SVE.sabd.nxv4i32" "movprfx" "nodecode" {
   %r = call <vscale x 4 x i32> @llvm.aarch64.sve.sabd.nxv4i32(<vscale x 4 x i1> %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2)
   ret <vscale x 4 x i32> %r
 }
 
 declare <vscale x 4 x i32> @llvm.aarch64.sve.sabd.nxv4i32(<vscale x 4 x i1>, <vscale x 4 x i32>, <vscale x 4 x i32>)
 
-define <vscale x 8 x i16> @SVE.sabd.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001001100000 a0:3 a2:5 d:5" "asm"="sabd {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "nodecode" {
+define <vscale x 8 x i16> @SVE.sabd.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001001100000 a0:3 a2:5 d:5" "asm"="sabd {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "swap"="SVE.sabd.nxv8i16" "movprfx" "nodecode" {
   %r = call <vscale x 8 x i16> @llvm.aarch64.sve.sabd.nxv8i16(<vscale x 8 x i1> %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
   ret <vscale x 8 x i16> %r
 }
@@ -5567,28 +5567,28 @@ define <vscale x 4 x float> @SVE.scvtf.nxv4f32.nxv4i32(<vscale x 4 x float> "reg
 
 declare <vscale x 4 x float> @llvm.aarch64.sve.scvtf.nxv4f32.nxv4i32(<vscale x 4 x float>, <vscale x 4 x i1>, <vscale x 4 x i32>)
 
-define <vscale x 2 x i64> @SVE.sdiv.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011010100000 a0:3 a2:5 d:5" "asm"="sdiv {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x i64> @SVE.sdiv.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011010100000 a0:3 a2:5 d:5" "asm"="sdiv {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "swap"="SVE.sdivr.nxv2i64" "movprfx" "nodecode" {
   %r = call <vscale x 2 x i64> @llvm.aarch64.sve.sdiv.nxv2i64(<vscale x 2 x i1> %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2)
   ret <vscale x 2 x i64> %r
 }
 
 declare <vscale x 2 x i64> @llvm.aarch64.sve.sdiv.nxv2i64(<vscale x 2 x i1>, <vscale x 2 x i64>, <vscale x 2 x i64>)
 
-define <vscale x 4 x i32> @SVE.sdiv.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010010100000 a0:3 a2:5 d:5" "asm"="sdiv {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x i32> @SVE.sdiv.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010010100000 a0:3 a2:5 d:5" "asm"="sdiv {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "swap"="SVE.sdivr.nxv4i32" "movprfx" "nodecode" {
   %r = call <vscale x 4 x i32> @llvm.aarch64.sve.sdiv.nxv4i32(<vscale x 4 x i1> %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2)
   ret <vscale x 4 x i32> %r
 }
 
 declare <vscale x 4 x i32> @llvm.aarch64.sve.sdiv.nxv4i32(<vscale x 4 x i1>, <vscale x 4 x i32>, <vscale x 4 x i32>)
 
-define <vscale x 2 x i64> @SVE.sdivr.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011010110000 a0:3 a2:5 d:5" "asm"="sdivr {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x i64> @SVE.sdivr.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011010110000 a0:3 a2:5 d:5" "asm"="sdivr {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "swap"="SVE.sdiv.nxv2i64" "movprfx" "nodecode" {
   %r = call <vscale x 2 x i64> @llvm.aarch64.sve.sdivr.nxv2i64(<vscale x 2 x i1> %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2)
   ret <vscale x 2 x i64> %r
 }
 
 declare <vscale x 2 x i64> @llvm.aarch64.sve.sdivr.nxv2i64(<vscale x 2 x i1>, <vscale x 2 x i64>, <vscale x 2 x i64>)
 
-define <vscale x 4 x i32> @SVE.sdivr.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010010110000 a0:3 a2:5 d:5" "asm"="sdivr {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x i32> @SVE.sdivr.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010010110000 a0:3 a2:5 d:5" "asm"="sdivr {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "swap"="SVE.sdiv.nxv4i32" "movprfx" "nodecode" {
   %r = call <vscale x 4 x i32> @llvm.aarch64.sve.sdivr.nxv4i32(<vscale x 4 x i1> %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2)
   ret <vscale x 4 x i32> %r
 }
@@ -5798,28 +5798,28 @@ define <vscale x 4 x i32> @SVE.sm4ekey(<vscale x 4 x i32> "reg"="z" %a0, <vscale
 
 declare <vscale x 4 x i32> @llvm.aarch64.sve.sm4ekey(<vscale x 4 x i32>, <vscale x 4 x i32>)
 
-define <vscale x 16 x i8> @SVE.smax.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000001000000 a0:3 a2:5 d:5" "asm"="smax {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "nodecode" {
+define <vscale x 16 x i8> @SVE.smax.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000001000000 a0:3 a2:5 d:5" "asm"="smax {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "swap"="SVE.smax.nxv16i8" "movprfx" "nodecode" {
   %r = call <vscale x 16 x i8> @llvm.aarch64.sve.smax.nxv16i8(<vscale x 16 x i1> %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
   ret <vscale x 16 x i8> %r
 }
 
 declare <vscale x 16 x i8> @llvm.aarch64.sve.smax.nxv16i8(<vscale x 16 x i1>, <vscale x 16 x i8>, <vscale x 16 x i8>)
 
-define <vscale x 2 x i64> @SVE.smax.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011001000000 a0:3 a2:5 d:5" "asm"="smax {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x i64> @SVE.smax.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011001000000 a0:3 a2:5 d:5" "asm"="smax {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "swap"="SVE.smax.nxv2i64" "movprfx" "nodecode" {
   %r = call <vscale x 2 x i64> @llvm.aarch64.sve.smax.nxv2i64(<vscale x 2 x i1> %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2)
   ret <vscale x 2 x i64> %r
 }
 
 declare <vscale x 2 x i64> @llvm.aarch64.sve.smax.nxv2i64(<vscale x 2 x i1>, <vscale x 2 x i64>, <vscale x 2 x i64>)
 
-define <vscale x 4 x i32> @SVE.smax.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010001000000 a0:3 a2:5 d:5" "asm"="smax {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x i32> @SVE.smax.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010001000000 a0:3 a2:5 d:5" "asm"="smax {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "swap"="SVE.smax.nxv4i32" "movprfx" "nodecode" {
   %r = call <vscale x 4 x i32> @llvm.aarch64.sve.smax.nxv4i32(<vscale x 4 x i1> %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2)
   ret <vscale x 4 x i32> %r
 }
 
 declare <vscale x 4 x i32> @llvm.aarch64.sve.smax.nxv4i32(<vscale x 4 x i1>, <vscale x 4 x i32>, <vscale x 4 x i32>)
 
-define <vscale x 8 x i16> @SVE.smax.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001001000000 a0:3 a2:5 d:5" "asm"="smax {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "nodecode" {
+define <vscale x 8 x i16> @SVE.smax.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001001000000 a0:3 a2:5 d:5" "asm"="smax {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "swap"="SVE.smax.nxv8i16" "movprfx" "nodecode" {
   %r = call <vscale x 8 x i16> @llvm.aarch64.sve.smax.nxv8i16(<vscale x 8 x i1> %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
   ret <vscale x 8 x i16> %r
 }
@@ -5868,28 +5868,28 @@ define i32 @SVE.smaxv.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i3
 
 declare i32 @llvm.aarch64.sve.smaxv.nxv4i32(<vscale x 4 x i1>, <vscale x 4 x i32>)
 
-define <vscale x 16 x i8> @SVE.smin.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000001010000 a0:3 a2:5 d:5" "asm"="smin {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "nodecode" {
+define <vscale x 16 x i8> @SVE.smin.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000001010000 a0:3 a2:5 d:5" "asm"="smin {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "swap"="SVE.smin.nxv16i8" "movprfx" "nodecode" {
   %r = call <vscale x 16 x i8> @llvm.aarch64.sve.smin.nxv16i8(<vscale x 16 x i1> %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
   ret <vscale x 16 x i8> %r
 }
 
 declare <vscale x 16 x i8> @llvm.aarch64.sve.smin.nxv16i8(<vscale x 16 x i1>, <vscale x 16 x i8>, <vscale x 16 x i8>)
 
-define <vscale x 2 x i64> @SVE.smin.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011001010000 a0:3 a2:5 d:5" "asm"="smin {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x i64> @SVE.smin.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011001010000 a0:3 a2:5 d:5" "asm"="smin {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "swap"="SVE.smin.nxv2i64" "movprfx" "nodecode" {
   %r = call <vscale x 2 x i64> @llvm.aarch64.sve.smin.nxv2i64(<vscale x 2 x i1> %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2)
   ret <vscale x 2 x i64> %r
 }
 
 declare <vscale x 2 x i64> @llvm.aarch64.sve.smin.nxv2i64(<vscale x 2 x i1>, <vscale x 2 x i64>, <vscale x 2 x i64>)
 
-define <vscale x 4 x i32> @SVE.smin.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010001010000 a0:3 a2:5 d:5" "asm"="smin {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x i32> @SVE.smin.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010001010000 a0:3 a2:5 d:5" "asm"="smin {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "swap"="SVE.smin.nxv4i32" "movprfx" "nodecode" {
   %r = call <vscale x 4 x i32> @llvm.aarch64.sve.smin.nxv4i32(<vscale x 4 x i1> %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2)
   ret <vscale x 4 x i32> %r
 }
 
 declare <vscale x 4 x i32> @llvm.aarch64.sve.smin.nxv4i32(<vscale x 4 x i1>, <vscale x 4 x i32>, <vscale x 4 x i32>)
 
-define <vscale x 8 x i16> @SVE.smin.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001001010000 a0:3 a2:5 d:5" "asm"="smin {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "nodecode" {
+define <vscale x 8 x i16> @SVE.smin.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001001010000 a0:3 a2:5 d:5" "asm"="smin {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "swap"="SVE.smin.nxv8i16" "movprfx" "nodecode" {
   %r = call <vscale x 8 x i16> @llvm.aarch64.sve.smin.nxv8i16(<vscale x 8 x i1> %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
   ret <vscale x 8 x i16> %r
 }
@@ -6085,28 +6085,28 @@ define <vscale x 4 x i32> @SVE.smmla.nxv4i32(<vscale x 4 x i32> "reg"="z" "tied"
 
 declare <vscale x 4 x i32> @llvm.aarch64.sve.smmla.nxv4i32(<vscale x 4 x i32>, <vscale x 16 x i8>, <vscale x 16 x i8>)
 
-define <vscale x 16 x i8> @SVE.smulh.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000010010000 a0:3 a2:5 d:5" "asm"="smulh {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "nodecode" {
+define <vscale x 16 x i8> @SVE.smulh.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000010010000 a0:3 a2:5 d:5" "asm"="smulh {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "swap"="SVE.smulh.nxv16i8" "movprfx" "nodecode" {
   %r = call <vscale x 16 x i8> @llvm.aarch64.sve.smulh.nxv16i8(<vscale x 16 x i1> %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
   ret <vscale x 16 x i8> %r
 }
 
 declare <vscale x 16 x i8> @llvm.aarch64.sve.smulh.nxv16i8(<vscale x 16 x i1>, <vscale x 16 x i8>, <vscale x 16 x i8>)
 
-define <vscale x 2 x i64> @SVE.smulh.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011010010000 a0:3 a2:5 d:5" "asm"="smulh {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x i64> @SVE.smulh.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011010010000 a0:3 a2:5 d:5" "asm"="smulh {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "swap"="SVE.smulh.nxv2i64" "movprfx" "nodecode" {
   %r = call <vscale x 2 x i64> @llvm.aarch64.sve.smulh.nxv2i64(<vscale x 2 x i1> %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2)
   ret <vscale x 2 x i64> %r
 }
 
 declare <vscale x 2 x i64> @llvm.aarch64.sve.smulh.nxv2i64(<vscale x 2 x i1>, <vscale x 2 x i64>, <vscale x 2 x i64>)
 
-define <vscale x 4 x i32> @SVE.smulh.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010010010000 a0:3 a2:5 d:5" "asm"="smulh {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x i32> @SVE.smulh.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010010010000 a0:3 a2:5 d:5" "asm"="smulh {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "swap"="SVE.smulh.nxv4i32" "movprfx" "nodecode" {
   %r = call <vscale x 4 x i32> @llvm.aarch64.sve.smulh.nxv4i32(<vscale x 4 x i1> %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2)
   ret <vscale x 4 x i32> %r
 }
 
 declare <vscale x 4 x i32> @llvm.aarch64.sve.smulh.nxv4i32(<vscale x 4 x i1>, <vscale x 4 x i32>, <vscale x 4 x i32>)
 
-define <vscale x 8 x i16> @SVE.smulh.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001010010000 a0:3 a2:5 d:5" "asm"="smulh {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "nodecode" {
+define <vscale x 8 x i16> @SVE.smulh.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001010010000 a0:3 a2:5 d:5" "asm"="smulh {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "swap"="SVE.smulh.nxv8i16" "movprfx" "nodecode" {
   %r = call <vscale x 8 x i16> @llvm.aarch64.sve.smulh.nxv8i16(<vscale x 8 x i1> %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
   ret <vscale x 8 x i16> %r
 }
@@ -8325,28 +8325,28 @@ define void @SVE.stnt1.scatter.uxtw.nxv4i8(<vscale x 4 x i8> "reg"="z" %a0, <vsc
 
 declare void @llvm.aarch64.sve.stnt1.scatter.uxtw.nxv4i8(<vscale x 4 x i8>, <vscale x 4 x i1>, ptr, <vscale x 4 x i32>)
 
-define <vscale x 16 x i8> @SVE.sub.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000000001000 a0:3 a2:5 d:5" "asm"="sub {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "nodecode" {
+define <vscale x 16 x i8> @SVE.sub.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000000001000 a0:3 a2:5 d:5" "asm"="sub {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "swap"="SVE.subr.nxv16i8" "movprfx" "nodecode" {
   %r = call <vscale x 16 x i8> @llvm.aarch64.sve.sub.nxv16i8(<vscale x 16 x i1> %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
   ret <vscale x 16 x i8> %r
 }
 
 declare <vscale x 16 x i8> @llvm.aarch64.sve.sub.nxv16i8(<vscale x 16 x i1>, <vscale x 16 x i8>, <vscale x 16 x i8>)
 
-define <vscale x 2 x i64> @SVE.sub.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011000001000 a0:3 a2:5 d:5" "asm"="sub {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x i64> @SVE.sub.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011000001000 a0:3 a2:5 d:5" "asm"="sub {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "swap"="SVE.subr.nxv2i64" "movprfx" "nodecode" {
   %r = call <vscale x 2 x i64> @llvm.aarch64.sve.sub.nxv2i64(<vscale x 2 x i1> %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2)
   ret <vscale x 2 x i64> %r
 }
 
 declare <vscale x 2 x i64> @llvm.aarch64.sve.sub.nxv2i64(<vscale x 2 x i1>, <vscale x 2 x i64>, <vscale x 2 x i64>)
 
-define <vscale x 4 x i32> @SVE.sub.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010000001000 a0:3 a2:5 d:5" "asm"="sub {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x i32> @SVE.sub.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010000001000 a0:3 a2:5 d:5" "asm"="sub {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "swap"="SVE.subr.nxv4i32" "movprfx" "nodecode" {
   %r = call <vscale x 4 x i32> @llvm.aarch64.sve.sub.nxv4i32(<vscale x 4 x i1> %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2)
   ret <vscale x 4 x i32> %r
 }
 
 declare <vscale x 4 x i32> @llvm.aarch64.sve.sub.nxv4i32(<vscale x 4 x i1>, <vscale x 4 x i32>, <vscale x 4 x i32>)
 
-define <vscale x 8 x i16> @SVE.sub.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001000001000 a0:3 a2:5 d:5" "asm"="sub {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "nodecode" {
+define <vscale x 8 x i16> @SVE.sub.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001000001000 a0:3 a2:5 d:5" "asm"="sub {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "swap"="SVE.subr.nxv8i16" "movprfx" "nodecode" {
   %r = call <vscale x 8 x i16> @llvm.aarch64.sve.sub.nxv8i16(<vscale x 8 x i1> %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
   ret <vscale x 8 x i16> %r
 }
@@ -8395,28 +8395,28 @@ define <vscale x 16 x i8> @SVE.subhnt.nxv8i16(<vscale x 16 x i8> "reg"="z" "tied
 
 declare <vscale x 16 x i8> @llvm.aarch64.sve.subhnt.nxv8i16(<vscale x 16 x i8>, <vscale x 8 x i16>, <vscale x 8 x i16>)
 
-define <vscale x 16 x i8> @SVE.subr.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000000011000 a0:3 a2:5 d:5" "asm"="subr {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "nodecode" {
+define <vscale x 16 x i8> @SVE.subr.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000000011000 a0:3 a2:5 d:5" "asm"="subr {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "swap"="SVE.sub.nxv16i8" "movprfx" "nodecode" {
   %r = call <vscale x 16 x i8> @llvm.aarch64.sve.subr.nxv16i8(<vscale x 16 x i1> %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
   ret <vscale x 16 x i8> %r
 }
 
 declare <vscale x 16 x i8> @llvm.aarch64.sve.subr.nxv16i8(<vscale x 16 x i1>, <vscale x 16 x i8>, <vscale x 16 x i8>)
 
-define <vscale x 2 x i64> @SVE.subr.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011000011000 a0:3 a2:5 d:5" "asm"="subr {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x i64> @SVE.subr.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011000011000 a0:3 a2:5 d:5" "asm"="subr {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "swap"="SVE.sub.nxv2i64" "movprfx" "nodecode" {
   %r = call <vscale x 2 x i64> @llvm.aarch64.sve.subr.nxv2i64(<vscale x 2 x i1> %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2)
   ret <vscale x 2 x i64> %r
 }
 
 declare <vscale x 2 x i64> @llvm.aarch64.sve.subr.nxv2i64(<vscale x 2 x i1>, <vscale x 2 x i64>, <vscale x 2 x i64>)
 
-define <vscale x 4 x i32> @SVE.subr.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010000011000 a0:3 a2:5 d:5" "asm"="subr {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x i32> @SVE.subr.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010000011000 a0:3 a2:5 d:5" "asm"="subr {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "swap"="SVE.sub.nxv4i32" "movprfx" "nodecode" {
   %r = call <vscale x 4 x i32> @llvm.aarch64.sve.subr.nxv4i32(<vscale x 4 x i1> %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2)
   ret <vscale x 4 x i32> %r
 }
 
 declare <vscale x 4 x i32> @llvm.aarch64.sve.subr.nxv4i32(<vscale x 4 x i1>, <vscale x 4 x i32>, <vscale x 4 x i32>)
 
-define <vscale x 8 x i16> @SVE.subr.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001000011000 a0:3 a2:5 d:5" "asm"="subr {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "nodecode" {
+define <vscale x 8 x i16> @SVE.subr.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001000011000 a0:3 a2:5 d:5" "asm"="subr {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "swap"="SVE.sub.nxv8i16" "movprfx" "nodecode" {
   %r = call <vscale x 8 x i16> @llvm.aarch64.sve.subr.nxv8i16(<vscale x 8 x i1> %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
   ret <vscale x 8 x i16> %r
 }
@@ -8962,28 +8962,28 @@ define <vscale x 8 x i16> @SVE.uabalt.nxv8i16(<vscale x 8 x i16> "reg"="z" "tied
 
 declare <vscale x 8 x i16> @llvm.aarch64.sve.uabalt.nxv8i16(<vscale x 8 x i16>, <vscale x 16 x i8>, <vscale x 16 x i8>)
 
-define <vscale x 16 x i8> @SVE.uabd.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000001101000 a0:3 a2:5 d:5" "asm"="uabd {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "nodecode" {
+define <vscale x 16 x i8> @SVE.uabd.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000001101000 a0:3 a2:5 d:5" "asm"="uabd {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "swap"="SVE.uabd.nxv16i8" "movprfx" "nodecode" {
   %r = call <vscale x 16 x i8> @llvm.aarch64.sve.uabd.nxv16i8(<vscale x 16 x i1> %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
   ret <vscale x 16 x i8> %r
 }
 
 declare <vscale x 16 x i8> @llvm.aarch64.sve.uabd.nxv16i8(<vscale x 16 x i1>, <vscale x 16 x i8>, <vscale x 16 x i8>)
 
-define <vscale x 2 x i64> @SVE.uabd.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011001101000 a0:3 a2:5 d:5" "asm"="uabd {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x i64> @SVE.uabd.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011001101000 a0:3 a2:5 d:5" "asm"="uabd {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "swap"="SVE.uabd.nxv2i64" "movprfx" "nodecode" {
   %r = call <vscale x 2 x i64> @llvm.aarch64.sve.uabd.nxv2i64(<vscale x 2 x i1> %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2)
   ret <vscale x 2 x i64> %r
 }
 
 declare <vscale x 2 x i64> @llvm.aarch64.sve.uabd.nxv2i64(<vscale x 2 x i1>, <vscale x 2 x i64>, <vscale x 2 x i64>)
 
-define <vscale x 4 x i32> @SVE.uabd.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010001101000 a0:3 a2:5 d:5" "asm"="uabd {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x i32> @SVE.uabd.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010001101000 a0:3 a2:5 d:5" "asm"="uabd {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "swap"="SVE.uabd.nxv4i32" "movprfx" "nodecode" {
   %r = call <vscale x 4 x i32> @llvm.aarch64.sve.uabd.nxv4i32(<vscale x 4 x i1> %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2)
   ret <vscale x 4 x i32> %r
 }
 
 declare <vscale x 4 x i32> @llvm.aarch64.sve.uabd.nxv4i32(<vscale x 4 x i1>, <vscale x 4 x i32>, <vscale x 4 x i32>)
 
-define <vscale x 8 x i16> @SVE.uabd.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001001101000 a0:3 a2:5 d:5" "asm"="uabd {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "nodecode" {
+define <vscale x 8 x i16> @SVE.uabd.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001001101000 a0:3 a2:5 d:5" "asm"="uabd {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "swap"="SVE.uabd.nxv8i16" "movprfx" "nodecode" {
   %r = call <vscale x 8 x i16> @llvm.aarch64.sve.uabd.nxv8i16(<vscale x 8 x i1> %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
   ret <vscale x 8 x i16> %r
 }
@@ -9193,28 +9193,28 @@ define <vscale x 4 x float> @SVE.ucvtf.nxv4f32.nxv4i32(<vscale x 4 x float> "reg
 
 declare <vscale x 4 x float> @llvm.aarch64.sve.ucvtf.nxv4f32.nxv4i32(<vscale x 4 x float>, <vscale x 4 x i1>, <vscale x 4 x i32>)
 
-define <vscale x 2 x i64> @SVE.udiv.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011010101000 a0:3 a2:5 d:5" "asm"="udiv {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x i64> @SVE.udiv.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011010101000 a0:3 a2:5 d:5" "asm"="udiv {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "swap"="SVE.udivr.nxv2i64" "movprfx" "nodecode" {
   %r = call <vscale x 2 x i64> @llvm.aarch64.sve.udiv.nxv2i64(<vscale x 2 x i1> %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2)
   ret <vscale x 2 x i64> %r
 }
 
 declare <vscale x 2 x i64> @llvm.aarch64.sve.udiv.nxv2i64(<vscale x 2 x i1>, <vscale x 2 x i64>, <vscale x 2 x i64>)
 
-define <vscale x 4 x i32> @SVE.udiv.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010010101000 a0:3 a2:5 d:5" "asm"="udiv {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x i32> @SVE.udiv.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010010101000 a0:3 a2:5 d:5" "asm"="udiv {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "swap"="SVE.udivr.nxv4i32" "movprfx" "nodecode" {
   %r = call <vscale x 4 x i32> @llvm.aarch64.sve.udiv.nxv4i32(<vscale x 4 x i1> %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2)
   ret <vscale x 4 x i32> %r
 }
 
 declare <vscale x 4 x i32> @llvm.aarch64.sve.udiv.nxv4i32(<vscale x 4 x i1>, <vscale x 4 x i32>, <vscale x 4 x i32>)
 
-define <vscale x 2 x i64> @SVE.udivr.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011010111000 a0:3 a2:5 d:5" "asm"="udivr {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x i64> @SVE.udivr.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011010111000 a0:3 a2:5 d:5" "asm"="udivr {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "swap"="SVE.udiv.nxv2i64" "movprfx" "nodecode" {
   %r = call <vscale x 2 x i64> @llvm.aarch64.sve.udivr.nxv2i64(<vscale x 2 x i1> %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2)
   ret <vscale x 2 x i64> %r
 }
 
 declare <vscale x 2 x i64> @llvm.aarch64.sve.udivr.nxv2i64(<vscale x 2 x i1>, <vscale x 2 x i64>, <vscale x 2 x i64>)
 
-define <vscale x 4 x i32> @SVE.udivr.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010010111000 a0:3 a2:5 d:5" "asm"="udivr {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x i32> @SVE.udivr.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010010111000 a0:3 a2:5 d:5" "asm"="udivr {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "swap"="SVE.udiv.nxv4i32" "movprfx" "nodecode" {
   %r = call <vscale x 4 x i32> @llvm.aarch64.sve.udivr.nxv4i32(<vscale x 4 x i1> %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2)
   ret <vscale x 4 x i32> %r
 }
@@ -9333,28 +9333,28 @@ define <vscale x 8 x i16> @SVE.uhsubr.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, 
 
 declare <vscale x 8 x i16> @llvm.aarch64.sve.uhsubr.nxv8i16(<vscale x 8 x i1>, <vscale x 8 x i16>, <vscale x 8 x i16>)
 
-define <vscale x 16 x i8> @SVE.umax.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000001001000 a0:3 a2:5 d:5" "asm"="umax {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "nodecode" {
+define <vscale x 16 x i8> @SVE.umax.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000001001000 a0:3 a2:5 d:5" "asm"="umax {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "swap"="SVE.umax.nxv16i8" "movprfx" "nodecode" {
   %r = call <vscale x 16 x i8> @llvm.aarch64.sve.umax.nxv16i8(<vscale x 16 x i1> %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
   ret <vscale x 16 x i8> %r
 }
 
 declare <vscale x 16 x i8> @llvm.aarch64.sve.umax.nxv16i8(<vscale x 16 x i1>, <vscale x 16 x i8>, <vscale x 16 x i8>)
 
-define <vscale x 2 x i64> @SVE.umax.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011001001000 a0:3 a2:5 d:5" "asm"="umax {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x i64> @SVE.umax.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011001001000 a0:3 a2:5 d:5" "asm"="umax {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "swap"="SVE.umax.nxv2i64" "movprfx" "nodecode" {
   %r = call <vscale x 2 x i64> @llvm.aarch64.sve.umax.nxv2i64(<vscale x 2 x i1> %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2)
   ret <vscale x 2 x i64> %r
 }
 
 declare <vscale x 2 x i64> @llvm.aarch64.sve.umax.nxv2i64(<vscale x 2 x i1>, <vscale x 2 x i64>, <vscale x 2 x i64>)
 
-define <vscale x 4 x i32> @SVE.umax.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010001001000 a0:3 a2:5 d:5" "asm"="umax {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x i32> @SVE.umax.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010001001000 a0:3 a2:5 d:5" "asm"="umax {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "swap"="SVE.umax.nxv4i32" "movprfx" "nodecode" {
   %r = call <vscale x 4 x i32> @llvm.aarch64.sve.umax.nxv4i32(<vscale x 4 x i1> %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2)
   ret <vscale x 4 x i32> %r
 }
 
 declare <vscale x 4 x i32> @llvm.aarch64.sve.umax.nxv4i32(<vscale x 4 x i1>, <vscale x 4 x i32>, <vscale x 4 x i32>)
 
-define <vscale x 8 x i16> @SVE.umax.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001001001000 a0:3 a2:5 d:5" "asm"="umax {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "nodecode" {
+define <vscale x 8 x i16> @SVE.umax.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001001001000 a0:3 a2:5 d:5" "asm"="umax {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "swap"="SVE.umax.nxv8i16" "movprfx" "nodecode" {
   %r = call <vscale x 8 x i16> @llvm.aarch64.sve.umax.nxv8i16(<vscale x 8 x i1> %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
   ret <vscale x 8 x i16> %r
 }
@@ -9403,28 +9403,28 @@ define i32 @SVE.umaxv.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i3
 
 declare i32 @llvm.aarch64.sve.umaxv.nxv4i32(<vscale x 4 x i1>, <vscale x 4 x i32>)
 
-define <vscale x 16 x i8> @SVE.umin.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000001011000 a0:3 a2:5 d:5" "asm"="umin {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "nodecode" {
+define <vscale x 16 x i8> @SVE.umin.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000001011000 a0:3 a2:5 d:5" "asm"="umin {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "swap"="SVE.umin.nxv16i8" "movprfx" "nodecode" {
   %r = call <vscale x 16 x i8> @llvm.aarch64.sve.umin.nxv16i8(<vscale x 16 x i1> %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
   ret <vscale x 16 x i8> %r
 }
 
 declare <vscale x 16 x i8> @llvm.aarch64.sve.umin.nxv16i8(<vscale x 16 x i1>, <vscale x 16 x i8>, <vscale x 16 x i8>)
 
-define <vscale x 2 x i64> @SVE.umin.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011001011000 a0:3 a2:5 d:5" "asm"="umin {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x i64> @SVE.umin.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011001011000 a0:3 a2:5 d:5" "asm"="umin {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "swap"="SVE.umin.nxv2i64" "movprfx" "nodecode" {
   %r = call <vscale x 2 x i64> @llvm.aarch64.sve.umin.nxv2i64(<vscale x 2 x i1> %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2)
   ret <vscale x 2 x i64> %r
 }
 
 declare <vscale x 2 x i64> @llvm.aarch64.sve.umin.nxv2i64(<vscale x 2 x i1>, <vscale x 2 x i64>, <vscale x 2 x i64>)
 
-define <vscale x 4 x i32> @SVE.umin.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010001011000 a0:3 a2:5 d:5" "asm"="umin {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x i32> @SVE.umin.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010001011000 a0:3 a2:5 d:5" "asm"="umin {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "swap"="SVE.umin.nxv4i32" "movprfx" "nodecode" {
   %r = call <vscale x 4 x i32> @llvm.aarch64.sve.umin.nxv4i32(<vscale x 4 x i1> %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2)
   ret <vscale x 4 x i32> %r
 }
 
 declare <vscale x 4 x i32> @llvm.aarch64.sve.umin.nxv4i32(<vscale x 4 x i1>, <vscale x 4 x i32>, <vscale x 4 x i32>)
 
-define <vscale x 8 x i16> @SVE.umin.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001001011000 a0:3 a2:5 d:5" "asm"="umin {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "nodecode" {
+define <vscale x 8 x i16> @SVE.umin.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001001011000 a0:3 a2:5 d:5" "asm"="umin {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "swap"="SVE.umin.nxv8i16" "movprfx" "nodecode" {
   %r = call <vscale x 8 x i16> @llvm.aarch64.sve.umin.nxv8i16(<vscale x 8 x i1> %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
   ret <vscale x 8 x i16> %r
 }
@@ -9620,28 +9620,28 @@ define <vscale x 4 x i32> @SVE.ummla.nxv4i32(<vscale x 4 x i32> "reg"="z" "tied"
 
 declare <vscale x 4 x i32> @llvm.aarch64.sve.ummla.nxv4i32(<vscale x 4 x i32>, <vscale x 16 x i8>, <vscale x 16 x i8>)
 
-define <vscale x 16 x i8> @SVE.umulh.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000010011000 a0:3 a2:5 d:5" "asm"="umulh {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "nodecode" {
+define <vscale x 16 x i8> @SVE.umulh.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000010011000 a0:3 a2:5 d:5" "asm"="umulh {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "swap"="SVE.umulh.nxv16i8" "movprfx" "nodecode" {
   %r = call <vscale x 16 x i8> @llvm.aarch64.sve.umulh.nxv16i8(<vscale x 16 x i1> %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
   ret <vscale x 16 x i8> %r
 }
 
 declare <vscale x 16 x i8> @llvm.aarch64.sve.umulh.nxv16i8(<vscale x 16 x i1>, <vscale x 16 x i8>, <vscale x 16 x i8>)
 
-define <vscale x 2 x i64> @SVE.umulh.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011010011000 a0:3 a2:5 d:5" "asm"="umulh {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nodecode" {
+define <vscale x 2 x i64> @SVE.umulh.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011010011000 a0:3 a2:5 d:5" "asm"="umulh {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "swap"="SVE.umulh.nxv2i64" "movprfx" "nodecode" {
   %r = call <vscale x 2 x i64> @llvm.aarch64.sve.umulh.nxv2i64(<vscale x 2 x i1> %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2)
   ret <vscale x 2 x i64> %r
 }
 
 declare <vscale x 2 x i64> @llvm.aarch64.sve.umulh.nxv2i64(<vscale x 2 x i1>, <vscale x 2 x i64>, <vscale x 2 x i64>)
 
-define <vscale x 4 x i32> @SVE.umulh.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010010011000 a0:3 a2:5 d:5" "asm"="umulh {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nodecode" {
+define <vscale x 4 x i32> @SVE.umulh.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010010011000 a0:3 a2:5 d:5" "asm"="umulh {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "swap"="SVE.umulh.nxv4i32" "movprfx" "nodecode" {
   %r = call <vscale x 4 x i32> @llvm.aarch64.sve.umulh.nxv4i32(<vscale x 4 x i1> %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2)
   ret <vscale x 4 x i32> %r
 }
 
 declare <vscale x 4 x i32> @llvm.aarch64.sve.umulh.nxv4i32(<vscale x 4 x i1>, <vscale x 4 x i32>, <vscale x 4 x i32>)
 
-define <vscale x 8 x i16> @SVE.umulh.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001010011000 a0:3 a2:5 d:5" "asm"="umulh {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "nodecode" {
+define <vscale x 8 x i16> @SVE.umulh.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001010011000 a0:3 a2:5 d:5" "asm"="umulh {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "swap"="SVE.umulh.nxv8i16" "movprfx" "nodecode" {
   %r = call <vscale x 8 x i16> @llvm.aarch64.sve.umulh.nxv8i16(<vscale x 8 x i1> %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
   ret <vscale x 8 x i16> %r
 }
@@ -15250,14 +15250,14 @@ declare void @llvm.epitome.sve.stnt1.scatter.uxtw.nxv4i8(<vscale x 4 x i32>, <vs
 
 declare void @llvm.epitome.sme.start.sm()
 
-define void @SMSTARTsm() "feature"="sme" "enc"="11010101000000110100001101111111" "asm"="smstart sm" "clobbers"="d0-d31,p0-p15" "nodecode" {
+define void @SMSTARTsm() "feature"="sme" "enc"="11010101000000110100001101111111" "asm"="smstart sm" "clobbers"="d0-d31,p0-p15" "role"="sm.switch" "nodecode" {
   call void @llvm.epitome.sme.start.sm()
   ret void
 }
 
 declare void @llvm.epitome.sme.stop.sm()
 
-define void @SMSTOPsm() "feature"="sme" "enc"="11010101000000110100001001111111" "asm"="smstop sm" "clobbers"="d0-d31,p0-p15" "nodecode" {
+define void @SMSTOPsm() "feature"="sme" "enc"="11010101000000110100001001111111" "asm"="smstop sm" "clobbers"="d0-d31,p0-p15" "role"="sm.switch" "nodecode" {
   call void @llvm.epitome.sme.stop.sm()
   ret void
 }
@@ -18751,4 +18751,474 @@ define i64 @sve.vscale.expand() {
   %b = call i64 @RDVL1()
   %r = call i64 @LSRXri(i64 %b, i64 4)
   ret i64 %r
+}
+
+define <vscale x 16 x i8> @ADDzi.nxv16i8(<vscale x 16 x i8> "reg"="z" "tied" %n, <vscale x 16 x i8> "imm" %k) "feature"="sve" "enc"="0010010100100000110 k:8 d:5" "asm"="add {d}.b, {d}.b, #{k}" "dclass"="z" "movprfx" "nodecode" {
+  %r = add <vscale x 16 x i8> %n, %k
+  ret <vscale x 16 x i8> %r
+}
+
+define <vscale x 16 x i8> @SUBzi.nxv16i8(<vscale x 16 x i8> "reg"="z" "tied" %n, <vscale x 16 x i8> "imm" %k) "feature"="sve" "enc"="0010010100100001110 k:8 d:5" "asm"="sub {d}.b, {d}.b, #{k}" "dclass"="z" "movprfx" "nodecode" {
+  %r = sub <vscale x 16 x i8> %n, %k
+  ret <vscale x 16 x i8> %r
+}
+
+define <vscale x 16 x i8> @SUBRzi.nxv16i8(<vscale x 16 x i8> "reg"="z" "tied" %n, <vscale x 16 x i8> "imm" %k) "feature"="sve" "enc"="0010010100100011110 k:8 d:5" "asm"="subr {d}.b, {d}.b, #{k}" "dclass"="z" "movprfx" "nodecode" {
+  %r = sub <vscale x 16 x i8> %k, %n
+  ret <vscale x 16 x i8> %r
+}
+
+define <vscale x 16 x i8> @MULzi.nxv16i8(<vscale x 16 x i8> "reg"="z" "tied" %n, <vscale x 16 x i8> "imm" %k) "feature"="sve" "enc"="0010010100110000110 k:s8 d:5" "asm"="mul {d}.b, {d}.b, #{k}" "dclass"="z" "movprfx" "nodecode" {
+  %r = mul <vscale x 16 x i8> %n, %k
+  ret <vscale x 16 x i8> %r
+}
+
+define <vscale x 16 x i8> @SMAXzi.nxv16i8(<vscale x 16 x i8> "reg"="z" "tied" %n, <vscale x 16 x i8> "imm" %k) "feature"="sve" "enc"="0010010100101000110 k:s8 d:5" "asm"="smax {d}.b, {d}.b, #{k}" "dclass"="z" "movprfx" "nodecode" {
+  %r = call <vscale x 16 x i8> @llvm.smax.nxv16i8(<vscale x 16 x i8> %n, <vscale x 16 x i8> %k)
+  ret <vscale x 16 x i8> %r
+}
+
+define <vscale x 16 x i8> @SMINzi.nxv16i8(<vscale x 16 x i8> "reg"="z" "tied" %n, <vscale x 16 x i8> "imm" %k) "feature"="sve" "enc"="0010010100101010110 k:s8 d:5" "asm"="smin {d}.b, {d}.b, #{k}" "dclass"="z" "movprfx" "nodecode" {
+  %r = call <vscale x 16 x i8> @llvm.smin.nxv16i8(<vscale x 16 x i8> %n, <vscale x 16 x i8> %k)
+  ret <vscale x 16 x i8> %r
+}
+
+define <vscale x 16 x i8> @UMAXzi.nxv16i8(<vscale x 16 x i8> "reg"="z" "tied" %n, <vscale x 16 x i8> "imm" %k) "feature"="sve" "enc"="0010010100101001110 k:8 d:5" "asm"="umax {d}.b, {d}.b, #{k}" "dclass"="z" "movprfx" "nodecode" {
+  %r = call <vscale x 16 x i8> @llvm.umax.nxv16i8(<vscale x 16 x i8> %n, <vscale x 16 x i8> %k)
+  ret <vscale x 16 x i8> %r
+}
+
+define <vscale x 16 x i8> @UMINzi.nxv16i8(<vscale x 16 x i8> "reg"="z" "tied" %n, <vscale x 16 x i8> "imm" %k) "feature"="sve" "enc"="0010010100101011110 k:8 d:5" "asm"="umin {d}.b, {d}.b, #{k}" "dclass"="z" "movprfx" "nodecode" {
+  %r = call <vscale x 16 x i8> @llvm.umin.nxv16i8(<vscale x 16 x i8> %n, <vscale x 16 x i8> %k)
+  ret <vscale x 16 x i8> %r
+}
+
+define <vscale x 16 x i8> @LSLzi.nxv16i8(<vscale x 16 x i8> "reg"="z" %n, <vscale x 16 x i8> "imm" %k) "feature"="sve" "enc"="0000010000101 k:3 100111 n:5 d:5" "asm"="lsl {d}.b, {n}.b, #{k}" "dclass"="z" "nodecode" {
+  %r = shl <vscale x 16 x i8> %n, %k
+  ret <vscale x 16 x i8> %r
+}
+
+define <vscale x 16 x i8> @LSRzi.nxv16i8(<vscale x 16 x i8> "reg"="z" %n, <vscale x 16 x i8> "imm" %k) "feature"="sve" "enc"="0000010000101 const_f:3=(8-k) 100101 n:5 d:5" "asm"="lsr {d}.b, {n}.b, #{k}" "dclass"="z" "nodecode" {
+  %r = lshr <vscale x 16 x i8> %n, %k
+  ret <vscale x 16 x i8> %r
+}
+
+define <vscale x 16 x i8> @ASRzi.nxv16i8(<vscale x 16 x i8> "reg"="z" %n, <vscale x 16 x i8> "imm" %k) "feature"="sve" "enc"="0000010000101 const_f:3=(8-k) 100100 n:5 d:5" "asm"="asr {d}.b, {n}.b, #{k}" "dclass"="z" "nodecode" {
+  %r = ashr <vscale x 16 x i8> %n, %k
+  ret <vscale x 16 x i8> %r
+}
+
+define <vscale x 16 x i8> @DUPzi.nxv16i8(<vscale x 16 x i8> "imm" %k) "feature"="sve" "enc"="0010010100111000110 k:s8 d:5" "asm"="mov {d}.b, #{k}" "dclass"="z" "role"="splat.imm.nxv16i8" "nomatch" "nodecode" {
+  ret <vscale x 16 x i8> %k
+}
+
+define <vscale x 8 x i16> @ADDzi.nxv8i16(<vscale x 8 x i16> "reg"="z" "tied" %n, <vscale x 8 x i16> "imm" %k) "feature"="sve" "enc"="0010010101100000110 k:8 d:5" "asm"="add {d}.h, {d}.h, #{k}" "dclass"="z" "movprfx" "nodecode" {
+  %r = add <vscale x 8 x i16> %n, %k
+  ret <vscale x 8 x i16> %r
+}
+
+define <vscale x 8 x i16> @SUBzi.nxv8i16(<vscale x 8 x i16> "reg"="z" "tied" %n, <vscale x 8 x i16> "imm" %k) "feature"="sve" "enc"="0010010101100001110 k:8 d:5" "asm"="sub {d}.h, {d}.h, #{k}" "dclass"="z" "movprfx" "nodecode" {
+  %r = sub <vscale x 8 x i16> %n, %k
+  ret <vscale x 8 x i16> %r
+}
+
+define <vscale x 8 x i16> @SUBRzi.nxv8i16(<vscale x 8 x i16> "reg"="z" "tied" %n, <vscale x 8 x i16> "imm" %k) "feature"="sve" "enc"="0010010101100011110 k:8 d:5" "asm"="subr {d}.h, {d}.h, #{k}" "dclass"="z" "movprfx" "nodecode" {
+  %r = sub <vscale x 8 x i16> %k, %n
+  ret <vscale x 8 x i16> %r
+}
+
+define <vscale x 8 x i16> @MULzi.nxv8i16(<vscale x 8 x i16> "reg"="z" "tied" %n, <vscale x 8 x i16> "imm" %k) "feature"="sve" "enc"="0010010101110000110 k:s8 d:5" "asm"="mul {d}.h, {d}.h, #{k}" "dclass"="z" "movprfx" "nodecode" {
+  %r = mul <vscale x 8 x i16> %n, %k
+  ret <vscale x 8 x i16> %r
+}
+
+define <vscale x 8 x i16> @SMAXzi.nxv8i16(<vscale x 8 x i16> "reg"="z" "tied" %n, <vscale x 8 x i16> "imm" %k) "feature"="sve" "enc"="0010010101101000110 k:s8 d:5" "asm"="smax {d}.h, {d}.h, #{k}" "dclass"="z" "movprfx" "nodecode" {
+  %r = call <vscale x 8 x i16> @llvm.smax.nxv8i16(<vscale x 8 x i16> %n, <vscale x 8 x i16> %k)
+  ret <vscale x 8 x i16> %r
+}
+
+define <vscale x 8 x i16> @SMINzi.nxv8i16(<vscale x 8 x i16> "reg"="z" "tied" %n, <vscale x 8 x i16> "imm" %k) "feature"="sve" "enc"="0010010101101010110 k:s8 d:5" "asm"="smin {d}.h, {d}.h, #{k}" "dclass"="z" "movprfx" "nodecode" {
+  %r = call <vscale x 8 x i16> @llvm.smin.nxv8i16(<vscale x 8 x i16> %n, <vscale x 8 x i16> %k)
+  ret <vscale x 8 x i16> %r
+}
+
+define <vscale x 8 x i16> @UMAXzi.nxv8i16(<vscale x 8 x i16> "reg"="z" "tied" %n, <vscale x 8 x i16> "imm" %k) "feature"="sve" "enc"="0010010101101001110 k:8 d:5" "asm"="umax {d}.h, {d}.h, #{k}" "dclass"="z" "movprfx" "nodecode" {
+  %r = call <vscale x 8 x i16> @llvm.umax.nxv8i16(<vscale x 8 x i16> %n, <vscale x 8 x i16> %k)
+  ret <vscale x 8 x i16> %r
+}
+
+define <vscale x 8 x i16> @UMINzi.nxv8i16(<vscale x 8 x i16> "reg"="z" "tied" %n, <vscale x 8 x i16> "imm" %k) "feature"="sve" "enc"="0010010101101011110 k:8 d:5" "asm"="umin {d}.h, {d}.h, #{k}" "dclass"="z" "movprfx" "nodecode" {
+  %r = call <vscale x 8 x i16> @llvm.umin.nxv8i16(<vscale x 8 x i16> %n, <vscale x 8 x i16> %k)
+  ret <vscale x 8 x i16> %r
+}
+
+define <vscale x 8 x i16> @LSLzi.nxv8i16(<vscale x 8 x i16> "reg"="z" %n, <vscale x 8 x i16> "imm" %k) "feature"="sve" "enc"="000001000011 k:4 100111 n:5 d:5" "asm"="lsl {d}.h, {n}.h, #{k}" "dclass"="z" "nodecode" {
+  %r = shl <vscale x 8 x i16> %n, %k
+  ret <vscale x 8 x i16> %r
+}
+
+define <vscale x 8 x i16> @LSRzi.nxv8i16(<vscale x 8 x i16> "reg"="z" %n, <vscale x 8 x i16> "imm" %k) "feature"="sve" "enc"="000001000011 const_f:4=(16-k) 100101 n:5 d:5" "asm"="lsr {d}.h, {n}.h, #{k}" "dclass"="z" "nodecode" {
+  %r = lshr <vscale x 8 x i16> %n, %k
+  ret <vscale x 8 x i16> %r
+}
+
+define <vscale x 8 x i16> @ASRzi.nxv8i16(<vscale x 8 x i16> "reg"="z" %n, <vscale x 8 x i16> "imm" %k) "feature"="sve" "enc"="000001000011 const_f:4=(16-k) 100100 n:5 d:5" "asm"="asr {d}.h, {n}.h, #{k}" "dclass"="z" "nodecode" {
+  %r = ashr <vscale x 8 x i16> %n, %k
+  ret <vscale x 8 x i16> %r
+}
+
+define <vscale x 8 x i16> @DUPzi.nxv8i16(<vscale x 8 x i16> "imm" %k) "feature"="sve" "enc"="0010010101111000110 k:s8 d:5" "asm"="mov {d}.h, #{k}" "dclass"="z" "role"="splat.imm.nxv8i16" "nomatch" "nodecode" {
+  ret <vscale x 8 x i16> %k
+}
+
+define <vscale x 4 x i32> @ADDzi.nxv4i32(<vscale x 4 x i32> "reg"="z" "tied" %n, <vscale x 4 x i32> "imm" %k) "feature"="sve" "enc"="0010010110100000110 k:8 d:5" "asm"="add {d}.s, {d}.s, #{k}" "dclass"="z" "movprfx" "nodecode" {
+  %r = add <vscale x 4 x i32> %n, %k
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i32> @SUBzi.nxv4i32(<vscale x 4 x i32> "reg"="z" "tied" %n, <vscale x 4 x i32> "imm" %k) "feature"="sve" "enc"="0010010110100001110 k:8 d:5" "asm"="sub {d}.s, {d}.s, #{k}" "dclass"="z" "movprfx" "nodecode" {
+  %r = sub <vscale x 4 x i32> %n, %k
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i32> @SUBRzi.nxv4i32(<vscale x 4 x i32> "reg"="z" "tied" %n, <vscale x 4 x i32> "imm" %k) "feature"="sve" "enc"="0010010110100011110 k:8 d:5" "asm"="subr {d}.s, {d}.s, #{k}" "dclass"="z" "movprfx" "nodecode" {
+  %r = sub <vscale x 4 x i32> %k, %n
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i32> @MULzi.nxv4i32(<vscale x 4 x i32> "reg"="z" "tied" %n, <vscale x 4 x i32> "imm" %k) "feature"="sve" "enc"="0010010110110000110 k:s8 d:5" "asm"="mul {d}.s, {d}.s, #{k}" "dclass"="z" "movprfx" "nodecode" {
+  %r = mul <vscale x 4 x i32> %n, %k
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i32> @SMAXzi.nxv4i32(<vscale x 4 x i32> "reg"="z" "tied" %n, <vscale x 4 x i32> "imm" %k) "feature"="sve" "enc"="0010010110101000110 k:s8 d:5" "asm"="smax {d}.s, {d}.s, #{k}" "dclass"="z" "movprfx" "nodecode" {
+  %r = call <vscale x 4 x i32> @llvm.smax.nxv4i32(<vscale x 4 x i32> %n, <vscale x 4 x i32> %k)
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i32> @SMINzi.nxv4i32(<vscale x 4 x i32> "reg"="z" "tied" %n, <vscale x 4 x i32> "imm" %k) "feature"="sve" "enc"="0010010110101010110 k:s8 d:5" "asm"="smin {d}.s, {d}.s, #{k}" "dclass"="z" "movprfx" "nodecode" {
+  %r = call <vscale x 4 x i32> @llvm.smin.nxv4i32(<vscale x 4 x i32> %n, <vscale x 4 x i32> %k)
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i32> @UMAXzi.nxv4i32(<vscale x 4 x i32> "reg"="z" "tied" %n, <vscale x 4 x i32> "imm" %k) "feature"="sve" "enc"="0010010110101001110 k:8 d:5" "asm"="umax {d}.s, {d}.s, #{k}" "dclass"="z" "movprfx" "nodecode" {
+  %r = call <vscale x 4 x i32> @llvm.umax.nxv4i32(<vscale x 4 x i32> %n, <vscale x 4 x i32> %k)
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i32> @UMINzi.nxv4i32(<vscale x 4 x i32> "reg"="z" "tied" %n, <vscale x 4 x i32> "imm" %k) "feature"="sve" "enc"="0010010110101011110 k:8 d:5" "asm"="umin {d}.s, {d}.s, #{k}" "dclass"="z" "movprfx" "nodecode" {
+  %r = call <vscale x 4 x i32> @llvm.umin.nxv4i32(<vscale x 4 x i32> %n, <vscale x 4 x i32> %k)
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i32> @ANDzi.nxv4i32(<vscale x 4 x i32> "reg"="z" "tied" %n, <vscale x 4 x i32> "imm" %k) "feature"="sve" "enc"="0000010110000000 const_f:11=bitmask32(k) d:5" "asm"="and {d}.s, {d}.s, #{k:h32}" "dclass"="z" "movprfx" "nodecode" {
+  %r = and <vscale x 4 x i32> %n, %k
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i32> @ORRzi.nxv4i32(<vscale x 4 x i32> "reg"="z" "tied" %n, <vscale x 4 x i32> "imm" %k) "feature"="sve" "enc"="0000010100000000 const_f:11=bitmask32(k) d:5" "asm"="orr {d}.s, {d}.s, #{k:h32}" "dclass"="z" "movprfx" "nodecode" {
+  %r = or <vscale x 4 x i32> %n, %k
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i32> @EORzi.nxv4i32(<vscale x 4 x i32> "reg"="z" "tied" %n, <vscale x 4 x i32> "imm" %k) "feature"="sve" "enc"="0000010101000000 const_f:11=bitmask32(k) d:5" "asm"="eor {d}.s, {d}.s, #{k:h32}" "dclass"="z" "movprfx" "nodecode" {
+  %r = xor <vscale x 4 x i32> %n, %k
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i32> @LSLzi.nxv4i32(<vscale x 4 x i32> "reg"="z" %n, <vscale x 4 x i32> "imm" %k) "feature"="sve" "enc"="00000100011 k:5 100111 n:5 d:5" "asm"="lsl {d}.s, {n}.s, #{k}" "dclass"="z" "nodecode" {
+  %r = shl <vscale x 4 x i32> %n, %k
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i32> @LSRzi.nxv4i32(<vscale x 4 x i32> "reg"="z" %n, <vscale x 4 x i32> "imm" %k) "feature"="sve" "enc"="00000100011 const_f:5=(32-k) 100101 n:5 d:5" "asm"="lsr {d}.s, {n}.s, #{k}" "dclass"="z" "nodecode" {
+  %r = lshr <vscale x 4 x i32> %n, %k
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i32> @ASRzi.nxv4i32(<vscale x 4 x i32> "reg"="z" %n, <vscale x 4 x i32> "imm" %k) "feature"="sve" "enc"="00000100011 const_f:5=(32-k) 100100 n:5 d:5" "asm"="asr {d}.s, {n}.s, #{k}" "dclass"="z" "nodecode" {
+  %r = ashr <vscale x 4 x i32> %n, %k
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i32> @DUPzi.nxv4i32(<vscale x 4 x i32> "imm" %k) "feature"="sve" "enc"="0010010110111000110 k:s8 d:5" "asm"="mov {d}.s, #{k}" "dclass"="z" "role"="splat.imm.nxv4i32" "nomatch" "nodecode" {
+  ret <vscale x 4 x i32> %k
+}
+
+define <vscale x 2 x i64> @ADDzi.nxv2i64(<vscale x 2 x i64> "reg"="z" "tied" %n, <vscale x 2 x i64> "imm" %k) "feature"="sve" "enc"="0010010111100000110 k:8 d:5" "asm"="add {d}.d, {d}.d, #{k}" "dclass"="z" "movprfx" "nodecode" {
+  %r = add <vscale x 2 x i64> %n, %k
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 2 x i64> @SUBzi.nxv2i64(<vscale x 2 x i64> "reg"="z" "tied" %n, <vscale x 2 x i64> "imm" %k) "feature"="sve" "enc"="0010010111100001110 k:8 d:5" "asm"="sub {d}.d, {d}.d, #{k}" "dclass"="z" "movprfx" "nodecode" {
+  %r = sub <vscale x 2 x i64> %n, %k
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 2 x i64> @SUBRzi.nxv2i64(<vscale x 2 x i64> "reg"="z" "tied" %n, <vscale x 2 x i64> "imm" %k) "feature"="sve" "enc"="0010010111100011110 k:8 d:5" "asm"="subr {d}.d, {d}.d, #{k}" "dclass"="z" "movprfx" "nodecode" {
+  %r = sub <vscale x 2 x i64> %k, %n
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 2 x i64> @MULzi.nxv2i64(<vscale x 2 x i64> "reg"="z" "tied" %n, <vscale x 2 x i64> "imm" %k) "feature"="sve" "enc"="0010010111110000110 k:s8 d:5" "asm"="mul {d}.d, {d}.d, #{k}" "dclass"="z" "movprfx" "nodecode" {
+  %r = mul <vscale x 2 x i64> %n, %k
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 2 x i64> @SMAXzi.nxv2i64(<vscale x 2 x i64> "reg"="z" "tied" %n, <vscale x 2 x i64> "imm" %k) "feature"="sve" "enc"="0010010111101000110 k:s8 d:5" "asm"="smax {d}.d, {d}.d, #{k}" "dclass"="z" "movprfx" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.smax.nxv2i64(<vscale x 2 x i64> %n, <vscale x 2 x i64> %k)
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 2 x i64> @SMINzi.nxv2i64(<vscale x 2 x i64> "reg"="z" "tied" %n, <vscale x 2 x i64> "imm" %k) "feature"="sve" "enc"="0010010111101010110 k:s8 d:5" "asm"="smin {d}.d, {d}.d, #{k}" "dclass"="z" "movprfx" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.smin.nxv2i64(<vscale x 2 x i64> %n, <vscale x 2 x i64> %k)
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 2 x i64> @UMAXzi.nxv2i64(<vscale x 2 x i64> "reg"="z" "tied" %n, <vscale x 2 x i64> "imm" %k) "feature"="sve" "enc"="0010010111101001110 k:8 d:5" "asm"="umax {d}.d, {d}.d, #{k}" "dclass"="z" "movprfx" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.umax.nxv2i64(<vscale x 2 x i64> %n, <vscale x 2 x i64> %k)
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 2 x i64> @UMINzi.nxv2i64(<vscale x 2 x i64> "reg"="z" "tied" %n, <vscale x 2 x i64> "imm" %k) "feature"="sve" "enc"="0010010111101011110 k:8 d:5" "asm"="umin {d}.d, {d}.d, #{k}" "dclass"="z" "movprfx" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.umin.nxv2i64(<vscale x 2 x i64> %n, <vscale x 2 x i64> %k)
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 2 x i64> @ANDzi.nxv2i64(<vscale x 2 x i64> "reg"="z" "tied" %n, <vscale x 2 x i64> "imm" %k) "feature"="sve" "enc"="00000101100000 const_f:13=bitmask64(k) d:5" "asm"="and {d}.d, {d}.d, #{k:h64}" "dclass"="z" "movprfx" "nodecode" {
+  %r = and <vscale x 2 x i64> %n, %k
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 2 x i64> @ORRzi.nxv2i64(<vscale x 2 x i64> "reg"="z" "tied" %n, <vscale x 2 x i64> "imm" %k) "feature"="sve" "enc"="00000101000000 const_f:13=bitmask64(k) d:5" "asm"="orr {d}.d, {d}.d, #{k:h64}" "dclass"="z" "movprfx" "nodecode" {
+  %r = or <vscale x 2 x i64> %n, %k
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 2 x i64> @EORzi.nxv2i64(<vscale x 2 x i64> "reg"="z" "tied" %n, <vscale x 2 x i64> "imm" %k) "feature"="sve" "enc"="00000101010000 const_f:13=bitmask64(k) d:5" "asm"="eor {d}.d, {d}.d, #{k:h64}" "dclass"="z" "movprfx" "nodecode" {
+  %r = xor <vscale x 2 x i64> %n, %k
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 2 x i64> @LSLzi.nxv2i64(<vscale x 2 x i64> "reg"="z" %n, <vscale x 2 x i64> "imm" %k) "feature"="sve" "enc"="000001001 const1:1=(k>>5)&1 1 const2:5=k&31 100111 n:5 d:5" "asm"="lsl {d}.d, {n}.d, #{k}" "dclass"="z" "nodecode" {
+  %r = shl <vscale x 2 x i64> %n, %k
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 2 x i64> @DUPzi.nxv2i64(<vscale x 2 x i64> "imm" %k) "feature"="sve" "enc"="0010010111111000110 k:s8 d:5" "asm"="mov {d}.d, #{k}" "dclass"="z" "role"="splat.imm.nxv2i64" "nomatch" "nodecode" {
+  ret <vscale x 2 x i64> %k
+}
+
+define i64 @VL.shl1() "feature"="sve" "enc"="000001001110000011100011111 d:5" "asm"="cntd {d}" "dclass"="x" "nodecode" {
+  %v = call i64 @llvm.vscale.i64()
+  %r = shl i64 %v, 1
+  ret i64 %r
+}
+
+define i64 @VL.shl2() "feature"="sve" "enc"="000001001010000011100011111 d:5" "asm"="cntw {d}" "dclass"="x" "nodecode" {
+  %v = call i64 @llvm.vscale.i64()
+  %r = shl i64 %v, 2
+  ret i64 %r
+}
+
+define i64 @VL.shl3() "feature"="sve" "enc"="000001000110000011100011111 d:5" "asm"="cnth {d}" "dclass"="x" "nodecode" {
+  %v = call i64 @llvm.vscale.i64()
+  %r = shl i64 %v, 3
+  ret i64 %r
+}
+
+define i64 @VL.shl4() "feature"="sve" "enc"="000001001011111101010 000001 d:5" "asm"="rdvl {d}, #1" "dclass"="x" "nodecode" {
+  %v = call i64 @llvm.vscale.i64()
+  %r = shl i64 %v, 4
+  ret i64 %r
+}
+
+define i64 @VL.shl5() "feature"="sve" "enc"="000001001011111101010 000010 d:5" "asm"="rdvl {d}, #2" "dclass"="x" "nodecode" {
+  %v = call i64 @llvm.vscale.i64()
+  %r = shl i64 %v, 5
+  ret i64 %r
+}
+
+define i64 @VL.shl6() "feature"="sve" "enc"="000001001011111101010 000100 d:5" "asm"="rdvl {d}, #4" "dclass"="x" "nodecode" {
+  %v = call i64 @llvm.vscale.i64()
+  %r = shl i64 %v, 6
+  ret i64 %r
+}
+
+define i64 @VL.shl7() "feature"="sve" "enc"="000001001011111101010 001000 d:5" "asm"="rdvl {d}, #8" "dclass"="x" "nodecode" {
+  %v = call i64 @llvm.vscale.i64()
+  %r = shl i64 %v, 7
+  ret i64 %r
+}
+
+define i64 @VL.shl8() "feature"="sve" "enc"="000001001011111101010 010000 d:5" "asm"="rdvl {d}, #16" "dclass"="x" "nodecode" {
+  %v = call i64 @llvm.vscale.i64()
+  %r = shl i64 %v, 8
+  ret i64 %r
+}
+
+define i64 @VL.mul(i64 "imm" %k) "feature"="sve" "enc"="000001001011111101010 imm:s6=k/16 d:5" "asm"="rdvl {d}, #{=k/16}" "dclass"="x" "nodecode" {
+  %v = call i64 @llvm.vscale.i64()
+  %r = mul i64 %v, %k
+  ret i64 %r
+}
+
+define i64 @ADDVL.shl4(i64 "reg"="xsp" %n) "feature"="sve" "enc"="00000100001 n:5 01010 000001 d:5" "asm"="addvl {d}, {n}, #1" "dclass"="xsp" "nodecode" {
+  %v = call i64 @llvm.vscale.i64()
+  %s = shl i64 %v, 4
+  %r = add i64 %n, %s
+  ret i64 %r
+}
+
+define i64 @ADDVL.shl5(i64 "reg"="xsp" %n) "feature"="sve" "enc"="00000100001 n:5 01010 000010 d:5" "asm"="addvl {d}, {n}, #2" "dclass"="xsp" "nodecode" {
+  %v = call i64 @llvm.vscale.i64()
+  %s = shl i64 %v, 5
+  %r = add i64 %n, %s
+  ret i64 %r
+}
+
+define i64 @ADDVL.shl6(i64 "reg"="xsp" %n) "feature"="sve" "enc"="00000100001 n:5 01010 000100 d:5" "asm"="addvl {d}, {n}, #4" "dclass"="xsp" "nodecode" {
+  %v = call i64 @llvm.vscale.i64()
+  %s = shl i64 %v, 6
+  %r = add i64 %n, %s
+  ret i64 %r
+}
+
+define i64 @ADDVL.shl7(i64 "reg"="xsp" %n) "feature"="sve" "enc"="00000100001 n:5 01010 001000 d:5" "asm"="addvl {d}, {n}, #8" "dclass"="xsp" "nodecode" {
+  %v = call i64 @llvm.vscale.i64()
+  %s = shl i64 %v, 7
+  %r = add i64 %n, %s
+  ret i64 %r
+}
+
+define i64 @ADDVL.shl8(i64 "reg"="xsp" %n) "feature"="sve" "enc"="00000100001 n:5 01010 010000 d:5" "asm"="addvl {d}, {n}, #16" "dclass"="xsp" "nodecode" {
+  %v = call i64 @llvm.vscale.i64()
+  %s = shl i64 %v, 8
+  %r = add i64 %n, %s
+  ret i64 %r
+}
+
+define i64 @ADDVL.mul(i64 "reg"="xsp" %n, i64 "imm" %k) "feature"="sve" "enc"="00000100001 n:5 01010 imm:s6=k/16 d:5" "asm"="addvl {d}, {n}, #{=k/16}" "dclass"="xsp" "nodecode" {
+  %v = call i64 @llvm.vscale.i64()
+  %s = mul i64 %v, %k
+  %r = add i64 %n, %s
+  ret i64 %r
+}
+
+define ptr @ADDVLp.shl4(ptr "reg"="xsp" %n) "feature"="sve" "enc"="00000100001 n:5 01010 000001 d:5" "asm"="addvl {d}, {n}, #1" "dclass"="xsp" "nodecode" {
+  %v = call i64 @llvm.vscale.i64()
+  %s = shl i64 %v, 4
+  %r = getelementptr i8, ptr %n, i64 %s
+  ret ptr %r
+}
+
+define ptr @ADDVLp.shl5(ptr "reg"="xsp" %n) "feature"="sve" "enc"="00000100001 n:5 01010 000010 d:5" "asm"="addvl {d}, {n}, #2" "dclass"="xsp" "nodecode" {
+  %v = call i64 @llvm.vscale.i64()
+  %s = shl i64 %v, 5
+  %r = getelementptr i8, ptr %n, i64 %s
+  ret ptr %r
+}
+
+define ptr @ADDVLp.shl6(ptr "reg"="xsp" %n) "feature"="sve" "enc"="00000100001 n:5 01010 000100 d:5" "asm"="addvl {d}, {n}, #4" "dclass"="xsp" "nodecode" {
+  %v = call i64 @llvm.vscale.i64()
+  %s = shl i64 %v, 6
+  %r = getelementptr i8, ptr %n, i64 %s
+  ret ptr %r
+}
+
+define ptr @ADDVLp.shl7(ptr "reg"="xsp" %n) "feature"="sve" "enc"="00000100001 n:5 01010 001000 d:5" "asm"="addvl {d}, {n}, #8" "dclass"="xsp" "nodecode" {
+  %v = call i64 @llvm.vscale.i64()
+  %s = shl i64 %v, 7
+  %r = getelementptr i8, ptr %n, i64 %s
+  ret ptr %r
+}
+
+define ptr @ADDVLp.shl8(ptr "reg"="xsp" %n) "feature"="sve" "enc"="00000100001 n:5 01010 010000 d:5" "asm"="addvl {d}, {n}, #16" "dclass"="xsp" "nodecode" {
+  %v = call i64 @llvm.vscale.i64()
+  %s = shl i64 %v, 8
+  %r = getelementptr i8, ptr %n, i64 %s
+  ret ptr %r
+}
+
+define ptr @ADDVLp.mul(ptr "reg"="xsp" %n, i64 "imm" %k) "feature"="sve" "enc"="00000100001 n:5 01010 imm:s6=k/16 d:5" "asm"="addvl {d}, {n}, #{=k/16}" "dclass"="xsp" "nodecode" {
+  %v = call i64 @llvm.vscale.i64()
+  %s = mul i64 %v, %k
+  %r = getelementptr i8, ptr %n, i64 %s
+  ret ptr %r
+}
+
+define <vscale x 16 x i8> @SVE.lslr.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000010111100 a0:3 a2:5 d:5" "asm"="lslr {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "nomatch" "swap"="SVE.lsl.nxv16i8" "movprfx" "nodecode" {
+  %s = shl <vscale x 16 x i8> %a2, %a1
+  %r = select <vscale x 16 x i1> %a0, <vscale x 16 x i8> %s, <vscale x 16 x i8> %a1
+  ret <vscale x 16 x i8> %r
+}
+
+define <vscale x 16 x i8> @SVE.lsrr.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000010101100 a0:3 a2:5 d:5" "asm"="lsrr {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "nomatch" "swap"="SVE.lsr.nxv16i8" "movprfx" "nodecode" {
+  %s = lshr <vscale x 16 x i8> %a2, %a1
+  %r = select <vscale x 16 x i1> %a0, <vscale x 16 x i8> %s, <vscale x 16 x i8> %a1
+  ret <vscale x 16 x i8> %r
+}
+
+define <vscale x 16 x i8> @SVE.asrr.nxv16i8(<vscale x 16 x i1> "reg"="pg" %a0, <vscale x 16 x i8> "reg"="z" "tied" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve" "enc"="0000010000010100100 a0:3 a2:5 d:5" "asm"="asrr {d}.b, {a0}/m, {d}.b, {a2}.b" "dclass"="z" "nomatch" "swap"="SVE.asr.nxv16i8" "movprfx" "nodecode" {
+  %s = ashr <vscale x 16 x i8> %a2, %a1
+  %r = select <vscale x 16 x i1> %a0, <vscale x 16 x i8> %s, <vscale x 16 x i8> %a1
+  ret <vscale x 16 x i8> %r
+}
+
+define <vscale x 8 x i16> @SVE.lslr.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001010111100 a0:3 a2:5 d:5" "asm"="lslr {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "nomatch" "swap"="SVE.lsl.nxv8i16" "movprfx" "nodecode" {
+  %s = shl <vscale x 8 x i16> %a2, %a1
+  %r = select <vscale x 8 x i1> %a0, <vscale x 8 x i16> %s, <vscale x 8 x i16> %a1
+  ret <vscale x 8 x i16> %r
+}
+
+define <vscale x 8 x i16> @SVE.lsrr.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001010101100 a0:3 a2:5 d:5" "asm"="lsrr {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "nomatch" "swap"="SVE.lsr.nxv8i16" "movprfx" "nodecode" {
+  %s = lshr <vscale x 8 x i16> %a2, %a1
+  %r = select <vscale x 8 x i1> %a0, <vscale x 8 x i16> %s, <vscale x 8 x i16> %a1
+  ret <vscale x 8 x i16> %r
+}
+
+define <vscale x 8 x i16> @SVE.asrr.nxv8i16(<vscale x 8 x i1> "reg"="pg" %a0, <vscale x 8 x i16> "reg"="z" "tied" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve" "enc"="0000010001010100100 a0:3 a2:5 d:5" "asm"="asrr {d}.h, {a0}/m, {d}.h, {a2}.h" "dclass"="z" "nomatch" "swap"="SVE.asr.nxv8i16" "movprfx" "nodecode" {
+  %s = ashr <vscale x 8 x i16> %a2, %a1
+  %r = select <vscale x 8 x i1> %a0, <vscale x 8 x i16> %s, <vscale x 8 x i16> %a1
+  ret <vscale x 8 x i16> %r
+}
+
+define <vscale x 4 x i32> @SVE.lslr.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010010111100 a0:3 a2:5 d:5" "asm"="lslr {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nomatch" "swap"="SVE.lsl.nxv4i32" "movprfx" "nodecode" {
+  %s = shl <vscale x 4 x i32> %a2, %a1
+  %r = select <vscale x 4 x i1> %a0, <vscale x 4 x i32> %s, <vscale x 4 x i32> %a1
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i32> @SVE.lsrr.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010010101100 a0:3 a2:5 d:5" "asm"="lsrr {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nomatch" "swap"="SVE.lsr.nxv4i32" "movprfx" "nodecode" {
+  %s = lshr <vscale x 4 x i32> %a2, %a1
+  %r = select <vscale x 4 x i1> %a0, <vscale x 4 x i32> %s, <vscale x 4 x i32> %a1
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 4 x i32> @SVE.asrr.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" "tied" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="0000010010010100100 a0:3 a2:5 d:5" "asm"="asrr {d}.s, {a0}/m, {d}.s, {a2}.s" "dclass"="z" "nomatch" "swap"="SVE.asr.nxv4i32" "movprfx" "nodecode" {
+  %s = ashr <vscale x 4 x i32> %a2, %a1
+  %r = select <vscale x 4 x i1> %a0, <vscale x 4 x i32> %s, <vscale x 4 x i32> %a1
+  ret <vscale x 4 x i32> %r
+}
+
+define <vscale x 2 x i64> @SVE.lslr.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011010111100 a0:3 a2:5 d:5" "asm"="lslr {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nomatch" "swap"="SVE.lsl.nxv2i64" "movprfx" "nodecode" {
+  %s = shl <vscale x 2 x i64> %a2, %a1
+  %r = select <vscale x 2 x i1> %a0, <vscale x 2 x i64> %s, <vscale x 2 x i64> %a1
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 2 x i64> @SVE.lsrr.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011010101100 a0:3 a2:5 d:5" "asm"="lsrr {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nomatch" "swap"="SVE.lsr.nxv2i64" "movprfx" "nodecode" {
+  %s = lshr <vscale x 2 x i64> %a2, %a1
+  %r = select <vscale x 2 x i1> %a0, <vscale x 2 x i64> %s, <vscale x 2 x i64> %a1
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 2 x i64> @SVE.asrr.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" "tied" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="0000010011010100100 a0:3 a2:5 d:5" "asm"="asrr {d}.d, {a0}/m, {d}.d, {a2}.d" "dclass"="z" "nomatch" "swap"="SVE.asr.nxv2i64" "movprfx" "nodecode" {
+  %s = ashr <vscale x 2 x i64> %a2, %a1
+  %r = select <vscale x 2 x i1> %a0, <vscale x 2 x i64> %s, <vscale x 2 x i64> %a1
+  ret <vscale x 2 x i64> %r
+}
+
+define <vscale x 16 x i8> @MOVPRFX(<vscale x 16 x i8> "reg"="z" %n) "feature"="sve" "enc"="0000010000100000101111 n:5 d:5" "asm"="movprfx {d}, {n}" "dclass"="z" "role"="movprfx" "nomatch" "nodecode" {
+  ret <vscale x 16 x i8> %n
 }

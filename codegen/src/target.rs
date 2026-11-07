@@ -113,6 +113,14 @@ pub struct Instr {
     pub aliases: Vec<String>,
     /// For a conditional branch: the branch taken when this one is not.
     pub inverse: Option<String>,
+    /// For an operation that overwrites its first source (SVE's
+    /// predicated ones): the entry that gives the same with that source
+    /// and the next the other way round (`"swap"`: itself where it
+    /// commutes, `sdivr` of `sdiv`), under an all-true predicate
+    /// (`peephole::overwrite_dying`).
+    pub swap: Option<String>,
+    /// A `movprfx` may come before it (`"movprfx"`; `peephole::prefixes`).
+    pub prefixable: bool,
     /// How an object file fixes up its symbol operand.
     pub reloc: Option<crate::object::RelocKind>,
     /// Operand 1 (`d2`) is a second register result.
@@ -1272,6 +1280,8 @@ impl Target {
                     .flatten()
                     .map_or(vec![], |a| a.split(',').map(str::to_string).collect()),
                 inverse: attr(&f.fn_attrs, "inverse").flatten().map(str::to_string),
+                swap: attr(&f.fn_attrs, "swap").flatten().map(str::to_string),
+                prefixable: attr(&f.fn_attrs, "movprfx").is_some(),
                 reloc,
                 second_result,
                 features: attr(&f.fn_attrs, "feature")

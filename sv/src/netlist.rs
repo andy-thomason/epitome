@@ -1,25 +1,33 @@
-//! The compiled netlist (docs/design/sv.md sections 8.1 and 8.3), first
-//! cut: combinational specialisations, two-state, every value in 32-bit
-//! lanes.
+//! The compiled netlist (docs/design/sv.md sections 8.1 and 8.3): two-state,
+//! values computed in 32-bit lanes and stored as narrow as they fit.
 //!
-//! Each specialisation becomes one function, `sv_eval_<n>(ptr %state)`,
-//! whose argument holds the state of a group of [`GROUP`] instances: for
-//! each variable or net, its 32-bit pieces (low piece first), each piece
-//! [`CHUNKS`] registers of [`LANES`] lanes. The function is a loop over the
-//! group's registers, so its code grows with the specialisation's source,
-//! not with the number of instances. A child instance's state is part of
-//! its parent's, and the parent calls the child's function once for the
-//! whole group, between two loops: one that works out the child's inputs,
-//! and one that reads its outputs.
+//! Each specialisation becomes one function, `sv_eval_<n>(ptr %state, ptr
+//! %port...)`, over a group of [`GROUP`] instances: for each variable or
+//! net, its 32-bit pieces (low piece first), each piece [`CHUNKS`]
+//! registers of [`LANES`] lanes. The function is a loop over the group's
+//! registers, so its code grows with the specialisation's source, not with
+//! the number of instances. A child instance's state is part of its
+//! parent's, and the parent calls the child's function once for the whole
+//! group, between two loops: one that works out the child's inputs, and
+//! one that reads its outputs.
+//!
+//! A specialisation with registers below it also has `_ff`, which runs its
+//! clocked processes where an edge came (each lane's edge a mask) and
+//! makes the registers' next values, and `_commit`; the top's `_step`
+//! settles, samples, commits and settles again (see [`Phase`]).
+//!
+//! Functions are written out where they are called. Fixed-size unpacked
+//! arrays are laid out as packed ones with the same bounds would be.
 //!
 //! The output is Epitome IR as text, `<16 x i32>` vectors and `<16 x i1>`
 //! masks, for `epitome-opt` and `epitome-codegen`.
 //!
-//! Not yet: clocked processes, four-state values, unpacked arrays, function
-//! calls, hierarchical references, gates, and loops whose trip count is not
-//! a constant. Generate loops arrive unrolled from the elaborator and stay
-//! unrolled; procedural `for` loops are unrolled here. Immediate assertions
-//! and `initial` blocks that only assert are dropped.
+//! Not yet: four-state values, tasks, hierarchical references, gates,
+//! latches, clocks made by the design's own registers (an edge is seen at
+//! the next evaluation), declaration initialisers of registers, and loops
+//! whose trip count is not a constant. Small generate loops are written
+//! out, others rolled back into loops; procedural `for` loops are unrolled.
+//! Immediate assertions and `initial` blocks that only assert are dropped.
 
 use std::cell::{Cell, RefCell};
 use std::collections::{BinaryHeap, HashMap, HashSet};
@@ -550,6 +558,14 @@ impl<'d, 'a> Lowering<'d, 'a> {
             let ob = d.object(o);
             if tw(&d.types, ob.ty) == 0 {
                 return Err(format!("{}: only integral values and fixed-size arrays of them are supported yet", d.name(ob.name)));
+            }
+            // The state starts at zero: a variable that starts at anything
+            // else would silently not.
+            if ob.kind == ObjKind::Variable
+                && let Some(e) = ob.init
+                && !self.fold(e).and_then(|c| const_bits(&c, tw(&d.types, ob.ty))).is_some_and(|b| b.known_or_zero().is_zero())
+            {
+                return Err(format!("{}: initial values of variables are not supported yet", d.name(ob.name)));
             }
         }
         let mut lay = Layout::new();

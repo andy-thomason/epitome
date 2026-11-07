@@ -660,8 +660,8 @@ from any thread: size, alignment, fields' offsets, the ABI (`Scalar`,
 
 ### 8.2 Monomorphisation (`src/mono.rs`)
 
-Done. Starting from `main` (or, with none, every function of the last
-crate that is not generic), it finds every function the program needs at
+Done. Starting from `main` (or, with none or with `--lib`, every
+function of the last crate that is not generic), it finds every function the program needs at
 the generic arguments it is used with, and the closures, statics,
 constants and vtables. Each item is a job on the pool; finding a new one
 adds a job.
@@ -857,12 +857,18 @@ body:
   ...
 ```
 
-From every non-generic function of `core` with a body (on mandelbrot,
-with one thread): 22,310 functions in 3.7 s, of which 3,318 (15%) are not
-lowered, and 243 more trap where they reach `dyn` or formatting. 3,004 of
-those not lowered are SIMD (`core::arch` and `core::simd`, 5,408
-functions), which is not attempted (its `asm!` with vector operands
-among them); of the 16,902 others, 314 (2%) are not lowered. The most
+From every non-generic function of `core` with a body (on mandelbrot):
+22,310 functions in 3.6 s, of which 4,320 (19%) are not lowered, and 243
+more trap where they reach `dyn` or formatting. 4,002 of those not
+lowered are SIMD (`core::arch` and `core::simd`, 5,408 functions), which
+is not attempted (its `asm!` with vector operands among them). Among
+them are about 1,000 that call an LLVM intrinsic of vectors or
+aggregates, `core::arch`'s by `link_name` (`llvm.x86.aesni.aesdec`):
+Rust's ABI passes those in memory, where the intrinsic takes them as
+values, so such a call is not lowered (the intrinsic is not declared).
+They were lowered as calls passing pointers, which is wrong IR, until
+the code generator stopped at them. Of the 16,902 functions that are not
+SIMD, 318 (2%) are not lowered. The most
 common reasons: unsizing an array whose length is an expression the
 evaluator cannot work out (42), calls of instances monomorphisation did
 not find (20), and array lengths not known (17). The 14 intrinsics left
@@ -876,14 +882,55 @@ worked out in a way other threads read as a result (a constant as
 having no value, a type as recursive); each now marks it for its own
 thread only, which removed most of the variation but not all.
 
-Timings for all of `core` (on mandelbrot, 64 cores): parsing to
-lowering, 4.4 s wall and 15 s of CPU, in 490 MB; the IR is 26 MB.
-Epitome's optimiser takes 11 s wall (121 s of CPU) on it, but every
-function is internal and nothing calls them, so it deletes nearly all,
-and the code generator then takes 0.6 s; this is not yet a measure of
-compiling `core`. Without the optimiser the code generator stops after
-8 s at `f128`'s `maximum`, for which x86-64's runtime description names
-no function.
+`--lib` compiles the last crate as a library: monomorphisation starts
+from all its non-generic functions (even if it has a `main`), and those
+functions are external, so that the optimiser keeps them. Without it,
+every function is internal and nothing calls them, so the optimiser
+deleted nearly all of `core` (the object was 319 KB).
+
+Timings for all of `core` as a library, on mandelbrot (64 cores): each
+stage is its own program, timed by `/usr/bin/time` (CPU time is user
+plus system; memory is the peak resident size). One run each; the first
+stage's wall time varied from 4.4 s to 4.9 s over four runs.
+
+| Stage | Wall | CPU | Memory | Gives |
+|---|---|---|---|---|
+| `epitome-rustc2 --lib --dump-ir`: parsing to lowering | 4.4 s | 27 s (15 + 12) | 520 MB | 25 MB of IR |
+| `epitome-opt` | 11 s | 114 s | 355 MB | 14 MB of IR |
+| `epitome-llc --filetype=obj` on the optimised IR | 55 s | 414 s (402 + 13) | 2.1 GB | 3.9 MB object |
+| `epitome-llc --filetype=obj` on the IR not optimised | 78 s | 542 s (520 + 22) | 2.6 GB | 5.4 MB object |
+
+Both objects define the same 17,360 external functions. The code
+generator's time on the optimised IR, summed over functions
+(`--stats`): preparation 174 s, selection 23 s, register allocation
+61 s, frames 54 s and layout 24 s. It keeps only about seven of the 64
+cores busy (its wall time is an eighth of its CPU time); why (a part
+that runs alone, or a few large functions finishing last) is not looked
+into yet.
+
+Getting `core` through the code generator needed, besides `--lib`:
+
+- x86-64's runtime description to name functions for `fp128`'s
+  `minimum`, `maximum`, `minimumnum` and `maximumnum` (glibc's
+  `fminimumf128` and the rest, from glibc 2.35) and to convert between
+  `fp128` and `i8` or `i16` (through `i32`). llc fails on the first two
+  for x86-64, so the test checks each against clang's build of the same
+  operation on doubles.
+- A function whose only `half` is a constant (`ret half 0xH0000`, from
+  `<f16 as Default>::default`) to have its halves made integers, as any
+  other function's are.
+- Each `#[target_feature(enable = "...")]` as the function's
+  `"target-features"`, in LLVM's names and with the features each
+  implies, as rustc gives them (`src/lower/x86_64_features.txt`, made by
+  `gen_target_features.py` from rustc's own builds; x86-64 only so far).
+  Without them the code generator may not use an instruction the
+  function's intrinsics need (`aesdec` needs `aes`).
+- The calls of LLVM intrinsics of vectors not lowered, as above.
+- x86-64 entries for the intrinsics `core::arch` uses that the generated
+  ones lack (`codegen/targets/x86_64/11-intrinsics.ll`): `crc32`,
+  `fxsave` and `fxrstor`, `xbegin` and `xtest`, and `movrs` (as a plain
+  load) and `prefetchrs` (as nothing), which are newer than the
+  `llvm-mc` the encodings are checked with.
 
 Lowering found and fixed these in type checking: it records which
 constant a path names (`tables.consts`, for `u64::MAX` and `T::ZERO`) and

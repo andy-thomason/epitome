@@ -132,9 +132,23 @@ pub struct Lowered {
     notes: FastMap<GlobalId, Vec<(epitome_ir::module::BlockId, usize, String)>>,
     /// The Rust item each function is, for its heading.
     titles: FastMap<GlobalId, String>,
+    /// The function each item is.
+    decls: FastMap<Item, GlobalId>,
 }
 
 impl Lowered {
+    /// Makes the functions `items` are external (those lowered), so that
+    /// optimising keeps them, as for a library's.
+    pub fn export(&mut self, items: &[Item]) {
+        for it in items {
+            if let Some(&g) = self.decls.get(it) {
+                let p = &mut self.module.globals[g.index()].props;
+                p.linkage = Linkage::External;
+                p.explicit_linkage = false;
+            }
+        }
+    }
+
     /// The module as text, each function headed by the item it is, and
     /// each statement's source as a comment before its instructions.
     pub fn dump(&self) -> String {
@@ -317,6 +331,36 @@ impl<'a, 's> Cx<'a, 's> {
         (def.krate, def.file, &self.crates[def.krate as usize].files[def.file as usize].ast, def.node)
     }
 
+    /// The `"target-features"` of function `d` (`+avx,+avx2`), from its
+    /// `#[target_feature(enable = "...")]`s: each feature and those it
+    /// implies, in LLVM's names, as rustc gives them (x86-64 only, so far).
+    pub fn target_features(&self, d: DefId, target: Target) -> Option<String> {
+        let (_, _, ast, node) = self.def_ast(d);
+        let table = match target.triple {
+            t if t.starts_with("x86_64") => x86_64_features(),
+            _ => return None,
+        };
+        let mut out: Vec<&str> = Vec::new();
+        for (name, a) in crate::session::attributes(ast, node) {
+            if name != "target_feature" {
+                continue;
+            }
+            let inner = ast.child(a, crate::ast::Kind::TokenTree).map(|tt| ast.text(tt)).unwrap_or_default();
+            // `(enable = "a,b")`: the string's features.
+            let Some(list) = inner.split_once('"').and_then(|(_, rest)| rest.split_once('"')).map(|(l, _)| l) else {
+                continue;
+            };
+            for f in list.split(',').map(str::trim) {
+                for llvm in table.get(f).into_iter().flatten() {
+                    if !out.contains(&llvm.as_str()) {
+                        out.push(llvm);
+                    }
+                }
+            }
+        }
+        (!out.is_empty()).then(|| out.join(","))
+    }
+
     /// The name a function (or static) has in the object file: its own for
     /// `#[no_mangle]`, `#[export_name]` and foreign items, else its path and
     /// arguments, made safe for an assembler, with a hash that tells
@@ -415,8 +459,15 @@ impl Session {
                             continue;
                         }
                     };
-                    let (ret, params) = Cx::ir_fn_type(&mut m, &abi);
                     let foreign = matches!(it, Item::Foreign(_));
+                    // An LLVM intrinsic of vectors (`core::arch`'s, by
+                    // `link_name`) or aggregates takes them as values, where
+                    // this ABI passes them in memory: SIMD is not lowered
+                    // yet, so it is not declared, and calls of it fail.
+                    if foreign && name.starts_with("llvm.") && (abi.ret == Repr::Mem || abi.args.contains(&Repr::Mem)) {
+                        continue;
+                    }
+                    let (ret, params) = Cx::ir_fn_type(&mut m, &abi);
                     let (_, _, ast, node) = cx.def_ast(d);
                     let exported = foreign
                         || crate::session::has_attribute(ast, node, "no_mangle")
@@ -519,7 +570,38 @@ impl Session {
         }
         failures.sort_by(|a, b| a.name.cmp(&b.name));
         partial.sort_by(|a, b| a.name.cmp(&b.name));
-        Lowered { module: m, functions, failures, partial, notes, titles }
+        // Each function's target features (once its body is in: a body
+        // replaces its declaration); a closure has its function's.
+        for (&it, decl) in &cx.fns {
+            if let Item::Fn(d, _) | Item::Closure(_, d, _) = it
+                && let Some(fs) = cx.target_features(d, target)
+            {
+                add_target_features(&mut m, decl.g, fs);
+            }
+        }
+        let decls = cx.fns.iter().map(|(&it, d)| (it, d.g)).collect();
+        Lowered { module: m, functions, failures, partial, notes, titles, decls }
+    }
+}
+
+/// Each Rust target feature of x86-64, and the LLVM features rustc turns
+/// on for it (`x86_64_features.txt`, from `gen_target_features.py`).
+fn x86_64_features() -> &'static FastMap<String, Vec<String>> {
+    static TABLE: std::sync::OnceLock<FastMap<String, Vec<String>>> = std::sync::OnceLock::new();
+    TABLE.get_or_init(|| {
+        include_str!("x86_64_features.txt")
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .filter_map(|l| l.split_once(' '))
+            .map(|(rust, llvm)| (rust.to_string(), llvm.split(',').map(str::to_string).collect()))
+            .collect()
+    })
+}
+
+/// Gives function `g` the attribute `"target-features"="fs"`.
+fn add_target_features(m: &mut Module, g: GlobalId, fs: String) {
+    if let epitome_ir::module::GlobalKind::Function(f) = &mut m.globals[g.index()].kind {
+        f.fn_attrs.push(epitome_ir::module::Attr::Str { key: b"target-features".to_vec(), value: Some(fs.into_bytes()) });
     }
 }
 
@@ -598,7 +680,7 @@ mod tests {
             let tcx = session.collect_types(&crates, &r);
             let index = crate::typeck::Index::new(&tcx, &r);
             let res = session.typeck_with(&crates, &r, &tcx, &index);
-            let roots = crate::mono::roots(&r, &tcx, &crates, 1);
+            let roots = crate::mono::roots(&r, &tcx, &crates, 1, false);
             let mono = session.collect_mono_items(&crates, &r, &tcx, &index, &res, roots);
             let lowered = session.lower(&crates, &r, &tcx, &index, &res, &mono, super::Target::x86_64_linux());
             let own: Vec<String> = lowered

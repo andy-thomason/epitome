@@ -683,8 +683,18 @@ impl<'a, 'b> Sel<'a, 'b> {
                 let (a, z) = (self.pos[i.index()], self.pos[root.index()]);
                 a < z && !insts[a + 1..z].iter().any(|&k| side_effects(&f.insts[k.index()].op))
             }
-            op => !side_effects(op) && !matches!(op, Op::Alloca { .. } | Op::Call(_)),
+            // The vector length (SVE's), which reads nothing that changes
+            // within a function's mode: into a multiple of it (`rdvl x0,
+            // #1` of `vscale << 4`).
+            op @ Op::Call(_) => self.is_vscale(op),
+            op => !side_effects(op) && !matches!(op, Op::Alloca { .. }),
         }
+    }
+
+    /// Is `op` a call of `llvm.vscale`, which only computes (and so is
+    /// made only where its value is wanted)?
+    fn is_vscale(&self, op: &Op) -> bool {
+        matches!(op, Op::Call(c) if prepare::callee_name(self.cx.m, c).is_some_and(|n| n == "llvm.vscale.i64"))
     }
 
     fn expand(&self, t: Term, root: InstId) -> Option<(Head, Vec<Term>, InstId)> {
@@ -1118,7 +1128,9 @@ impl<'a, 'b> Sel<'a, 'b> {
                 continue;
             }
             let inst = &f.insts[i.index()];
-            let wanted = inst.op.is_terminator() || side_effects(&inst.op) || self.needed.contains(&i);
+            let wanted = inst.op.is_terminator()
+                || (side_effects(&inst.op) && !self.is_vscale(&inst.op))
+                || self.needed.contains(&i);
             if !wanted {
                 continue;
             }
@@ -1378,6 +1390,30 @@ impl<'a, 'b> Sel<'a, 'b> {
                 Type::Int(b) => format!("i{b}"),
                 other => return self.err(format!("a scalable constant of {other:?}")),
             };
+            // One that `dup` holds (-128 to 127), with no register: made
+            // once in a function (`peephole::shared_constants`).
+            let bits = match e {
+                Some(e) => match &self.cx.m.constant(e).kind {
+                    ConstKind::Int(a) => Some(sext(a.low_u64(), self.bits(elem))),
+                    ConstKind::Float(0) | ConstKind::Zero => Some(0),
+                    _ => None,
+                },
+                None => Some(0),
+            };
+            let ilane = match self.bits(elem) {
+                8 => "i8",
+                16 => "i16",
+                32 => "i32",
+                _ => "i64",
+            };
+            if let Some(v) = bits
+                && let Some(dup) = self.t.role(&format!("splat.imm.nxv{len}{ilane}"))
+                && self.fits(dup, vec![None, Some(v)])
+            {
+                let d = self.mf.new_vreg(class);
+                self.push(MInst::new(dup, vec![MOp::Reg(Reg::V(d)), MOp::Imm(v)]));
+                return Ok(Reg::V(d));
+            }
             let role = format!("splat.nxv{len}{lane}");
             let ins = self.t.role(&role).ok_or_else(|| format!("no instruction has role {role}"))?;
             let Kind::Reg(sc) = self.t.instrs[ins].operands[1].kind else {
@@ -3346,6 +3382,8 @@ impl<'a, 'b> Sel<'a, 'b> {
                     self.emit_asm(i)?;
                     continue;
                 }
+                // (The vector length, where nothing wanted it.)
+                Op::Call(_) if self.is_vscale(&inst.op) && !self.chosen.contains_key(&i) => continue,
                 Op::Call(_) if !self.chosen.contains_key(&i) => {
                     self.emit_call(i)?;
                     continue;

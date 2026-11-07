@@ -49,7 +49,10 @@
 ;   pred-args, pred-result, pred-clobbers, pred-scratch
 ;                 the same, for SVE's predicates (p0-p3 for arguments, p0
 ;                 for a result; none preserved but under the SVE
-;                 convention, which is not this one)
+;                 convention, which is not this one); the scratch one
+;                 is p7, which an instruction's governing predicate
+;                 (p0-p7) can be, so a spilled or remade one is loaded
+;                 or made there
 
 ; Apple's arm64 ABI: AAPCS64 with x18 reserved, stack arguments packed,
 ; variadic arguments on the stack.
@@ -77,8 +80,8 @@
 !120 = !{!"far-scratch", !"x14"}
 !121 = !{!"pred-args", !"p0-p3"}
 !122 = !{!"pred-result", !"p0"}
-!123 = !{!"pred-clobbers", !"p0-p14"}
-!124 = !{!"pred-scratch", !"p15"}
+!123 = !{!"pred-clobbers", !"p0-p6", !"p8-p15"}
+!124 = !{!"pred-scratch", !"p7"}
 
 ; The Procedure Call Standard for the Arm 64-bit Architecture, as used by
 ; Linux: x18 is an ordinary temporary, stack arguments take 8-byte slots,
@@ -109,5 +112,5 @@
 !222 = !{!"far-scratch", !"x14"}
 !223 = !{!"pred-args", !"p0-p3"}
 !224 = !{!"pred-result", !"p0"}
-!225 = !{!"pred-clobbers", !"p0-p14"}
-!226 = !{!"pred-scratch", !"p15"}
+!225 = !{!"pred-clobbers", !"p0-p6", !"p8-p15"}
+!226 = !{!"pred-scratch", !"p7"}

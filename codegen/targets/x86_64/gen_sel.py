@@ -1654,6 +1654,34 @@ def avx512vl_masks():
                   [f'%r = select {M} %k, {fty} %a, {fty} %b', f'ret {fty} %r'], f' "dclass"="{sel}"' + VL)
 
 
+def ternary_logic():
+    """vpternlogd and vpternlogq: any function of three bits, its truth
+    table the immediate, as the code generator's own intrinsic
+    llvm.epitome.bitfn3 (docs/design/combine.md, "Three-input bit
+    functions"; codegen/src/bitfn3.rs makes them). Bit k of the table is
+    the value where the inputs are bits k of 0xf0, 0xcc and 0xaa: the
+    first operand is also the destination. At 512 bits, and with avx512vl
+    at 128 and 256. (Doublewords' for any lanes but quadwords, which are
+    the same function of the bits.)"""
+    import re
+    for bits_, cls, sel, feat in [(512, 'z', 'zv', ' "feature"="avx512f"'), (256, 'ye', 'yv', ' "feature"="avx512f,avx512vl"'),
+                                  (128, 'xe', 'xv', ' "feature"="avx512f,avx512vl"')]:
+        for eb in (8, 16, 32, 64):
+            n = bits_ // eb
+            ty = f'<{n} x i{eb}>'
+            sfx = 'q' if eb == 64 else 'd'
+            enc, _ = xed(f'vpternlog{sfx} ${{c}}, {{o0}}, {{o1}}, {{o2}}', (cls, cls, cls))
+            enc = renamed(enc, {'o0': 'z', 'o1': 'y', 'o2': 'd', 'c': 't'})
+            # (A table above 127 is a negative i8: either reads.)
+            enc = re.sub(r'\bi(\d):8=t\b', r'{ i\1:8=t ; i\1:s8=t }', enc)
+            name = f'llvm.epitome.bitfn3.v{n}i{eb}'
+            entry(ty, f'VPTERNLOG{sfx.upper()}.{n}xi{eb}',
+                  [f'i8 "imm" %t', f'{ty} "reg"="{sel}" "tied" %x', f'{ty} "reg"="{sel}" %y', f'{ty} "reg"="{sel}" %z'],
+                  enc, f'vpternlog{sfx} ${{t}}, {{z}}, {{y}}, {{d}}',
+                  [f'%r = call {ty} @{name}(i8 %t, {ty} %x, {ty} %y, {ty} %z)', f'ret {ty} %r'], f' "dclass"="{sel}"' + feat)
+            out.append(f'declare {ty} @{name}(i8, {ty}, {ty}, {ty})\n')
+
+
 def reductions():
     """Sums across lanes: halves added until one lane is left (pshufd's
     high lanes brought down), as SSE2 and AVX2 have no across-lanes add."""
@@ -1946,6 +1974,7 @@ def main():
     avx512()
     avx512_int()
     avx512vl_masks()
+    ternary_logic()
     reductions()
     mul64()
     more_compares()

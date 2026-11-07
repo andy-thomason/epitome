@@ -273,6 +273,9 @@ pub fn prepare(cx: &mut Ctx, f: &Function, fname: &str) -> Result<Function, Stri
     // Lanes of masks legalisation leaves (it handles those of split masks,
     // at their comparisons' widths; before it, this would get in its way).
     mask_lanes(cx, &mut f);
+    // Chains of bitwise logic over three values as one function of three
+    // bits, where the description has one (x86's vpternlog).
+    crate::bitfn3::form(cx, &mut f);
     // What no instruction does, a lane at a time (after the masks' lanes).
     crate::lanewise::lanewise(cx, &mut f).map_err(|e| format!("@{fname}: {e}"))?;
     // Element-wise intrinsics split into scalars expand as scalars do.

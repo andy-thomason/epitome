@@ -8443,6 +8443,90 @@ define <2 x double> @VBLENDMPD.2xf64(<2 x i1> "reg"="kw" %k, <2 x double> "reg"=
   ret <2 x double> %r
 }
 
+define <64 x i8> @VPTERNLOGD.64xi8(i8 "imm" %t, <64 x i8> "reg"="zv" "tied" %x, <64 x i8> "reg"="zv" %y, <64 x i8> "reg"="zv" %z) "enc"="evexr(d, z, 3, 0, y, 2, 1, 0, 0, 0) | 00100101 | 11 reg:3=d&7 rm:3=z&7 | { i1:8=t ; i1:s8=t }" "asm"="vpternlogd ${t}, {z}, {y}, {d}" "dclass"="zv" "feature"="avx512f" "nodecode" {
+  %r = call <64 x i8> @llvm.epitome.bitfn3.v64i8(i8 %t, <64 x i8> %x, <64 x i8> %y, <64 x i8> %z)
+  ret <64 x i8> %r
+}
+
+declare <64 x i8> @llvm.epitome.bitfn3.v64i8(i8, <64 x i8>, <64 x i8>, <64 x i8>)
+
+define <32 x i16> @VPTERNLOGD.32xi16(i8 "imm" %t, <32 x i16> "reg"="zv" "tied" %x, <32 x i16> "reg"="zv" %y, <32 x i16> "reg"="zv" %z) "enc"="evexr(d, z, 3, 0, y, 2, 1, 0, 0, 0) | 00100101 | 11 reg:3=d&7 rm:3=z&7 | { i1:8=t ; i1:s8=t }" "asm"="vpternlogd ${t}, {z}, {y}, {d}" "dclass"="zv" "feature"="avx512f" "nodecode" {
+  %r = call <32 x i16> @llvm.epitome.bitfn3.v32i16(i8 %t, <32 x i16> %x, <32 x i16> %y, <32 x i16> %z)
+  ret <32 x i16> %r
+}
+
+declare <32 x i16> @llvm.epitome.bitfn3.v32i16(i8, <32 x i16>, <32 x i16>, <32 x i16>)
+
+define <16 x i32> @VPTERNLOGD.16xi32(i8 "imm" %t, <16 x i32> "reg"="zv" "tied" %x, <16 x i32> "reg"="zv" %y, <16 x i32> "reg"="zv" %z) "enc"="evexr(d, z, 3, 0, y, 2, 1, 0, 0, 0) | 00100101 | 11 reg:3=d&7 rm:3=z&7 | { i1:8=t ; i1:s8=t }" "asm"="vpternlogd ${t}, {z}, {y}, {d}" "dclass"="zv" "feature"="avx512f" "nodecode" {
+  %r = call <16 x i32> @llvm.epitome.bitfn3.v16i32(i8 %t, <16 x i32> %x, <16 x i32> %y, <16 x i32> %z)
+  ret <16 x i32> %r
+}
+
+declare <16 x i32> @llvm.epitome.bitfn3.v16i32(i8, <16 x i32>, <16 x i32>, <16 x i32>)
+
+define <8 x i64> @VPTERNLOGQ.8xi64(i8 "imm" %t, <8 x i64> "reg"="zv" "tied" %x, <8 x i64> "reg"="zv" %y, <8 x i64> "reg"="zv" %z) "enc"="evexr(d, z, 3, 1, y, 2, 1, 0, 0, 0) | 00100101 | 11 reg:3=d&7 rm:3=z&7 | { i1:8=t ; i1:s8=t }" "asm"="vpternlogq ${t}, {z}, {y}, {d}" "dclass"="zv" "feature"="avx512f" "nodecode" {
+  %r = call <8 x i64> @llvm.epitome.bitfn3.v8i64(i8 %t, <8 x i64> %x, <8 x i64> %y, <8 x i64> %z)
+  ret <8 x i64> %r
+}
+
+declare <8 x i64> @llvm.epitome.bitfn3.v8i64(i8, <8 x i64>, <8 x i64>, <8 x i64>)
+
+define <32 x i8> @VPTERNLOGD.32xi8(i8 "imm" %t, <32 x i8> "reg"="yv" "tied" %x, <32 x i8> "reg"="yv" %y, <32 x i8> "reg"="yv" %z) "enc"="evexr(d, z, 3, 0, y, 1, 1, 0, 0, 0) | 00100101 | 11 reg:3=d&7 rm:3=z&7 | { i1:8=t ; i1:s8=t }" "asm"="vpternlogd ${t}, {z}, {y}, {d}" "dclass"="yv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <32 x i8> @llvm.epitome.bitfn3.v32i8(i8 %t, <32 x i8> %x, <32 x i8> %y, <32 x i8> %z)
+  ret <32 x i8> %r
+}
+
+declare <32 x i8> @llvm.epitome.bitfn3.v32i8(i8, <32 x i8>, <32 x i8>, <32 x i8>)
+
+define <16 x i16> @VPTERNLOGD.16xi16(i8 "imm" %t, <16 x i16> "reg"="yv" "tied" %x, <16 x i16> "reg"="yv" %y, <16 x i16> "reg"="yv" %z) "enc"="evexr(d, z, 3, 0, y, 1, 1, 0, 0, 0) | 00100101 | 11 reg:3=d&7 rm:3=z&7 | { i1:8=t ; i1:s8=t }" "asm"="vpternlogd ${t}, {z}, {y}, {d}" "dclass"="yv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <16 x i16> @llvm.epitome.bitfn3.v16i16(i8 %t, <16 x i16> %x, <16 x i16> %y, <16 x i16> %z)
+  ret <16 x i16> %r
+}
+
+declare <16 x i16> @llvm.epitome.bitfn3.v16i16(i8, <16 x i16>, <16 x i16>, <16 x i16>)
+
+define <8 x i32> @VPTERNLOGD.8xi32(i8 "imm" %t, <8 x i32> "reg"="yv" "tied" %x, <8 x i32> "reg"="yv" %y, <8 x i32> "reg"="yv" %z) "enc"="evexr(d, z, 3, 0, y, 1, 1, 0, 0, 0) | 00100101 | 11 reg:3=d&7 rm:3=z&7 | { i1:8=t ; i1:s8=t }" "asm"="vpternlogd ${t}, {z}, {y}, {d}" "dclass"="yv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <8 x i32> @llvm.epitome.bitfn3.v8i32(i8 %t, <8 x i32> %x, <8 x i32> %y, <8 x i32> %z)
+  ret <8 x i32> %r
+}
+
+declare <8 x i32> @llvm.epitome.bitfn3.v8i32(i8, <8 x i32>, <8 x i32>, <8 x i32>)
+
+define <4 x i64> @VPTERNLOGQ.4xi64(i8 "imm" %t, <4 x i64> "reg"="yv" "tied" %x, <4 x i64> "reg"="yv" %y, <4 x i64> "reg"="yv" %z) "enc"="evexr(d, z, 3, 1, y, 1, 1, 0, 0, 0) | 00100101 | 11 reg:3=d&7 rm:3=z&7 | { i1:8=t ; i1:s8=t }" "asm"="vpternlogq ${t}, {z}, {y}, {d}" "dclass"="yv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x i64> @llvm.epitome.bitfn3.v4i64(i8 %t, <4 x i64> %x, <4 x i64> %y, <4 x i64> %z)
+  ret <4 x i64> %r
+}
+
+declare <4 x i64> @llvm.epitome.bitfn3.v4i64(i8, <4 x i64>, <4 x i64>, <4 x i64>)
+
+define <16 x i8> @VPTERNLOGD.16xi8(i8 "imm" %t, <16 x i8> "reg"="xv" "tied" %x, <16 x i8> "reg"="xv" %y, <16 x i8> "reg"="xv" %z) "enc"="evexr(d, z, 3, 0, y, 0, 1, 0, 0, 0) | 00100101 | 11 reg:3=d&7 rm:3=z&7 | { i1:8=t ; i1:s8=t }" "asm"="vpternlogd ${t}, {z}, {y}, {d}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <16 x i8> @llvm.epitome.bitfn3.v16i8(i8 %t, <16 x i8> %x, <16 x i8> %y, <16 x i8> %z)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.epitome.bitfn3.v16i8(i8, <16 x i8>, <16 x i8>, <16 x i8>)
+
+define <8 x i16> @VPTERNLOGD.8xi16(i8 "imm" %t, <8 x i16> "reg"="xv" "tied" %x, <8 x i16> "reg"="xv" %y, <8 x i16> "reg"="xv" %z) "enc"="evexr(d, z, 3, 0, y, 0, 1, 0, 0, 0) | 00100101 | 11 reg:3=d&7 rm:3=z&7 | { i1:8=t ; i1:s8=t }" "asm"="vpternlogd ${t}, {z}, {y}, {d}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <8 x i16> @llvm.epitome.bitfn3.v8i16(i8 %t, <8 x i16> %x, <8 x i16> %y, <8 x i16> %z)
+  ret <8 x i16> %r
+}
+
+declare <8 x i16> @llvm.epitome.bitfn3.v8i16(i8, <8 x i16>, <8 x i16>, <8 x i16>)
+
+define <4 x i32> @VPTERNLOGD.4xi32(i8 "imm" %t, <4 x i32> "reg"="xv" "tied" %x, <4 x i32> "reg"="xv" %y, <4 x i32> "reg"="xv" %z) "enc"="evexr(d, z, 3, 0, y, 0, 1, 0, 0, 0) | 00100101 | 11 reg:3=d&7 rm:3=z&7 | { i1:8=t ; i1:s8=t }" "asm"="vpternlogd ${t}, {z}, {y}, {d}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <4 x i32> @llvm.epitome.bitfn3.v4i32(i8 %t, <4 x i32> %x, <4 x i32> %y, <4 x i32> %z)
+  ret <4 x i32> %r
+}
+
+declare <4 x i32> @llvm.epitome.bitfn3.v4i32(i8, <4 x i32>, <4 x i32>, <4 x i32>)
+
+define <2 x i64> @VPTERNLOGQ.2xi64(i8 "imm" %t, <2 x i64> "reg"="xv" "tied" %x, <2 x i64> "reg"="xv" %y, <2 x i64> "reg"="xv" %z) "enc"="evexr(d, z, 3, 1, y, 0, 1, 0, 0, 0) | 00100101 | 11 reg:3=d&7 rm:3=z&7 | { i1:8=t ; i1:s8=t }" "asm"="vpternlogq ${t}, {z}, {y}, {d}" "dclass"="xv" "feature"="avx512f,avx512vl" "nodecode" {
+  %r = call <2 x i64> @llvm.epitome.bitfn3.v2i64(i8 %t, <2 x i64> %x, <2 x i64> %y, <2 x i64> %z)
+  ret <2 x i64> %r
+}
+
+declare <2 x i64> @llvm.epitome.bitfn3.v2i64(i8, <2 x i64>, <2 x i64>, <2 x i64>)
+
 declare i32 @llvm.vector.reduce.add.v4i32(<4 x i32>)
 
 define i32 @reduce.add.4xi32(<4 x i32> "reg"="xv" %v) "recipe"="reduce.add.4xi32.expand" {

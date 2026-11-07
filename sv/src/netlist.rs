@@ -2325,11 +2325,12 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 _ => Err("expression statements other than ++ and -- are not supported yet".into()),
             },
             StmtKind::If { cond, then, else_, .. } => {
-                let c = self.expr(*cond)?;
-                let m = self.truth(&c);
-                let (then, else_) = (*then, *else_);
-                self.branch(
-                    m,
+                let (cond, then, else_) = (*cond, *then, *else_);
+                self.branch_late(
+                    |f| {
+                        let c = f.expr(cond)?;
+                        Ok(f.truth(&c))
+                    },
                     |f| f.stmt(then),
                     |f| match else_ {
                         Some(e) => f.stmt(e),
@@ -2340,16 +2341,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             StmtKind::Case { kind, expr, items, default, .. } => {
                 let sel = self.expr(*expr)?;
                 let st = d.expr(*expr).ty;
-                let mut arms = Vec::new();
-                for (labels, body) in items {
-                    let mut m = M::K(false);
-                    for &l in labels {
-                        let hit = self.case_match(*kind, &sel, st, l)?;
-                        m = self.mor(m, hit);
-                    }
-                    arms.push((m, *body));
-                }
-                self.case_chain(&arms, *default)
+                self.case_chain(*kind, &sel, st, items, *default)
             }
             StmtKind::For { init, cond, step, body, .. } => {
                 for &s in init {
@@ -2422,43 +2414,77 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     /// How many times a counted loop runs, from its condition and steps
     /// with the values it starts with, which must be constants.
     fn trip_count(&mut self, cond: Option<ExprId>, step: &[StmtId]) -> Result<u32, String> {
+        self.trial(|f| {
+            let mut n = 0u32;
+            loop {
+                let go = match cond {
+                    Some(c) => {
+                        let v = f.expr(c)?;
+                        f.truth(&v)
+                    }
+                    None => M::K(true),
+                };
+                match go {
+                    M::K(false) => return Ok(n),
+                    M::K(true) if n < 65536 => {}
+                    M::K(true) => return Err("a loop of more than 65536 iterations".into()),
+                    M::V(_) => return Err("loops whose trip count is not a constant are not supported yet".into()),
+                }
+                step.iter().try_for_each(|&s| f.stmt(s))?;
+                n += 1;
+            }
+        })
+        .map(|(n, _)| n)
+    }
+
+    /// Runs `run` as a trial: nothing it writes or learns stays. Its
+    /// result, and whether it changed no value (it only read, and loaded).
+    fn trial<T>(&mut self, run: impl FnOnce(&mut Self) -> Result<T, String>) -> Result<(T, bool), String> {
         let saved = (self.env.clone(), self.out.len(), self.next);
         let tables = (self.mask_of.clone(), self.bits_of.clone(), self.uniform.clone(), self.zeros.clone(), self.bit_of.clone());
-        let mut n = 0u32;
-        let r = loop {
-            let go = match cond {
-                Some(c) => match self.expr(c) {
-                    Ok(v) => self.truth(&v),
-                    Err(e) => break Err(e),
-                },
-                None => M::K(true),
-            };
-            match go {
-                M::K(false) => break Ok(n),
-                M::K(true) if n < 65536 => {}
-                M::K(true) => break Err("a loop of more than 65536 iterations".into()),
-                M::V(_) => break Err("loops whose trip count is not a constant are not supported yet".into()),
-            }
-            if let Err(e) = step.iter().try_for_each(|&s| self.stmt(s)) {
-                break Err(e);
-            }
-            n += 1;
-        };
-        // Nothing of the trial run stays.
+        let r = run(self);
+        let (e, s) = (&self.env, &saved.0);
+        let pure = e.vals == s.vals
+            && e.elems == s.elems
+            && e.nba == s.nba
+            && e.dirty == s.dirty
+            && e.edirty == s.edirty
+            && e.brk == s.brk
+            && e.ret == s.ret;
         self.env = saved.0;
         self.out.truncate(saved.1);
         self.next = saved.2;
         (self.mask_of, self.bits_of, self.uniform, self.zeros, self.bit_of) = tables;
-        r
+        r.map(|x| (x, pure))
     }
 
-    fn case_chain(&mut self, arms: &[(M, StmtId)], default: Option<StmtId>) -> Result<(), String> {
-        match arms.split_first() {
+    /// A case's items from the first, each item's match made where its
+    /// arm meets the later ones'.
+    fn case_chain(
+        &mut self,
+        kind: CaseKind,
+        sel: &Val,
+        st: TypeId,
+        items: &[(Vec<ExprId>, StmtId)],
+        default: Option<StmtId>,
+    ) -> Result<(), String> {
+        match items.split_first() {
             None => match default {
                 Some(s) => self.stmt(s),
                 None => Ok(()),
             },
-            Some((&(m, body), rest)) => self.branch(m, |f| f.stmt(body), |f| f.case_chain(rest, default)),
+            Some(((labels, body), rest)) => self.branch_late(
+                |f| {
+                    let mut m = M::K(false);
+                    for &l in labels {
+                        let hit = f.case_match(kind, sel, st, l)?;
+                        m = f.mor(m, hit);
+                    }
+                    Ok(m)
+                },
+                |f| f.stmt(*body),
+                |f| f.case_chain(kind, sel, st, rest, default),
+            ),
         }
     }
 
@@ -2538,6 +2564,10 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
 
     /// Both arms, each on its own copy of the values, then a select of
     /// each value that differs. A constant condition runs one arm.
+    ///
+    /// The else arm is written first: in a chain of them (`if`/`else if`,
+    /// a case's items) each arm's values then meet the rest's where they
+    /// are made, rather than every arm's living to the chain's end.
     fn branch(
         &mut self,
         m: M,
@@ -2545,17 +2575,46 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         else_: impl FnOnce(&mut Self) -> Result<(), String>,
     ) -> Result<(), String> {
         match m {
-            M::K(true) => return then(self),
-            M::K(false) => return else_(self),
-            M::V(_) => {}
+            M::K(true) => then(self),
+            M::K(false) => else_(self),
+            M::V(_) => self.arms(|_| Ok(m), then, else_),
         }
+    }
+
+    /// A branch on a condition made where the arms meet, after both, so
+    /// it is not live across them: what `mask` makes when it is not a
+    /// constant and changes no value (else it is made first, as usual).
+    fn branch_late(
+        &mut self,
+        mask: impl Fn(&mut Self) -> Result<M, String>,
+        then: impl FnOnce(&mut Self) -> Result<(), String>,
+        else_: impl FnOnce(&mut Self) -> Result<(), String>,
+    ) -> Result<(), String> {
+        match self.trial(&mask)? {
+            (M::V(_), true) => self.arms(mask, then, else_),
+            _ => {
+                let m = mask(self)?;
+                self.branch(m, then, else_)
+            }
+        }
+    }
+
+    /// Both arms of a branch, then its condition, `mask`, made from the
+    /// values before them, and the selects.
+    fn arms(
+        &mut self,
+        mask: impl FnOnce(&mut Self) -> Result<M, String>,
+        then: impl FnOnce(&mut Self) -> Result<(), String>,
+        else_: impl FnOnce(&mut Self) -> Result<(), String>,
+    ) -> Result<(), String> {
         let before = self.env.clone();
-        then(self)?;
-        let mut a = std::mem::replace(&mut self.env, before.clone());
-        (self.env.loaded, self.env.eloaded) = (std::mem::take(&mut a.loaded), std::mem::take(&mut a.eloaded));
         else_(self)?;
-        let mut b = std::mem::replace(&mut self.env, before);
+        let mut b = std::mem::replace(&mut self.env, before.clone());
         (self.env.loaded, self.env.eloaded) = (std::mem::take(&mut b.loaded), std::mem::take(&mut b.eloaded));
+        then(self)?;
+        let mut a = std::mem::replace(&mut self.env, before);
+        (self.env.loaded, self.env.eloaded) = (std::mem::take(&mut a.loaded), std::mem::take(&mut a.eloaded));
+        let m = mask(self)?;
         let mut keys: Vec<ObjId> = a.vals.keys().chain(b.vals.keys()).copied().collect();
         keys.sort_unstable_by_key(|o| o.0);
         keys.dedup();

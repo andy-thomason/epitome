@@ -290,7 +290,10 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 Item::Process(p) => {
                     let pr = &d.processes[p.0 as usize];
                     match pr.kind {
-                        ProcKind::AlwaysComb => code.push(Node::Proc(p)),
+                        ProcKind::AlwaysComb => {
+                            self.process_statics(pr.body, objs);
+                            code.push(Node::Proc(p));
+                        }
                         ProcKind::Initial if self.only_asserts(pr.body) => self.dropped.set(self.dropped.get() + 1),
                         k => return Err(format!("{k:?} processes are not supported yet")),
                     }
@@ -424,6 +427,49 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     self.expr_uses(*c, uses);
                 }
                 self.stmt_uses(*body, uses);
+            }
+            _ => {}
+        }
+    }
+
+    /// The static variables declared in a process's blocks and loops.
+    fn process_statics(&self, s: StmtId, objs: &mut Vec<ObjId>) {
+        let d = self.d;
+        let scope_objs = |sc: ScopeId, objs: &mut Vec<ObjId>| {
+            for item in &d.scope(sc).items {
+                if let Item::Object(o) = *item
+                    && d.object(o).kind == ObjKind::Variable
+                    && d.object(o).lifetime == Lifetime::Static
+                    && !objs.contains(&o)
+                {
+                    objs.push(o);
+                }
+            }
+        };
+        match &d.stmt(s).kind {
+            StmtKind::Block { scope, stmts, .. } => {
+                if let Some(sc) = scope {
+                    scope_objs(*sc, objs);
+                }
+                stmts.iter().for_each(|&s| self.process_statics(s, objs));
+            }
+            StmtKind::For { scope, body, .. } => {
+                if let Some(sc) = scope {
+                    scope_objs(*sc, objs);
+                }
+                self.process_statics(*body, objs);
+            }
+            StmtKind::If { then, else_, .. } => {
+                self.process_statics(*then, objs);
+                if let Some(e) = else_ {
+                    self.process_statics(*e, objs);
+                }
+            }
+            StmtKind::Case { items, default, .. } => {
+                items.iter().for_each(|i| self.process_statics(i.1, objs));
+                if let Some(s) = default {
+                    self.process_statics(*s, objs);
+                }
             }
             _ => {}
         }
@@ -965,6 +1011,8 @@ struct Env {
     /// Elements of objects kept an element to a slot, and those written.
     elems: HashMap<(ObjId, u32), Val>,
     edirty: HashSet<(ObjId, u32)>,
+    /// The lanes that have left the innermost loop with `break`.
+    brk: Option<M>,
 }
 
 /// One function being written.
@@ -1209,7 +1257,19 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                         }
                     }
                 }
-                stmts.iter().try_for_each(|&s| self.stmt(s))
+                for &s in stmts {
+                    // After a `break` in some lanes, the rest of the block
+                    // is for the others.
+                    match self.env.brk {
+                        Some(M::K(true)) => break,
+                        Some(b @ M::V(_)) => {
+                            let go = self.mnot(b);
+                            self.branch(go, |f| f.stmt(s), |_| Ok(()))?;
+                        }
+                        _ => self.stmt(s)?,
+                    }
+                }
+                Ok(())
             }
             StmtKind::Assign { kind, lhs, rhs, timing: None } => {
                 let v = match kind {
@@ -1265,21 +1325,50 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 for &s in init {
                     self.stmt(s)?;
                 }
-                for _ in 0..65536 {
+                let n = self.trip_count(*cond, step)?;
+                let outer = self.env.brk.replace(M::K(false));
+                for _ in 0..n {
+                    // The lanes still looping: those that have not broken
+                    // out, where the condition holds.
+                    let mut go = match self.env.brk {
+                        Some(b) => self.mnot(b),
+                        None => M::K(true),
+                    };
                     if let Some(c) = cond {
                         let v = self.expr(*c)?;
-                        match self.truth(&v) {
-                            M::K(true) => {}
-                            M::K(false) => return Ok(()),
-                            M::V(_) => return Err("loops whose trip count is not a constant are not supported yet".into()),
-                        }
+                        let t = self.truth(&v);
+                        go = self.mand(go, t);
                     }
-                    self.stmt(*body)?;
-                    for &s in step {
-                        self.stmt(s)?;
+                    if go == M::K(false) {
+                        break;
                     }
+                    let (body, step) = (*body, step.clone());
+                    self.branch(
+                        go,
+                        |f| {
+                            f.stmt(body)?;
+                            // A lane that broke out does not step.
+                            match f.env.brk {
+                                Some(M::K(true)) => Ok(()),
+                                Some(b @ M::V(_)) => {
+                                    let on = f.mnot(b);
+                                    f.branch(on, |g| step.iter().try_for_each(|&s| g.stmt(s)), |_| Ok(()))
+                                }
+                                _ => step.iter().try_for_each(|&s| f.stmt(s)),
+                            }
+                        },
+                        |_| Ok(()),
+                    )?;
                 }
-                Err("a loop of more than 65536 iterations".into())
+                self.env.brk = outer;
+                Ok(())
+            }
+            StmtKind::Break => {
+                if self.env.brk.is_none() {
+                    return Err("break outside a loop".into());
+                }
+                self.env.brk = Some(M::K(true));
+                Ok(())
             }
             StmtKind::Assert { .. } => {
                 self.l.asserts.borrow_mut().insert(s);
@@ -1287,6 +1376,39 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             }
             k => Err(format!("statement {} is not supported yet", stmt_name(k))),
         }
+    }
+
+    /// How many times a counted loop runs, from its condition and steps
+    /// with the values it starts with, which must be constants.
+    fn trip_count(&mut self, cond: Option<ExprId>, step: &[StmtId]) -> Result<u32, String> {
+        let saved = (self.env.clone(), self.out.len(), self.next);
+        let tables = (self.mask_of.clone(), self.bits_of.clone(), self.uniform.clone());
+        let mut n = 0u32;
+        let r = loop {
+            let go = match cond {
+                Some(c) => match self.expr(c) {
+                    Ok(v) => self.truth(&v),
+                    Err(e) => break Err(e),
+                },
+                None => M::K(true),
+            };
+            match go {
+                M::K(false) => break Ok(n),
+                M::K(true) if n < 65536 => {}
+                M::K(true) => break Err("a loop of more than 65536 iterations".into()),
+                M::V(_) => break Err("loops whose trip count is not a constant are not supported yet".into()),
+            }
+            if let Err(e) = step.iter().try_for_each(|&s| self.stmt(s)) {
+                break Err(e);
+            }
+            n += 1;
+        };
+        // Nothing of the trial run stays.
+        self.env = saved.0;
+        self.out.truncate(saved.1);
+        self.next = saved.2;
+        (self.mask_of, self.bits_of, self.uniform) = tables;
+        r
     }
 
     fn case_chain(&mut self, arms: &[(M, StmtId)], default: Option<StmtId>) -> Result<(), String> {
@@ -1382,6 +1504,16 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             self.env.elems.insert((o, i), v);
         }
         self.env.edirty.extend(a.edirty.into_iter().chain(b.edirty));
+        self.env.brk = match (a.brk, b.brk) {
+            (Some(x), Some(y)) if x == y => Some(x),
+            (Some(x), Some(y)) => {
+                let t = self.mand(m, x);
+                let nm = self.mnot(m);
+                let e = self.mand(nm, y);
+                Some(self.mor(t, e))
+            }
+            (x, y) => x.or(y),
+        };
         Ok(())
     }
 

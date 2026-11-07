@@ -134,6 +134,20 @@ impl State {
         }
     }
 
+    /// A value wider than 64 bits, as 64-bit words, low first.
+    fn put_wide(&mut self, net: &Netlist, port: &str, n: usize, v: &[u64]) {
+        let f = net.port(port).unwrap_or_else(|| panic!("no port {port}"));
+        for k in 0..f.pieces() {
+            let word = v.get(k / 2).copied().unwrap_or(0);
+            let mut piece = (word >> (32 * (k % 2))) as u32;
+            let top = f.width as usize - 32 * k;
+            if top < 32 {
+                piece &= (1u32 << top) - 1;
+            }
+            unsafe { (self.ptr.add(f.at(k, n)) as *mut u32).write(piece) };
+        }
+    }
+
     fn get(&self, net: &Netlist, port: &str, n: usize) -> u64 {
         let f = net.port(port).unwrap_or_else(|| panic!("no port {port}"));
         (0..f.pieces().min(2)).map(|k| (unsafe { (self.ptr.add(f.at(k, n)) as *const u32).read() } as u64) << (32 * k)).sum()
@@ -372,4 +386,129 @@ fn cva6_pmp_entry() {
     }
     let ns = t0.elapsed().as_secs_f64() * 1e9 / (iters * GROUP) as f64;
     eprintln!("pmp_entry: {GROUP} instances agree with the model ({matches} match); {ns:.2} ns an instance");
+}
+
+const PMP_UNIT_TOP: &str = r#"
+// The PMP unit with the cv64a6_imafdc_sv39 configuration: 8 entries.
+module pmp_top
+  import ariane_pkg::*;
+#(
+    parameter config_pkg::cva6_cfg_t CVA6Cfg = build_config_pkg::build_config(cva6_config_pkg::cva6_cfg)
+) (
+    input logic [CVA6Cfg.PLEN-1:0] addr_i,
+    input riscv::pmp_access_t access_type_i,
+    input riscv::priv_lvl_t priv_lvl_i,
+    input logic [CVA6Cfg.NrPMPEntries-1:0][CVA6Cfg.PLEN-3:0] conf_addr_i,
+    input riscv::pmpcfg_t [CVA6Cfg.NrPMPEntries-1:0] conf_i,
+    output logic allow_o
+);
+  pmp #(.CVA6Cfg(CVA6Cfg)) i_pmp (.*);
+endmodule
+"#;
+
+/// `pmp`'s `always_comb`: the first entry that applies and matches decides;
+/// with none, only machine mode may access.
+fn pmp_unit_reference(addr: u64, access: u64, priv_lvl: u64, conf_addr: &[u64; 8], conf: &[u64; 8]) -> bool {
+    for i in 0..8 {
+        let (locked, mode, perm) = (conf[i] >> 7 & 1, conf[i] >> 3 & 3, conf[i] & 7);
+        let prev = if i == 0 { 0 } else { conf_addr[i - 1] };
+        if (priv_lvl != 3 || locked == 1) && pmp_reference(addr, conf_addr[i], prev, mode) {
+            return access & perm == access;
+        }
+    }
+    priv_lvl == 3
+}
+
+#[test]
+fn cva6_pmp() {
+    let Some(cva6) = std::env::var_os("CVA6_DIR").map(PathBuf::from) else {
+        eprintln!("set CVA6_DIR to a CVA6 checkout to run this; skipping");
+        return;
+    };
+    let Some((t, triple, mattr)) = host() else {
+        eprintln!("needs cc on an AArch64 Mac or x86-64 Linux; skipping");
+        return;
+    };
+    let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("netlist");
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(tmp.join("pmp_top.sv"), PMP_UNIT_TOP).unwrap();
+    let c = |p: &str| cva6.join(p);
+    let files = vec![
+        c("core/include/config_pkg.sv"),
+        c("core/include/cv64a6_imafdc_sv39_config_pkg.sv"),
+        c("core/include/riscv_pkg.sv"),
+        c("core/include/build_config_pkg.sv"),
+        c("core/include/ariane_pkg.sv"),
+        c("vendor/pulp-platform/common_cells/src/cf_math_pkg.sv"),
+        c("vendor/pulp-platform/common_cells/src/lzc.sv"),
+        c("core/pmp/src/pmp_entry.sv"),
+        c("core/pmp/src/pmp.sv"),
+        tmp.join("pmp_top.sv"),
+    ];
+    let incs = vec![c("core/include"), c("vendor/pulp-platform/common_cells/include")];
+    let b = build("pmp", netlist_of(files, incs, "pmp_top"), &t, triple, &mattr);
+    report("pmp", &b);
+    let net = &b.net;
+    let (m56, mcw) = ((1u64 << 56) - 1, (1u64 << 54) - 1);
+    let mut rng = Rng(0x0DDB_1A5E_5BAD_5EED);
+    let mut st = State::new(net.size);
+    let mut ins = Vec::with_capacity(GROUP);
+    for n in 0..GROUP {
+        // Ascending TOR bounds and NAPOT regions, mixed, so that entries
+        // match, overlap and miss.
+        let mut conf_addr = [0u64; 8];
+        let mut conf = [0u64; 8];
+        let mut at = rng.next() % (1 << 30);
+        for i in 0..8 {
+            let mode = rng.next() % 4;
+            conf_addr[i] = if mode == 3 {
+                let t = rng.next() % 20;
+                ((at >> t << t) | ((1 << t) - 1) >> 1) & mcw
+            } else {
+                at = (at + rng.next() % (1 << 24)) & mcw;
+                at
+            };
+            conf[i] = (rng.next() % 4 == 0) as u64 * 0x80 | mode << 3 | rng.next() % 8;
+        }
+        let pick = rng.next() as usize % 8;
+        let addr = match rng.next() % 3 {
+            0 => rng.next() & m56,
+            _ => ((conf_addr[pick] << 2) + rng.next() % (1 << 12)) & m56,
+        };
+        let access = [1u64, 2, 4][rng.next() as usize % 3];
+        let priv_lvl = rng.next() % 4;
+        st.put(net, "addr_i", n, addr);
+        st.put(net, "access_type_i", n, access);
+        st.put(net, "priv_lvl_i", n, priv_lvl);
+        // conf_addr_i[i] is bits 54i up.
+        let mut wide = [0u64; 7];
+        for (i, &a) in conf_addr.iter().enumerate() {
+            let at = 54 * i;
+            wide[at / 64] |= a << (at % 64);
+            if at % 64 + 54 > 64 {
+                wide[at / 64 + 1] |= a >> (64 - at % 64);
+            }
+        }
+        st.put_wide(net, "conf_addr_i", n, &wide);
+        st.put(net, "conf_i", n, conf.iter().enumerate().fold(0, |w, (i, &c)| w | c << (8 * i)));
+        ins.push((addr, access, priv_lvl, conf_addr, conf));
+    }
+    unsafe { (b.eval)(st.ptr) };
+    let mut allowed = 0;
+    for (n, (addr, access, priv_lvl, conf_addr, conf)) in ins.iter().enumerate() {
+        let want = pmp_unit_reference(*addr, *access, *priv_lvl, conf_addr, conf);
+        assert_eq!(
+            st.get(net, "allow_o", n) == 1,
+            want,
+            "instance {n}: addr {addr:x} access {access} priv {priv_lvl} conf_addr {conf_addr:x?} conf {conf:x?}"
+        );
+        allowed += want as usize;
+    }
+    let iters = 200;
+    let t0 = Instant::now();
+    for _ in 0..iters {
+        unsafe { (b.eval)(std::hint::black_box(st.ptr)) };
+    }
+    let ns = t0.elapsed().as_secs_f64() * 1e9 / (iters * GROUP) as f64;
+    eprintln!("pmp: {GROUP} instances agree with the model ({allowed} allowed); {ns:.2} ns an instance");
 }

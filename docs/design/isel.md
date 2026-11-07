@@ -79,6 +79,7 @@ define i32 @ADDWrr(i32 "reg"="w" %n, i32 "reg"="w" %m)
   | `"imm"` | A constant encoded in the instruction. Which values fit is decided by the encoding (below). |
   | `"label"` | A branch target, a `ptr` parameter. |
   | `"sym"` | A symbol, such as a called function or a global. |
+  | `"sym" "pool"` | A vector constant whose lanes are one integer: selection puts the lane in read-only data and the operand names it (x86's broadcast operand, `sym(%rip){1to16}`, in `targets/x86_64/12-pool.ll`). |
   | `"cond"` | A condition, an `i1` parameter, filled in by a condition form. |
   | `"tied"` | Must be in the same register as the result (two-address). |
   | `"list"="zt1:+1"` | A member of a list of registers: in the register after operand `zt1`'s (`{zt1:+1}` in the template), which no field holds. Allocation places the list (`regalloc.rs`). |

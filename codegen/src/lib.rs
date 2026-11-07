@@ -491,6 +491,7 @@ pub fn compile(t: &Target, m: &mut Module, opts: &Options) -> Result<Compiled, S
     // function that would use some, so what is left is unused.
     let mut globals = if t.machine.lacks("globals") { Vec::new() } else { asm::collect_globals(&cx, &abi)? };
     globals.extend(asm::eh_stubs(&funcs, &abi));
+    globals.extend(asm::pool_data(&funcs, &abi));
     asm::print_globals(&abi, &globals, &mut out);
     let aliases = asm::collect_aliases(&cx, &abi)?;
     asm::print_aliases(&aliases, &mut out);

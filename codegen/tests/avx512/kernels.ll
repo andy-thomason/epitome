@@ -2500,6 +2500,87 @@ define void @mixed_v16i8_v16i32(ptr %a, ptr %b, ptr %o) #0 {
   ret void
 }
 
+; Operations on constants whose lanes are one value: each constant is a
+; broadcast operand from read-only data (`sym(%rip){1to16}`), not a register.
+define void @consts_v16i32(ptr %a, ptr %b, ptr %o) #0 {
+  %x = load <16 x i32>, ptr %a
+  %y = load <16 x i32>, ptr %b
+  %r0 = add <16 x i32> %x, splat (i32 1000001)
+  %p0 = getelementptr <16 x i32>, ptr %o, i64 0
+  store <16 x i32> %r0, ptr %p0
+  %r1 = sub <16 x i32> %x, splat (i32 77777)
+  %p1 = getelementptr <16 x i32>, ptr %o, i64 1
+  store <16 x i32> %r1, ptr %p1
+  %r2 = mul <16 x i32> %x, splat (i32 -13)
+  %p2 = getelementptr <16 x i32>, ptr %o, i64 2
+  store <16 x i32> %r2, ptr %p2
+  %r3 = and <16 x i32> %x, splat (i32 267390960)
+  %p3 = getelementptr <16 x i32>, ptr %o, i64 3
+  store <16 x i32> %r3, ptr %p3
+  %r4 = or <16 x i32> %x, splat (i32 -2147483647)
+  %p4 = getelementptr <16 x i32>, ptr %o, i64 4
+  store <16 x i32> %r4, ptr %p4
+  %r5 = xor <16 x i32> %x, splat (i32 1515870810)
+  %p5 = getelementptr <16 x i32>, ptr %o, i64 5
+  store <16 x i32> %r5, ptr %p5
+  %nx = xor <16 x i32> %x, splat (i32 -1)
+  %r6 = and <16 x i32> %nx, splat (i32 16776960)
+  %p6 = getelementptr <16 x i32>, ptr %o, i64 6
+  store <16 x i32> %r6, ptr %p6
+  ; Small values of %y's low bits, so that equality holds in some lanes.
+  %s = and <16 x i32> %y, splat (i32 7)
+  %e = icmp eq <16 x i32> %s, splat (i32 3)
+  %r7 = select <16 x i1> %e, <16 x i32> splat (i32 305419896), <16 x i32> %x
+  %p7 = getelementptr <16 x i32>, ptr %o, i64 7
+  store <16 x i32> %r7, ptr %p7
+  %c0 = icmp eq <16 x i32> %s, splat (i32 3)
+  %m0 = bitcast <16 x i1> %c0 to i16
+  %q0 = getelementptr i16, ptr %o, i64 256
+  store i16 %m0, ptr %q0
+  %c1 = icmp ne <16 x i32> %s, splat (i32 5)
+  %m1 = bitcast <16 x i1> %c1 to i16
+  %q1 = getelementptr i16, ptr %o, i64 257
+  store i16 %m1, ptr %q1
+  %c2 = icmp slt <16 x i32> %x, splat (i32 -100)
+  %m2 = bitcast <16 x i1> %c2 to i16
+  %q2 = getelementptr i16, ptr %o, i64 258
+  store i16 %m2, ptr %q2
+  %c3 = icmp sle <16 x i32> %x, splat (i32 0)
+  %m3 = bitcast <16 x i1> %c3 to i16
+  %q3 = getelementptr i16, ptr %o, i64 259
+  store i16 %m3, ptr %q3
+  %c4 = icmp sgt <16 x i32> %x, splat (i32 1000)
+  %m4 = bitcast <16 x i1> %c4 to i16
+  %q4 = getelementptr i16, ptr %o, i64 260
+  store i16 %m4, ptr %q4
+  %c5 = icmp sge <16 x i32> %x, splat (i32 -1)
+  %m5 = bitcast <16 x i1> %c5 to i16
+  %q5 = getelementptr i16, ptr %o, i64 261
+  store i16 %m5, ptr %q5
+  %c6 = icmp ult <16 x i32> %s, splat (i32 4)
+  %m6 = bitcast <16 x i1> %c6 to i16
+  %q6 = getelementptr i16, ptr %o, i64 262
+  store i16 %m6, ptr %q6
+  %c7 = icmp ule <16 x i32> %s, splat (i32 2)
+  %m7 = bitcast <16 x i1> %c7 to i16
+  %q7 = getelementptr i16, ptr %o, i64 263
+  store i16 %m7, ptr %q7
+  %c8 = icmp ugt <16 x i32> %x, splat (i32 -2147483648)
+  %m8 = bitcast <16 x i1> %c8 to i16
+  %q8 = getelementptr i16, ptr %o, i64 264
+  store i16 %m8, ptr %q8
+  %c9 = icmp uge <16 x i32> %x, splat (i32 65536)
+  %m9 = bitcast <16 x i1> %c9 to i16
+  %q9 = getelementptr i16, ptr %o, i64 265
+  store i16 %m9, ptr %q9
+  ; A three-input function with a constant: the constant last.
+  %tc = and <16 x i32> %y, splat (i32 252645135)
+  %tr = or <16 x i32> %tc, %x
+  %p9 = getelementptr <16 x i32>, ptr %o, i64 9
+  store <16 x i32> %tr, ptr %p9
+  ret void
+}
+
 attributes #0 = { nounwind "target-features"="+avx512f,+avx512bw,+avx512cd,+avx512dq,+avx512vl,+avx2,+avx,+fma" }
 attributes #1 = { nounwind "target-features"="+avx2,+avx" }
 attributes #2 = { nounwind "target-features"="+avx512f,+avx2,+avx" }

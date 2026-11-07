@@ -241,9 +241,22 @@ pub struct MFunc {
     /// the landing pads' actions (see `eh.rs`), if it has landing pads.
     pub eh: Option<EhInfo>,
     pub abi: crate::abi::Abi,
+    /// Constants in read-only data that the code names (pool operands):
+    /// each one's symbol, value and size in bytes.
+    pub pool: Vec<(String, u64, u8)>,
 }
 
 impl MFunc {
+    /// The symbol of a constant in read-only data, `bytes` long (one per
+    /// value and size, so the same in every function).
+    pub fn pool_entry(&mut self, value: u64, bytes: u8) -> String {
+        let name = format!("__epitome_pool{}_{value:x}", 8 * bytes as u32);
+        if !self.pool.iter().any(|p| p.0 == name) {
+            self.pool.push((name.clone(), value, bytes));
+        }
+        name
+    }
+
     pub fn new_vreg(&mut self, class: Class) -> VReg {
         self.vclass.push(class);
         (self.vclass.len() - 1) as VReg

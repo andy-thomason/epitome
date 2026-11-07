@@ -360,6 +360,7 @@ impl<'a, 'b> Sel<'a, 'b> {
             abi: abi.clone(),
             dynamic_stack: false,
             eh: None,
+            pool: Vec::new(),
         };
         // A function whose stack pointer moves addresses its frame from a
         // saved register of the convention's, kept from allocation.
@@ -785,6 +786,17 @@ impl<'a, 'b> Sel<'a, 'b> {
         }
     }
 
+    /// A vector constant whose lanes are one integer of 1, 2, 4 or 8
+    /// bytes: the lane and its bytes, for a pool operand.
+    fn pool_lane(&self, t: Term) -> Option<(u64, u8)> {
+        let Term::V(Value::Const(c)) = t else { return None };
+        let ty = self.cx.m.constant(c).ty;
+        let Type::Vector { elem, .. } = self.cx.m.types.get(ty) else { return None };
+        let Type::Int(bits @ (8 | 16 | 32 | 64)) = *self.cx.m.types.get(*elem) else { return None };
+        let (v, _) = crate::target::lit_of(self.cx.m, c)?;
+        (v != crate::target::UNDEF).then(|| (v as u64 & (u64::MAX >> (64 - bits)), (bits / 8) as u8))
+    }
+
     fn is_zero_like(&self, t: Term) -> bool {
         let Term::V(Value::Const(c)) = t else { return false };
         match &self.cx.m.constant(c).kind {
@@ -961,6 +973,11 @@ impl<'a, 'b> Sel<'a, 'b> {
                     if !matches!(t, Term::B(_)) {
                         return None;
                     }
+                }
+                // A constant whose lanes are one value, kept in read-only
+                // data (x86's broadcast operand).
+                Kind::Sym if pp.pool => {
+                    self.pool_lane(t)?;
                 }
                 // A global's address, as the instruction names it (x86's
                 // `sym(%rip)`): not one reached through the GOT, nor a
@@ -1990,6 +2007,10 @@ impl<'a, 'b> Sel<'a, 'b> {
                     MOp::Reg(self.in_file_of(r, class))
                 }
                 (Kind::Imm, t) => MOp::Imm(self.imm_of(t, pp.bits).unwrap()),
+                (Kind::Sym, t) if pp.pool => {
+                    let (value, bytes) = self.pool_lane(t).ok_or("a pool operand that is not a splat")?;
+                    MOp::Sym(self.mf.pool_entry(value, bytes))
+                }
                 (Kind::Sym, Term::V(Value::Const(c))) => {
                     let (g, _) = prepare::const_address(self.cx, c).ok_or("a symbol operand that is not a global")?;
                     MOp::Sym(self.cx.m.global(g).name.clone().unwrap_or_default())

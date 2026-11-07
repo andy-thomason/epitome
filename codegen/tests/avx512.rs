@@ -11,6 +11,8 @@
 //!   for avx512f without avx512vl, whose 256-bit masks stay in ymm).
 //! - On x86-64 Linux with AVX-512 and clang: built by us and by clang,
 //!   each linked with `main.c` and run, the two print the same.
+//! - Constants whose lanes are one value are broadcast operands
+//!   (`sym(%rip){1to16}`), read from read-only data.
 //! - Chains of bitwise logic (`ternlog` kernels) are each one `vpternlog`,
 //!   and each of the 256 tables of `llvm.epitome.bitfn3`, run on 0xf0,
 //!   0xcc and 0xaa, gives itself back.
@@ -25,10 +27,21 @@ fn kernels() -> String {
     std::fs::read_to_string(dir.join("kernels.ll")).unwrap()
 }
 
-/// Each function's assembly, by name.
+/// Each function's assembly, by name (labels in the text section; the
+/// constants broadcast operands read are in read-only data).
 fn functions(asm: &str) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = Vec::new();
+    let mut text = true;
     for line in asm.lines() {
+        let directive = line.trim_start();
+        if directive.starts_with(".text") {
+            text = true;
+        } else if directive.starts_with(".section") || directive.starts_with(".data") || directive.starts_with(".bss") {
+            text = directive.contains("text");
+        }
+        if !text {
+            continue;
+        }
         if let Some(name) = line.strip_suffix(':').filter(|n| !n.starts_with('.') && !n.contains(' ')) {
             out.push((name.to_string(), String::new()));
         } else if let Some((_, body)) = out.last_mut() {
@@ -55,6 +68,13 @@ fn avx512_kernels_stay_in_registers() {
             for op in ["vpand", "vpor", "vpxor"] {
                 assert!(!body.contains(op), "{name} still has {op}:\n{body}");
             }
+        }
+        // Each constant a broadcast operand from read-only data, none
+        // made in a register.
+        if name == "consts_v16i32" {
+            assert!(!body.contains("vpbroadcast"), "{name} makes a constant in a register:\n{body}");
+            assert_eq!(body.matches("(%rip){1to16}").count(), 21, "{name}:\n{body}");
+            assert!(body.contains("vpternlogd $-20, __epitome_pool32_f0f0f0f(%rip){1to16}"), "{name}:\n{body}");
         }
         if name == "ternlog_adder" {
             assert_eq!(body.matches("vpternlog").count(), 2, "the full adder:\n{body}");

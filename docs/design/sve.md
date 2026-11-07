@@ -172,18 +172,28 @@ for 246 entries (st2-st4, tbl2, SME2's lists into ZA).
   instruction can encode it (SME2's lists of two or four start at a
   multiple of two or four: `Instr::list_starts` tries the encoding), the
   one most members' copied values are drawn to (an argument's register,
-  an earlier list's), then one that need not be saved. They are never
-  moved for other values, and are kept out of coalescing.
+  an earlier list's), less the values live across the list that are
+  drawn to its registers and would have to move (an argument still
+  needed after), then one that need not be saved. They are never moved
+  for other values, and are kept out of coalescing.
 - **Back along the ranges**: the values copied into a list are placed
   later, and the copies' hints draw each to its member's register, so a
   value whose live range ends in a list takes the register the list
-  wants where it is free all along, and the copy goes.
+  wants where it is free all along, and the copy goes. A value may also
+  share a register with its own copies in lists (nothing writes it
+  between them and the instruction), so one still needed after a list
+  stays where the list reads it: `st4 {z0-z3}` of the four arguments,
+  in order, is the store alone.
 - **Two-address shapes**: a result is drawn (more weakly than by a copy)
   to the register of an operand whose range ends at the instruction, so
   that it reads and writes one register as a two-address form would.
 - `tests/sve/lists.ll`: members out of order, one value twice, values
   read after the list, a list in a loop, and forty values live into ten
   `st4`s (spilled ones loaded straight into a list's registers).
+  `tests/sve/lists/sme2.ll`: SME2's lists from values arriving at odd
+  registers, two lists in one instruction; no qemu here runs SME2, so
+  clang assembles our assembly (refusing a list out of line) and its code
+  must be ours.
 
 ## Still to do
 

@@ -18,7 +18,8 @@
 //! Lists of registers (`st2 {z3.s, z4.s}`) are placed before anything
 //! else: selection copies each member into a value of its own, the list's
 //! values take consecutive registers together, and the copies' hints draw
-//! the values copied into them back to those registers. A result is also
+//! the values copied into them back to those registers (a value may share
+//! a register with its own copies there). A result is also
 //! drawn, more weakly, to an operand whose value ends where it starts,
 //! for two-address shapes.
 //!
@@ -381,6 +382,19 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
     if coalescing {
         coalesce(f, &mut segs, &mut hints, &mut occ, &in_list, &mut weak);
     }
+    // Each list member's value copied into it (after coalescing, which
+    // renames them): a value may share a register with its own copies, as
+    // nothing writes it between them and the instruction.
+    let mut copy_of: HashMap<VReg, VReg> = HashMap::new();
+    for b in &f.blocks {
+        for inst in &b.insts {
+            if let (Opcode::Copy, [MOp::Reg(Reg::V(d)), MOp::Reg(Reg::V(s))]) = (inst.op, &inst.ops[..])
+                && in_list.contains(d)
+            {
+                copy_of.insert(*d, *s);
+            }
+        }
+    }
 
     // Linear scan.
     for s in &mut segs {
@@ -425,10 +439,19 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
     // free (they live from their copies to the instruction) and the
     // instruction can encode it, the one that most members' copied
     // values are already drawn to (a register they arrive in, an
-    // argument's), then one that need not be saved. Members are not moved
+    // argument's), less the values live across the list that are drawn
+    // to its registers and would have to move, then one that need not be
+    // saved. Members are not moved
     // again for others. The values copied into them, placed later, are
     // drawn to these registers by the copies' hints: a value whose range
     // ends in a list goes back along it to where the list wants it.
+    // Values drawn to a register by a copy of it (an argument, a result,
+    // a call's).
+    let pinned: Vec<(VReg, u8)> = (0..nv as VReg)
+        .filter(|v| !in_list.contains(v))
+        .flat_map(|v| hints[v as usize].iter().filter_map(move |h| if let Reg::P(p) = h { Some((v, *p)) } else { None }))
+        .collect();
+    let meet = |a: &[Interval], b: &[Interval]| a.iter().any(|&x| b.iter().any(|&y| x.0 <= y.1 && y.0 <= x.1));
     for (members, k, head) in &lists {
         let class = classes[members[0].0 as usize];
         let size = m.def(class).names.len() as i64;
@@ -448,7 +471,7 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
             out
         };
         let saved = |p: u8| callee_saved.contains(&p) || fp_callee_saved.contains(&p);
-        let mut best: Option<((usize, usize, i64), Vec<u8>)> = None;
+        let mut best: Option<((i64, usize, i64), Vec<u8>)> = None;
         for n in 0..size {
             if !t.instrs[*k].list_starts(*head, n) {
                 continue;
@@ -462,9 +485,16 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
                 })
                 .collect();
             let Some(regs) = regs else { continue };
-            let hits = members.iter().zip(&regs).filter(|((v, _), p)| drawn(*v).contains(p)).count();
+            let hits = members.iter().zip(&regs).filter(|((v, _), p)| drawn(*v).contains(p)).count() as i64;
+            let moves = members
+                .iter()
+                .zip(&regs)
+                .filter(|((v, _), p)| {
+                    pinned.iter().any(|&(w, q)| q == **p && meet(&segs[w as usize], &segs[*v as usize]))
+                })
+                .count() as i64;
             let unsaved = regs.iter().filter(|&&p| !saved(p)).count();
-            let key = (hits, unsaved, -n);
+            let key = (hits - moves, unsaved, -n);
             if best.as_ref().is_none_or(|b| key > b.0) {
                 best = Some((key, regs));
             }
@@ -538,7 +568,25 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
         // Only registers of the value's own class.
         let class = classes[v as usize];
         cands.retain(|&p| m.in_class(class, p));
-        let free = cands.iter().copied().find(|p| taken.get(p).is_none_or(|busy| mine.iter().all(|&m| !busy.meets(m))));
+        // Free, or taken where it meets only list members copied from this
+        // value (which then shares their register, and is not moved for
+        // others, as its stretches are merged with theirs).
+        let shared = |p: u8| {
+            !fixed_busy.get(&p).is_some_and(|fb| mine.iter().any(|&m| fb.meets(m)))
+                && owners.get(&p).is_some_and(|os| {
+                    mine.iter().all(|&(a, b)| {
+                        os.range(..=b).rev().take_while(|(_, (e, _))| *e >= a).all(|(_, (_, o))| copy_of.get(o) == Some(&v))
+                    })
+                })
+        };
+        let mut sharing = false;
+        let free = cands.iter().copied().find(|&p| {
+            if taken.get(&p).is_none_or(|busy| mine.iter().all(|&m| !busy.meets(m))) {
+                return true;
+            }
+            sharing = shared(p);
+            sharing
+        });
         // Else a register whose values in the way are all lighter (and
         // movable), the lightest in all.
         let free = free.map(|p| (p, Vec::new())).or_else(|| {
@@ -602,9 +650,28 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
                 assigned[v as usize] = Some(p);
                 let busy = taken.entry(p).or_default();
                 let os = owners.entry(p).or_default();
-                for &s in mine {
-                    busy.add(s);
-                    os.insert(s.0, (s.1, v));
+                for &(mut a, mut b) in mine {
+                    // (Sharing: the copies' stretches become this value's,
+                    // so that a register's owners stay disjoint, which the
+                    // searches of them rely on.)
+                    if sharing {
+                        let over: Vec<(u32, u32)> = os
+                            .range(..=b)
+                            .rev()
+                            .take_while(|(_, (e, _))| *e >= a)
+                            .map(|(&x, &(e, _))| (x, e))
+                            .collect();
+                        for (x, e) in over {
+                            os.remove(&x);
+                            a = a.min(x);
+                            b = b.max(e);
+                        }
+                    }
+                    busy.add((a, b));
+                    os.insert(a, (b, v));
+                }
+                if sharing {
+                    moved.insert(v);
                 }
             }
             None => spilled.push(v),

@@ -6,32 +6,28 @@ target triple = "aarch64-unknown-linux-gnu"
 
 ; b then a: the arguments arrive in z0 and z1, the other way round.
 define void @st2_swapped(ptr %p, <vscale x 4 x i32> %a, <vscale x 4 x i32> %b) #0 {
-  %t = call <vscale x 4 x i1> @llvm.aarch64.sve.ptrue.nxv4i1(i32 31)
-  call void @llvm.aarch64.sve.st2.nxv4i32(<vscale x 4 x i32> %b, <vscale x 4 x i32> %a, <vscale x 4 x i1> %t, ptr %p)
+  call void @llvm.aarch64.sve.st2.nxv4i32(<vscale x 4 x i32> %b, <vscale x 4 x i32> %a, <vscale x 4 x i1> splat (i1 true), ptr %p)
   ret void
 }
 
 ; One value in both places.
 define void @st2_same(ptr %p, <vscale x 4 x i32> %a) #0 {
-  %t = call <vscale x 4 x i1> @llvm.aarch64.sve.ptrue.nxv4i1(i32 31)
-  call void @llvm.aarch64.sve.st2.nxv4i32(<vscale x 4 x i32> %a, <vscale x 4 x i32> %a, <vscale x 4 x i1> %t, ptr %p)
+  call void @llvm.aarch64.sve.st2.nxv4i32(<vscale x 4 x i32> %a, <vscale x 4 x i32> %a, <vscale x 4 x i1> splat (i1 true), ptr %p)
   ret void
 }
 
 ; Computed members, and a value read again after the list.
 define <vscale x 2 x i64> @st3_mixed(ptr %p, <vscale x 2 x i64> %a, <vscale x 2 x i64> %b, <vscale x 2 x i64> %c) #0 {
-  %t = call <vscale x 2 x i1> @llvm.aarch64.sve.ptrue.nxv2i1(i32 31)
   %s = add <vscale x 2 x i64> %a, %b
-  call void @llvm.aarch64.sve.st3.nxv2i64(<vscale x 2 x i64> %s, <vscale x 2 x i64> %c, <vscale x 2 x i64> %a, <vscale x 2 x i1> %t, ptr %p)
+  call void @llvm.aarch64.sve.st3.nxv2i64(<vscale x 2 x i64> %s, <vscale x 2 x i64> %c, <vscale x 2 x i64> %a, <vscale x 2 x i1> splat (i1 true), ptr %p)
   %r = mul <vscale x 2 x i64> %s, %c
   ret <vscale x 2 x i64> %r
 }
 
 ; Two lists of the same four values, in opposite orders.
 define void @st4_twice(ptr %p, ptr %q, <vscale x 8 x i16> %a, <vscale x 8 x i16> %b, <vscale x 8 x i16> %c, <vscale x 8 x i16> %d) #0 {
-  %t = call <vscale x 8 x i1> @llvm.aarch64.sve.ptrue.nxv8i1(i32 31)
-  call void @llvm.aarch64.sve.st4.nxv8i16(<vscale x 8 x i16> %a, <vscale x 8 x i16> %b, <vscale x 8 x i16> %c, <vscale x 8 x i16> %d, <vscale x 8 x i1> %t, ptr %p)
-  call void @llvm.aarch64.sve.st4.nxv8i16(<vscale x 8 x i16> %d, <vscale x 8 x i16> %c, <vscale x 8 x i16> %b, <vscale x 8 x i16> %a, <vscale x 8 x i1> %t, ptr %q)
+  call void @llvm.aarch64.sve.st4.nxv8i16(<vscale x 8 x i16> %a, <vscale x 8 x i16> %b, <vscale x 8 x i16> %c, <vscale x 8 x i16> %d, <vscale x 8 x i1> splat (i1 true), ptr %p)
+  call void @llvm.aarch64.sve.st4.nxv8i16(<vscale x 8 x i16> %d, <vscale x 8 x i16> %c, <vscale x 8 x i16> %b, <vscale x 8 x i16> %a, <vscale x 8 x i1> splat (i1 true), ptr %q)
   ret void
 }
 
@@ -47,7 +43,6 @@ define <vscale x 16 x i8> @tbl2_both(<vscale x 16 x i8> %a, <vscale x 16 x i8> %
 ; vector length at a time, for n vectors.
 define void @zip_loop(ptr %out, ptr %a, ptr %b, i64 %n) #0 {
 entry:
-  %t = call <vscale x 4 x i1> @llvm.aarch64.sve.ptrue.nxv4i1(i32 31)
   %vl = call i64 @llvm.vscale.i64()
   %step = shl i64 %vl, 4
   %empty = icmp eq i64 %n, 0
@@ -63,7 +58,7 @@ loop:
   %va1 = add <vscale x 4 x i32> %va, splat (i32 1)
   %o2 = shl i64 %off, 1
   %po = getelementptr i8, ptr %out, i64 %o2
-  call void @llvm.aarch64.sve.st2.nxv4i32(<vscale x 4 x i32> %va1, <vscale x 4 x i32> %vb, <vscale x 4 x i1> %t, ptr %po)
+  call void @llvm.aarch64.sve.st2.nxv4i32(<vscale x 4 x i32> %va1, <vscale x 4 x i32> %vb, <vscale x 4 x i1> splat (i1 true), ptr %po)
   %k1 = add i64 %k, 1
   %off1 = add i64 %off, %step
   %more = icmp ult i64 %k1, %n
@@ -76,7 +71,6 @@ done:
 ; Forty values live at once, then stored four at a time: more than the
 ; registers, so some are spilled and loaded back into a list.
 define void @st4_pressure(ptr %p, <vscale x 4 x i32> %x) #0 {
-  %t = call <vscale x 4 x i1> @llvm.aarch64.sve.ptrue.nxv4i1(i32 31)
   %v0 = add <vscale x 4 x i32> %x, splat (i32 1)
   %v1 = mul <vscale x 4 x i32> %v0, %x
   %v2 = add <vscale x 4 x i32> %v1, splat (i32 3)
@@ -128,22 +122,19 @@ define void @st4_pressure(ptr %p, <vscale x 4 x i32> %x) #0 {
   %p7 = getelementptr i8, ptr %p6, i64 %w
   %p8 = getelementptr i8, ptr %p7, i64 %w
   %p9 = getelementptr i8, ptr %p8, i64 %w
-  call void @llvm.aarch64.sve.st4.nxv4i32(<vscale x 4 x i32> %v39, <vscale x 4 x i32> %v0, <vscale x 4 x i32> %v20, <vscale x 4 x i32> %v10, <vscale x 4 x i1> %t, ptr %p)
-  call void @llvm.aarch64.sve.st4.nxv4i32(<vscale x 4 x i32> %v1, <vscale x 4 x i32> %v38, <vscale x 4 x i32> %v11, <vscale x 4 x i32> %v21, <vscale x 4 x i1> %t, ptr %p1)
-  call void @llvm.aarch64.sve.st4.nxv4i32(<vscale x 4 x i32> %v2, <vscale x 4 x i32> %v12, <vscale x 4 x i32> %v37, <vscale x 4 x i32> %v22, <vscale x 4 x i1> %t, ptr %p2)
-  call void @llvm.aarch64.sve.st4.nxv4i32(<vscale x 4 x i32> %v3, <vscale x 4 x i32> %v13, <vscale x 4 x i32> %v23, <vscale x 4 x i32> %v36, <vscale x 4 x i1> %t, ptr %p3)
-  call void @llvm.aarch64.sve.st4.nxv4i32(<vscale x 4 x i32> %v4, <vscale x 4 x i32> %v14, <vscale x 4 x i32> %v24, <vscale x 4 x i32> %v35, <vscale x 4 x i1> %t, ptr %p4)
-  call void @llvm.aarch64.sve.st4.nxv4i32(<vscale x 4 x i32> %v5, <vscale x 4 x i32> %v15, <vscale x 4 x i32> %v25, <vscale x 4 x i32> %v34, <vscale x 4 x i1> %t, ptr %p5)
-  call void @llvm.aarch64.sve.st4.nxv4i32(<vscale x 4 x i32> %v6, <vscale x 4 x i32> %v16, <vscale x 4 x i32> %v26, <vscale x 4 x i32> %v33, <vscale x 4 x i1> %t, ptr %p6)
-  call void @llvm.aarch64.sve.st4.nxv4i32(<vscale x 4 x i32> %v7, <vscale x 4 x i32> %v17, <vscale x 4 x i32> %v27, <vscale x 4 x i32> %v32, <vscale x 4 x i1> %t, ptr %p7)
-  call void @llvm.aarch64.sve.st4.nxv4i32(<vscale x 4 x i32> %v8, <vscale x 4 x i32> %v18, <vscale x 4 x i32> %v28, <vscale x 4 x i32> %v31, <vscale x 4 x i1> %t, ptr %p8)
-  call void @llvm.aarch64.sve.st4.nxv4i32(<vscale x 4 x i32> %v9, <vscale x 4 x i32> %v19, <vscale x 4 x i32> %v29, <vscale x 4 x i32> %v30, <vscale x 4 x i1> %t, ptr %p9)
+  call void @llvm.aarch64.sve.st4.nxv4i32(<vscale x 4 x i32> %v39, <vscale x 4 x i32> %v0, <vscale x 4 x i32> %v20, <vscale x 4 x i32> %v10, <vscale x 4 x i1> splat (i1 true), ptr %p)
+  call void @llvm.aarch64.sve.st4.nxv4i32(<vscale x 4 x i32> %v1, <vscale x 4 x i32> %v38, <vscale x 4 x i32> %v11, <vscale x 4 x i32> %v21, <vscale x 4 x i1> splat (i1 true), ptr %p1)
+  call void @llvm.aarch64.sve.st4.nxv4i32(<vscale x 4 x i32> %v2, <vscale x 4 x i32> %v12, <vscale x 4 x i32> %v37, <vscale x 4 x i32> %v22, <vscale x 4 x i1> splat (i1 true), ptr %p2)
+  call void @llvm.aarch64.sve.st4.nxv4i32(<vscale x 4 x i32> %v3, <vscale x 4 x i32> %v13, <vscale x 4 x i32> %v23, <vscale x 4 x i32> %v36, <vscale x 4 x i1> splat (i1 true), ptr %p3)
+  call void @llvm.aarch64.sve.st4.nxv4i32(<vscale x 4 x i32> %v4, <vscale x 4 x i32> %v14, <vscale x 4 x i32> %v24, <vscale x 4 x i32> %v35, <vscale x 4 x i1> splat (i1 true), ptr %p4)
+  call void @llvm.aarch64.sve.st4.nxv4i32(<vscale x 4 x i32> %v5, <vscale x 4 x i32> %v15, <vscale x 4 x i32> %v25, <vscale x 4 x i32> %v34, <vscale x 4 x i1> splat (i1 true), ptr %p5)
+  call void @llvm.aarch64.sve.st4.nxv4i32(<vscale x 4 x i32> %v6, <vscale x 4 x i32> %v16, <vscale x 4 x i32> %v26, <vscale x 4 x i32> %v33, <vscale x 4 x i1> splat (i1 true), ptr %p6)
+  call void @llvm.aarch64.sve.st4.nxv4i32(<vscale x 4 x i32> %v7, <vscale x 4 x i32> %v17, <vscale x 4 x i32> %v27, <vscale x 4 x i32> %v32, <vscale x 4 x i1> splat (i1 true), ptr %p7)
+  call void @llvm.aarch64.sve.st4.nxv4i32(<vscale x 4 x i32> %v8, <vscale x 4 x i32> %v18, <vscale x 4 x i32> %v28, <vscale x 4 x i32> %v31, <vscale x 4 x i1> splat (i1 true), ptr %p8)
+  call void @llvm.aarch64.sve.st4.nxv4i32(<vscale x 4 x i32> %v9, <vscale x 4 x i32> %v19, <vscale x 4 x i32> %v29, <vscale x 4 x i32> %v30, <vscale x 4 x i1> splat (i1 true), ptr %p9)
   ret void
 }
 
-declare <vscale x 2 x i1> @llvm.aarch64.sve.ptrue.nxv2i1(i32)
-declare <vscale x 4 x i1> @llvm.aarch64.sve.ptrue.nxv4i1(i32)
-declare <vscale x 8 x i1> @llvm.aarch64.sve.ptrue.nxv8i1(i32)
 declare void @llvm.aarch64.sve.st2.nxv4i32(<vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i1>, ptr)
 declare void @llvm.aarch64.sve.st3.nxv2i64(<vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i1>, ptr)
 declare void @llvm.aarch64.sve.st4.nxv8i16(<vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i1>, ptr)

@@ -206,6 +206,7 @@ pub fn compile(d: &Design, top: InstId) -> Result<Netlist, String> {
 
 pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, String> {
     let mut n = Lowering {
+        top: Some(d.instance(top).spec),
         opts: *opts,
         d,
         layouts: HashMap::new(),
@@ -251,6 +252,10 @@ struct Layout {
     objs: HashMap<ObjId, u64>,
     /// How narrow values are stored; the rest are `Lane::W32`.
     lanes: HashMap<ObjId, Lane>,
+    /// Below the top: the ports, as the function's pointer parameters.
+    port_ix: HashMap<ObjId, usize>,
+    /// For each child, what is passed for each of its ports.
+    args: HashMap<InstId, Vec<Arg>>,
     /// The objects kept an element to a slot (docs/design/sv.md section
     /// 8.3); the rest are 32-bit pieces.
     elems: HashMap<ObjId, Elems>,
@@ -261,6 +266,25 @@ struct Layout {
     known: Option<Known>,
 }
 
+/// What a parent passes for a child's port.
+#[derive(Clone, Copy, Debug)]
+enum Arg {
+    /// The parent's own value, connected whole: the child reads and writes
+    /// it where it is, with nothing copied.
+    Alias(ObjId),
+    /// A slot in the parent's state, at this offset, that the parent fills
+    /// before the call (an input) or reads after it (an output).
+    Slot(u64),
+}
+
+/// Where a value is: at an offset in the function's state, or behind one
+/// of its pointer parameters.
+#[derive(Clone, Copy, Debug)]
+enum Base {
+    State(u64),
+    Port(usize),
+}
+
 impl Layout {
     fn new() -> Layout {
         Layout {
@@ -268,6 +292,8 @@ impl Layout {
             statics: HashSet::new(),
             objs: HashMap::new(),
             lanes: HashMap::new(),
+            port_ix: HashMap::new(),
+            args: HashMap::new(),
             elems: HashMap::new(),
             kids: HashMap::new(),
             code: Vec::new(),
@@ -372,6 +398,9 @@ const ROLL_MIN: usize = 4;
 
 struct Lowering<'d, 'a> {
     opts: Options,
+    /// The top specialisation: its ports are in its state; every other
+    /// specialisation's are where its parent passes pointers to.
+    top: Option<SpecId>,
     d: &'d Design<'a>,
     layouts: HashMap<SpecId, Layout>,
     done: HashSet<SpecId>,
@@ -416,25 +445,66 @@ impl<'d, 'a> Lowering<'d, 'a> {
         }
         self.layouts.insert(spec, lay);
         let planes = self.opts.bit_planes;
+        let below_top = self.top != Some(spec);
+        // Below the top, ports are the function's pointer parameters.
+        let port_lanes = |lay: &mut Layout| {
+            for (k, p) in d.spec(spec).ports.iter().enumerate() {
+                if let Some(o) = p.object {
+                    let lane = Lane::of(d.types.width(d.object(o).ty), planes);
+                    if lane != Lane::W32 {
+                        lay.lanes.insert(o, lane);
+                    }
+                    if below_top {
+                        lay.port_ix.insert(o, k);
+                    }
+                }
+            }
+        };
         // A specialisation proved to count zeros keeps only its ports.
         if self.opts.recognise
             && let Some(k) = self.recognise(spec)
         {
             let mut lay = Layout::new();
+            port_lanes(&mut lay);
             for p in &d.spec(spec).ports {
                 let o = p.object.expect("recognised specialisations have plain ports");
-                let w = d.types.width(d.object(o).ty);
                 lay.statics.insert(o);
-                lay.place(o, w, Lane::of(w, planes));
+                if !below_top {
+                    let w = d.types.width(d.object(o).ty);
+                    lay.place(o, w, Lane::of(w, planes));
+                }
             }
             lay.known = Some(k);
             self.layouts.insert(spec, lay);
             return Ok(());
         }
+        let mut lay = self.layouts.remove(&spec).unwrap();
+        port_lanes(&mut lay);
+        // What each child's ports are connected to: the parent's own values
+        // where they are connected whole.
+        let mut args: Vec<(InstId, Vec<Option<ObjId>>)> = Vec::new();
+        for node in &lay.code {
+            if let Node::In(i) = *node {
+                let inst = d.instance(i);
+                let row = d
+                    .spec(inst.spec)
+                    .ports
+                    .iter()
+                    .map(|p| {
+                        let po = p.object?;
+                        let e = inst.connections.iter().find(|c| c.port == p.name)?.expr?;
+                        self.alias_target(&lay, e, po)
+                    })
+                    .collect();
+                args.push((i, row));
+            }
+        }
+        let aliased: HashSet<ObjId> = args.iter().flat_map(|a| a.1.iter().flatten().copied()).collect();
+        self.layouts.insert(spec, lay);
         let local = self.loop_locals(spec)?;
         let mut lay = self.layouts.remove(&spec).unwrap();
         for o in objs {
-            if local.contains(&o) {
+            if local.contains(&o) && !aliased.contains(&o) || lay.port_ix.contains_key(&o) {
                 continue;
             }
             let w = d.types.width(d.object(o).ty);
@@ -446,6 +516,24 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 None => lay.place(o, w, Lane::of(w, planes)),
             }
         }
+        // Slots for the ports not connected to a value whole.
+        for (i, row) in args {
+            let child = d.instance(i).spec;
+            let mut out = Vec::new();
+            for (p, alias) in d.spec(child).ports.iter().zip(row) {
+                out.push(match alias {
+                    Some(o) => Arg::Alias(o),
+                    None => {
+                        let po = p.object.ok_or("interface ports are not supported yet")?;
+                        let w = d.types.width(d.object(po).ty);
+                        let at = lay.size;
+                        lay.size = (lay.size + Lane::of(w, planes).bytes(w)).next_multiple_of(REG);
+                        Arg::Slot(at)
+                    }
+                });
+            }
+            lay.args.insert(i, out);
+        }
         for node in lay.code.clone() {
             if let Node::In(i) = node {
                 lay.kids.insert(i, lay.size);
@@ -454,6 +542,30 @@ impl<'d, 'a> Lowering<'d, 'a> {
         }
         self.layouts.insert(spec, lay);
         Ok(())
+    }
+
+    /// The parent's value a port connection is, whole, if the child can
+    /// use it where it is: a variable, net or port of the same width (any
+    /// conversion between them changing no bits), not kept an element to
+    /// a slot.
+    fn alias_target(&self, lay: &Layout, e: ExprId, port: ObjId) -> Option<ObjId> {
+        let d = self.d;
+        let mut x = d.expr(e);
+        let w = d.types.width(d.object(port).ty);
+        while matches!(x.kind, ExprKind::Convert) && d.types.width(x.ty) == w && d.types.is_integral(d.expr(x.args[0]).ty) {
+            x = d.expr(x.args[0]);
+        }
+        match x.kind {
+            ExprKind::Object(o)
+                if matches!(d.object(o).kind, ObjKind::Variable | ObjKind::Net(_))
+                    && lay.statics.contains(&o)
+                    && !lay.elems.contains_key(&o)
+                    && d.types.width(d.object(o).ty) == w =>
+            {
+                Some(o)
+            }
+            _ => None,
+        }
     }
 
     /// The internal values worked out and used within one loop over the
@@ -1341,7 +1453,14 @@ fn ms(m: M) -> String {
 
 impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     fn new(l: &'l Lowering<'d, 'a>, spec: SpecId) -> Self {
-        let out = format!("define void @{}(ptr %s) {{\nentry:\n", fn_name(spec));
+        let lay = &l.layouts[&spec];
+        let mut params = String::from("ptr %s");
+        for k in 0..l.d.spec(spec).ports.len() {
+            if !lay.port_ix.is_empty() {
+                let _ = write!(params, ", ptr %p{k}");
+            }
+        }
+        let out = format!("define void @{}({params}) {{\nentry:\n", fn_name(spec));
         Func { l, spec, out, next: 0, env: Env::default(), block: "entry".into(), loops: 0, rolled: 0, mem: false, uniform: HashSet::new(), mask_of: HashMap::new(), bits_of: HashMap::new(), in_range: HashSet::new() }
     }
 
@@ -1377,7 +1496,27 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 let child = self.d().instance(i).spec;
                 let t = self.tmp();
                 let _ = writeln!(self.out, "  %t{t} = getelementptr i8, ptr %s, i64 {off}");
-                let _ = writeln!(self.out, "  call void @{}(ptr %t{t})", fn_name(child));
+                let mut args = format!("ptr %t{t}");
+                for a in self.lay().args[&i].clone() {
+                    let p = match a {
+                        Arg::Alias(o) => match self.slot(o) {
+                            Some(Base::Port(k)) => format!("%p{k}"),
+                            Some(Base::State(at)) => {
+                                let t = self.tmp();
+                                let _ = writeln!(self.out, "  %t{t} = getelementptr i8, ptr %s, i64 {at}");
+                                format!("%t{t}")
+                            }
+                            None => unreachable!("an aliased value has a slot"),
+                        },
+                        Arg::Slot(at) => {
+                            let t = self.tmp();
+                            let _ = writeln!(self.out, "  %t{t} = getelementptr i8, ptr %s, i64 {at}");
+                            format!("%t{t}")
+                        }
+                    };
+                    let _ = write!(args, ", ptr {p}");
+                }
+                let _ = writeln!(self.out, "  call void @{}({args})", fn_name(child));
                 seg = vec![n];
             } else {
                 seg.push(n);
@@ -1413,9 +1552,9 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         dirty.sort_unstable_by_key(|o| o.0);
         for o in dirty {
             let v = self.env.vals[&o].clone();
-            let off = self.lay().objs[&o];
+            let base = self.slot(o).expect("a written value with a slot");
             let lane = self.lay().lane(o);
-            self.store(off, lane, &v);
+            self.store(base, lane, &v);
         }
         self.flush_elems(None);
         let _ = writeln!(
@@ -1433,12 +1572,42 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         format!("%b{}", self.loops - 1)
     }
 
-    fn load(&mut self, off: u64, lane: Lane, w: u32) -> Val {
+    /// Where a value of this function is, if it has a place.
+    fn slot(&self, o: ObjId) -> Option<Base> {
+        let lay = self.lay();
+        match lay.port_ix.get(&o) {
+            Some(&k) => Some(Base::Port(k)),
+            None => lay.objs.get(&o).map(|&at| Base::State(at)),
+        }
+    }
+
+    /// For a value behind a pointer parameter, a pointer to this register's
+    /// part of it, as `off` would be from the state; `None` otherwise.
+    fn port_base(&mut self, base: Base, lane: Lane) -> Option<String> {
+        let Base::Port(p) = base else { return None };
         let k = self.loops - 1;
+        let step = match lane {
+            Lane::W32 => "off",
+            Lane::Bit => "half",
+            Lane::B8 => "b8",
+            Lane::B16 => "b16",
+        };
+        let t = self.tmp();
+        let _ = writeln!(self.out, "  %t{t} = getelementptr i8, ptr %p{p}, i64 %c{k}.{step}");
+        Some(format!("%t{t}"))
+    }
+
+    fn load(&mut self, base: Base, lane: Lane, w: u32) -> Val {
+        let k = self.loops - 1;
+        let ptr = self.port_base(base, lane);
+        let off = match base {
+            Base::State(at) => at,
+            Base::Port(_) => 0,
+        };
         let a = self.tmp();
         match lane {
             Lane::W32 => {
-                let base = self.base();
+                let base = ptr.clone().unwrap_or_else(|| self.base());
                 let mut p = Vec::new();
                 for i in 0..pieces(w) as u64 {
                     let (a, v) = (self.tmp(), self.tmp());
@@ -1453,9 +1622,10 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             }
             Lane::Bit => {
                 let (i, m) = (self.tmp(), self.tmp());
+                let h = ptr.clone().unwrap_or_else(|| format!("%h{k}"));
                 let _ = writeln!(
                     self.out,
-                    "  %t{a} = getelementptr i8, ptr %h{k}, i64 {off}\n  %t{i} = load i16, ptr %t{a}, align 2\n  \
+                    "  %t{a} = getelementptr i8, ptr {h}, i64 {off}\n  %t{i} = load i16, ptr %t{a}, align 2\n  \
                      %t{m} = bitcast i16 %t{i} to {M16}"
                 );
                 self.bits_of.insert(m, i);
@@ -1463,6 +1633,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             }
             Lane::B8 | Lane::B16 => {
                 let (base, ty, align) = if lane == Lane::B8 { (format!("%q{k}"), "<16 x i8>", 16) } else { (format!("%w{k}"), "<16 x i16>", 32) };
+                let base = ptr.clone().unwrap_or(base);
                 let (v, z) = (self.tmp(), self.tmp());
                 let _ = writeln!(
                     self.out,
@@ -1474,11 +1645,16 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         }
     }
 
-    fn store(&mut self, off: u64, lane: Lane, v: &Val) {
+    fn store(&mut self, base: Base, lane: Lane, v: &Val) {
         let k = self.loops - 1;
+        let ptr = self.port_base(base, lane);
+        let off = match base {
+            Base::State(at) => at,
+            Base::Port(_) => 0,
+        };
         match lane {
             Lane::W32 => {
-                let base = self.base();
+                let base = ptr.clone().unwrap_or_else(|| self.base());
                 for (i, &p) in v.p.iter().enumerate() {
                     let a = self.tmp();
                     let _ = writeln!(
@@ -1503,10 +1679,12 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     },
                 };
                 let a = self.tmp();
-                let _ = writeln!(self.out, "  %t{a} = getelementptr i8, ptr %h{k}, i64 {off}\n  store i16 {bits}, ptr %t{a}, align 2");
+                let h = ptr.clone().unwrap_or_else(|| format!("%h{k}"));
+                let _ = writeln!(self.out, "  %t{a} = getelementptr i8, ptr {h}, i64 {off}\n  store i16 {bits}, ptr %t{a}, align 2");
             }
             Lane::B8 | Lane::B16 => {
                 let (base, ty, align) = if lane == Lane::B8 { (format!("%q{k}"), "<16 x i8>", 16) } else { (format!("%w{k}"), "<16 x i16>", 32) };
+                let base = ptr.clone().unwrap_or(base);
                 let (a, t) = (self.tmp(), self.tmp());
                 let _ = writeln!(
                     self.out,
@@ -1537,40 +1715,36 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             Node::In(i) => {
                 let inst = d.instance(i);
                 let child = &self.l.layouts[&inst.spec];
-                let off = self.lay().kids[&i];
-                for port in &d.spec(inst.spec).ports {
-                    if port.dir != Dir::Input {
-                        continue;
-                    }
+                let args = self.lay().args[&i].clone();
+                for (port, arg) in d.spec(inst.spec).ports.iter().zip(args) {
+                    // Values connected whole are where the child reads them;
+                    // an unconnected input's slot stays zero.
+                    let (Dir::Input, Arg::Slot(at)) = (port.dir, arg) else { continue };
+                    let Some(e) = inst.connections.iter().find(|c| c.port == port.name).and_then(|c| c.expr) else { continue };
                     let o = port.object.ok_or("interface ports are not supported yet")?;
                     let w = d.types.width(d.object(o).ty);
-                    let v = match inst.connections.iter().find(|c| c.port == port.name).and_then(|c| c.expr) {
-                        Some(e) => {
-                            let v = self.expr(e)?;
-                            self.resize(&v, w, false)
-                        }
-                        None => Val::zero(w),
-                    };
-                    self.store(off + child.objs[&o], child.lane(o), &v);
+                    let v = self.expr(e)?;
+                    let v = self.resize(&v, w, false);
+                    self.store(Base::State(at), child.lane(o), &v);
                 }
                 Ok(())
             }
             Node::Call(i) => {
                 let inst = d.instance(i);
                 let child = &self.l.layouts[&inst.spec];
-                let off = self.lay().kids[&i];
-                for c in &inst.connections {
-                    let Some(port) = d.spec(inst.spec).ports.iter().find(|p| p.name == c.port) else { continue };
-                    match (port.dir, c.expr) {
-                        (Dir::Output, Some(e)) => {
+                let args = self.lay().args[&i].clone();
+                for (port, arg) in d.spec(inst.spec).ports.iter().zip(args) {
+                    match (port.dir, arg) {
+                        (Dir::Output, Arg::Slot(at)) => {
+                            let Some(e) = inst.connections.iter().find(|c| c.port == port.name).and_then(|c| c.expr) else { continue };
                             let o = port.object.ok_or("interface ports are not supported yet")?;
                             let ty = d.object(o).ty;
-                            let v = self.load(off + child.objs[&o], child.lane(o), d.types.width(ty));
+                            let v = self.load(Base::State(at), child.lane(o), d.types.width(ty));
                             let w = d.types.width(d.expr(e).ty);
                             let v = self.resize(&v, w, d.types.is_signed(ty));
                             self.assign(e, v)?;
                         }
-                        (Dir::Input, _) | (Dir::Output, None) => {}
+                        (Dir::Input | Dir::Output, _) => {}
                         (dir, _) => return Err(format!("{dir:?} ports are not supported yet")),
                     }
                 }
@@ -2117,10 +2291,10 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         }
         let d = self.d();
         let w = d.types.width(d.object(o).ty);
-        let v = match self.lay().objs.get(&o) {
-            Some(&off) => {
+        let v = match self.slot(o) {
+            Some(base) => {
                 let lane = self.lay().lane(o);
-                self.load(off, lane, w)
+                self.load(base, lane, w)
             }
             None => Val::zero(w),
         };
@@ -2136,10 +2310,10 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             }
             return;
         }
-        if let Some(&off) = self.lay().objs.get(&o) {
+        if let Some(base) = self.slot(o) {
             if self.mem {
                 let lane = self.lay().lane(o);
-                self.store(off, lane, &v);
+                self.store(base, lane, &v);
             } else {
                 self.env.dirty.insert(o);
             }

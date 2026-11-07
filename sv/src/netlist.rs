@@ -257,11 +257,14 @@ pub struct Options {
     /// Specialisations proved to count zeros of their input (`recognise`)
     /// become that count, `llvm.ctlz` on lanes, not their own logic.
     pub recognise: bool,
+    /// Costly arms run only where some lane of a register takes them
+    /// ([`GUARD_MIN`]); otherwise every arm runs and selects merge them.
+    pub guards: bool,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { bit_planes: true, recognise: true }
+        Options { bit_planes: true, recognise: true, guards: true }
     }
 }
 
@@ -515,6 +518,14 @@ struct Rolled {
 
 /// Fewest iterations worth a loop.
 const ROLL_MIN: usize = 4;
+/// Fewest instructions, for one register of lanes, of an arm of an `if` or
+/// `case` (or a clocked process's body) worth a branch around it, taken only
+/// when some lane needs the arm. The test is a few instructions (the mask's
+/// bits, a compare, a branch: kortestw and jz with AVX-512) and a branch
+/// mispredicted now and then, some 15 to 20 cycles; an arm of 64 vector
+/// instructions costs some 30 to 60, so below this the selects are cheaper
+/// on average even where the arm is skipped half the time.
+pub const GUARD_MIN: usize = 64;
 /// Most expression nodes, over all iterations, of a run of iterations
 /// left unrolled: each iteration of a rolled loop is a pass over the
 /// group's state, which costs more than a small body written out (a loop
@@ -1910,6 +1921,10 @@ struct Func<'l, 'd, 'a> {
     zeros: HashMap<u32, u32>,
     /// Temporaries that are 0 or 1 a lane, bit `j` of a piece.
     bit_of: HashMap<u32, (P, u32)>,
+    /// Blocks written for arms run only where some lane needs them.
+    guards: u32,
+    /// Lowering an arm only to see its size: no arm within it is guarded.
+    trial: bool,
     /// Running clocked processes: nonblocking assignments are allowed.
     ff: bool,
 }
@@ -1941,7 +1956,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             }
         }
         let out = format!("define void @{}({params}) {{\nentry:\n", fn_name(spec));
-        Func { l, spec, out, next: 0, env: Env::default(), block: "entry".into(), loops: 0, rolled: 0, mem: false, uniform: HashSet::new(), mask_of: HashMap::new(), bits_of: HashMap::new(), in_range: HashSet::new(), calls: Vec::new(), ff: false, zeros: HashMap::new(), bit_of: HashMap::new() }
+        Func { l, spec, out, next: 0, env: Env::default(), block: "entry".into(), loops: 0, rolled: 0, mem: false, uniform: HashSet::new(), mask_of: HashMap::new(), bits_of: HashMap::new(), in_range: HashSet::new(), calls: Vec::new(), ff: false, zeros: HashMap::new(), bit_of: HashMap::new(), guards: 0, trial: false }
     }
 
     fn finish(mut self) -> String {
@@ -2327,15 +2342,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             StmtKind::If { cond, then, else_, .. } => {
                 let c = self.expr(*cond)?;
                 let m = self.truth(&c);
-                let (then, else_) = (*then, *else_);
-                self.branch(
-                    m,
-                    |f| f.stmt(then),
-                    |f| match else_ {
-                        Some(e) => f.stmt(e),
-                        None => Ok(()),
-                    },
-                )
+                self.cond(m, *then, *else_)
             }
             StmtKind::Case { kind, expr, items, default, .. } => {
                 let sel = self.expr(*expr)?;
@@ -2422,7 +2429,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     /// How many times a counted loop runs, from its condition and steps
     /// with the values it starts with, which must be constants.
     fn trip_count(&mut self, cond: Option<ExprId>, step: &[StmtId]) -> Result<u32, String> {
-        let saved = (self.env.clone(), self.out.len(), self.next);
+        let saved = (self.env.clone(), self.out.len(), self.next, self.block.clone());
         let tables = (self.mask_of.clone(), self.bits_of.clone(), self.uniform.clone(), self.zeros.clone(), self.bit_of.clone());
         let mut n = 0u32;
         let r = loop {
@@ -2445,6 +2452,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             n += 1;
         };
         // Nothing of the trial run stays.
+        debug_assert_eq!(self.block, saved.3);
         self.env = saved.0;
         self.out.truncate(saved.1);
         self.next = saved.2;
@@ -2458,8 +2466,230 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 Some(s) => self.stmt(s),
                 None => Ok(()),
             },
-            Some((&(m, body), rest)) => self.branch(m, |f| f.stmt(body), |f| f.case_chain(rest, default)),
+            Some((&(m, body), rest)) => {
+                let guard = self.worth_guarding(m, body);
+                self.branch_guarded(m, body, guard, |f| f.case_chain(rest, default), None)
+            }
         }
+    }
+
+    /// An `if`: as [`Func::branch`], but an arm much bigger than the test of
+    /// whether any lane takes it is run only where one does.
+    fn cond(&mut self, m: M, then: StmtId, else_: Option<StmtId>) -> Result<(), String> {
+        let gt = self.worth_guarding(m, then);
+        let ge = match else_ {
+            Some(e) => {
+                let nm = self.mnot(m);
+                self.worth_guarding(nm, e).then_some(e)
+            }
+            None => None,
+        };
+        self.branch_guarded(
+            m,
+            then,
+            gt,
+            |f| match else_ {
+                Some(e) => f.stmt(e),
+                None => Ok(()),
+            },
+            ge,
+        )
+    }
+
+    /// Whether the arm `s`, taken where `m` holds, is worth a branch around
+    /// it (see [`GUARD_MIN`]).
+    fn worth_guarding(&mut self, m: M, s: StmtId) -> bool {
+        if matches!(m, M::K(_)) || self.trial || self.mem || !self.l.opts.guards {
+            return false;
+        }
+        self.cost(|f| f.stmt(s)) >= GUARD_MIN
+    }
+
+    /// How many instructions `f` writes, written and then taken back.
+    fn cost(&mut self, f: impl FnOnce(&mut Self) -> Result<(), String>) -> usize {
+        let saved = (self.env.clone(), self.out.len(), self.next, self.block.clone(), self.guards);
+        let tables = (self.mask_of.clone(), self.bits_of.clone(), self.uniform.clone(), self.zeros.clone(), self.bit_of.clone());
+        let was = std::mem::replace(&mut self.trial, true);
+        let ok = f(self).is_ok();
+        let n = self.out[saved.1..].lines().filter(|l| l.starts_with("  %") || l.starts_with("  store") || l.starts_with("  call")).count();
+        self.trial = was;
+        self.out.truncate(saved.1);
+        (self.env, _, self.next, self.block, self.guards) = saved;
+        (self.mask_of, self.bits_of, self.uniform, self.zeros, self.bit_of) = tables;
+        // (Something it cannot lower fails again when lowered for real.)
+        if ok { n } else { 0 }
+    }
+
+    /// [`Func::branch`] with `then` in a block of its own where `gt`, run
+    /// only where some lane takes it, and the other arm likewise where it is
+    /// `ge`, a statement. Each value either changes is joined after the block
+    /// with a phi of its new value and the one it had.
+    fn branch_guarded(
+        &mut self,
+        m: M,
+        then: StmtId,
+        gt: bool,
+        else_: impl FnOnce(&mut Self) -> Result<(), String>,
+        ge: Option<StmtId>,
+    ) -> Result<(), String> {
+        if !gt && ge.is_none() {
+            return self.branch(m, |f| f.stmt(then), else_);
+        }
+        let before = self.env.clone();
+        // The other arm first, as `b`, guarded on its own lanes if costly.
+        match ge {
+            Some(e) => {
+                let nm = self.mnot(m);
+                self.guard(nm, e, |f| f.stmt(e))?;
+            }
+            None => else_(self)?,
+        }
+        if !gt {
+            let b = std::mem::replace(&mut self.env, before);
+            (self.env.loaded, self.env.eloaded) = (b.loaded.clone(), b.eloaded.clone());
+            return self.run_then_merge(m, then, b);
+        }
+        let mut b = self.env.clone();
+        // In the block: `then` from the values before both arms (with what
+        // has been loaded since), then the selects between it and `b`.
+        self.guard(m, then, |f| {
+            b.loaded = f.env.loaded.clone();
+            b.eloaded = f.env.eloaded.clone();
+            let mut start = before.clone();
+            (start.loaded, start.eloaded) = (b.loaded.clone(), b.eloaded.clone());
+            f.env = start;
+            f.run_then_merge(m, then, b)
+        })
+    }
+
+    /// `then` on the current values, then each value it or `b` changed
+    /// selected by `m` (as the end of [`Func::branch`]).
+    fn run_then_merge(&mut self, m: M, then: StmtId, mut b: Env) -> Result<(), String> {
+        let before = self.env.clone();
+        self.stmt(then)?;
+        let mut a = std::mem::replace(&mut self.env, before);
+        (self.env.loaded, self.env.eloaded) = (std::mem::take(&mut a.loaded), std::mem::take(&mut a.eloaded));
+        for (o, v) in std::mem::take(&mut b.loaded) {
+            self.env.loaded.entry(o).or_insert(v);
+        }
+        for (k, v) in std::mem::take(&mut b.eloaded) {
+            self.env.eloaded.entry(k).or_insert(v);
+        }
+        self.merge(m, a, b);
+        Ok(())
+    }
+
+    /// Runs `body` in a block of its own, entered only where some lane of
+    /// `c` is set, on the current values; `s`, the statement it lowers, says
+    /// what it may write, each loaded first so that the way around has it.
+    fn guard(&mut self, c: M, s: StmtId, body: impl FnOnce(&mut Self) -> Result<(), String>) -> Result<(), String> {
+        let M::V(n) = c else { unreachable!("a constant condition is not guarded") };
+        let (mut r, mut w) = (Vec::new(), Vec::new());
+        self.l.stmt_access(s, &mut r, &mut w, &mut Vec::new());
+        let mut objs: Vec<ObjId> = w.into_iter().map(|t| t.0).collect();
+        objs.sort_unstable_by_key(|o| o.0);
+        objs.dedup();
+        for o in objs {
+            if self.slot(o).is_some() || self.lay().elems.contains_key(&o) {
+                self.read(o);
+            }
+        }
+        let bits = match self.bits_of.get(&n) {
+            Some(&i) => format!("%t{i}"),
+            None => {
+                let t = self.tmp();
+                let _ = writeln!(self.out, "  %t{t} = bitcast {M16} %t{n} to i16");
+                format!("%t{t}")
+            }
+        };
+        let k = self.guards;
+        self.guards += 1;
+        let skip = self.env.clone();
+        let from = std::mem::replace(&mut self.block, format!("G{k}"));
+        let _ = writeln!(self.out, "  %g{k} = icmp ne i16 {bits}, 0\n  br i1 %g{k}, label %G{k}, label %J{k}\nG{k}:");
+        body(self)?;
+        let taken = std::mem::take(&mut self.env);
+        let at = std::mem::replace(&mut self.block, format!("J{k}"));
+        let _ = writeln!(self.out, "  br label %J{k}\nJ{k}:");
+        self.env = self.join(skip, &from, taken, &at)?;
+        Ok(())
+    }
+
+    /// The values after a guarded block: those it changed are phis of their
+    /// values from it (`at`) and from around it (`from`).
+    fn join(&mut self, skip: Env, from: &str, taken: Env, at: &str) -> Result<Env, String> {
+        let d = self.d();
+        let mut out = skip.clone();
+        out.dirty.extend(taken.dirty.iter().copied());
+        out.edirty.extend(taken.edirty.iter().copied());
+        let around = |f: &mut Self, o: ObjId| -> Result<Val, String> {
+            match skip.vals.get(&o).or(skip.loaded.get(&o)) {
+                Some(v) => Ok(v.clone()),
+                None if f.slot(o).is_none() => Ok(Val::zero(tw(&d.types, d.object(o).ty))),
+                None => Err(format!("{} is not loaded before a guarded block", d.name(d.object(o).name))),
+            }
+        };
+        let mut keys: Vec<ObjId> = taken.vals.keys().copied().collect();
+        keys.sort_unstable_by_key(|o| o.0);
+        for o in keys {
+            let (vt, vs) = (taken.vals[&o].clone(), around(self, o)?);
+            let v = self.phi(&vt, at, &vs, from);
+            out.vals.insert(o, v);
+        }
+        let mut keys: Vec<(ObjId, u32)> = taken.elems.keys().copied().collect();
+        keys.sort_unstable_by_key(|k| (k.0.0, k.1));
+        for k in keys {
+            let vs = skip.elems.get(&k).or(skip.eloaded.get(&k)).cloned().ok_or("an element not loaded before a guarded block")?;
+            let v = self.phi(&taken.elems[&k].clone(), at, &vs, from);
+            out.elems.insert(k, v);
+        }
+        let mut keys: Vec<ObjId> = taken.nba.keys().copied().collect();
+        keys.sort_unstable_by_key(|o| o.0);
+        for o in keys {
+            let vs = match skip.nba.get(&o) {
+                Some(v) => v.clone(),
+                None => around(self, o)?,
+            };
+            let v = self.phi(&taken.nba[&o].clone(), at, &vs, from);
+            out.nba.insert(o, v);
+        }
+        let stop = |f: &mut Self, t: Option<M>, s: Option<M>| match (t, s) {
+            (t, s) if t == s => t,
+            (t, s) => Some(f.mphi(t.unwrap_or(M::K(false)), at, s.unwrap_or(M::K(false)), from)),
+        };
+        out.brk = stop(self, taken.brk, skip.brk);
+        out.ret = stop(self, taken.ret, skip.ret);
+        Ok(out)
+    }
+
+    fn phi(&mut self, a: &Val, at: &str, b: &Val, from: &str) -> Val {
+        let p = a
+            .p
+            .iter()
+            .zip(&b.p)
+            .map(|(&x, &y)| {
+                if x == y {
+                    return x;
+                }
+                let t = self.tmp();
+                let _ = writeln!(self.out, "  %t{t} = phi {V16} [ {}, %{at} ], [ {}, %{from} ]", ps(x), ps(y));
+                let z = self.kz(x) & self.kz(y);
+                if z != 0 {
+                    self.zeros.insert(t, z);
+                }
+                P::V(t)
+            })
+            .collect();
+        Val { w: a.w, p }
+    }
+
+    fn mphi(&mut self, a: M, at: &str, b: M, from: &str) -> M {
+        if a == b {
+            return a;
+        }
+        let t = self.tmp();
+        let _ = writeln!(self.out, "  %t{t} = phi {M16} [ {}, %{at} ], [ {}, %{from} ]", ms(a), ms(b));
+        M::V(t)
     }
 
     /// Whether a case item matches, with `casez` and `casex` don't-cares in
@@ -2556,6 +2786,13 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         else_(self)?;
         let mut b = std::mem::replace(&mut self.env, before);
         (self.env.loaded, self.env.eloaded) = (std::mem::take(&mut b.loaded), std::mem::take(&mut b.eloaded));
+        self.merge(m, a, b);
+        Ok(())
+    }
+
+    /// The values after arms `a` (where `m`) and `b`, on the values before
+    /// them: a select of each that differs.
+    fn merge(&mut self, m: M, a: Env, b: Env) {
         let mut keys: Vec<ObjId> = a.vals.keys().chain(b.vals.keys()).copied().collect();
         keys.sort_unstable_by_key(|o| o.0);
         keys.dedup();
@@ -2602,7 +2839,6 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         }
         self.env.brk = self.merge_stop(m, a.brk, b.brk);
         self.env.ret = self.merge_stop(m, a.ret, b.ret);
-        Ok(())
     }
 
     /// A nonblocking assignment: the register's next value.
@@ -2774,7 +3010,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         }
         self.ff = true;
         for (fire, body) in runs {
-            self.branch(fire, |f| f.stmt(body), |_| Ok(()))?;
+            self.cond(fire, body, None)?;
             self.env.vals.retain(|o, _| d.object(*o).lifetime == Lifetime::Static);
         }
         self.ff = false;

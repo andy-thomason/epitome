@@ -9,7 +9,6 @@
 mod common;
 
 use std::path::PathBuf;
-use std::time::Instant;
 
 use common::*;
 use epitome_sv::netlist::GROUP;
@@ -25,27 +24,6 @@ fn setup() -> Option<(PathBuf, (epitome_codegen::target::Target, &'static str, V
         return None;
     };
     Some((cva6, host))
-}
-
-/// The netlist's time an instance a cycle (two evaluations with a clock).
-fn time_netlist(b: &Built, clock: Option<&str>, iters: usize) -> f64 {
-    let st = State::new(b.net.size);
-    let clk = clock.map(|c| b.net.port(c).unwrap().clone());
-    let t0 = Instant::now();
-    for _ in 0..iters {
-        match &clk {
-            Some(f) => {
-                for level in [0, 1] {
-                    for r in 0..GROUP / 16 {
-                        unsafe { (st.ptr.add(f.offset + 2 * r) as *mut u16).write(if level == 1 { !0 } else { 0 }) };
-                    }
-                    unsafe { (b.eval)(std::hint::black_box(st.ptr)) };
-                }
-            }
-            None => unsafe { (b.eval)(std::hint::black_box(st.ptr)) },
-        }
-    }
-    t0.elapsed().as_secs_f64() * 1e9 / (iters * GROUP) as f64
 }
 
 const ALU_TOP: &str = r#"
@@ -115,7 +93,7 @@ fn cva6_alu() {
         stim.extend([op as u32, a as u32, (a >> 32) as u32, bb as u32, (bb >> 32) as u32]);
     }
     check_against(&b, &v, 1, n, &stim, &|w| format!("op {} a {:x} b {:x}", w[0], w[1] as u64 | (w[2] as u64) << 32, w[3] as u64 | (w[4] as u64) << 32));
-    let ns = time_netlist(&b, None, 2000);
+    let ns = time_replay(&b, &v, 1, n, &stim, 100);
     eprintln!("alu: {n} instances agree with Verilator; {ns:.2} ns an instance; Verilator {}", v.bench(1, n, &stim, 200));
 }
 
@@ -266,7 +244,7 @@ fn cva6_exec() {
         stim.extend(w2(predicted));
     }
     check_against(&b, &v, 1, n, &stim, &|w| format!("{w:x?}"));
-    let ns = time_netlist(&b, None, 2000);
+    let ns = time_replay(&b, &v, 1, n, &stim, 100);
     eprintln!("exec: {n} instances agree with Verilator; {ns:.2} ns an instance; Verilator {}", v.bench(1, n, &stim, 200));
 }
 
@@ -309,8 +287,19 @@ fn cva6_decoder() {
     let mut rng = Rng(0xDEC0_DE00_1234_5678);
     let stim = stimulus(&v, 1, n, &mut rng, &mut |name, _, rng| decoder_pick(name, rng));
     check_against(&b, &v, 1, n, &stim, &|w| format!("{w:x?}"));
-    let ns = time_netlist(&b, None, 1000);
+    let ns = time_replay(&b, &v, 1, n, &stim, 100);
     eprintln!("decoder: {n} instances agree with Verilator; {ns:.2} ns an instance; Verilator {}", v.bench(1, n, &stim, 100));
+    // As a program's mix, where most arms are taken by no lane.
+    let typ = stimulus(&v, 1, n, &mut rng, &mut |name, _, rng| match name {
+        "instruction_i" => Some(rv_instruction_typical(rng) as u64),
+        "is_compressed_i" | "is_illegal_i" | "debug_req_i" | "debug_mode_i" => Some(0),
+        "ex_i" => Some(0),
+        "irq_i" => Some(0),
+        _ => None,
+    });
+    check_against(&b, &v, 1, n, &typ, &|w| format!("{w:x?}"));
+    let ns = time_replay(&b, &v, 1, n, &typ, 100);
+    eprintln!("decoder, typical: {ns:.2} ns an instance; Verilator {}", v.bench(1, n, &typ, 100));
 }
 
 #[test]
@@ -328,7 +317,7 @@ fn cva6_compressed_decoder() {
         Some(if x % 8 == 0 { x | 3 } else if x & 3 == 3 { x & !1 } else { x })
     });
     check_against(&b, &v, 1, n, &stim, &|w| format!("{w:x?}"));
-    let ns = time_netlist(&b, None, 1000);
+    let ns = time_replay(&b, &v, 1, n, &stim, 100);
     eprintln!("cdec: {n} instances agree with Verilator; {ns:.2} ns an instance; Verilator {}", v.bench(1, n, &stim, 100));
 }
 
@@ -414,8 +403,20 @@ fn cva6_serdiv() {
         _ => None,
     });
     check_against(&b, &v, cycles, n, &stim, &|w| format!("{w:x?}"));
-    let ns = time_netlist(&b, Some("clk_i"), 200);
+    let ns = time_replay(&b, &v, cycles, n, &stim, 3);
     eprintln!("serdiv: {n} instances, {cycles} cycles agree with Verilator; {ns:.2} ns an instance a cycle; Verilator {}", v.bench(cycles, n, &stim, 3));
+    // A division now and then, results taken at once.
+    let typ = stimulus(&v, cycles, n, &mut rng, &mut |name, c, rng| match name {
+        "rst_ni" => Some((c > 0) as u64),
+        "flush_i" => Some(0),
+        "in_vld_i" => Some((rng.next() % 64 == 0) as u64),
+        "out_rdy_i" => Some(1),
+        "op_a_i" | "op_b_i" => Some(operand(rng)),
+        _ => None,
+    });
+    check_against(&b, &v, cycles, n, &typ, &|w| format!("{w:x?}"));
+    let ns = time_replay(&b, &v, cycles, n, &typ, 3);
+    eprintln!("serdiv, typical: {ns:.2} ns an instance a cycle; Verilator {}", v.bench(cycles, n, &typ, 3));
 }
 
 /// For looking into a mismatch: `NETLIST_ADHOC=top[,clock]` and
@@ -478,8 +479,24 @@ fn cva6_id_stage() {
         _ => {}
     });
     check_against(&b, &v, cycles, n, &stim, &|w| format!("{w:x?}"));
-    let ns = time_netlist(&b, Some("clk_i"), 200);
+    let ns = time_replay(&b, &v, cycles, n, &stim, 3);
     eprintln!("id_stage: {n} instances, {cycles} cycles agree with Verilator; {ns:.2} ns an instance a cycle; Verilator {}", v.bench(cycles, n, &stim, 3));
+    // A program's mix, uncompressed, with no flushes, debug or exceptions.
+    let typ = stimulus_with(&v, cycles, n, &mut rng, &mut |name, c, rng, w| match name {
+        "rst_ni" => w[0] = (c > 0) as u32,
+        "flush_i" | "debug_req_i" | "debug_mode_i" => w[0] = 0,
+        "fetch_entry_valid_i" | "issue_instr_ack_i" | "compressed_ready_i" => w[0] = (rng.next() % 8 != 0) as u32,
+        "irq_i" => w[0] = 0,
+        "priv_lvl_i" => w[0] = 0,
+        "fetch_entry_i" => {
+            set_bits(w, ex + 68, 32, rv_instruction_typical(rng) as u64);
+            set_bits(w, 0, ex, 0);
+        }
+        _ => {}
+    });
+    check_against(&b, &v, cycles, n, &typ, &|w| format!("{w:x?}"));
+    let ns = time_replay(&b, &v, cycles, n, &typ, 3);
+    eprintln!("id_stage, typical: {ns:.2} ns an instance a cycle; Verilator {}", v.bench(cycles, n, &typ, 3));
 }
 
 #[test]
@@ -506,6 +523,103 @@ fn cva6_mult() {
         _ => None,
     });
     check_against(&b, &v, cycles, n, &stim, &|w| format!("{w:x?}"));
-    let ns = time_netlist(&b, Some("clk_i"), 200);
+    let ns = time_replay(&b, &v, cycles, n, &stim, 3);
     eprintln!("mult: {n} instances, {cycles} cycles agree with Verilator; {ns:.2} ns an instance a cycle; Verilator {}", v.bench(cycles, n, &stim, 3));
+    // A request now and then, mostly MUL, divisions rare.
+    let typ = stimulus(&v, cycles, n, &mut rng, &mut |name, c, rng| match name {
+        "rst_ni" => Some((c > 0) as u64),
+        "flush_i" => Some(0),
+        "mult_valid_i" => Some((rng.next() % 16 == 0) as u64),
+        "operation_i" => Some(if rng.next() % 32 == 0 { 92 + rng.next() % 8 } else { 87 }),
+        "a_i" | "b_i" => Some(operand(rng)),
+        _ => None,
+    });
+    check_against(&b, &v, cycles, n, &typ, &|w| format!("{w:x?}"));
+    let ns = time_replay(&b, &v, cycles, n, &typ, 3);
+    eprintln!("mult, typical: {ns:.2} ns an instance a cycle; Verilator {}", v.bench(cycles, n, &typ, 3));
+}
+
+const GUARDED: &str = r#"
+// Costly arms, each run only where some lane of a register of lanes takes
+// it: if and else-if arms, case arms, a costly part of a function (with a
+// return in a loop) under an if, and a register with an enable.
+module guarded_top (
+    input logic clk_i, input logic rst_ni,
+    input logic [1:0] sel_i, input logic en_i,
+    input logic [63:0] a_i, input logic [63:0] b_i,
+    output logic [63:0] comb_o, output logic [63:0] case_o,
+    output logic [63:0] acc_o, output logic [7:0] cnt_o, output logic [7:0] first_o
+);
+  function automatic logic [63:0] mix(input logic [63:0] x, input logic [63:0] y);
+    logic [63:0] r;
+    r = x;
+    for (int i = 0; i < 4; i++) r = (r * y) ^ {r[31:0], r[63:32]} ^ (r >> 7);
+    return r;
+  endfunction
+  function automatic logic [7:0] first_set(input logic [63:0] x, input logic go);
+    first_set = 8'hff;
+    if (go) begin
+      for (int i = 0; i < 64; i++) if (x[i]) return i[7:0];
+      return 8'd64;
+    end
+  endfunction
+  always_comb begin
+    comb_o = a_i ^ b_i;
+    if (sel_i[0]) comb_o = mix(a_i, b_i);
+    else if (sel_i[1]) comb_o = mix(b_i, a_i) + 64'd1;
+  end
+  always_comb begin
+    case (sel_i)
+      2'd0: case_o = a_i;
+      2'd1: case_o = mix(a_i, ~b_i);
+      2'd2: case_o = b_i - a_i;
+      default: case_o = mix(~a_i, b_i) ^ 64'h5a5a;
+    endcase
+  end
+  assign first_o = first_set(a_i & b_i, sel_i == 2'd3);
+  always_ff @(posedge clk_i or negedge rst_ni)
+    if (!rst_ni) begin
+      acc_o <= '0;
+      cnt_o <= '0;
+    end else if (en_i) begin
+      acc_o <= mix(acc_o ^ a_i, b_i | 64'd1);
+      cnt_o <= cnt_o + 8'd1;
+    end
+endmodule
+"#;
+
+/// The guards (`netlist::GUARD_MIN`): registers of lanes where no lane, every
+/// lane, one lane in sixteen and lanes at random take the costly arms.
+#[test]
+fn guarded_arms() {
+    let Some((_, (t, triple, mattr))) = setup() else { return };
+    let src = tmp_dir().join("guarded_top.sv");
+    std::fs::write(&src, GUARDED).unwrap();
+    let files = vec![src];
+    let b = build("guarded", netlist_of(files.clone(), Vec::new(), "guarded_top"), &t, triple, &mattr);
+    report("guarded", &b);
+    let Some(v) = verilate("guarded", &files, &[], "guarded_top", &b.net.ports, Some("clk_i")) else { return };
+    let (cycles, n) = (24, 2 * GROUP);
+    let mut rng = Rng(0x6A2D_ED00_0000_0001);
+    // Each register of 16 lanes: none, all, one, or some, changing with the
+    // cycle so that a register goes from one to another.
+    let stim = stimulus_at(&v, cycles, n, &mut rng, &mut |name, c, i, rng, w| {
+        let lane = i % 16;
+        let takes = match (i / 16 + c / 6) % 4 {
+            0 => false,
+            1 => true,
+            2 => lane == c % 16,
+            _ => rng.next() % 2 == 0,
+        };
+        match name {
+            "rst_ni" => w[0] = (c > 0) as u32,
+            "sel_i" => w[0] = if takes { 1 + (rng.next() % 3) as u32 } else { 0 },
+            "en_i" => w[0] = takes as u32,
+            _ => {}
+        }
+    });
+    check_against(&b, &v, cycles, n, &stim, &|w| format!("{w:x?}"));
+    assert!(b.net.ir.matches("br i1 %g").count() >= 4, "the costly arms are not guarded");
+    let ns = time_replay(&b, &v, cycles, n, &stim, 3);
+    eprintln!("guarded: {n} instances, {cycles} cycles agree with Verilator; {ns:.2} ns an instance a cycle; Verilator {}", v.bench(cycles, n, &stim, 3));
 }

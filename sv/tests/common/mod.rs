@@ -46,7 +46,8 @@ pub fn netlist_options() -> netlist::Options {
     let x86_without_masks =
         cfg!(target_arch = "x86_64") && !std::env::var("NETLIST_MATTR").is_ok_and(|m| m.contains("avx512f"));
     let recognise = std::env::var("NETLIST_RECOGNISE").map_or(true, |v| v != "0");
-    netlist::Options { bit_planes: !x86_without_masks, recognise }
+    let guards = std::env::var("NETLIST_GUARDS").map_or(true, |v| v != "0");
+    netlist::Options { bit_planes: !x86_without_masks, recognise, guards }
 }
 
 /// Elaborates `files` with `top` and compiles its netlist, on a thread with
@@ -491,14 +492,20 @@ pub fn cva6_files(cva6: &Path, rest: &[&str]) -> (Vec<PathBuf>, Vec<PathBuf>) {
 
 /// Stimulus for `v`'s inputs: for each cycle and instance, each input's
 /// words, random bits that `pick` may then change (a port's name, the
-/// cycle, and its words).
-pub fn stimulus_with(v: &Verilated, cycles: usize, n: usize, rng: &mut Rng, pick: &mut dyn FnMut(&str, usize, &mut Rng, &mut [u32])) -> Vec<u32> {
+/// cycle, the instance, and its words).
+pub fn stimulus_at(
+    v: &Verilated,
+    cycles: usize,
+    n: usize,
+    rng: &mut Rng,
+    pick: &mut dyn FnMut(&str, usize, usize, &mut Rng, &mut [u32]),
+) -> Vec<u32> {
     let mut out = Vec::with_capacity(cycles * n * v.in_words());
     for c in 0..cycles {
-        for _ in 0..n {
+        for i in 0..n {
             for (name, w) in &v.ins {
                 let mut words: Vec<u32> = (0..words(*w)).map(|_| rng.next() as u32).collect();
-                pick(name, c, rng, &mut words);
+                pick(name, c, i, rng, &mut words);
                 if w % 32 != 0 {
                     *words.last_mut().unwrap() &= (1u32 << (w % 32)) - 1;
                 }
@@ -507,6 +514,11 @@ pub fn stimulus_with(v: &Verilated, cycles: usize, n: usize, rng: &mut Rng, pick
         }
     }
     out
+}
+
+/// [`stimulus_at`], whatever the instance.
+pub fn stimulus_with(v: &Verilated, cycles: usize, n: usize, rng: &mut Rng, pick: &mut dyn FnMut(&str, usize, &mut Rng, &mut [u32])) -> Vec<u32> {
+    stimulus_at(v, cycles, n, rng, &mut |name, c, _, rng, words| pick(name, c, rng, words))
 }
 
 /// [`stimulus_with`], where `pick` gives the low 64 bits of a port.
@@ -545,6 +557,73 @@ pub fn rv_instruction(rng: &mut Rng) -> u32 {
         0 => x = (x & 0x01FF_FFFF) | [0x00, 0x20, 0x01, 0x04, 0x05, 0x14, 0x24, 0x30, 0x34][rng.next() as usize % 9] << 25,
         1 => x &= !(0x1F << 20),
         _ => {}
+    }
+    x
+}
+
+/// The netlist's time an instance a cycle on the same stimulus as
+/// [`Verilated::bench`]: the first group's inputs replayed `reps` times
+/// from a zeroed state, timing only the evaluations, as which arms run
+/// depends on the values.
+pub fn time_replay(b: &Built, v: &Verilated, cycles: usize, n: usize, stim: &[u32], reps: usize) -> f64 {
+    let net = &b.net;
+    let field = |name: &str| net.port(name).unwrap().clone();
+    let ins: Vec<Field> = v.ins.iter().map(|p| field(&p.0)).collect();
+    let clock = v.clock.as_deref().map(field);
+    let iw = v.in_words();
+    let mut spent = std::time::Duration::ZERO;
+    for _ in 0..reps {
+        let mut st = State::new(net.size);
+        for c in 0..cycles {
+            for k in 0..GROUP {
+                let mut at = (c * n + k) * iw;
+                for f in &ins {
+                    st.put_words(f, k, &stim[at..at + words(f.width)]);
+                    at += words(f.width);
+                }
+            }
+            match &clock {
+                Some(clk) => {
+                    for level in [0, 1] {
+                        for k in 0..GROUP {
+                            unsafe { clk.put(st.ptr, k, level) };
+                        }
+                        let t0 = std::time::Instant::now();
+                        unsafe { (b.eval)(std::hint::black_box(st.ptr)) };
+                        spent += t0.elapsed();
+                    }
+                }
+                None => {
+                    let t0 = std::time::Instant::now();
+                    unsafe { (b.eval)(std::hint::black_box(st.ptr)) };
+                    spent += t0.elapsed();
+                }
+            }
+        }
+    }
+    spent.as_secs_f64() * 1e9 / (reps * cycles * GROUP) as f64
+}
+
+/// A RISC-V instruction word as a program's mix has them: mostly integer
+/// arithmetic, loads, stores and branches; floating point, atomics and
+/// system instructions one in a hundred.
+pub fn rv_instruction_typical(rng: &mut Rng) -> u32 {
+    let r = rng.next() % 100;
+    let op = match r {
+        0..30 => 0x13,  // OP-IMM
+        30..45 => 0x03, // LOAD
+        45..55 => 0x23, // STORE
+        55..70 => 0x63, // BRANCH
+        70..85 => 0x33, // OP
+        85..90 => [0x37, 0x17][rng.next() as usize % 2],
+        90..95 => [0x6F, 0x67][rng.next() as usize % 2],
+        95..99 => [0x1B, 0x3B][rng.next() as usize % 2],
+        _ => [0x07, 0x27, 0x2F, 0x53, 0x73, 0x0F, 0x43][rng.next() as usize % 7],
+    };
+    let mut x = (rng.next() as u32 & !0x7F) | op;
+    // funct7 of the base instructions mostly; M and B now and then.
+    if matches!(op, 0x33 | 0x3B) {
+        x = (x & 0x01FF_FFFF) | if rng.next() % 8 == 0 { [0x01, 0x05, 0x20][rng.next() as usize % 3] } else { 0 } << 25;
     }
     x
 }

@@ -69,6 +69,24 @@ impl Busy {
         }
         self.0.insert(a, b);
     }
+
+    /// Takes away a value's intervals, added when they met nothing already
+    /// there. They may meet each other (an empty block's segment shares its
+    /// position with the next block's), so it is their union that is one
+    /// entry each.
+    fn remove(&mut self, segs: &[Interval]) {
+        let mut k = 0;
+        while k < segs.len() {
+            let (a, mut b) = segs[k];
+            k += 1;
+            while k < segs.len() && segs[k].0 <= b {
+                b = b.max(segs[k].1);
+                k += 1;
+            }
+            let e = self.0.remove(&a);
+            debug_assert_eq!(e, Some(b), "an interval merged with another value's cannot be taken away");
+        }
+    }
 }
 
 /// Allocates registers. Spill code needs scratch registers (`scratch`,
@@ -375,28 +393,34 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
         let free = free.map(|p| (p, Vec::new())).or_else(|| {
             let w = weight(v);
             let mut best: Option<(u8, Vec<VReg>, f64)> = None;
-            for &p in &cands {
+            'regs: for &p in &cands {
                 if fixed_busy.get(&p).is_some_and(|fb| mine.iter().any(|&m| fb.meets(m))) {
                     continue;
                 }
+                // The values in the way, in the order met. A register is
+                // given up at the first that cannot move (already moved
+                // once, or no lighter): a long value would otherwise list
+                // every value along it, on every register.
                 let mut away: Vec<VReg> = Vec::new();
+                let mut met: HashSet<VReg> = HashSet::new();
+                let mut cost = 0.0;
                 if let Some(os) = owners.get(&p) {
                     for &(a, b) in mine {
                         for (_, &(e, o)) in os.range(..=b).rev() {
                             if e < a {
                                 break;
                             }
-                            if !away.contains(&o) {
+                            if met.insert(o) {
+                                if moved.contains(&o) || weight(o) >= w {
+                                    continue 'regs;
+                                }
                                 away.push(o);
+                                cost += weight(o);
                             }
                         }
                     }
                 }
-                if away.iter().any(|o| moved.contains(o)) {
-                    continue;
-                }
-                let cost: f64 = away.iter().map(|&o| weight(o)).sum();
-                if away.iter().all(|&o| weight(o) < w) && best.as_ref().is_none_or(|b| cost < b.2) {
+                if best.as_ref().is_none_or(|b| cost < b.2) {
                     best = Some((p, away, cost));
                 }
             }
@@ -405,13 +429,19 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
         match free {
             Some((p, away)) => {
                 if !away.is_empty() {
+                    // A value's segments met nothing on the register when
+                    // they were added (neither fixed stretches nor other
+                    // values), so they are still entries of their own, and
+                    // taking them away is a lookup each, not a rebuild of
+                    // the register's whole map.
                     let os = owners.entry(p).or_default();
-                    os.retain(|_, (_, o)| !away.contains(o));
-                    let mut busy = fixed_busy.get(&p).cloned().unwrap_or_default();
-                    for (&a, &(b, _)) in os.iter() {
-                        busy.add((a, b));
+                    let busy = taken.entry(p).or_default();
+                    for &o in &away {
+                        for &s in &segs[o as usize] {
+                            os.remove(&s.0);
+                        }
+                        busy.remove(&segs[o as usize]);
                     }
-                    taken.insert(p, busy);
                     for o in away {
                         assigned[o as usize] = None;
                         moved.insert(o);

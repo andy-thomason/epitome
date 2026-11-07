@@ -73,6 +73,30 @@ impl Ctx<'_> {
         (m.def(c).file != m.def(v).file).then_some(c)
     }
 
+    /// Do comparisons of vectors of type `ty` have an instruction (of those
+    /// that are on) that writes the mask register class's file? Masks of
+    /// them may be kept there (`legalize::mask_regs`): AVX-512's 512-bit
+    /// vectors, and with avx512vl, 128- and 256-bit ones.
+    pub fn compares_into_mask_regs(&self, ty: TypeId) -> bool {
+        let Some(kc) = self.mask_reg_class() else { return false };
+        let Type::Vector { elem, scalable: false, .. } = *self.m.types.get(ty) else { return false };
+        let hb = crate::target::head_bits(self.m, ty);
+        let head = if matches!(self.m.types.get(elem), Type::Float | Type::Double) {
+            Head::FCmp(FCmpPred::Oeq, hb)
+        } else {
+            Head::ICmp(ICmpPred::Eq, hb)
+        };
+        let m = &self.t.machine;
+        self.t.patterns.iter().any(|p| {
+            matches!(&p.tree, Tree::Op(h, _) if *h == head)
+                && p.emit.iter().all(|e| self.enabled(e.instr))
+                && p.emit.last().is_some_and(|e| {
+                    matches!(self.t.instrs[e.instr].operands.first().map(|o| o.kind),
+                        Some(crate::target::Kind::Reg(c)) if m.def(c).file == m.def(kc).file)
+                })
+        })
+    }
+
     /// The narrowest vector kept whole in a register: narrower ones are
     /// done lane by lane.
     pub fn min_vector_bits(&self) -> u32 {
@@ -2533,11 +2557,16 @@ fn const_exprs(cx: &mut Ctx, f: &mut Function) {
 /// or two instructions without the constant's register (and the shift
 /// often goes into the address it is added to).
 fn const_multiplies(cx: &mut Ctx, f: &mut Function) {
+    // Each multiplication's result and what replaces it, put in place in
+    // one pass at the end (a pass for each would take time in the square of
+    // the function's size); and each block made again with the new
+    // instructions in it, rather than spliced into the middle.
+    let mut replaced: std::collections::HashMap<LocalId, Value> = std::collections::HashMap::new();
     for b in f.layout.clone() {
-        let mut k = 0;
-        while k < f.blocks[b.index()].insts.len() {
-            let i = f.blocks[b.index()].insts[k];
-            k += 1;
+        let old = f.blocks[b.index()].insts.clone();
+        let mut out: Vec<InstId> = Vec::with_capacity(old.len());
+        for i in old {
+            out.push(i);
             let Op::Binary { op: BinOp::Mul, lhs, rhs, .. } = f.insts[i.index()].op else { continue };
             let Some(r) = f.insts[i.index()].result else { continue };
             let ty = f.locals[r.index()].ty;
@@ -2556,6 +2585,7 @@ fn const_multiplies(cx: &mut Ctx, f: &mut Function) {
             if odd != 1 && !(odd - 1).is_power_of_two() {
                 continue;
             }
+            out.pop();
             let mut s = Seq { f, new: Vec::new() };
             let mut v = x;
             if odd != 1 {
@@ -2567,13 +2597,13 @@ fn const_multiplies(cx: &mut Ctx, f: &mut Function) {
                 let n = cx.int(ty, i64::from(sh));
                 v = s.bin(BinOp::Shl, v, n, ty);
             }
-            let new = std::mem::take(&mut s.new);
-            let n = new.len();
-            f.blocks[b.index()].insts.splice(k - 1..k - 1, new);
-            k += n;
-            f.replace_uses(Value::Local(r), v);
+            out.extend(std::mem::take(&mut s.new));
+            out.push(i);
+            replaced.insert(r, v);
         }
+        f.blocks[b.index()].insts = out;
     }
+    f.replace_many(&replaced);
 }
 
 /// Integer operations with an operand that changes nothing (`or %x, 0`,
@@ -3614,16 +3644,21 @@ fn constant_addresses(f: &mut Function) {
         });
     }
     for b in f.layout.clone() {
-        let mut k = 0;
-        while k < f.blocks[b.index()].insts.len() {
-            let i = f.blocks[b.index()].insts[k];
-            k += 1;
+        // The block made again with the copies in it, rather than each
+        // inserted into the middle (in time growing with the block's size).
+        let old = f.blocks[b.index()].insts.clone();
+        let mut out: Vec<InstId> = Vec::with_capacity(old.len());
+        for i in old {
             let (Op::Load { ptr: Value::Local(l), .. } | Op::Store { ptr: Value::Local(l), .. }) =
                 f.insts[i.index()].op
             else {
+                out.push(i);
                 continue;
             };
-            let LocalDef::Inst(d) = f.locals[l.index()].def else { continue };
+            let LocalDef::Inst(d) = f.locals[l.index()].def else {
+                out.push(i);
+                continue;
+            };
             let constant = matches!(&f.insts[d.index()].op, Op::Gep { indices, .. }
                 if indices.iter().all(|&x| matches!(x, Value::Const(_))));
             if !constant
@@ -3632,18 +3667,20 @@ fn constant_addresses(f: &mut Function) {
                     format!("copy the address {} for one access", epitome_ir::printer::local_name(f, l))
                 })
             {
+                out.push(i);
                 continue;
             }
             let ty = f.locals[l.index()].ty;
             let copy = f.add_inst(f.insts[d.index()].op.clone(), Some((None, ty)));
-            f.blocks[b.index()].insts.insert(k - 1, copy);
-            k += 1;
+            out.push(copy);
+            out.push(i);
             let new = f.result(copy);
             if let Op::Load { ptr, .. } | Op::Store { ptr, .. } = &mut f.insts[i.index()].op {
                 *ptr = new;
             }
             count[l.index()] -= 1;
         }
+        f.blocks[b.index()].insts = out;
     }
 }
 
@@ -4274,9 +4311,12 @@ fn promote_odd(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
     };
     let blocks: Vec<BlockId> = f.layout.clone();
     for b in blocks {
-        let mut k = 0;
-        while k < f.blocks[b.index()].insts.len() {
-            let i = f.blocks[b.index()].insts[k];
+        // The block made again, each instruction after what it needs, rather
+        // than spliced into the middle (in time growing with the block's
+        // size for each).
+        let old = f.blocks[b.index()].insts.clone();
+        let mut out: Vec<InstId> = Vec::with_capacity(old.len());
+        for i in old {
             let mut new: Vec<InstId> = Vec::new();
             // What a store stores, before its constant is widened below:
             // a store of an `i24` constant writes three bytes, not four.
@@ -4431,9 +4471,8 @@ fn promote_odd(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
                         _ => unreachable!(),
                     }
                     f.insts[i.index()].op = last.unwrap();
-                    let n = new.len();
-                    f.blocks[b.index()].insts.splice(k..k, new);
-                    k += n + 1;
+                    out.extend(new);
+                    out.push(i);
                     continue;
                 }
             }
@@ -4503,10 +4542,10 @@ fn promote_odd(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
                 op = Op::Freeze(value);
             }
             f.insts[i.index()].op = op;
-            let n = new.len();
-            f.blocks[b.index()].insts.splice(k..k, new);
-            k += n + 1;
+            out.extend(new);
+            out.push(i);
         }
+        f.blocks[b.index()].insts = out;
     }
     Ok(())
 }

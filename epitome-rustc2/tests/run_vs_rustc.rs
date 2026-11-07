@@ -5,9 +5,9 @@
 //!
 //! The programs are `#![no_std]` with a C `main`, and write through
 //! libc's `putchar`; `floats.rs` uses `#![feature(f16)]`, which
-//! `RUSTC_BOOTSTRAP=1` lets rustc take. rustc links them against libc, with a stub for
-//! `rust_eh_personality`, which the precompiled `core` refers to although
-//! nothing unwinds. Only on x86-64 Linux, with rust-src and `cc`.
+//! `RUSTC_BOOTSTRAP=1` lets rustc take. rustc links them against libc
+//! and libm, with a stub for `rust_eh_personality`, which the precompiled
+//! `core` refers to although nothing unwinds. Only on x86-64 Linux, with rust-src and `cc`.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -58,7 +58,7 @@ fn programs_match_rustc() {
         // program uses (`f16`).
         let built = Command::new("rustc")
             .env("RUSTC_BOOTSTRAP", "1")
-            .args(["--edition", "2024", "-C", "panic=abort", "-C", "link-arg=-lc"])
+            .args(["--edition", "2024", "-C", "panic=abort", "-C", "link-arg=-lc", "-C", "link-arg=-lm"])
             .arg(format!("-Clink-arg={}", eh.display()))
             .arg(p)
             .arg("-o")

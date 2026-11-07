@@ -1319,6 +1319,17 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 }
                 ops::unary(tys, *op, self.fold(x.args[0])?, x.ty)
             }
+            // A constant side that decides `&&` or `||` decides it whatever
+            // the other side is.
+            ExprKind::Binary(op @ (BinOp::LogAnd | BinOp::LogOr)) => {
+                let decides = |c: &Option<Const>| c.as_ref().and_then(ops::truth).filter(|&t| t == (*op == BinOp::LogOr));
+                let (a, b) = (self.fold(x.args[0]), self.fold(x.args[1]));
+                if let Some(t) = decides(&a).or(decides(&b)) {
+                    return Some(Const::Bits(Bits::from_bool(t)));
+                }
+                let (a, b) = (ops::truth(&a?)?, ops::truth(&b?)?);
+                Some(Const::Bits(Bits::from_bool(if *op == BinOp::LogAnd { a && b } else { a || b })))
+            }
             ExprKind::Binary(op) => ops::binary(tys, *op, self.fold(x.args[0])?, self.fold(x.args[1])?, x.ty),
             ExprKind::Convert => Some(ops::convert(tys, &self.fold(x.args[0])?, x.ty)),
             ExprKind::Cond => {
@@ -1971,11 +1982,52 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             return Ok(self.eq(&masked, &val));
         }
         if kind == CaseKind::Inside {
-            return Err("case inside is not supported yet".into());
+            return self.inside_item(sel, st, item);
         }
         let v = self.expr(item)?;
         let v = self.resize(&v, w, d.types.is_signed(st));
         Ok(self.eq(sel, &v))
+    }
+
+    /// Whether `v` (of type `vt`) matches one item of `inside` (11.4.13):
+    /// a range `[lo:hi]` holds it, or it equals the item, with the item's
+    /// unknown bits matching anything.
+    fn inside_item(&mut self, v: &Val, vt: TypeId, item: ExprId) -> Result<M, String> {
+        let d = self.d();
+        let tys = &d.types;
+        let x = d.expr(item);
+        if x.kind == ExprKind::Range {
+            let (lo, hi) = (x.args[0], x.args[1]);
+            let signed = tys.is_signed(vt) && tys.is_signed(d.expr(lo).ty) && tys.is_signed(d.expr(hi).ty);
+            let (a, b) = (self.expr(lo)?, self.expr(hi)?);
+            let n = v.w.max(a.w).max(b.w);
+            let (v, a, b) = (self.resize(v, n, signed), self.resize(&a, n, signed), self.resize(&b, n, signed));
+            let below = self.lt(&v, &a, signed);
+            let above = self.lt(&b, &v, signed);
+            let out = self.mor(below, above);
+            return Ok(self.mnot(out));
+        }
+        let signed = tys.is_signed(vt) && tys.is_signed(x.ty);
+        let n = v.w.max(tys.width(x.ty));
+        let v = self.resize(v, n, signed);
+        if let Some(Const::Bits(b)) = self.l.fold(item)
+            && !b.is_known()
+        {
+            let b = b.resize(n, signed);
+            let (mut care, mut val) = (Bits::zero(n, false), Bits::zero(n, false));
+            for i in 0..n {
+                if matches!(b.bit(i), Logic::Zero | Logic::One) {
+                    care.set_bit(i, Logic::One);
+                    val.set_bit(i, b.bit(i));
+                }
+            }
+            let (care, val) = (self.konst(&care), self.konst(&val));
+            let masked = self.bitwise("and", &v, &care);
+            return Ok(self.eq(&masked, &val));
+        }
+        let a = self.expr(item)?;
+        let a = self.resize(&a, n, signed);
+        Ok(self.eq(&v, &a))
     }
 
     /// Both arms, each on its own copy of the values, then a select of
@@ -2805,6 +2857,24 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                         self.select(ok, &v, &z)
                     }
                 })
+            }
+            ExprKind::SysCall(f) => match d.name(*f) {
+                // The same bits, read as signed or unsigned (11.7).
+                "$signed" | "$unsigned" if x.args.len() == 1 => {
+                    let v = self.expr(x.args[0])?;
+                    Ok(self.resize(&v, w, tys.is_signed(d.expr(x.args[0]).ty)))
+                }
+                name => Err(format!("{name} is not supported yet")),
+            },
+            ExprKind::Inside => {
+                let v = self.expr(x.args[0])?;
+                let vt = d.expr(x.args[0]).ty;
+                let mut m = M::K(false);
+                for &r in &x.args[1..] {
+                    let hit = self.inside_item(&v, vt, r)?;
+                    m = self.mor(m, hit);
+                }
+                Ok(self.bit(m, w))
             }
             ExprKind::Convert => {
                 let st = d.expr(x.args[0]).ty;

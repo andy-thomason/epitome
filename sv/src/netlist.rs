@@ -211,6 +211,9 @@ struct Rolled {
     /// Every iteration's continuous assignments, for what the loop reads
     /// and writes.
     all: Vec<DriverId>,
+    /// The first iteration's element selects whose index is in range in
+    /// every iteration: they need no check.
+    in_range: HashSet<ExprId>,
 }
 
 /// Fewest iterations worth a loop.
@@ -610,7 +613,44 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 }
             }
         }
-        Some(Rolled { count: n as u32, body: drivers[0].clone(), steps, all: drivers.concat() })
+        // Element selects in range in every iteration.
+        let mut in_range = HashSet::new();
+        let mut ok: HashMap<ExprId, bool> = HashMap::new();
+        for dv in &drivers {
+            for (&x, &y) in drivers[0].iter().zip(dv) {
+                let (x, y) = (&d.drivers[x.0 as usize], &d.drivers[y.0 as usize]);
+                let mut pairs = Vec::new();
+                self.pair_exprs(x.lhs, y.lhs, &mut pairs);
+                self.pair_exprs(x.rhs, y.rhs, &mut pairs);
+                for (t, e) in pairs {
+                    if matches!(d.expr(t).kind, ExprKind::Index) {
+                        let good = self.index_in_range(e);
+                        *ok.entry(t).or_insert(true) &= good;
+                    }
+                }
+            }
+        }
+        in_range.extend(ok.into_iter().filter(|e| e.1).map(|e| e.0));
+        Some(Rolled { count: n as u32, body: drivers[0].clone(), steps, all: drivers.concat(), in_range })
+    }
+
+    /// The pairs of corresponding nodes of two expressions of the same shape.
+    fn pair_exprs(&self, a: ExprId, b: ExprId, out: &mut Vec<(ExprId, ExprId)>) {
+        out.push((a, b));
+        let (x, y) = (self.d.expr(a), self.d.expr(b));
+        for (&p, &q) in x.args.iter().zip(&y.args) {
+            self.pair_exprs(p, q, out);
+        }
+    }
+
+    /// Whether an `Index`'s index is a constant in its base's range.
+    fn index_in_range(&self, e: ExprId) -> bool {
+        let d = self.d;
+        let x = d.expr(e);
+        let bt = d.expr(x.args[0]).ty;
+        let Some(k) = self.fold(x.args[1]).and_then(|c| c.to_i64()) else { return false };
+        let (l, r) = d.types.packed_range(bt).unwrap_or((d.types.width(bt) as i64 - 1, 0));
+        k >= l.min(r) && k <= l.max(r)
     }
 
     /// Whether two expressions are the same, with `map` taking the second's
@@ -1037,6 +1077,8 @@ struct Func<'l, 'd, 'a> {
     /// Masks that are a bit plane's 16 bits (`%tN`, an i16): logic on them
     /// is done on those.
     bits_of: HashMap<u32, u32>,
+    /// In a rolled loop: the element selects known to be in range.
+    in_range: HashSet<ExprId>,
 }
 
 const V16: &str = "<16 x i32>";
@@ -1059,7 +1101,7 @@ fn ms(m: M) -> String {
 impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     fn new(l: &'l Lowering<'d, 'a>, spec: SpecId) -> Self {
         let out = format!("define void @{}(ptr %s) {{\nentry:\n", fn_name(spec));
-        Func { l, spec, out, next: 0, env: Env::default(), block: "entry".into(), loops: 0, rolled: 0, mem: false, uniform: HashSet::new(), mask_of: HashMap::new(), bits_of: HashMap::new() }
+        Func { l, spec, out, next: 0, env: Env::default(), block: "entry".into(), loops: 0, rolled: 0, mem: false, uniform: HashSet::new(), mask_of: HashMap::new(), bits_of: HashMap::new(), in_range: HashSet::new() }
     }
 
     fn finish(mut self) -> String {
@@ -1084,7 +1126,11 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     fn body(&mut self, order: &[Node]) -> Result<(), String> {
         let mut seg: Vec<Node> = Vec::new();
         for &n in order {
-            if let Node::Call(i) = n {
+            if let Node::Loop(l) = n {
+                self.run_loop(&seg)?;
+                seg.clear();
+                self.rolled_loop(l)?;
+            } else if let Node::Call(i) = n {
                 self.run_loop(&seg)?;
                 let off = self.lay().kids[&i];
                 let child = self.d().instance(i).spec;
@@ -1104,6 +1150,11 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         if nodes.is_empty() {
             return Ok(());
         }
+        self.run_loop_with(|f| nodes.iter().try_for_each(|&n| f.node(n)))
+    }
+
+    /// A loop over the group's registers whose body `body` writes.
+    fn run_loop_with(&mut self, body: impl FnOnce(&mut Self) -> Result<(), String>) -> Result<(), String> {
         let k = self.loops;
         self.loops += 1;
         let prev = std::mem::replace(&mut self.block, format!("L{k}"));
@@ -1114,9 +1165,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
              %h{k} = getelementptr i8, ptr %s, i64 %c{k}.half"
         );
         self.env = Env::default();
-        for &n in nodes {
-            self.node(n)?;
-        }
+        body(self)?;
         let mut dirty: Vec<ObjId> = self.env.dirty.iter().copied().collect();
         dirty.sort_unstable_by_key(|o| o.0);
         for o in dirty {
@@ -1171,7 +1220,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     fn node(&mut self, n: Node) -> Result<(), String> {
         let d = self.d();
         match n {
-            Node::Loop(l) => self.rolled_loop(l),
+            Node::Loop(_) => unreachable!("rolled loops are loops of their own"),
             Node::Driver(dr) => {
                 let drv = &d.drivers[dr.0 as usize];
                 let v = self.expr(drv.rhs)?;
@@ -1529,7 +1578,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
 
     /// The address of element `i`, the same in every lane (held at the
     /// last element).
-    fn elem_addr_uniform(&mut self, o: ObjId, i: P) -> String {
+    fn elem_addr_uniform(&mut self, o: ObjId, i: P, clamp: bool) -> String {
         if let P::K(k) = i {
             let n = self.lay().elems[&o].n;
             return self.elem_addr(o, k.min(n - 1));
@@ -1537,13 +1586,26 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let e = self.lay().elems[&o];
         let base = if e.planes() { format!("%h{}", self.loops - 1) } else { self.base() };
         let off = self.lay().objs[&o];
-        let t: Vec<u32> = (0..6).map(|_| self.tmp()).collect();
+        let t: Vec<u32> = (0..7).map(|_| self.tmp()).collect();
+        let _ = writeln!(self.out, "  %t{} = extractelement {V16} {}, i64 0", t[0], ps(i));
+        // Held at the last element where the index may be out of range
+        // (its value is then not used): a compare and select, which a
+        // loop's invariants can be hoisted past, not a call.
+        let ix = if clamp {
+            let _ = writeln!(
+                self.out,
+                "  %t{} = icmp ugt i32 %t{}, {}\n  %t{} = select i1 %t{}, i32 {}, i32 %t{}",
+                t[6], t[0], e.n - 1, t[1], t[6], e.n - 1, t[0]
+            );
+            t[1]
+        } else {
+            t[0]
+        };
         let _ = writeln!(
             self.out,
-            "  %t{} = extractelement {V16} {}, i64 0\n  %t{} = call i32 @llvm.umin.i32(i32 %t{}, i32 {})\n  \
-             %t{} = zext i32 %t{} to i64\n  %t{} = mul i64 %t{}, {}\n  %t{} = getelementptr i8, ptr {base}, i64 {off}\n  \
+            "  %t{} = zext i32 %t{ix} to i64\n  %t{} = mul i64 %t{}, {}\n  %t{} = getelementptr i8, ptr {base}, i64 {off}\n  \
              %t{} = getelementptr i8, ptr %t{}, i64 %t{}",
-            t[0], ps(i), t[1], t[0], e.n - 1, t[2], t[1], t[3], t[2], e.stride(), t[4], t[5], t[4], t[3]
+            t[2], t[3], t[2], e.stride(), t[4], t[5], t[4], t[3]
         );
         format!("%t{}", t[5])
     }
@@ -1633,6 +1695,10 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         };
         let signed = d.types.is_signed(d.expr(x.args[1]).ty);
         let k = idx.p[0];
+        if self.in_range.contains(&e) {
+            let i = if l >= r { self.bin("sub", k, P::K(r as u32)) } else { self.bin("sub", P::K(r as u32), k) };
+            return Ok((i, M::K(true)));
+        }
         let mut ok = M::K(true);
         for &hp in &idx.p[1..] {
             let z = self.icmp("eq", hp, P::K(0));
@@ -1656,7 +1722,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             P::K(k) if k < el.n => self.read_elem(o, k),
             P::K(_) => Val::zero(el.ew),
             _ if self.is_uniform(i) => {
-                let a = self.elem_addr_uniform(o, i);
+                let a = self.elem_addr_uniform(o, i, ok != M::K(true));
                 self.load_slot(o, &a)
             }
             // A different element a lane: each, chosen by a select.
@@ -1670,6 +1736,9 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 acc
             }
         };
+        if ok == M::K(true) {
+            return Ok(v);
+        }
         let z = Val::zero(el.ew);
         Ok(self.select(ok, &v, &z))
     }
@@ -1694,7 +1763,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 // Any element may change: none is remembered.
                 self.flush_elems(Some(o));
                 self.env.elems.retain(|k, _| k.0 != o);
-                let a = self.elem_addr_uniform(o, i);
+                let a = self.elem_addr_uniform(o, i, ok != M::K(true));
                 let v = match ok {
                     M::K(true) => v,
                     _ => {
@@ -1901,41 +1970,18 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         Ok((Off::V(bits, ok), w))
     }
 
-    /// A run of iterations as a loop inside the loop over registers.
+    /// A run of iterations as a loop around a loop over the group's
+    /// registers: what depends only on the iteration (the stepping
+    /// parameters, the elements' addresses and range checks) is worked out
+    /// once an iteration, not once a register.
     fn rolled_loop(&mut self, l: usize) -> Result<(), String> {
         let d = self.d();
         let lp = &self.l.loops[l];
-        // The loop reads and writes the state: what this loop has worked
-        // out goes there first, and is read back after.
-        let mut touched = Vec::new();
-        for &dr in &lp.all {
-            let drv = &d.drivers[dr.0 as usize];
-            let (mut r, mut w) = (Vec::new(), Vec::new());
-            self.l.reads(drv.rhs, &mut r);
-            self.l.writes(drv.lhs, &mut w, &mut r);
-            touched.extend(r.into_iter().chain(w).map(|t| t.0));
-        }
-        touched.sort_unstable_by_key(|o| o.0);
-        touched.dedup();
-        for &o in &touched {
-            if self.env.dirty.remove(&o) {
-                let v = self.env.vals[&o].clone();
-                let off = self.lay().objs[&o];
-                self.store(off, &v);
-            }
-            self.env.vals.remove(&o);
-            if self.lay().elems.contains_key(&o) {
-                self.flush_elems(Some(o));
-                self.env.elems.retain(|k, _| k.0 != o);
-            }
-        }
         let k = self.rolled;
         self.rolled += 1;
         let prev = std::mem::replace(&mut self.block, format!("R{k}"));
-        let _ = writeln!(self.out, "  br label %R{k}\nR{k}:\n  %r{k} = phi i32 [ 0, %{prev} ], [ %r{k}.next, %R{k} ]");
-        let outer = std::mem::take(&mut self.env);
-        self.mem = true;
-        *self.l.loop_vars.borrow_mut() = lp.steps.iter().map(|s| s.0).collect();
+        let _ = writeln!(self.out, "  br label %R{k}\nR{k}:\n  %r{k} = phi i32 [ 0, %{prev} ], [ %r{k}.next, %R{k}.latch ]");
+        let mut steps = Vec::new();
         for &(o, first, step) in &lp.steps {
             let (a, b, c, t) = (self.tmp(), self.tmp(), self.tmp(), self.tmp());
             let _ = writeln!(
@@ -1957,16 +2003,22 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 }
             }
             let v = self.norm(Val { w, p });
-            self.env.vals.insert(o, v);
+            steps.push((o, v));
         }
-        let result = lp.body.iter().try_for_each(|&dr| {
-            let drv = &d.drivers[dr.0 as usize];
-            let v = self.expr(drv.rhs)?;
-            self.assign(drv.lhs, v)
+        self.mem = true;
+        self.in_range = lp.in_range.clone();
+        *self.l.loop_vars.borrow_mut() = lp.steps.iter().map(|s| s.0).collect();
+        let result = self.run_loop_with(|f| {
+            f.env.vals.extend(steps);
+            lp.body.iter().try_for_each(|&dr| {
+                let drv = &d.drivers[dr.0 as usize];
+                let v = f.expr(drv.rhs)?;
+                f.assign(drv.lhs, v)
+            })
         });
         self.l.loop_vars.borrow_mut().clear();
         self.mem = false;
-        self.env = outer;
+        self.in_range.clear();
         result?;
         let _ = writeln!(
             self.out,
@@ -1974,6 +2026,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
              br i1 %r{k}.end, label %Y{k}, label %R{k}\nY{k}:",
             lp.count
         );
+        self.out = self.out.replace(&format!("%R{k}.latch"), &format!("%{}", self.block));
         self.block = format!("Y{k}");
         Ok(())
     }

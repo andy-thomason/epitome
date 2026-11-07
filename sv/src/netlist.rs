@@ -25,7 +25,9 @@ use std::cell::{Cell, RefCell};
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::fmt::Write;
 
+use crate::bdd::{Bdd, FALSE, Manager, TRUE, TooBig};
 use crate::design::types::{Type, TypeId};
+use crate::hash::FxMap;
 use crate::design::value::{Bits, Logic};
 use crate::design::{
     AssignKind, BinOp, CaseKind, Const, Design, Dir, DriverId, ExprId, ExprKind, InstId, Item, Lifetime, ObjId, ObjKind,
@@ -99,11 +101,14 @@ pub struct Options {
     /// lanes: for targets with mask registers (AVX-512, SVE). Otherwise
     /// they take a 32-bit lane each.
     pub bit_planes: bool,
+    /// Specialisations proved to count zeros of their input (`recognise`)
+    /// become that count, `llvm.ctlz` on lanes, not their own logic.
+    pub recognise: bool,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { bit_planes: true }
+        Options { bit_planes: true, recognise: true }
     }
 }
 
@@ -127,7 +132,7 @@ pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, 
     };
     let spec = d.instance(top).spec;
     n.layout(spec)?;
-    n.ir.push_str("declare i32 @llvm.umin.i32(i32, i32)\n\n");
+    n.ir.push_str("declare i32 @llvm.umin.i32(i32, i32)\ndeclare <16 x i32> @llvm.ctlz.v16i32(<16 x i32>, i1)\n\n");
     n.function(spec)?;
     let lay = &n.layouts[&spec];
     let mut ports = Vec::new();
@@ -158,6 +163,30 @@ struct Layout {
     kids: HashMap<InstId, u64>,
     /// Its processes, drivers and children, in source order.
     code: Vec<Node>,
+    /// What it is proved to compute, if that replaces its own logic.
+    known: Option<Known>,
+}
+
+/// A specialisation proved, for every value of its one input, to give a
+/// count of the input's trailing or leading zeros on each output (with a
+/// constant where the input is zero), or whether it is zero, or a
+/// constant. It is then that count, `llvm.ctlz` on lanes.
+#[derive(Clone, Debug)]
+struct Known {
+    input: ObjId,
+    width: u32,
+    /// Zeros counted from the top rather than the bottom.
+    leading: bool,
+    outs: Vec<(ObjId, Out)>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Out {
+    /// The count, or `at_zero` where the input is zero.
+    Count { at_zero: u64 },
+    /// Whether the input is zero (or not, if `inverted`).
+    Zero { inverted: bool },
+    Const(u64),
 }
 
 /// An object used only an element at a time, kept an element to a slot:
@@ -245,7 +274,8 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let mut objs = Vec::new();
         let mut code = Vec::new();
         self.collect(d.spec(spec).scope, &mut objs, &mut code)?;
-        let mut lay = Layout { size: 0, objs: HashMap::new(), elems: HashMap::new(), kids: HashMap::new(), code: Vec::new() };
+        let mut lay =
+            Layout { size: 0, objs: HashMap::new(), elems: HashMap::new(), kids: HashMap::new(), code: Vec::new(), known: None };
         let elems = self.element_only(&objs, &code);
         for o in objs {
             let ob = d.object(o);
@@ -275,6 +305,20 @@ impl<'d, 'a> Lowering<'d, 'a> {
             }
         }
         self.layouts.insert(spec, lay);
+        // A specialisation proved to count zeros keeps only its ports.
+        if self.opts.recognise
+            && let Some(k) = self.recognise(spec)
+        {
+            let mut lay =
+                Layout { size: 0, objs: HashMap::new(), elems: HashMap::new(), kids: HashMap::new(), code: Vec::new(), known: None };
+            for p in &d.spec(spec).ports {
+                let o = p.object.expect("recognised specialisations have plain ports");
+                lay.objs.insert(o, lay.size);
+                lay.size += pieces(d.types.width(d.object(o).ty)) as u64 * PIECE;
+            }
+            lay.known = Some(k);
+            self.layouts.insert(spec, lay);
+        }
         Ok(())
     }
 
@@ -699,9 +743,17 @@ impl<'d, 'a> Lowering<'d, 'a> {
         for k in kids {
             self.function(k)?;
         }
-        let order = self.order(spec)?;
         let mut f = Func::new(self, spec);
-        f.body(&order)?;
+        match &self.layouts[&spec].known {
+            Some(k) => {
+                let k = k.clone();
+                f.run_loop_with(|f| f.known(&k))?;
+            }
+            None => {
+                let order = self.order(spec)?;
+                f.body(&order)?;
+            }
+        }
         let text = f.finish();
         let _ = writeln!(self.ir, "; {}\n{text}", self.d.name(self.d.spec(spec).name));
         Ok(())
@@ -2152,6 +2204,71 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         self.env.vals.remove(&o);
     }
 
+    /// The function of a specialisation proved to count zeros.
+    fn known(&mut self, k: &Known) -> Result<(), String> {
+        let x = self.read(k.input);
+        let n = x.p.len();
+        let zero = self.eq(&x, &Val::zero(k.width));
+        let count = if k.leading {
+            // From the top piece down; the top piece's bits moved up to
+            // the top of its lane.
+            let top_bits = k.width - 32 * (n as u32 - 1);
+            let top = self.bin("shl", x.p[n - 1], P::K(32 - top_bits));
+            let mut c = self.ctlz(top);
+            if n == 2 {
+                let lo = self.ctlz(x.p[0]);
+                let lo = self.bin("add", lo, P::K(top_bits));
+                let z = self.icmp("eq", x.p[1], P::K(0));
+                c = self.sel(z, lo, c);
+            }
+            c
+        } else {
+            // 32 - ctlz(~p & (p - 1)), the trailing zeros of a piece.
+            let tz = |f: &mut Self, p: P| {
+                let a = f.bin("xor", p, P::K(!0));
+                let b = f.bin("sub", p, P::K(1));
+                let c = f.bin("and", a, b);
+                let l = f.ctlz(c);
+                f.bin("sub", P::K(32), l)
+            };
+            let mut c = tz(self, x.p[0]);
+            if n == 2 {
+                let hi = tz(self, x.p[1]);
+                let hi = self.bin("add", hi, P::K(32));
+                let z = self.icmp("eq", x.p[0], P::K(0));
+                c = self.sel(z, hi, c);
+            }
+            c
+        };
+        let d = self.d();
+        for &(o, out) in &k.outs {
+            let w = d.types.width(d.object(o).ty);
+            let v = match out {
+                Out::Count { at_zero } => {
+                    let c = self.sel(zero, P::K(at_zero as u32), count);
+                    let v = Val { w: 32, p: vec![c] };
+                    self.resize(&v, w, false)
+                }
+                Out::Zero { inverted } => {
+                    let m = if inverted { self.mnot(zero) } else { zero };
+                    self.bit(m, w)
+                }
+                Out::Const(c) => self.konst(&Bits::from_u64(w, false, c)),
+            };
+            self.set(o, v);
+        }
+        Ok(())
+    }
+
+    fn ctlz(&mut self, p: P) -> P {
+        if let P::K(k) = p {
+            return P::K(k.leading_zeros());
+        }
+        let t = self.tmp();
+        let _ = writeln!(self.out, "  %t{t} = call {V16} @llvm.ctlz.v16i32({V16} {}, i1 false)", ps(p));
+        P::V(t)
+    }
+
     // ---- expressions ----
 
     fn expr(&mut self, e: ExprId) -> Result<Val, String> {
@@ -2936,5 +3053,560 @@ fn expr_name(k: &ExprKind) -> &'static str {
         ExprKind::Pattern => "an assignment pattern",
         ExprKind::Inside => "inside",
         _ => "this expression",
+    }
+}
+
+// ---- Proving what a specialisation computes ----
+
+/// A value as one diagram a bit, low bit first.
+type Bits2 = Vec<Bdd>;
+
+/// Why a symbolic evaluation stopped: something it does not model, or
+/// diagrams too big. Either way the specialisation keeps its own logic.
+struct Unproved;
+
+impl From<TooBig> for Unproved {
+    fn from(_: TooBig) -> Unproved {
+        Unproved
+    }
+}
+
+type Sr<T> = Result<T, Unproved>;
+
+/// Evaluates a specialisation's code on diagrams: what each value is, as a
+/// function of the input's bits.
+struct Sym<'s, 'd, 'a> {
+    l: &'s Lowering<'d, 'a>,
+    m: Manager,
+    env: FxMap<ObjId, Bits2>,
+}
+
+impl<'d, 'a> Lowering<'d, 'a> {
+    /// What a combinational specialisation with one input of up to 64 bits
+    /// computes, if every output is proved, for every input, to be a count
+    /// of its trailing (or leading) zeros away from zero, whether it is
+    /// zero, or a constant.
+    fn recognise(&self, spec: SpecId) -> Option<Known> {
+        let d = self.d;
+        let lay = &self.layouts[&spec];
+        if !lay.kids.is_empty() || lay.code.is_empty() {
+            return None;
+        }
+        let ports = &d.spec(spec).ports;
+        let mut input = None;
+        let mut outs = Vec::new();
+        for p in ports {
+            let o = p.object?;
+            match p.dir {
+                Dir::Input if input.is_none() => input = Some(o),
+                Dir::Output => outs.push(o),
+                _ => return None,
+            }
+        }
+        let input = input?;
+        let w = d.types.width(d.object(input).ty);
+        if !(2..=64).contains(&w) || outs.is_empty() {
+            return None;
+        }
+        let order = self.order(spec).ok()?;
+        let mut s = Sym { l: self, m: Manager::new(1 << 20), env: FxMap::default() };
+        let x: Bits2 = (0..w).map(|i| s.m.var(i)).collect::<Result<_, _>>().ok()?;
+        s.env.insert(input, x.clone());
+        for node in order {
+            let ok = match node {
+                Node::Driver(dr) => s.driver(dr),
+                Node::Loop(l) => self.loops[l].all.iter().try_for_each(|&dr| s.driver(dr)),
+                Node::Proc(p) => s.stmt(d.processes[p.0 as usize].body),
+                _ => Err(Unproved),
+            };
+            ok.ok()?;
+        }
+        // The counts, where the input is not zero, in enough bits.
+        let nb = 32 - w.leading_zeros();
+        let mut zero = TRUE;
+        for &b in &x {
+            let nb = s.m.not(b).ok()?;
+            zero = s.m.and(zero, nb).ok()?;
+        }
+        let nonzero = s.m.not(zero).ok()?;
+        let mut trailing = s.konst(w as u64, nb);
+        for i in (0..w).rev() {
+            let k = s.konst(i as u64, nb);
+            trailing = s.ite_vec(x[i as usize], &k, &trailing).ok()?;
+        }
+        let mut leading = s.konst(w as u64, nb);
+        for i in 0..w {
+            let k = s.konst((w - 1 - i) as u64, nb);
+            leading = s.ite_vec(x[i as usize], &k, &leading).ok()?;
+        }
+        let mut dir = None;
+        let mut known = Vec::new();
+        for o in outs {
+            let ow = d.types.width(d.object(o).ty) as usize;
+            let bits = s.env.get(&o).cloned().unwrap_or_else(|| vec![FALSE; ow]);
+            let out = if bits.iter().all(|&b| b <= TRUE) {
+                Out::Const(bits.iter().enumerate().fold(0, |v, (i, &b)| v | ((b == TRUE) as u64) << i))
+            } else if ow == 1 && bits[0] == zero {
+                Out::Zero { inverted: false }
+            } else if ow == 1 && bits[0] == nonzero {
+                Out::Zero { inverted: true }
+            } else {
+                let matches = |s: &mut Sym, c: &Bits2| -> Result<bool, TooBig> {
+                    for k in 0..ow.max(c.len()) {
+                        let a = bits.get(k).copied().unwrap_or(FALSE);
+                        let b = c.get(k).copied().unwrap_or(FALSE);
+                        if s.m.and(a, nonzero)? != s.m.and(b, nonzero)? {
+                            return Ok(false);
+                        }
+                    }
+                    Ok(true)
+                };
+                let lead = if matches(&mut s, &trailing).ok()? {
+                    false
+                } else if matches(&mut s, &leading).ok()? {
+                    true
+                } else {
+                    return None;
+                };
+                if dir.is_some_and(|d| d != lead) {
+                    return None;
+                }
+                dir = Some(lead);
+                let at_zero = bits.iter().enumerate().fold(0, |v, (i, &b)| v | (s.m.at_zero(b) as u64) << i);
+                Out::Count { at_zero }
+            };
+            known.push((o, out));
+        }
+        Some(Known { input, width: w, leading: dir?, outs: known })
+    }
+}
+
+impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
+    fn d(&self) -> &'d Design<'a> {
+        self.l.d
+    }
+
+    fn konst(&self, v: u64, w: u32) -> Bits2 {
+        (0..w).map(|i| if i < 64 && v >> i & 1 == 1 { TRUE } else { FALSE }).collect()
+    }
+
+    fn const_of(&self, c: &Const, w: usize) -> Sr<Bits2> {
+        let b = ops::bits_of(c).ok_or(Unproved)?.known_or_zero();
+        let sign = b.signed() && b.width() > 0 && b.bit(b.width() - 1) == Logic::One;
+        Ok((0..w as u32)
+            .map(|i| {
+                let one = if i < b.width() { b.bit(i) == Logic::One } else { sign };
+                if one { TRUE } else { FALSE }
+            })
+            .collect())
+    }
+
+    fn resize(&self, v: &Bits2, w: usize, signed: bool) -> Bits2 {
+        let fill = if signed { *v.last().unwrap_or(&FALSE) } else { FALSE };
+        (0..w).map(|i| v.get(i).copied().unwrap_or(fill)).collect()
+    }
+
+    fn ite_vec(&mut self, c: Bdd, a: &Bits2, b: &Bits2) -> Result<Bits2, TooBig> {
+        a.iter().zip(b).map(|(&x, &y)| self.m.ite(c, x, y)).collect()
+    }
+
+    fn any(&mut self, v: &Bits2) -> Sr<Bdd> {
+        let mut r = FALSE;
+        for &b in v {
+            r = self.m.or(r, b)?;
+        }
+        Ok(r)
+    }
+
+    /// A value all of whose bits are constant, as an integer.
+    fn as_const(v: &Bits2) -> Option<i64> {
+        if v.len() > 63 || v.iter().any(|&b| b > TRUE) {
+            return None;
+        }
+        Some(v.iter().enumerate().fold(0, |a, (i, &b)| a | ((b == TRUE) as i64) << i))
+    }
+
+    fn driver(&mut self, dr: DriverId) -> Sr<()> {
+        let drv = &self.d().drivers[dr.0 as usize];
+        let v = self.expr(drv.rhs)?;
+        self.assign(drv.lhs, v)
+    }
+
+    fn eq(&mut self, a: &Bits2, b: &Bits2) -> Sr<Bdd> {
+        let mut r = TRUE;
+        for (&x, &y) in a.iter().zip(b) {
+            let d = self.m.xor(x, y)?;
+            let e = self.m.not(d)?;
+            r = self.m.and(r, e)?;
+        }
+        Ok(r)
+    }
+
+    /// `a < b`, unsigned.
+    fn lt(&mut self, a: &Bits2, b: &Bits2) -> Sr<Bdd> {
+        let mut r = FALSE;
+        for (&x, &y) in a.iter().zip(b) {
+            // From the low bit up: this bit decides unless equal.
+            let nx = self.m.not(x)?;
+            let less = self.m.and(nx, y)?;
+            let d = self.m.xor(x, y)?;
+            let same = self.m.not(d)?;
+            let keep = self.m.and(same, r)?;
+            r = self.m.or(less, keep)?;
+        }
+        Ok(r)
+    }
+
+    fn add(&mut self, a: &Bits2, b: &Bits2, mut carry: Bdd) -> Sr<Bits2> {
+        let mut out = Vec::with_capacity(a.len());
+        for (&x, &y) in a.iter().zip(b) {
+            let xy = self.m.xor(x, y)?;
+            out.push(self.m.xor(xy, carry)?);
+            let both = self.m.and(x, y)?;
+            let prop = self.m.and(xy, carry)?;
+            carry = self.m.or(both, prop)?;
+        }
+        Ok(out)
+    }
+
+    /// Where a select is in its base: its bit offset (possibly below zero)
+    /// and width, from constant indices.
+    fn select_at(&mut self, e: ExprId) -> Sr<(i64, usize)> {
+        if let Some(Some((off, w))) = self.l.const_select(e) {
+            return Ok((off, w as usize));
+        }
+        let d = self.d();
+        let tys = &d.types;
+        let x = d.expr(e);
+        let bt = d.expr(x.args[0]).ty;
+        let idx = self.expr(x.args[1])?;
+        let k = Self::as_const(&idx).ok_or(Unproved)?;
+        let k = if tys.is_signed(d.expr(x.args[1]).ty) && idx.len() < 64 && k >> (idx.len() - 1) & 1 == 1 {
+            k - (1 << idx.len())
+        } else {
+            k
+        };
+        match &x.kind {
+            ExprKind::Index => {
+                let ew = tys.width(x.ty).max(1) as i64;
+                // Out of range: past the top, so that it reads zeros.
+                let off = ops::lsb_offset(tys, bt, k, k).unwrap_or(tys.width(bt) as i64);
+                Ok((off * ew, ew as usize))
+            }
+            ExprKind::Part { kind: kind @ (PartKind::Up | PartKind::Down), width } => {
+                let ew = tys.elem_width(bt).max(1) as i64;
+                let (hi, lo) = if *kind == PartKind::Up { (k + *width as i64 - 1, k) } else { (k, k - *width as i64 + 1) };
+                let (start, _) = ops::select_span(tys, bt, lo, hi);
+                Ok((start * ew, (*width as i64 * ew) as usize))
+            }
+            _ => Err(Unproved),
+        }
+    }
+
+    fn expr(&mut self, e: ExprId) -> Sr<Bits2> {
+        let d = self.d();
+        let tys = &d.types;
+        let x = d.expr(e);
+        let w = tys.width(x.ty) as usize;
+        if !matches!(x.kind, ExprKind::Object(_)) && let Some(c) = self.l.fold(e) {
+            return self.const_of(&c, w);
+        }
+        let arg = |s: &mut Self, i: usize| -> Sr<Bits2> {
+            let v = s.expr(x.args[i])?;
+            let at = d.expr(x.args[i]).ty;
+            Ok(s.resize(&v, w, tys.is_signed(at)))
+        };
+        Ok(match &x.kind {
+            ExprKind::Const(c) => self.const_of(d.konst(*c), w)?,
+            ExprKind::Object(o) => match d.object(*o).kind {
+                ObjKind::Variable | ObjKind::Net(_) => {
+                    let ow = tys.width(d.object(*o).ty) as usize;
+                    let v = self.env.get(o).cloned().unwrap_or_else(|| vec![FALSE; ow]);
+                    self.resize(&v, w, false)
+                }
+                _ => self.const_of(&self.l.fold(e).ok_or(Unproved)?, w)?,
+            },
+            ExprKind::Unary(UnOp::Not) => {
+                let a = arg(self, 0)?;
+                a.iter().map(|&b| self.m.not(b)).collect::<Result<_, _>>()?
+            }
+            ExprKind::Unary(op @ (UnOp::LogNot | UnOp::RedOr | UnOp::RedNor | UnOp::RedAnd | UnOp::RedNand | UnOp::RedXor | UnOp::RedXnor)) => {
+                let a = self.expr(x.args[0])?;
+                let mut r = match op {
+                    UnOp::RedAnd | UnOp::RedNand => {
+                        let mut r = TRUE;
+                        for &b in &a {
+                            r = self.m.and(r, b)?;
+                        }
+                        r
+                    }
+                    UnOp::RedXor | UnOp::RedXnor => {
+                        let mut r = FALSE;
+                        for &b in &a {
+                            r = self.m.xor(r, b)?;
+                        }
+                        r
+                    }
+                    _ => self.any(&a)?,
+                };
+                if matches!(op, UnOp::LogNot | UnOp::RedNor | UnOp::RedNand | UnOp::RedXnor) {
+                    r = self.m.not(r)?;
+                }
+                self.resize(&vec![r], w, false)
+            }
+            ExprKind::Binary(op @ (BinOp::And | BinOp::Or | BinOp::Xor | BinOp::Xnor)) => {
+                let (a, b) = (arg(self, 0)?, arg(self, 1)?);
+                let mut v = Vec::with_capacity(w);
+                for (&p, &q) in a.iter().zip(&b) {
+                    v.push(match op {
+                        BinOp::And => self.m.and(p, q)?,
+                        BinOp::Or => self.m.or(p, q)?,
+                        BinOp::Xor => self.m.xor(p, q)?,
+                        _ => {
+                            let t = self.m.xor(p, q)?;
+                            self.m.not(t)?
+                        }
+                    });
+                }
+                v
+            }
+            ExprKind::Binary(op @ (BinOp::Add | BinOp::Sub)) => {
+                let (a, b) = (arg(self, 0)?, arg(self, 1)?);
+                if *op == BinOp::Add {
+                    self.add(&a, &b, FALSE)?
+                } else {
+                    let nb = b.iter().map(|&q| self.m.not(q)).collect::<Result<Vec<_>, _>>()?;
+                    self.add(&a, &nb, TRUE)?
+                }
+            }
+            ExprKind::Binary(op) if matches!(op, BinOp::Eq | BinOp::Ne | BinOp::CaseEq | BinOp::CaseNe | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge) => {
+                let at = d.expr(x.args[0]).ty;
+                let signed = tys.is_signed(at);
+                let n = tys.width(at).max(tys.width(d.expr(x.args[1]).ty)) as usize;
+                let a = self.expr(x.args[0])?;
+                let b = self.expr(x.args[1])?;
+                let (mut a, mut b) = (self.resize(&a, n, signed), self.resize(&b, n, signed));
+                if signed {
+                    // Signed order is unsigned order with the sign bits
+                    // flipped.
+                    a[n - 1] = self.m.not(a[n - 1])?;
+                    b[n - 1] = self.m.not(b[n - 1])?;
+                }
+                let r = match op {
+                    BinOp::Eq | BinOp::CaseEq => self.eq(&a, &b)?,
+                    BinOp::Ne | BinOp::CaseNe => {
+                        let e = self.eq(&a, &b)?;
+                        self.m.not(e)?
+                    }
+                    BinOp::Lt => self.lt(&a, &b)?,
+                    BinOp::Gt => self.lt(&b, &a)?,
+                    BinOp::Le => {
+                        let g = self.lt(&b, &a)?;
+                        self.m.not(g)?
+                    }
+                    _ => {
+                        let l = self.lt(&a, &b)?;
+                        self.m.not(l)?
+                    }
+                };
+                self.resize(&vec![r], w, false)
+            }
+            ExprKind::Binary(op @ (BinOp::LogAnd | BinOp::LogOr)) => {
+                let a = self.expr(x.args[0])?;
+                let b = self.expr(x.args[1])?;
+                let (p, q) = (self.any(&a)?, self.any(&b)?);
+                let r = if *op == BinOp::LogAnd { self.m.and(p, q)? } else { self.m.or(p, q)? };
+                self.resize(&vec![r], w, false)
+            }
+            ExprKind::Binary(op @ (BinOp::Shl | BinOp::AShl | BinOp::Shr | BinOp::AShr)) => {
+                let a = arg(self, 0)?;
+                let n = self.expr(x.args[1])?;
+                let n = Self::as_const(&n).ok_or(Unproved)? as usize;
+                let fill = if *op == BinOp::AShr && tys.is_signed(x.ty) { *a.last().unwrap_or(&FALSE) } else { FALSE };
+                (0..w)
+                    .map(|i| match op {
+                        BinOp::Shl | BinOp::AShl => if i >= n { a[i - n] } else { FALSE },
+                        _ => a.get(i + n).copied().unwrap_or(fill),
+                    })
+                    .collect()
+            }
+            ExprKind::Cond => {
+                let c = self.expr(x.args[0])?;
+                let c = self.any(&c)?;
+                let (a, b) = (arg(self, 1)?, arg(self, 2)?);
+                self.ite_vec(c, &a, &b)?
+            }
+            ExprKind::Concat => {
+                let mut v = Vec::with_capacity(w);
+                for &a in x.args.iter().rev() {
+                    v.extend(self.expr(a)?);
+                }
+                self.resize(&v, w, false)
+            }
+            ExprKind::Replicate(n) => {
+                let a = self.expr(x.args[0])?;
+                let v: Bits2 = (0..*n).flat_map(|_| a.iter().copied()).collect();
+                self.resize(&v, w, false)
+            }
+            ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_) => {
+                let base = self.expr(x.args[0])?;
+                let (off, sw) = self.select_at(e)?;
+                let v: Bits2 = (0..sw as i64).map(|i| if off + i >= 0 { base.get((off + i) as usize).copied().unwrap_or(FALSE) } else { FALSE }).collect();
+                self.resize(&v, w, false)
+            }
+            ExprKind::Convert => {
+                let st = d.expr(x.args[0]).ty;
+                if !tys.is_integral(st) || !tys.is_integral(x.ty) {
+                    return Err(Unproved);
+                }
+                let a = self.expr(x.args[0])?;
+                self.resize(&a, w, tys.is_signed(st))
+            }
+            _ => return Err(Unproved),
+        })
+    }
+
+    fn assign(&mut self, lhs: ExprId, v: Bits2) -> Sr<()> {
+        let d = self.d();
+        let x = d.expr(lhs);
+        match &x.kind {
+            ExprKind::Concat => {
+                let mut at = 0;
+                for &a in x.args.iter().rev() {
+                    let w = d.types.width(d.expr(a).ty) as usize;
+                    let part: Bits2 = (0..w).map(|i| v.get(at + i).copied().unwrap_or(FALSE)).collect();
+                    self.assign(a, part)?;
+                    at += w;
+                }
+                Ok(())
+            }
+            _ => {
+                let (o, off, w) = self.place(lhs)?;
+                let ow = d.types.width(d.object(o).ty) as usize;
+                let mut cur = self.env.get(&o).cloned().unwrap_or_else(|| vec![FALSE; ow]);
+                for i in 0..w {
+                    let at = off + i as i64;
+                    if at >= 0 && (at as usize) < ow {
+                        cur[at as usize] = v.get(i).copied().unwrap_or(FALSE);
+                    }
+                }
+                self.env.insert(o, cur);
+                Ok(())
+            }
+        }
+    }
+
+    /// The object a target selects from, the bit offset, the width.
+    fn place(&mut self, e: ExprId) -> Sr<(ObjId, i64, usize)> {
+        let d = self.d();
+        let x = d.expr(e);
+        match &x.kind {
+            ExprKind::Object(o) if matches!(d.object(*o).kind, ObjKind::Variable | ObjKind::Net(_)) => {
+                Ok((*o, 0, d.types.width(x.ty) as usize))
+            }
+            ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_) => {
+                let (o, base, _) = self.place(x.args[0])?;
+                let (off, w) = self.select_at(e)?;
+                Ok((o, base + off, w))
+            }
+            _ => Err(Unproved),
+        }
+    }
+
+    fn stmt(&mut self, s: StmtId) -> Sr<()> {
+        let d = self.d();
+        let kind = &d.stmt(s).kind;
+        if !matches!(kind, StmtKind::Null | StmtKind::Block { .. }) && self.l.only_asserts(s) {
+            return Ok(());
+        }
+        match kind {
+            StmtKind::Null => Ok(()),
+            StmtKind::Block { join: None, scope, stmts } => {
+                if let Some(sc) = scope {
+                    for item in &d.scope(*sc).items {
+                        if let Item::Object(o) = *item
+                            && d.object(o).lifetime == Lifetime::Automatic
+                        {
+                            let w = d.types.width(d.object(o).ty) as usize;
+                            let v = match d.object(o).init {
+                                Some(e) => self.expr(e)?,
+                                None => vec![FALSE; w],
+                            };
+                            self.env.insert(o, self.resize(&v, w, false));
+                        }
+                    }
+                }
+                stmts.iter().try_for_each(|&s| self.stmt(s))
+            }
+            StmtKind::Assign { kind: AssignKind::Blocking, lhs, rhs, timing: None } => {
+                let v = self.expr(*rhs)?;
+                self.assign(*lhs, v)
+            }
+            StmtKind::Expr(e) => match d.expr(*e).kind {
+                ExprKind::Unary(op @ (UnOp::PreInc | UnOp::PostInc | UnOp::PreDec | UnOp::PostDec)) => {
+                    let t = d.expr(*e).args[0];
+                    let v = self.expr(t)?;
+                    let one = self.konst(1, v.len() as u32);
+                    let r = if matches!(op, UnOp::PreInc | UnOp::PostInc) {
+                        self.add(&v, &one, FALSE)?
+                    } else {
+                        let n = one.iter().map(|&q| self.m.not(q)).collect::<Result<Vec<_>, _>>()?;
+                        self.add(&v, &n, TRUE)?
+                    };
+                    self.assign(t, r)
+                }
+                _ => Err(Unproved),
+            },
+            StmtKind::If { cond, then, else_, .. } => {
+                let c = self.expr(*cond)?;
+                let c = self.any(&c)?;
+                let (then, else_) = (*then, *else_);
+                self.branch(c, |s| s.stmt(then), |s| else_.map_or(Ok(()), |e| s.stmt(e)))
+            }
+            StmtKind::For { init, cond, step, body, .. } => {
+                for &s in init {
+                    self.stmt(s)?;
+                }
+                for _ in 0..65536 {
+                    if let Some(c) = cond {
+                        let v = self.expr(*c)?;
+                        match self.any(&v)? {
+                            TRUE => {}
+                            FALSE => return Ok(()),
+                            _ => return Err(Unproved),
+                        }
+                    }
+                    self.stmt(*body)?;
+                    step.iter().try_for_each(|&s| self.stmt(s))?;
+                }
+                Err(Unproved)
+            }
+            _ => Err(Unproved),
+        }
+    }
+
+    /// Both arms on copies of the values, merged bit by bit on `c`.
+    fn branch(&mut self, c: Bdd, then: impl FnOnce(&mut Self) -> Sr<()>, else_: impl FnOnce(&mut Self) -> Sr<()>) -> Sr<()> {
+        match c {
+            TRUE => return then(self),
+            FALSE => return else_(self),
+            _ => {}
+        }
+        let before = self.env.clone();
+        then(self)?;
+        let a = std::mem::replace(&mut self.env, before);
+        else_(self)?;
+        let b = std::mem::take(&mut self.env);
+        let mut keys: Vec<ObjId> = a.keys().chain(b.keys()).copied().collect();
+        keys.sort_unstable_by_key(|o| o.0);
+        keys.dedup();
+        for o in keys {
+            let ow = self.d().types.width(self.d().object(o).ty) as usize;
+            let va = a.get(&o).cloned().unwrap_or_else(|| vec![FALSE; ow]);
+            let vb = b.get(&o).cloned().unwrap_or_else(|| vec![FALSE; ow]);
+            let v = self.ite_vec(c, &va, &vb)?;
+            self.env.insert(o, v);
+        }
+        Ok(())
     }
 }

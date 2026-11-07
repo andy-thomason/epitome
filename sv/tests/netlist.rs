@@ -47,12 +47,17 @@ fn host() -> Option<(Target, &'static str, Vec<String>)> {
 fn netlist_options() -> netlist::Options {
     let x86_without_masks =
         cfg!(target_arch = "x86_64") && !std::env::var("NETLIST_MATTR").is_ok_and(|m| m.contains("avx512f"));
-    netlist::Options { bit_planes: !x86_without_masks }
+    let recognise = std::env::var("NETLIST_RECOGNISE").map_or(true, |v| v != "0");
+    netlist::Options { bit_planes: !x86_without_masks, recognise }
 }
 
 /// Elaborates `files` with `top` and compiles its netlist, on a thread with
 /// room for the elaborator's recursion.
 fn netlist_of(files: Vec<PathBuf>, include_dirs: Vec<PathBuf>, top: &str) -> Netlist {
+    netlist_with(files, include_dirs, top, netlist_options())
+}
+
+fn netlist_with(files: Vec<PathBuf>, include_dirs: Vec<PathBuf>, top: &str, layout: netlist::Options) -> Netlist {
     let top = top.to_string();
     std::thread::Builder::new()
         .stack_size(256 << 20)
@@ -62,7 +67,7 @@ fn netlist_of(files: Vec<PathBuf>, include_dirs: Vec<PathBuf>, top: &str) -> Net
             let out = preprocess_files(&map, &files, &opts).unwrap_or_else(|e| panic!("{e}"));
             let ast = epitome_sv::parse::parse(&out).unwrap_or_else(|e| panic!("{}", map.render(&e)));
             let d = epitome_sv::design::elab::elaborate_tops(&ast, &out, &[top]).unwrap_or_else(|e| panic!("{}", map.render(&e)));
-            netlist::compile_with(&d, d.tops[0], &netlist_options()).unwrap_or_else(|e| panic!("{e}"))
+            netlist::compile_with(&d, d.tops[0], &layout).unwrap_or_else(|e| panic!("{e}"))
         })
         .unwrap()
         .join()
@@ -511,4 +516,74 @@ fn cva6_pmp() {
     }
     let ns = t0.elapsed().as_secs_f64() * 1e9 / (iters * GROUP) as f64;
     eprintln!("pmp: {GROUP} instances agree with the model ({allowed} allowed); {ns:.2} ns an instance");
+}
+
+/// common_cells' lzc at several widths, both modes: recognised as a count
+/// of zeros (`netlist::recognise`), it must give what its own logic gives
+/// for every input tried, zero and single bits among them.
+#[test]
+fn lzc_recognised_matches_its_logic() {
+    let Some(cva6) = std::env::var_os("CVA6_DIR").map(PathBuf::from) else {
+        eprintln!("set CVA6_DIR to a CVA6 checkout to run this; skipping");
+        return;
+    };
+    let Some((t, triple, mattr)) = host() else {
+        eprintln!("needs cc on an AArch64 Mac or x86-64 Linux; skipping");
+        return;
+    };
+    let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("netlist");
+    std::fs::create_dir_all(&tmp).unwrap();
+    for (w, mode) in [(56u32, 0u32), (56, 1), (13, 0), (13, 1), (37, 0), (64, 1), (32, 0)] {
+        let cw = 32 - (w - 1).leading_zeros();
+        let name = format!("lzc_{w}_{mode}");
+        let src = tmp.join(format!("{name}.sv"));
+        std::fs::write(
+            &src,
+            format!(
+                "module {name} (input logic [{}:0] in_i, output logic [{}:0] cnt_o, output logic empty_o);\n  \
+                 lzc #(.WIDTH({w}), .MODE({mode})) i_lzc (.*);\nendmodule\n",
+                w - 1,
+                cw - 1
+            ),
+        )
+        .unwrap();
+        let files =
+            vec![cva6.join("vendor/pulp-platform/common_cells/src/cf_math_pkg.sv"), cva6.join("vendor/pulp-platform/common_cells/src/lzc.sv"), src];
+        let mut built = Vec::new();
+        for recognise in [true, false] {
+            let opts = netlist::Options { recognise, ..netlist_options() };
+            let net = netlist_with(files.clone(), Vec::new(), &name, opts);
+            let tag = if recognise { "known" } else { "logic" };
+            if recognise {
+                assert!(net.ir.matches("@llvm.ctlz.v16i32(").count() > 1, "{name} was not recognised");
+            }
+            built.push(build(&format!("{name}_{tag}"), net, &t, triple, &mattr));
+        }
+        let mask = if w == 64 { !0 } else { (1u64 << w) - 1 };
+        let mut rng = Rng(0x1234_5678_9ABC_DEF1 ^ w as u64);
+        let mut ins = vec![0u64, mask];
+        ins.extend((0..w).map(|i| 1u64 << i));
+        ins.extend((0..w).map(|i| mask << i & mask));
+        while ins.len() < GROUP {
+            let r = rng.next();
+            ins.push((r >> (rng.next() % 64)) & mask);
+        }
+        let mut outs = Vec::new();
+        for b in &built {
+            let mut st = State::new(b.net.size);
+            for (n, &v) in ins.iter().enumerate() {
+                st.put(&b.net, "in_i", n, v);
+            }
+            unsafe { (b.eval)(st.ptr) };
+            outs.push((0..GROUP).map(|n| (st.get(&b.net, "cnt_o", n), st.get(&b.net, "empty_o", n))).collect::<Vec<_>>());
+        }
+        for (n, &v) in ins.iter().enumerate() {
+            assert_eq!(outs[0][n], outs[1][n], "{name}: in {v:x}: recognised gives {:?}, its logic {:?}", outs[0][n], outs[1][n]);
+            if v != 0 {
+                let want = if mode == 0 { v.trailing_zeros() } else { (v << (64 - w)).leading_zeros() } as u64;
+                assert_eq!(outs[0][n].0, want, "{name}: in {v:x}");
+            }
+        }
+        eprintln!("{name}: recognised and its logic agree on {GROUP} inputs; code {} bytes against {}", built[0].sizes.iter().map(|s| s.1).sum::<u64>(), built[1].sizes.iter().map(|s| s.1).sum::<u64>());
+    }
 }

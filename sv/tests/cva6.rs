@@ -311,3 +311,81 @@ fn cva6_decoder() {
     let ns = time_netlist(&b, None, 1000);
     eprintln!("decoder: {n} instances agree with Verilator; {ns:.2} ns an instance; Verilator {}", v.bench(1, n, &stim, 100));
 }
+
+#[test]
+fn cva6_compressed_decoder() {
+    let Some((cva6, (t, triple, mattr))) = setup() else { return };
+    let (files, incs) = slice_files(&cva6, "cdec_top", include_str!("cva6/cdec_top.sv"), &["core/compressed_decoder.sv"]);
+    let b = build("cdec", netlist_of(files.clone(), incs.clone(), "cdec_top"), &t, triple, &mattr);
+    report("cdec", &b);
+    let Some(v) = verilate("cdec", &files, &incs, "cdec_top", &b.net.ports, None) else { return };
+    let n = 8 * GROUP;
+    let mut rng = Rng(0xC0DE_C0DE_0000_0016);
+    // Mostly compressed: the low two bits not 11.
+    let stim = stimulus(&v, 1, n, &mut rng, &mut |_, _, rng| {
+        let x = rng.next();
+        Some(if x % 8 == 0 { x | 3 } else if x & 3 == 3 { x & !1 } else { x })
+    });
+    check_against(&b, &v, 1, n, &stim, &|w| format!("{w:x?}"));
+    let ns = time_netlist(&b, None, 1000);
+    eprintln!("cdec: {n} instances agree with Verilator; {ns:.2} ns an instance; Verilator {}", v.bench(1, n, &stim, 100));
+}
+
+const CLOCKED: &str = r#"
+// Registers: an asynchronous reset, an enable, a chain through a child
+// (whose register the parent samples on the same edge), a counter with a
+// variable part select, and a process on the falling edge.
+module stage #(parameter int W = 8) (
+    input logic clk_i, input logic rst_ni, input logic en_i,
+    input logic [W-1:0] d_i, output logic [W-1:0] q_o
+);
+  always_ff @(posedge clk_i or negedge rst_ni)
+    if (!rst_ni) q_o <= '0;
+    else if (en_i) q_o <= d_i;
+endmodule
+
+module clocked_top (
+    input logic clk_i, input logic rst_ni, input logic en_i,
+    input logic [7:0] d_i, input logic [2:0] sel_i,
+    output logic [7:0] a_o, output logic [7:0] b_o, output logic [7:0] c_o,
+    output logic [15:0] count_o, output logic [7:0] fall_o, output logic [3:0] nib_o
+);
+  logic [7:0] a, b;
+  stage #(8) s0 (.clk_i, .rst_ni, .en_i, .d_i, .q_o(a));
+  stage #(8) s1 (.clk_i, .rst_ni, .en_i(1'b1), .d_i(a ^ 8'h5a), .q_o(b));
+  always_ff @(posedge clk_i) c_o <= b + a;
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      count_o <= 16'd0;
+      nib_o <= '0;
+    end else begin
+      count_o <= count_o + {8'd0, d_i};
+      nib_o[sel_i[1:0]] <= d_i[sel_i[2]];
+      if (d_i == 8'hff) count_o[3:0] <= 4'hf;
+    end
+  end
+  always_ff @(negedge clk_i) fall_o <= c_o - d_i;
+  assign a_o = a;
+  assign b_o = b;
+endmodule
+"#;
+
+#[test]
+fn clocked_basics() {
+    let Some((_, (t, triple, mattr))) = setup() else { return };
+    let src = tmp_dir().join("clocked_top.sv");
+    std::fs::write(&src, CLOCKED).unwrap();
+    let files = vec![src];
+    let b = build("clocked", netlist_of(files.clone(), Vec::new(), "clocked_top"), &t, triple, &mattr);
+    report("clocked", &b);
+    let Some(v) = verilate("clocked", &files, &[], "clocked_top", &b.net.ports, Some("clk_i")) else { return };
+    let (cycles, n) = (40, 2 * GROUP);
+    let mut rng = Rng(0xC10C_4ED0_0000_0001);
+    let stim = stimulus(&v, cycles, n, &mut rng, &mut |name, c, rng| match name {
+        "rst_ni" => Some((c > 0 && rng.next() % 16 != 0) as u64),
+        "en_i" => Some((rng.next() % 4 != 0) as u64),
+        "d_i" => Some(if rng.next() % 8 == 0 { 0xff } else { rng.next() % 256 }),
+        _ => None,
+    });
+    check_against(&b, &v, cycles, n, &stim, &|w| format!("{w:x?}"));
+}

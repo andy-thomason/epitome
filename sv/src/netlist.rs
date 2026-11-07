@@ -204,6 +204,26 @@ pub fn compile(d: &Design, top: InstId) -> Result<Netlist, String> {
     compile_with(d, top, &Options::default())
 }
 
+/// The functions of a specialisation with registers besides its settling
+/// one.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Phase {
+    /// Its clocked processes on the settled values, where their edges came:
+    /// the registers' next values.
+    Ff,
+    /// The next values become the registers'.
+    Commit,
+}
+
+impl Phase {
+    fn suffix(self) -> &'static str {
+        match self {
+            Phase::Ff => "_ff",
+            Phase::Commit => "_commit",
+        }
+    }
+}
+
 pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, String> {
     let mut n = Lowering {
         top: Some(d.instance(top).spec),
@@ -237,7 +257,8 @@ pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, 
         });
     }
     let dropped = n.dropped.get() + n.asserts.borrow().len();
-    Ok(Netlist { ir: n.ir, entry: fn_name(spec), size: lay.size as usize, ports, dropped })
+    let entry = if lay.clocked { format!("{}_step", fn_name(spec)) } else { fn_name(spec) };
+    Ok(Netlist { ir: n.ir, entry, size: lay.size as usize, ports, dropped })
 }
 
 fn fn_name(s: SpecId) -> String {
@@ -266,6 +287,17 @@ struct Layout {
     code: Vec<Node>,
     /// What it is proved to compute, if that replaces its own logic.
     known: Option<Known>,
+    /// Its clocked processes (`always_ff`, and `always` on edges).
+    ff: Vec<ProcId>,
+    /// What they assign with nonblocking assignments: its registers, each
+    /// with a slot for its next value.
+    regs: Vec<ObjId>,
+    shadow: HashMap<ObjId, u64>,
+    /// For each edge a clocked process waits on, the slot that holds the
+    /// value its expression had at the last evaluation.
+    prev: HashMap<ExprId, u64>,
+    /// It or a specialisation below it has registers.
+    clocked: bool,
 }
 
 /// What a parent passes for a child's port.
@@ -300,6 +332,11 @@ impl Layout {
             kids: HashMap::new(),
             code: Vec::new(),
             known: None,
+            ff: Vec::new(),
+            regs: Vec::new(),
+            shadow: HashMap::new(),
+            prev: HashMap::new(),
+            clocked: false,
         }
     }
 
@@ -451,7 +488,33 @@ impl<'d, 'a> Lowering<'d, 'a> {
         }
         let mut lay = Layout::new();
         lay.statics = objs.iter().copied().collect();
+        // Clocked processes are not in the order of the rest: they run
+        // after it, on what it has worked out.
+        let (ff, code): (Vec<Node>, Vec<Node>) =
+            code.into_iter().partition(|n| matches!(*n, Node::Proc(p) if self.clocked(p).is_some()));
+        lay.ff = ff.into_iter().map(|n| if let Node::Proc(p) = n { p } else { unreachable!() }).collect();
+        let mut ff_reads = Vec::new();
+        for &p in &lay.ff {
+            let (terms, body) = self.clocked(p).unwrap();
+            let mut w = Vec::new();
+            self.nba_writes(body, &mut w);
+            for (o, _, _) in w {
+                if lay.statics.contains(&o) && !lay.regs.contains(&o) {
+                    lay.regs.push(o);
+                }
+            }
+            self.stmt_access(body, &mut ff_reads, &mut Vec::new(), &mut Vec::new());
+            for t in terms {
+                self.reads(t.expr, &mut ff_reads);
+                if let Some(c) = t.iff {
+                    self.reads(c, &mut ff_reads);
+                }
+            }
+        }
+        lay.regs.sort_unstable_by_key(|o| o.0);
+        let ff_reads: HashSet<ObjId> = ff_reads.into_iter().map(|t| t.0).collect();
         lay.elems = self.element_only(&objs, &code);
+        lay.elems.retain(|o, _| !lay.regs.contains(o) && !ff_reads.contains(o));
         for node in code {
             if let Node::In(i) = node {
                 self.layout(d.instance(i).spec)?;
@@ -461,6 +524,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 lay.code.push(node);
             }
         }
+        lay.clocked = !lay.ff.is_empty() || lay.code.iter().any(|n| matches!(*n, Node::Call(i) if self.layouts[&d.instance(i).spec].clocked));
         self.layouts.insert(spec, lay);
         let planes = self.opts.bit_planes;
         let below_top = self.top != Some(spec);
@@ -519,7 +583,8 @@ impl<'d, 'a> Lowering<'d, 'a> {
         }
         let aliased: HashSet<ObjId> = args.iter().flat_map(|a| a.1.iter().flatten().copied()).collect();
         self.layouts.insert(spec, lay);
-        let local = self.loop_locals(spec)?;
+        let mut local = self.loop_locals(spec)?;
+        local.retain(|o| !ff_reads.contains(o));
         let mut lay = self.layouts.remove(&spec).unwrap();
         for o in objs {
             if local.contains(&o) && !aliased.contains(&o) || lay.port_ix.contains_key(&o) {
@@ -532,6 +597,21 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     lay.size = (lay.size + e.n as u64 * e.stride()).next_multiple_of(REG);
                 }
                 None => lay.place(o, w, Lane::of(w, planes)),
+            }
+        }
+        // The registers' next values, and the edges' last values.
+        for o in lay.regs.clone() {
+            let w = d.types.width(d.object(o).ty);
+            let lane = lay.lane(o);
+            lay.shadow.insert(o, lay.size);
+            lay.size = (lay.size + lane.bytes(w)).next_multiple_of(REG);
+        }
+        for p in lay.ff.clone() {
+            for t in self.clocked(p).unwrap().0 {
+                if !lay.prev.contains_key(&t.expr) {
+                    lay.prev.insert(t.expr, lay.size);
+                    lay.size = (lay.size + Lane::of(1, planes).bytes(1)).next_multiple_of(REG);
+                }
             }
         }
         // Slots for the ports not connected to a value whole.
@@ -660,6 +740,12 @@ impl<'d, 'a> Lowering<'d, 'a> {
                             self.process_statics(pr.body, objs);
                             code.push(Node::Proc(p));
                         }
+                        // Clocked processes, set apart by `layout`.
+                        ProcKind::AlwaysFf | ProcKind::Always if self.clocked(p).is_some() => {
+                            self.process_statics(pr.body, objs);
+                            code.push(Node::Proc(p));
+                        }
+                        ProcKind::AlwaysFf => return Err("an always_ff that does not wait on edges is not supported yet".into()),
                         ProcKind::Initial if self.only_asserts(pr.body) => self.dropped.set(self.dropped.get() + 1),
                         k => return Err(format!("{k:?} processes are not supported yet")),
                     }
@@ -1085,6 +1171,46 @@ impl<'d, 'a> Lowering<'d, 'a> {
         same && x.args.iter().zip(&y.args).all(|(&p, &q)| self.same_expr(p, q, map))
     }
 
+    /// A process that runs on edges: what it waits on, and its body.
+    fn clocked(&self, p: ProcId) -> Option<(&'d [crate::design::EventTerm], StmtId)> {
+        let d = self.d;
+        let pr = &d.processes[p.0 as usize];
+        if !matches!(pr.kind, ProcKind::AlwaysFf | ProcKind::Always) {
+            return None;
+        }
+        match &d.stmt(pr.body).kind {
+            StmtKind::Timed(crate::design::Timing::Event(terms), body)
+                if !terms.is_empty() && terms.iter().all(|t| matches!(t.edge, crate::design::Edge::Pos | crate::design::Edge::Neg)) =>
+            {
+                Some((terms.as_slice(), *body))
+            }
+            _ => None,
+        }
+    }
+
+    /// What a statement assigns with nonblocking assignments.
+    fn nba_writes(&self, s: StmtId, w: &mut Vec<(ObjId, u32, u32)>) {
+        let d = self.d;
+        match &d.stmt(s).kind {
+            StmtKind::Assign { kind: AssignKind::NonBlocking, lhs, .. } => self.writes(*lhs, w, &mut Vec::new()),
+            StmtKind::Block { stmts, .. } => stmts.iter().for_each(|&s| self.nba_writes(s, w)),
+            StmtKind::If { then, else_, .. } => {
+                self.nba_writes(*then, w);
+                if let Some(e) = else_ {
+                    self.nba_writes(*e, w);
+                }
+            }
+            StmtKind::Case { items, default, .. } => {
+                items.iter().for_each(|i| self.nba_writes(i.1, w));
+                if let Some(e) = default {
+                    self.nba_writes(*e, w);
+                }
+            }
+            StmtKind::For { body, .. } => self.nba_writes(*body, w),
+            _ => {}
+        }
+    }
+
     /// Whether a statement does nothing but check assertions, so leaving
     /// it out, conditions and all, changes no value. Its assertions are
     /// added to `asserts`.
@@ -1128,6 +1254,23 @@ impl<'d, 'a> Lowering<'d, 'a> {
         }
         let text = f.finish();
         let _ = writeln!(self.ir, "; {}\n{text}", self.d.name(self.d.spec(spec).name));
+        if self.layouts[&spec].clocked {
+            for phase in [Phase::Ff, Phase::Commit] {
+                let mut f = Func::new(self, spec);
+                f.phase(phase)?;
+                let text = f.finish();
+                let _ = writeln!(self.ir, "{text}");
+            }
+            if self.top == Some(spec) {
+                let n = fn_name(spec);
+                let _ = writeln!(
+                    self.ir,
+                    "; a step: settle, sample the registers, commit them, settle again\n\
+                     define void @{n}_step(ptr %s) {{\nentry:\n  call void @{n}(ptr %s)\n  call void @{n}_ff(ptr %s)\n  \
+                     call void @{n}_commit(ptr %s)\n  call void @{n}(ptr %s)\n  ret void\n}}\n"
+                );
+            }
+        }
         Ok(())
     }
 
@@ -1584,6 +1727,8 @@ struct Env {
     brk: Option<M>,
     /// The lanes that have returned from the function being run.
     ret: Option<M>,
+    /// The registers' next values from nonblocking assignments so far.
+    nba: HashMap<ObjId, Val>,
 }
 
 /// One function being written.
@@ -1612,6 +1757,8 @@ struct Func<'l, 'd, 'a> {
     in_range: HashSet<ExprId>,
     /// The functions being run, innermost last, with their results.
     calls: Vec<(SubId, Option<ObjId>)>,
+    /// Running clocked processes: nonblocking assignments are allowed.
+    ff: bool,
 }
 
 const V16: &str = "<16 x i32>";
@@ -1641,7 +1788,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             }
         }
         let out = format!("define void @{}({params}) {{\nentry:\n", fn_name(spec));
-        Func { l, spec, out, next: 0, env: Env::default(), block: "entry".into(), loops: 0, rolled: 0, mem: false, uniform: HashSet::new(), mask_of: HashMap::new(), bits_of: HashMap::new(), in_range: HashSet::new(), calls: Vec::new() }
+        Func { l, spec, out, next: 0, env: Env::default(), block: "entry".into(), loops: 0, rolled: 0, mem: false, uniform: HashSet::new(), mask_of: HashMap::new(), bits_of: HashMap::new(), in_range: HashSet::new(), calls: Vec::new(), ff: false }
     }
 
     fn finish(mut self) -> String {
@@ -1672,8 +1819,23 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 self.rolled_loop(l)?;
             } else if let Node::Call(i) = n {
                 self.run_loop(&seg)?;
-                let off = self.lay().kids[&i];
                 let child = self.d().instance(i).spec;
+                let args = self.child_args(i);
+                let _ = writeln!(self.out, "  call void @{}({args})", fn_name(child));
+                seg = vec![n];
+            } else {
+                seg.push(n);
+            }
+        }
+        self.run_loop(&seg)
+    }
+
+    /// The arguments of a call of child `i`'s functions: its state, and
+    /// what it has for each port.
+    fn child_args(&mut self, i: InstId) -> String {
+        {
+            {
+                let off = self.lay().kids[&i];
                 let t = self.tmp();
                 let _ = writeln!(self.out, "  %t{t} = getelementptr i8, ptr %s, i64 {off}");
                 let mut args = format!("ptr %t{t}");
@@ -1696,13 +1858,9 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     };
                     let _ = write!(args, ", ptr {p}");
                 }
-                let _ = writeln!(self.out, "  call void @{}({args})", fn_name(child));
-                seg = vec![n];
-            } else {
-                seg.push(n);
+                args
             }
         }
-        self.run_loop(&seg)
     }
 
     /// A loop over the group's registers running `nodes` in order.
@@ -1974,6 +2132,13 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     }
                 }
                 Ok(())
+            }
+            StmtKind::Assign { kind: AssignKind::NonBlocking, lhs, rhs, timing: None } => {
+                if !self.ff {
+                    return Err("nonblocking assignments outside clocked processes are not supported yet".into());
+                }
+                let v = self.expr(*rhs)?;
+                self.assign_nb(*lhs, v)
             }
             StmtKind::Assign { kind, lhs, rhs, timing: None } => {
                 let v = match kind {
@@ -2261,8 +2426,159 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             self.env.elems.insert((o, i), v);
         }
         self.env.edirty.extend(a.edirty.into_iter().chain(b.edirty));
+        let mut keys: Vec<ObjId> = a.nba.keys().chain(b.nba.keys()).copied().collect();
+        keys.sort_unstable_by_key(|o| o.0);
+        keys.dedup();
+        for o in keys {
+            let side = |f: &mut Self, x: &HashMap<ObjId, Val>| match x.get(&o).or(f.env.nba.get(&o)) {
+                Some(v) => v.clone(),
+                None => f.read(o),
+            };
+            let (va, vb) = (side(self, &a.nba), side(self, &b.nba));
+            let v = if va == vb { va } else { self.select(m, &va, &vb) };
+            self.env.nba.insert(o, v);
+        }
         self.env.brk = self.merge_stop(m, a.brk, b.brk);
         self.env.ret = self.merge_stop(m, a.ret, b.ret);
+        Ok(())
+    }
+
+    /// A nonblocking assignment: the register's next value.
+    fn assign_nb(&mut self, lhs: ExprId, v: Val) -> Result<(), String> {
+        let d = self.d();
+        let x = d.expr(lhs);
+        match &x.kind {
+            ExprKind::Concat => {
+                let mut top: u32 = x.args.iter().map(|&a| d.types.width(d.expr(a).ty)).sum();
+                for &a in &x.args {
+                    let w = d.types.width(d.expr(a).ty);
+                    top -= w;
+                    let part = self.extract(&v, top, w);
+                    self.assign_nb(a, part)?;
+                }
+                Ok(())
+            }
+            ExprKind::Object(_) | ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_) => {
+                let (o, off, w) = self.place(lhs)?;
+                if !self.lay().shadow.contains_key(&o) {
+                    return Err(format!("{} is assigned nonblocking but is not a register here", d.name(d.object(o).name)));
+                }
+                let old = match self.env.nba.get(&o) {
+                    Some(v) => v.clone(),
+                    None => self.read(o),
+                };
+                let new = match off {
+                    Off::K(k) => self.insert(&old, k, w, &v),
+                    Off::V(p, ok) => self.insert_var(&old, p, ok, w, &v),
+                    Off::Neg(_) => return Err("a part select partly out of range as a target".into()),
+                };
+                self.env.nba.insert(o, new);
+                Ok(())
+            }
+            k => Err(format!("nonblocking assignments to {k:?} are not supported yet")),
+        }
+    }
+
+    /// The function of a specialisation with registers for `phase`: its
+    /// children's, then its own loop.
+    fn phase(&mut self, phase: Phase) -> Result<(), String> {
+        let d = self.d();
+        self.out = self.out.replacen(&format!("@{}(", fn_name(self.spec)), &format!("@{}{}(", fn_name(self.spec), phase.suffix()), 1);
+        for n in self.lay().code.clone() {
+            if let Node::Call(i) = n
+                && self.l.layouts[&d.instance(i).spec].clocked
+            {
+                let args = self.child_args(i);
+                let _ = writeln!(self.out, "  call void @{}{}({args})", fn_name(d.instance(i).spec), phase.suffix());
+            }
+        }
+        let lay = self.lay();
+        if lay.regs.is_empty() && lay.ff.is_empty() {
+            return Ok(());
+        }
+        match phase {
+            Phase::Ff => self.run_loop_with(|f| f.ff_procs()),
+            Phase::Commit => self.run_loop_with(|f| {
+                for o in f.lay().regs.clone() {
+                    let w = d.types.width(d.object(o).ty);
+                    let at = f.lay().shadow[&o];
+                    let lane = f.lay().lane(o);
+                    let v = f.load(Base::State(at), lane, w);
+                    f.set(o, v);
+                }
+                Ok(())
+            }),
+        }
+    }
+
+    /// Each clocked process where an edge it waits on came, on the
+    /// settled values: the registers' next values, kept apart until
+    /// every process has run.
+    fn ff_procs(&mut self) -> Result<(), String> {
+        let d = self.d();
+        let planes = self.l.opts.bit_planes;
+        let mut runs = Vec::new();
+        let mut seen = HashMap::new();
+        for p in self.lay().ff.clone() {
+            let (terms, body) = self.l.clocked(p).unwrap();
+            let mut fire = M::K(false);
+            for t in terms {
+                // An edge is a change of the expression's lowest bit
+                // (9.4.2).
+                let (now, before) = match seen.get(&t.expr) {
+                    Some(&x) => x,
+                    None => {
+                        let v = self.expr(t.expr)?;
+                        let now = self.extract(&v, 0, 1);
+                        let now = self.truth(&now);
+                        let at = self.lay().prev[&t.expr];
+                        let b = self.load(Base::State(at), Lane::of(1, planes), 1);
+                        let before = self.truth(&b);
+                        seen.insert(t.expr, (now, before));
+                        (now, before)
+                    }
+                };
+                let mut e = match t.edge {
+                    crate::design::Edge::Pos => {
+                        let nb = self.mnot(before);
+                        self.mand(now, nb)
+                    }
+                    _ => {
+                        let nn = self.mnot(now);
+                        self.mand(nn, before)
+                    }
+                };
+                if let Some(c) = t.iff {
+                    let c = self.expr(c)?;
+                    let c = self.truth(&c);
+                    e = self.mand(e, c);
+                }
+                fire = self.mor(fire, e);
+            }
+            runs.push((fire, body));
+        }
+        let mut prevs: Vec<(ExprId, M)> = seen.into_iter().map(|(e, (now, _))| (e, now)).collect();
+        prevs.sort_unstable_by_key(|p| p.0.0);
+        for (e, now) in prevs {
+            let at = self.lay().prev[&e];
+            let v = self.bit(now, 1);
+            self.store(Base::State(at), Lane::of(1, planes), &v);
+        }
+        self.ff = true;
+        for (fire, body) in runs {
+            self.branch(fire, |f| f.stmt(body), |_| Ok(()))?;
+            self.env.vals.retain(|o, _| d.object(*o).lifetime == Lifetime::Static);
+        }
+        self.ff = false;
+        for o in self.lay().regs.clone() {
+            let v = match self.env.nba.get(&o) {
+                Some(v) => v.clone(),
+                None => self.read(o),
+            };
+            let at = self.lay().shadow[&o];
+            let lane = self.lay().lane(o);
+            self.store(Base::State(at), lane, &v);
+        }
         Ok(())
     }
 
@@ -3933,7 +4249,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
     fn recognise(&self, spec: SpecId) -> Option<Known> {
         let d = self.d;
         let lay = &self.layouts[&spec];
-        if lay.code.is_empty() {
+        if lay.code.is_empty() || lay.clocked {
             return None;
         }
         let ports = &d.spec(spec).ports;

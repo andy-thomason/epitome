@@ -152,3 +152,162 @@ fn popcount_tree() {
         check_against(&b, &v, 1, GROUP, &stim, &|x| format!("{x:x?}"));
     }
 }
+
+const EXEC_TOP: &str = r#"
+// The ALU and the branch unit, connected as ex_stage connects them, with
+// the types of cva6.sv.
+module exec_top
+  import ariane_pkg::*;
+#(
+    parameter config_pkg::cva6_cfg_t CVA6Cfg = build_config_pkg::build_config(cva6_config_pkg::cva6_cfg),
+    localparam type fu_data_t = struct packed {
+      fu_t                              fu;
+      fu_op                             operation;
+      logic [CVA6Cfg.XLEN-1:0]          operand_a;
+      logic [CVA6Cfg.XLEN-1:0]          operand_b;
+      logic [CVA6Cfg.XLEN-1:0]          imm;
+      logic [CVA6Cfg.TRANS_ID_BITS-1:0] trans_id;
+    },
+    localparam type branchpredict_sbe_t = struct packed {
+      logic                    valid;
+      cf_t                     cf;
+      logic [CVA6Cfg.VLEN-1:0] predict_address;
+    },
+    localparam type exception_t = struct packed {
+      logic [CVA6Cfg.XLEN-1:0] cause;
+      logic [CVA6Cfg.XLEN-1:0] tval;
+      logic [CVA6Cfg.GPLEN-1:0] tval2;
+      logic [31:0] tinst;
+      logic gva;
+      logic valid;
+      logic timing;
+    },
+    localparam type bp_resolve_t = struct packed {
+      logic                    valid;
+      logic [CVA6Cfg.VLEN-1:0] pc;
+      logic [CVA6Cfg.VLEN-1:0] target_address;
+      logic                    is_mispredict;
+      logic                    is_taken;
+      cf_t                     cf_type;
+    }
+) (
+    input fu_op operation_i,
+    input logic [CVA6Cfg.XLEN-1:0] a_i,
+    input logic [CVA6Cfg.XLEN-1:0] b_i,
+    input logic [CVA6Cfg.XLEN-1:0] imm_i,
+    input logic [CVA6Cfg.VLEN-1:0] pc_i,
+    input logic is_compressed_i,
+    input logic branch_valid_i,
+    input logic predict_valid_i,
+    input cf_t predict_cf_i,
+    input logic [CVA6Cfg.VLEN-1:0] predict_address_i,
+    output logic [CVA6Cfg.XLEN-1:0] alu_result_o,
+    output logic [CVA6Cfg.VLEN-1:0] branch_result_o,
+    output bp_resolve_t resolved_branch_o,
+    output logic resolve_branch_o,
+    output exception_t branch_exception_o
+);
+  fu_data_t d;
+  branchpredict_sbe_t bp;
+  logic alu_branch_res;
+  assign d = '{fu: ALU, operation: operation_i, operand_a: a_i, operand_b: b_i, imm: imm_i, trans_id: '0};
+  assign bp = '{valid: predict_valid_i, cf: predict_cf_i, predict_address: predict_address_i};
+  alu_wrapper #(.CVA6Cfg(CVA6Cfg), .fu_data_t(fu_data_t)) i_alu (
+      .clk_i(1'b0), .rst_ni(1'b1), .alu_bypass_i('0), .fu_data_i(d), .result_o(alu_result_o),
+      .alu_branch_res_o(alu_branch_res));
+  branch_unit #(
+      .CVA6Cfg(CVA6Cfg), .bp_resolve_t(bp_resolve_t), .branchpredict_sbe_t(branchpredict_sbe_t),
+      .exception_t(exception_t), .fu_data_t(fu_data_t)
+  ) i_branch (
+      .clk_i(1'b0), .rst_ni(1'b1), .v_i(1'b0), .debug_mode_i(1'b0), .fu_data_i(d), .pc_i,
+      .is_zcmt_i(1'b0), .is_compressed_instr_i(is_compressed_i), .branch_valid_i,
+      .branch_comp_res_i(alu_branch_res), .branch_result_o, .branch_predict_i(bp),
+      .resolved_branch_o, .resolve_branch_o, .branch_exception_o);
+endmodule
+"#;
+
+#[test]
+fn cva6_exec() {
+    let Some((cva6, (t, triple, mattr))) = setup() else { return };
+    let tmp = tmp_dir();
+    let top = tmp.join("exec_top.sv");
+    std::fs::write(&top, EXEC_TOP).unwrap();
+    let (files, incs) = cva6_files(
+        &cva6,
+        &[
+            "vendor/pulp-platform/common_cells/src/lzc.sv",
+            "vendor/pulp-platform/common_cells/src/popcount.sv",
+            "core/alu.sv",
+            "core/alu_wrapper.sv",
+            "core/branch_unit.sv",
+            top.to_str().unwrap(),
+        ],
+    );
+    let b = build("exec", netlist_of(files.clone(), incs.clone(), "exec_top"), &t, triple, &mattr);
+    report("exec", &b);
+    let Some(v) = verilate("exec", &files, &incs, "exec_top", &b.net.ports, None) else { return };
+    let n = 4 * GROUP;
+    let mut rng = Rng(0x0E1E_C0DE_5EED_0001);
+    let mut stim = Vec::new();
+    let w2 = |x: u64| [x as u32, (x >> 32) as u32];
+    for _ in 0..n {
+        // Half branches and jumps (LTS..JALR are 13..19).
+        let op = if rng.next() % 2 == 0 { 13 + rng.next() % 7 } else { rng.next() % 226 };
+        let (a, bb) = (operand(&mut rng), operand(&mut rng));
+        let imm = ((rng.next() as i64) >> (40 + rng.next() % 24)) as u64;
+        let pc = rng.next() & !1;
+        let target = if op == 19 { a.wrapping_add(imm) & !1 } else { pc.wrapping_add(imm) };
+        let predicted = if rng.next() % 2 == 0 { target } else { rng.next() };
+        stim.extend([op as u32]);
+        for x in [a, bb, imm, pc] {
+            stim.extend(w2(x));
+        }
+        stim.extend([(rng.next() % 2) as u32, (rng.next() % 4 != 0) as u32, (rng.next() % 2) as u32, (rng.next() % 5) as u32]);
+        stim.extend(w2(predicted));
+    }
+    check_against(&b, &v, 1, n, &stim, &|w| format!("{w:x?}"));
+    let ns = time_netlist(&b, None, 2000);
+    eprintln!("exec: {n} instances agree with Verilator; {ns:.2} ns an instance; Verilator {}", v.bench(1, n, &stim, 200));
+}
+
+/// The types of cva6.sv, for wrappers to import.
+const SLICE_PKG: &str = include_str!("cva6/slice_pkg.sv");
+
+/// Writes the package and a wrapper, and the files and include
+/// directories of CVA6 with `rest` and those.
+fn slice_files(cva6: &std::path::Path, wrapper: &str, sv: &str, rest: &[&str]) -> (Vec<PathBuf>, Vec<PathBuf>) {
+    let tmp = tmp_dir();
+    let (pkg, top) = (tmp.join("slice_pkg.sv"), tmp.join(format!("{wrapper}.sv")));
+    std::fs::write(&pkg, SLICE_PKG).unwrap();
+    std::fs::write(&top, sv).unwrap();
+    let mut all: Vec<&str> = vec![pkg.to_str().unwrap()];
+    all.extend(rest);
+    all.push(top.to_str().unwrap());
+    cva6_files(cva6, &all)
+}
+
+/// The decoder's choices for a 32-bit instruction word.
+fn decoder_pick(name: &str, rng: &mut Rng) -> Option<u64> {
+    match name {
+        "instruction_i" => Some(rv_instruction(rng) as u64),
+        "is_compressed_i" | "is_illegal_i" | "debug_req_i" | "debug_mode_i" => Some((rng.next() % 8 == 0) as u64),
+        // No exception from fetch, mostly.
+        "ex_i" => Some(rng.next() & !(((rng.next() % 4 != 0) as u64) << 1)),
+        _ => None,
+    }
+}
+
+#[test]
+fn cva6_decoder() {
+    let Some((cva6, (t, triple, mattr))) = setup() else { return };
+    let (files, incs) = slice_files(&cva6, "decoder_top", include_str!("cva6/decoder_top.sv"), &["core/decoder.sv"]);
+    let b = build("decoder", netlist_of(files.clone(), incs.clone(), "decoder_top"), &t, triple, &mattr);
+    report("decoder", &b);
+    let Some(v) = verilate("decoder", &files, &incs, "decoder_top", &b.net.ports, None) else { return };
+    let n = 8 * GROUP;
+    let mut rng = Rng(0xDEC0_DE00_1234_5678);
+    let stim = stimulus(&v, 1, n, &mut rng, &mut |name, _, rng| decoder_pick(name, rng));
+    check_against(&b, &v, 1, n, &stim, &|w| format!("{w:x?}"));
+    let ns = time_netlist(&b, None, 1000);
+    eprintln!("decoder: {n} instances agree with Verilator; {ns:.2} ns an instance; Verilator {}", v.bench(1, n, &stim, 100));
+}

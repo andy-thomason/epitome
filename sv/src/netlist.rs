@@ -30,8 +30,8 @@ use crate::design::types::{Type, TypeId};
 use crate::hash::FxMap;
 use crate::design::value::{Bits, Logic};
 use crate::design::{
-    AssignKind, BinOp, CaseKind, Const, Design, Dir, DriverId, ExprId, ExprKind, InstId, Item, Lifetime, ObjId, ObjKind,
-    PartKind, ProcId, ProcKind, ScopeId, ScopeKind, SpecId, StmtId, StmtKind, UnOp, ops,
+    AssignKind, BinOp, Binding, CaseKind, Const, Design, Dir, DriverId, ExprId, ExprKind, InstId, Item, Lifetime, ObjId,
+    ObjKind, PartKind, ProcId, ProcKind, ScopeId, ScopeKind, SpecId, StmtId, StmtKind, SubId, SubKind, UnOp, ops,
 };
 
 /// Instances in one register: 32-bit lanes of a 512-bit vector.
@@ -217,6 +217,7 @@ pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, 
         asserts: RefCell::default(),
         loops: Vec::new(),
         sym_orders: RefCell::default(),
+        sub_locals: RefCell::default(),
         loop_vars: RefCell::default(),
     };
     let spec = d.instance(top).spec;
@@ -427,6 +428,7 @@ struct Lowering<'d, 'a> {
     /// Specialisations' code in order, kept for proving what their
     /// parents compute after a layout of their own has dropped it.
     sym_orders: RefCell<HashMap<SpecId, Vec<Node>>>,
+    sub_locals: RefCell<HashMap<SubId, Vec<ObjId>>>,
     /// The parameters that step in the loop being lowered: not constants
     /// there.
     loop_vars: RefCell<HashSet<ObjId>>,
@@ -1001,6 +1003,48 @@ impl<'d, 'a> Lowering<'d, 'a> {
         Some(Rolled { count: n as u32, body: drivers[0].clone(), steps, all: drivers.concat(), in_range })
     }
 
+    /// A function's variables, its formals among them: those declared in
+    /// its scope and the blocks within it, not its result.
+    fn sub_locals(&self, sub: SubId) -> Vec<ObjId> {
+        if let Some(v) = self.sub_locals.borrow().get(&sub) {
+            return v.clone();
+        }
+        let d = self.d;
+        let s = &d.subroutines[sub.0 as usize];
+        let mut out: Vec<ObjId> = s.args.clone();
+        let mut scopes = vec![s.scope];
+        let mut stmts = s.body.clone();
+        while let Some(st) = stmts.pop() {
+            match &d.stmt(st).kind {
+                StmtKind::Block { scope, stmts: b, .. } => {
+                    scopes.extend(*scope);
+                    stmts.extend(b);
+                }
+                StmtKind::For { scope, init, step, body, .. } => {
+                    scopes.extend(*scope);
+                    stmts.extend(init.iter().chain(step).chain([body]));
+                }
+                StmtKind::If { then, else_, .. } => stmts.extend(std::iter::once(*then).chain(*else_)),
+                StmtKind::Case { items, default, .. } => stmts.extend(items.iter().map(|i| i.1).chain(*default)),
+                _ => {}
+            }
+        }
+        let result = d.scope(s.scope).names.get(&s.name).copied();
+        for sc in scopes {
+            for item in &d.scope(sc).items {
+                if let Item::Object(o) = *item
+                    && d.object(o).kind == ObjKind::Variable
+                    && !out.contains(&o)
+                    && result != Some(Binding::Object(o))
+                {
+                    out.push(o);
+                }
+            }
+        }
+        self.sub_locals.borrow_mut().insert(sub, out.clone());
+        out
+    }
+
     /// How many nodes an expression has.
     fn expr_size(&self, e: ExprId) -> usize {
         1 + self.d.expr(e).args.iter().map(|&a| self.expr_size(a)).sum::<usize>()
@@ -1159,9 +1203,15 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let whole = |o: ObjId| (o, 0, d.types.width(d.object(o).ty).max(1));
         match node {
             Node::Proc(p) => {
+                // The bits it reads and writes, as its statements select
+                // them, so that processes that each work out some fields
+                // of one struct are ordered by those fields.
                 let pr = &d.processes[p.0 as usize];
-                r.extend(pr.reads.iter().filter(|o| lay.statics.contains(o)).map(|&o| whole(o)));
-                w.extend(pr.writes.iter().filter(|o| lay.statics.contains(o)).map(|&o| whole(o)));
+                let (mut pr_r, mut pr_w) = (Vec::new(), Vec::new());
+                self.stmt_access(pr.body, &mut pr_r, &mut pr_w, &mut Vec::new());
+                r.extend(pr_r.into_iter().filter(|t| lay.statics.contains(&t.0)));
+                w.extend(pr_w.into_iter().filter(|t| lay.statics.contains(&t.0)));
+                let _ = whole;
             }
             Node::Driver(dr) => {
                 let drv = &d.drivers[dr.0 as usize];
@@ -1191,6 +1241,84 @@ impl<'d, 'a> Lowering<'d, 'a> {
             }
         }
         Ok((r, w))
+    }
+
+    /// What a statement reads and writes, with the functions it calls
+    /// (each once: `seen`).
+    fn stmt_access(&self, s: StmtId, r: &mut Vec<(ObjId, u32, u32)>, w: &mut Vec<(ObjId, u32, u32)>, seen: &mut Vec<SubId>) {
+        let d = self.d;
+        let e = |e: ExprId, r: &mut Vec<(ObjId, u32, u32)>, w: &mut Vec<(ObjId, u32, u32)>, seen: &mut Vec<SubId>| {
+            self.reads(e, r);
+            self.call_access(e, r, w, seen);
+        };
+        match &d.stmt(s).kind {
+            StmtKind::Block { stmts, .. } => stmts.iter().for_each(|&s| self.stmt_access(s, r, w, seen)),
+            StmtKind::Assign { kind, lhs, rhs, .. } => {
+                e(*rhs, r, w, seen);
+                if matches!(kind, AssignKind::Compound(_)) {
+                    self.reads(*lhs, r);
+                }
+                self.writes(*lhs, w, r);
+            }
+            StmtKind::Expr(x) => {
+                e(*x, r, w, seen);
+                if let ExprKind::Unary(UnOp::PreInc | UnOp::PostInc | UnOp::PreDec | UnOp::PostDec) = d.expr(*x).kind {
+                    self.writes(d.expr(*x).args[0], w, r);
+                }
+            }
+            StmtKind::If { cond, then, else_, .. } => {
+                e(*cond, r, w, seen);
+                self.stmt_access(*then, r, w, seen);
+                if let Some(x) = else_ {
+                    self.stmt_access(*x, r, w, seen);
+                }
+            }
+            StmtKind::Case { expr, items, default, .. } => {
+                e(*expr, r, w, seen);
+                for (labels, body) in items {
+                    labels.iter().for_each(|&l| e(l, r, w, seen));
+                    self.stmt_access(*body, r, w, seen);
+                }
+                if let Some(x) = default {
+                    self.stmt_access(*x, r, w, seen);
+                }
+            }
+            StmtKind::For { init, cond, step, body, .. } => {
+                init.iter().chain(step).for_each(|&s| self.stmt_access(s, r, w, seen));
+                if let Some(c) = cond {
+                    e(*c, r, w, seen);
+                }
+                self.stmt_access(*body, r, w, seen);
+            }
+            StmtKind::Return(Some(x)) => e(*x, r, w, seen),
+            _ => {}
+        }
+    }
+
+    /// What the functions an expression calls read and write, and the
+    /// targets of their output arguments.
+    fn call_access(&self, e: ExprId, r: &mut Vec<(ObjId, u32, u32)>, w: &mut Vec<(ObjId, u32, u32)>, seen: &mut Vec<SubId>) {
+        let d = self.d;
+        let x = d.expr(e);
+        if let ExprKind::Call(sub) = x.kind {
+            let s = &d.subroutines[sub.0 as usize];
+            for (i, &f) in s.args.iter().enumerate() {
+                if d.object(f).dir == Some(Dir::Output)
+                    && let Some(&a) = x.args.get(i)
+                {
+                    self.writes(a, w, r);
+                }
+            }
+            if !seen.contains(&sub) {
+                seen.push(sub);
+                for &st in &s.body {
+                    self.stmt_access(st, r, w, seen);
+                }
+            }
+        }
+        for &a in &x.args {
+            self.call_access(a, r, w, seen);
+        }
     }
 
     fn port_dir(&self, i: InstId, name: crate::design::Sym) -> Option<Dir> {
@@ -1359,6 +1487,16 @@ impl<'d, 'a> Lowering<'d, 'a> {
             }
             ExprKind::Binary(op) => ops::binary(tys, *op, self.fold(x.args[0])?, self.fold(x.args[1])?, x.ty),
             ExprKind::Convert => Some(ops::convert(tys, &self.fold(x.args[0])?, x.ty)),
+            ExprKind::SysCall(f) if x.args.len() == 1 => match d.name(*f) {
+                // The ceiling of the log base 2, as an integer (20.8.1).
+                "$clog2" => {
+                    let v = ops::bits_of(&self.fold(x.args[0])?)?.to_u64()?;
+                    let c = if v <= 1 { 0 } else { 64 - (v - 1).leading_zeros() as u64 };
+                    Some(Const::Bits(Bits::from_u64(tys.width(x.ty), tys.is_signed(x.ty), c)))
+                }
+                "$signed" | "$unsigned" => Some(ops::convert(tys, &self.fold(x.args[0])?, x.ty)),
+                _ => None,
+            },
             ExprKind::Cond => {
                 if ops::truth(&self.fold(x.args[0])?)? {
                     self.fold(x.args[1])
@@ -1444,6 +1582,8 @@ struct Env {
     edirty: HashSet<(ObjId, u32)>,
     /// The lanes that have left the innermost loop with `break`.
     brk: Option<M>,
+    /// The lanes that have returned from the function being run.
+    ret: Option<M>,
 }
 
 /// One function being written.
@@ -1470,6 +1610,8 @@ struct Func<'l, 'd, 'a> {
     bits_of: HashMap<u32, u32>,
     /// In a rolled loop: the element selects known to be in range.
     in_range: HashSet<ExprId>,
+    /// The functions being run, innermost last, with their results.
+    calls: Vec<(SubId, Option<ObjId>)>,
 }
 
 const V16: &str = "<16 x i32>";
@@ -1499,7 +1641,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             }
         }
         let out = format!("define void @{}({params}) {{\nentry:\n", fn_name(spec));
-        Func { l, spec, out, next: 0, env: Env::default(), block: "entry".into(), loops: 0, rolled: 0, mem: false, uniform: HashSet::new(), mask_of: HashMap::new(), bits_of: HashMap::new(), in_range: HashSet::new() }
+        Func { l, spec, out, next: 0, env: Env::default(), block: "entry".into(), loops: 0, rolled: 0, mem: false, uniform: HashSet::new(), mask_of: HashMap::new(), bits_of: HashMap::new(), in_range: HashSet::new(), calls: Vec::new() }
     }
 
     fn finish(mut self) -> String {
@@ -1820,9 +1962,9 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     }
                 }
                 for &s in stmts {
-                    // After a `break` in some lanes, the rest of the block
-                    // is for the others.
-                    match self.env.brk {
+                    // After a `break` or `return` in some lanes, the rest
+                    // of the block is for the others.
+                    match self.stopped() {
                         Some(M::K(true)) => break,
                         Some(b @ M::V(_)) => {
                             let go = self.mnot(b);
@@ -1847,6 +1989,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 self.assign(*lhs, v)
             }
             StmtKind::Expr(e) => match d.expr(*e).kind {
+                ExprKind::Call(sub) => self.call(sub, &d.expr(*e).args).map(|_| ()),
                 ExprKind::Unary(op @ (UnOp::PreInc | UnOp::PostInc | UnOp::PreDec | UnOp::PostDec)) => {
                     let x = d.expr(*e).args[0];
                     let v = self.expr(x)?;
@@ -1892,7 +2035,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 for _ in 0..n {
                     // The lanes still looping: those that have not broken
                     // out, where the condition holds.
-                    let mut go = match self.env.brk {
+                    let mut go = match self.stopped() {
                         Some(b) => self.mnot(b),
                         None => M::K(true),
                     };
@@ -1910,7 +2053,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                         |f| {
                             f.stmt(body)?;
                             // A lane that broke out does not step.
-                            match f.env.brk {
+                            match f.stopped() {
                                 Some(M::K(true)) => Ok(()),
                                 Some(b @ M::V(_)) => {
                                     let on = f.mnot(b);
@@ -1923,6 +2066,17 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     )?;
                 }
                 self.env.brk = outer;
+                Ok(())
+            }
+            StmtKind::Return(v) => {
+                let Some(&(_, r)) = self.calls.last() else { return Err("return outside a function".into()) };
+                if let (Some(e), Some(r)) = (v, r) {
+                    let x = self.expr(*e)?;
+                    let w = d.types.width(d.object(r).ty);
+                    let x = self.resize(&x, w, d.types.is_signed(d.expr(*e).ty));
+                    self.env.vals.insert(r, x);
+                }
+                self.env.ret = Some(M::K(true));
                 Ok(())
             }
             StmtKind::Break => {
@@ -2107,17 +2261,129 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             self.env.elems.insert((o, i), v);
         }
         self.env.edirty.extend(a.edirty.into_iter().chain(b.edirty));
-        self.env.brk = match (a.brk, b.brk) {
+        self.env.brk = self.merge_stop(m, a.brk, b.brk);
+        self.env.ret = self.merge_stop(m, a.ret, b.ret);
+        Ok(())
+    }
+
+    /// The lanes stopped after a branch on `m`, from those stopped in each
+    /// arm (none, where an arm says nothing).
+    fn merge_stop(&mut self, m: M, a: Option<M>, b: Option<M>) -> Option<M> {
+        match (a, b) {
             (Some(x), Some(y)) if x == y => Some(x),
-            (Some(x), Some(y)) => {
+            (x, y) if x.is_some() || y.is_some() => {
+                let (x, y) = (x.unwrap_or(M::K(false)), y.unwrap_or(M::K(false)));
                 let t = self.mand(m, x);
                 let nm = self.mnot(m);
                 let e = self.mand(nm, y);
                 Some(self.mor(t, e))
             }
-            (x, y) => x.or(y),
+            _ => None,
+        }
+    }
+
+    /// The lanes that have left the loop or returned from the function.
+    fn stopped(&mut self) -> Option<M> {
+        match (self.env.brk, self.env.ret) {
+            (Some(a), Some(b)) => Some(self.mor(a, b)),
+            (a, b) => a.or(b),
+        }
+    }
+
+    /// A call of a function, written out where it is called: its formals
+    /// and locals are values of this loop, and a `return` stops the lanes
+    /// that take it.
+    fn call(&mut self, sub: SubId, args: &[ExprId]) -> Result<Option<Val>, String> {
+        let d = self.d();
+        let s = &d.subroutines[sub.0 as usize];
+        if s.kind != SubKind::Function {
+            return Err(format!("task {} is not supported yet", d.name(s.name)));
+        }
+        if self.calls.iter().any(|c| c.0 == sub) || self.calls.len() > 64 {
+            return Err(format!("{} calls itself", d.name(s.name)));
+        }
+        let mut ins = Vec::new();
+        for (i, &f) in s.args.iter().enumerate() {
+            let w = d.types.width(d.object(f).ty);
+            let v = match (d.object(f).dir, args.get(i)) {
+                (Some(Dir::Input) | None, Some(&a)) => {
+                    let v = self.expr(a)?;
+                    self.resize(&v, w, d.types.is_signed(d.expr(a).ty))
+                }
+                (Some(Dir::Output), _) | (_, None) => Val::zero(w),
+                (dir, _) => return Err(format!("{dir:?} arguments of {} are not supported yet", d.name(s.name))),
+            };
+            ins.push((f, v));
+        }
+        let r = match d.scope(s.scope).names.get(&s.name) {
+            Some(Binding::Object(r)) => Some(*r),
+            _ => None,
         };
-        Ok(())
+        let locals = self.l.sub_locals(sub);
+        let mut saved = Vec::new();
+        for &o in locals.iter().chain(r.iter()) {
+            saved.push((o, self.env.vals.remove(&o)));
+        }
+        for (f, v) in ins {
+            self.env.vals.insert(f, v);
+        }
+        if let Some(r) = r {
+            self.env.vals.insert(r, Val::zero(d.types.width(d.object(r).ty)));
+        }
+        let outer = (self.env.brk.take(), self.env.ret.take());
+        self.calls.push((sub, r));
+        let mut result = Ok(());
+        for &o in locals.iter() {
+            if s.args.contains(&o) {
+                continue;
+            }
+            let w = d.types.width(d.object(o).ty);
+            let v = match d.object(o).init {
+                Some(e) => self.expr(e).map(|v| self.resize(&v, w, false)),
+                None => Ok(Val::zero(w)),
+            };
+            match v {
+                Ok(v) => {
+                    self.env.vals.insert(o, v);
+                }
+                Err(e) => result = Err(e),
+            }
+        }
+        for &st in &s.body {
+            if result.is_err() {
+                break;
+            }
+            result = match self.stopped() {
+                Some(M::K(true)) => break,
+                Some(m @ M::V(_)) => {
+                    let go = self.mnot(m);
+                    self.branch(go, |f| f.stmt(st), |_| Ok(()))
+                }
+                _ => self.stmt(st),
+            };
+        }
+        self.calls.pop();
+        (self.env.brk, self.env.ret) = outer;
+        let value = r.map(|r| self.read(r));
+        let mut outs = Vec::new();
+        for (i, &f) in s.args.iter().enumerate() {
+            if d.object(f).dir == Some(Dir::Output)
+                && let Some(&a) = args.get(i)
+            {
+                outs.push((a, self.read(f)));
+            }
+        }
+        for (o, v) in saved {
+            match v {
+                Some(v) => self.env.vals.insert(o, v),
+                None => self.env.vals.remove(&o),
+            };
+        }
+        result?;
+        for (a, v) in outs {
+            self.assign(a, v)?;
+        }
+        Ok(value)
     }
 
     /// The address of element `i` (a constant) of `o`, in this register's
@@ -2821,7 +3087,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 let ob = d.object(*o);
                 match ob.kind {
                     ObjKind::Variable | ObjKind::Net(_) => {
-                        if ob.lifetime == Lifetime::Static && !self.lay().statics.contains(o) {
+                        if ob.lifetime == Lifetime::Static && !self.lay().statics.contains(o) && !self.env.vals.contains_key(o) {
                             return Err(format!("{} is not in this module", d.name(ob.name)));
                         }
                         Ok(self.read(*o))
@@ -2914,6 +3180,31 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 }
                 name => Err(format!("{name} is not supported yet")),
             },
+            // A packed target's pattern is its elements concatenated, the
+            // first the most significant (10.9).
+            ExprKind::Pattern if tys.is_integral(x.ty) && !x.args.is_empty() => {
+                let widths: Vec<u32> = match tys.get(x.ty) {
+                    Type::Struct { packed: true, union: false, members, .. } => members.iter().map(|m| tys.width(m.ty)).collect(),
+                    Type::Struct { .. } => return Err("an assignment pattern for a packed union is not supported yet".into()),
+                    _ => vec![w / x.args.len() as u32; x.args.len()],
+                };
+                if widths.len() != x.args.len() || widths.iter().sum::<u32>() != w {
+                    return Err("an assignment pattern that does not fill its type".into());
+                }
+                let mut acc = Val::zero(w);
+                let mut top = w;
+                for (&a, &ew) in x.args.iter().zip(&widths) {
+                    let v = self.expr(a)?;
+                    let v = self.resize(&v, ew, tys.is_signed(d.expr(a).ty));
+                    top -= ew;
+                    acc = self.insert(&acc, top, ew, &v);
+                }
+                Ok(acc)
+            }
+            ExprKind::Call(sub) => {
+                let v = self.call(*sub, &x.args)?.ok_or("a call of a void function as a value")?;
+                Ok(self.resize(&v, w, tys.is_signed(x.ty)))
+            }
             ExprKind::Inside => {
                 let v = self.expr(x.args[0])?;
                 let vt = d.expr(x.args[0]).ty;

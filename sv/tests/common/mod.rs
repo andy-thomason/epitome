@@ -473,3 +473,47 @@ pub fn cva6_files(cva6: &Path, rest: &[&str]) -> (Vec<PathBuf>, Vec<PathBuf>) {
     files.extend(rest.iter().map(|p| if p.starts_with('/') { PathBuf::from(p) } else { c(p) }));
     (files, vec![c("core/include"), c("vendor/pulp-platform/common_cells/include")])
 }
+
+/// Stimulus for `v`'s inputs: for each cycle and instance, each input's
+/// words, from `pick` where it gives them and random bits otherwise.
+pub fn stimulus(v: &Verilated, cycles: usize, n: usize, rng: &mut Rng, pick: &mut dyn FnMut(&str, usize, &mut Rng) -> Option<u64>) -> Vec<u32> {
+    let mut out = Vec::with_capacity(cycles * n * v.in_words());
+    for c in 0..cycles {
+        for _ in 0..n {
+            for (name, w) in &v.ins {
+                let mut words: Vec<u32> = (0..words(*w)).map(|_| rng.next() as u32).collect();
+                if let Some(x) = pick(name, c, rng) {
+                    words[0] = x as u32;
+                    if words.len() > 1 {
+                        words[1] = (x >> 32) as u32;
+                    }
+                }
+                if w % 32 != 0 {
+                    *words.last_mut().unwrap() &= (1u32 << (w % 32)) - 1;
+                }
+                out.extend(words);
+            }
+        }
+    }
+    out
+}
+
+/// A random RISC-V instruction word: mostly the major opcodes there are,
+/// with the usual function codes.
+pub fn rv_instruction(rng: &mut Rng) -> u32 {
+    const OPS: [u32; 24] = [
+        0x03, 0x07, 0x0F, 0x13, 0x17, 0x1B, 0x23, 0x27, 0x2F, 0x33, 0x37, 0x3B, 0x43, 0x47, 0x4B, 0x4F, 0x53, 0x63, 0x67, 0x6F, 0x73,
+        0x33, 0x13, 0x73,
+    ];
+    let mut x = rng.next() as u32;
+    if rng.next() % 8 != 0 {
+        x = (x & !0x7F) | OPS[rng.next() as usize % OPS.len()];
+    }
+    match rng.next() % 4 {
+        // funct7 of the base, M, and bit-manipulation instructions.
+        0 => x = (x & 0x01FF_FFFF) | [0x00, 0x20, 0x01, 0x04, 0x05, 0x14, 0x24, 0x30, 0x34][rng.next() as usize % 9] << 25,
+        1 => x &= !(0x1F << 20),
+        _ => {}
+    }
+    x
+}

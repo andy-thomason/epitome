@@ -932,7 +932,7 @@ impl<'a, 'b> Sel<'a, 'b> {
                     if bits == 0
                         || !held
                         || (wide && bits != def.bits && !mask && !fixed)
-                        || mask_bits.is_some_and(|b| b > def.bits)
+                        || (m.holds_of(class) == Some(Holds::Vector) && mask_bits.is_some_and(|b| b > def.bits))
                         || (!wide && holds != Holds::Predicate && (bits > 64 || (bits > 32) != (pp.bits > 32)))
                     {
                         return None;

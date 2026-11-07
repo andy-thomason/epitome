@@ -623,5 +623,13 @@ fn guarded_arms() {
     check_against(&b, &v, cycles, n, &stim, &|w| format!("{w:x?}"));
     assert!(b.net.ir.matches("br i1 %g").count() >= 4, "the costly arms are not guarded");
     let ns = time_replay(&b, &v, cycles, n, &stim, 3);
-    eprintln!("guarded: {n} instances, {cycles} cycles agree with Verilator; {ns:.2} ns an instance a cycle; Verilator {}", v.bench(cycles, n, &stim, 3));
+    // The same without guards, every arm run and merged by selects.
+    let opts = epitome_sv::netlist::Options { guard_min: 0, ..netlist_options() };
+    let flat = build("guarded_flat", netlist_with(files.clone(), Vec::new(), "guarded_top", opts), &t, triple, &mattr);
+    check_against(&flat, &v, cycles, n, &stim, &|w| format!("{w:x?}"));
+    let flat_ns = time_replay(&flat, &v, cycles, n, &stim, 3);
+    eprintln!(
+        "guarded: {n} instances, {cycles} cycles agree with Verilator; {ns:.2} ns an instance a cycle, {flat_ns:.2} without guards; Verilator {}",
+        v.bench(cycles, n, &stim, 3)
+    );
 }

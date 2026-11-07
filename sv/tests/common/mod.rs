@@ -300,6 +300,7 @@ pub fn verilate(name: &str, files: &[PathBuf], incs: &[PathBuf], top: &str, port
 #include <vector>
 #include "verilated.h"
 #include "V{top}.h"
+#include "V{top}___024root.h"
 typedef V{top} Top;
 static const int IN = {in_words}, OUT = {out_words};
 static void put(Top *t, const uint32_t *v) {{
@@ -329,7 +330,7 @@ int main(int argc, char **argv) {{
             }}
     double ns = std::chrono::duration<double, std::nano>(std::chrono::steady_clock::now() - t0).count();
     if (bench) {{
-        printf("%.2f ns an instance a cycle; %zu bytes a model\n", ns / ((double)reps * cycles * n), sizeof(Top));
+        printf("%.2f ns an instance a cycle; %zu bytes of state a model\n", ns / ((double)reps * cycles * n), sizeof(V{top}___024root));
         return 0;
     }}
     f = fopen(argv[5], "wb");

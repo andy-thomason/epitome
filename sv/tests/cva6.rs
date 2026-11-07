@@ -277,7 +277,8 @@ const SLICE_PKG: &str = include_str!("cva6/slice_pkg.sv");
 /// directories of CVA6 with `rest` and those.
 fn slice_files(cva6: &std::path::Path, wrapper: &str, sv: &str, rest: &[&str]) -> (Vec<PathBuf>, Vec<PathBuf>) {
     let tmp = tmp_dir();
-    let (pkg, top) = (tmp.join("slice_pkg.sv"), tmp.join(format!("{wrapper}.sv")));
+    // (A package file for each wrapper, as tests run at once.)
+    let (pkg, top) = (tmp.join(format!("{wrapper}_pkg.sv")), tmp.join(format!("{wrapper}.sv")));
     std::fs::write(&pkg, SLICE_PKG).unwrap();
     std::fs::write(&top, sv).unwrap();
     let mut all: Vec<&str> = vec![pkg.to_str().unwrap()];

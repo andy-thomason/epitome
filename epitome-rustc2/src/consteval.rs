@@ -106,8 +106,13 @@ impl<'a, 's> LayoutCx<'a, 's> {
         let ast = &self.crates[def.krate as usize].files[def.file as usize].ast;
         // The initialiser: the item's last expression child.
         let init = ast.children(def.node).iter().rev().copied().find(|&c| is_value_expr(ast.kind(c)));
-        // Guards against a constant defined in terms of itself.
-        self.const_cache.lock().unwrap().insert(d, None);
+        // Guards against a constant defined in terms of itself: this
+        // thread's, as another thread may be evaluating the same constant
+        // (which the shared cache must not then say has no value).
+        if !EVALUATING.with(|e| e.borrow_mut().insert(d)) {
+            return None;
+        }
+        let _done = Evaluating(d);
         let v = init.and_then(|e| {
             let v = self.eval(def.krate, def.file, e, &ConstEnv::default())?;
             // Wrapped to its declared type.
@@ -121,6 +126,21 @@ impl<'a, 's> LayoutCx<'a, 's> {
         });
         self.const_cache.lock().unwrap().insert(d, v);
         v
+    }
+}
+
+thread_local! {
+    /// The constants this thread is evaluating.
+    static EVALUATING: std::cell::RefCell<crate::hash::FastSet<DefId>> = std::cell::RefCell::new(Default::default());
+}
+
+/// Takes a constant out of `EVALUATING` when its evaluation ends, by
+/// return or by panic.
+struct Evaluating(DefId);
+
+impl Drop for Evaluating {
+    fn drop(&mut self) {
+        EVALUATING.with(|e| e.borrow_mut().remove(&self.0));
     }
 }
 

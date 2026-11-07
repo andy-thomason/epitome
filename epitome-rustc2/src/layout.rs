@@ -310,9 +310,16 @@ impl<'a, 's> LayoutCx<'a, 's> {
             return l.clone();
         }
         // A type being worked out that needs itself (only through a
-        // pointer is fine, and pointers do not look inside).
-        self.cache.lock().unwrap().insert(t, Err(LayoutError::Recursive));
-        let l = self.compute(t).map(Arc::new);
+        // pointer is fine, and pointers do not look inside). Kept for
+        // this thread only: another thread may be working out the same
+        // type, and must not read that it is recursive.
+        if !COMPUTING.with(|c| c.borrow_mut().insert(t)) {
+            return Err(LayoutError::Recursive);
+        }
+        let l = {
+            let _done = Computing(t);
+            self.compute(t).map(Arc::new)
+        };
         self.cache.lock().unwrap().insert(t, l.clone());
         l
     }
@@ -892,5 +899,20 @@ fn parse_int(s: &str) -> Option<u128> {
     match s.strip_prefix("0x") {
         Some(h) => u128::from_str_radix(h, 16).ok(),
         None => s.parse().ok(),
+    }
+}
+
+thread_local! {
+    /// The types whose layouts this thread is working out.
+    static COMPUTING: std::cell::RefCell<crate::hash::FastSet<Ty>> = std::cell::RefCell::new(Default::default());
+}
+
+/// Takes a type out of `COMPUTING` when its layout is worked out, by
+/// return or by panic.
+struct Computing(Ty);
+
+impl Drop for Computing {
+    fn drop(&mut self) {
+        COMPUTING.with(|c| c.borrow_mut().remove(&self.0));
     }
 }

@@ -317,3 +317,31 @@ fn deep_generics_are_linear() {
     assert!(ty(&src).starts_with("(PathType"));
     assert!(t.elapsed().as_secs_f64() < 1.0);
 }
+
+#[test]
+fn builtin_forms() {
+    assert_eq!(
+        expr("builtin # offset_of(Outer<T>, inner.c.0)"),
+        "(Builtin (Name offset_of) (PathType (Path (Segment (Name Outer) (GenericArgs (PathType (Path (Segment (Name T)))))))) (TokenTree inner.c.0))"
+    );
+    assert_eq!(
+        expr("builtin # type_ascribe(a + 1, u64)"),
+        "(Builtin (Name type_ascribe) (Binary (PathExpr (Path (Segment (Name a)))) (Op +) (Literal 1)) (PathType (Path (Segment (Name u64)))))"
+    );
+    assert_eq!(
+        expr("builtin # unwrap_binder(b, &u8)"),
+        "(Builtin (Name unwrap_binder) (PathExpr (Path (Segment (Name b)))) (RefType (PathType (Path (Segment (Name u8))))))"
+    );
+    assert_eq!(expr("builtin # wrap_binder(b)"), "(Builtin (Name wrap_binder) (PathExpr (Path (Segment (Name b)))))");
+    // A form not known: its arguments as tokens.
+    assert_eq!(expr("builtin # other(a b c)"), "(Builtin (Name other) (TokenTree (a b c)))");
+    assert_eq!(
+        ty("unsafe<'a, 'b> &'a &'b u8"),
+        "(UnsafeBinderType (Lifetime 'a) (Lifetime 'b) (RefType (Lifetime 'a) (RefType (Lifetime 'b) (PathType (Path (Segment (Name u8)))))))"
+    );
+    assert_eq!(ty("builtin # field_of(E, B.q)"), "(BuiltinType (Name field_of) (PathType (Path (Segment (Name E)))) (TokenTree B.q))");
+    assert_eq!(
+        pat("builtin # deref(Some(x))"),
+        "(BuiltinPat (Name deref) (TupleStructPat (Path (Segment (Name Some))) (IdentPat (Name x))))"
+    );
+}

@@ -25,8 +25,9 @@
 //! Not yet: four-state values, tasks, hierarchical references, gates,
 //! latches, clocks made by the design's own registers (an edge is seen at
 //! the next evaluation), declaration initialisers of registers, and loops
-//! whose trip count is not a constant. Small generate loops are written
-//! out, others rolled back into loops; procedural `for` loops are unrolled.
+//! whose trip count is not a constant. Small generate loops, and longer
+//! ones whose iterations are a select or two, are written out, others
+//! rolled back into loops; procedural `for` loops are unrolled.
 //! Immediate assertions and `initial` blocks that only assert are dropped.
 
 use std::cell::{Cell, RefCell};
@@ -517,9 +518,19 @@ struct Rolled {
 const ROLL_MIN: usize = 4;
 /// Most expression nodes, over all iterations, of a run of iterations
 /// left unrolled: each iteration of a rolled loop is a pass over the
-/// group's state, which costs more than a small body written out (a loop
-/// that moves one bit an iteration, as a bit reversal does).
+/// group's state, which costs more than a small body written out.
 const UNROLL_MAX: usize = 1024;
+/// Most expression nodes in one iteration for which [`UNROLL_TINY_MAX`]
+/// holds instead. A body this small is a select or two (a loop that moves
+/// one bit an iteration, as a bit reversal does): rolled, each iteration
+/// is a pass over the state with its selects' offsets worked out at run
+/// time, many times what the same selects cost written out with constant
+/// offsets.
+const TINY_BODY: usize = 32;
+/// Most expression nodes, over all iterations, of a run of iterations with
+/// a tiny body left unrolled: past this even they roll, so the code stays
+/// bounded by the source however many iterations a parameter asks for.
+const UNROLL_TINY_MAX: usize = 8192;
 
 struct Lowering<'d, 'a> {
     opts: Options,
@@ -1075,7 +1086,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 let (mut drivers, mut params) = (Vec::new(), Vec::new());
                 self.gather(iters[at], &mut drivers, &mut params);
                 let body: usize = drivers.iter().map(|dr| self.expr_size(d.drivers[dr.0 as usize].lhs) + self.expr_size(d.drivers[dr.0 as usize].rhs)).sum();
-                body * (end - at) > UNROLL_MAX
+                body * (end - at) > if body <= TINY_BODY { UNROLL_TINY_MAX } else { UNROLL_MAX }
             };
             let rolled = if end - at >= ROLL_MIN && big() { self.roll(&iters[at..end]) } else { None };
             match rolled {

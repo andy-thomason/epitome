@@ -1936,6 +1936,548 @@ define void @novl_selects_v8i32(ptr %a, ptr %b, ptr %o) #2 {
   ret void
 }
 
+; Chains of bitwise logic over three values (codegen/src/bitfn3.rs): random
+; trees of and, or, xor and not, each made one vpternlog; and the full
+; adder, whose a ^ b two trees share.
+define void @ternlog0(ptr %pa, ptr %pb, ptr %pc, ptr %o) #0 {
+  %a = load <16 x i32>, ptr %pa
+  %b = load <16 x i32>, ptr %pb
+  %c = load <16 x i32>, ptr %pc
+  %t1 = and <16 x i32> %b, %a
+  %t2 = or <16 x i32> %a, %a
+  %t3 = xor <16 x i32> %t2, splat (i32 -1)
+  %t4 = or <16 x i32> %a, %c
+  %t5 = xor <16 x i32> %a, splat (i32 -1)
+  %t6 = and <16 x i32> %t4, %t5
+  %t7 = and <16 x i32> %t3, %t6
+  %t8 = and <16 x i32> %t1, %t7
+  store <16 x i32> %t8, ptr %o
+  ret void
+}
+
+define void @ternlog1(ptr %pa, ptr %pb, ptr %pc, ptr %o) #0 {
+  %a = load <8 x i64>, ptr %pa
+  %b = load <8 x i64>, ptr %pb
+  %c = load <8 x i64>, ptr %pc
+  %t1 = xor <8 x i64> %b, splat (i64 -1)
+  %t2 = or <8 x i64> %b, %c
+  %t3 = and <8 x i64> %t1, %t2
+  %t4 = xor <8 x i64> %a, splat (i64 -1)
+  %t5 = and <8 x i64> %a, %t4
+  %t6 = and <8 x i64> %t3, %t5
+  %t7 = and <8 x i64> %t6, %c
+  store <8 x i64> %t7, ptr %o
+  ret void
+}
+
+define void @ternlog2(ptr %pa, ptr %pb, ptr %pc, ptr %o) #0 {
+  %a = load <64 x i8>, ptr %pa
+  %b = load <64 x i8>, ptr %pb
+  %c = load <64 x i8>, ptr %pc
+  %t1 = xor <64 x i8> %c, splat (i8 -1)
+  %t2 = xor <64 x i8> %t1, %b
+  %t3 = xor <64 x i8> %t2, %b
+  %t4 = xor <64 x i8> %b, %b
+  %t5 = and <64 x i8> %t4, %b
+  %t6 = and <64 x i8> %b, %a
+  %t7 = xor <64 x i8> %t6, splat (i8 -1)
+  %t8 = or <64 x i8> %t5, %t7
+  %t9 = or <64 x i8> %t3, %t8
+  store <64 x i8> %t9, ptr %o
+  ret void
+}
+
+define void @ternlog3(ptr %pa, ptr %pb, ptr %pc, ptr %o) #0 {
+  %a = load <32 x i16>, ptr %pa
+  %b = load <32 x i16>, ptr %pb
+  %c = load <32 x i16>, ptr %pc
+  %t1 = or <32 x i16> %c, %a
+  %t2 = and <32 x i16> %b, %b
+  %t3 = or <32 x i16> %c, %b
+  %t4 = or <32 x i16> %t2, %t3
+  %t5 = and <32 x i16> %t1, %t4
+  %t6 = or <32 x i16> %c, %a
+  %t7 = xor <32 x i16> %b, %b
+  %t8 = xor <32 x i16> %t6, %t7
+  %t9 = xor <32 x i16> %b, splat (i16 -1)
+  %t10 = xor <32 x i16> %t9, %c
+  %t11 = xor <32 x i16> %t8, %t10
+  %t12 = or <32 x i16> %t5, %t11
+  store <32 x i16> %t12, ptr %o
+  ret void
+}
+
+define void @ternlog4(ptr %pa, ptr %pb, ptr %pc, ptr %o) #0 {
+  %a = load <8 x i32>, ptr %pa
+  %b = load <8 x i32>, ptr %pb
+  %c = load <8 x i32>, ptr %pc
+  %t1 = xor <8 x i32> %c, %a
+  %t2 = xor <8 x i32> %a, %c
+  %t3 = xor <8 x i32> %t1, %t2
+  %t4 = xor <8 x i32> %b, %b
+  %t5 = and <8 x i32> %a, %b
+  %t6 = or <8 x i32> %t4, %t5
+  %t7 = xor <8 x i32> %t3, %t6
+  %t8 = or <8 x i32> %b, %c
+  %t9 = and <8 x i32> %b, %b
+  %t10 = and <8 x i32> %t8, %t9
+  %t11 = and <8 x i32> %c, %a
+  %t12 = xor <8 x i32> %c, %a
+  %t13 = or <8 x i32> %t11, %t12
+  %t14 = and <8 x i32> %t10, %t13
+  %t15 = xor <8 x i32> %t7, %t14
+  store <8 x i32> %t15, ptr %o
+  ret void
+}
+
+define void @ternlog5(ptr %pa, ptr %pb, ptr %pc, ptr %o) #0 {
+  %a = load <4 x i64>, ptr %pa
+  %b = load <4 x i64>, ptr %pb
+  %c = load <4 x i64>, ptr %pc
+  %t1 = xor <4 x i64> %c, splat (i64 -1)
+  %t2 = and <4 x i64> %a, %b
+  %t3 = or <4 x i64> %t1, %t2
+  %t4 = xor <4 x i64> %a, %b
+  %t5 = or <4 x i64> %c, %a
+  %t6 = xor <4 x i64> %t4, %t5
+  %t7 = and <4 x i64> %t3, %t6
+  %t8 = xor <4 x i64> %t7, splat (i64 -1)
+  store <4 x i64> %t8, ptr %o
+  ret void
+}
+
+define void @ternlog6(ptr %pa, ptr %pb, ptr %pc, ptr %o) #0 {
+  %a = load <4 x i32>, ptr %pa
+  %b = load <4 x i32>, ptr %pb
+  %c = load <4 x i32>, ptr %pc
+  %t1 = and <4 x i32> %c, %b
+  %t2 = xor <4 x i32> %b, %b
+  %t3 = xor <4 x i32> %t1, %t2
+  %t4 = xor <4 x i32> %a, %c
+  %t5 = xor <4 x i32> %a, %t4
+  %t6 = or <4 x i32> %t3, %t5
+  %t7 = xor <4 x i32> %b, %b
+  %t8 = xor <4 x i32> %c, %c
+  %t9 = xor <4 x i32> %t7, %t8
+  %t10 = or <4 x i32> %a, %c
+  %t11 = xor <4 x i32> %t10, splat (i32 -1)
+  %t12 = or <4 x i32> %t9, %t11
+  %t13 = or <4 x i32> %t6, %t12
+  store <4 x i32> %t13, ptr %o
+  ret void
+}
+
+define void @ternlog7(ptr %pa, ptr %pb, ptr %pc, ptr %o) #0 {
+  %a = load <16 x i8>, ptr %pa
+  %b = load <16 x i8>, ptr %pb
+  %c = load <16 x i8>, ptr %pc
+  %t1 = xor <16 x i8> %c, %b
+  %t2 = xor <16 x i8> %b, splat (i8 -1)
+  %t3 = and <16 x i8> %c, %b
+  %t4 = or <16 x i8> %t2, %t3
+  %t5 = xor <16 x i8> %t4, %a
+  %t6 = or <16 x i8> %t1, %t5
+  store <16 x i8> %t6, ptr %o
+  ret void
+}
+
+define void @ternlog8(ptr %pa, ptr %pb, ptr %pc, ptr %o) #0 {
+  %a = load <16 x i32>, ptr %pa
+  %b = load <16 x i32>, ptr %pb
+  %c = load <16 x i32>, ptr %pc
+  %t1 = and <16 x i32> %a, %c
+  %t2 = xor <16 x i32> %b, %b
+  %t3 = xor <16 x i32> %t1, %t2
+  %t4 = or <16 x i32> %b, %b
+  %t5 = xor <16 x i32> %t4, splat (i32 -1)
+  %t6 = or <16 x i32> %t3, %t5
+  %t7 = or <16 x i32> %t6, %c
+  store <16 x i32> %t7, ptr %o
+  ret void
+}
+
+define void @ternlog9(ptr %pa, ptr %pb, ptr %pc, ptr %o) #0 {
+  %a = load <8 x i64>, ptr %pa
+  %b = load <8 x i64>, ptr %pb
+  %c = load <8 x i64>, ptr %pc
+  %t1 = xor <8 x i64> %c, %c
+  %t2 = and <8 x i64> %b, %a
+  %t3 = or <8 x i64> %t1, %t2
+  %t4 = xor <8 x i64> %t3, splat (i64 -1)
+  %t5 = xor <8 x i64> %t4, splat (i64 -1)
+  store <8 x i64> %t5, ptr %o
+  ret void
+}
+
+define void @ternlog10(ptr %pa, ptr %pb, ptr %pc, ptr %o) #0 {
+  %a = load <64 x i8>, ptr %pa
+  %b = load <64 x i8>, ptr %pb
+  %c = load <64 x i8>, ptr %pc
+  %t1 = xor <64 x i8> %c, %a
+  %t2 = xor <64 x i8> %c, splat (i8 -1)
+  %t3 = and <64 x i8> %t1, %t2
+  %t4 = xor <64 x i8> %b, %a
+  %t5 = or <64 x i8> %t3, %t4
+  %t6 = or <64 x i8> %b, %t5
+  store <64 x i8> %t6, ptr %o
+  ret void
+}
+
+define void @ternlog11(ptr %pa, ptr %pb, ptr %pc, ptr %o) #0 {
+  %a = load <32 x i16>, ptr %pa
+  %b = load <32 x i16>, ptr %pb
+  %c = load <32 x i16>, ptr %pc
+  %t1 = or <32 x i16> %a, %b
+  %t2 = xor <32 x i16> %c, splat (i16 -1)
+  %t3 = or <32 x i16> %t1, %t2
+  %t4 = xor <32 x i16> %b, %t3
+  %t5 = xor <32 x i16> %t4, %b
+  store <32 x i16> %t5, ptr %o
+  ret void
+}
+
+define void @ternlog12(ptr %pa, ptr %pb, ptr %pc, ptr %o) #0 {
+  %a = load <8 x i32>, ptr %pa
+  %b = load <8 x i32>, ptr %pb
+  %c = load <8 x i32>, ptr %pc
+  %t1 = xor <8 x i32> %b, %a
+  %t2 = xor <8 x i32> %t1, splat (i32 -1)
+  %t3 = xor <8 x i32> %c, %c
+  %t4 = and <8 x i32> %t3, %a
+  %t5 = xor <8 x i32> %a, splat (i32 -1)
+  %t6 = xor <8 x i32> %c, splat (i32 -1)
+  %t7 = xor <8 x i32> %t5, %t6
+  %t8 = xor <8 x i32> %t4, %t7
+  %t9 = or <8 x i32> %t2, %t8
+  store <8 x i32> %t9, ptr %o
+  ret void
+}
+
+define void @ternlog13(ptr %pa, ptr %pb, ptr %pc, ptr %o) #0 {
+  %a = load <4 x i64>, ptr %pa
+  %b = load <4 x i64>, ptr %pb
+  %c = load <4 x i64>, ptr %pc
+  %t1 = xor <4 x i64> %c, %c
+  %t2 = xor <4 x i64> %t1, splat (i64 -1)
+  %t3 = or <4 x i64> %b, %a
+  %t4 = xor <4 x i64> %t3, splat (i64 -1)
+  %t5 = and <4 x i64> %t2, %t4
+  %t6 = and <4 x i64> %b, %a
+  %t7 = or <4 x i64> %c, %a
+  %t8 = or <4 x i64> %t6, %t7
+  %t9 = xor <4 x i64> %b, splat (i64 -1)
+  %t10 = and <4 x i64> %a, %c
+  %t11 = xor <4 x i64> %t9, %t10
+  %t12 = xor <4 x i64> %t8, %t11
+  %t13 = xor <4 x i64> %t5, %t12
+  store <4 x i64> %t13, ptr %o
+  ret void
+}
+
+define void @ternlog14(ptr %pa, ptr %pb, ptr %pc, ptr %o) #0 {
+  %a = load <4 x i32>, ptr %pa
+  %b = load <4 x i32>, ptr %pb
+  %c = load <4 x i32>, ptr %pc
+  %t1 = and <4 x i32> %b, %c
+  %t2 = xor <4 x i32> %b, splat (i32 -1)
+  %t3 = or <4 x i32> %t1, %t2
+  %t4 = or <4 x i32> %c, %t3
+  %t5 = xor <4 x i32> %c, %a
+  %t6 = xor <4 x i32> %t5, %a
+  %t7 = xor <4 x i32> %a, %b
+  %t8 = and <4 x i32> %t6, %t7
+  %t9 = and <4 x i32> %t4, %t8
+  store <4 x i32> %t9, ptr %o
+  ret void
+}
+
+define void @ternlog15(ptr %pa, ptr %pb, ptr %pc, ptr %o) #0 {
+  %a = load <16 x i8>, ptr %pa
+  %b = load <16 x i8>, ptr %pb
+  %c = load <16 x i8>, ptr %pc
+  %t1 = and <16 x i8> %a, %a
+  %t2 = xor <16 x i8> %b, %b
+  %t3 = and <16 x i8> %t1, %t2
+  %t4 = xor <16 x i8> %t3, splat (i8 -1)
+  %t5 = and <16 x i8> %c, %b
+  %t6 = or <16 x i8> %b, %t5
+  %t7 = and <16 x i8> %a, %t6
+  %t8 = xor <16 x i8> %t4, %t7
+  store <16 x i8> %t8, ptr %o
+  ret void
+}
+
+define void @ternlog16(ptr %pa, ptr %pb, ptr %pc, ptr %o) #0 {
+  %a = load <16 x i32>, ptr %pa
+  %b = load <16 x i32>, ptr %pb
+  %c = load <16 x i32>, ptr %pc
+  %t1 = xor <16 x i32> %b, %a
+  %t2 = xor <16 x i32> %t1, splat (i32 -1)
+  %t3 = xor <16 x i32> %t2, splat (i32 -1)
+  %t4 = or <16 x i32> %c, %c
+  %t5 = xor <16 x i32> %a, splat (i32 -1)
+  %t6 = or <16 x i32> %t4, %t5
+  %t7 = xor <16 x i32> %c, %c
+  %t8 = and <16 x i32> %a, %c
+  %t9 = xor <16 x i32> %t7, %t8
+  %t10 = xor <16 x i32> %t6, %t9
+  %t11 = or <16 x i32> %t3, %t10
+  store <16 x i32> %t11, ptr %o
+  ret void
+}
+
+define void @ternlog17(ptr %pa, ptr %pb, ptr %pc, ptr %o) #0 {
+  %a = load <8 x i64>, ptr %pa
+  %b = load <8 x i64>, ptr %pb
+  %c = load <8 x i64>, ptr %pc
+  %t1 = xor <8 x i64> %c, splat (i64 -1)
+  %t2 = xor <8 x i64> %t1, splat (i64 -1)
+  %t3 = xor <8 x i64> %c, %t2
+  %t4 = or <8 x i64> %a, %b
+  %t5 = xor <8 x i64> %c, %t4
+  %t6 = xor <8 x i64> %c, splat (i64 -1)
+  %t7 = or <8 x i64> %b, %t6
+  %t8 = or <8 x i64> %t5, %t7
+  %t9 = xor <8 x i64> %t3, %t8
+  store <8 x i64> %t9, ptr %o
+  ret void
+}
+
+define void @ternlog18(ptr %pa, ptr %pb, ptr %pc, ptr %o) #0 {
+  %a = load <64 x i8>, ptr %pa
+  %b = load <64 x i8>, ptr %pb
+  %c = load <64 x i8>, ptr %pc
+  %t1 = or <64 x i8> %c, %c
+  %t2 = xor <64 x i8> %b, splat (i8 -1)
+  %t3 = and <64 x i8> %t1, %t2
+  %t4 = xor <64 x i8> %t3, splat (i8 -1)
+  %t5 = xor <64 x i8> %c, splat (i8 -1)
+  %t6 = and <64 x i8> %a, %c
+  %t7 = or <64 x i8> %t5, %t6
+  %t8 = xor <64 x i8> %c, splat (i8 -1)
+  %t9 = or <64 x i8> %a, %b
+  %t10 = or <64 x i8> %t8, %t9
+  %t11 = xor <64 x i8> %t7, %t10
+  %t12 = or <64 x i8> %t4, %t11
+  store <64 x i8> %t12, ptr %o
+  ret void
+}
+
+define void @ternlog19(ptr %pa, ptr %pb, ptr %pc, ptr %o) #0 {
+  %a = load <32 x i16>, ptr %pa
+  %b = load <32 x i16>, ptr %pb
+  %c = load <32 x i16>, ptr %pc
+  %t1 = or <32 x i16> %a, %b
+  %t2 = and <32 x i16> %b, %c
+  %t3 = xor <32 x i16> %t1, %t2
+  %t4 = xor <32 x i16> %t3, splat (i16 -1)
+  %t5 = xor <32 x i16> %t4, splat (i16 -1)
+  store <32 x i16> %t5, ptr %o
+  ret void
+}
+
+define void @ternlog20(ptr %pa, ptr %pb, ptr %pc, ptr %o) #0 {
+  %a = load <8 x i32>, ptr %pa
+  %b = load <8 x i32>, ptr %pb
+  %c = load <8 x i32>, ptr %pc
+  %t1 = and <8 x i32> %c, %b
+  %t2 = xor <8 x i32> %t1, %b
+  %t3 = xor <8 x i32> %a, splat (i32 -1)
+  %t4 = and <8 x i32> %c, %a
+  %t5 = and <8 x i32> %t3, %t4
+  %t6 = and <8 x i32> %t2, %t5
+  %t7 = xor <8 x i32> %a, splat (i32 -1)
+  %t8 = xor <8 x i32> %t7, %a
+  %t9 = xor <8 x i32> %t6, %t8
+  store <8 x i32> %t9, ptr %o
+  ret void
+}
+
+define void @ternlog21(ptr %pa, ptr %pb, ptr %pc, ptr %o) #0 {
+  %a = load <4 x i64>, ptr %pa
+  %b = load <4 x i64>, ptr %pb
+  %c = load <4 x i64>, ptr %pc
+  %t1 = xor <4 x i64> %c, %c
+  %t2 = or <4 x i64> %t1, %c
+  %t3 = xor <4 x i64> %b, %b
+  %t4 = and <4 x i64> %b, %b
+  %t5 = xor <4 x i64> %t3, %t4
+  %t6 = and <4 x i64> %t2, %t5
+  %t7 = and <4 x i64> %c, %b
+  %t8 = or <4 x i64> %a, %t7
+  %t9 = xor <4 x i64> %b, %c
+  %t10 = and <4 x i64> %t9, %c
+  %t11 = xor <4 x i64> %t8, %t10
+  %t12 = or <4 x i64> %t6, %t11
+  store <4 x i64> %t12, ptr %o
+  ret void
+}
+
+define void @ternlog22(ptr %pa, ptr %pb, ptr %pc, ptr %o) #0 {
+  %a = load <4 x i32>, ptr %pa
+  %b = load <4 x i32>, ptr %pb
+  %c = load <4 x i32>, ptr %pc
+  %t1 = xor <4 x i32> %b, %a
+  %t2 = xor <4 x i32> %b, %b
+  %t3 = xor <4 x i32> %t1, %t2
+  %t4 = or <4 x i32> %a, %a
+  %t5 = xor <4 x i32> %b, %c
+  %t6 = xor <4 x i32> %t4, %t5
+  %t7 = xor <4 x i32> %t3, %t6
+  %t8 = xor <4 x i32> %t7, splat (i32 -1)
+  store <4 x i32> %t8, ptr %o
+  ret void
+}
+
+define void @ternlog23(ptr %pa, ptr %pb, ptr %pc, ptr %o) #0 {
+  %a = load <16 x i8>, ptr %pa
+  %b = load <16 x i8>, ptr %pb
+  %c = load <16 x i8>, ptr %pc
+  %t1 = and <16 x i8> %c, %a
+  %t2 = xor <16 x i8> %t1, %a
+  %t3 = and <16 x i8> %t2, %b
+  %t4 = or <16 x i8> %c, %c
+  %t5 = xor <16 x i8> %b, %b
+  %t6 = and <16 x i8> %t4, %t5
+  %t7 = xor <16 x i8> %b, splat (i8 -1)
+  %t8 = xor <16 x i8> %t6, %t7
+  %t9 = xor <16 x i8> %t3, %t8
+  store <16 x i8> %t9, ptr %o
+  ret void
+}
+
+define void @ternlog24(ptr %pa, ptr %pb, ptr %pc, ptr %o) #0 {
+  %a = load <16 x i32>, ptr %pa
+  %b = load <16 x i32>, ptr %pb
+  %c = load <16 x i32>, ptr %pc
+  %t1 = and <16 x i32> %a, %b
+  %t2 = xor <16 x i32> %c, splat (i32 -1)
+  %t3 = and <16 x i32> %t1, %t2
+  %t4 = or <16 x i32> %t3, %c
+  %t5 = xor <16 x i32> %c, %t4
+  store <16 x i32> %t5, ptr %o
+  ret void
+}
+
+define void @ternlog25(ptr %pa, ptr %pb, ptr %pc, ptr %o) #0 {
+  %a = load <8 x i64>, ptr %pa
+  %b = load <8 x i64>, ptr %pb
+  %c = load <8 x i64>, ptr %pc
+  %t1 = xor <8 x i64> %c, %a
+  %t2 = xor <8 x i64> %c, splat (i64 -1)
+  %t3 = and <8 x i64> %t1, %t2
+  %t4 = xor <8 x i64> %t3, splat (i64 -1)
+  %t5 = and <8 x i64> %b, %a
+  %t6 = or <8 x i64> %t5, %c
+  %t7 = xor <8 x i64> %t6, %c
+  %t8 = xor <8 x i64> %t4, %t7
+  store <8 x i64> %t8, ptr %o
+  ret void
+}
+
+define void @ternlog26(ptr %pa, ptr %pb, ptr %pc, ptr %o) #0 {
+  %a = load <64 x i8>, ptr %pa
+  %b = load <64 x i8>, ptr %pb
+  %c = load <64 x i8>, ptr %pc
+  %t1 = xor <64 x i8> %a, %c
+  %t2 = xor <64 x i8> %t1, splat (i8 -1)
+  %t3 = or <64 x i8> %b, %t2
+  %t4 = or <64 x i8> %b, %b
+  %t5 = xor <64 x i8> %t4, splat (i8 -1)
+  %t6 = and <64 x i8> %t5, %c
+  %t7 = xor <64 x i8> %t3, %t6
+  store <64 x i8> %t7, ptr %o
+  ret void
+}
+
+define void @ternlog27(ptr %pa, ptr %pb, ptr %pc, ptr %o) #0 {
+  %a = load <32 x i16>, ptr %pa
+  %b = load <32 x i16>, ptr %pb
+  %c = load <32 x i16>, ptr %pc
+  %t1 = xor <32 x i16> %b, splat (i16 -1)
+  %t2 = and <32 x i16> %c, %a
+  %t3 = and <32 x i16> %t2, %c
+  %t4 = or <32 x i16> %t1, %t3
+  %t5 = xor <32 x i16> %t4, splat (i16 -1)
+  store <32 x i16> %t5, ptr %o
+  ret void
+}
+
+define void @ternlog28(ptr %pa, ptr %pb, ptr %pc, ptr %o) #0 {
+  %a = load <8 x i32>, ptr %pa
+  %b = load <8 x i32>, ptr %pb
+  %c = load <8 x i32>, ptr %pc
+  %t1 = xor <8 x i32> %b, %a
+  %t2 = and <8 x i32> %b, %b
+  %t3 = xor <8 x i32> %t1, %t2
+  %t4 = and <8 x i32> %t3, %a
+  %t5 = xor <8 x i32> %c, %t4
+  store <8 x i32> %t5, ptr %o
+  ret void
+}
+
+define void @ternlog29(ptr %pa, ptr %pb, ptr %pc, ptr %o) #0 {
+  %a = load <4 x i64>, ptr %pa
+  %b = load <4 x i64>, ptr %pb
+  %c = load <4 x i64>, ptr %pc
+  %t1 = or <4 x i64> %c, %a
+  %t2 = or <4 x i64> %t1, %b
+  %t3 = and <4 x i64> %t2, %a
+  %t4 = or <4 x i64> %t3, %a
+  store <4 x i64> %t4, ptr %o
+  ret void
+}
+
+define void @ternlog30(ptr %pa, ptr %pb, ptr %pc, ptr %o) #0 {
+  %a = load <4 x i32>, ptr %pa
+  %b = load <4 x i32>, ptr %pb
+  %c = load <4 x i32>, ptr %pc
+  %t1 = xor <4 x i32> %b, splat (i32 -1)
+  %t2 = xor <4 x i32> %t1, %b
+  %t3 = or <4 x i32> %a, %a
+  %t4 = xor <4 x i32> %t3, %a
+  %t5 = and <4 x i32> %t2, %t4
+  %t6 = xor <4 x i32> %c, splat (i32 -1)
+  %t7 = xor <4 x i32> %c, %b
+  %t8 = and <4 x i32> %t6, %t7
+  %t9 = xor <4 x i32> %b, splat (i32 -1)
+  %t10 = xor <4 x i32> %t9, splat (i32 -1)
+  %t11 = and <4 x i32> %t8, %t10
+  %t12 = or <4 x i32> %t5, %t11
+  store <4 x i32> %t12, ptr %o
+  ret void
+}
+
+define void @ternlog31(ptr %pa, ptr %pb, ptr %pc, ptr %o) #0 {
+  %a = load <16 x i8>, ptr %pa
+  %b = load <16 x i8>, ptr %pb
+  %c = load <16 x i8>, ptr %pc
+  %t1 = xor <16 x i8> %c, splat (i8 -1)
+  %t2 = xor <16 x i8> %b, %a
+  %t3 = or <16 x i8> %t1, %t2
+  %t4 = and <16 x i8> %b, %b
+  %t5 = xor <16 x i8> %t4, splat (i8 -1)
+  %t6 = or <16 x i8> %t3, %t5
+  %t7 = xor <16 x i8> %t6, splat (i8 -1)
+  store <16 x i8> %t7, ptr %o
+  ret void
+}
+
+define void @ternlog_adder(ptr %pa, ptr %pb, ptr %pc, ptr %o) #0 {
+  %a = load <16 x i32>, ptr %pa
+  %b = load <16 x i32>, ptr %pb
+  %c = load <16 x i32>, ptr %pc
+  %x = xor <16 x i32> %a, %b
+  %s = xor <16 x i32> %x, %c
+  %ab = and <16 x i32> %a, %b
+  %xc = and <16 x i32> %x, %c
+  %co = or <16 x i32> %ab, %xc
+  store <16 x i32> %s, ptr %o
+  %o1 = getelementptr <16 x i32>, ptr %o, i64 1
+  store <16 x i32> %co, ptr %o1
+  ret void
+}
+
 ; Floats: compared, and chosen between.
 define void @fsel_v16f32(ptr %a, ptr %b, ptr %o) #0 {
   %x = load <16 x float>, ptr %a

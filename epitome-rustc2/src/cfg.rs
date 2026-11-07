@@ -167,6 +167,53 @@ impl CfgSet {
         s
     }
 
+    /// The configuration of `x86_64-unknown-linux-gnu` with its default
+    /// features, as rustc sets it for a build without optimisation: for
+    /// compiling `core` for that target on another machine.
+    pub fn x86_64_linux() -> Self {
+        let mut s = CfgSet::new();
+        for name in [
+            "debug_assertions",
+            "overflow_checks",
+            "ub_checks",
+            "unix",
+            "target_has_atomic",
+            "target_has_atomic_load_store",
+            "target_has_reliable_f16",
+            "target_has_reliable_f16_math",
+            "target_has_reliable_f128",
+            "target_has_threads",
+            "target_thread_local",
+        ] {
+            s.set(name);
+        }
+        for (name, value) in [
+            ("fmt_debug", "full"),
+            ("panic", "unwind"),
+            ("relocation_model", "pic"),
+            ("target_abi", ""),
+            ("target_arch", "x86_64"),
+            ("target_endian", "little"),
+            ("target_env", "gnu"),
+            ("target_family", "unix"),
+            ("target_object_format", "elf"),
+            ("target_os", "linux"),
+            ("target_pointer_width", "64"),
+            ("target_vendor", "unknown"),
+        ] {
+            s.set_value(name, value);
+        }
+        for f in ["fxsr", "sse", "sse2", "x87"] {
+            s.set_value("target_feature", f);
+        }
+        for width in ["8", "16", "32", "64", "ptr"] {
+            s.set_value("target_has_atomic", width);
+            s.set_value("target_has_atomic_load_store", width);
+            s.set_value("target_has_atomic_primitive_alignment", width);
+        }
+        s
+    }
+
     /// Evaluates a predicate written as `tokens` (without the surrounding
     /// parentheses of `cfg(...)`).
     pub fn eval<'a>(&self, tokens: &[Token<'a>], eof: Token<'a>) -> Result<bool, Error<'a>> {
@@ -552,6 +599,25 @@ mod tests {
         };
         let theirs = CfgSet::from_print_cfg(&String::from_utf8_lossy(&out.stdout));
         let ours = CfgSet::host();
+        let missing: Vec<_> = theirs.pairs.difference(&ours.pairs).collect();
+        let extra: Vec<_> = ours.pairs.difference(&theirs.pairs).collect();
+        assert!(missing.is_empty() && extra.is_empty(), "missing {missing:?}, extra {extra:?}");
+        assert_eq!(theirs.names, ours.names);
+    }
+
+    #[test]
+    fn x86_64_linux_matches_rustc() {
+        // rustc prints any target's configuration, whatever it runs on.
+        let Ok(out) = std::process::Command::new("rustc")
+            .args(["--print", "cfg", "--target", "x86_64-unknown-linux-gnu", "-Zunstable-options"])
+            .env("RUSTC_BOOTSTRAP", "1")
+            .output()
+        else {
+            return;
+        };
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        let theirs = CfgSet::from_print_cfg(&String::from_utf8_lossy(&out.stdout));
+        let ours = CfgSet::x86_64_linux();
         let missing: Vec<_> = theirs.pairs.difference(&ours.pairs).collect();
         let extra: Vec<_> = ours.pairs.difference(&theirs.pairs).collect();
         assert!(missing.is_empty() && extra.is_empty(), "missing {missing:?}, extra {extra:?}");

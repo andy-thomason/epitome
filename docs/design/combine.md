@@ -314,7 +314,7 @@ cases are checked against the model of memory in `tests/combine_rules.rs`,
 widened to bytes, so that a load sees the bytes the last stores to them
 wrote.
 
-### Three-input bit functions (planned)
+### Three-input bit functions
 
 Any function of three bits is described by its truth table, eight bits
 long. AVX-512's `vpternlogd` and `vpternlogq` compute any of the 256 in
@@ -344,24 +344,35 @@ input is a two-input function and is left to the rules above.
 
 The rewrite is made when the description has an instruction for that
 table at that type, as `has_shuffle` asks for shuffles, and when it
-removes at least one instruction (intermediate values with other uses
-stay). It is an elective change (autochop). Two `bitfn3` calls where
-one feeds the other with no other use, together reading at most three
-values, fold into one.
+removes at least one instruction. It is an elective change (autochop).
 
-**Selection.** In the x86 description, `VPTERNLOGD` and `VPTERNLOGQ` are
-`"asmonly"` today. Their bodies become the call above with the immediate
-as the table, so every table selects; with AVX-512VL the same holds at
-128 and 256 bits. The masked forms (`{k}`, `{z}`) come later, with the
+**Done (7 November 2026), in the code generator** rather than here,
+since only it knows the description: `codegen/src/bitfn3.rs`, run in
+`prepare` after legalisation (so at legal widths). Trees are gathered
+from each block's last operation back, so a root is met before its
+operands. An operation with other uses may be taken in (computed again
+within the tree; it stays for those), and use counts are kept as trees
+are made, so an operation two trees share goes with the second: a full
+adder's sum and carry are two `vpternlogd` (0x96 and 0xe8), its `a ^ b`
+gone. A tree is made if two of its operations go, not counting a `not`
+that an `and` takes (`vpandn` is already one instruction). A tree of four
+values is left, but its operations are roots in turn. Not yet: folding
+two `bitfn3` calls into one, and four-input functions.
+
+**Selection.** In the x86 description, `VPTERNLOGD` and `VPTERNLOGQ`
+have the call above as their bodies, the immediate as the table, so every
+table selects, at 512 bits and with AVX-512VL at 128 and 256 (`gen_sel.py`'s
+`ternary_logic`). The masked forms (`{k}`, `{z}`) come later, with the
 rest of AVX-512's mask selection. On AArch64, SVE2's entries each give
 their fixed table; a table with no entry is not formed, so nothing needs
 expanding back. (The AArch64 description has no SVE2 entries yet.)
 
-**Checking.** As for the rules above: random trees of the bitwise
-operations over three leaves, at widths up to 512 bits, evaluated on
-random inputs before and after the rewrite. Each instruction that
-claims a table is checked exhaustively: on the three bytes `0xf0`,
-`0xcc` and `0xaa` it must give the table back.
+**Checking.** `codegen/tests/avx512.rs`: 32 random trees of the bitwise
+operations over three leaves, at 128, 256 and 512 bits and lanes of each
+width, and the full adder, each built by us and by clang and run on the
+same inputs (each must be `vpternlog` and nothing else); and every one of
+the 256 tables, at four types, on the bytes `0xf0`, `0xcc` and `0xaa`,
+must give the table back.
 
 **Later:** a function of four inputs is two `bitfn3` and a select on the
 fourth (`f = d ? f1 : f0`, which is itself a `bitfn3`), so three

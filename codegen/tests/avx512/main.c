@@ -34,9 +34,11 @@ PLAIN(mixed_v4i64_v4f32)
 PLAIN(mixed_v16i16_v16i8)
 PLAIN(mixed_v4f64_v4i32)
 PLAIN(novl_selects_v8i32)
+void ternlog0(const void *, const void *, const void *, void *); void ternlog1(const void *, const void *, const void *, void *); void ternlog2(const void *, const void *, const void *, void *); void ternlog3(const void *, const void *, const void *, void *); void ternlog4(const void *, const void *, const void *, void *); void ternlog5(const void *, const void *, const void *, void *); void ternlog6(const void *, const void *, const void *, void *); void ternlog7(const void *, const void *, const void *, void *); void ternlog8(const void *, const void *, const void *, void *); void ternlog9(const void *, const void *, const void *, void *); void ternlog10(const void *, const void *, const void *, void *); void ternlog11(const void *, const void *, const void *, void *); void ternlog12(const void *, const void *, const void *, void *); void ternlog13(const void *, const void *, const void *, void *); void ternlog14(const void *, const void *, const void *, void *); void ternlog15(const void *, const void *, const void *, void *); void ternlog16(const void *, const void *, const void *, void *); void ternlog17(const void *, const void *, const void *, void *); void ternlog18(const void *, const void *, const void *, void *); void ternlog19(const void *, const void *, const void *, void *); void ternlog20(const void *, const void *, const void *, void *); void ternlog21(const void *, const void *, const void *, void *); void ternlog22(const void *, const void *, const void *, void *); void ternlog23(const void *, const void *, const void *, void *); void ternlog24(const void *, const void *, const void *, void *); void ternlog25(const void *, const void *, const void *, void *); void ternlog26(const void *, const void *, const void *, void *); void ternlog27(const void *, const void *, const void *, void *); void ternlog28(const void *, const void *, const void *, void *); void ternlog29(const void *, const void *, const void *, void *); void ternlog30(const void *, const void *, const void *, void *); void ternlog31(const void *, const void *, const void *, void *); void ternlog_adder(const void *, const void *, const void *, void *);
 PLAIN(shifts_v8i32) PLAIN(shifts_v4i32) PLAIN(shifts_v4i64) PLAIN(shifts_v2i64)
 
 static unsigned char a[64] __attribute__((aligned(64))), b[64] __attribute__((aligned(64)));
+static unsigned char c3[64] __attribute__((aligned(64)));
 static unsigned char out[1024] __attribute__((aligned(64)));
 
 static void show(const char *name, int set, size_t n) {
@@ -77,6 +79,7 @@ int main(void) {
         if (set == 1) { memset(a, 0x80, 16); memset(b, 0x7f, 16); }
         if (set == 2) { memset(a, 0, 32); memset(b + 32, 0xff, 32); }
         if (set == 3) { memset(a, 0xff, 8); a[8] = 1; memset(b, 0, 8); }
+        for (int k = 0; k < 64; k++) c3[k] = (unsigned char)next();
         uint64_t pattern = next() * 0x9a3c5f0e17d2b649ull;
         unsigned char m[8];
         RUN(arith_v16i32, 7 * 64) RUN(arith_v8i64, 7 * 64) RUN(arith_v32i16, 7 * 64) RUN(arith_v64i8, 6 * 64)
@@ -127,6 +130,39 @@ int main(void) {
         RUN(mixed_v16i16_v16i8, 64)
         RUN(mixed_v4f64_v4i32, 64)
         RUN(novl_selects_v8i32, 32)
+        memset(out, 0, sizeof out); ternlog0(a, b, c3, out); show("ternlog0", set, 128);
+        memset(out, 0, sizeof out); ternlog1(a, b, c3, out); show("ternlog1", set, 128);
+        memset(out, 0, sizeof out); ternlog2(a, b, c3, out); show("ternlog2", set, 128);
+        memset(out, 0, sizeof out); ternlog3(a, b, c3, out); show("ternlog3", set, 128);
+        memset(out, 0, sizeof out); ternlog4(a, b, c3, out); show("ternlog4", set, 128);
+        memset(out, 0, sizeof out); ternlog5(a, b, c3, out); show("ternlog5", set, 128);
+        memset(out, 0, sizeof out); ternlog6(a, b, c3, out); show("ternlog6", set, 128);
+        memset(out, 0, sizeof out); ternlog7(a, b, c3, out); show("ternlog7", set, 128);
+        memset(out, 0, sizeof out); ternlog8(a, b, c3, out); show("ternlog8", set, 128);
+        memset(out, 0, sizeof out); ternlog9(a, b, c3, out); show("ternlog9", set, 128);
+        memset(out, 0, sizeof out); ternlog10(a, b, c3, out); show("ternlog10", set, 128);
+        memset(out, 0, sizeof out); ternlog11(a, b, c3, out); show("ternlog11", set, 128);
+        memset(out, 0, sizeof out); ternlog12(a, b, c3, out); show("ternlog12", set, 128);
+        memset(out, 0, sizeof out); ternlog13(a, b, c3, out); show("ternlog13", set, 128);
+        memset(out, 0, sizeof out); ternlog14(a, b, c3, out); show("ternlog14", set, 128);
+        memset(out, 0, sizeof out); ternlog15(a, b, c3, out); show("ternlog15", set, 128);
+        memset(out, 0, sizeof out); ternlog16(a, b, c3, out); show("ternlog16", set, 128);
+        memset(out, 0, sizeof out); ternlog17(a, b, c3, out); show("ternlog17", set, 128);
+        memset(out, 0, sizeof out); ternlog18(a, b, c3, out); show("ternlog18", set, 128);
+        memset(out, 0, sizeof out); ternlog19(a, b, c3, out); show("ternlog19", set, 128);
+        memset(out, 0, sizeof out); ternlog20(a, b, c3, out); show("ternlog20", set, 128);
+        memset(out, 0, sizeof out); ternlog21(a, b, c3, out); show("ternlog21", set, 128);
+        memset(out, 0, sizeof out); ternlog22(a, b, c3, out); show("ternlog22", set, 128);
+        memset(out, 0, sizeof out); ternlog23(a, b, c3, out); show("ternlog23", set, 128);
+        memset(out, 0, sizeof out); ternlog24(a, b, c3, out); show("ternlog24", set, 128);
+        memset(out, 0, sizeof out); ternlog25(a, b, c3, out); show("ternlog25", set, 128);
+        memset(out, 0, sizeof out); ternlog26(a, b, c3, out); show("ternlog26", set, 128);
+        memset(out, 0, sizeof out); ternlog27(a, b, c3, out); show("ternlog27", set, 128);
+        memset(out, 0, sizeof out); ternlog28(a, b, c3, out); show("ternlog28", set, 128);
+        memset(out, 0, sizeof out); ternlog29(a, b, c3, out); show("ternlog29", set, 128);
+        memset(out, 0, sizeof out); ternlog30(a, b, c3, out); show("ternlog30", set, 128);
+        memset(out, 0, sizeof out); ternlog31(a, b, c3, out); show("ternlog31", set, 128);
+        memset(out, 0, sizeof out); ternlog_adder(a, b, c3, out); show("ternlog_adder", set, 128);
         MASKS(v16i32) MASKS(v8i64) MASKS(v32i16) MASKS(v64i8)
     }
     return 0;

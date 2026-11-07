@@ -89,6 +89,14 @@ impl<'a> Parser<'a> {
                 self.pattern_no_alt()?;
                 self.finish(m, Kind::BoxPat);
             }
+            "builtin" if self.at_n(1, "#") => {
+                self.bump_n(2);
+                self.name()?;
+                self.expect("(")?;
+                self.pattern()?;
+                self.expect(")")?;
+                self.finish(m, Kind::BuiltinPat);
+            }
             "!" => {
                 self.bump();
                 self.finish(m, Kind::NeverPat);

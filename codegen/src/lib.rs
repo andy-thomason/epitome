@@ -8,6 +8,7 @@ pub mod asm;
 pub mod asm_text;
 pub mod assembler;
 pub mod atomics;
+pub mod bitfn3;
 pub mod bitmaps;
 pub mod bundle;
 pub mod check;

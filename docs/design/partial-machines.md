@@ -98,6 +98,7 @@ not, or must do it another way:
 | --- | --- | --- |
 | `prepare`: `memcpy`, `memmove`, `memset` | calls to the library | loops of byte loads and stores (a `memmove` copying down where its ranges overlap) |
 | `prepare`: division, float runtime calls | calls to the library | recipes only; an error from `fits` if there is none |
+| `select` | an instruction or recipe for it | on a machine with none (whose comparisons only branch), a branch around a phi (`prepare::selects_as_branches`) |
 | switch lowering | jump tables (`globals`, `indirect`) | compare-and-branch trees (Epitome makes no jump tables) |
 | constant materialisation | constant pools (`memory`) | building in registers only (Epitome makes no constant pools) |
 | legalisation of wide integers | pairs of registers, which is fine; stack slots for `i128` | pairs only |

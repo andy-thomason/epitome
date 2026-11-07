@@ -428,6 +428,11 @@ pub enum Kind {
     /// `dyn Bounds`, or a bare bound list in old editions: `Keyword(dyn)?
     /// Bounds`.
     DynTraitType,
+    /// `unsafe<'a> T`, an unsafe binder: `Lifetime* Type`.
+    UnsafeBinderType,
+    /// `builtin # field_of(T, a.b)`: `Name Type TokenTree` (the field
+    /// path, as tokens).
+    BuiltinType,
 
     // ---- patterns ----
     /// `_`.
@@ -464,6 +469,8 @@ pub enum Kind {
     /// `!`, the never pattern. Macro calls in patterns are `PatMacro`,
     /// and `const { }` is a `ConstBlock`.
     NeverPat,
+    /// `builtin # deref(p)`: `Name Pattern`.
+    BuiltinPat,
 
     // ---- expressions ----
     /// `Path`.
@@ -553,7 +560,10 @@ pub enum Kind {
     Underscore,
     /// `const { }`: `Block`.
     ConstBlock,
-    /// `builtin # name(args)`: `Name TokenTree`.
+    /// `builtin # name(args)`: `Name` and its arguments, by name:
+    /// `offset_of(T, a.b)` is `Type TokenTree` (the field path, as
+    /// tokens); `type_ascribe(e, T)` is `Expr Type`; `wrap_binder(e)` and
+    /// `unwrap_binder(e, T)` are `Expr Type?`; any other is `TokenTree`.
     Builtin,
     /// An expression with outer attributes: `attrs Expr`.
     AttrExpr,

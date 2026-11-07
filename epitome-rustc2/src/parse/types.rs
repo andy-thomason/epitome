@@ -267,6 +267,17 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
+    /// The fields of `offset_of` and `field_of`, `a.b.0` or `Variant.f`,
+    /// as a `TokenTree` of the tokens before the closing `)`.
+    pub(crate) fn field_path(&mut self) -> PResult<'a> {
+        let m = self.mark();
+        while !self.at(")") && !self.tok(0).is_eof() {
+            self.bump();
+        }
+        self.finish(m, Kind::TokenTree);
+        Ok(())
+    }
+
     /// A name, as a `Name` leaf.
     pub(crate) fn name(&mut self) -> PResult<'a> {
         if self.name_at(0) {
@@ -531,6 +542,29 @@ impl<'a> Parser<'a> {
                 self.leaf(Kind::Keyword, 1);
                 self.bounds(plus)?;
                 self.finish(m, Kind::DynTraitType);
+            }
+            "unsafe" if self.at_n(1, "<") => {
+                // An unsafe binder, `unsafe<'a> &'a T`.
+                self.bump_n(2);
+                while self.lifetime_at(0) {
+                    self.leaf(Kind::Lifetime, 1);
+                    if !self.eat(",") {
+                        break;
+                    }
+                }
+                self.expect_close_angle()?;
+                self.ty_no_plus()?;
+                self.finish(m, Kind::UnsafeBinderType);
+            }
+            "builtin" if self.at_n(1, "#") => {
+                self.bump_n(2);
+                self.name()?;
+                self.expect("(")?;
+                self.ty()?;
+                self.expect(",")?;
+                self.field_path()?;
+                self.expect(")")?;
+                self.finish(m, Kind::BuiltinType);
             }
             "fn" | "unsafe" | "extern" => self.fn_ptr_type(m)?,
             "for" if self.at_n(1, "<") => {

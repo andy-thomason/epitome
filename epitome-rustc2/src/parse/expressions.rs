@@ -281,8 +281,28 @@ impl<'a> Parser<'a> {
         }
         if self.at("builtin") && self.at_n(1, "#") {
             self.bump_n(2);
+            let name = self.tok(0).0;
             self.name()?;
-            self.token_tree()?;
+            match name {
+                "offset_of" => {
+                    self.expect("(")?;
+                    self.ty()?;
+                    self.expect(",")?;
+                    self.field_path()?;
+                    self.expect(")")?;
+                }
+                "type_ascribe" | "wrap_binder" | "unwrap_binder" => {
+                    self.expect("(")?;
+                    self.expr()?;
+                    if self.eat(",") && !self.at(")") {
+                        self.ty()?;
+                    }
+                    self.expect(")")?;
+                }
+                _ => {
+                    self.token_tree()?;
+                }
+            }
             self.finish(m, Kind::Builtin);
             return Ok(());
         }

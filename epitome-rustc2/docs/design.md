@@ -807,6 +807,22 @@ any other; then each is defined.
   memory, side effects, stack alignment and syntax from its options,
   `clobber_abi("C")` as clobbers of the registers the C convention does
   not keep.
+- **`builtin #` forms**, which `core`'s macros expand to, are parsed by
+  name into nodes with their parts: `offset_of(T, a.b.0)` and
+  `field_of(T, Variant.f)` with the container's type and the field path
+  as tokens, `type_ascribe(e, T)` and `wrap_binder(e)` and
+  `unwrap_binder(e, T)` with an expression and a type, and the pattern
+  `deref(p)` with its pattern. `offset_of` is a `usize` constant, the
+  sum of the offsets along the path in the layouts; `type_ascribe` is its
+  expression, checked as the type written; the binder forms are their
+  operand, as an unsafe binder type (`unsafe<'a> &'a T`) is the type it
+  binds, lifetimes not being kept; `deref!(p)` matches `p` against what
+  the value dereferences to, through `Deref::deref` (after the
+  references default binding modes pass, as rustc does); and the type
+  `field_of(T, f)` is `FieldRepresentingType<T, VARIANT, FIELD>` with the
+  indices as const arguments. In `repr(Rust)` types (tuples among them)
+  the offsets are this compiler's layout's, which may differ from
+  rustc's: neither is promised.
 - **Panics** become a trap (`llvm.trap`), with no message: a call into
   `core::panicking`, `panic!` and its relatives, an index out of bounds, a
   division by zero, and a failed `assert!`. Arithmetic wraps, as in a
@@ -841,16 +857,33 @@ body:
   ...
 ```
 
-From every non-generic function of `core` with a body (on mandelbrot):
-22,310 functions in 3.3 s, of which 3,363 (15%) are not lowered, and 243
-more trap where they reach `dyn` or formatting. 3,003 of those not
-lowered are SIMD (`core::arch` and `core::simd`, 5,408 functions), which
-is not attempted (its `asm!` with vector operands among them); of the
-16,902 others, 360 (2%) are not lowered. The most common reasons:
-`builtin #` expressions (47), unsizing an array whose length is an
-expression the evaluator cannot work out (43), and calls of instances
-monomorphisation did not find (28). The 14 intrinsics left are the
-compile-time and variadic ones.
+From every non-generic function of `core` with a body (on mandelbrot,
+with one thread): 22,310 functions in 3.7 s, of which 3,318 (15%) are not
+lowered, and 243 more trap where they reach `dyn` or formatting. 3,004 of
+those not lowered are SIMD (`core::arch` and `core::simd`, 5,408
+functions), which is not attempted (its `asm!` with vector operands
+among them); of the 16,902 others, 314 (2%) are not lowered. The most
+common reasons: unsizing an array whose length is an expression the
+evaluator cannot work out (42), calls of instances monomorphisation did
+not find (20), and array lengths not known (17). The 14 intrinsics left
+are the compile-time and variadic ones.
+
+With several threads the counts vary by a few functions from run to
+run: some results depend on the order in which bodies are checked and
+lowered (types are interned in that order, and some choices follow hash
+maps' order). Two caches shared between threads marked an item being
+worked out in a way other threads read as a result (a constant as
+having no value, a type as recursive); each now marks it for its own
+thread only, which removed most of the variation but not all.
+
+Timings for all of `core` (on mandelbrot, 64 cores): parsing to
+lowering, 4.4 s wall and 15 s of CPU, in 490 MB; the IR is 26 MB.
+Epitome's optimiser takes 11 s wall (121 s of CPU) on it, but every
+function is internal and nothing calls them, so it deletes nearly all,
+and the code generator then takes 0.6 s; this is not yet a measure of
+compiling `core`. Without the optimiser the code generator stops after
+8 s at `f128`'s `maximum`, for which x86-64's runtime description names
+no function.
 
 Lowering found and fixed these in type checking: it records which
 constant a path names (`tables.consts`, for `u64::MAX` and `T::ZERO`) and

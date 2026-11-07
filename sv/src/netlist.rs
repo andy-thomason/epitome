@@ -257,14 +257,15 @@ pub struct Options {
     /// Specialisations proved to count zeros of their input (`recognise`)
     /// become that count, `llvm.ctlz` on lanes, not their own logic.
     pub recognise: bool,
-    /// Costly arms run only where some lane of a register takes them
-    /// ([`GUARD_MIN`]); otherwise every arm runs and selects merge them.
-    pub guards: bool,
+    /// Costly arms run only where some lane of a register takes them:
+    /// arms of at least this many instructions a register of lanes (see
+    /// [`GUARD_MIN`]); 0 for none, every arm run and selects merging them.
+    pub guard_min: usize,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { bit_planes: true, recognise: true, guards: true }
+        Options { bit_planes: true, recognise: true, guard_min: GUARD_MIN }
     }
 }
 
@@ -2499,10 +2500,11 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     /// Whether the arm `s`, taken where `m` holds, is worth a branch around
     /// it (see [`GUARD_MIN`]).
     fn worth_guarding(&mut self, m: M, s: StmtId) -> bool {
-        if matches!(m, M::K(_)) || self.trial || self.mem || !self.l.opts.guards {
+        let min = self.l.opts.guard_min;
+        if matches!(m, M::K(_)) || self.trial || self.mem || min == 0 {
             return false;
         }
-        self.cost(|f| f.stmt(s)) >= GUARD_MIN
+        self.cost(|f| f.stmt(s)) >= min
     }
 
     /// How many instructions `f` writes, written and then taken back.

@@ -596,7 +596,9 @@ fn guarded_arms() {
     let src = tmp_dir().join("guarded_top.sv");
     std::fs::write(&src, GUARDED).unwrap();
     let files = vec![src];
-    let b = build("guarded", netlist_of(files.clone(), Vec::new(), "guarded_top"), &t, triple, &mattr);
+    // (Guarded as by default, whatever NETLIST_GUARD_MIN says.)
+    let opts = epitome_sv::netlist::Options { guard_min: epitome_sv::netlist::GUARD_MIN, ..netlist_options() };
+    let b = build("guarded", netlist_with(files.clone(), Vec::new(), "guarded_top", opts), &t, triple, &mattr);
     report("guarded", &b);
     let Some(v) = verilate("guarded", &files, &[], "guarded_top", &b.net.ports, Some("clk_i")) else { return };
     let (cycles, n) = (24, 2 * GROUP);

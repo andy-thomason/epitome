@@ -46,8 +46,9 @@ pub fn netlist_options() -> netlist::Options {
     let x86_without_masks =
         cfg!(target_arch = "x86_64") && !std::env::var("NETLIST_MATTR").is_ok_and(|m| m.contains("avx512f"));
     let recognise = std::env::var("NETLIST_RECOGNISE").map_or(true, |v| v != "0");
-    let guards = std::env::var("NETLIST_GUARDS").map_or(true, |v| v != "0");
-    netlist::Options { bit_planes: !x86_without_masks, recognise, guards }
+    // NETLIST_GUARD_MIN: the smallest arm guarded, 0 for none.
+    let guard_min = std::env::var("NETLIST_GUARD_MIN").ok().and_then(|v| v.parse().ok()).unwrap_or(netlist::GUARD_MIN);
+    netlist::Options { bit_planes: !x86_without_masks, recognise, guard_min }
 }
 
 /// Elaborates `files` with `top` and compiles its netlist, on a thread with

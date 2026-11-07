@@ -32,7 +32,9 @@
 !117 = !{!"fp-result", !"%xmm0"}
 !118 = !{!"fp-clobbers", !"%xmm0-%xmm31"}
 !119 = !{!"fp-saved"}
-!120 = !{!"fp-scratch", !"%xmm15", !"%xmm14"}
+; Three, as an instruction reads up to three vector registers (a blend, an
+; FMA, vpternlogd), each of which spill code may have to load.
+!120 = !{!"fp-scratch", !"%xmm15", !"%xmm14", !"%xmm13"}
 !121 = !{!"fp-results", !"%xmm0", !"%xmm1"}
 ; __int128 on the stack is 16-aligned.
 !122 = !{!"wide-pairs", !"stack16"}

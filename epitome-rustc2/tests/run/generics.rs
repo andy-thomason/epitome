@@ -171,6 +171,12 @@ fn max_of<T: PartialOrd + Copy>(xs: &[T]) -> Option<T> {
     Some(best)
 }
 
+// Two instances whose constant arguments are expressions: they must not
+// be taken for one.
+fn times<const N: i64>(x: i64) -> i64 {
+    x * N
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn main() -> i32 {
     let mut p = Pair::new(3i64, 9);
@@ -206,6 +212,9 @@ pub extern "C" fn main() -> i32 {
 
     put_i64(max_of(&[3, -8, 12, 5]).unwrap_or(0));
     put_i64(max_of::<i64>(&[]).unwrap_or(-99));
+
+    put_i64(times::<{ 1 + 2 }>(5));
+    put_i64(times::<{ 2 * 2 }>(5));
     0
 }
 

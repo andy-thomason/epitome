@@ -857,24 +857,26 @@ body:
   ...
 ```
 
-From every non-generic function of `core` with a body (on mandelbrot,
-with one thread): 22,310 functions in 3.7 s, of which 3,318 (15%) are not
-lowered, and 243 more trap where they reach `dyn` or formatting. 3,004 of
-those not lowered are SIMD (`core::arch` and `core::simd`, 5,408
-functions), which is not attempted (its `asm!` with vector operands
-among them); of the 16,902 others, 314 (2%) are not lowered. The most
-common reasons: unsizing an array whose length is an expression the
-evaluator cannot work out (42), calls of instances monomorphisation did
-not find (20), and array lengths not known (17). The 14 intrinsics left
-are the compile-time and variadic ones.
+From every non-generic function of `core` with a body (on mandelbrot):
+22,529 functions in 3.7 s, of which 3,342 (15%) are not lowered, and 244
+more trap where they reach `dyn` or formatting. 2,946 of those not
+lowered are SIMD (`core::arch` and `core::simd`, 5,174 functions), which
+is not attempted (its `asm!` with vector operands among them); of the
+17,355 others, 396 (2%) are not lowered. The most common reasons:
+intrinsics not supported yet (81 functions, 18 intrinsics: the
+compile-time and variadic ones), unsizing an array whose length is an
+expression the evaluator cannot work out (44), types not concrete where
+typing failed (33), and calls of instances monomorphisation did not find
+(26).
 
-With several threads the counts vary by a few functions from run to
-run: some results depend on the order in which bodies are checked and
-lowered (types are interned in that order, and some choices follow hash
-maps' order). Two caches shared between threads marked an item being
-worked out in a way other threads read as a result (a constant as
-having no value, a type as recursive); each now marks it for its own
-thread only, which removed most of the variation but not all.
+The counts, the list and the IR are the same for any number of threads.
+Results do not depend on the order in which bodies are checked and
+lowered, though types are interned in that order: caches shared between
+threads mark an item being worked out for their own thread only (a
+constant as having no value, a type as recursive), and an instance's
+symbol keys each constant argument by its value, or by where it is
+written when the evaluator cannot work it out, never by how it prints.
+Instances of one symbol share one declaration.
 
 Timings for all of `core` (on mandelbrot, 64 cores): parsing to
 lowering, 4.4 s wall and 15 s of CPU, in 490 MB; the IR is 26 MB.

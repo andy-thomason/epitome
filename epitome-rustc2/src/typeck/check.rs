@@ -1502,7 +1502,8 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     None => self.err(n, "`.await` on something that is not a future"),
                 }
             }
-            Kind::Yield | Kind::Become | Kind::Yeet | Kind::Builtin | Kind::UseExpr => {
+            Kind::Builtin => self.builtin_expr(n, &kids, expect),
+            Kind::Yield | Kind::Become | Kind::Yeet | Kind::UseExpr => {
                 for &c in &kids {
                     if is_expr(ast.kind(c)) {
                         self.expr(c, None);
@@ -2085,6 +2086,45 @@ impl<'a, 's> FnCtxt<'a, 's> {
         self.mk(TyKind::Closure(id, sig, tcx.identity_args(self.owner)))
     }
 
+    /// `builtin # name(..)`: `offset_of` is a `usize` (its container's
+    /// type recorded at the type node, for lowering); `type_ascribe(e, T)`
+    /// is `e` as a `T`; and the unsafe binder ones are their operand, as
+    /// an unsafe binder's type is the type it binds.
+    fn builtin_expr(&mut self, n: NodeId, kids: &[NodeId], expect: Option<Ty>) -> Ty {
+        let ast = self.ast;
+        match ast.token(kids[0]).0 {
+            "offset_of" => {
+                let t = self.written_ty(kids[1]);
+                self.types.insert(kids[1], t);
+                let mut path = crate::ty::lower::field_path(&ast.text(kids[2]));
+                let mut cur = self.norm(t);
+                while !path.is_empty() {
+                    let Some((_, _, ft, used)) = self.tcx.field_step(cur, &path) else {
+                        return self.err(n, "`offset_of` of a field not found");
+                    };
+                    path.drain(..used);
+                    cur = self.norm(ft);
+                }
+                self.mk(TyKind::Uint(UintTy::Usize))
+            }
+            "type_ascribe" if kids.len() == 3 => {
+                let t = self.written_ty(kids[2]);
+                let e = self.expr(kids[1], Some(t));
+                self.infer.unify(e, t);
+                t
+            }
+            "wrap_binder" | "unwrap_binder" if kids.len() >= 2 => {
+                let e = self.expr(kids[1], expect);
+                if let Some(&w) = kids.get(2) {
+                    let t = self.written_ty(w);
+                    self.infer.unify(e, t);
+                }
+                e
+            }
+            _ => self.err(n, "unsupported expression"),
+        }
+    }
+
     /// Built-in macros left as calls.
     fn builtin_call(&mut self, n: NodeId, kids: &[NodeId]) -> Ty {
         let Some(&path) = kids.first() else { return self.err(n, "macro call") };
@@ -2379,6 +2419,23 @@ impl<'a, 's> FnCtxt<'a, 's> {
                         continue;
                     }
                     self.pat(k, elem, bm, by_ref);
+                }
+            }
+            // `deref!(p)`: `p` matches what the value dereferences to.
+            Kind::BuiltinPat if self.ast.token(kids[0]).0 == "deref" => {
+                let s = self.norm(t);
+                match self.deref_once(s) {
+                    Some((x, how)) => {
+                        if how == Adjust::OverloadedDeref
+                            && let Some(tr) = self.lang("deref")
+                        {
+                            self.record_trait_method(p, tr, "deref", s, &[]);
+                        }
+                        self.pat(kids[1], x, bm, by_ref);
+                    }
+                    None => {
+                        self.err(p, "`deref!` of something that does not implement `Deref`");
+                    }
                 }
             }
             Kind::BoxPat => {

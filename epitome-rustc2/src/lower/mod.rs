@@ -578,6 +578,8 @@ mod tests {
 
     /// Each program of `tests/run` lowers with `core`: none of its own
     /// functions fails, and the module prints as IR that parses back.
+    /// `core` is configured for x86-64 Linux, the target lowered for,
+    /// whatever the host, so `core::arch::x86_64` is there on any machine.
     #[test]
     fn run_programs_lower() {
         let Some(core) = core_src() else {
@@ -589,7 +591,7 @@ mod tests {
         programs.sort();
         assert!(programs.len() >= 5, "programs: {programs:?}");
         for file in programs {
-            let session = Session::new(Options { threads: 4, cfg: Some(crate::cfg::CfgSet::host()), ..Default::default() });
+            let session = Session::new(Options { threads: 4, cfg: Some(crate::cfg::CfgSet::x86_64_linux()), ..Default::default() });
             let mut crates = session.parse_crates(vec![CrateRoot::new("core", &core), CrateRoot::new("program", &file)]);
             session.expand(&mut crates);
             let r = session.resolve(&crates);

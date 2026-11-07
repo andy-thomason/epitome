@@ -1155,6 +1155,30 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 }
             }
             Kind::Closure => self.closure_expr(n),
+            Kind::Builtin => match ast.token(kids[0]).0 {
+                "offset_of" => {
+                    // The offsets of the fields along the path, added.
+                    let mut cur = self.ty(kids[1])?;
+                    let mut path = crate::ty::lower::field_path(&ast.text(kids[2]));
+                    let mut off = 0;
+                    while !path.is_empty() {
+                        let (v, i, _, used) = tcx.field_step(cur, &path).ok_or("`offset_of` of a field not found")?;
+                        let l = self.layout(cur)?;
+                        off += match &l.variants {
+                            crate::layout::Variants::Multiple { variants, .. } => variants.get(v as usize).map(|x| x.offset(i)).unwrap_or(0),
+                            _ => l.offset(i),
+                        };
+                        cur = self.field_ty(cur, v, i)?;
+                        path.drain(..used);
+                    }
+                    let t = self.ty(n)?;
+                    let v = self.usize_const(off);
+                    Ok(Pv::Val(Operand { ty: t, v: Val::Imm(v) }))
+                }
+                // The value itself, of the type written.
+                "type_ascribe" | "wrap_binder" | "unwrap_binder" => self.expr(kids[1]),
+                b => Err(format!("`builtin # {b}` is not supported")),
+            },
             Kind::Let => Err("`let` outside a condition".into()),
             k => Err(format!("{k:?} is not supported yet")),
         }

@@ -273,6 +273,9 @@ pub fn prepare(cx: &mut Ctx, f: &Function, fname: &str) -> Result<Function, Stri
     // Lanes of masks legalisation leaves (it handles those of split masks,
     // at their comparisons' widths; before it, this would get in its way).
     mask_lanes(cx, &mut f);
+    // Chains of bitwise logic over three values as one function of three
+    // bits, where the description has one (x86's vpternlog).
+    crate::bitfn3::form(cx, &mut f);
     // What no instruction does, a lane at a time (after the masks' lanes).
     crate::lanewise::lanewise(cx, &mut f).map_err(|e| format!("@{fname}: {e}"))?;
     // Element-wise intrinsics split into scalars expand as scalars do.
@@ -287,6 +290,7 @@ pub fn prepare(cx: &mut Ctx, f: &Function, fname: &str) -> Result<Function, Stri
     legalize_fp(cx, &mut f)?;
     lower_const_divs(cx, &mut f);
     const_multiplies(cx, &mut f);
+    selects_as_branches(cx, &mut f);
     if cx.t.machine.compare_booleans {
         compare_boolean_branches(cx, &mut f);
     } else {
@@ -488,6 +492,45 @@ fn mem_op_loops(cx: &mut Ctx, f: &mut Function) {
             continue 'blocks;
         }
         b += 1;
+    }
+}
+
+/// On a machine with no way to select (no instruction or recipe for a
+/// `select`: a control core whose only use of a comparison is to branch on
+/// it), a select of a scalar is a branch around a phi:
+///
+/// b:     ...; br cond, join, other      (the first value, from b)
+/// other: br join                        (the second)
+/// join:  r = phi [a, b], [c, other]; the rest of b
+fn selects_as_branches(cx: &mut Ctx, f: &mut Function) {
+    if cx.selects_head(|h| matches!(h, Head::Select(_))) {
+        return;
+    }
+    let mut at = 0;
+    while at < f.layout.len() {
+        let b = f.layout[at];
+        let found = f.blocks[b.index()].insts.iter().position(|&i| {
+            matches!(&f.insts[i.index()].op, Op::Select { cond, .. }
+                if matches!(cx.m.types.get(cx.value_ty(f, *cond)), Type::Int(1)))
+                && f.insts[i.index()].result.is_some_and(|r| {
+                    matches!(cx.m.types.get(f.locals[r.index()].ty), Type::Int(_) | Type::Ptr(_))
+                })
+        });
+        let Some(k) = found else {
+            at += 1;
+            continue;
+        };
+        let i = f.blocks[b.index()].insts[k];
+        let Op::Select { fmf, cond, then_value, else_value } = f.insts[i.index()].op.clone() else { unreachable!() };
+        let join = f.split_block(b, k, None);
+        let other = f.add_block(None);
+        let pos = f.layout.iter().position(|&x| x == join).unwrap();
+        f.layout.insert(pos, other);
+        f.push_inst(other, Op::Br(join), None);
+        f.push_inst(b, Op::CondBr { cond, then_dest: join, else_dest: other }, None);
+        f.insts[i.index()].op = Op::Phi { fmf, incoming: vec![(then_value, b), (else_value, other)] };
+        // (join, after other, is looked at in turn.)
+        at += 1;
     }
 }
 

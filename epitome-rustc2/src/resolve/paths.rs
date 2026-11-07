@@ -741,6 +741,8 @@ fn is_type(k: Kind) -> bool {
             | FnPtrType
             | ImplTraitType
             | DynTraitType
+            | UnsafeBinderType
+            | BuiltinType
             | TypeMacro
     )
 }
@@ -764,6 +766,7 @@ fn is_pattern(k: Kind) -> bool {
             | OrPat
             | BoxPat
             | NeverPat
+            | BuiltinPat
             | PatMacro
     )
 }

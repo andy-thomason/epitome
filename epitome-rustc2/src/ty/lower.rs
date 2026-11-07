@@ -138,6 +138,22 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
                 self.tcx.mk(TyKind::Dyn(d))
             }
             Kind::TypeMacro => self.err("unexpanded macro in a type"),
+            // Lifetimes are not kept: the type it binds.
+            Kind::UnsafeBinderType => self.ty(*kids.last().unwrap()),
+            Kind::BuiltinType => {
+                // `field_of(T, f)`: `FieldRepresentingType<T, VARIANT, FIELD>`.
+                let t = self.ty(kids[1]);
+                let path = field_path(&ast.text(kids[2]));
+                let Some((v, f)) = self.tcx.field_index(t, &path) else { return self.err("`field_of` of a field not found") };
+                let Some(&frt) = self.tcx.lang.get("field_representing_type") else { return self.err("no `FieldRepresentingType`") };
+                let c = |cx: &mut Self, x: u32| {
+                    let k = cx.tcx.konst(Const::Value(x as u128));
+                    cx.tcx.mk(TyKind::ConstArg(k))
+                };
+                let (v, f) = (c(self, v), c(self, f as u32));
+                let args = self.tcx.list(vec![t, v, f]);
+                self.tcx.mk(TyKind::Adt(frt, args))
+            }
             _ => self.err("not a type"),
         }
     }
@@ -597,6 +613,8 @@ pub(crate) fn is_type(k: Kind) -> bool {
             | FnPtrType
             | ImplTraitType
             | DynTraitType
+            | UnsafeBinderType
+            | BuiltinType
             | TypeMacro
     )
 }
@@ -695,4 +713,10 @@ fn pattern_range(t: TyKind, pat: &str) -> Option<(u128, u128)> {
         _ => return None,
     };
     Some((lo as u128 & mask, hi as u128 & mask))
+}
+
+/// The names of a field path written as tokens (`a.b.0`, `Some.0`): the
+/// lexer may have read `0.1` as one number.
+pub(crate) fn field_path(text: &str) -> Vec<String> {
+    text.split('.').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
 }

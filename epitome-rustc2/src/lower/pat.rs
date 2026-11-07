@@ -34,6 +34,7 @@ pub(crate) fn is_pattern(k: Kind) -> bool {
             | OrPat
             | BoxPat
             | NeverPat
+            | BuiltinPat
             | PatMacro
     )
 }
@@ -55,6 +56,8 @@ pub(crate) fn is_type(k: Kind) -> bool {
             | FnPtrType
             | ImplTraitType
             | DynTraitType
+            | UnsafeBinderType
+            | BuiltinType
             | TypeMacro
     )
 }
@@ -282,6 +285,25 @@ impl Fx<'_, '_, '_, '_> {
                 let o = self.load(p)?;
                 let inner = self.deref(o)?;
                 self.pat_match(*kids.last().unwrap(), inner, fail)
+            }
+            // `deref!(p)`: through a reference or pointer, or `Deref::deref`.
+            Kind::BuiltinPat => {
+                let inner = match tcx.kind(p.ty) {
+                    TyKind::Ref(..) | TyKind::Ptr(..) => {
+                        let o = self.load(p)?;
+                        self.deref(o)?
+                    }
+                    _ => {
+                        let tr = *tcx.lang.get("deref").ok_or("no `Deref`")?;
+                        let method = self.trait_method(tr, "deref").ok_or("no `deref` method")?;
+                        let rt = tcx.mk(TyKind::Ref(crate::ty::Mutbl::Not, p.ty));
+                        let recv = self.addr_of(p, rt)?;
+                        let r = self.call_def(method, vec![p.ty], vec![recv], None)?;
+                        let o = self.operand_of(r)?;
+                        self.deref(o)?
+                    }
+                };
+                self.pat_match(kids[1], inner, fail)
             }
             Kind::TuplePat => {
                 let n = match tcx.kind(p.ty) {

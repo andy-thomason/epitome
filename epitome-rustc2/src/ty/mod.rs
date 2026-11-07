@@ -473,6 +473,39 @@ impl Session {
 }
 
 impl TyCtxt<'_> {
+    /// The first step of a field path (`a`, `0`, or an enum's `Variant.f`)
+    /// in `t`: the variant, the field's index in it, its type (at `t`'s
+    /// arguments), and how many names the step took.
+    pub fn field_step(&self, t: Ty, path: &[String]) -> Option<(u32, usize, Ty, usize)> {
+        let first = path.first()?;
+        match self.kind(t) {
+            TyKind::Tuple(l) => {
+                let i: usize = first.parse().ok()?;
+                Some((0, i, *self.tys(l).get(i)?, 1))
+            }
+            TyKind::Adt(d, l) => {
+                let adt = self.adts.get(&d)?;
+                let (v, name, used) = if adt.kind == AdtKind::Enum {
+                    let v = adt.variants.iter().position(|v| v.name == first.as_str())?;
+                    (v, path.get(1)?, 2)
+                } else {
+                    (0, first, 1)
+                };
+                let i = adt.variants[v].fields.iter().position(|f| f.name == name.as_str())?;
+                let ft = collect::subst(self, adt.variants[v].fields[i].ty, &self.all_params(d), &self.tys(l));
+                Some((v as u32, i, ft, used))
+            }
+            _ => None,
+        }
+    }
+
+    /// The variant and field a one-field path names in `t`, for
+    /// `field_of`.
+    pub fn field_index(&self, t: Ty, path: &[String]) -> Option<(u32, usize)> {
+        let (v, i, _, used) = self.field_step(t, path)?;
+        (used == path.len()).then_some((v, i))
+    }
+
     pub fn stats(&self) -> TypeStats {
         let mut reasons: Vec<(String, usize)> = self.errors.lock().unwrap().iter().map(|(k, v)| (k.clone(), *v)).collect();
         reasons.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));

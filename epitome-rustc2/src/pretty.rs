@@ -78,6 +78,8 @@ fn is_type(k: Kind) -> bool {
             | FnPtrType
             | ImplTraitType
             | DynTraitType
+            | UnsafeBinderType
+            | BuiltinType
     )
 }
 
@@ -1102,6 +1104,13 @@ impl<'p, 'a> Printer<'p, 'a> {
                 self.s("impl ");
                 self.node(kids[0]);
             }
+            UnsafeBinderType => {
+                let (last, lts) = kids.split_last().unwrap();
+                self.s("unsafe<");
+                self.join(lts, ", ");
+                self.s("> ");
+                self.node(*last);
+            }
             DynTraitType => {
                 for &k in kids {
                     if self.kind(k) == Keyword {
@@ -1402,9 +1411,17 @@ impl<'p, 'a> Printer<'p, 'a> {
                 self.s("const ");
                 self.node(kids[0]);
             }
-            Builtin => {
+            Builtin | BuiltinType | BuiltinPat => {
                 self.s("builtin # ");
-                self.join(kids, "");
+                self.node(kids[0]);
+                if kids.len() == 2 && self.kind(kids[1]) == TokenTree && self.ast.token(kids[1]).0 == "(" {
+                    // A form whose arguments are kept as tokens.
+                    self.node(kids[1]);
+                } else {
+                    self.s("(");
+                    self.join(&kids[1..], ", ");
+                    self.s(")");
+                }
             }
             AttrExpr => {
                 let rest = self.attrs_inline(kids);

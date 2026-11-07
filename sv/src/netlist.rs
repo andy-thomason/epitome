@@ -216,6 +216,7 @@ pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, 
         dropped: Cell::new(0),
         asserts: RefCell::default(),
         loops: Vec::new(),
+        sym_orders: RefCell::default(),
         loop_vars: RefCell::default(),
     };
     let spec = d.instance(top).spec;
@@ -316,16 +317,23 @@ impl Layout {
 }
 
 /// A specialisation proved, for every value of its one input, to give a
-/// count of the input's trailing or leading zeros on each output (with a
-/// constant where the input is zero), or whether it is zero, or a
-/// constant. It is then that count, `llvm.ctlz` on lanes.
+/// count of the input's trailing or leading zeros, or of its ones, on each
+/// output (with a constant where the input is zero), or whether it is
+/// zero, or a constant. It is then that count: `llvm.ctlz` on lanes, or
+/// the ones counted a piece at a time.
 #[derive(Clone, Debug)]
 struct Known {
     input: ObjId,
     width: u32,
-    /// Zeros counted from the top rather than the bottom.
-    leading: bool,
+    count: Count,
     outs: Vec<(ObjId, Out)>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Count {
+    Trailing,
+    Leading,
+    Ones,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -395,6 +403,11 @@ struct Rolled {
 
 /// Fewest iterations worth a loop.
 const ROLL_MIN: usize = 4;
+/// Most expression nodes, over all iterations, of a run of iterations
+/// left unrolled: each iteration of a rolled loop is a pass over the
+/// group's state, which costs more than a small body written out (a loop
+/// that moves one bit an iteration, as a bit reversal does).
+const UNROLL_MAX: usize = 1024;
 
 struct Lowering<'d, 'a> {
     opts: Options,
@@ -411,6 +424,9 @@ struct Lowering<'d, 'a> {
     /// Immediate assertions left out.
     asserts: RefCell<HashSet<StmtId>>,
     loops: Vec<Rolled>,
+    /// Specialisations' code in order, kept for proving what their
+    /// parents compute after a layout of their own has dropped it.
+    sym_orders: RefCell<HashMap<SpecId, Vec<Node>>>,
     /// The parameters that step in the loop being lowered: not constants
     /// there.
     loop_vars: RefCell<HashSet<ObjId>>,
@@ -843,7 +859,13 @@ impl<'d, 'a> Lowering<'d, 'a> {
             while end < iters.len() && shapes[at].is_some() && shapes[end] == shapes[at] {
                 end += 1;
             }
-            let rolled = if end - at >= ROLL_MIN { self.roll(&iters[at..end]) } else { None };
+            let big = || {
+                let (mut drivers, mut params) = (Vec::new(), Vec::new());
+                self.gather(iters[at], &mut drivers, &mut params);
+                let body: usize = drivers.iter().map(|dr| self.expr_size(d.drivers[dr.0 as usize].lhs) + self.expr_size(d.drivers[dr.0 as usize].rhs)).sum();
+                body * (end - at) > UNROLL_MAX
+            };
+            let rolled = if end - at >= ROLL_MIN && big() { self.roll(&iters[at..end]) } else { None };
             match rolled {
                 Some(r) => {
                     code.push(Node::Loop(self.loops.len()));
@@ -977,6 +999,11 @@ impl<'d, 'a> Lowering<'d, 'a> {
         }
         in_range.extend(ok.into_iter().filter(|e| e.1).map(|e| e.0));
         Some(Rolled { count: n as u32, body: drivers[0].clone(), steps, all: drivers.concat(), in_range })
+    }
+
+    /// How many nodes an expression has.
+    fn expr_size(&self, e: ExprId) -> usize {
+        1 + self.d.expr(e).args.iter().map(|&a| self.expr_size(a)).sum::<usize>()
     }
 
     /// The pairs of corresponding nodes of two expressions of the same shape.
@@ -2696,7 +2723,27 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let x = self.read(k.input);
         let n = x.p.len();
         let zero = self.eq(&x, &Val::zero(k.width));
-        let count = if k.leading {
+        let count = if k.count == Count::Ones {
+            // Each piece's ones, in two-bit, then four-bit fields, then
+            // bytes, which a multiply adds into the top byte.
+            let mut c = P::K(0);
+            for &p in &x.p {
+                let a = self.bin("lshr", p, P::K(1));
+                let a = self.bin("and", a, P::K(0x5555_5555));
+                let p = self.bin("sub", p, a);
+                let a = self.bin("and", p, P::K(0x3333_3333));
+                let b = self.bin("lshr", p, P::K(2));
+                let b = self.bin("and", b, P::K(0x3333_3333));
+                let p = self.bin("add", a, b);
+                let a = self.bin("lshr", p, P::K(4));
+                let p = self.bin("add", p, a);
+                let p = self.bin("and", p, P::K(0x0F0F_0F0F));
+                let p = self.bin("mul", p, P::K(0x0101_0101));
+                let p = self.bin("lshr", p, P::K(24));
+                c = self.bin("add", c, p);
+            }
+            c
+        } else if k.count == Count::Leading {
             // From the top piece down; the top piece's bits moved up to
             // the top of its lane.
             let top_bits = k.width - 32 * (n as u32 - 1);
@@ -2732,7 +2779,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             let w = d.types.width(d.object(o).ty);
             let v = match out {
                 Out::Count { at_zero } => {
-                    let c = self.sel(zero, P::K(at_zero as u32), count);
+                    let c = if k.count == Count::Ones && at_zero == 0 { count } else { self.sel(zero, P::K(at_zero as u32), count) };
                     let v = Val { w: 32, p: vec![c] };
                     self.resize(&v, w, false)
                 }
@@ -2814,7 +2861,8 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             ExprKind::Concat => {
                 let mut acc = Val::zero(w);
                 let mut top = w;
-                for &a in &x.args {
+                // A replication of zero is no part of the value (11.4.12.1).
+                for &a in x.args.iter().filter(|&&a| d.expr(a).kind != ExprKind::Replicate(0)) {
                     let v = self.expr(a)?;
                     top -= v.w;
                     acc = self.insert(&acc, top, v.w, &v);
@@ -3594,7 +3642,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
     fn recognise(&self, spec: SpecId) -> Option<Known> {
         let d = self.d;
         let lay = &self.layouts[&spec];
-        if !lay.kids.is_empty() || lay.code.is_empty() {
+        if lay.code.is_empty() {
             return None;
         }
         let ports = &d.spec(spec).ports;
@@ -3614,18 +3662,11 @@ impl<'d, 'a> Lowering<'d, 'a> {
             return None;
         }
         let order = self.order(spec).ok()?;
+        self.sym_orders.borrow_mut().insert(spec, order.clone());
         let mut s = Sym { l: self, m: Manager::new(1 << 20), env: FxMap::default() };
         let x: Bits2 = (0..w).map(|i| s.m.var(i)).collect::<Result<_, _>>().ok()?;
         s.env.insert(input, x.clone());
-        for node in order {
-            let ok = match node {
-                Node::Driver(dr) => s.driver(dr),
-                Node::Loop(l) => self.loops[l].all.iter().try_for_each(|&dr| s.driver(dr)),
-                Node::Proc(p) => s.stmt(d.processes[p.0 as usize].body),
-                _ => Err(Unproved),
-            };
-            ok.ok()?;
-        }
+        s.run(&order).ok()?;
         // The counts, where the input is not zero, in enough bits.
         let nb = 32 - w.leading_zeros();
         let mut zero = TRUE;
@@ -3643,6 +3684,13 @@ impl<'d, 'a> Lowering<'d, 'a> {
         for i in 0..w {
             let k = s.konst((w - 1 - i) as u64, nb);
             leading = s.ite_vec(x[i as usize], &k, &leading).ok()?;
+        }
+        // The ones, added a bit at a time.
+        let mut ones = s.konst(0, nb);
+        for &b in &x {
+            let mut one = vec![FALSE; nb as usize];
+            one[0] = b;
+            ones = s.add(&ones, &one, FALSE).ok()?;
         }
         let mut dir = None;
         let mut known = Vec::new();
@@ -3667,9 +3715,11 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     Ok(true)
                 };
                 let lead = if matches(&mut s, &trailing).ok()? {
-                    false
+                    Count::Trailing
                 } else if matches(&mut s, &leading).ok()? {
-                    true
+                    Count::Leading
+                } else if matches(&mut s, &ones).ok()? {
+                    Count::Ones
                 } else {
                     return None;
                 };
@@ -3682,7 +3732,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
             };
             known.push((o, out));
         }
-        Some(Known { input, width: w, leading: dir?, outs: known })
+        Some(Known { input, width: w, count: dir?, outs: known })
     }
 }
 
@@ -3729,6 +3779,64 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
             return None;
         }
         Some(v.iter().enumerate().fold(0, |a, (i, &b)| a | ((b == TRUE) as i64) << i))
+    }
+
+    /// A specialisation's code, in order.
+    fn run(&mut self, order: &[Node]) -> Sr<()> {
+        let d = self.d();
+        for &node in order {
+            match node {
+                Node::Driver(dr) => self.driver(dr)?,
+                Node::Loop(l) => self.l.loops[l].all.iter().try_for_each(|&dr| self.driver(dr))?,
+                Node::Proc(p) => self.stmt(d.processes[p.0 as usize].body)?,
+                Node::In(_) => {}
+                Node::Call(i) => self.call(i)?,
+            }
+        }
+        Ok(())
+    }
+
+    /// A child instance: its inputs, its code on values of its own, then
+    /// its outputs.
+    fn call(&mut self, i: InstId) -> Sr<()> {
+        let d = self.d();
+        let inst = d.instance(i);
+        let order = match self.l.sym_orders.borrow().get(&inst.spec) {
+            Some(o) => o.clone(),
+            None => self.l.order(inst.spec).map_err(|_| Unproved)?,
+        };
+        let mut env = FxMap::default();
+        let conn = |p: &crate::design::Port| inst.connections.iter().find(|c| c.port == p.name).and_then(|c| c.expr);
+        for p in &d.spec(inst.spec).ports {
+            let o = p.object.ok_or(Unproved)?;
+            if p.dir == Dir::Input {
+                let w = d.types.width(d.object(o).ty) as usize;
+                let v = match conn(p) {
+                    Some(e) => self.expr(e)?,
+                    None => vec![FALSE; w],
+                };
+                env.insert(o, self.resize(&v, w, false));
+            }
+        }
+        let outer = std::mem::replace(&mut self.env, env);
+        let ran = self.run(&order);
+        let inner = std::mem::replace(&mut self.env, outer);
+        ran?;
+        for p in &d.spec(inst.spec).ports {
+            match p.dir {
+                Dir::Input => {}
+                Dir::Output => {
+                    let o = p.object.ok_or(Unproved)?;
+                    let Some(e) = conn(p) else { continue };
+                    let ty = d.object(o).ty;
+                    let v = inner.get(&o).cloned().unwrap_or_else(|| vec![FALSE; d.types.width(ty) as usize]);
+                    let v = self.resize(&v, d.types.width(d.expr(e).ty) as usize, d.types.is_signed(ty));
+                    self.assign(e, v)?;
+                }
+                _ => return Err(Unproved),
+            }
+        }
+        Ok(())
     }
 
     fn driver(&mut self, dr: DriverId) -> Sr<()> {

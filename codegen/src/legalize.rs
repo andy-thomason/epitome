@@ -268,7 +268,8 @@ fn parts_of(
 }
 
 /// Makes each extension or truncation change element widths by a factor
-/// of two, inserting the steps between.
+/// of two, inserting the steps between, unless an instruction does it in
+/// one.
 fn chain_casts(cx: &mut Ctx, f: &mut Function) {
     let blocks: Vec<BlockId> = f.layout.clone();
     for b in blocks {
@@ -281,9 +282,17 @@ fn chain_casts(cx: &mut Ctx, f: &mut Function) {
             {
                 let from_ty = cx.value_ty(f, value);
                 let to_ty = f.locals[r.index()].ty;
+                // (Not where one instruction does the whole cast, as
+                // AVX-512's vpmovdb and vpmovzxbd do.)
+                let head = crate::target::Head::Cast(
+                    op,
+                    crate::target::head_bits(cx.m, from_ty),
+                    crate::target::wide_bits(crate::target::head_bits(cx.m, to_ty)),
+                );
                 if let (Some((len, _, fe)), Some((_, _, te))) = (vec_info(cx, from_ty), vec_info(cx, to_ty))
                     && fe > 1
                     && (te > 2 * fe || fe > 2 * te)
+                    && !cx.selects_head(|h| *h == head)
                 {
                     let mid_bits = if te > fe { fe * 2 } else { fe / 2 };
                     let mid_elem = cx.m.types.int(mid_bits);

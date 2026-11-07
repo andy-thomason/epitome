@@ -915,9 +915,16 @@ impl<'a, 'b> Sel<'a, 'b> {
                     let def = self.t.machine.def(class);
                     let holds = self.holds(ty);
                     // (A mask is as wide as the vectors it was made of: any
-                    // class of vectors holds it.)
-                    let mask = matches!(self.cx.m.types.get(ty), Type::Vector { elem, .. }
-                        if matches!(self.cx.m.types.get(*elem), Type::Int(1)));
+                    // class of vectors at least that wide holds it. Eight
+                    // lanes of 32-bit comparisons are 256 bits, so an `or`
+                    // of them is not a 128-bit `por`.)
+                    let (mask, mask_bits) = match self.cx.m.types.get(ty) {
+                        Type::Vector { scalable: false, elem, len } if matches!(self.cx.m.types.get(*elem), Type::Int(1)) => {
+                            (true, crate::legalize::mask_width(self.cx, self.f, v, &mut Vec::new()).map(|w| *len as u32 * w))
+                        }
+                        Type::Vector { elem, .. } => (matches!(self.cx.m.types.get(*elem), Type::Int(1)), None),
+                        _ => (false, None),
+                    };
                     // (A fixed register, as xmm0 for SSE4.1's blends, holds
                     // what its file's classes do, of any width.)
                     let m = &self.t.machine;
@@ -935,6 +942,7 @@ impl<'a, 'b> Sel<'a, 'b> {
                     if bits == 0
                         || !held
                         || (wide && bits != def.bits && !mask && !fixed)
+                        || (m.holds_of(class) == Some(Holds::Vector) && mask_bits.is_some_and(|b| b > def.bits))
                         || (!wide && holds != Holds::Predicate && (bits > 64 || (bits > 32) != (pp.bits > 32)))
                     {
                         return None;

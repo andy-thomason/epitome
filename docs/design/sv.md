@@ -663,6 +663,18 @@ that runs every instance of it at once, a vector lane per instance
 (section 8.3). The scalar path stays for designs from Chisel and for
 checking.
 
+**Code size is a goal.** The compiled code grows with the design's
+source, not with its instance count or hierarchy. Each specialisation
+becomes one function whose argument is a structure holding the state of
+one group of its instances (section 8.3). That function loops over the
+group's registers rather than being unrolled across them, so more
+instances means more calls, never more code; a large design must not
+become millions of lines of generated code. Choosing lanes over bit planes for
+wide arithmetic (section 8.3) keeps the code small as well as fast. In
+the `pmp_entry` mock (`sv/examples/soa_pmp_entry.rs`), `eval` with its
+addresses in 32-bit lanes is 91 instructions with one loop; the same
+module in bit planes is 890.
+
 ### 8.2 The interpreter
 
 **Building it is linear and cheap.** After elaboration, three passes,

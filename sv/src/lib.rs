@@ -2,9 +2,12 @@
 //! `docs/design/sv.md` for the plan.
 
 pub mod ast;
+pub mod bdd;
 pub mod design;
+pub mod hash;
 pub mod keywords;
 pub mod lexer;
+pub mod netlist;
 pub mod parse;
 pub mod preprocess;
 pub mod sim;

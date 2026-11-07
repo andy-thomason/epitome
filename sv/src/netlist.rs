@@ -1892,6 +1892,8 @@ struct Func<'l, 'd, 'a> {
     calls: Vec<(SubId, Option<ObjId>)>,
     /// Bits of temporaries known to be zero in every lane.
     zeros: HashMap<u32, u32>,
+    /// Temporaries that are 0 or 1 a lane, bit `j` of a piece.
+    bit_of: HashMap<u32, (P, u32)>,
     /// Running clocked processes: nonblocking assignments are allowed.
     ff: bool,
 }
@@ -1923,7 +1925,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             }
         }
         let out = format!("define void @{}({params}) {{\nentry:\n", fn_name(spec));
-        Func { l, spec, out, next: 0, env: Env::default(), block: "entry".into(), loops: 0, rolled: 0, mem: false, uniform: HashSet::new(), mask_of: HashMap::new(), bits_of: HashMap::new(), in_range: HashSet::new(), calls: Vec::new(), ff: false, zeros: HashMap::new() }
+        Func { l, spec, out, next: 0, env: Env::default(), block: "entry".into(), loops: 0, rolled: 0, mem: false, uniform: HashSet::new(), mask_of: HashMap::new(), bits_of: HashMap::new(), in_range: HashSet::new(), calls: Vec::new(), ff: false, zeros: HashMap::new(), bit_of: HashMap::new() }
     }
 
     fn finish(mut self) -> String {
@@ -2405,7 +2407,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     /// with the values it starts with, which must be constants.
     fn trip_count(&mut self, cond: Option<ExprId>, step: &[StmtId]) -> Result<u32, String> {
         let saved = (self.env.clone(), self.out.len(), self.next);
-        let tables = (self.mask_of.clone(), self.bits_of.clone(), self.uniform.clone(), self.zeros.clone());
+        let tables = (self.mask_of.clone(), self.bits_of.clone(), self.uniform.clone(), self.zeros.clone(), self.bit_of.clone());
         let mut n = 0u32;
         let r = loop {
             let go = match cond {
@@ -2430,7 +2432,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         self.env = saved.0;
         self.out.truncate(saved.1);
         self.next = saved.2;
-        (self.mask_of, self.bits_of, self.uniform, self.zeros) = tables;
+        (self.mask_of, self.bits_of, self.uniform, self.zeros, self.bit_of) = tables;
         r
     }
 
@@ -4145,9 +4147,14 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     fn extract(&mut self, v: &Val, lo: u32, w: u32) -> Val {
         // One bit: a test of it, which is a mask (vptestmd).
         if w == 1 && lo < v.w && matches!(v.p[(lo / 32) as usize], P::V(_)) {
-            let x = self.bin("and", v.p[(lo / 32) as usize], P::K(1 << (lo % 32)));
+            let piece = v.p[(lo / 32) as usize];
+            let x = self.bin("and", piece, P::K(1 << (lo % 32)));
             let m = self.icmp("ne", x, P::K(0));
-            return self.bit(m, 1);
+            let b = self.bit(m, 1);
+            if let (P::V(t), M::V(_)) = (b.p[0], m) {
+                self.bit_of.insert(t, (piece, lo % 32));
+            }
+            return b;
         }
         let s = self.lshr_const(v, lo as u64, None);
         self.resize(&s, w, false)
@@ -4157,6 +4164,20 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     fn insert(&mut self, v: &Val, lo: u32, w: u32, x: &Val) -> Val {
         if lo >= v.w {
             return v.clone();
+        }
+        // A bit of another value moved here: shifted into place and kept,
+        // not tested and extended.
+        if w == 1
+            && let P::V(t) = x.p[0]
+            && let Some(&(src, j)) = self.bit_of.get(&t)
+        {
+            let (q, b) = ((lo / 32) as usize, lo % 32);
+            let moved = if b >= j { self.bin("shl", src, P::K(b - j)) } else { self.bin("lshr", src, P::K(j - b)) };
+            let moved = self.bin("and", moved, P::K(1 << b));
+            let kept = self.bin("and", v.p[q], P::K(!(1 << b)));
+            let mut p = v.p.clone();
+            p[q] = self.bin("or", kept, moved);
+            return Val { w: v.w, p };
         }
         let x = self.resize(x, w, false);
         let x = self.resize(&x, v.w, false);

@@ -236,7 +236,8 @@ fn x86_relocated_instructions_read_by_reading_entries() {
         "vpandd sym(%rip){1to16}, %zmm0, %zmm1",
         "movq sym@GOTPCREL(%rip), %rax",
     ];
-    let asm: String = std::iter::once(".text\nf:\n".to_string()).chain(lines.iter().map(|l| format!("\t{l}\n"))).collect();
+    let asm: String =
+        std::iter::once(".text\nf:\n".to_string()).chain(lines.iter().map(|l| format!("\t{l}\n"))).collect();
     let object = Assembler::new(&t).assemble(&asm, Some(Syntax::Elf)).and_then(|a| a.file(&t)).unwrap();
     let img = Image::read(&object, &t.machine).unwrap();
     assert_eq!(objdump::reads_back(&t, &img, &asm, &[]).unwrap(), lines.len());

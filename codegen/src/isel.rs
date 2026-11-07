@@ -11,6 +11,12 @@ use crate::mir::*;
 use crate::prepare::{self, Ctx};
 use crate::target::{Class, Head, Key, Kind, Src, Target, bin_bits, sext, wide_bits};
 
+/// How many constants a function's loops may use before they are pool
+/// operands rather than registers made before the loop: a register each,
+/// up to half of x86's 32 vector registers, is faster than a load at each
+/// use; past that they crowd out the loops' own values and are spilled.
+const POOL_FROM: usize = 16;
+
 /// The arrangement of a vector of `len` lanes of `bits` bits: `4s`, `16b`.
 pub fn arrangement(len: u32, bits: u32) -> String {
     format!("{len}{}", lane_suffix(bits))
@@ -125,6 +131,12 @@ pub struct Sel<'a, 'b> {
     cur: usize,
     /// Blocks on a cycle.
     in_loop: Vec<bool>,
+    /// Whether constants in loops are pool operands (`pool_lane`), not
+    /// registers made before the loop: where the loops use more of them
+    /// than `POOL_FROM`, which would crowd out the loops' own values.
+    pool_in_loops: bool,
+    /// Whether the block whose patterns are being chosen is on a cycle.
+    choosing_in_loop: bool,
     /// Constants made once in the entry block, for use in loops.
     hoisted: HashMap<(i64, bool), VReg>,
     /// Constants made in registers in each block, by (block, value, wide)
@@ -403,6 +415,8 @@ impl<'a, 'b> Sel<'a, 'b> {
             by_head: HashMap::new(),
             cur: 0,
             in_loop: Vec::new(),
+            pool_in_loops: false,
+            choosing_in_loop: false,
             hoisted: HashMap::new(),
             block_ints: HashMap::new(),
             entering: false,
@@ -794,7 +808,9 @@ impl<'a, 'b> Sel<'a, 'b> {
         let Type::Vector { elem, .. } = self.cx.m.types.get(ty) else { return None };
         let Type::Int(bits @ (8 | 16 | 32 | 64)) = *self.cx.m.types.get(*elem) else { return None };
         let (v, _) = crate::target::lit_of(self.cx.m, c)?;
-        (v != crate::target::UNDEF).then(|| (v as u64 & (u64::MAX >> (64 - bits)), (bits / 8) as u8))
+        // (Not zero, which `vpxord` makes from nothing, again wherever it
+        // is wanted if registers run short.)
+        (v != crate::target::UNDEF && v != 0).then(|| (v as u64 & (u64::MAX >> (64 - bits)), (bits / 8) as u8))
     }
 
     fn is_zero_like(&self, t: Term) -> bool {
@@ -977,6 +993,9 @@ impl<'a, 'b> Sel<'a, 'b> {
                 // A constant whose lanes are one value, kept in read-only
                 // data (x86's broadcast operand).
                 Kind::Sym if pp.pool => {
+                    if self.choosing_in_loop && !self.pool_in_loops {
+                        return None;
+                    }
                     self.pool_lane(t)?;
                 }
                 // A global's address, as the instruction names it (x86's
@@ -1138,6 +1157,7 @@ impl<'a, 'b> Sel<'a, 'b> {
 
     fn choose_block(&mut self, b: BlockId, layout_next: Option<BlockId>) -> Result<(), String> {
         let f = self.f;
+        self.choosing_in_loop = self.in_loop.get(self.bmap[&b]).copied().unwrap_or(false);
         // Values used by other blocks or by phis are wanted in registers.
         let insts = f.blocks[b.index()].insts.clone();
         for &i in insts.iter().rev() {
@@ -3679,6 +3699,49 @@ impl<'a, 'b> Sel<'a, 'b> {
                 });
             }
         }
+        // Which blocks are on a cycle: those that reach themselves.
+        let n = layout.len();
+        let succ: Vec<Vec<usize>> =
+            layout.iter().map(|b| f.successors(*b).iter().map(|s| self.bmap[s]).collect()).collect();
+        self.in_loop = (0..n)
+            .map(|start| {
+                let mut seen = vec![false; n];
+                let mut stack = succ[start].clone();
+                while let Some(x) = stack.pop() {
+                    if x == start {
+                        return true;
+                    }
+                    if !std::mem::replace(&mut seen[x], true) {
+                        stack.extend(succ[x].iter().copied());
+                    }
+                }
+                false
+            })
+            .collect();
+        // The constants a pool operand could take, in the loops (not a
+        // shift's amount, an immediate).
+        let mut consts: HashSet<ConstId> = HashSet::new();
+        for (_, b) in layout.iter().enumerate().filter(|&(k, _)| self.in_loop[k]) {
+            for &i in &f.blocks[b.index()].insts {
+                let op = &f.insts[i.index()].op;
+                if let Op::Binary { op: BinOp::Shl | BinOp::LShr | BinOp::AShr, lhs, .. } = op {
+                    if let Value::Const(c) = lhs
+                        && self.pool_lane(Term::V(*lhs)).is_some()
+                    {
+                        consts.insert(*c);
+                    }
+                    continue;
+                }
+                op.for_each_value(|v| {
+                    if let Value::Const(c) = v
+                        && self.pool_lane(Term::V(*v)).is_some()
+                    {
+                        consts.insert(*c);
+                    }
+                });
+            }
+        }
+        self.pool_in_loops = consts.len() > POOL_FROM;
         // Choose bottom-up: later blocks first, so values they need are
         // known when the blocks defining them are covered.
         for (k, &b) in layout.iter().enumerate().rev() {
@@ -3847,25 +3910,6 @@ impl<'a, 'b> Sel<'a, 'b> {
                 }
             }
         }
-        // Which blocks are on a cycle: those that reach themselves.
-        let n = layout.len();
-        let succ: Vec<Vec<usize>> =
-            layout.iter().map(|b| f.successors(*b).iter().map(|s| self.bmap[s]).collect()).collect();
-        self.in_loop = (0..n)
-            .map(|start| {
-                let mut seen = vec![false; n];
-                let mut stack = succ[start].clone();
-                while let Some(x) = stack.pop() {
-                    if x == start {
-                        return true;
-                    }
-                    if !std::mem::replace(&mut seen[x], true) {
-                        stack.extend(succ[x].iter().copied());
-                    }
-                }
-                false
-            })
-            .collect();
         // The function's types caught and actions, before any landing pad's
         // code asks for a type's index.
         for &b in &layout {

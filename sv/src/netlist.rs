@@ -92,9 +92,29 @@ fn top_mask(w: u32) -> u32 {
     if w % 32 == 0 { !0 } else { (1u32 << (w % 32)) - 1 }
 }
 
+/// Choices in how the netlist is laid out.
+#[derive(Clone, Copy, Debug)]
+pub struct Options {
+    /// One-bit elements as bit planes, a 16-bit mask for each register of
+    /// lanes: for targets with mask registers (AVX-512, SVE). Otherwise
+    /// they take a 32-bit lane each.
+    pub bit_planes: bool,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Options { bit_planes: true }
+    }
+}
+
 /// Lowers the instance `top` and everything below it.
 pub fn compile(d: &Design, top: InstId) -> Result<Netlist, String> {
+    compile_with(d, top, &Options::default())
+}
+
+pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, String> {
     let mut n = Lowering {
+        opts: *opts,
         d,
         layouts: HashMap::new(),
         done: HashSet::new(),
@@ -132,9 +152,38 @@ fn fn_name(s: SpecId) -> String {
 struct Layout {
     size: u64,
     objs: HashMap<ObjId, u64>,
+    /// The objects kept an element to a slot (docs/design/sv.md section
+    /// 8.3); the rest are 32-bit pieces.
+    elems: HashMap<ObjId, Elems>,
     kids: HashMap<InstId, u64>,
     /// Its processes, drivers and children, in source order.
     code: Vec<Node>,
+}
+
+/// An object used only an element at a time, kept an element to a slot:
+/// one-bit elements as bit planes, a 16-bit mask for each register of
+/// lanes (a k register with AVX-512); wider ones (up to 32 bits) in a
+/// register of 32-bit lanes each. Selecting an element is then choosing
+/// an address, with no shifts.
+#[derive(Clone, Copy, Debug)]
+struct Elems {
+    /// The element's width.
+    ew: u32,
+    /// How many elements.
+    n: u32,
+    /// One-bit elements as bit planes.
+    bits: bool,
+}
+
+impl Elems {
+    fn planes(self) -> bool {
+        self.bits
+    }
+
+    /// Bytes from one element's slot to the next.
+    fn stride(self) -> u64 {
+        if self.planes() { 2 * CHUNKS as u64 } else { PIECE }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -168,6 +217,7 @@ struct Rolled {
 const ROLL_MIN: usize = 4;
 
 struct Lowering<'d, 'a> {
+    opts: Options,
     d: &'d Design<'a>,
     layouts: HashMap<SpecId, Layout>,
     done: HashSet<SpecId>,
@@ -192,14 +242,22 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let mut objs = Vec::new();
         let mut code = Vec::new();
         self.collect(d.spec(spec).scope, &mut objs, &mut code)?;
-        let mut lay = Layout { size: 0, objs: HashMap::new(), kids: HashMap::new(), code: Vec::new() };
+        let mut lay = Layout { size: 0, objs: HashMap::new(), elems: HashMap::new(), kids: HashMap::new(), code: Vec::new() };
+        let elems = self.element_only(&objs, &code);
         for o in objs {
             let ob = d.object(o);
             if !d.types.is_integral(ob.ty) {
                 return Err(format!("{}: only integral values are supported yet", d.name(ob.name)));
             }
             lay.objs.insert(o, lay.size);
-            lay.size += pieces(d.types.width(ob.ty)) as u64 * PIECE;
+            match elems.get(&o) {
+                Some(&e) => {
+                    lay.elems.insert(o, e);
+                    lay.size += e.n as u64 * e.stride();
+                }
+                None => lay.size += pieces(d.types.width(ob.ty)) as u64 * PIECE,
+            }
+            lay.size = lay.size.next_multiple_of(REG);
         }
         for node in code {
             if let Node::In(i) = node {
@@ -256,6 +314,119 @@ impl<'d, 'a> Lowering<'d, 'a> {
             }
         }
         Ok(())
+    }
+
+    /// The objects that every use selects one element of, with the same
+    /// element width: these are kept an element to a slot. Ports are not,
+    /// so that a parent and a child meet in one layout.
+    fn element_only(&self, objs: &[ObjId], code: &[Node]) -> HashMap<ObjId, Elems> {
+        let d = self.d;
+        let mut uses: HashMap<ObjId, Option<u32>> = HashMap::new();
+        for node in code {
+            match *node {
+                Node::Driver(dr) => {
+                    let drv = &d.drivers[dr.0 as usize];
+                    self.expr_uses(drv.lhs, &mut uses);
+                    self.expr_uses(drv.rhs, &mut uses);
+                }
+                Node::Loop(l) => {
+                    for &dr in &self.loops[l].all {
+                        let drv = &d.drivers[dr.0 as usize];
+                        self.expr_uses(drv.lhs, &mut uses);
+                        self.expr_uses(drv.rhs, &mut uses);
+                    }
+                }
+                Node::Proc(p) => self.stmt_uses(d.processes[p.0 as usize].body, &mut uses),
+                Node::In(i) | Node::Call(i) => {
+                    for c in &d.instance(i).connections {
+                        if let Some(e) = c.expr {
+                            self.expr_uses(e, &mut uses);
+                        }
+                    }
+                }
+            }
+        }
+        let mut out = HashMap::new();
+        for &o in objs {
+            let ob = d.object(o);
+            let w = d.types.width(ob.ty);
+            if let (None, Some(Some(ew))) = (ob.dir, uses.get(&o))
+                && *ew <= 32
+                && w % ew == 0
+                && w / ew >= 2
+                && d.types.packed_range(ob.ty).is_some()
+            {
+                out.insert(o, Elems { ew: *ew, n: w / ew, bits: *ew == 1 && self.opts.bit_planes });
+            }
+        }
+        out
+    }
+
+    /// Notes each object an expression uses: `Some(width)` while every use
+    /// selects one element of that width, `None` once one does not.
+    fn expr_uses(&self, e: ExprId, uses: &mut HashMap<ObjId, Option<u32>>) {
+        let d = self.d;
+        let x = d.expr(e);
+        let mut note = |o: ObjId, u: Option<u32>| {
+            let slot = uses.entry(o).or_insert(u);
+            if *slot != u {
+                *slot = None;
+            }
+        };
+        match &x.kind {
+            ExprKind::Object(o) => note(*o, None),
+            ExprKind::Index if matches!(d.expr(x.args[0]).kind, ExprKind::Object(_)) => {
+                let ExprKind::Object(o) = d.expr(x.args[0]).kind else { unreachable!() };
+                note(o, Some(d.types.width(x.ty)));
+                self.expr_uses(x.args[1], uses);
+            }
+            _ => {
+                for &a in &x.args {
+                    self.expr_uses(a, uses);
+                }
+            }
+        }
+    }
+
+    fn stmt_uses(&self, s: StmtId, uses: &mut HashMap<ObjId, Option<u32>>) {
+        let d = self.d;
+        let kind = &d.stmt(s).kind;
+        if !matches!(kind, StmtKind::Null | StmtKind::Block { .. }) && self.only_asserts(s) {
+            return;
+        }
+        match kind {
+            StmtKind::Block { stmts, .. } => stmts.iter().for_each(|&s| self.stmt_uses(s, uses)),
+            StmtKind::Assign { lhs, rhs, .. } => {
+                self.expr_uses(*lhs, uses);
+                self.expr_uses(*rhs, uses);
+            }
+            StmtKind::Expr(e) => self.expr_uses(*e, uses),
+            StmtKind::If { cond, then, else_, .. } => {
+                self.expr_uses(*cond, uses);
+                self.stmt_uses(*then, uses);
+                if let Some(e) = else_ {
+                    self.stmt_uses(*e, uses);
+                }
+            }
+            StmtKind::Case { expr, items, default, .. } => {
+                self.expr_uses(*expr, uses);
+                for (labels, body) in items {
+                    labels.iter().for_each(|&l| self.expr_uses(l, uses));
+                    self.stmt_uses(*body, uses);
+                }
+                if let Some(s) = default {
+                    self.stmt_uses(*s, uses);
+                }
+            }
+            StmtKind::For { init, cond, step, body, .. } => {
+                init.iter().chain(step).for_each(|&s| self.stmt_uses(s, uses));
+                if let Some(c) = cond {
+                    self.expr_uses(*c, uses);
+                }
+                self.stmt_uses(*body, uses);
+            }
+            _ => {}
+        }
     }
 
     /// Whether a generate scope holds a loop's iterations.
@@ -791,6 +962,9 @@ struct Env {
     vals: HashMap<ObjId, Val>,
     /// The static values written since the loop began.
     dirty: HashSet<ObjId>,
+    /// Elements of objects kept an element to a slot, and those written.
+    elems: HashMap<(ObjId, u32), Val>,
+    edirty: HashSet<(ObjId, u32)>,
 }
 
 /// One function being written.
@@ -810,6 +984,11 @@ struct Func<'l, 'd, 'a> {
     mem: bool,
     /// The temporaries with the same value in every lane.
     uniform: HashSet<u32>,
+    /// Temporaries that are 0 or 1 a lane, made from these masks.
+    mask_of: HashMap<u32, M>,
+    /// Masks that are a bit plane's 16 bits (`%tN`, an i16): logic on them
+    /// is done on those.
+    bits_of: HashMap<u32, u32>,
 }
 
 const V16: &str = "<16 x i32>";
@@ -832,7 +1011,7 @@ fn ms(m: M) -> String {
 impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     fn new(l: &'l Lowering<'d, 'a>, spec: SpecId) -> Self {
         let out = format!("define void @{}(ptr %s) {{\nentry:\n", fn_name(spec));
-        Func { l, spec, out, next: 0, env: Env::default(), block: "entry".into(), loops: 0, rolled: 0, mem: false, uniform: HashSet::new() }
+        Func { l, spec, out, next: 0, env: Env::default(), block: "entry".into(), loops: 0, rolled: 0, mem: false, uniform: HashSet::new(), mask_of: HashMap::new(), bits_of: HashMap::new() }
     }
 
     fn finish(mut self) -> String {
@@ -883,7 +1062,8 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let _ = writeln!(
             self.out,
             "  br label %L{k}\nL{k}:\n  %c{k} = phi i64 [ 0, %{prev} ], [ %c{k}.next, %L{k}.latch ]\n  %c{k}.off = shl i64 %c{k}, 6\n  \
-             %b{k} = getelementptr i8, ptr %s, i64 %c{k}.off"
+             %b{k} = getelementptr i8, ptr %s, i64 %c{k}.off\n  %c{k}.half = shl i64 %c{k}, 1\n  \
+             %h{k} = getelementptr i8, ptr %s, i64 %c{k}.half"
         );
         self.env = Env::default();
         for &n in nodes {
@@ -896,6 +1076,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             let off = self.lay().objs[&o];
             self.store(off, &v);
         }
+        self.flush_elems(None);
         let _ = writeln!(
             self.out,
             "  %c{k}.next = add i64 %c{k}, 1\n  %c{k}.end = icmp eq i64 %c{k}.next, {CHUNKS}\n  \
@@ -1185,12 +1366,250 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             self.env.vals.insert(o, v);
         }
         self.env.dirty.extend(a.dirty.into_iter().chain(b.dirty));
+        let mut keys: Vec<(ObjId, u32)> = a.elems.keys().chain(b.elems.keys()).copied().collect();
+        keys.sort_unstable_by_key(|k| (k.0.0, k.1));
+        keys.dedup();
+        for (o, i) in keys {
+            let va = match a.elems.get(&(o, i)) {
+                Some(v) => v.clone(),
+                None => self.read_elem(o, i),
+            };
+            let vb = match b.elems.get(&(o, i)) {
+                Some(v) => v.clone(),
+                None => self.read_elem(o, i),
+            };
+            let v = if va == vb { va } else { self.select(m, &va, &vb) };
+            self.env.elems.insert((o, i), v);
+        }
+        self.env.edirty.extend(a.edirty.into_iter().chain(b.edirty));
         Ok(())
+    }
+
+    /// The address of element `i` (a constant) of `o`, in this register's
+    /// part of the state.
+    fn elem_addr(&mut self, o: ObjId, i: u32) -> String {
+        let e = self.lay().elems[&o];
+        let base = if e.planes() { format!("%h{}", self.loops - 1) } else { self.base() };
+        let a = self.tmp();
+        let _ = writeln!(self.out, "  %t{a} = getelementptr i8, ptr {base}, i64 {}", self.lay().objs[&o] + i as u64 * e.stride());
+        format!("%t{a}")
+    }
+
+    /// The address of element `i`, the same in every lane (held at the
+    /// last element).
+    fn elem_addr_uniform(&mut self, o: ObjId, i: P) -> String {
+        if let P::K(k) = i {
+            let n = self.lay().elems[&o].n;
+            return self.elem_addr(o, k.min(n - 1));
+        }
+        let e = self.lay().elems[&o];
+        let base = if e.planes() { format!("%h{}", self.loops - 1) } else { self.base() };
+        let off = self.lay().objs[&o];
+        let t: Vec<u32> = (0..6).map(|_| self.tmp()).collect();
+        let _ = writeln!(
+            self.out,
+            "  %t{} = extractelement {V16} {}, i64 0\n  %t{} = call i32 @llvm.umin.i32(i32 %t{}, i32 {})\n  \
+             %t{} = zext i32 %t{} to i64\n  %t{} = mul i64 %t{}, {}\n  %t{} = getelementptr i8, ptr {base}, i64 {off}\n  \
+             %t{} = getelementptr i8, ptr %t{}, i64 %t{}",
+            t[0], ps(i), t[1], t[0], e.n - 1, t[2], t[1], t[3], t[2], e.stride(), t[4], t[5], t[4], t[3]
+        );
+        format!("%t{}", t[5])
+    }
+
+    fn load_slot(&mut self, o: ObjId, addr: &str) -> Val {
+        let e = self.lay().elems[&o];
+        let t = self.tmp();
+        if e.planes() {
+            let m = self.tmp();
+            let _ = writeln!(self.out, "  %t{t} = load i16, ptr {addr}, align 2\n  %t{m} = bitcast i16 %t{t} to {M16}");
+            self.bits_of.insert(m, t);
+            self.bit(M::V(m), 1)
+        } else {
+            let _ = writeln!(self.out, "  %t{t} = load {V16}, ptr {addr}, align 64");
+            Val { w: e.ew, p: vec![P::V(t)] }
+        }
+    }
+
+    fn store_slot(&mut self, o: ObjId, addr: &str, v: &Val) {
+        let e = self.lay().elems[&o];
+        if e.planes() {
+            let m = self.truth(v);
+            let bits = match m {
+                M::K(b) => format!("{}", if b { -1 } else { 0 }),
+                M::V(n) => match self.bits_of.get(&n) {
+                    Some(&i) => format!("%t{i}"),
+                    None => {
+                        let t = self.tmp();
+                        let _ = writeln!(self.out, "  %t{t} = bitcast {M16} %t{n} to i16");
+                        format!("%t{t}")
+                    }
+                },
+            };
+            let _ = writeln!(self.out, "  store i16 {bits}, ptr {addr}, align 2");
+        } else {
+            let v = self.resize(v, e.ew, false);
+            let _ = writeln!(self.out, "  store {V16} {}, ptr {addr}, align 64", ps(v.p[0]));
+        }
+    }
+
+    /// Element `i` (a constant) of an object kept an element to a slot.
+    fn read_elem(&mut self, o: ObjId, i: u32) -> Val {
+        if let Some(v) = self.env.elems.get(&(o, i)) {
+            return v.clone();
+        }
+        let a = self.elem_addr(o, i);
+        let v = self.load_slot(o, &a);
+        self.env.elems.insert((o, i), v.clone());
+        v
+    }
+
+    fn write_elem(&mut self, o: ObjId, i: u32, v: Val) {
+        let ew = self.lay().elems[&o].ew;
+        let v = self.resize(&v, ew, false);
+        if self.mem {
+            let a = self.elem_addr(o, i);
+            self.store_slot(o, &a, &v);
+        } else {
+            self.env.edirty.insert((o, i));
+        }
+        self.env.elems.insert((o, i), v);
+    }
+
+    /// Stores the elements written since the loop began: of `o`, or of all.
+    fn flush_elems(&mut self, o: Option<ObjId>) {
+        let mut dirty: Vec<(ObjId, u32)> = self.env.edirty.iter().copied().filter(|k| o.is_none_or(|o| k.0 == o)).collect();
+        dirty.sort_unstable_by_key(|k| (k.0.0, k.1));
+        for k in dirty {
+            self.env.edirty.remove(&k);
+            let v = self.env.elems[&k].clone();
+            let a = self.elem_addr(k.0, k.1);
+            self.store_slot(k.0, &a, &v);
+        }
+    }
+
+    /// Which element of an object kept an element to a slot `e` (an
+    /// `Index` of it) selects: a constant, or one a lane, with whether it
+    /// is in range.
+    fn elem_index(&mut self, e: ExprId) -> Result<(P, M), String> {
+        let d = self.d();
+        let x = d.expr(e);
+        let bt = d.expr(x.args[0]).ty;
+        let (l, r) = d.types.packed_range(bt).unwrap_or((d.types.width(bt) as i64 - 1, 0));
+        let idx = match self.l.fold(x.args[1]) {
+            Some(c) => self.konst_of(&c, d.types.width(d.expr(x.args[1]).ty))?,
+            None => self.expr(x.args[1])?,
+        };
+        let signed = d.types.is_signed(d.expr(x.args[1]).ty);
+        let k = idx.p[0];
+        let mut ok = M::K(true);
+        for &hp in &idx.p[1..] {
+            let z = self.icmp("eq", hp, P::K(0));
+            ok = self.mand(ok, z);
+        }
+        let (min, max) = (l.min(r), l.max(r));
+        let (ge, le) = if signed { ("sge", "sle") } else { ("uge", "ule") };
+        let a = self.icmp(ge, k, P::K(min as u32));
+        let b = self.icmp(le, k, P::K(max as u32));
+        ok = self.mand(ok, a);
+        ok = self.mand(ok, b);
+        let i = if l >= r { self.bin("sub", k, P::K(r as u32)) } else { self.bin("sub", P::K(r as u32), k) };
+        Ok((i, ok))
+    }
+
+    /// `o[...]` read, for an object kept an element to a slot.
+    fn elem_read(&mut self, o: ObjId, e: ExprId) -> Result<Val, String> {
+        let el = self.lay().elems[&o];
+        let (i, ok) = self.elem_index(e)?;
+        let v = match i {
+            P::K(k) if k < el.n => self.read_elem(o, k),
+            P::K(_) => Val::zero(el.ew),
+            _ if self.is_uniform(i) => {
+                let a = self.elem_addr_uniform(o, i);
+                self.load_slot(o, &a)
+            }
+            // A different element a lane: each, chosen by a select.
+            _ => {
+                let mut acc = Val::zero(el.ew);
+                for k in 0..el.n {
+                    let hit = self.icmp("eq", i, P::K(k));
+                    let v = self.read_elem(o, k);
+                    acc = self.select(hit, &v, &acc);
+                }
+                acc
+            }
+        };
+        let z = Val::zero(el.ew);
+        Ok(self.select(ok, &v, &z))
+    }
+
+    /// `o[...] = v`, for an object kept an element to a slot.
+    fn elem_write(&mut self, o: ObjId, e: ExprId, v: Val) -> Result<(), String> {
+        let el = self.lay().elems[&o];
+        let (i, ok) = self.elem_index(e)?;
+        match i {
+            P::K(k) if k < el.n => {
+                let v = match ok {
+                    M::K(true) => v,
+                    _ => {
+                        let old = self.read_elem(o, k);
+                        self.select(ok, &v, &old)
+                    }
+                };
+                self.write_elem(o, k, v);
+            }
+            P::K(_) => {}
+            _ if self.is_uniform(i) && self.mem => {
+                // Any element may change: none is remembered.
+                self.flush_elems(Some(o));
+                self.env.elems.retain(|k, _| k.0 != o);
+                let a = self.elem_addr_uniform(o, i);
+                let v = match ok {
+                    M::K(true) => v,
+                    _ => {
+                        let old = self.load_slot(o, &a);
+                        self.select(ok, &v, &old)
+                    }
+                };
+                self.store_slot(o, &a, &v);
+            }
+            _ => {
+                for k in 0..el.n {
+                    let hit = self.icmp("eq", i, P::K(k));
+                    let hit = self.mand(hit, ok);
+                    let old = self.read_elem(o, k);
+                    let new = self.select(hit, &v, &old);
+                    self.write_elem(o, k, new);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The object kept an element to a slot that an `Index` selects from
+    /// directly, if its element is what the `Index` gives.
+    fn elem_target(&self, e: ExprId) -> Option<ObjId> {
+        let d = self.d();
+        let x = d.expr(e);
+        if !matches!(x.kind, ExprKind::Index) {
+            return None;
+        }
+        let ExprKind::Object(o) = d.expr(x.args[0]).kind else { return None };
+        let el = self.lay().elems.get(&o)?;
+        (d.types.width(x.ty) == el.ew).then_some(o)
     }
 
     /// An object's value: from this loop's values, from the state, or zero
     /// for an automatic variable not yet set.
     fn read(&mut self, o: ObjId) -> Val {
+        if let Some(&e) = self.lay().elems.get(&o) {
+            // The whole value, from its elements.
+            let mut acc = Val::zero(e.n * e.ew);
+            for i in 0..e.n {
+                let v = self.read_elem(o, i);
+                acc = self.insert(&acc, i * e.ew, e.ew, &v);
+            }
+            return acc;
+        }
         if let Some(v) = self.env.vals.get(&o) {
             return v.clone();
         }
@@ -1205,6 +1624,13 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     }
 
     fn set(&mut self, o: ObjId, v: Val) {
+        if let Some(&e) = self.lay().elems.get(&o) {
+            for i in 0..e.n {
+                let x = self.extract(&v, i * e.ew, e.ew);
+                self.write_elem(o, i, x);
+            }
+            return;
+        }
         if let Some(&off) = self.lay().objs.get(&o) {
             if self.mem {
                 self.store(off, &v);
@@ -1236,8 +1662,12 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 Ok(())
             }
             ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_) => {
+                if let Some(o) = self.elem_target(lhs) {
+                    return self.elem_write(o, lhs, v);
+                }
                 let (o, off, w) = self.place(lhs)?;
                 if self.mem
+                    && !self.lay().elems.contains_key(&o)
                     && w <= 32
                     && self.lay().objs.contains_key(&o)
                     && let Some((p, ok)) = self.uniform_off(off)
@@ -1362,6 +1792,10 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 self.store(off, &v);
             }
             self.env.vals.remove(&o);
+            if self.lay().elems.contains_key(&o) {
+                self.flush_elems(Some(o));
+                self.env.elems.retain(|k, _| k.0 != o);
+            }
         }
         let k = self.rolled;
         self.rolled += 1;
@@ -1416,7 +1850,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     /// selects of it go to the state.
     fn in_memory(&self, e: ExprId) -> Option<ObjId> {
         match self.d().expr(e).kind {
-            ExprKind::Object(o) if self.mem && self.lay().objs.contains_key(&o) => Some(o),
+            ExprKind::Object(o) if self.mem && self.lay().objs.contains_key(&o) && !self.lay().elems.contains_key(&o) => Some(o),
             _ => None,
         }
     }
@@ -1607,6 +2041,9 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 Ok(acc)
             }
             ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_) => {
+                if let Some(o) = self.elem_target(e) {
+                    return self.elem_read(o, e);
+                }
                 if let Some(o) = self.in_memory(x.args[0]) {
                     let (off, w2) = self.offset(e)?;
                     if let Some((p, ok)) = self.uniform_off(off)
@@ -1819,6 +2256,10 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             M::V(n) => {
                 let t = self.tmp();
                 let _ = writeln!(self.out, "  %t{t} = zext {M16} %t{n} to {V16}");
+                self.mask_of.insert(t, m);
+                if self.uniform.contains(&n) {
+                    self.uniform.insert(t);
+                }
                 P::V(t)
             }
         };
@@ -1843,6 +2284,13 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     }
 
     fn not(&mut self, a: &Val) -> Val {
+        if a.w == 1
+            && let P::V(t) = a.p[0]
+            && let Some(&m) = self.mask_of.get(&t)
+        {
+            let n = self.mnot(m);
+            return self.bit(n, 1);
+        }
         let p = a.p.iter().map(|&x| self.bin("xor", x, P::K(!0))).collect();
         self.norm(Val { w: a.w, p })
     }
@@ -1907,6 +2355,11 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         for &p in &a.p[1..] {
             x = self.bin("or", x, p);
         }
+        if let P::V(t) = x
+            && let Some(&m) = self.mask_of.get(&t)
+        {
+            return m;
+        }
         self.icmp("ne", x, P::K(0))
     }
 
@@ -1943,6 +2396,12 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
 
     /// Bits `lo..lo + w` of `v`.
     fn extract(&mut self, v: &Val, lo: u32, w: u32) -> Val {
+        // One bit: a test of it, which is a mask (vptestmd).
+        if w == 1 && lo < v.w && matches!(v.p[(lo / 32) as usize], P::V(_)) {
+            let x = self.bin("and", v.p[(lo / 32) as usize], P::K(1 << (lo % 32)));
+            let m = self.icmp("ne", x, P::K(0));
+            return self.bit(m, 1);
+        }
         let s = self.lshr_const(v, lo as u64, None);
         self.resize(&s, w, false)
     }
@@ -2097,6 +2556,13 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     // ---- instructions, folding constants ----
 
     fn bin(&mut self, op: &str, a: P, b: P) -> P {
+        // Logic on values made from masks is logic on the masks.
+        if let ("and" | "or" | "xor", P::V(x), P::V(y)) = (op, a, b)
+            && let (Some(&mx), Some(&my)) = (self.mask_of.get(&x), self.mask_of.get(&y))
+        {
+            let m = self.mlogic(op, mx, my);
+            return self.bit(m, 1).p[0];
+        }
         if let (P::K(x), P::K(y)) = (a, b) {
             return P::K(match op {
                 "and" => x & y,
@@ -2133,6 +2599,11 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     }
 
     fn icmp(&mut self, pred: &str, a: P, b: P) -> M {
+        if let (P::V(x), P::K(k @ (0 | 1)), "eq" | "ne") = (a, b, pred)
+            && let Some(&m) = self.mask_of.get(&x)
+        {
+            return if (k == 1) == (pred == "eq") { m } else { self.mnot(m) };
+        }
         if let (P::K(x), P::K(y)) = (a, b) {
             return M::K(match pred {
                 "eq" => x == y,
@@ -2194,6 +2665,18 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             ("or", M::K(true), _) | ("or", _, M::K(true)) => return M::K(true),
             ("or" | "xor", M::K(false), x) | ("or" | "xor", x, M::K(false)) => return x,
             _ => {}
+        }
+        // Masks from bit planes: the logic on their 16 bits, a scalar
+        // instruction, and a mask of that only for what needs one.
+        let bits = |f: &Self, m: M| match m {
+            M::K(b) => Some(format!("{}", if b { -1 } else { 0 })),
+            M::V(n) => f.bits_of.get(&n).map(|i| format!("%t{i}")),
+        };
+        if let (Some(x), Some(y)) = (bits(self, a), bits(self, b)) {
+            let (i, t) = (self.tmp(), self.tmp());
+            let _ = writeln!(self.out, "  %t{i} = {op} i16 {x}, {y}\n  %t{t} = bitcast i16 %t{i} to {M16}");
+            self.bits_of.insert(t, i);
+            return M::V(t);
         }
         let t = self.tmp();
         let _ = writeln!(self.out, "  %t{t} = {op} {M16} {}, {}", ms(a), ms(b));

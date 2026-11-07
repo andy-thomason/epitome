@@ -42,6 +42,14 @@ fn host() -> Option<(Target, &'static str, Vec<String>)> {
     }
 }
 
+/// Bit planes where the target has mask registers: AArch64, and x86-64
+/// with AVX-512.
+fn netlist_options() -> netlist::Options {
+    let x86_without_masks =
+        cfg!(target_arch = "x86_64") && !std::env::var("NETLIST_MATTR").is_ok_and(|m| m.contains("avx512f"));
+    netlist::Options { bit_planes: !x86_without_masks }
+}
+
 /// Elaborates `files` with `top` and compiles its netlist, on a thread with
 /// room for the elaborator's recursion.
 fn netlist_of(files: Vec<PathBuf>, include_dirs: Vec<PathBuf>, top: &str) -> Netlist {
@@ -54,7 +62,7 @@ fn netlist_of(files: Vec<PathBuf>, include_dirs: Vec<PathBuf>, top: &str) -> Net
             let out = preprocess_files(&map, &files, &opts).unwrap_or_else(|e| panic!("{e}"));
             let ast = epitome_sv::parse::parse(&out).unwrap_or_else(|e| panic!("{}", map.render(&e)));
             let d = epitome_sv::design::elab::elaborate_tops(&ast, &out, &[top]).unwrap_or_else(|e| panic!("{}", map.render(&e)));
-            netlist::compile(&d, d.tops[0]).unwrap_or_else(|e| panic!("{e}"))
+            netlist::compile_with(&d, d.tops[0], &netlist_options()).unwrap_or_else(|e| panic!("{e}"))
         })
         .unwrap()
         .join()

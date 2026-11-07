@@ -2829,7 +2829,19 @@ fn half_as_int(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
         }
     };
     let has_half = |cx: &mut Ctx, ty: TypeId| as_int(cx, ty).is_some();
-    if !f.locals.iter().map(|l| l.ty).collect::<Vec<_>>().into_iter().any(|t| has_half(cx, t)) {
+    // (A half may be only a constant, and the result: `ret half 0xH0000`.)
+    let mut tys: Vec<TypeId> = f.locals.iter().map(|l| l.ty).collect();
+    if let Type::Function { ret, .. } = cx.m.types.get(f.ty) {
+        tys.push(*ret);
+    }
+    for i in f.insts_in_order() {
+        f.insts[i.index()].op.for_each_value(|v| {
+            if let Value::Const(c) = *v {
+                tys.push(cx.m.constant(c).ty);
+            }
+        });
+    }
+    if !tys.into_iter().any(|t| has_half(cx, t)) {
         return Ok(());
     }
     // C's sqrtf16 (which clang calls where errno may be set): the C

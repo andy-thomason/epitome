@@ -6689,6 +6689,29 @@ define <16 x i32> @VPADDDz.16xi32(<16 x i32> "reg"="zv" %n, <16 x i32> "reg"="zv
   ret <16 x i32> %r
 }
 
+; Narrowing and widening 16 lanes of 32 bits (AVX-512F): vpmovdb and
+; vpmovdw truncate a zmm register into an xmm or ymm one, vpmovzxbd and
+; vpmovzxwd zero-extend back.
+define <16 x i8> @VPMOVDBz(<16 x i32> "reg"="zv" %n) "enc"="evexr(n, d, 2, 0, 0, 2, 2, 0, 0, 0) | 00110001 | 11 reg:3=n&7 rm:3=d&7" "asm"="vpmovdb {n}, {d}" "dclass"="xv" "feature"="avx512f" "nodecode" {
+  %r = trunc <16 x i32> %n to <16 x i8>
+  ret <16 x i8> %r
+}
+
+define <16 x i16> @VPMOVDWz(<16 x i32> "reg"="zv" %n) "enc"="evexr(n, d, 2, 0, 0, 2, 2, 0, 0, 0) | 00110011 | 11 reg:3=n&7 rm:3=d&7" "asm"="vpmovdw {n}, {d}" "dclass"="yv" "feature"="avx512f" "nodecode" {
+  %r = trunc <16 x i32> %n to <16 x i16>
+  ret <16 x i16> %r
+}
+
+define <16 x i32> @VPMOVZXBDz(<16 x i8> "reg"="xv" %n) "enc"="evexr(d, n, 2, 0, 0, 2, 1, 0, 0, 0) | 00110001 | 11 reg:3=d&7 rm:3=n&7" "asm"="vpmovzxbd {n}, {d}" "dclass"="zv" "feature"="avx512f" "nodecode" {
+  %r = zext <16 x i8> %n to <16 x i32>
+  ret <16 x i32> %r
+}
+
+define <16 x i32> @VPMOVZXWDz(<16 x i16> "reg"="yv" %n) "enc"="evexr(d, n, 2, 0, 0, 2, 1, 0, 0, 0) | 00110011 | 11 reg:3=d&7 rm:3=n&7" "asm"="vpmovzxwd {n}, {d}" "dclass"="zv" "feature"="avx512f" "nodecode" {
+  %r = zext <16 x i16> %n to <16 x i32>
+  ret <16 x i32> %r
+}
+
 define <16 x i32> @VPSUBDz.16xi32(<16 x i32> "reg"="zv" %n, <16 x i32> "reg"="zv" %m) "enc"="evexr(d, m, 1, 0, n, 2, 1, 0, 0, 0) | 11111010 | 11 reg:3=d&7 rm:3=m&7" "asm"="vpsubd {m}, {n}, {d}" "dclass"="zv" "feature"="avx512f" "nodecode" {
   %r = sub <16 x i32> %n, %m
   ret <16 x i32> %r

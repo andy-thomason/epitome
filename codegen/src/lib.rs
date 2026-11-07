@@ -292,6 +292,8 @@ fn compile_function(t: &Target, abi: &abi::Abi, cx: &mut Ctx, job: &Job, opts: &
             }
         }
     }
+    peephole::shared_constants(t, &mut mf);
+    peephole::overwrite_dying(t, &mut mf);
     peephole::redundant_compares(t, &mut mf);
     // Until nothing changes: an address made from one by adding to it
     // becomes one itself.
@@ -320,6 +322,7 @@ fn compile_function(t: &Target, abi: &abi::Abi, cx: &mut Ctx, job: &Job, opts: &
             peephole::pair_memory(t, &mut mf);
             peephole::three_address(t, &mut mf);
             peephole::short_forms(t, &mut mf);
+            peephole::prefixes(t, &mut mf);
             timing::add(&timing::FRAME, now);
             let now = Instant::now();
             layout::place(t, &mut mf);

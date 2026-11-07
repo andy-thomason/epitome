@@ -79,6 +79,8 @@ pub enum AsmPrint {
     /// Memory at the address in a register: the template, with `{r}` for
     /// the register as the class names it.
     Mem(String, Class),
+    /// A symbol (constraint `s`: a global's address, as its name).
+    Sym,
 }
 
 /// One inline assembly statement block: its template (LLVM's, with `$0`
@@ -281,6 +283,10 @@ pub fn render_asm(t: &Target, f: &MFunc, inst: &MInst, block: &AsmBlock) -> Stri
             },
             (MOp::Reg(r), AsmPrint::Mem(_, c)) if block.intel => format!("[{}]", reg(*r, *c)),
             (MOp::Reg(r), AsmPrint::Mem(tpl, c)) => tpl.replace("{r}", &reg(*r, *c)),
+            (MOp::Sym(name), AsmPrint::Sym) => match f.abi.syntax {
+                crate::abi::Syntax::MachO => format!("_{name}"),
+                crate::abi::Syntax::Elf => name.clone(),
+            },
             (MOp::Reg(r), AsmPrint::Reg(c)) => match modifier {
                 Some((_, Some(crate::machine::AsmModifier::Class(mc)))) => reg(*r, *mc),
                 Some((_, Some(crate::machine::AsmModifier::IfImm(_)))) => String::new(),
@@ -738,7 +744,8 @@ pub fn decode(t: &Target, bytes: &[u8]) -> Option<(usize, Env, usize)> {
     let cands = t.decode_candidates(bytes);
     for (i, alt) in cands {
         let ins = &t.instrs[i];
-        if !ins.decode {
+        // (An entry of a bundle's slot is read only in its bundle.)
+        if !ins.decode || ins.slot.is_some() {
             continue;
         }
         let Some((env, len)) = ins.decode_alt(bytes, alt) else { continue };

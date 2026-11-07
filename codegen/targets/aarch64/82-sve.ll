@@ -8031,6 +8031,132 @@ define void @SVE.st1.scatter.uxtw.nxv4i8(<vscale x 4 x i8> "reg"="z" %a0, <vscal
 
 declare void @llvm.aarch64.sve.st1.scatter.uxtw.nxv4i8(<vscale x 4 x i8>, <vscale x 4 x i1>, ptr, <vscale x 4 x i32>)
 
+define void @SVE.st2.nxv16i8(<vscale x 16 x i8> "reg"="z" %a0, <vscale x 16 x i8> "reg"="z" "list"="a0:+1" %a1, <vscale x 16 x i1> "reg"="pg" %a2, ptr "reg"="xsp" %a3) "feature"="sve" "enc"="1110010000110000111 a2:3 a3:5 a0:5" "asm"="st2b {lb} {a0}.b, {a0:+1}.b {rb}, {a2}, [{a3}]" "nodecode" {
+  call void @llvm.aarch64.sve.st2.nxv16i8(<vscale x 16 x i8> %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i1> %a2, ptr %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sve.st2.nxv16i8(<vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i1>, ptr)
+
+define void @SVE.st2.nxv2f64(<vscale x 2 x double> "reg"="z" %a0, <vscale x 2 x double> "reg"="z" "list"="a0:+1" %a1, <vscale x 2 x i1> "reg"="pg" %a2, ptr "reg"="xsp" %a3) "feature"="sve" "enc"="1110010110110000111 a2:3 a3:5 a0:5" "asm"="st2d {lb} {a0}.d, {a0:+1}.d {rb}, {a2}, [{a3}]" "nodecode" {
+  call void @llvm.aarch64.sve.st2.nxv2f64(<vscale x 2 x double> %a0, <vscale x 2 x double> %a1, <vscale x 2 x i1> %a2, ptr %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sve.st2.nxv2f64(<vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x i1>, ptr)
+
+define void @SVE.st2.nxv2i64(<vscale x 2 x i64> "reg"="z" %a0, <vscale x 2 x i64> "reg"="z" "list"="a0:+1" %a1, <vscale x 2 x i1> "reg"="pg" %a2, ptr "reg"="xsp" %a3) "feature"="sve" "enc"="1110010110110000111 a2:3 a3:5 a0:5" "asm"="st2d {lb} {a0}.d, {a0:+1}.d {rb}, {a2}, [{a3}]" "nodecode" {
+  call void @llvm.aarch64.sve.st2.nxv2i64(<vscale x 2 x i64> %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i1> %a2, ptr %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sve.st2.nxv2i64(<vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i1>, ptr)
+
+define void @SVE.st2.nxv4f32(<vscale x 4 x float> "reg"="z" %a0, <vscale x 4 x float> "reg"="z" "list"="a0:+1" %a1, <vscale x 4 x i1> "reg"="pg" %a2, ptr "reg"="xsp" %a3) "feature"="sve" "enc"="1110010100110000111 a2:3 a3:5 a0:5" "asm"="st2w {lb} {a0}.s, {a0:+1}.s {rb}, {a2}, [{a3}]" "nodecode" {
+  call void @llvm.aarch64.sve.st2.nxv4f32(<vscale x 4 x float> %a0, <vscale x 4 x float> %a1, <vscale x 4 x i1> %a2, ptr %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sve.st2.nxv4f32(<vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x i1>, ptr)
+
+define void @SVE.st2.nxv4i32(<vscale x 4 x i32> "reg"="z" %a0, <vscale x 4 x i32> "reg"="z" "list"="a0:+1" %a1, <vscale x 4 x i1> "reg"="pg" %a2, ptr "reg"="xsp" %a3) "feature"="sve" "enc"="1110010100110000111 a2:3 a3:5 a0:5" "asm"="st2w {lb} {a0}.s, {a0:+1}.s {rb}, {a2}, [{a3}]" "nodecode" {
+  call void @llvm.aarch64.sve.st2.nxv4i32(<vscale x 4 x i32> %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i1> %a2, ptr %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sve.st2.nxv4i32(<vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i1>, ptr)
+
+define void @SVE.st2.nxv8i16(<vscale x 8 x i16> "reg"="z" %a0, <vscale x 8 x i16> "reg"="z" "list"="a0:+1" %a1, <vscale x 8 x i1> "reg"="pg" %a2, ptr "reg"="xsp" %a3) "feature"="sve" "enc"="1110010010110000111 a2:3 a3:5 a0:5" "asm"="st2h {lb} {a0}.h, {a0:+1}.h {rb}, {a2}, [{a3}]" "nodecode" {
+  call void @llvm.aarch64.sve.st2.nxv8i16(<vscale x 8 x i16> %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i1> %a2, ptr %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sve.st2.nxv8i16(<vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i1>, ptr)
+
+define void @SVE.st3.nxv16i8(<vscale x 16 x i8> "reg"="z" %a0, <vscale x 16 x i8> "reg"="z" "list"="a0:+1" %a1, <vscale x 16 x i8> "reg"="z" "list"="a0:+2" %a2, <vscale x 16 x i1> "reg"="pg" %a3, ptr "reg"="xsp" %a4) "feature"="sve" "enc"="1110010001010000111 a3:3 a4:5 a0:5" "asm"="st3b {lb} {a0}.b, {a0:+1}.b, {a0:+2}.b {rb}, {a3}, [{a4}]" "nodecode" {
+  call void @llvm.aarch64.sve.st3.nxv16i8(<vscale x 16 x i8> %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i1> %a3, ptr %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sve.st3.nxv16i8(<vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i1>, ptr)
+
+define void @SVE.st3.nxv2f64(<vscale x 2 x double> "reg"="z" %a0, <vscale x 2 x double> "reg"="z" "list"="a0:+1" %a1, <vscale x 2 x double> "reg"="z" "list"="a0:+2" %a2, <vscale x 2 x i1> "reg"="pg" %a3, ptr "reg"="xsp" %a4) "feature"="sve" "enc"="1110010111010000111 a3:3 a4:5 a0:5" "asm"="st3d {lb} {a0}.d, {a0:+1}.d, {a0:+2}.d {rb}, {a3}, [{a4}]" "nodecode" {
+  call void @llvm.aarch64.sve.st3.nxv2f64(<vscale x 2 x double> %a0, <vscale x 2 x double> %a1, <vscale x 2 x double> %a2, <vscale x 2 x i1> %a3, ptr %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sve.st3.nxv2f64(<vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x i1>, ptr)
+
+define void @SVE.st3.nxv2i64(<vscale x 2 x i64> "reg"="z" %a0, <vscale x 2 x i64> "reg"="z" "list"="a0:+1" %a1, <vscale x 2 x i64> "reg"="z" "list"="a0:+2" %a2, <vscale x 2 x i1> "reg"="pg" %a3, ptr "reg"="xsp" %a4) "feature"="sve" "enc"="1110010111010000111 a3:3 a4:5 a0:5" "asm"="st3d {lb} {a0}.d, {a0:+1}.d, {a0:+2}.d {rb}, {a3}, [{a4}]" "nodecode" {
+  call void @llvm.aarch64.sve.st3.nxv2i64(<vscale x 2 x i64> %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2, <vscale x 2 x i1> %a3, ptr %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sve.st3.nxv2i64(<vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i1>, ptr)
+
+define void @SVE.st3.nxv4f32(<vscale x 4 x float> "reg"="z" %a0, <vscale x 4 x float> "reg"="z" "list"="a0:+1" %a1, <vscale x 4 x float> "reg"="z" "list"="a0:+2" %a2, <vscale x 4 x i1> "reg"="pg" %a3, ptr "reg"="xsp" %a4) "feature"="sve" "enc"="1110010101010000111 a3:3 a4:5 a0:5" "asm"="st3w {lb} {a0}.s, {a0:+1}.s, {a0:+2}.s {rb}, {a3}, [{a4}]" "nodecode" {
+  call void @llvm.aarch64.sve.st3.nxv4f32(<vscale x 4 x float> %a0, <vscale x 4 x float> %a1, <vscale x 4 x float> %a2, <vscale x 4 x i1> %a3, ptr %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sve.st3.nxv4f32(<vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x i1>, ptr)
+
+define void @SVE.st3.nxv4i32(<vscale x 4 x i32> "reg"="z" %a0, <vscale x 4 x i32> "reg"="z" "list"="a0:+1" %a1, <vscale x 4 x i32> "reg"="z" "list"="a0:+2" %a2, <vscale x 4 x i1> "reg"="pg" %a3, ptr "reg"="xsp" %a4) "feature"="sve" "enc"="1110010101010000111 a3:3 a4:5 a0:5" "asm"="st3w {lb} {a0}.s, {a0:+1}.s, {a0:+2}.s {rb}, {a3}, [{a4}]" "nodecode" {
+  call void @llvm.aarch64.sve.st3.nxv4i32(<vscale x 4 x i32> %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2, <vscale x 4 x i1> %a3, ptr %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sve.st3.nxv4i32(<vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i1>, ptr)
+
+define void @SVE.st3.nxv8i16(<vscale x 8 x i16> "reg"="z" %a0, <vscale x 8 x i16> "reg"="z" "list"="a0:+1" %a1, <vscale x 8 x i16> "reg"="z" "list"="a0:+2" %a2, <vscale x 8 x i1> "reg"="pg" %a3, ptr "reg"="xsp" %a4) "feature"="sve" "enc"="1110010011010000111 a3:3 a4:5 a0:5" "asm"="st3h {lb} {a0}.h, {a0:+1}.h, {a0:+2}.h {rb}, {a3}, [{a4}]" "nodecode" {
+  call void @llvm.aarch64.sve.st3.nxv8i16(<vscale x 8 x i16> %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i1> %a3, ptr %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sve.st3.nxv8i16(<vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i1>, ptr)
+
+define void @SVE.st4.nxv16i8(<vscale x 16 x i8> "reg"="z" %a0, <vscale x 16 x i8> "reg"="z" "list"="a0:+1" %a1, <vscale x 16 x i8> "reg"="z" "list"="a0:+2" %a2, <vscale x 16 x i8> "reg"="z" "list"="a0:+3" %a3, <vscale x 16 x i1> "reg"="pg" %a4, ptr "reg"="xsp" %a5) "feature"="sve" "enc"="1110010001110000111 a4:3 a5:5 a0:5" "asm"="st4b {lb} {a0}.b, {a0:+1}.b, {a0:+2}.b, {a0:+3}.b {rb}, {a4}, [{a5}]" "nodecode" {
+  call void @llvm.aarch64.sve.st4.nxv16i8(<vscale x 16 x i8> %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i1> %a4, ptr %a5)
+  ret void
+}
+
+declare void @llvm.aarch64.sve.st4.nxv16i8(<vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i1>, ptr)
+
+define void @SVE.st4.nxv2f64(<vscale x 2 x double> "reg"="z" %a0, <vscale x 2 x double> "reg"="z" "list"="a0:+1" %a1, <vscale x 2 x double> "reg"="z" "list"="a0:+2" %a2, <vscale x 2 x double> "reg"="z" "list"="a0:+3" %a3, <vscale x 2 x i1> "reg"="pg" %a4, ptr "reg"="xsp" %a5) "feature"="sve" "enc"="1110010111110000111 a4:3 a5:5 a0:5" "asm"="st4d {lb} {a0}.d, {a0:+1}.d, {a0:+2}.d, {a0:+3}.d {rb}, {a4}, [{a5}]" "nodecode" {
+  call void @llvm.aarch64.sve.st4.nxv2f64(<vscale x 2 x double> %a0, <vscale x 2 x double> %a1, <vscale x 2 x double> %a2, <vscale x 2 x double> %a3, <vscale x 2 x i1> %a4, ptr %a5)
+  ret void
+}
+
+declare void @llvm.aarch64.sve.st4.nxv2f64(<vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x i1>, ptr)
+
+define void @SVE.st4.nxv2i64(<vscale x 2 x i64> "reg"="z" %a0, <vscale x 2 x i64> "reg"="z" "list"="a0:+1" %a1, <vscale x 2 x i64> "reg"="z" "list"="a0:+2" %a2, <vscale x 2 x i64> "reg"="z" "list"="a0:+3" %a3, <vscale x 2 x i1> "reg"="pg" %a4, ptr "reg"="xsp" %a5) "feature"="sve" "enc"="1110010111110000111 a4:3 a5:5 a0:5" "asm"="st4d {lb} {a0}.d, {a0:+1}.d, {a0:+2}.d, {a0:+3}.d {rb}, {a4}, [{a5}]" "nodecode" {
+  call void @llvm.aarch64.sve.st4.nxv2i64(<vscale x 2 x i64> %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2, <vscale x 2 x i64> %a3, <vscale x 2 x i1> %a4, ptr %a5)
+  ret void
+}
+
+declare void @llvm.aarch64.sve.st4.nxv2i64(<vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i1>, ptr)
+
+define void @SVE.st4.nxv4f32(<vscale x 4 x float> "reg"="z" %a0, <vscale x 4 x float> "reg"="z" "list"="a0:+1" %a1, <vscale x 4 x float> "reg"="z" "list"="a0:+2" %a2, <vscale x 4 x float> "reg"="z" "list"="a0:+3" %a3, <vscale x 4 x i1> "reg"="pg" %a4, ptr "reg"="xsp" %a5) "feature"="sve" "enc"="1110010101110000111 a4:3 a5:5 a0:5" "asm"="st4w {lb} {a0}.s, {a0:+1}.s, {a0:+2}.s, {a0:+3}.s {rb}, {a4}, [{a5}]" "nodecode" {
+  call void @llvm.aarch64.sve.st4.nxv4f32(<vscale x 4 x float> %a0, <vscale x 4 x float> %a1, <vscale x 4 x float> %a2, <vscale x 4 x float> %a3, <vscale x 4 x i1> %a4, ptr %a5)
+  ret void
+}
+
+declare void @llvm.aarch64.sve.st4.nxv4f32(<vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x i1>, ptr)
+
+define void @SVE.st4.nxv4i32(<vscale x 4 x i32> "reg"="z" %a0, <vscale x 4 x i32> "reg"="z" "list"="a0:+1" %a1, <vscale x 4 x i32> "reg"="z" "list"="a0:+2" %a2, <vscale x 4 x i32> "reg"="z" "list"="a0:+3" %a3, <vscale x 4 x i1> "reg"="pg" %a4, ptr "reg"="xsp" %a5) "feature"="sve" "enc"="1110010101110000111 a4:3 a5:5 a0:5" "asm"="st4w {lb} {a0}.s, {a0:+1}.s, {a0:+2}.s, {a0:+3}.s {rb}, {a4}, [{a5}]" "nodecode" {
+  call void @llvm.aarch64.sve.st4.nxv4i32(<vscale x 4 x i32> %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2, <vscale x 4 x i32> %a3, <vscale x 4 x i1> %a4, ptr %a5)
+  ret void
+}
+
+declare void @llvm.aarch64.sve.st4.nxv4i32(<vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i1>, ptr)
+
+define void @SVE.st4.nxv8i16(<vscale x 8 x i16> "reg"="z" %a0, <vscale x 8 x i16> "reg"="z" "list"="a0:+1" %a1, <vscale x 8 x i16> "reg"="z" "list"="a0:+2" %a2, <vscale x 8 x i16> "reg"="z" "list"="a0:+3" %a3, <vscale x 8 x i1> "reg"="pg" %a4, ptr "reg"="xsp" %a5) "feature"="sve" "enc"="1110010011110000111 a4:3 a5:5 a0:5" "asm"="st4h {lb} {a0}.h, {a0:+1}.h, {a0:+2}.h, {a0:+3}.h {rb}, {a4}, [{a5}]" "nodecode" {
+  call void @llvm.aarch64.sve.st4.nxv8i16(<vscale x 8 x i16> %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i1> %a4, ptr %a5)
+  ret void
+}
+
+declare void @llvm.aarch64.sve.st4.nxv8i16(<vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i1>, ptr)
+
 define void @SVE.stnt1.nxv16i8(<vscale x 16 x i8> "reg"="z" %a0, <vscale x 16 x i1> "reg"="pg" %a1, ptr "reg"="xsp" %a2) "feature"="sve" "enc"="1110010000010000111 a1:3 a2:5 a0:5" "asm"="stnt1b {lb} {a0}.b {rb}, {a1}, [{a2}]" "nodecode" {
   call void @llvm.aarch64.sve.stnt1.nxv16i8(<vscale x 16 x i8> %a0, <vscale x 16 x i1> %a1, ptr %a2)
   ret void
@@ -8457,6 +8583,48 @@ define <vscale x 8 x i16> @SVE.tbl.nxv8i16(<vscale x 8 x i16> "reg"="z" %a0, <vs
 }
 
 declare <vscale x 8 x i16> @llvm.aarch64.sve.tbl.nxv8i16(<vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define <vscale x 16 x i8> @SVE.tbl2.nxv16i8(<vscale x 16 x i8> "reg"="z" %a0, <vscale x 16 x i8> "reg"="z" "list"="a0:+1" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve,sve2" "enc"="00000101001 a2:5 001010 a0:5 d:5" "asm"="tbl {d}.b, {lb} {a0}.b, {a0:+1}.b {rb}, {a2}.b" "dclass"="z" "nodecode" {
+  %r = call <vscale x 16 x i8> @llvm.aarch64.sve.tbl2.nxv16i8(<vscale x 16 x i8> %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
+  ret <vscale x 16 x i8> %r
+}
+
+declare <vscale x 16 x i8> @llvm.aarch64.sve.tbl2.nxv16i8(<vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define <vscale x 2 x double> @SVE.tbl2.nxv2f64(<vscale x 2 x double> "reg"="z" %a0, <vscale x 2 x double> "reg"="z" "list"="a0:+1" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve,sve2" "enc"="00000101111 a2:5 001010 a0:5 d:5" "asm"="tbl {d}.d, {lb} {a0}.d, {a0:+1}.d {rb}, {a2}.d" "dclass"="z" "nodecode" {
+  %r = call <vscale x 2 x double> @llvm.aarch64.sve.tbl2.nxv2f64(<vscale x 2 x double> %a0, <vscale x 2 x double> %a1, <vscale x 2 x i64> %a2)
+  ret <vscale x 2 x double> %r
+}
+
+declare <vscale x 2 x double> @llvm.aarch64.sve.tbl2.nxv2f64(<vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x i64>)
+
+define <vscale x 2 x i64> @SVE.tbl2.nxv2i64(<vscale x 2 x i64> "reg"="z" %a0, <vscale x 2 x i64> "reg"="z" "list"="a0:+1" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve,sve2" "enc"="00000101111 a2:5 001010 a0:5 d:5" "asm"="tbl {d}.d, {lb} {a0}.d, {a0:+1}.d {rb}, {a2}.d" "dclass"="z" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.aarch64.sve.tbl2.nxv2i64(<vscale x 2 x i64> %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.aarch64.sve.tbl2.nxv2i64(<vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>)
+
+define <vscale x 4 x float> @SVE.tbl2.nxv4f32(<vscale x 4 x float> "reg"="z" %a0, <vscale x 4 x float> "reg"="z" "list"="a0:+1" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve,sve2" "enc"="00000101101 a2:5 001010 a0:5 d:5" "asm"="tbl {d}.s, {lb} {a0}.s, {a0:+1}.s {rb}, {a2}.s" "dclass"="z" "nodecode" {
+  %r = call <vscale x 4 x float> @llvm.aarch64.sve.tbl2.nxv4f32(<vscale x 4 x float> %a0, <vscale x 4 x float> %a1, <vscale x 4 x i32> %a2)
+  ret <vscale x 4 x float> %r
+}
+
+declare <vscale x 4 x float> @llvm.aarch64.sve.tbl2.nxv4f32(<vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x i32>)
+
+define <vscale x 4 x i32> @SVE.tbl2.nxv4i32(<vscale x 4 x i32> "reg"="z" %a0, <vscale x 4 x i32> "reg"="z" "list"="a0:+1" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve,sve2" "enc"="00000101101 a2:5 001010 a0:5 d:5" "asm"="tbl {d}.s, {lb} {a0}.s, {a0:+1}.s {rb}, {a2}.s" "dclass"="z" "nodecode" {
+  %r = call <vscale x 4 x i32> @llvm.aarch64.sve.tbl2.nxv4i32(<vscale x 4 x i32> %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2)
+  ret <vscale x 4 x i32> %r
+}
+
+declare <vscale x 4 x i32> @llvm.aarch64.sve.tbl2.nxv4i32(<vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i32>)
+
+define <vscale x 8 x i16> @SVE.tbl2.nxv8i16(<vscale x 8 x i16> "reg"="z" %a0, <vscale x 8 x i16> "reg"="z" "list"="a0:+1" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sve,sve2" "enc"="00000101011 a2:5 001010 a0:5 d:5" "asm"="tbl {d}.h, {lb} {a0}.h, {a0:+1}.h {rb}, {a2}.h" "dclass"="z" "nodecode" {
+  %r = call <vscale x 8 x i16> @llvm.aarch64.sve.tbl2.nxv8i16(<vscale x 8 x i16> %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
+  ret <vscale x 8 x i16> %r
+}
+
+declare <vscale x 8 x i16> @llvm.aarch64.sve.tbl2.nxv8i16(<vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
 
 define <vscale x 16 x i8> @SVE.tbx.nxv16i8(<vscale x 16 x i8> "reg"="z" "tied" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sve,sve2" "enc"="00000101001 a2:5 001011 a1:5 d:5" "asm"="tbx {d}.b, {a1}.b, {a2}.b" "dclass"="z" "nodecode" {
   %r = call <vscale x 16 x i8> @llvm.aarch64.sve.tbx.nxv16i8(<vscale x 16 x i8> %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
@@ -11440,6 +11608,118 @@ define <vscale x 8 x i16> @SVE.zip2q.nxv8i16(<vscale x 8 x i16> "reg"="z" %a0, <
 
 declare <vscale x 8 x i16> @llvm.aarch64.sve.zip2q.nxv8i16(<vscale x 8 x i16>, <vscale x 8 x i16>)
 
+define void @SME.add.write.single.za.vg1x2.nxv2i64(i32 "reg"="wv" %a0, <vscale x 2 x i64> "reg"="z" %a1, <vscale x 2 x i64> "reg"="z" "list"="a1:+1" %a2, <vscale x 2 x i64> "reg"="z" %a3) "feature"="sme,sve2,sme2,sme-i16i64" "enc"="110000010110 a3:4 0 wv_f:2=(a0-8) 110 a1:5 10 000" "asm"="add za.d[{a0}, 0, vgx2], {lb} {a1}.d-{a1:+1}.d {rb}, {a3}.d" "nodecode" {
+  call void @llvm.aarch64.sme.add.write.single.za.vg1x2.nxv2i64(i32 %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2, <vscale x 2 x i64> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.add.write.single.za.vg1x2.nxv2i64(i32, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>)
+
+define void @SME.add.write.single.za.vg1x2.nxv4i32(i32 "reg"="wv" %a0, <vscale x 4 x i32> "reg"="z" %a1, <vscale x 4 x i32> "reg"="z" "list"="a1:+1" %a2, <vscale x 4 x i32> "reg"="z" %a3) "feature"="sme,sve2,sme2" "enc"="110000010010 a3:4 0 wv_f:2=(a0-8) 110 a1:5 10 000" "asm"="add za.s[{a0}, 0, vgx2], {lb} {a1}.s-{a1:+1}.s {rb}, {a3}.s" "nodecode" {
+  call void @llvm.aarch64.sme.add.write.single.za.vg1x2.nxv4i32(i32 %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2, <vscale x 4 x i32> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.add.write.single.za.vg1x2.nxv4i32(i32, <vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i32>)
+
+define void @SME.add.write.single.za.vg1x4.nxv2i64(i32 "reg"="wv" %a0, <vscale x 2 x i64> "reg"="z" %a1, <vscale x 2 x i64> "reg"="z" "list"="a1:+1" %a2, <vscale x 2 x i64> "reg"="z" "list"="a1:+2" %a3, <vscale x 2 x i64> "reg"="z" "list"="a1:+3" %a4, <vscale x 2 x i64> "reg"="z" %a5) "feature"="sme,sve2,sme2,sme-i16i64" "enc"="110000010111 a5:4 0 wv_f:2=(a0-8) 110 a1:5 10 000" "asm"="add za.d[{a0}, 0, vgx4], {lb} {a1}.d-{a1:+3}.d {rb}, {a5}.d" "nodecode" {
+  call void @llvm.aarch64.sme.add.write.single.za.vg1x4.nxv2i64(i32 %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2, <vscale x 2 x i64> %a3, <vscale x 2 x i64> %a4, <vscale x 2 x i64> %a5)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.add.write.single.za.vg1x4.nxv2i64(i32, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>)
+
+define void @SME.add.write.single.za.vg1x4.nxv4i32(i32 "reg"="wv" %a0, <vscale x 4 x i32> "reg"="z" %a1, <vscale x 4 x i32> "reg"="z" "list"="a1:+1" %a2, <vscale x 4 x i32> "reg"="z" "list"="a1:+2" %a3, <vscale x 4 x i32> "reg"="z" "list"="a1:+3" %a4, <vscale x 4 x i32> "reg"="z" %a5) "feature"="sme,sve2,sme2" "enc"="110000010011 a5:4 0 wv_f:2=(a0-8) 110 a1:5 10 000" "asm"="add za.s[{a0}, 0, vgx4], {lb} {a1}.s-{a1:+3}.s {rb}, {a5}.s" "nodecode" {
+  call void @llvm.aarch64.sme.add.write.single.za.vg1x4.nxv4i32(i32 %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2, <vscale x 4 x i32> %a3, <vscale x 4 x i32> %a4, <vscale x 4 x i32> %a5)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.add.write.single.za.vg1x4.nxv4i32(i32, <vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i32>)
+
+define void @SME.add.write.za.vg1x2.nxv2i64(i32 "reg"="wv" %a0, <vscale x 2 x i64> "reg"="z" %a1, <vscale x 2 x i64> "reg"="z" "list"="a1:+1" %a2, <vscale x 2 x i64> "reg"="z" %a3, <vscale x 2 x i64> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-i16i64" "enc"="11000001111 zm1_f:4=a3>>1 00 wv_f:2=(a0-8) 110 zn1_f:4=a1>>1 010 000" "asm"="add za.d[{a0}, 0, vgx2], {lb} {a1}.d-{a1:+1}.d {rb}, {lb} {a3}.d-{a3:+1}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.add.write.za.vg1x2.nxv2i64(i32 %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2, <vscale x 2 x i64> %a3, <vscale x 2 x i64> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.add.write.za.vg1x2.nxv2i64(i32, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>)
+
+define void @SME.add.write.za.vg1x2.nxv4i32(i32 "reg"="wv" %a0, <vscale x 4 x i32> "reg"="z" %a1, <vscale x 4 x i32> "reg"="z" "list"="a1:+1" %a2, <vscale x 4 x i32> "reg"="z" %a3, <vscale x 4 x i32> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2" "enc"="11000001101 zm1_f:4=a3>>1 00 wv_f:2=(a0-8) 110 zn1_f:4=a1>>1 010 000" "asm"="add za.s[{a0}, 0, vgx2], {lb} {a1}.s-{a1:+1}.s {rb}, {lb} {a3}.s-{a3:+1}.s {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.add.write.za.vg1x2.nxv4i32(i32 %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2, <vscale x 4 x i32> %a3, <vscale x 4 x i32> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.add.write.za.vg1x2.nxv4i32(i32, <vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i32>)
+
+define void @SME.add.write.za.vg1x4.nxv2i64(i32 "reg"="wv" %a0, <vscale x 2 x i64> "reg"="z" %a1, <vscale x 2 x i64> "reg"="z" "list"="a1:+1" %a2, <vscale x 2 x i64> "reg"="z" "list"="a1:+2" %a3, <vscale x 2 x i64> "reg"="z" "list"="a1:+3" %a4, <vscale x 2 x i64> "reg"="z" %a5, <vscale x 2 x i64> "reg"="z" "list"="a5:+1" %a6, <vscale x 2 x i64> "reg"="z" "list"="a5:+2" %a7, <vscale x 2 x i64> "reg"="z" "list"="a5:+3" %a8) "feature"="sme,sve2,sme2,sme-i16i64" "enc"="11000001111 zm1_f:3=a5>>2 010 wv_f:2=(a0-8) 110 zn1_f:3=a1>>2 0010 000" "asm"="add za.d[{a0}, 0, vgx4], {lb} {a1}.d-{a1:+3}.d {rb}, {lb} {a5}.d-{a5:+3}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.add.write.za.vg1x4.nxv2i64(i32 %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2, <vscale x 2 x i64> %a3, <vscale x 2 x i64> %a4, <vscale x 2 x i64> %a5, <vscale x 2 x i64> %a6, <vscale x 2 x i64> %a7, <vscale x 2 x i64> %a8)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.add.write.za.vg1x4.nxv2i64(i32, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>)
+
+define void @SME.add.write.za.vg1x4.nxv4i32(i32 "reg"="wv" %a0, <vscale x 4 x i32> "reg"="z" %a1, <vscale x 4 x i32> "reg"="z" "list"="a1:+1" %a2, <vscale x 4 x i32> "reg"="z" "list"="a1:+2" %a3, <vscale x 4 x i32> "reg"="z" "list"="a1:+3" %a4, <vscale x 4 x i32> "reg"="z" %a5, <vscale x 4 x i32> "reg"="z" "list"="a5:+1" %a6, <vscale x 4 x i32> "reg"="z" "list"="a5:+2" %a7, <vscale x 4 x i32> "reg"="z" "list"="a5:+3" %a8) "feature"="sme,sve2,sme2" "enc"="11000001101 zm1_f:3=a5>>2 010 wv_f:2=(a0-8) 110 zn1_f:3=a1>>2 0010 000" "asm"="add za.s[{a0}, 0, vgx4], {lb} {a1}.s-{a1:+3}.s {rb}, {lb} {a5}.s-{a5:+3}.s {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.add.write.za.vg1x4.nxv4i32(i32 %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2, <vscale x 4 x i32> %a3, <vscale x 4 x i32> %a4, <vscale x 4 x i32> %a5, <vscale x 4 x i32> %a6, <vscale x 4 x i32> %a7, <vscale x 4 x i32> %a8)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.add.write.za.vg1x4.nxv4i32(i32, <vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i32>)
+
+define void @SME.add.za32.vg1x2.nxv4f32(i32 "reg"="wv" %a0, <vscale x 4 x float> "reg"="z" %a1, <vscale x 4 x float> "reg"="z" "list"="a1:+1" %a2) "feature"="sme,sve2,sme2" "enc"="11000001101000000 wv_f:2=(a0-8) 111 zm1_f:4=a1>>1 000 000" "asm"="fadd za.s[{a0}, 0, vgx2], {lb} {a1}.s-{a1:+1}.s {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.add.za32.vg1x2.nxv4f32(i32 %a0, <vscale x 4 x float> %a1, <vscale x 4 x float> %a2)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.add.za32.vg1x2.nxv4f32(i32, <vscale x 4 x float>, <vscale x 4 x float>)
+
+define void @SME.add.za32.vg1x2.nxv4i32(i32 "reg"="wv" %a0, <vscale x 4 x i32> "reg"="z" %a1, <vscale x 4 x i32> "reg"="z" "list"="a1:+1" %a2) "feature"="sme,sve2,sme2" "enc"="11000001101000000 wv_f:2=(a0-8) 111 zm1_f:4=a1>>1 010 000" "asm"="add za.s[{a0}, 0, vgx2], {lb} {a1}.s-{a1:+1}.s {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.add.za32.vg1x2.nxv4i32(i32 %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.add.za32.vg1x2.nxv4i32(i32, <vscale x 4 x i32>, <vscale x 4 x i32>)
+
+define void @SME.add.za32.vg1x4.nxv4f32(i32 "reg"="wv" %a0, <vscale x 4 x float> "reg"="z" %a1, <vscale x 4 x float> "reg"="z" "list"="a1:+1" %a2, <vscale x 4 x float> "reg"="z" "list"="a1:+2" %a3, <vscale x 4 x float> "reg"="z" "list"="a1:+3" %a4) "feature"="sme,sve2,sme2" "enc"="11000001101000010 wv_f:2=(a0-8) 111 zm1_f:3=a1>>2 0000 000" "asm"="fadd za.s[{a0}, 0, vgx4], {lb} {a1}.s-{a1:+3}.s {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.add.za32.vg1x4.nxv4f32(i32 %a0, <vscale x 4 x float> %a1, <vscale x 4 x float> %a2, <vscale x 4 x float> %a3, <vscale x 4 x float> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.add.za32.vg1x4.nxv4f32(i32, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>)
+
+define void @SME.add.za32.vg1x4.nxv4i32(i32 "reg"="wv" %a0, <vscale x 4 x i32> "reg"="z" %a1, <vscale x 4 x i32> "reg"="z" "list"="a1:+1" %a2, <vscale x 4 x i32> "reg"="z" "list"="a1:+2" %a3, <vscale x 4 x i32> "reg"="z" "list"="a1:+3" %a4) "feature"="sme,sve2,sme2" "enc"="11000001101000010 wv_f:2=(a0-8) 111 zm1_f:3=a1>>2 0010 000" "asm"="add za.s[{a0}, 0, vgx4], {lb} {a1}.s-{a1:+3}.s {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.add.za32.vg1x4.nxv4i32(i32 %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2, <vscale x 4 x i32> %a3, <vscale x 4 x i32> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.add.za32.vg1x4.nxv4i32(i32, <vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i32>)
+
+define void @SME.add.za64.vg1x2.nxv2f64(i32 "reg"="wv" %a0, <vscale x 2 x double> "reg"="z" %a1, <vscale x 2 x double> "reg"="z" "list"="a1:+1" %a2) "feature"="sme,sve2,sme2,sme-f64f64" "enc"="11000001111000000 wv_f:2=(a0-8) 111 zm1_f:4=a1>>1 000 000" "asm"="fadd za.d[{a0}, 0, vgx2], {lb} {a1}.d-{a1:+1}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.add.za64.vg1x2.nxv2f64(i32 %a0, <vscale x 2 x double> %a1, <vscale x 2 x double> %a2)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.add.za64.vg1x2.nxv2f64(i32, <vscale x 2 x double>, <vscale x 2 x double>)
+
+define void @SME.add.za64.vg1x2.nxv2i64(i32 "reg"="wv" %a0, <vscale x 2 x i64> "reg"="z" %a1, <vscale x 2 x i64> "reg"="z" "list"="a1:+1" %a2) "feature"="sme,sve2,sme2,sme-i16i64" "enc"="11000001111000000 wv_f:2=(a0-8) 111 zm1_f:4=a1>>1 010 000" "asm"="add za.d[{a0}, 0, vgx2], {lb} {a1}.d-{a1:+1}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.add.za64.vg1x2.nxv2i64(i32 %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.add.za64.vg1x2.nxv2i64(i32, <vscale x 2 x i64>, <vscale x 2 x i64>)
+
+define void @SME.add.za64.vg1x4.nxv2f64(i32 "reg"="wv" %a0, <vscale x 2 x double> "reg"="z" %a1, <vscale x 2 x double> "reg"="z" "list"="a1:+1" %a2, <vscale x 2 x double> "reg"="z" "list"="a1:+2" %a3, <vscale x 2 x double> "reg"="z" "list"="a1:+3" %a4) "feature"="sme,sve2,sme2,sme-f64f64" "enc"="11000001111000010 wv_f:2=(a0-8) 111 zm1_f:3=a1>>2 0000 000" "asm"="fadd za.d[{a0}, 0, vgx4], {lb} {a1}.d-{a1:+3}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.add.za64.vg1x4.nxv2f64(i32 %a0, <vscale x 2 x double> %a1, <vscale x 2 x double> %a2, <vscale x 2 x double> %a3, <vscale x 2 x double> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.add.za64.vg1x4.nxv2f64(i32, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>)
+
+define void @SME.add.za64.vg1x4.nxv2i64(i32 "reg"="wv" %a0, <vscale x 2 x i64> "reg"="z" %a1, <vscale x 2 x i64> "reg"="z" "list"="a1:+1" %a2, <vscale x 2 x i64> "reg"="z" "list"="a1:+2" %a3, <vscale x 2 x i64> "reg"="z" "list"="a1:+3" %a4) "feature"="sme,sve2,sme2,sme-i16i64" "enc"="11000001111000010 wv_f:2=(a0-8) 111 zm1_f:3=a1>>2 0010 000" "asm"="add za.d[{a0}, 0, vgx4], {lb} {a1}.d-{a1:+3}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.add.za64.vg1x4.nxv2i64(i32 %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2, <vscale x 2 x i64> %a3, <vscale x 2 x i64> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.add.za64.vg1x4.nxv2i64(i32, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>)
+
 define void @SME.addha.nxv2i64(i32 "imm" %a0, <vscale x 2 x i1> "reg"="pg" %a1, <vscale x 2 x i1> "reg"="pg" %a2, <vscale x 2 x i64> "reg"="z" %a3) "feature"="sme,sve2,sme-i16i64" "enc"="1100000011010000 a2:3 a1:3 a3:5 00 a0:3" "asm"="addha za{a0}.d, {a1}/m, {a2}/m, {a3}.d" "nodecode" {
   call void @llvm.aarch64.sme.addha.nxv2i64(i32 %a0, <vscale x 2 x i1> %a1, <vscale x 2 x i1> %a2, <vscale x 2 x i64> %a3)
   ret void
@@ -11482,12 +11762,208 @@ define void @SME.bmops.za32.nxv4i32(i32 "imm" %a0, <vscale x 4 x i1> "reg"="pg" 
 
 declare void @llvm.aarch64.sme.bmops.za32.nxv4i32(i32, <vscale x 4 x i1>, <vscale x 4 x i1>, <vscale x 4 x i32>, <vscale x 4 x i32>)
 
+define void @SME.fmla.single.vg1x2.nxv2f64(i32 "reg"="wv" %a0, <vscale x 2 x double> "reg"="z" %a1, <vscale x 2 x double> "reg"="z" "list"="a1:+1" %a2, <vscale x 2 x double> "reg"="z" %a3) "feature"="sme,sve2,sme2,sme-f64f64" "enc"="110000010110 a3:4 0 wv_f:2=(a0-8) 110 a1:5 00 000" "asm"="fmla za.d[{a0}, 0, vgx2], {lb} {a1}.d-{a1:+1}.d {rb}, {a3}.d" "nodecode" {
+  call void @llvm.aarch64.sme.fmla.single.vg1x2.nxv2f64(i32 %a0, <vscale x 2 x double> %a1, <vscale x 2 x double> %a2, <vscale x 2 x double> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.fmla.single.vg1x2.nxv2f64(i32, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>)
+
+define void @SME.fmla.single.vg1x2.nxv4f32(i32 "reg"="wv" %a0, <vscale x 4 x float> "reg"="z" %a1, <vscale x 4 x float> "reg"="z" "list"="a1:+1" %a2, <vscale x 4 x float> "reg"="z" %a3) "feature"="sme,sve2,sme2" "enc"="110000010010 a3:4 0 wv_f:2=(a0-8) 110 a1:5 00 000" "asm"="fmla za.s[{a0}, 0, vgx2], {lb} {a1}.s-{a1:+1}.s {rb}, {a3}.s" "nodecode" {
+  call void @llvm.aarch64.sme.fmla.single.vg1x2.nxv4f32(i32 %a0, <vscale x 4 x float> %a1, <vscale x 4 x float> %a2, <vscale x 4 x float> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.fmla.single.vg1x2.nxv4f32(i32, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>)
+
+define void @SME.fmla.single.vg1x4.nxv2f64(i32 "reg"="wv" %a0, <vscale x 2 x double> "reg"="z" %a1, <vscale x 2 x double> "reg"="z" "list"="a1:+1" %a2, <vscale x 2 x double> "reg"="z" "list"="a1:+2" %a3, <vscale x 2 x double> "reg"="z" "list"="a1:+3" %a4, <vscale x 2 x double> "reg"="z" %a5) "feature"="sme,sve2,sme2,sme-f64f64" "enc"="110000010111 a5:4 0 wv_f:2=(a0-8) 110 a1:5 00 000" "asm"="fmla za.d[{a0}, 0, vgx4], {lb} {a1}.d-{a1:+3}.d {rb}, {a5}.d" "nodecode" {
+  call void @llvm.aarch64.sme.fmla.single.vg1x4.nxv2f64(i32 %a0, <vscale x 2 x double> %a1, <vscale x 2 x double> %a2, <vscale x 2 x double> %a3, <vscale x 2 x double> %a4, <vscale x 2 x double> %a5)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.fmla.single.vg1x4.nxv2f64(i32, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>)
+
+define void @SME.fmla.single.vg1x4.nxv4f32(i32 "reg"="wv" %a0, <vscale x 4 x float> "reg"="z" %a1, <vscale x 4 x float> "reg"="z" "list"="a1:+1" %a2, <vscale x 4 x float> "reg"="z" "list"="a1:+2" %a3, <vscale x 4 x float> "reg"="z" "list"="a1:+3" %a4, <vscale x 4 x float> "reg"="z" %a5) "feature"="sme,sve2,sme2" "enc"="110000010011 a5:4 0 wv_f:2=(a0-8) 110 a1:5 00 000" "asm"="fmla za.s[{a0}, 0, vgx4], {lb} {a1}.s-{a1:+3}.s {rb}, {a5}.s" "nodecode" {
+  call void @llvm.aarch64.sme.fmla.single.vg1x4.nxv4f32(i32 %a0, <vscale x 4 x float> %a1, <vscale x 4 x float> %a2, <vscale x 4 x float> %a3, <vscale x 4 x float> %a4, <vscale x 4 x float> %a5)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.fmla.single.vg1x4.nxv4f32(i32, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>)
+
+define void @SME.fmla.vg1x2.nxv2f64(i32 "reg"="wv" %a0, <vscale x 2 x double> "reg"="z" %a1, <vscale x 2 x double> "reg"="z" "list"="a1:+1" %a2, <vscale x 2 x double> "reg"="z" %a3, <vscale x 2 x double> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-f64f64" "enc"="11000001111 zm1_f:4=a3>>1 00 wv_f:2=(a0-8) 110 zn1_f:4=a1>>1 000 000" "asm"="fmla za.d[{a0}, 0, vgx2], {lb} {a1}.d-{a1:+1}.d {rb}, {lb} {a3}.d-{a3:+1}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.fmla.vg1x2.nxv2f64(i32 %a0, <vscale x 2 x double> %a1, <vscale x 2 x double> %a2, <vscale x 2 x double> %a3, <vscale x 2 x double> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.fmla.vg1x2.nxv2f64(i32, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>)
+
+define void @SME.fmla.vg1x2.nxv4f32(i32 "reg"="wv" %a0, <vscale x 4 x float> "reg"="z" %a1, <vscale x 4 x float> "reg"="z" "list"="a1:+1" %a2, <vscale x 4 x float> "reg"="z" %a3, <vscale x 4 x float> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2" "enc"="11000001101 zm1_f:4=a3>>1 00 wv_f:2=(a0-8) 110 zn1_f:4=a1>>1 000 000" "asm"="fmla za.s[{a0}, 0, vgx2], {lb} {a1}.s-{a1:+1}.s {rb}, {lb} {a3}.s-{a3:+1}.s {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.fmla.vg1x2.nxv4f32(i32 %a0, <vscale x 4 x float> %a1, <vscale x 4 x float> %a2, <vscale x 4 x float> %a3, <vscale x 4 x float> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.fmla.vg1x2.nxv4f32(i32, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>)
+
+define void @SME.fmla.vg1x4.nxv2f64(i32 "reg"="wv" %a0, <vscale x 2 x double> "reg"="z" %a1, <vscale x 2 x double> "reg"="z" "list"="a1:+1" %a2, <vscale x 2 x double> "reg"="z" "list"="a1:+2" %a3, <vscale x 2 x double> "reg"="z" "list"="a1:+3" %a4, <vscale x 2 x double> "reg"="z" %a5, <vscale x 2 x double> "reg"="z" "list"="a5:+1" %a6, <vscale x 2 x double> "reg"="z" "list"="a5:+2" %a7, <vscale x 2 x double> "reg"="z" "list"="a5:+3" %a8) "feature"="sme,sve2,sme2,sme-f64f64" "enc"="11000001111 zm1_f:3=a5>>2 010 wv_f:2=(a0-8) 110 zn1_f:3=a1>>2 0000 000" "asm"="fmla za.d[{a0}, 0, vgx4], {lb} {a1}.d-{a1:+3}.d {rb}, {lb} {a5}.d-{a5:+3}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.fmla.vg1x4.nxv2f64(i32 %a0, <vscale x 2 x double> %a1, <vscale x 2 x double> %a2, <vscale x 2 x double> %a3, <vscale x 2 x double> %a4, <vscale x 2 x double> %a5, <vscale x 2 x double> %a6, <vscale x 2 x double> %a7, <vscale x 2 x double> %a8)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.fmla.vg1x4.nxv2f64(i32, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>)
+
+define void @SME.fmla.vg1x4.nxv4f32(i32 "reg"="wv" %a0, <vscale x 4 x float> "reg"="z" %a1, <vscale x 4 x float> "reg"="z" "list"="a1:+1" %a2, <vscale x 4 x float> "reg"="z" "list"="a1:+2" %a3, <vscale x 4 x float> "reg"="z" "list"="a1:+3" %a4, <vscale x 4 x float> "reg"="z" %a5, <vscale x 4 x float> "reg"="z" "list"="a5:+1" %a6, <vscale x 4 x float> "reg"="z" "list"="a5:+2" %a7, <vscale x 4 x float> "reg"="z" "list"="a5:+3" %a8) "feature"="sme,sve2,sme2" "enc"="11000001101 zm1_f:3=a5>>2 010 wv_f:2=(a0-8) 110 zn1_f:3=a1>>2 0000 000" "asm"="fmla za.s[{a0}, 0, vgx4], {lb} {a1}.s-{a1:+3}.s {rb}, {lb} {a5}.s-{a5:+3}.s {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.fmla.vg1x4.nxv4f32(i32 %a0, <vscale x 4 x float> %a1, <vscale x 4 x float> %a2, <vscale x 4 x float> %a3, <vscale x 4 x float> %a4, <vscale x 4 x float> %a5, <vscale x 4 x float> %a6, <vscale x 4 x float> %a7, <vscale x 4 x float> %a8)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.fmla.vg1x4.nxv4f32(i32, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>)
+
+define void @SME.fmls.single.vg1x2.nxv2f64(i32 "reg"="wv" %a0, <vscale x 2 x double> "reg"="z" %a1, <vscale x 2 x double> "reg"="z" "list"="a1:+1" %a2, <vscale x 2 x double> "reg"="z" %a3) "feature"="sme,sve2,sme2,sme-f64f64" "enc"="110000010110 a3:4 0 wv_f:2=(a0-8) 110 a1:5 01 000" "asm"="fmls za.d[{a0}, 0, vgx2], {lb} {a1}.d-{a1:+1}.d {rb}, {a3}.d" "nodecode" {
+  call void @llvm.aarch64.sme.fmls.single.vg1x2.nxv2f64(i32 %a0, <vscale x 2 x double> %a1, <vscale x 2 x double> %a2, <vscale x 2 x double> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.fmls.single.vg1x2.nxv2f64(i32, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>)
+
+define void @SME.fmls.single.vg1x2.nxv4f32(i32 "reg"="wv" %a0, <vscale x 4 x float> "reg"="z" %a1, <vscale x 4 x float> "reg"="z" "list"="a1:+1" %a2, <vscale x 4 x float> "reg"="z" %a3) "feature"="sme,sve2,sme2" "enc"="110000010010 a3:4 0 wv_f:2=(a0-8) 110 a1:5 01 000" "asm"="fmls za.s[{a0}, 0, vgx2], {lb} {a1}.s-{a1:+1}.s {rb}, {a3}.s" "nodecode" {
+  call void @llvm.aarch64.sme.fmls.single.vg1x2.nxv4f32(i32 %a0, <vscale x 4 x float> %a1, <vscale x 4 x float> %a2, <vscale x 4 x float> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.fmls.single.vg1x2.nxv4f32(i32, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>)
+
+define void @SME.fmls.single.vg1x4.nxv2f64(i32 "reg"="wv" %a0, <vscale x 2 x double> "reg"="z" %a1, <vscale x 2 x double> "reg"="z" "list"="a1:+1" %a2, <vscale x 2 x double> "reg"="z" "list"="a1:+2" %a3, <vscale x 2 x double> "reg"="z" "list"="a1:+3" %a4, <vscale x 2 x double> "reg"="z" %a5) "feature"="sme,sve2,sme2,sme-f64f64" "enc"="110000010111 a5:4 0 wv_f:2=(a0-8) 110 a1:5 01 000" "asm"="fmls za.d[{a0}, 0, vgx4], {lb} {a1}.d-{a1:+3}.d {rb}, {a5}.d" "nodecode" {
+  call void @llvm.aarch64.sme.fmls.single.vg1x4.nxv2f64(i32 %a0, <vscale x 2 x double> %a1, <vscale x 2 x double> %a2, <vscale x 2 x double> %a3, <vscale x 2 x double> %a4, <vscale x 2 x double> %a5)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.fmls.single.vg1x4.nxv2f64(i32, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>)
+
+define void @SME.fmls.single.vg1x4.nxv4f32(i32 "reg"="wv" %a0, <vscale x 4 x float> "reg"="z" %a1, <vscale x 4 x float> "reg"="z" "list"="a1:+1" %a2, <vscale x 4 x float> "reg"="z" "list"="a1:+2" %a3, <vscale x 4 x float> "reg"="z" "list"="a1:+3" %a4, <vscale x 4 x float> "reg"="z" %a5) "feature"="sme,sve2,sme2" "enc"="110000010011 a5:4 0 wv_f:2=(a0-8) 110 a1:5 01 000" "asm"="fmls za.s[{a0}, 0, vgx4], {lb} {a1}.s-{a1:+3}.s {rb}, {a5}.s" "nodecode" {
+  call void @llvm.aarch64.sme.fmls.single.vg1x4.nxv4f32(i32 %a0, <vscale x 4 x float> %a1, <vscale x 4 x float> %a2, <vscale x 4 x float> %a3, <vscale x 4 x float> %a4, <vscale x 4 x float> %a5)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.fmls.single.vg1x4.nxv4f32(i32, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>)
+
+define void @SME.fmls.vg1x2.nxv2f64(i32 "reg"="wv" %a0, <vscale x 2 x double> "reg"="z" %a1, <vscale x 2 x double> "reg"="z" "list"="a1:+1" %a2, <vscale x 2 x double> "reg"="z" %a3, <vscale x 2 x double> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-f64f64" "enc"="11000001111 zm1_f:4=a3>>1 00 wv_f:2=(a0-8) 110 zn1_f:4=a1>>1 001 000" "asm"="fmls za.d[{a0}, 0, vgx2], {lb} {a1}.d-{a1:+1}.d {rb}, {lb} {a3}.d-{a3:+1}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.fmls.vg1x2.nxv2f64(i32 %a0, <vscale x 2 x double> %a1, <vscale x 2 x double> %a2, <vscale x 2 x double> %a3, <vscale x 2 x double> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.fmls.vg1x2.nxv2f64(i32, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>)
+
+define void @SME.fmls.vg1x2.nxv4f32(i32 "reg"="wv" %a0, <vscale x 4 x float> "reg"="z" %a1, <vscale x 4 x float> "reg"="z" "list"="a1:+1" %a2, <vscale x 4 x float> "reg"="z" %a3, <vscale x 4 x float> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2" "enc"="11000001101 zm1_f:4=a3>>1 00 wv_f:2=(a0-8) 110 zn1_f:4=a1>>1 001 000" "asm"="fmls za.s[{a0}, 0, vgx2], {lb} {a1}.s-{a1:+1}.s {rb}, {lb} {a3}.s-{a3:+1}.s {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.fmls.vg1x2.nxv4f32(i32 %a0, <vscale x 4 x float> %a1, <vscale x 4 x float> %a2, <vscale x 4 x float> %a3, <vscale x 4 x float> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.fmls.vg1x2.nxv4f32(i32, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>)
+
+define void @SME.fmls.vg1x4.nxv2f64(i32 "reg"="wv" %a0, <vscale x 2 x double> "reg"="z" %a1, <vscale x 2 x double> "reg"="z" "list"="a1:+1" %a2, <vscale x 2 x double> "reg"="z" "list"="a1:+2" %a3, <vscale x 2 x double> "reg"="z" "list"="a1:+3" %a4, <vscale x 2 x double> "reg"="z" %a5, <vscale x 2 x double> "reg"="z" "list"="a5:+1" %a6, <vscale x 2 x double> "reg"="z" "list"="a5:+2" %a7, <vscale x 2 x double> "reg"="z" "list"="a5:+3" %a8) "feature"="sme,sve2,sme2,sme-f64f64" "enc"="11000001111 zm1_f:3=a5>>2 010 wv_f:2=(a0-8) 110 zn1_f:3=a1>>2 0001 000" "asm"="fmls za.d[{a0}, 0, vgx4], {lb} {a1}.d-{a1:+3}.d {rb}, {lb} {a5}.d-{a5:+3}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.fmls.vg1x4.nxv2f64(i32 %a0, <vscale x 2 x double> %a1, <vscale x 2 x double> %a2, <vscale x 2 x double> %a3, <vscale x 2 x double> %a4, <vscale x 2 x double> %a5, <vscale x 2 x double> %a6, <vscale x 2 x double> %a7, <vscale x 2 x double> %a8)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.fmls.vg1x4.nxv2f64(i32, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>)
+
+define void @SME.fmls.vg1x4.nxv4f32(i32 "reg"="wv" %a0, <vscale x 4 x float> "reg"="z" %a1, <vscale x 4 x float> "reg"="z" "list"="a1:+1" %a2, <vscale x 4 x float> "reg"="z" "list"="a1:+2" %a3, <vscale x 4 x float> "reg"="z" "list"="a1:+3" %a4, <vscale x 4 x float> "reg"="z" %a5, <vscale x 4 x float> "reg"="z" "list"="a5:+1" %a6, <vscale x 4 x float> "reg"="z" "list"="a5:+2" %a7, <vscale x 4 x float> "reg"="z" "list"="a5:+3" %a8) "feature"="sme,sve2,sme2" "enc"="11000001101 zm1_f:3=a5>>2 010 wv_f:2=(a0-8) 110 zn1_f:3=a1>>2 0001 000" "asm"="fmls za.s[{a0}, 0, vgx4], {lb} {a1}.s-{a1:+3}.s {rb}, {lb} {a5}.s-{a5:+3}.s {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.fmls.vg1x4.nxv4f32(i32 %a0, <vscale x 4 x float> %a1, <vscale x 4 x float> %a2, <vscale x 4 x float> %a3, <vscale x 4 x float> %a4, <vscale x 4 x float> %a5, <vscale x 4 x float> %a6, <vscale x 4 x float> %a7, <vscale x 4 x float> %a8)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.fmls.vg1x4.nxv4f32(i32, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>)
+
+define void @SME.fp8.fdot.multi.za16.vg1x2(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3, <vscale x 16 x i8> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme-f8f16" "enc"="11000001101 zm1_f:4=a3>>1 00 wv_f:2=(a0-8) 100 zn1_f:4=a1>>1 100 000" "asm"="fdot za.h[{a0}, 0, vgx2], {lb} {a1}.b-{a1:+1}.b {rb}, {lb} {a3}.b-{a3:+1}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.fp8.fdot.multi.za16.vg1x2(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.fp8.fdot.multi.za16.vg1x2(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.fp8.fdot.multi.za16.vg1x4(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" "list"="a1:+2" %a3, <vscale x 16 x i8> "reg"="z" "list"="a1:+3" %a4, <vscale x 16 x i8> "reg"="z" %a5, <vscale x 16 x i8> "reg"="z" "list"="a5:+1" %a6, <vscale x 16 x i8> "reg"="z" "list"="a5:+2" %a7, <vscale x 16 x i8> "reg"="z" "list"="a5:+3" %a8) "feature"="sme,sve2,sme-f8f16" "enc"="11000001101 zm1_f:3=a5>>2 010 wv_f:2=(a0-8) 100 zn1_f:3=a1>>2 0100 000" "asm"="fdot za.h[{a0}, 0, vgx4], {lb} {a1}.b-{a1:+3}.b {rb}, {lb} {a5}.b-{a5:+3}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.fp8.fdot.multi.za16.vg1x4(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4, <vscale x 16 x i8> %a5, <vscale x 16 x i8> %a6, <vscale x 16 x i8> %a7, <vscale x 16 x i8> %a8)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.fp8.fdot.multi.za16.vg1x4(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.fp8.fdot.multi.za32.vg1x2(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3, <vscale x 16 x i8> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme-f8f32" "enc"="11000001101 zm1_f:4=a3>>1 00 wv_f:2=(a0-8) 100 zn1_f:4=a1>>1 110 000" "asm"="fdot za.s[{a0}, 0, vgx2], {lb} {a1}.b-{a1:+1}.b {rb}, {lb} {a3}.b-{a3:+1}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.fp8.fdot.multi.za32.vg1x2(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.fp8.fdot.multi.za32.vg1x2(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.fp8.fdot.multi.za32.vg1x4(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" "list"="a1:+2" %a3, <vscale x 16 x i8> "reg"="z" "list"="a1:+3" %a4, <vscale x 16 x i8> "reg"="z" %a5, <vscale x 16 x i8> "reg"="z" "list"="a5:+1" %a6, <vscale x 16 x i8> "reg"="z" "list"="a5:+2" %a7, <vscale x 16 x i8> "reg"="z" "list"="a5:+3" %a8) "feature"="sme,sve2,sme-f8f32" "enc"="11000001101 zm1_f:3=a5>>2 010 wv_f:2=(a0-8) 100 zn1_f:3=a1>>2 0110 000" "asm"="fdot za.s[{a0}, 0, vgx4], {lb} {a1}.b-{a1:+3}.b {rb}, {lb} {a5}.b-{a5:+3}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.fp8.fdot.multi.za32.vg1x4(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4, <vscale x 16 x i8> %a5, <vscale x 16 x i8> %a6, <vscale x 16 x i8> %a7, <vscale x 16 x i8> %a8)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.fp8.fdot.multi.za32.vg1x4(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.fp8.fdot.single.za16.vg1x2(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3) "feature"="sme,sve2,sme-f8f16" "enc"="110000010010 a3:4 0 wv_f:2=(a0-8) 100 a1:5 01 000" "asm"="fdot za.h[{a0}, 0, vgx2], {lb} {a1}.b-{a1:+1}.b {rb}, {a3}.b" "nodecode" {
+  call void @llvm.aarch64.sme.fp8.fdot.single.za16.vg1x2(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.fp8.fdot.single.za16.vg1x2(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.fp8.fdot.single.za16.vg1x4(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" "list"="a1:+2" %a3, <vscale x 16 x i8> "reg"="z" "list"="a1:+3" %a4, <vscale x 16 x i8> "reg"="z" %a5) "feature"="sme,sve2,sme-f8f16" "enc"="110000010011 a5:4 0 wv_f:2=(a0-8) 100 a1:5 01 000" "asm"="fdot za.h[{a0}, 0, vgx4], {lb} {a1}.b-{a1:+3}.b {rb}, {a5}.b" "nodecode" {
+  call void @llvm.aarch64.sme.fp8.fdot.single.za16.vg1x4(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4, <vscale x 16 x i8> %a5)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.fp8.fdot.single.za16.vg1x4(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.fp8.fdot.single.za32.vg1x2(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3) "feature"="sme,sve2,sme-f8f32" "enc"="110000010010 a3:4 0 wv_f:2=(a0-8) 100 a1:5 11 000" "asm"="fdot za.s[{a0}, 0, vgx2], {lb} {a1}.b-{a1:+1}.b {rb}, {a3}.b" "nodecode" {
+  call void @llvm.aarch64.sme.fp8.fdot.single.za32.vg1x2(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.fp8.fdot.single.za32.vg1x2(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.fp8.fdot.single.za32.vg1x4(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" "list"="a1:+2" %a3, <vscale x 16 x i8> "reg"="z" "list"="a1:+3" %a4, <vscale x 16 x i8> "reg"="z" %a5) "feature"="sme,sve2,sme-f8f32" "enc"="110000010011 a5:4 0 wv_f:2=(a0-8) 100 a1:5 11 000" "asm"="fdot za.s[{a0}, 0, vgx4], {lb} {a1}.b-{a1:+3}.b {rb}, {a5}.b" "nodecode" {
+  call void @llvm.aarch64.sme.fp8.fdot.single.za32.vg1x4(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4, <vscale x 16 x i8> %a5)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.fp8.fdot.single.za32.vg1x4(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.fp8.fmlal.multi.za16.vg2x2(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3, <vscale x 16 x i8> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme-f8f16" "enc"="11000001101 zm1_f:4=a3>>1 00 wv_f:2=(a0-8) 010 zn1_f:4=a1>>1 1000 00" "asm"="fmlal za.h[{a0}, 0:{=0+1}, vgx2], {lb} {a1}.b-{a1:+1}.b {rb}, {lb} {a3}.b-{a3:+1}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.fp8.fmlal.multi.za16.vg2x2(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.fp8.fmlal.multi.za16.vg2x2(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.fp8.fmlal.multi.za16.vg2x4(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" "list"="a1:+2" %a3, <vscale x 16 x i8> "reg"="z" "list"="a1:+3" %a4, <vscale x 16 x i8> "reg"="z" %a5, <vscale x 16 x i8> "reg"="z" "list"="a5:+1" %a6, <vscale x 16 x i8> "reg"="z" "list"="a5:+2" %a7, <vscale x 16 x i8> "reg"="z" "list"="a5:+3" %a8) "feature"="sme,sve2,sme-f8f16" "enc"="11000001101 zm1_f:3=a5>>2 010 wv_f:2=(a0-8) 010 zn1_f:3=a1>>2 01000 00" "asm"="fmlal za.h[{a0}, 0:{=0+1}, vgx4], {lb} {a1}.b-{a1:+3}.b {rb}, {lb} {a5}.b-{a5:+3}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.fp8.fmlal.multi.za16.vg2x4(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4, <vscale x 16 x i8> %a5, <vscale x 16 x i8> %a6, <vscale x 16 x i8> %a7, <vscale x 16 x i8> %a8)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.fp8.fmlal.multi.za16.vg2x4(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
 define void @SME.fp8.fmlal.za16.vg2x1(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sme,sve2,sme-f8f16" "enc"="110000010011 a2:4 0 wv_f:2=(a0-8) 011 a1:5 00 000" "asm"="fmlal za.h[{a0}, 0:{=0+1}], {a1}.b, {a2}.b" "nodecode" {
   call void @llvm.aarch64.sme.fp8.fmlal.za16.vg2x1(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
   ret void
 }
 
 declare void @llvm.aarch64.sme.fp8.fmlal.za16.vg2x1(i32, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.fp8.fmlall.multi.za32.vg4x2(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3, <vscale x 16 x i8> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme-f8f32" "enc"="11000001101 zm1_f:4=a3>>1 00 wv_f:2=(a0-8) 000 zn1_f:4=a1>>1 10000 0" "asm"="fmlall za.s[{a0}, 0:{=0+3}, vgx2], {lb} {a1}.b-{a1:+1}.b {rb}, {lb} {a3}.b-{a3:+1}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.fp8.fmlall.multi.za32.vg4x2(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.fp8.fmlall.multi.za32.vg4x2(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.fp8.fmlall.multi.za32.vg4x4(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" "list"="a1:+2" %a3, <vscale x 16 x i8> "reg"="z" "list"="a1:+3" %a4, <vscale x 16 x i8> "reg"="z" %a5, <vscale x 16 x i8> "reg"="z" "list"="a5:+1" %a6, <vscale x 16 x i8> "reg"="z" "list"="a5:+2" %a7, <vscale x 16 x i8> "reg"="z" "list"="a5:+3" %a8) "feature"="sme,sve2,sme-f8f32" "enc"="11000001101 zm1_f:3=a5>>2 010 wv_f:2=(a0-8) 000 zn1_f:3=a1>>2 010000 0" "asm"="fmlall za.s[{a0}, 0:{=0+3}, vgx4], {lb} {a1}.b-{a1:+3}.b {rb}, {lb} {a5}.b-{a5:+3}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.fp8.fmlall.multi.za32.vg4x4(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4, <vscale x 16 x i8> %a5, <vscale x 16 x i8> %a6, <vscale x 16 x i8> %a7, <vscale x 16 x i8> %a8)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.fp8.fmlall.multi.za32.vg4x4(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
 
 define void @SME.fp8.fmlall.za32.vg4x1(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sme,sve2,sme-f8f32" "enc"="110000010011 a2:4 0 wv_f:2=(a0-8) 001 a1:5 000 00" "asm"="fmlall za.s[{a0}, 0:{=0+3}], {a1}.b, {a2}.b" "nodecode" {
   call void @llvm.aarch64.sme.fp8.fmlall.za32.vg4x1(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
@@ -11503,12 +11979,54 @@ define void @SME.fp8.fmop4a.za16.1x1.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "
 
 declare void @llvm.aarch64.sme.fp8.fmop4a.za16.1x1.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>)
 
+define void @SME.fp8.fmop4a.za16.1x2.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" %a2, <vscale x 16 x i8> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2,sme-mop4,sme-f8f16" "enc"="100000000011 zm1_f:3=(a2-16)>>1 00000000 zn_f:3=a1>>1 00100 a0:1" "asm"="fmop4a za{a0}.h, {a1}.b, {lb} {a2}.b-{a2:+1}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.fp8.fmop4a.za16.1x2.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.fp8.fmop4a.za16.1x2.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.fp8.fmop4a.za16.2x1.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3) "feature"="sme,sve2,sme2,sme-mop4,sme-f8f16" "enc"="100000000010 zm_f:3=(a3-16)>>1 00000001 zn1_f:3=a1>>1 00100 a0:1" "asm"="fmop4a za{a0}.h, {lb} {a1}.b-{a1:+1}.b {rb}, {a3}.b" "nodecode" {
+  call void @llvm.aarch64.sme.fp8.fmop4a.za16.2x1.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.fp8.fmop4a.za16.2x1.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.fp8.fmop4a.za16.2x2.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3, <vscale x 16 x i8> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-mop4,sme-f8f16" "enc"="100000000011 zm1_f:3=(a3-16)>>1 00000001 zn1_f:3=a1>>1 00100 a0:1" "asm"="fmop4a za{a0}.h, {lb} {a1}.b-{a1:+1}.b {rb}, {lb} {a3}.b-{a3:+1}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.fp8.fmop4a.za16.2x2.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.fp8.fmop4a.za16.2x2.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
 define void @SME.fp8.fmop4a.za32.1x1.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sme,sve2,sme2,sme-mop4,sme-f8f32" "enc"="100000000010 zm_f:3=(a2-16)>>1 00000000 zn_f:3=a1>>1 0000 a0:2" "asm"="fmop4a za{a0}.s, {a1}.b, {a2}.b" "nodecode" {
   call void @llvm.aarch64.sme.fp8.fmop4a.za32.1x1.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
   ret void
 }
 
 declare void @llvm.aarch64.sme.fp8.fmop4a.za32.1x1.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.fp8.fmop4a.za32.1x2.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" %a2, <vscale x 16 x i8> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2,sme-mop4,sme-f8f32" "enc"="100000000011 zm1_f:3=(a2-16)>>1 00000000 zn_f:3=a1>>1 0000 a0:2" "asm"="fmop4a za{a0}.s, {a1}.b, {lb} {a2}.b-{a2:+1}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.fp8.fmop4a.za32.1x2.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.fp8.fmop4a.za32.1x2.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.fp8.fmop4a.za32.2x1.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3) "feature"="sme,sve2,sme2,sme-mop4,sme-f8f32" "enc"="100000000010 zm_f:3=(a3-16)>>1 00000001 zn1_f:3=a1>>1 0000 a0:2" "asm"="fmop4a za{a0}.s, {lb} {a1}.b-{a1:+1}.b {rb}, {a3}.b" "nodecode" {
+  call void @llvm.aarch64.sme.fp8.fmop4a.za32.2x1.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.fp8.fmop4a.za32.2x1.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.fp8.fmop4a.za32.2x2.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3, <vscale x 16 x i8> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-mop4,sme-f8f32" "enc"="100000000011 zm1_f:3=(a3-16)>>1 00000001 zn1_f:3=a1>>1 0000 a0:2" "asm"="fmop4a za{a0}.s, {lb} {a1}.b-{a1:+1}.b {rb}, {lb} {a3}.b-{a3:+1}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.fp8.fmop4a.za32.2x2.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.fp8.fmop4a.za32.2x2.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
 
 define void @SME.fp8.fmopa.za16(i32 "imm" %a0, <vscale x 16 x i1> "reg"="pg" %a1, <vscale x 16 x i1> "reg"="pg" %a2, <vscale x 16 x i8> "reg"="z" %a3, <vscale x 16 x i8> "reg"="z" %a4) "feature"="sme,sve2,sme-f8f16" "enc"="10000000101 a4:5 a2:3 a1:3 a3:5 0100 a0:1" "asm"="fmopa za{a0}.h, {a1}/m, {a2}/m, {a3}.b, {a4}.b" "nodecode" {
   call void @llvm.aarch64.sme.fp8.fmopa.za16(i32 %a0, <vscale x 16 x i1> %a1, <vscale x 16 x i1> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4)
@@ -11685,6 +12203,48 @@ define void @SME.mop4a.1x1.nxv4f32(i32 "imm" %a0, <vscale x 4 x float> "reg"="z"
 
 declare void @llvm.aarch64.sme.mop4a.1x1.nxv4f32(i32, <vscale x 4 x float>, <vscale x 4 x float>)
 
+define void @SME.mop4a.1x2.nxv2f64(i32 "imm" %a0, <vscale x 2 x double> "reg"="z" %a1, <vscale x 2 x double> "reg"="z" %a2, <vscale x 2 x double> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2,sme-mop4,sme-f64f64" "enc"="100000001101 zm1_f:3=(a2-16)>>1 00000000 zn_f:3=a1>>1 001 a0:3" "asm"="fmop4a za{a0}.d, {a1}.d, {lb} {a2}.d-{a2:+1}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.mop4a.1x2.nxv2f64(i32 %a0, <vscale x 2 x double> %a1, <vscale x 2 x double> %a2, <vscale x 2 x double> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.mop4a.1x2.nxv2f64(i32, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>)
+
+define void @SME.mop4a.1x2.nxv4f32(i32 "imm" %a0, <vscale x 4 x float> "reg"="z" %a1, <vscale x 4 x float> "reg"="z" %a2, <vscale x 4 x float> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000000001 zm1_f:3=(a2-16)>>1 00000000 zn_f:3=a1>>1 0000 a0:2" "asm"="fmop4a za{a0}.s, {a1}.s, {lb} {a2}.s-{a2:+1}.s {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.mop4a.1x2.nxv4f32(i32 %a0, <vscale x 4 x float> %a1, <vscale x 4 x float> %a2, <vscale x 4 x float> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.mop4a.1x2.nxv4f32(i32, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>)
+
+define void @SME.mop4a.2x1.nxv2f64(i32 "imm" %a0, <vscale x 2 x double> "reg"="z" %a1, <vscale x 2 x double> "reg"="z" "list"="a1:+1" %a2, <vscale x 2 x double> "reg"="z" %a3) "feature"="sme,sve2,sme2,sme-mop4,sme-f64f64" "enc"="100000001100 zm_f:3=(a3-16)>>1 00000001 zn1_f:3=a1>>1 001 a0:3" "asm"="fmop4a za{a0}.d, {lb} {a1}.d-{a1:+1}.d {rb}, {a3}.d" "nodecode" {
+  call void @llvm.aarch64.sme.mop4a.2x1.nxv2f64(i32 %a0, <vscale x 2 x double> %a1, <vscale x 2 x double> %a2, <vscale x 2 x double> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.mop4a.2x1.nxv2f64(i32, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>)
+
+define void @SME.mop4a.2x1.nxv4f32(i32 "imm" %a0, <vscale x 4 x float> "reg"="z" %a1, <vscale x 4 x float> "reg"="z" "list"="a1:+1" %a2, <vscale x 4 x float> "reg"="z" %a3) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000000000 zm_f:3=(a3-16)>>1 00000001 zn1_f:3=a1>>1 0000 a0:2" "asm"="fmop4a za{a0}.s, {lb} {a1}.s-{a1:+1}.s {rb}, {a3}.s" "nodecode" {
+  call void @llvm.aarch64.sme.mop4a.2x1.nxv4f32(i32 %a0, <vscale x 4 x float> %a1, <vscale x 4 x float> %a2, <vscale x 4 x float> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.mop4a.2x1.nxv4f32(i32, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>)
+
+define void @SME.mop4a.2x2.nxv2f64(i32 "imm" %a0, <vscale x 2 x double> "reg"="z" %a1, <vscale x 2 x double> "reg"="z" "list"="a1:+1" %a2, <vscale x 2 x double> "reg"="z" %a3, <vscale x 2 x double> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-mop4,sme-f64f64" "enc"="100000001101 zm1_f:3=(a3-16)>>1 00000001 zn1_f:3=a1>>1 001 a0:3" "asm"="fmop4a za{a0}.d, {lb} {a1}.d-{a1:+1}.d {rb}, {lb} {a3}.d-{a3:+1}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.mop4a.2x2.nxv2f64(i32 %a0, <vscale x 2 x double> %a1, <vscale x 2 x double> %a2, <vscale x 2 x double> %a3, <vscale x 2 x double> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.mop4a.2x2.nxv2f64(i32, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>)
+
+define void @SME.mop4a.2x2.nxv4f32(i32 "imm" %a0, <vscale x 4 x float> "reg"="z" %a1, <vscale x 4 x float> "reg"="z" "list"="a1:+1" %a2, <vscale x 4 x float> "reg"="z" %a3, <vscale x 4 x float> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000000001 zm1_f:3=(a3-16)>>1 00000001 zn1_f:3=a1>>1 0000 a0:2" "asm"="fmop4a za{a0}.s, {lb} {a1}.s-{a1:+1}.s {rb}, {lb} {a3}.s-{a3:+1}.s {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.mop4a.2x2.nxv4f32(i32 %a0, <vscale x 4 x float> %a1, <vscale x 4 x float> %a2, <vscale x 4 x float> %a3, <vscale x 4 x float> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.mop4a.2x2.nxv4f32(i32, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>)
+
 define void @SME.mop4s.1x1.nxv2f64(i32 "imm" %a0, <vscale x 2 x double> "reg"="z" %a1, <vscale x 2 x double> "reg"="z" %a2) "feature"="sme,sve2,sme2,sme-mop4,sme-f64f64" "enc"="100000001100 zm_f:3=(a2-16)>>1 00000000 zn_f:3=a1>>1 011 a0:3" "asm"="fmop4s za{a0}.d, {a1}.d, {a2}.d" "nodecode" {
   call void @llvm.aarch64.sme.mop4s.1x1.nxv2f64(i32 %a0, <vscale x 2 x double> %a1, <vscale x 2 x double> %a2)
   ret void
@@ -11698,6 +12258,48 @@ define void @SME.mop4s.1x1.nxv4f32(i32 "imm" %a0, <vscale x 4 x float> "reg"="z"
 }
 
 declare void @llvm.aarch64.sme.mop4s.1x1.nxv4f32(i32, <vscale x 4 x float>, <vscale x 4 x float>)
+
+define void @SME.mop4s.1x2.nxv2f64(i32 "imm" %a0, <vscale x 2 x double> "reg"="z" %a1, <vscale x 2 x double> "reg"="z" %a2, <vscale x 2 x double> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2,sme-mop4,sme-f64f64" "enc"="100000001101 zm1_f:3=(a2-16)>>1 00000000 zn_f:3=a1>>1 011 a0:3" "asm"="fmop4s za{a0}.d, {a1}.d, {lb} {a2}.d-{a2:+1}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.mop4s.1x2.nxv2f64(i32 %a0, <vscale x 2 x double> %a1, <vscale x 2 x double> %a2, <vscale x 2 x double> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.mop4s.1x2.nxv2f64(i32, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>)
+
+define void @SME.mop4s.1x2.nxv4f32(i32 "imm" %a0, <vscale x 4 x float> "reg"="z" %a1, <vscale x 4 x float> "reg"="z" %a2, <vscale x 4 x float> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000000001 zm1_f:3=(a2-16)>>1 00000000 zn_f:3=a1>>1 0100 a0:2" "asm"="fmop4s za{a0}.s, {a1}.s, {lb} {a2}.s-{a2:+1}.s {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.mop4s.1x2.nxv4f32(i32 %a0, <vscale x 4 x float> %a1, <vscale x 4 x float> %a2, <vscale x 4 x float> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.mop4s.1x2.nxv4f32(i32, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>)
+
+define void @SME.mop4s.2x1.nxv2f64(i32 "imm" %a0, <vscale x 2 x double> "reg"="z" %a1, <vscale x 2 x double> "reg"="z" "list"="a1:+1" %a2, <vscale x 2 x double> "reg"="z" %a3) "feature"="sme,sve2,sme2,sme-mop4,sme-f64f64" "enc"="100000001100 zm_f:3=(a3-16)>>1 00000001 zn1_f:3=a1>>1 011 a0:3" "asm"="fmop4s za{a0}.d, {lb} {a1}.d-{a1:+1}.d {rb}, {a3}.d" "nodecode" {
+  call void @llvm.aarch64.sme.mop4s.2x1.nxv2f64(i32 %a0, <vscale x 2 x double> %a1, <vscale x 2 x double> %a2, <vscale x 2 x double> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.mop4s.2x1.nxv2f64(i32, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>)
+
+define void @SME.mop4s.2x1.nxv4f32(i32 "imm" %a0, <vscale x 4 x float> "reg"="z" %a1, <vscale x 4 x float> "reg"="z" "list"="a1:+1" %a2, <vscale x 4 x float> "reg"="z" %a3) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000000000 zm_f:3=(a3-16)>>1 00000001 zn1_f:3=a1>>1 0100 a0:2" "asm"="fmop4s za{a0}.s, {lb} {a1}.s-{a1:+1}.s {rb}, {a3}.s" "nodecode" {
+  call void @llvm.aarch64.sme.mop4s.2x1.nxv4f32(i32 %a0, <vscale x 4 x float> %a1, <vscale x 4 x float> %a2, <vscale x 4 x float> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.mop4s.2x1.nxv4f32(i32, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>)
+
+define void @SME.mop4s.2x2.nxv2f64(i32 "imm" %a0, <vscale x 2 x double> "reg"="z" %a1, <vscale x 2 x double> "reg"="z" "list"="a1:+1" %a2, <vscale x 2 x double> "reg"="z" %a3, <vscale x 2 x double> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-mop4,sme-f64f64" "enc"="100000001101 zm1_f:3=(a3-16)>>1 00000001 zn1_f:3=a1>>1 011 a0:3" "asm"="fmop4s za{a0}.d, {lb} {a1}.d-{a1:+1}.d {rb}, {lb} {a3}.d-{a3:+1}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.mop4s.2x2.nxv2f64(i32 %a0, <vscale x 2 x double> %a1, <vscale x 2 x double> %a2, <vscale x 2 x double> %a3, <vscale x 2 x double> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.mop4s.2x2.nxv2f64(i32, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>)
+
+define void @SME.mop4s.2x2.nxv4f32(i32 "imm" %a0, <vscale x 4 x float> "reg"="z" %a1, <vscale x 4 x float> "reg"="z" "list"="a1:+1" %a2, <vscale x 4 x float> "reg"="z" %a3, <vscale x 4 x float> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000000001 zm1_f:3=(a3-16)>>1 00000001 zn1_f:3=a1>>1 0100 a0:2" "asm"="fmop4s za{a0}.s, {lb} {a1}.s-{a1:+1}.s {rb}, {lb} {a3}.s-{a3:+1}.s {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.mop4s.2x2.nxv4f32(i32 %a0, <vscale x 4 x float> %a1, <vscale x 4 x float> %a2, <vscale x 4 x float> %a3, <vscale x 4 x float> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.mop4s.2x2.nxv4f32(i32, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>)
 
 define void @SME.mopa.nxv2f64(i32 "imm" %a0, <vscale x 2 x i1> "reg"="pg" %a1, <vscale x 2 x i1> "reg"="pg" %a2, <vscale x 2 x double> "reg"="z" %a3, <vscale x 2 x double> "reg"="z" %a4) "feature"="sme,sve2,sme-f64f64" "enc"="10000000110 a4:5 a2:3 a1:3 a3:5 00 a0:3" "asm"="fmopa za{a0}.d, {a1}/m, {a2}/m, {a3}.d, {a4}.d" "nodecode" {
   call void @llvm.aarch64.sme.mopa.nxv2f64(i32 %a0, <vscale x 2 x i1> %a1, <vscale x 2 x i1> %a2, <vscale x 2 x double> %a3, <vscale x 2 x double> %a4)
@@ -12119,12 +12721,110 @@ define <vscale x 8 x i16> @SME.readz.vert.nxv8i16(i32 "imm" %a0, i32 "reg"="ws" 
 
 declare <vscale x 8 x i16> @llvm.aarch64.sme.readz.vert.nxv8i16(i32, i32)
 
+define void @SME.sdot.single.za32.vg1x2.nxv16i8(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3) "feature"="sme,sve2,sme2" "enc"="110000010010 a3:4 0 wv_f:2=(a0-8) 101 a1:5 00 000" "asm"="sdot za.s[{a0}, 0, vgx2], {lb} {a1}.b-{a1:+1}.b {rb}, {a3}.b" "nodecode" {
+  call void @llvm.aarch64.sme.sdot.single.za32.vg1x2.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sdot.single.za32.vg1x2.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.sdot.single.za32.vg1x2.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3) "feature"="sme,sve2,sme2" "enc"="110000010110 a3:4 0 wv_f:2=(a0-8) 101 a1:5 01 000" "asm"="sdot za.s[{a0}, 0, vgx2], {lb} {a1}.h-{a1:+1}.h {rb}, {a3}.h" "nodecode" {
+  call void @llvm.aarch64.sme.sdot.single.za32.vg1x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sdot.single.za32.vg1x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.sdot.single.za32.vg1x4.nxv16i8(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" "list"="a1:+2" %a3, <vscale x 16 x i8> "reg"="z" "list"="a1:+3" %a4, <vscale x 16 x i8> "reg"="z" %a5) "feature"="sme,sve2,sme2" "enc"="110000010011 a5:4 0 wv_f:2=(a0-8) 101 a1:5 00 000" "asm"="sdot za.s[{a0}, 0, vgx4], {lb} {a1}.b-{a1:+3}.b {rb}, {a5}.b" "nodecode" {
+  call void @llvm.aarch64.sme.sdot.single.za32.vg1x4.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4, <vscale x 16 x i8> %a5)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sdot.single.za32.vg1x4.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.sdot.single.za32.vg1x4.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" "list"="a1:+2" %a3, <vscale x 8 x i16> "reg"="z" "list"="a1:+3" %a4, <vscale x 8 x i16> "reg"="z" %a5) "feature"="sme,sve2,sme2" "enc"="110000010111 a5:4 0 wv_f:2=(a0-8) 101 a1:5 01 000" "asm"="sdot za.s[{a0}, 0, vgx4], {lb} {a1}.h-{a1:+3}.h {rb}, {a5}.h" "nodecode" {
+  call void @llvm.aarch64.sme.sdot.single.za32.vg1x4.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4, <vscale x 8 x i16> %a5)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sdot.single.za32.vg1x4.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.sdot.single.za64.vg1x2.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3) "feature"="sme,sve2,sme2,sme-i16i64" "enc"="110000010110 a3:4 0 wv_f:2=(a0-8) 101 a1:5 00 000" "asm"="sdot za.d[{a0}, 0, vgx2], {lb} {a1}.h-{a1:+1}.h {rb}, {a3}.h" "nodecode" {
+  call void @llvm.aarch64.sme.sdot.single.za64.vg1x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sdot.single.za64.vg1x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.sdot.single.za64.vg1x4.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" "list"="a1:+2" %a3, <vscale x 8 x i16> "reg"="z" "list"="a1:+3" %a4, <vscale x 8 x i16> "reg"="z" %a5) "feature"="sme,sve2,sme2,sme-i16i64" "enc"="110000010111 a5:4 0 wv_f:2=(a0-8) 101 a1:5 00 000" "asm"="sdot za.d[{a0}, 0, vgx4], {lb} {a1}.h-{a1:+3}.h {rb}, {a5}.h" "nodecode" {
+  call void @llvm.aarch64.sme.sdot.single.za64.vg1x4.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4, <vscale x 8 x i16> %a5)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sdot.single.za64.vg1x4.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.sdot.za32.vg1x2.nxv16i8(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3, <vscale x 16 x i8> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2" "enc"="11000001101 zm1_f:4=a3>>1 00 wv_f:2=(a0-8) 101 zn1_f:4=a1>>1 000 000" "asm"="sdot za.s[{a0}, 0, vgx2], {lb} {a1}.b-{a1:+1}.b {rb}, {lb} {a3}.b-{a3:+1}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.sdot.za32.vg1x2.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sdot.za32.vg1x2.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.sdot.za32.vg1x2.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3, <vscale x 8 x i16> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2" "enc"="11000001111 zm1_f:4=a3>>1 00 wv_f:2=(a0-8) 101 zn1_f:4=a1>>1 001 000" "asm"="sdot za.s[{a0}, 0, vgx2], {lb} {a1}.h-{a1:+1}.h {rb}, {lb} {a3}.h-{a3:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.sdot.za32.vg1x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sdot.za32.vg1x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.sdot.za32.vg1x4.nxv16i8(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" "list"="a1:+2" %a3, <vscale x 16 x i8> "reg"="z" "list"="a1:+3" %a4, <vscale x 16 x i8> "reg"="z" %a5, <vscale x 16 x i8> "reg"="z" "list"="a5:+1" %a6, <vscale x 16 x i8> "reg"="z" "list"="a5:+2" %a7, <vscale x 16 x i8> "reg"="z" "list"="a5:+3" %a8) "feature"="sme,sve2,sme2" "enc"="11000001101 zm1_f:3=a5>>2 010 wv_f:2=(a0-8) 101 zn1_f:3=a1>>2 0000 000" "asm"="sdot za.s[{a0}, 0, vgx4], {lb} {a1}.b-{a1:+3}.b {rb}, {lb} {a5}.b-{a5:+3}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.sdot.za32.vg1x4.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4, <vscale x 16 x i8> %a5, <vscale x 16 x i8> %a6, <vscale x 16 x i8> %a7, <vscale x 16 x i8> %a8)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sdot.za32.vg1x4.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.sdot.za32.vg1x4.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" "list"="a1:+2" %a3, <vscale x 8 x i16> "reg"="z" "list"="a1:+3" %a4, <vscale x 8 x i16> "reg"="z" %a5, <vscale x 8 x i16> "reg"="z" "list"="a5:+1" %a6, <vscale x 8 x i16> "reg"="z" "list"="a5:+2" %a7, <vscale x 8 x i16> "reg"="z" "list"="a5:+3" %a8) "feature"="sme,sve2,sme2" "enc"="11000001111 zm1_f:3=a5>>2 010 wv_f:2=(a0-8) 101 zn1_f:3=a1>>2 0001 000" "asm"="sdot za.s[{a0}, 0, vgx4], {lb} {a1}.h-{a1:+3}.h {rb}, {lb} {a5}.h-{a5:+3}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.sdot.za32.vg1x4.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4, <vscale x 8 x i16> %a5, <vscale x 8 x i16> %a6, <vscale x 8 x i16> %a7, <vscale x 8 x i16> %a8)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sdot.za32.vg1x4.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.sdot.za64.vg1x2.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3, <vscale x 8 x i16> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-i16i64" "enc"="11000001111 zm1_f:4=a3>>1 00 wv_f:2=(a0-8) 101 zn1_f:4=a1>>1 000 000" "asm"="sdot za.d[{a0}, 0, vgx2], {lb} {a1}.h-{a1:+1}.h {rb}, {lb} {a3}.h-{a3:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.sdot.za64.vg1x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sdot.za64.vg1x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.sdot.za64.vg1x4.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" "list"="a1:+2" %a3, <vscale x 8 x i16> "reg"="z" "list"="a1:+3" %a4, <vscale x 8 x i16> "reg"="z" %a5, <vscale x 8 x i16> "reg"="z" "list"="a5:+1" %a6, <vscale x 8 x i16> "reg"="z" "list"="a5:+2" %a7, <vscale x 8 x i16> "reg"="z" "list"="a5:+3" %a8) "feature"="sme,sve2,sme2,sme-i16i64" "enc"="11000001111 zm1_f:3=a5>>2 010 wv_f:2=(a0-8) 101 zn1_f:3=a1>>2 0000 000" "asm"="sdot za.d[{a0}, 0, vgx4], {lb} {a1}.h-{a1:+3}.h {rb}, {lb} {a5}.h-{a5:+3}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.sdot.za64.vg1x4.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4, <vscale x 8 x i16> %a5, <vscale x 8 x i16> %a6, <vscale x 8 x i16> %a7, <vscale x 8 x i16> %a8)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sdot.za64.vg1x4.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
 define void @SME.smla.za32.single.vg4x1.nxv16i8(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sme,sve2,sme2" "enc"="110000010010 a2:4 0 wv_f:2=(a0-8) 001 a1:5 000 00" "asm"="smlall za.s[{a0}, 0:{=0+3}], {a1}.b, {a2}.b" "nodecode" {
   call void @llvm.aarch64.sme.smla.za32.single.vg4x1.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
   ret void
 }
 
 declare void @llvm.aarch64.sme.smla.za32.single.vg4x1.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.smla.za32.vg4x2.nxv16i8(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3, <vscale x 16 x i8> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2" "enc"="11000001101 zm1_f:4=a3>>1 00 wv_f:2=(a0-8) 000 zn1_f:4=a1>>1 00000 0" "asm"="smlall za.s[{a0}, 0:{=0+3}, vgx2], {lb} {a1}.b-{a1:+1}.b {rb}, {lb} {a3}.b-{a3:+1}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.smla.za32.vg4x2.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.smla.za32.vg4x2.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.smla.za32.vg4x4.nxv16i8(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" "list"="a1:+2" %a3, <vscale x 16 x i8> "reg"="z" "list"="a1:+3" %a4, <vscale x 16 x i8> "reg"="z" %a5, <vscale x 16 x i8> "reg"="z" "list"="a5:+1" %a6, <vscale x 16 x i8> "reg"="z" "list"="a5:+2" %a7, <vscale x 16 x i8> "reg"="z" "list"="a5:+3" %a8) "feature"="sme,sve2,sme2" "enc"="11000001101 zm1_f:3=a5>>2 010 wv_f:2=(a0-8) 000 zn1_f:3=a1>>2 000000 0" "asm"="smlall za.s[{a0}, 0:{=0+3}, vgx4], {lb} {a1}.b-{a1:+3}.b {rb}, {lb} {a5}.b-{a5:+3}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.smla.za32.vg4x4.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4, <vscale x 16 x i8> %a5, <vscale x 16 x i8> %a6, <vscale x 16 x i8> %a7, <vscale x 16 x i8> %a8)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.smla.za32.vg4x4.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
 
 define void @SME.smla.za64.single.vg4x1.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sme,sve2,sme2,sme-i16i64" "enc"="110000010110 a2:4 0 wv_f:2=(a0-8) 001 a1:5 000 00" "asm"="smlall za.d[{a0}, 0:{=0+3}], {a1}.h, {a2}.h" "nodecode" {
   call void @llvm.aarch64.sme.smla.za64.single.vg4x1.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
@@ -12133,12 +12833,40 @@ define void @SME.smla.za64.single.vg4x1.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 
 
 declare void @llvm.aarch64.sme.smla.za64.single.vg4x1.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>)
 
+define void @SME.smla.za64.vg4x2.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3, <vscale x 8 x i16> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-i16i64" "enc"="11000001111 zm1_f:4=a3>>1 00 wv_f:2=(a0-8) 000 zn1_f:4=a1>>1 00000 0" "asm"="smlall za.d[{a0}, 0:{=0+3}, vgx2], {lb} {a1}.h-{a1:+1}.h {rb}, {lb} {a3}.h-{a3:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.smla.za64.vg4x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.smla.za64.vg4x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.smla.za64.vg4x4.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" "list"="a1:+2" %a3, <vscale x 8 x i16> "reg"="z" "list"="a1:+3" %a4, <vscale x 8 x i16> "reg"="z" %a5, <vscale x 8 x i16> "reg"="z" "list"="a5:+1" %a6, <vscale x 8 x i16> "reg"="z" "list"="a5:+2" %a7, <vscale x 8 x i16> "reg"="z" "list"="a5:+3" %a8) "feature"="sme,sve2,sme2,sme-i16i64" "enc"="11000001111 zm1_f:3=a5>>2 010 wv_f:2=(a0-8) 000 zn1_f:3=a1>>2 000000 0" "asm"="smlall za.d[{a0}, 0:{=0+3}, vgx4], {lb} {a1}.h-{a1:+3}.h {rb}, {lb} {a5}.h-{a5:+3}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.smla.za64.vg4x4.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4, <vscale x 8 x i16> %a5, <vscale x 8 x i16> %a6, <vscale x 8 x i16> %a7, <vscale x 8 x i16> %a8)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.smla.za64.vg4x4.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
 define void @SME.smlal.single.vg2x1.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sme,sve2,sme2" "enc"="110000010110 a2:4 0 wv_f:2=(a0-8) 011 a1:5 00 000" "asm"="smlal za.s[{a0}, 0:{=0+1}], {a1}.h, {a2}.h" "nodecode" {
   call void @llvm.aarch64.sme.smlal.single.vg2x1.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
   ret void
 }
 
 declare void @llvm.aarch64.sme.smlal.single.vg2x1.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.smlal.vg2x2.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3, <vscale x 8 x i16> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2" "enc"="11000001111 zm1_f:4=a3>>1 00 wv_f:2=(a0-8) 010 zn1_f:4=a1>>1 0000 00" "asm"="smlal za.s[{a0}, 0:{=0+1}, vgx2], {lb} {a1}.h-{a1:+1}.h {rb}, {lb} {a3}.h-{a3:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.smlal.vg2x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.smlal.vg2x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.smlal.vg2x4.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" "list"="a1:+2" %a3, <vscale x 8 x i16> "reg"="z" "list"="a1:+3" %a4, <vscale x 8 x i16> "reg"="z" %a5, <vscale x 8 x i16> "reg"="z" "list"="a5:+1" %a6, <vscale x 8 x i16> "reg"="z" "list"="a5:+2" %a7, <vscale x 8 x i16> "reg"="z" "list"="a5:+3" %a8) "feature"="sme,sve2,sme2" "enc"="11000001111 zm1_f:3=a5>>2 010 wv_f:2=(a0-8) 010 zn1_f:3=a1>>2 00000 00" "asm"="smlal za.s[{a0}, 0:{=0+1}, vgx4], {lb} {a1}.h-{a1:+3}.h {rb}, {lb} {a5}.h-{a5:+3}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.smlal.vg2x4.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4, <vscale x 8 x i16> %a5, <vscale x 8 x i16> %a6, <vscale x 8 x i16> %a7, <vscale x 8 x i16> %a8)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.smlal.vg2x4.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
 
 define void @SME.smls.za32.single.vg4x1.nxv16i8(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sme,sve2,sme2" "enc"="110000010010 a2:4 0 wv_f:2=(a0-8) 001 a1:5 010 00" "asm"="smlsll za.s[{a0}, 0:{=0+3}], {a1}.b, {a2}.b" "nodecode" {
   call void @llvm.aarch64.sme.smls.za32.single.vg4x1.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
@@ -12147,6 +12875,20 @@ define void @SME.smls.za32.single.vg4x1.nxv16i8(i32 "reg"="wv" %a0, <vscale x 16
 
 declare void @llvm.aarch64.sme.smls.za32.single.vg4x1.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>)
 
+define void @SME.smls.za32.vg4x2.nxv16i8(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3, <vscale x 16 x i8> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2" "enc"="11000001101 zm1_f:4=a3>>1 00 wv_f:2=(a0-8) 000 zn1_f:4=a1>>1 00100 0" "asm"="smlsll za.s[{a0}, 0:{=0+3}, vgx2], {lb} {a1}.b-{a1:+1}.b {rb}, {lb} {a3}.b-{a3:+1}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.smls.za32.vg4x2.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.smls.za32.vg4x2.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.smls.za32.vg4x4.nxv16i8(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" "list"="a1:+2" %a3, <vscale x 16 x i8> "reg"="z" "list"="a1:+3" %a4, <vscale x 16 x i8> "reg"="z" %a5, <vscale x 16 x i8> "reg"="z" "list"="a5:+1" %a6, <vscale x 16 x i8> "reg"="z" "list"="a5:+2" %a7, <vscale x 16 x i8> "reg"="z" "list"="a5:+3" %a8) "feature"="sme,sve2,sme2" "enc"="11000001101 zm1_f:3=a5>>2 010 wv_f:2=(a0-8) 000 zn1_f:3=a1>>2 000100 0" "asm"="smlsll za.s[{a0}, 0:{=0+3}, vgx4], {lb} {a1}.b-{a1:+3}.b {rb}, {lb} {a5}.b-{a5:+3}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.smls.za32.vg4x4.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4, <vscale x 16 x i8> %a5, <vscale x 16 x i8> %a6, <vscale x 16 x i8> %a7, <vscale x 16 x i8> %a8)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.smls.za32.vg4x4.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
 define void @SME.smls.za64.single.vg4x1.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sme,sve2,sme2,sme-i16i64" "enc"="110000010110 a2:4 0 wv_f:2=(a0-8) 001 a1:5 010 00" "asm"="smlsll za.d[{a0}, 0:{=0+3}], {a1}.h, {a2}.h" "nodecode" {
   call void @llvm.aarch64.sme.smls.za64.single.vg4x1.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
   ret void
@@ -12154,12 +12896,40 @@ define void @SME.smls.za64.single.vg4x1.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 
 
 declare void @llvm.aarch64.sme.smls.za64.single.vg4x1.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>)
 
+define void @SME.smls.za64.vg4x2.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3, <vscale x 8 x i16> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-i16i64" "enc"="11000001111 zm1_f:4=a3>>1 00 wv_f:2=(a0-8) 000 zn1_f:4=a1>>1 00100 0" "asm"="smlsll za.d[{a0}, 0:{=0+3}, vgx2], {lb} {a1}.h-{a1:+1}.h {rb}, {lb} {a3}.h-{a3:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.smls.za64.vg4x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.smls.za64.vg4x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.smls.za64.vg4x4.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" "list"="a1:+2" %a3, <vscale x 8 x i16> "reg"="z" "list"="a1:+3" %a4, <vscale x 8 x i16> "reg"="z" %a5, <vscale x 8 x i16> "reg"="z" "list"="a5:+1" %a6, <vscale x 8 x i16> "reg"="z" "list"="a5:+2" %a7, <vscale x 8 x i16> "reg"="z" "list"="a5:+3" %a8) "feature"="sme,sve2,sme2,sme-i16i64" "enc"="11000001111 zm1_f:3=a5>>2 010 wv_f:2=(a0-8) 000 zn1_f:3=a1>>2 000100 0" "asm"="smlsll za.d[{a0}, 0:{=0+3}, vgx4], {lb} {a1}.h-{a1:+3}.h {rb}, {lb} {a5}.h-{a5:+3}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.smls.za64.vg4x4.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4, <vscale x 8 x i16> %a5, <vscale x 8 x i16> %a6, <vscale x 8 x i16> %a7, <vscale x 8 x i16> %a8)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.smls.za64.vg4x4.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
 define void @SME.smlsl.single.vg2x1.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sme,sve2,sme2" "enc"="110000010110 a2:4 0 wv_f:2=(a0-8) 011 a1:5 01 000" "asm"="smlsl za.s[{a0}, 0:{=0+1}], {a1}.h, {a2}.h" "nodecode" {
   call void @llvm.aarch64.sme.smlsl.single.vg2x1.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
   ret void
 }
 
 declare void @llvm.aarch64.sme.smlsl.single.vg2x1.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.smlsl.vg2x2.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3, <vscale x 8 x i16> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2" "enc"="11000001111 zm1_f:4=a3>>1 00 wv_f:2=(a0-8) 010 zn1_f:4=a1>>1 0010 00" "asm"="smlsl za.s[{a0}, 0:{=0+1}, vgx2], {lb} {a1}.h-{a1:+1}.h {rb}, {lb} {a3}.h-{a3:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.smlsl.vg2x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.smlsl.vg2x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.smlsl.vg2x4.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" "list"="a1:+2" %a3, <vscale x 8 x i16> "reg"="z" "list"="a1:+3" %a4, <vscale x 8 x i16> "reg"="z" %a5, <vscale x 8 x i16> "reg"="z" "list"="a5:+1" %a6, <vscale x 8 x i16> "reg"="z" "list"="a5:+2" %a7, <vscale x 8 x i16> "reg"="z" "list"="a5:+3" %a8) "feature"="sme,sve2,sme2" "enc"="11000001111 zm1_f:3=a5>>2 010 wv_f:2=(a0-8) 010 zn1_f:3=a1>>2 00010 00" "asm"="smlsl za.s[{a0}, 0:{=0+1}, vgx4], {lb} {a1}.h-{a1:+3}.h {rb}, {lb} {a5}.h-{a5:+3}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.smlsl.vg2x4.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4, <vscale x 8 x i16> %a5, <vscale x 8 x i16> %a6, <vscale x 8 x i16> %a7, <vscale x 8 x i16> %a8)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.smlsl.vg2x4.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
 
 define void @SME.smop4a.wide.1x1.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000000000 zm_f:3=(a2-16)>>1 01000000 zn_f:3=a1>>1 0000 a0:2" "asm"="smop4a za{a0}.s, {a1}.b, {a2}.b" "nodecode" {
   call void @llvm.aarch64.sme.smop4a.wide.1x1.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
@@ -12175,12 +12945,75 @@ define void @SME.smop4a.wide.1x1.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"
 
 declare void @llvm.aarch64.sme.smop4a.wide.1x1.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>)
 
+define void @SME.smop4a.wide.1x2.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" %a2, <vscale x 16 x i8> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000000001 zm1_f:3=(a2-16)>>1 01000000 zn_f:3=a1>>1 0000 a0:2" "asm"="smop4a za{a0}.s, {a1}.b, {lb} {a2}.b-{a2:+1}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.smop4a.wide.1x2.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.smop4a.wide.1x2.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.smop4a.wide.1x2.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" %a2, <vscale x 8 x i16> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000000001 zm1_f:3=(a2-16)>>1 01000000 zn_f:3=a1>>1 0010 a0:2" "asm"="smop4a za{a0}.s, {a1}.h, {lb} {a2}.h-{a2:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.smop4a.wide.1x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.smop4a.wide.1x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.smop4a.wide.2x1.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000000000 zm_f:3=(a3-16)>>1 01000001 zn1_f:3=a1>>1 0000 a0:2" "asm"="smop4a za{a0}.s, {lb} {a1}.b-{a1:+1}.b {rb}, {a3}.b" "nodecode" {
+  call void @llvm.aarch64.sme.smop4a.wide.2x1.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.smop4a.wide.2x1.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.smop4a.wide.2x1.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000000000 zm_f:3=(a3-16)>>1 01000001 zn1_f:3=a1>>1 0010 a0:2" "asm"="smop4a za{a0}.s, {lb} {a1}.h-{a1:+1}.h {rb}, {a3}.h" "nodecode" {
+  call void @llvm.aarch64.sme.smop4a.wide.2x1.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.smop4a.wide.2x1.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.smop4a.wide.2x2.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3, <vscale x 16 x i8> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000000001 zm1_f:3=(a3-16)>>1 01000001 zn1_f:3=a1>>1 0000 a0:2" "asm"="smop4a za{a0}.s, {lb} {a1}.b-{a1:+1}.b {rb}, {lb} {a3}.b-{a3:+1}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.smop4a.wide.2x2.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.smop4a.wide.2x2.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.smop4a.wide.2x2.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3, <vscale x 8 x i16> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000000001 zm1_f:3=(a3-16)>>1 01000001 zn1_f:3=a1>>1 0010 a0:2" "asm"="smop4a za{a0}.s, {lb} {a1}.h-{a1:+1}.h {rb}, {lb} {a3}.h-{a3:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.smop4a.wide.2x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.smop4a.wide.2x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
 define void @SME.smop4a.za64.wide.1x1.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sme,sve2,sme2,sme-mop4,sme-i16i64" "enc"="101000001100 zm_f:3=(a2-16)>>1 00000000 zn_f:3=a1>>1 001 a0:3" "asm"="smop4a za{a0}.d, {a1}.h, {a2}.h" "nodecode" {
   call void @llvm.aarch64.sme.smop4a.za64.wide.1x1.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
   ret void
 }
 
 declare void @llvm.aarch64.sme.smop4a.za64.wide.1x1.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.smop4a.za64.wide.1x2.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" %a2, <vscale x 8 x i16> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2,sme-mop4,sme-i16i64" "enc"="101000001101 zm1_f:3=(a2-16)>>1 00000000 zn_f:3=a1>>1 001 a0:3" "asm"="smop4a za{a0}.d, {a1}.h, {lb} {a2}.h-{a2:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.smop4a.za64.wide.1x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.smop4a.za64.wide.1x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.smop4a.za64.wide.2x1.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3) "feature"="sme,sve2,sme2,sme-mop4,sme-i16i64" "enc"="101000001100 zm_f:3=(a3-16)>>1 00000001 zn1_f:3=a1>>1 001 a0:3" "asm"="smop4a za{a0}.d, {lb} {a1}.h-{a1:+1}.h {rb}, {a3}.h" "nodecode" {
+  call void @llvm.aarch64.sme.smop4a.za64.wide.2x1.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.smop4a.za64.wide.2x1.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.smop4a.za64.wide.2x2.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3, <vscale x 8 x i16> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-mop4,sme-i16i64" "enc"="101000001101 zm1_f:3=(a3-16)>>1 00000001 zn1_f:3=a1>>1 001 a0:3" "asm"="smop4a za{a0}.d, {lb} {a1}.h-{a1:+1}.h {rb}, {lb} {a3}.h-{a3:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.smop4a.za64.wide.2x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.smop4a.za64.wide.2x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
 
 define void @SME.smop4s.wide.1x1.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000000000 zm_f:3=(a2-16)>>1 01000000 zn_f:3=a1>>1 0100 a0:2" "asm"="smop4s za{a0}.s, {a1}.b, {a2}.b" "nodecode" {
   call void @llvm.aarch64.sme.smop4s.wide.1x1.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
@@ -12196,12 +13029,75 @@ define void @SME.smop4s.wide.1x1.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"
 
 declare void @llvm.aarch64.sme.smop4s.wide.1x1.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>)
 
+define void @SME.smop4s.wide.1x2.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" %a2, <vscale x 16 x i8> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000000001 zm1_f:3=(a2-16)>>1 01000000 zn_f:3=a1>>1 0100 a0:2" "asm"="smop4s za{a0}.s, {a1}.b, {lb} {a2}.b-{a2:+1}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.smop4s.wide.1x2.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.smop4s.wide.1x2.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.smop4s.wide.1x2.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" %a2, <vscale x 8 x i16> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000000001 zm1_f:3=(a2-16)>>1 01000000 zn_f:3=a1>>1 0110 a0:2" "asm"="smop4s za{a0}.s, {a1}.h, {lb} {a2}.h-{a2:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.smop4s.wide.1x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.smop4s.wide.1x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.smop4s.wide.2x1.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000000000 zm_f:3=(a3-16)>>1 01000001 zn1_f:3=a1>>1 0100 a0:2" "asm"="smop4s za{a0}.s, {lb} {a1}.b-{a1:+1}.b {rb}, {a3}.b" "nodecode" {
+  call void @llvm.aarch64.sme.smop4s.wide.2x1.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.smop4s.wide.2x1.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.smop4s.wide.2x1.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000000000 zm_f:3=(a3-16)>>1 01000001 zn1_f:3=a1>>1 0110 a0:2" "asm"="smop4s za{a0}.s, {lb} {a1}.h-{a1:+1}.h {rb}, {a3}.h" "nodecode" {
+  call void @llvm.aarch64.sme.smop4s.wide.2x1.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.smop4s.wide.2x1.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.smop4s.wide.2x2.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3, <vscale x 16 x i8> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000000001 zm1_f:3=(a3-16)>>1 01000001 zn1_f:3=a1>>1 0100 a0:2" "asm"="smop4s za{a0}.s, {lb} {a1}.b-{a1:+1}.b {rb}, {lb} {a3}.b-{a3:+1}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.smop4s.wide.2x2.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.smop4s.wide.2x2.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.smop4s.wide.2x2.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3, <vscale x 8 x i16> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000000001 zm1_f:3=(a3-16)>>1 01000001 zn1_f:3=a1>>1 0110 a0:2" "asm"="smop4s za{a0}.s, {lb} {a1}.h-{a1:+1}.h {rb}, {lb} {a3}.h-{a3:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.smop4s.wide.2x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.smop4s.wide.2x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
 define void @SME.smop4s.za64.wide.1x1.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sme,sve2,sme2,sme-mop4,sme-i16i64" "enc"="101000001100 zm_f:3=(a2-16)>>1 00000000 zn_f:3=a1>>1 011 a0:3" "asm"="smop4s za{a0}.d, {a1}.h, {a2}.h" "nodecode" {
   call void @llvm.aarch64.sme.smop4s.za64.wide.1x1.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
   ret void
 }
 
 declare void @llvm.aarch64.sme.smop4s.za64.wide.1x1.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.smop4s.za64.wide.1x2.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" %a2, <vscale x 8 x i16> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2,sme-mop4,sme-i16i64" "enc"="101000001101 zm1_f:3=(a2-16)>>1 00000000 zn_f:3=a1>>1 011 a0:3" "asm"="smop4s za{a0}.d, {a1}.h, {lb} {a2}.h-{a2:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.smop4s.za64.wide.1x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.smop4s.za64.wide.1x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.smop4s.za64.wide.2x1.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3) "feature"="sme,sve2,sme2,sme-mop4,sme-i16i64" "enc"="101000001100 zm_f:3=(a3-16)>>1 00000001 zn1_f:3=a1>>1 011 a0:3" "asm"="smop4s za{a0}.d, {lb} {a1}.h-{a1:+1}.h {rb}, {a3}.h" "nodecode" {
+  call void @llvm.aarch64.sme.smop4s.za64.wide.2x1.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.smop4s.za64.wide.2x1.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.smop4s.za64.wide.2x2.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3, <vscale x 8 x i16> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-mop4,sme-i16i64" "enc"="101000001101 zm1_f:3=(a3-16)>>1 00000001 zn1_f:3=a1>>1 011 a0:3" "asm"="smop4s za{a0}.d, {lb} {a1}.h-{a1:+1}.h {rb}, {lb} {a3}.h-{a3:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.smop4s.za64.wide.2x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.smop4s.za64.wide.2x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
 
 define void @SME.smopa.wide.nxv16i8(i32 "imm" %a0, <vscale x 16 x i1> "reg"="pg" %a1, <vscale x 16 x i1> "reg"="pg" %a2, <vscale x 16 x i8> "reg"="z" %a3, <vscale x 16 x i8> "reg"="z" %a4) "feature"="sme,sve2" "enc"="10100000100 a4:5 a2:3 a1:3 a3:5 000 a0:2" "asm"="smopa za{a0}.s, {a1}/m, {a2}/m, {a3}.b, {a4}.b" "nodecode" {
   call void @llvm.aarch64.sme.smopa.wide.nxv16i8(i32 %a0, <vscale x 16 x i1> %a1, <vscale x 16 x i1> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4)
@@ -12322,12 +13218,159 @@ define void @SME.str.zt(ptr "reg"="xsp" %a1) "feature"="sme,sve2,sme2" "enc"="11
 
 declare void @llvm.aarch64.sme.str.zt(i32, ptr)
 
+define void @SME.sub.write.single.za.vg1x2.nxv2i64(i32 "reg"="wv" %a0, <vscale x 2 x i64> "reg"="z" %a1, <vscale x 2 x i64> "reg"="z" "list"="a1:+1" %a2, <vscale x 2 x i64> "reg"="z" %a3) "feature"="sme,sve2,sme2,sme-i16i64" "enc"="110000010110 a3:4 0 wv_f:2=(a0-8) 110 a1:5 11 000" "asm"="sub za.d[{a0}, 0, vgx2], {lb} {a1}.d-{a1:+1}.d {rb}, {a3}.d" "nodecode" {
+  call void @llvm.aarch64.sme.sub.write.single.za.vg1x2.nxv2i64(i32 %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2, <vscale x 2 x i64> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sub.write.single.za.vg1x2.nxv2i64(i32, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>)
+
+define void @SME.sub.write.single.za.vg1x2.nxv4i32(i32 "reg"="wv" %a0, <vscale x 4 x i32> "reg"="z" %a1, <vscale x 4 x i32> "reg"="z" "list"="a1:+1" %a2, <vscale x 4 x i32> "reg"="z" %a3) "feature"="sme,sve2,sme2" "enc"="110000010010 a3:4 0 wv_f:2=(a0-8) 110 a1:5 11 000" "asm"="sub za.s[{a0}, 0, vgx2], {lb} {a1}.s-{a1:+1}.s {rb}, {a3}.s" "nodecode" {
+  call void @llvm.aarch64.sme.sub.write.single.za.vg1x2.nxv4i32(i32 %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2, <vscale x 4 x i32> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sub.write.single.za.vg1x2.nxv4i32(i32, <vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i32>)
+
+define void @SME.sub.write.single.za.vg1x4.nxv2i64(i32 "reg"="wv" %a0, <vscale x 2 x i64> "reg"="z" %a1, <vscale x 2 x i64> "reg"="z" "list"="a1:+1" %a2, <vscale x 2 x i64> "reg"="z" "list"="a1:+2" %a3, <vscale x 2 x i64> "reg"="z" "list"="a1:+3" %a4, <vscale x 2 x i64> "reg"="z" %a5) "feature"="sme,sve2,sme2,sme-i16i64" "enc"="110000010111 a5:4 0 wv_f:2=(a0-8) 110 a1:5 11 000" "asm"="sub za.d[{a0}, 0, vgx4], {lb} {a1}.d-{a1:+3}.d {rb}, {a5}.d" "nodecode" {
+  call void @llvm.aarch64.sme.sub.write.single.za.vg1x4.nxv2i64(i32 %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2, <vscale x 2 x i64> %a3, <vscale x 2 x i64> %a4, <vscale x 2 x i64> %a5)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sub.write.single.za.vg1x4.nxv2i64(i32, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>)
+
+define void @SME.sub.write.single.za.vg1x4.nxv4i32(i32 "reg"="wv" %a0, <vscale x 4 x i32> "reg"="z" %a1, <vscale x 4 x i32> "reg"="z" "list"="a1:+1" %a2, <vscale x 4 x i32> "reg"="z" "list"="a1:+2" %a3, <vscale x 4 x i32> "reg"="z" "list"="a1:+3" %a4, <vscale x 4 x i32> "reg"="z" %a5) "feature"="sme,sve2,sme2" "enc"="110000010011 a5:4 0 wv_f:2=(a0-8) 110 a1:5 11 000" "asm"="sub za.s[{a0}, 0, vgx4], {lb} {a1}.s-{a1:+3}.s {rb}, {a5}.s" "nodecode" {
+  call void @llvm.aarch64.sme.sub.write.single.za.vg1x4.nxv4i32(i32 %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2, <vscale x 4 x i32> %a3, <vscale x 4 x i32> %a4, <vscale x 4 x i32> %a5)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sub.write.single.za.vg1x4.nxv4i32(i32, <vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i32>)
+
+define void @SME.sub.write.za.vg1x2.nxv2i64(i32 "reg"="wv" %a0, <vscale x 2 x i64> "reg"="z" %a1, <vscale x 2 x i64> "reg"="z" "list"="a1:+1" %a2, <vscale x 2 x i64> "reg"="z" %a3, <vscale x 2 x i64> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-i16i64" "enc"="11000001111 zm1_f:4=a3>>1 00 wv_f:2=(a0-8) 110 zn1_f:4=a1>>1 011 000" "asm"="sub za.d[{a0}, 0, vgx2], {lb} {a1}.d-{a1:+1}.d {rb}, {lb} {a3}.d-{a3:+1}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.sub.write.za.vg1x2.nxv2i64(i32 %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2, <vscale x 2 x i64> %a3, <vscale x 2 x i64> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sub.write.za.vg1x2.nxv2i64(i32, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>)
+
+define void @SME.sub.write.za.vg1x2.nxv4i32(i32 "reg"="wv" %a0, <vscale x 4 x i32> "reg"="z" %a1, <vscale x 4 x i32> "reg"="z" "list"="a1:+1" %a2, <vscale x 4 x i32> "reg"="z" %a3, <vscale x 4 x i32> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2" "enc"="11000001101 zm1_f:4=a3>>1 00 wv_f:2=(a0-8) 110 zn1_f:4=a1>>1 011 000" "asm"="sub za.s[{a0}, 0, vgx2], {lb} {a1}.s-{a1:+1}.s {rb}, {lb} {a3}.s-{a3:+1}.s {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.sub.write.za.vg1x2.nxv4i32(i32 %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2, <vscale x 4 x i32> %a3, <vscale x 4 x i32> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sub.write.za.vg1x2.nxv4i32(i32, <vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i32>)
+
+define void @SME.sub.write.za.vg1x4.nxv2i64(i32 "reg"="wv" %a0, <vscale x 2 x i64> "reg"="z" %a1, <vscale x 2 x i64> "reg"="z" "list"="a1:+1" %a2, <vscale x 2 x i64> "reg"="z" "list"="a1:+2" %a3, <vscale x 2 x i64> "reg"="z" "list"="a1:+3" %a4, <vscale x 2 x i64> "reg"="z" %a5, <vscale x 2 x i64> "reg"="z" "list"="a5:+1" %a6, <vscale x 2 x i64> "reg"="z" "list"="a5:+2" %a7, <vscale x 2 x i64> "reg"="z" "list"="a5:+3" %a8) "feature"="sme,sve2,sme2,sme-i16i64" "enc"="11000001111 zm1_f:3=a5>>2 010 wv_f:2=(a0-8) 110 zn1_f:3=a1>>2 0011 000" "asm"="sub za.d[{a0}, 0, vgx4], {lb} {a1}.d-{a1:+3}.d {rb}, {lb} {a5}.d-{a5:+3}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.sub.write.za.vg1x4.nxv2i64(i32 %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2, <vscale x 2 x i64> %a3, <vscale x 2 x i64> %a4, <vscale x 2 x i64> %a5, <vscale x 2 x i64> %a6, <vscale x 2 x i64> %a7, <vscale x 2 x i64> %a8)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sub.write.za.vg1x4.nxv2i64(i32, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>)
+
+define void @SME.sub.write.za.vg1x4.nxv4i32(i32 "reg"="wv" %a0, <vscale x 4 x i32> "reg"="z" %a1, <vscale x 4 x i32> "reg"="z" "list"="a1:+1" %a2, <vscale x 4 x i32> "reg"="z" "list"="a1:+2" %a3, <vscale x 4 x i32> "reg"="z" "list"="a1:+3" %a4, <vscale x 4 x i32> "reg"="z" %a5, <vscale x 4 x i32> "reg"="z" "list"="a5:+1" %a6, <vscale x 4 x i32> "reg"="z" "list"="a5:+2" %a7, <vscale x 4 x i32> "reg"="z" "list"="a5:+3" %a8) "feature"="sme,sve2,sme2" "enc"="11000001101 zm1_f:3=a5>>2 010 wv_f:2=(a0-8) 110 zn1_f:3=a1>>2 0011 000" "asm"="sub za.s[{a0}, 0, vgx4], {lb} {a1}.s-{a1:+3}.s {rb}, {lb} {a5}.s-{a5:+3}.s {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.sub.write.za.vg1x4.nxv4i32(i32 %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2, <vscale x 4 x i32> %a3, <vscale x 4 x i32> %a4, <vscale x 4 x i32> %a5, <vscale x 4 x i32> %a6, <vscale x 4 x i32> %a7, <vscale x 4 x i32> %a8)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sub.write.za.vg1x4.nxv4i32(i32, <vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i32>)
+
+define void @SME.sub.za32.vg1x2.nxv4f32(i32 "reg"="wv" %a0, <vscale x 4 x float> "reg"="z" %a1, <vscale x 4 x float> "reg"="z" "list"="a1:+1" %a2) "feature"="sme,sve2,sme2" "enc"="11000001101000000 wv_f:2=(a0-8) 111 zm1_f:4=a1>>1 001 000" "asm"="fsub za.s[{a0}, 0, vgx2], {lb} {a1}.s-{a1:+1}.s {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.sub.za32.vg1x2.nxv4f32(i32 %a0, <vscale x 4 x float> %a1, <vscale x 4 x float> %a2)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sub.za32.vg1x2.nxv4f32(i32, <vscale x 4 x float>, <vscale x 4 x float>)
+
+define void @SME.sub.za32.vg1x2.nxv4i32(i32 "reg"="wv" %a0, <vscale x 4 x i32> "reg"="z" %a1, <vscale x 4 x i32> "reg"="z" "list"="a1:+1" %a2) "feature"="sme,sve2,sme2" "enc"="11000001101000000 wv_f:2=(a0-8) 111 zm1_f:4=a1>>1 011 000" "asm"="sub za.s[{a0}, 0, vgx2], {lb} {a1}.s-{a1:+1}.s {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.sub.za32.vg1x2.nxv4i32(i32 %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sub.za32.vg1x2.nxv4i32(i32, <vscale x 4 x i32>, <vscale x 4 x i32>)
+
+define void @SME.sub.za32.vg1x4.nxv4f32(i32 "reg"="wv" %a0, <vscale x 4 x float> "reg"="z" %a1, <vscale x 4 x float> "reg"="z" "list"="a1:+1" %a2, <vscale x 4 x float> "reg"="z" "list"="a1:+2" %a3, <vscale x 4 x float> "reg"="z" "list"="a1:+3" %a4) "feature"="sme,sve2,sme2" "enc"="11000001101000010 wv_f:2=(a0-8) 111 zm1_f:3=a1>>2 0001 000" "asm"="fsub za.s[{a0}, 0, vgx4], {lb} {a1}.s-{a1:+3}.s {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.sub.za32.vg1x4.nxv4f32(i32 %a0, <vscale x 4 x float> %a1, <vscale x 4 x float> %a2, <vscale x 4 x float> %a3, <vscale x 4 x float> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sub.za32.vg1x4.nxv4f32(i32, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>)
+
+define void @SME.sub.za32.vg1x4.nxv4i32(i32 "reg"="wv" %a0, <vscale x 4 x i32> "reg"="z" %a1, <vscale x 4 x i32> "reg"="z" "list"="a1:+1" %a2, <vscale x 4 x i32> "reg"="z" "list"="a1:+2" %a3, <vscale x 4 x i32> "reg"="z" "list"="a1:+3" %a4) "feature"="sme,sve2,sme2" "enc"="11000001101000010 wv_f:2=(a0-8) 111 zm1_f:3=a1>>2 0011 000" "asm"="sub za.s[{a0}, 0, vgx4], {lb} {a1}.s-{a1:+3}.s {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.sub.za32.vg1x4.nxv4i32(i32 %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2, <vscale x 4 x i32> %a3, <vscale x 4 x i32> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sub.za32.vg1x4.nxv4i32(i32, <vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i32>)
+
+define void @SME.sub.za64.vg1x2.nxv2f64(i32 "reg"="wv" %a0, <vscale x 2 x double> "reg"="z" %a1, <vscale x 2 x double> "reg"="z" "list"="a1:+1" %a2) "feature"="sme,sve2,sme2,sme-f64f64" "enc"="11000001111000000 wv_f:2=(a0-8) 111 zm1_f:4=a1>>1 001 000" "asm"="fsub za.d[{a0}, 0, vgx2], {lb} {a1}.d-{a1:+1}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.sub.za64.vg1x2.nxv2f64(i32 %a0, <vscale x 2 x double> %a1, <vscale x 2 x double> %a2)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sub.za64.vg1x2.nxv2f64(i32, <vscale x 2 x double>, <vscale x 2 x double>)
+
+define void @SME.sub.za64.vg1x2.nxv2i64(i32 "reg"="wv" %a0, <vscale x 2 x i64> "reg"="z" %a1, <vscale x 2 x i64> "reg"="z" "list"="a1:+1" %a2) "feature"="sme,sve2,sme2,sme-i16i64" "enc"="11000001111000000 wv_f:2=(a0-8) 111 zm1_f:4=a1>>1 011 000" "asm"="sub za.d[{a0}, 0, vgx2], {lb} {a1}.d-{a1:+1}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.sub.za64.vg1x2.nxv2i64(i32 %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sub.za64.vg1x2.nxv2i64(i32, <vscale x 2 x i64>, <vscale x 2 x i64>)
+
+define void @SME.sub.za64.vg1x4.nxv2f64(i32 "reg"="wv" %a0, <vscale x 2 x double> "reg"="z" %a1, <vscale x 2 x double> "reg"="z" "list"="a1:+1" %a2, <vscale x 2 x double> "reg"="z" "list"="a1:+2" %a3, <vscale x 2 x double> "reg"="z" "list"="a1:+3" %a4) "feature"="sme,sve2,sme2,sme-f64f64" "enc"="11000001111000010 wv_f:2=(a0-8) 111 zm1_f:3=a1>>2 0001 000" "asm"="fsub za.d[{a0}, 0, vgx4], {lb} {a1}.d-{a1:+3}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.sub.za64.vg1x4.nxv2f64(i32 %a0, <vscale x 2 x double> %a1, <vscale x 2 x double> %a2, <vscale x 2 x double> %a3, <vscale x 2 x double> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sub.za64.vg1x4.nxv2f64(i32, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>)
+
+define void @SME.sub.za64.vg1x4.nxv2i64(i32 "reg"="wv" %a0, <vscale x 2 x i64> "reg"="z" %a1, <vscale x 2 x i64> "reg"="z" "list"="a1:+1" %a2, <vscale x 2 x i64> "reg"="z" "list"="a1:+2" %a3, <vscale x 2 x i64> "reg"="z" "list"="a1:+3" %a4) "feature"="sme,sve2,sme2,sme-i16i64" "enc"="11000001111000010 wv_f:2=(a0-8) 111 zm1_f:3=a1>>2 0011 000" "asm"="sub za.d[{a0}, 0, vgx4], {lb} {a1}.d-{a1:+3}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.sub.za64.vg1x4.nxv2i64(i32 %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2, <vscale x 2 x i64> %a3, <vscale x 2 x i64> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sub.za64.vg1x4.nxv2i64(i32, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>)
+
+define void @SME.sudot.single.za32.vg1x2.nxv16i8(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3) "feature"="sme,sve2,sme2" "enc"="110000010010 a3:4 0 wv_f:2=(a0-8) 101 a1:5 11 000" "asm"="sudot za.s[{a0}, 0, vgx2], {lb} {a1}.b-{a1:+1}.b {rb}, {a3}.b" "nodecode" {
+  call void @llvm.aarch64.sme.sudot.single.za32.vg1x2.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sudot.single.za32.vg1x2.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.sudot.single.za32.vg1x4.nxv16i8(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" "list"="a1:+2" %a3, <vscale x 16 x i8> "reg"="z" "list"="a1:+3" %a4, <vscale x 16 x i8> "reg"="z" %a5) "feature"="sme,sve2,sme2" "enc"="110000010011 a5:4 0 wv_f:2=(a0-8) 101 a1:5 11 000" "asm"="sudot za.s[{a0}, 0, vgx4], {lb} {a1}.b-{a1:+3}.b {rb}, {a5}.b" "nodecode" {
+  call void @llvm.aarch64.sme.sudot.single.za32.vg1x4.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4, <vscale x 16 x i8> %a5)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sudot.single.za32.vg1x4.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
 define void @SME.sumop4a.wide.1x1.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000000010 zm_f:3=(a2-16)>>1 01000000 zn_f:3=a1>>1 0000 a0:2" "asm"="sumop4a za{a0}.s, {a1}.b, {a2}.b" "nodecode" {
   call void @llvm.aarch64.sme.sumop4a.wide.1x1.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
   ret void
 }
 
 declare void @llvm.aarch64.sme.sumop4a.wide.1x1.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.sumop4a.wide.1x2.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" %a2, <vscale x 16 x i8> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000000011 zm1_f:3=(a2-16)>>1 01000000 zn_f:3=a1>>1 0000 a0:2" "asm"="sumop4a za{a0}.s, {a1}.b, {lb} {a2}.b-{a2:+1}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.sumop4a.wide.1x2.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sumop4a.wide.1x2.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.sumop4a.wide.2x1.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000000010 zm_f:3=(a3-16)>>1 01000001 zn1_f:3=a1>>1 0000 a0:2" "asm"="sumop4a za{a0}.s, {lb} {a1}.b-{a1:+1}.b {rb}, {a3}.b" "nodecode" {
+  call void @llvm.aarch64.sme.sumop4a.wide.2x1.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sumop4a.wide.2x1.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.sumop4a.wide.2x2.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3, <vscale x 16 x i8> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000000011 zm1_f:3=(a3-16)>>1 01000001 zn1_f:3=a1>>1 0000 a0:2" "asm"="sumop4a za{a0}.s, {lb} {a1}.b-{a1:+1}.b {rb}, {lb} {a3}.b-{a3:+1}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.sumop4a.wide.2x2.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sumop4a.wide.2x2.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
 
 define void @SME.sumop4a.za64.wide.1x1.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sme,sve2,sme2,sme-mop4,sme-i16i64" "enc"="101000001110 zm_f:3=(a2-16)>>1 00000000 zn_f:3=a1>>1 001 a0:3" "asm"="sumop4a za{a0}.d, {a1}.h, {a2}.h" "nodecode" {
   call void @llvm.aarch64.sme.sumop4a.za64.wide.1x1.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
@@ -12336,6 +13379,27 @@ define void @SME.sumop4a.za64.wide.1x1.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16>
 
 declare void @llvm.aarch64.sme.sumop4a.za64.wide.1x1.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>)
 
+define void @SME.sumop4a.za64.wide.1x2.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" %a2, <vscale x 8 x i16> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2,sme-mop4,sme-i16i64" "enc"="101000001111 zm1_f:3=(a2-16)>>1 00000000 zn_f:3=a1>>1 001 a0:3" "asm"="sumop4a za{a0}.d, {a1}.h, {lb} {a2}.h-{a2:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.sumop4a.za64.wide.1x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sumop4a.za64.wide.1x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.sumop4a.za64.wide.2x1.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3) "feature"="sme,sve2,sme2,sme-mop4,sme-i16i64" "enc"="101000001110 zm_f:3=(a3-16)>>1 00000001 zn1_f:3=a1>>1 001 a0:3" "asm"="sumop4a za{a0}.d, {lb} {a1}.h-{a1:+1}.h {rb}, {a3}.h" "nodecode" {
+  call void @llvm.aarch64.sme.sumop4a.za64.wide.2x1.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sumop4a.za64.wide.2x1.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.sumop4a.za64.wide.2x2.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3, <vscale x 8 x i16> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-mop4,sme-i16i64" "enc"="101000001111 zm1_f:3=(a3-16)>>1 00000001 zn1_f:3=a1>>1 001 a0:3" "asm"="sumop4a za{a0}.d, {lb} {a1}.h-{a1:+1}.h {rb}, {lb} {a3}.h-{a3:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.sumop4a.za64.wide.2x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sumop4a.za64.wide.2x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
 define void @SME.sumop4s.wide.1x1.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000000010 zm_f:3=(a2-16)>>1 01000000 zn_f:3=a1>>1 0100 a0:2" "asm"="sumop4s za{a0}.s, {a1}.b, {a2}.b" "nodecode" {
   call void @llvm.aarch64.sme.sumop4s.wide.1x1.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
   ret void
@@ -12343,12 +13407,54 @@ define void @SME.sumop4s.wide.1x1.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg
 
 declare void @llvm.aarch64.sme.sumop4s.wide.1x1.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>)
 
+define void @SME.sumop4s.wide.1x2.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" %a2, <vscale x 16 x i8> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000000011 zm1_f:3=(a2-16)>>1 01000000 zn_f:3=a1>>1 0100 a0:2" "asm"="sumop4s za{a0}.s, {a1}.b, {lb} {a2}.b-{a2:+1}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.sumop4s.wide.1x2.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sumop4s.wide.1x2.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.sumop4s.wide.2x1.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000000010 zm_f:3=(a3-16)>>1 01000001 zn1_f:3=a1>>1 0100 a0:2" "asm"="sumop4s za{a0}.s, {lb} {a1}.b-{a1:+1}.b {rb}, {a3}.b" "nodecode" {
+  call void @llvm.aarch64.sme.sumop4s.wide.2x1.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sumop4s.wide.2x1.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.sumop4s.wide.2x2.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3, <vscale x 16 x i8> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000000011 zm1_f:3=(a3-16)>>1 01000001 zn1_f:3=a1>>1 0100 a0:2" "asm"="sumop4s za{a0}.s, {lb} {a1}.b-{a1:+1}.b {rb}, {lb} {a3}.b-{a3:+1}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.sumop4s.wide.2x2.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sumop4s.wide.2x2.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
 define void @SME.sumop4s.za64.wide.1x1.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sme,sve2,sme2,sme-mop4,sme-i16i64" "enc"="101000001110 zm_f:3=(a2-16)>>1 00000000 zn_f:3=a1>>1 011 a0:3" "asm"="sumop4s za{a0}.d, {a1}.h, {a2}.h" "nodecode" {
   call void @llvm.aarch64.sme.sumop4s.za64.wide.1x1.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
   ret void
 }
 
 declare void @llvm.aarch64.sme.sumop4s.za64.wide.1x1.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.sumop4s.za64.wide.1x2.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" %a2, <vscale x 8 x i16> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2,sme-mop4,sme-i16i64" "enc"="101000001111 zm1_f:3=(a2-16)>>1 00000000 zn_f:3=a1>>1 011 a0:3" "asm"="sumop4s za{a0}.d, {a1}.h, {lb} {a2}.h-{a2:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.sumop4s.za64.wide.1x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sumop4s.za64.wide.1x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.sumop4s.za64.wide.2x1.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3) "feature"="sme,sve2,sme2,sme-mop4,sme-i16i64" "enc"="101000001110 zm_f:3=(a3-16)>>1 00000001 zn1_f:3=a1>>1 011 a0:3" "asm"="sumop4s za{a0}.d, {lb} {a1}.h-{a1:+1}.h {rb}, {a3}.h" "nodecode" {
+  call void @llvm.aarch64.sme.sumop4s.za64.wide.2x1.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sumop4s.za64.wide.2x1.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.sumop4s.za64.wide.2x2.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3, <vscale x 8 x i16> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-mop4,sme-i16i64" "enc"="101000001111 zm1_f:3=(a3-16)>>1 00000001 zn1_f:3=a1>>1 011 a0:3" "asm"="sumop4s za{a0}.d, {lb} {a1}.h-{a1:+1}.h {rb}, {lb} {a3}.h-{a3:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.sumop4s.za64.wide.2x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.sumop4s.za64.wide.2x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
 
 define void @SME.sumopa.wide.nxv16i8(i32 "imm" %a0, <vscale x 16 x i1> "reg"="pg" %a1, <vscale x 16 x i1> "reg"="pg" %a2, <vscale x 16 x i8> "reg"="z" %a3, <vscale x 16 x i8> "reg"="z" %a4) "feature"="sme,sve2" "enc"="10100000101 a4:5 a2:3 a1:3 a3:5 000 a0:2" "asm"="sumopa za{a0}.s, {a1}/m, {a2}/m, {a3}.b, {a4}.b" "nodecode" {
   call void @llvm.aarch64.sme.sumopa.wide.nxv16i8(i32 %a0, <vscale x 16 x i1> %a1, <vscale x 16 x i1> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4)
@@ -12378,12 +13484,110 @@ define void @SME.sumops.wide.nxv8i16(i32 "imm" %a0, <vscale x 8 x i1> "reg"="pg"
 
 declare void @llvm.aarch64.sme.sumops.wide.nxv8i16(i32, <vscale x 8 x i1>, <vscale x 8 x i1>, <vscale x 8 x i16>, <vscale x 8 x i16>)
 
+define void @SME.udot.single.za32.vg1x2.nxv16i8(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3) "feature"="sme,sve2,sme2" "enc"="110000010010 a3:4 0 wv_f:2=(a0-8) 101 a1:5 10 000" "asm"="udot za.s[{a0}, 0, vgx2], {lb} {a1}.b-{a1:+1}.b {rb}, {a3}.b" "nodecode" {
+  call void @llvm.aarch64.sme.udot.single.za32.vg1x2.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.udot.single.za32.vg1x2.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.udot.single.za32.vg1x2.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3) "feature"="sme,sve2,sme2" "enc"="110000010110 a3:4 0 wv_f:2=(a0-8) 101 a1:5 11 000" "asm"="udot za.s[{a0}, 0, vgx2], {lb} {a1}.h-{a1:+1}.h {rb}, {a3}.h" "nodecode" {
+  call void @llvm.aarch64.sme.udot.single.za32.vg1x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.udot.single.za32.vg1x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.udot.single.za32.vg1x4.nxv16i8(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" "list"="a1:+2" %a3, <vscale x 16 x i8> "reg"="z" "list"="a1:+3" %a4, <vscale x 16 x i8> "reg"="z" %a5) "feature"="sme,sve2,sme2" "enc"="110000010011 a5:4 0 wv_f:2=(a0-8) 101 a1:5 10 000" "asm"="udot za.s[{a0}, 0, vgx4], {lb} {a1}.b-{a1:+3}.b {rb}, {a5}.b" "nodecode" {
+  call void @llvm.aarch64.sme.udot.single.za32.vg1x4.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4, <vscale x 16 x i8> %a5)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.udot.single.za32.vg1x4.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.udot.single.za32.vg1x4.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" "list"="a1:+2" %a3, <vscale x 8 x i16> "reg"="z" "list"="a1:+3" %a4, <vscale x 8 x i16> "reg"="z" %a5) "feature"="sme,sve2,sme2" "enc"="110000010111 a5:4 0 wv_f:2=(a0-8) 101 a1:5 11 000" "asm"="udot za.s[{a0}, 0, vgx4], {lb} {a1}.h-{a1:+3}.h {rb}, {a5}.h" "nodecode" {
+  call void @llvm.aarch64.sme.udot.single.za32.vg1x4.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4, <vscale x 8 x i16> %a5)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.udot.single.za32.vg1x4.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.udot.single.za64.vg1x2.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3) "feature"="sme,sve2,sme2,sme-i16i64" "enc"="110000010110 a3:4 0 wv_f:2=(a0-8) 101 a1:5 10 000" "asm"="udot za.d[{a0}, 0, vgx2], {lb} {a1}.h-{a1:+1}.h {rb}, {a3}.h" "nodecode" {
+  call void @llvm.aarch64.sme.udot.single.za64.vg1x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.udot.single.za64.vg1x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.udot.single.za64.vg1x4.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" "list"="a1:+2" %a3, <vscale x 8 x i16> "reg"="z" "list"="a1:+3" %a4, <vscale x 8 x i16> "reg"="z" %a5) "feature"="sme,sve2,sme2,sme-i16i64" "enc"="110000010111 a5:4 0 wv_f:2=(a0-8) 101 a1:5 10 000" "asm"="udot za.d[{a0}, 0, vgx4], {lb} {a1}.h-{a1:+3}.h {rb}, {a5}.h" "nodecode" {
+  call void @llvm.aarch64.sme.udot.single.za64.vg1x4.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4, <vscale x 8 x i16> %a5)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.udot.single.za64.vg1x4.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.udot.za32.vg1x2.nxv16i8(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3, <vscale x 16 x i8> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2" "enc"="11000001101 zm1_f:4=a3>>1 00 wv_f:2=(a0-8) 101 zn1_f:4=a1>>1 010 000" "asm"="udot za.s[{a0}, 0, vgx2], {lb} {a1}.b-{a1:+1}.b {rb}, {lb} {a3}.b-{a3:+1}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.udot.za32.vg1x2.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.udot.za32.vg1x2.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.udot.za32.vg1x2.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3, <vscale x 8 x i16> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2" "enc"="11000001111 zm1_f:4=a3>>1 00 wv_f:2=(a0-8) 101 zn1_f:4=a1>>1 011 000" "asm"="udot za.s[{a0}, 0, vgx2], {lb} {a1}.h-{a1:+1}.h {rb}, {lb} {a3}.h-{a3:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.udot.za32.vg1x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.udot.za32.vg1x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.udot.za32.vg1x4.nxv16i8(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" "list"="a1:+2" %a3, <vscale x 16 x i8> "reg"="z" "list"="a1:+3" %a4, <vscale x 16 x i8> "reg"="z" %a5, <vscale x 16 x i8> "reg"="z" "list"="a5:+1" %a6, <vscale x 16 x i8> "reg"="z" "list"="a5:+2" %a7, <vscale x 16 x i8> "reg"="z" "list"="a5:+3" %a8) "feature"="sme,sve2,sme2" "enc"="11000001101 zm1_f:3=a5>>2 010 wv_f:2=(a0-8) 101 zn1_f:3=a1>>2 0010 000" "asm"="udot za.s[{a0}, 0, vgx4], {lb} {a1}.b-{a1:+3}.b {rb}, {lb} {a5}.b-{a5:+3}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.udot.za32.vg1x4.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4, <vscale x 16 x i8> %a5, <vscale x 16 x i8> %a6, <vscale x 16 x i8> %a7, <vscale x 16 x i8> %a8)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.udot.za32.vg1x4.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.udot.za32.vg1x4.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" "list"="a1:+2" %a3, <vscale x 8 x i16> "reg"="z" "list"="a1:+3" %a4, <vscale x 8 x i16> "reg"="z" %a5, <vscale x 8 x i16> "reg"="z" "list"="a5:+1" %a6, <vscale x 8 x i16> "reg"="z" "list"="a5:+2" %a7, <vscale x 8 x i16> "reg"="z" "list"="a5:+3" %a8) "feature"="sme,sve2,sme2" "enc"="11000001111 zm1_f:3=a5>>2 010 wv_f:2=(a0-8) 101 zn1_f:3=a1>>2 0011 000" "asm"="udot za.s[{a0}, 0, vgx4], {lb} {a1}.h-{a1:+3}.h {rb}, {lb} {a5}.h-{a5:+3}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.udot.za32.vg1x4.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4, <vscale x 8 x i16> %a5, <vscale x 8 x i16> %a6, <vscale x 8 x i16> %a7, <vscale x 8 x i16> %a8)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.udot.za32.vg1x4.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.udot.za64.vg1x2.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3, <vscale x 8 x i16> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-i16i64" "enc"="11000001111 zm1_f:4=a3>>1 00 wv_f:2=(a0-8) 101 zn1_f:4=a1>>1 010 000" "asm"="udot za.d[{a0}, 0, vgx2], {lb} {a1}.h-{a1:+1}.h {rb}, {lb} {a3}.h-{a3:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.udot.za64.vg1x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.udot.za64.vg1x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.udot.za64.vg1x4.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" "list"="a1:+2" %a3, <vscale x 8 x i16> "reg"="z" "list"="a1:+3" %a4, <vscale x 8 x i16> "reg"="z" %a5, <vscale x 8 x i16> "reg"="z" "list"="a5:+1" %a6, <vscale x 8 x i16> "reg"="z" "list"="a5:+2" %a7, <vscale x 8 x i16> "reg"="z" "list"="a5:+3" %a8) "feature"="sme,sve2,sme2,sme-i16i64" "enc"="11000001111 zm1_f:3=a5>>2 010 wv_f:2=(a0-8) 101 zn1_f:3=a1>>2 0010 000" "asm"="udot za.d[{a0}, 0, vgx4], {lb} {a1}.h-{a1:+3}.h {rb}, {lb} {a5}.h-{a5:+3}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.udot.za64.vg1x4.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4, <vscale x 8 x i16> %a5, <vscale x 8 x i16> %a6, <vscale x 8 x i16> %a7, <vscale x 8 x i16> %a8)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.udot.za64.vg1x4.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
 define void @SME.umla.za32.single.vg4x1.nxv16i8(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sme,sve2,sme2" "enc"="110000010010 a2:4 0 wv_f:2=(a0-8) 001 a1:5 100 00" "asm"="umlall za.s[{a0}, 0:{=0+3}], {a1}.b, {a2}.b" "nodecode" {
   call void @llvm.aarch64.sme.umla.za32.single.vg4x1.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
   ret void
 }
 
 declare void @llvm.aarch64.sme.umla.za32.single.vg4x1.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.umla.za32.vg4x2.nxv16i8(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3, <vscale x 16 x i8> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2" "enc"="11000001101 zm1_f:4=a3>>1 00 wv_f:2=(a0-8) 000 zn1_f:4=a1>>1 01000 0" "asm"="umlall za.s[{a0}, 0:{=0+3}, vgx2], {lb} {a1}.b-{a1:+1}.b {rb}, {lb} {a3}.b-{a3:+1}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.umla.za32.vg4x2.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.umla.za32.vg4x2.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.umla.za32.vg4x4.nxv16i8(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" "list"="a1:+2" %a3, <vscale x 16 x i8> "reg"="z" "list"="a1:+3" %a4, <vscale x 16 x i8> "reg"="z" %a5, <vscale x 16 x i8> "reg"="z" "list"="a5:+1" %a6, <vscale x 16 x i8> "reg"="z" "list"="a5:+2" %a7, <vscale x 16 x i8> "reg"="z" "list"="a5:+3" %a8) "feature"="sme,sve2,sme2" "enc"="11000001101 zm1_f:3=a5>>2 010 wv_f:2=(a0-8) 000 zn1_f:3=a1>>2 001000 0" "asm"="umlall za.s[{a0}, 0:{=0+3}, vgx4], {lb} {a1}.b-{a1:+3}.b {rb}, {lb} {a5}.b-{a5:+3}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.umla.za32.vg4x4.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4, <vscale x 16 x i8> %a5, <vscale x 16 x i8> %a6, <vscale x 16 x i8> %a7, <vscale x 16 x i8> %a8)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.umla.za32.vg4x4.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
 
 define void @SME.umla.za64.single.vg4x1.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sme,sve2,sme2,sme-i16i64" "enc"="110000010110 a2:4 0 wv_f:2=(a0-8) 001 a1:5 100 00" "asm"="umlall za.d[{a0}, 0:{=0+3}], {a1}.h, {a2}.h" "nodecode" {
   call void @llvm.aarch64.sme.umla.za64.single.vg4x1.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
@@ -12392,12 +13596,40 @@ define void @SME.umla.za64.single.vg4x1.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 
 
 declare void @llvm.aarch64.sme.umla.za64.single.vg4x1.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>)
 
+define void @SME.umla.za64.vg4x2.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3, <vscale x 8 x i16> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-i16i64" "enc"="11000001111 zm1_f:4=a3>>1 00 wv_f:2=(a0-8) 000 zn1_f:4=a1>>1 01000 0" "asm"="umlall za.d[{a0}, 0:{=0+3}, vgx2], {lb} {a1}.h-{a1:+1}.h {rb}, {lb} {a3}.h-{a3:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.umla.za64.vg4x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.umla.za64.vg4x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.umla.za64.vg4x4.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" "list"="a1:+2" %a3, <vscale x 8 x i16> "reg"="z" "list"="a1:+3" %a4, <vscale x 8 x i16> "reg"="z" %a5, <vscale x 8 x i16> "reg"="z" "list"="a5:+1" %a6, <vscale x 8 x i16> "reg"="z" "list"="a5:+2" %a7, <vscale x 8 x i16> "reg"="z" "list"="a5:+3" %a8) "feature"="sme,sve2,sme2,sme-i16i64" "enc"="11000001111 zm1_f:3=a5>>2 010 wv_f:2=(a0-8) 000 zn1_f:3=a1>>2 001000 0" "asm"="umlall za.d[{a0}, 0:{=0+3}, vgx4], {lb} {a1}.h-{a1:+3}.h {rb}, {lb} {a5}.h-{a5:+3}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.umla.za64.vg4x4.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4, <vscale x 8 x i16> %a5, <vscale x 8 x i16> %a6, <vscale x 8 x i16> %a7, <vscale x 8 x i16> %a8)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.umla.za64.vg4x4.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
 define void @SME.umlal.single.vg2x1.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sme,sve2,sme2" "enc"="110000010110 a2:4 0 wv_f:2=(a0-8) 011 a1:5 10 000" "asm"="umlal za.s[{a0}, 0:{=0+1}], {a1}.h, {a2}.h" "nodecode" {
   call void @llvm.aarch64.sme.umlal.single.vg2x1.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
   ret void
 }
 
 declare void @llvm.aarch64.sme.umlal.single.vg2x1.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.umlal.vg2x2.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3, <vscale x 8 x i16> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2" "enc"="11000001111 zm1_f:4=a3>>1 00 wv_f:2=(a0-8) 010 zn1_f:4=a1>>1 0100 00" "asm"="umlal za.s[{a0}, 0:{=0+1}, vgx2], {lb} {a1}.h-{a1:+1}.h {rb}, {lb} {a3}.h-{a3:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.umlal.vg2x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.umlal.vg2x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.umlal.vg2x4.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" "list"="a1:+2" %a3, <vscale x 8 x i16> "reg"="z" "list"="a1:+3" %a4, <vscale x 8 x i16> "reg"="z" %a5, <vscale x 8 x i16> "reg"="z" "list"="a5:+1" %a6, <vscale x 8 x i16> "reg"="z" "list"="a5:+2" %a7, <vscale x 8 x i16> "reg"="z" "list"="a5:+3" %a8) "feature"="sme,sve2,sme2" "enc"="11000001111 zm1_f:3=a5>>2 010 wv_f:2=(a0-8) 010 zn1_f:3=a1>>2 00100 00" "asm"="umlal za.s[{a0}, 0:{=0+1}, vgx4], {lb} {a1}.h-{a1:+3}.h {rb}, {lb} {a5}.h-{a5:+3}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.umlal.vg2x4.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4, <vscale x 8 x i16> %a5, <vscale x 8 x i16> %a6, <vscale x 8 x i16> %a7, <vscale x 8 x i16> %a8)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.umlal.vg2x4.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
 
 define void @SME.umls.za32.single.vg4x1.nxv16i8(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sme,sve2,sme2" "enc"="110000010010 a2:4 0 wv_f:2=(a0-8) 001 a1:5 110 00" "asm"="umlsll za.s[{a0}, 0:{=0+3}], {a1}.b, {a2}.b" "nodecode" {
   call void @llvm.aarch64.sme.umls.za32.single.vg4x1.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
@@ -12406,6 +13638,20 @@ define void @SME.umls.za32.single.vg4x1.nxv16i8(i32 "reg"="wv" %a0, <vscale x 16
 
 declare void @llvm.aarch64.sme.umls.za32.single.vg4x1.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>)
 
+define void @SME.umls.za32.vg4x2.nxv16i8(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3, <vscale x 16 x i8> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2" "enc"="11000001101 zm1_f:4=a3>>1 00 wv_f:2=(a0-8) 000 zn1_f:4=a1>>1 01100 0" "asm"="umlsll za.s[{a0}, 0:{=0+3}, vgx2], {lb} {a1}.b-{a1:+1}.b {rb}, {lb} {a3}.b-{a3:+1}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.umls.za32.vg4x2.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.umls.za32.vg4x2.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.umls.za32.vg4x4.nxv16i8(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" "list"="a1:+2" %a3, <vscale x 16 x i8> "reg"="z" "list"="a1:+3" %a4, <vscale x 16 x i8> "reg"="z" %a5, <vscale x 16 x i8> "reg"="z" "list"="a5:+1" %a6, <vscale x 16 x i8> "reg"="z" "list"="a5:+2" %a7, <vscale x 16 x i8> "reg"="z" "list"="a5:+3" %a8) "feature"="sme,sve2,sme2" "enc"="11000001101 zm1_f:3=a5>>2 010 wv_f:2=(a0-8) 000 zn1_f:3=a1>>2 001100 0" "asm"="umlsll za.s[{a0}, 0:{=0+3}, vgx4], {lb} {a1}.b-{a1:+3}.b {rb}, {lb} {a5}.b-{a5:+3}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.umls.za32.vg4x4.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4, <vscale x 16 x i8> %a5, <vscale x 16 x i8> %a6, <vscale x 16 x i8> %a7, <vscale x 16 x i8> %a8)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.umls.za32.vg4x4.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
 define void @SME.umls.za64.single.vg4x1.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sme,sve2,sme2,sme-i16i64" "enc"="110000010110 a2:4 0 wv_f:2=(a0-8) 001 a1:5 110 00" "asm"="umlsll za.d[{a0}, 0:{=0+3}], {a1}.h, {a2}.h" "nodecode" {
   call void @llvm.aarch64.sme.umls.za64.single.vg4x1.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
   ret void
@@ -12413,12 +13659,40 @@ define void @SME.umls.za64.single.vg4x1.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 
 
 declare void @llvm.aarch64.sme.umls.za64.single.vg4x1.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>)
 
+define void @SME.umls.za64.vg4x2.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3, <vscale x 8 x i16> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-i16i64" "enc"="11000001111 zm1_f:4=a3>>1 00 wv_f:2=(a0-8) 000 zn1_f:4=a1>>1 01100 0" "asm"="umlsll za.d[{a0}, 0:{=0+3}, vgx2], {lb} {a1}.h-{a1:+1}.h {rb}, {lb} {a3}.h-{a3:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.umls.za64.vg4x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.umls.za64.vg4x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.umls.za64.vg4x4.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" "list"="a1:+2" %a3, <vscale x 8 x i16> "reg"="z" "list"="a1:+3" %a4, <vscale x 8 x i16> "reg"="z" %a5, <vscale x 8 x i16> "reg"="z" "list"="a5:+1" %a6, <vscale x 8 x i16> "reg"="z" "list"="a5:+2" %a7, <vscale x 8 x i16> "reg"="z" "list"="a5:+3" %a8) "feature"="sme,sve2,sme2,sme-i16i64" "enc"="11000001111 zm1_f:3=a5>>2 010 wv_f:2=(a0-8) 000 zn1_f:3=a1>>2 001100 0" "asm"="umlsll za.d[{a0}, 0:{=0+3}, vgx4], {lb} {a1}.h-{a1:+3}.h {rb}, {lb} {a5}.h-{a5:+3}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.umls.za64.vg4x4.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4, <vscale x 8 x i16> %a5, <vscale x 8 x i16> %a6, <vscale x 8 x i16> %a7, <vscale x 8 x i16> %a8)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.umls.za64.vg4x4.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
 define void @SME.umlsl.single.vg2x1.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sme,sve2,sme2" "enc"="110000010110 a2:4 0 wv_f:2=(a0-8) 011 a1:5 11 000" "asm"="umlsl za.s[{a0}, 0:{=0+1}], {a1}.h, {a2}.h" "nodecode" {
   call void @llvm.aarch64.sme.umlsl.single.vg2x1.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
   ret void
 }
 
 declare void @llvm.aarch64.sme.umlsl.single.vg2x1.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.umlsl.vg2x2.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3, <vscale x 8 x i16> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2" "enc"="11000001111 zm1_f:4=a3>>1 00 wv_f:2=(a0-8) 010 zn1_f:4=a1>>1 0110 00" "asm"="umlsl za.s[{a0}, 0:{=0+1}, vgx2], {lb} {a1}.h-{a1:+1}.h {rb}, {lb} {a3}.h-{a3:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.umlsl.vg2x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.umlsl.vg2x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.umlsl.vg2x4.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" "list"="a1:+2" %a3, <vscale x 8 x i16> "reg"="z" "list"="a1:+3" %a4, <vscale x 8 x i16> "reg"="z" %a5, <vscale x 8 x i16> "reg"="z" "list"="a5:+1" %a6, <vscale x 8 x i16> "reg"="z" "list"="a5:+2" %a7, <vscale x 8 x i16> "reg"="z" "list"="a5:+3" %a8) "feature"="sme,sve2,sme2" "enc"="11000001111 zm1_f:3=a5>>2 010 wv_f:2=(a0-8) 010 zn1_f:3=a1>>2 00110 00" "asm"="umlsl za.s[{a0}, 0:{=0+1}, vgx4], {lb} {a1}.h-{a1:+3}.h {rb}, {lb} {a5}.h-{a5:+3}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.umlsl.vg2x4.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4, <vscale x 8 x i16> %a5, <vscale x 8 x i16> %a6, <vscale x 8 x i16> %a7, <vscale x 8 x i16> %a8)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.umlsl.vg2x4.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
 
 define void @SME.umop4a.wide.1x1.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000010010 zm_f:3=(a2-16)>>1 01000000 zn_f:3=a1>>1 0000 a0:2" "asm"="umop4a za{a0}.s, {a1}.b, {a2}.b" "nodecode" {
   call void @llvm.aarch64.sme.umop4a.wide.1x1.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
@@ -12434,12 +13708,75 @@ define void @SME.umop4a.wide.1x1.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"
 
 declare void @llvm.aarch64.sme.umop4a.wide.1x1.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>)
 
+define void @SME.umop4a.wide.1x2.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" %a2, <vscale x 16 x i8> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000010011 zm1_f:3=(a2-16)>>1 01000000 zn_f:3=a1>>1 0000 a0:2" "asm"="umop4a za{a0}.s, {a1}.b, {lb} {a2}.b-{a2:+1}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.umop4a.wide.1x2.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.umop4a.wide.1x2.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.umop4a.wide.1x2.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" %a2, <vscale x 8 x i16> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000010001 zm1_f:3=(a2-16)>>1 01000000 zn_f:3=a1>>1 0010 a0:2" "asm"="umop4a za{a0}.s, {a1}.h, {lb} {a2}.h-{a2:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.umop4a.wide.1x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.umop4a.wide.1x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.umop4a.wide.2x1.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000010010 zm_f:3=(a3-16)>>1 01000001 zn1_f:3=a1>>1 0000 a0:2" "asm"="umop4a za{a0}.s, {lb} {a1}.b-{a1:+1}.b {rb}, {a3}.b" "nodecode" {
+  call void @llvm.aarch64.sme.umop4a.wide.2x1.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.umop4a.wide.2x1.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.umop4a.wide.2x1.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000010000 zm_f:3=(a3-16)>>1 01000001 zn1_f:3=a1>>1 0010 a0:2" "asm"="umop4a za{a0}.s, {lb} {a1}.h-{a1:+1}.h {rb}, {a3}.h" "nodecode" {
+  call void @llvm.aarch64.sme.umop4a.wide.2x1.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.umop4a.wide.2x1.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.umop4a.wide.2x2.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3, <vscale x 16 x i8> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000010011 zm1_f:3=(a3-16)>>1 01000001 zn1_f:3=a1>>1 0000 a0:2" "asm"="umop4a za{a0}.s, {lb} {a1}.b-{a1:+1}.b {rb}, {lb} {a3}.b-{a3:+1}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.umop4a.wide.2x2.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.umop4a.wide.2x2.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.umop4a.wide.2x2.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3, <vscale x 8 x i16> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000010001 zm1_f:3=(a3-16)>>1 01000001 zn1_f:3=a1>>1 0010 a0:2" "asm"="umop4a za{a0}.s, {lb} {a1}.h-{a1:+1}.h {rb}, {lb} {a3}.h-{a3:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.umop4a.wide.2x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.umop4a.wide.2x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
 define void @SME.umop4a.za64.wide.1x1.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sme,sve2,sme2,sme-mop4,sme-i16i64" "enc"="101000011110 zm_f:3=(a2-16)>>1 00000000 zn_f:3=a1>>1 001 a0:3" "asm"="umop4a za{a0}.d, {a1}.h, {a2}.h" "nodecode" {
   call void @llvm.aarch64.sme.umop4a.za64.wide.1x1.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
   ret void
 }
 
 declare void @llvm.aarch64.sme.umop4a.za64.wide.1x1.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.umop4a.za64.wide.1x2.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" %a2, <vscale x 8 x i16> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2,sme-mop4,sme-i16i64" "enc"="101000011111 zm1_f:3=(a2-16)>>1 00000000 zn_f:3=a1>>1 001 a0:3" "asm"="umop4a za{a0}.d, {a1}.h, {lb} {a2}.h-{a2:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.umop4a.za64.wide.1x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.umop4a.za64.wide.1x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.umop4a.za64.wide.2x1.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3) "feature"="sme,sve2,sme2,sme-mop4,sme-i16i64" "enc"="101000011110 zm_f:3=(a3-16)>>1 00000001 zn1_f:3=a1>>1 001 a0:3" "asm"="umop4a za{a0}.d, {lb} {a1}.h-{a1:+1}.h {rb}, {a3}.h" "nodecode" {
+  call void @llvm.aarch64.sme.umop4a.za64.wide.2x1.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.umop4a.za64.wide.2x1.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.umop4a.za64.wide.2x2.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3, <vscale x 8 x i16> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-mop4,sme-i16i64" "enc"="101000011111 zm1_f:3=(a3-16)>>1 00000001 zn1_f:3=a1>>1 001 a0:3" "asm"="umop4a za{a0}.d, {lb} {a1}.h-{a1:+1}.h {rb}, {lb} {a3}.h-{a3:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.umop4a.za64.wide.2x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.umop4a.za64.wide.2x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
 
 define void @SME.umop4s.wide.1x1.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000010010 zm_f:3=(a2-16)>>1 01000000 zn_f:3=a1>>1 0100 a0:2" "asm"="umop4s za{a0}.s, {a1}.b, {a2}.b" "nodecode" {
   call void @llvm.aarch64.sme.umop4s.wide.1x1.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
@@ -12455,12 +13792,75 @@ define void @SME.umop4s.wide.1x1.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"
 
 declare void @llvm.aarch64.sme.umop4s.wide.1x1.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>)
 
+define void @SME.umop4s.wide.1x2.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" %a2, <vscale x 16 x i8> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000010011 zm1_f:3=(a2-16)>>1 01000000 zn_f:3=a1>>1 0100 a0:2" "asm"="umop4s za{a0}.s, {a1}.b, {lb} {a2}.b-{a2:+1}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.umop4s.wide.1x2.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.umop4s.wide.1x2.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.umop4s.wide.1x2.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" %a2, <vscale x 8 x i16> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000010001 zm1_f:3=(a2-16)>>1 01000000 zn_f:3=a1>>1 0110 a0:2" "asm"="umop4s za{a0}.s, {a1}.h, {lb} {a2}.h-{a2:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.umop4s.wide.1x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.umop4s.wide.1x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.umop4s.wide.2x1.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000010010 zm_f:3=(a3-16)>>1 01000001 zn1_f:3=a1>>1 0100 a0:2" "asm"="umop4s za{a0}.s, {lb} {a1}.b-{a1:+1}.b {rb}, {a3}.b" "nodecode" {
+  call void @llvm.aarch64.sme.umop4s.wide.2x1.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.umop4s.wide.2x1.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.umop4s.wide.2x1.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000010000 zm_f:3=(a3-16)>>1 01000001 zn1_f:3=a1>>1 0110 a0:2" "asm"="umop4s za{a0}.s, {lb} {a1}.h-{a1:+1}.h {rb}, {a3}.h" "nodecode" {
+  call void @llvm.aarch64.sme.umop4s.wide.2x1.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.umop4s.wide.2x1.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.umop4s.wide.2x2.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3, <vscale x 16 x i8> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000010011 zm1_f:3=(a3-16)>>1 01000001 zn1_f:3=a1>>1 0100 a0:2" "asm"="umop4s za{a0}.s, {lb} {a1}.b-{a1:+1}.b {rb}, {lb} {a3}.b-{a3:+1}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.umop4s.wide.2x2.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.umop4s.wide.2x2.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.umop4s.wide.2x2.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3, <vscale x 8 x i16> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000010001 zm1_f:3=(a3-16)>>1 01000001 zn1_f:3=a1>>1 0110 a0:2" "asm"="umop4s za{a0}.s, {lb} {a1}.h-{a1:+1}.h {rb}, {lb} {a3}.h-{a3:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.umop4s.wide.2x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.umop4s.wide.2x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
 define void @SME.umop4s.za64.wide.1x1.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sme,sve2,sme2,sme-mop4,sme-i16i64" "enc"="101000011110 zm_f:3=(a2-16)>>1 00000000 zn_f:3=a1>>1 011 a0:3" "asm"="umop4s za{a0}.d, {a1}.h, {a2}.h" "nodecode" {
   call void @llvm.aarch64.sme.umop4s.za64.wide.1x1.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
   ret void
 }
 
 declare void @llvm.aarch64.sme.umop4s.za64.wide.1x1.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.umop4s.za64.wide.1x2.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" %a2, <vscale x 8 x i16> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2,sme-mop4,sme-i16i64" "enc"="101000011111 zm1_f:3=(a2-16)>>1 00000000 zn_f:3=a1>>1 011 a0:3" "asm"="umop4s za{a0}.d, {a1}.h, {lb} {a2}.h-{a2:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.umop4s.za64.wide.1x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.umop4s.za64.wide.1x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.umop4s.za64.wide.2x1.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3) "feature"="sme,sve2,sme2,sme-mop4,sme-i16i64" "enc"="101000011110 zm_f:3=(a3-16)>>1 00000001 zn1_f:3=a1>>1 011 a0:3" "asm"="umop4s za{a0}.d, {lb} {a1}.h-{a1:+1}.h {rb}, {a3}.h" "nodecode" {
+  call void @llvm.aarch64.sme.umop4s.za64.wide.2x1.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.umop4s.za64.wide.2x1.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.umop4s.za64.wide.2x2.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3, <vscale x 8 x i16> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-mop4,sme-i16i64" "enc"="101000011111 zm1_f:3=(a3-16)>>1 00000001 zn1_f:3=a1>>1 011 a0:3" "asm"="umop4s za{a0}.d, {lb} {a1}.h-{a1:+1}.h {rb}, {lb} {a3}.h-{a3:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.umop4s.za64.wide.2x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.umop4s.za64.wide.2x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
 
 define void @SME.umopa.wide.nxv16i8(i32 "imm" %a0, <vscale x 16 x i1> "reg"="pg" %a1, <vscale x 16 x i1> "reg"="pg" %a2, <vscale x 16 x i8> "reg"="z" %a3, <vscale x 16 x i8> "reg"="z" %a4) "feature"="sme,sve2" "enc"="10100001101 a4:5 a2:3 a1:3 a3:5 000 a0:2" "asm"="umopa za{a0}.s, {a1}/m, {a2}/m, {a3}.b, {a4}.b" "nodecode" {
   call void @llvm.aarch64.sme.umopa.wide.nxv16i8(i32 %a0, <vscale x 16 x i1> %a1, <vscale x 16 x i1> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4)
@@ -12504,12 +13904,54 @@ define void @SME.umops.za32.nxv8i16(i32 "imm" %a0, <vscale x 8 x i1> "reg"="pg" 
 
 declare void @llvm.aarch64.sme.umops.za32.nxv8i16(i32, <vscale x 8 x i1>, <vscale x 8 x i1>, <vscale x 8 x i16>, <vscale x 8 x i16>)
 
+define void @SME.usdot.single.za32.vg1x2.nxv16i8(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3) "feature"="sme,sve2,sme2" "enc"="110000010010 a3:4 0 wv_f:2=(a0-8) 101 a1:5 01 000" "asm"="usdot za.s[{a0}, 0, vgx2], {lb} {a1}.b-{a1:+1}.b {rb}, {a3}.b" "nodecode" {
+  call void @llvm.aarch64.sme.usdot.single.za32.vg1x2.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.usdot.single.za32.vg1x2.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.usdot.single.za32.vg1x4.nxv16i8(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" "list"="a1:+2" %a3, <vscale x 16 x i8> "reg"="z" "list"="a1:+3" %a4, <vscale x 16 x i8> "reg"="z" %a5) "feature"="sme,sve2,sme2" "enc"="110000010011 a5:4 0 wv_f:2=(a0-8) 101 a1:5 01 000" "asm"="usdot za.s[{a0}, 0, vgx4], {lb} {a1}.b-{a1:+3}.b {rb}, {a5}.b" "nodecode" {
+  call void @llvm.aarch64.sme.usdot.single.za32.vg1x4.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4, <vscale x 16 x i8> %a5)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.usdot.single.za32.vg1x4.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.usdot.za32.vg1x2.nxv16i8(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3, <vscale x 16 x i8> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2" "enc"="11000001101 zm1_f:4=a3>>1 00 wv_f:2=(a0-8) 101 zn1_f:4=a1>>1 001 000" "asm"="usdot za.s[{a0}, 0, vgx2], {lb} {a1}.b-{a1:+1}.b {rb}, {lb} {a3}.b-{a3:+1}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.usdot.za32.vg1x2.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.usdot.za32.vg1x2.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.usdot.za32.vg1x4.nxv16i8(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" "list"="a1:+2" %a3, <vscale x 16 x i8> "reg"="z" "list"="a1:+3" %a4, <vscale x 16 x i8> "reg"="z" %a5, <vscale x 16 x i8> "reg"="z" "list"="a5:+1" %a6, <vscale x 16 x i8> "reg"="z" "list"="a5:+2" %a7, <vscale x 16 x i8> "reg"="z" "list"="a5:+3" %a8) "feature"="sme,sve2,sme2" "enc"="11000001101 zm1_f:3=a5>>2 010 wv_f:2=(a0-8) 101 zn1_f:3=a1>>2 0001 000" "asm"="usdot za.s[{a0}, 0, vgx4], {lb} {a1}.b-{a1:+3}.b {rb}, {lb} {a5}.b-{a5:+3}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.usdot.za32.vg1x4.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4, <vscale x 16 x i8> %a5, <vscale x 16 x i8> %a6, <vscale x 16 x i8> %a7, <vscale x 16 x i8> %a8)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.usdot.za32.vg1x4.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
 define void @SME.usmla.za32.single.vg4x1.nxv16i8(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sme,sve2,sme2" "enc"="110000010010 a2:4 0 wv_f:2=(a0-8) 001 a1:5 001 00" "asm"="usmlall za.s[{a0}, 0:{=0+3}], {a1}.b, {a2}.b" "nodecode" {
   call void @llvm.aarch64.sme.usmla.za32.single.vg4x1.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
   ret void
 }
 
 declare void @llvm.aarch64.sme.usmla.za32.single.vg4x1.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.usmla.za32.vg4x2.nxv16i8(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3, <vscale x 16 x i8> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2" "enc"="11000001101 zm1_f:4=a3>>1 00 wv_f:2=(a0-8) 000 zn1_f:4=a1>>1 00010 0" "asm"="usmlall za.s[{a0}, 0:{=0+3}, vgx2], {lb} {a1}.b-{a1:+1}.b {rb}, {lb} {a3}.b-{a3:+1}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.usmla.za32.vg4x2.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.usmla.za32.vg4x2.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.usmla.za32.vg4x4.nxv16i8(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" "list"="a1:+2" %a3, <vscale x 16 x i8> "reg"="z" "list"="a1:+3" %a4, <vscale x 16 x i8> "reg"="z" %a5, <vscale x 16 x i8> "reg"="z" "list"="a5:+1" %a6, <vscale x 16 x i8> "reg"="z" "list"="a5:+2" %a7, <vscale x 16 x i8> "reg"="z" "list"="a5:+3" %a8) "feature"="sme,sve2,sme2" "enc"="11000001101 zm1_f:3=a5>>2 010 wv_f:2=(a0-8) 000 zn1_f:3=a1>>2 000010 0" "asm"="usmlall za.s[{a0}, 0:{=0+3}, vgx4], {lb} {a1}.b-{a1:+3}.b {rb}, {lb} {a5}.b-{a5:+3}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.usmla.za32.vg4x4.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4, <vscale x 16 x i8> %a5, <vscale x 16 x i8> %a6, <vscale x 16 x i8> %a7, <vscale x 16 x i8> %a8)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.usmla.za32.vg4x4.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
 
 define void @SME.usmop4a.wide.1x1.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000010000 zm_f:3=(a2-16)>>1 01000000 zn_f:3=a1>>1 0000 a0:2" "asm"="usmop4a za{a0}.s, {a1}.b, {a2}.b" "nodecode" {
   call void @llvm.aarch64.sme.usmop4a.wide.1x1.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
@@ -12518,12 +13960,54 @@ define void @SME.usmop4a.wide.1x1.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg
 
 declare void @llvm.aarch64.sme.usmop4a.wide.1x1.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>)
 
+define void @SME.usmop4a.wide.1x2.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" %a2, <vscale x 16 x i8> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000010001 zm1_f:3=(a2-16)>>1 01000000 zn_f:3=a1>>1 0000 a0:2" "asm"="usmop4a za{a0}.s, {a1}.b, {lb} {a2}.b-{a2:+1}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.usmop4a.wide.1x2.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.usmop4a.wide.1x2.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.usmop4a.wide.2x1.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000010000 zm_f:3=(a3-16)>>1 01000001 zn1_f:3=a1>>1 0000 a0:2" "asm"="usmop4a za{a0}.s, {lb} {a1}.b-{a1:+1}.b {rb}, {a3}.b" "nodecode" {
+  call void @llvm.aarch64.sme.usmop4a.wide.2x1.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.usmop4a.wide.2x1.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.usmop4a.wide.2x2.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3, <vscale x 16 x i8> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000010001 zm1_f:3=(a3-16)>>1 01000001 zn1_f:3=a1>>1 0000 a0:2" "asm"="usmop4a za{a0}.s, {lb} {a1}.b-{a1:+1}.b {rb}, {lb} {a3}.b-{a3:+1}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.usmop4a.wide.2x2.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.usmop4a.wide.2x2.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
 define void @SME.usmop4a.za64.wide.1x1.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sme,sve2,sme2,sme-mop4,sme-i16i64" "enc"="101000011100 zm_f:3=(a2-16)>>1 00000000 zn_f:3=a1>>1 001 a0:3" "asm"="usmop4a za{a0}.d, {a1}.h, {a2}.h" "nodecode" {
   call void @llvm.aarch64.sme.usmop4a.za64.wide.1x1.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
   ret void
 }
 
 declare void @llvm.aarch64.sme.usmop4a.za64.wide.1x1.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.usmop4a.za64.wide.1x2.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" %a2, <vscale x 8 x i16> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2,sme-mop4,sme-i16i64" "enc"="101000011101 zm1_f:3=(a2-16)>>1 00000000 zn_f:3=a1>>1 001 a0:3" "asm"="usmop4a za{a0}.d, {a1}.h, {lb} {a2}.h-{a2:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.usmop4a.za64.wide.1x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.usmop4a.za64.wide.1x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.usmop4a.za64.wide.2x1.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3) "feature"="sme,sve2,sme2,sme-mop4,sme-i16i64" "enc"="101000011100 zm_f:3=(a3-16)>>1 00000001 zn1_f:3=a1>>1 001 a0:3" "asm"="usmop4a za{a0}.d, {lb} {a1}.h-{a1:+1}.h {rb}, {a3}.h" "nodecode" {
+  call void @llvm.aarch64.sme.usmop4a.za64.wide.2x1.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.usmop4a.za64.wide.2x1.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.usmop4a.za64.wide.2x2.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3, <vscale x 8 x i16> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-mop4,sme-i16i64" "enc"="101000011101 zm1_f:3=(a3-16)>>1 00000001 zn1_f:3=a1>>1 001 a0:3" "asm"="usmop4a za{a0}.d, {lb} {a1}.h-{a1:+1}.h {rb}, {lb} {a3}.h-{a3:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.usmop4a.za64.wide.2x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.usmop4a.za64.wide.2x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
 
 define void @SME.usmop4s.wide.1x1.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" %a2) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000010000 zm_f:3=(a2-16)>>1 01000000 zn_f:3=a1>>1 0100 a0:2" "asm"="usmop4s za{a0}.s, {a1}.b, {a2}.b" "nodecode" {
   call void @llvm.aarch64.sme.usmop4s.wide.1x1.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
@@ -12532,12 +14016,54 @@ define void @SME.usmop4s.wide.1x1.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg
 
 declare void @llvm.aarch64.sme.usmop4s.wide.1x1.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>)
 
+define void @SME.usmop4s.wide.1x2.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" %a2, <vscale x 16 x i8> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000010001 zm1_f:3=(a2-16)>>1 01000000 zn_f:3=a1>>1 0100 a0:2" "asm"="usmop4s za{a0}.s, {a1}.b, {lb} {a2}.b-{a2:+1}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.usmop4s.wide.1x2.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.usmop4s.wide.1x2.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.usmop4s.wide.2x1.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000010000 zm_f:3=(a3-16)>>1 01000001 zn1_f:3=a1>>1 0100 a0:2" "asm"="usmop4s za{a0}.s, {lb} {a1}.b-{a1:+1}.b {rb}, {a3}.b" "nodecode" {
+  call void @llvm.aarch64.sme.usmop4s.wide.2x1.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.usmop4s.wide.2x1.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.usmop4s.wide.2x2.nxv16i8(i32 "imm" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" %a3, <vscale x 16 x i8> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-mop4" "enc"="100000010001 zm1_f:3=(a3-16)>>1 01000001 zn1_f:3=a1>>1 0100 a0:2" "asm"="usmop4s za{a0}.s, {lb} {a1}.b-{a1:+1}.b {rb}, {lb} {a3}.b-{a3:+1}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.usmop4s.wide.2x2.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.usmop4s.wide.2x2.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
 define void @SME.usmop4s.za64.wide.1x1.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" %a2) "feature"="sme,sve2,sme2,sme-mop4,sme-i16i64" "enc"="101000011100 zm_f:3=(a2-16)>>1 00000000 zn_f:3=a1>>1 011 a0:3" "asm"="usmop4s za{a0}.d, {a1}.h, {a2}.h" "nodecode" {
   call void @llvm.aarch64.sme.usmop4s.za64.wide.1x1.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
   ret void
 }
 
 declare void @llvm.aarch64.sme.usmop4s.za64.wide.1x1.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.usmop4s.za64.wide.1x2.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" %a2, <vscale x 8 x i16> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2,sme-mop4,sme-i16i64" "enc"="101000011101 zm1_f:3=(a2-16)>>1 00000000 zn_f:3=a1>>1 011 a0:3" "asm"="usmop4s za{a0}.d, {a1}.h, {lb} {a2}.h-{a2:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.usmop4s.za64.wide.1x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.usmop4s.za64.wide.1x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.usmop4s.za64.wide.2x1.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3) "feature"="sme,sve2,sme2,sme-mop4,sme-i16i64" "enc"="101000011100 zm_f:3=(a3-16)>>1 00000001 zn1_f:3=a1>>1 011 a0:3" "asm"="usmop4s za{a0}.d, {lb} {a1}.h-{a1:+1}.h {rb}, {a3}.h" "nodecode" {
+  call void @llvm.aarch64.sme.usmop4s.za64.wide.2x1.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.usmop4s.za64.wide.2x1.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.usmop4s.za64.wide.2x2.nxv8i16(i32 "imm" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" %a3, <vscale x 8 x i16> "reg"="z" "list"="a3:+1" %a4) "feature"="sme,sve2,sme2,sme-mop4,sme-i16i64" "enc"="101000011101 zm1_f:3=(a3-16)>>1 00000001 zn1_f:3=a1>>1 011 a0:3" "asm"="usmop4s za{a0}.d, {lb} {a1}.h-{a1:+1}.h {rb}, {lb} {a3}.h-{a3:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.usmop4s.za64.wide.2x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.usmop4s.za64.wide.2x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
 
 define void @SME.usmopa.wide.nxv16i8(i32 "imm" %a0, <vscale x 16 x i1> "reg"="pg" %a1, <vscale x 16 x i1> "reg"="pg" %a2, <vscale x 16 x i8> "reg"="z" %a3, <vscale x 16 x i8> "reg"="z" %a4) "feature"="sme,sve2" "enc"="10100001100 a4:5 a2:3 a1:3 a3:5 000 a0:2" "asm"="usmopa za{a0}.s, {a1}/m, {a2}/m, {a3}.b, {a4}.b" "nodecode" {
   call void @llvm.aarch64.sme.usmopa.wide.nxv16i8(i32 %a0, <vscale x 16 x i1> %a1, <vscale x 16 x i1> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4)
@@ -12566,6 +14092,62 @@ define void @SME.usmops.wide.nxv8i16(i32 "imm" %a0, <vscale x 8 x i1> "reg"="pg"
 }
 
 declare void @llvm.aarch64.sme.usmops.wide.nxv8i16(i32, <vscale x 8 x i1>, <vscale x 8 x i1>, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.write.hor.vg2.nxv16i8(i32 "imm" %a0, i32 "reg"="ws" %a1, <vscale x 16 x i8> "reg"="z" %a2, <vscale x 16 x i8> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2" "enc"="11000000000001000 ws_f:2=(a1-12) 000 zn1_f:4=a2>>1 000 offs1_f:3=a0>>1" "asm"="mov za0h.b[{a1}, {a0}:{=a0+1}], {lb} {a2}.b-{a2:+1}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.write.hor.vg2.nxv16i8(i32 %a0, i32 %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.write.hor.vg2.nxv16i8(i32, i32, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.write.hor.vg2.nxv2f64(i32 "imm" %a0, i32 "reg"="ws" %a1, <vscale x 2 x double> "reg"="z" %a2, <vscale x 2 x double> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2" "enc"="11000000110001000 ws_f:2=(a1-12) 000 zn1_f:4=a2>>1 000 a0:3" "asm"="mov za{a0}h.d[{a1}, 0:1], {lb} {a2}.d-{a2:+1}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.write.hor.vg2.nxv2f64(i32 %a0, i32 %a1, <vscale x 2 x double> %a2, <vscale x 2 x double> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.write.hor.vg2.nxv2f64(i32, i32, <vscale x 2 x double>, <vscale x 2 x double>)
+
+define void @SME.write.hor.vg2.nxv2i64(i32 "imm" %a0, i32 "reg"="ws" %a1, <vscale x 2 x i64> "reg"="z" %a2, <vscale x 2 x i64> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2" "enc"="11000000110001000 ws_f:2=(a1-12) 000 zn1_f:4=a2>>1 000 a0:3" "asm"="mov za{a0}h.d[{a1}, 0:1], {lb} {a2}.d-{a2:+1}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.write.hor.vg2.nxv2i64(i32 %a0, i32 %a1, <vscale x 2 x i64> %a2, <vscale x 2 x i64> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.write.hor.vg2.nxv2i64(i32, i32, <vscale x 2 x i64>, <vscale x 2 x i64>)
+
+define void @SME.write.hor.vg2.nxv4f32(i32 "imm" %a0, i32 "reg"="ws" %a1, <vscale x 4 x float> "reg"="z" %a2, <vscale x 4 x float> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2" "enc"="11000000100001000 ws_f:2=(a1-12) 000 zn1_f:4=a2>>1 000 a0:2 0" "asm"="mov za{a0}h.s[{a1}, 0:{=0+1}], {lb} {a2}.s-{a2:+1}.s {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.write.hor.vg2.nxv4f32(i32 %a0, i32 %a1, <vscale x 4 x float> %a2, <vscale x 4 x float> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.write.hor.vg2.nxv4f32(i32, i32, <vscale x 4 x float>, <vscale x 4 x float>)
+
+define void @SME.write.hor.vg2.nxv4i32(i32 "imm" %a0, i32 "reg"="ws" %a1, <vscale x 4 x i32> "reg"="z" %a2, <vscale x 4 x i32> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2" "enc"="11000000100001000 ws_f:2=(a1-12) 000 zn1_f:4=a2>>1 000 a0:2 0" "asm"="mov za{a0}h.s[{a1}, 0:{=0+1}], {lb} {a2}.s-{a2:+1}.s {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.write.hor.vg2.nxv4i32(i32 %a0, i32 %a1, <vscale x 4 x i32> %a2, <vscale x 4 x i32> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.write.hor.vg2.nxv4i32(i32, i32, <vscale x 4 x i32>, <vscale x 4 x i32>)
+
+define void @SME.write.hor.vg2.nxv8i16(i32 "imm" %a0, i32 "reg"="ws" %a1, <vscale x 8 x i16> "reg"="z" %a2, <vscale x 8 x i16> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2" "enc"="11000000010001000 ws_f:2=(a1-12) 000 zn1_f:4=a2>>1 000 a0:1 00" "asm"="mov za{a0}h.h[{a1}, 0:{=0+1}], {lb} {a2}.h-{a2:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.write.hor.vg2.nxv8i16(i32 %a0, i32 %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.write.hor.vg2.nxv8i16(i32, i32, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.write.hor.vg4.nxv2f64(i32 "imm" %a0, i32 "reg"="ws" %a1, <vscale x 2 x double> "reg"="z" %a2, <vscale x 2 x double> "reg"="z" "list"="a2:+1" %a3, <vscale x 2 x double> "reg"="z" "list"="a2:+2" %a4, <vscale x 2 x double> "reg"="z" "list"="a2:+3" %a5) "feature"="sme,sve2,sme2" "enc"="11000000110001000 ws_f:2=(a1-12) 001 zn1_f:3=a2>>2 0000 a0:3" "asm"="mov za{a0}h.d[{a1}, 0:3], {lb} {a2}.d-{a2:+3}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.write.hor.vg4.nxv2f64(i32 %a0, i32 %a1, <vscale x 2 x double> %a2, <vscale x 2 x double> %a3, <vscale x 2 x double> %a4, <vscale x 2 x double> %a5)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.write.hor.vg4.nxv2f64(i32, i32, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>)
+
+define void @SME.write.hor.vg4.nxv2i64(i32 "imm" %a0, i32 "reg"="ws" %a1, <vscale x 2 x i64> "reg"="z" %a2, <vscale x 2 x i64> "reg"="z" "list"="a2:+1" %a3, <vscale x 2 x i64> "reg"="z" "list"="a2:+2" %a4, <vscale x 2 x i64> "reg"="z" "list"="a2:+3" %a5) "feature"="sme,sve2,sme2" "enc"="11000000110001000 ws_f:2=(a1-12) 001 zn1_f:3=a2>>2 0000 a0:3" "asm"="mov za{a0}h.d[{a1}, 0:3], {lb} {a2}.d-{a2:+3}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.write.hor.vg4.nxv2i64(i32 %a0, i32 %a1, <vscale x 2 x i64> %a2, <vscale x 2 x i64> %a3, <vscale x 2 x i64> %a4, <vscale x 2 x i64> %a5)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.write.hor.vg4.nxv2i64(i32, i32, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>)
 
 define void @SME.write.horiz.nxv16i8(i32 "imm" %a0, i32 "reg"="ws" %a1, <vscale x 16 x i1> "reg"="pg" %a2, <vscale x 16 x i8> "reg"="z" %a3) "feature"="sme,sve2" "enc"="11000000000000000 ws_f:2=(a1-12) a2:3 a3:5 0 a0:4" "asm"="mov za0h.b[{a1}, {a0}], {a2}/m, {a3}.b" "nodecode" {
   call void @llvm.aarch64.sme.write.horiz.nxv16i8(i32 %a0, i32 %a1, <vscale x 16 x i1> %a2, <vscale x 16 x i8> %a3)
@@ -12651,6 +14233,62 @@ define void @SME.write.lane.zt.nxv8i16(<vscale x 8 x i16> "reg"="z" %a1, i32 "im
 
 declare void @llvm.aarch64.sme.write.lane.zt.nxv8i16(i32, <vscale x 8 x i16>, i32)
 
+define void @SME.write.ver.vg2.nxv16i8(i32 "imm" %a0, i32 "reg"="ws" %a1, <vscale x 16 x i8> "reg"="z" %a2, <vscale x 16 x i8> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2" "enc"="11000000000001001 ws_f:2=(a1-12) 000 zn1_f:4=a2>>1 000 offs1_f:3=a0>>1" "asm"="mov za0v.b[{a1}, {a0}:{=a0+1}], {lb} {a2}.b-{a2:+1}.b {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.write.ver.vg2.nxv16i8(i32 %a0, i32 %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.write.ver.vg2.nxv16i8(i32, i32, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.write.ver.vg2.nxv2f64(i32 "imm" %a0, i32 "reg"="ws" %a1, <vscale x 2 x double> "reg"="z" %a2, <vscale x 2 x double> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2" "enc"="11000000110001001 ws_f:2=(a1-12) 000 zn1_f:4=a2>>1 000 a0:3" "asm"="mov za{a0}v.d[{a1}, 0:1], {lb} {a2}.d-{a2:+1}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.write.ver.vg2.nxv2f64(i32 %a0, i32 %a1, <vscale x 2 x double> %a2, <vscale x 2 x double> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.write.ver.vg2.nxv2f64(i32, i32, <vscale x 2 x double>, <vscale x 2 x double>)
+
+define void @SME.write.ver.vg2.nxv2i64(i32 "imm" %a0, i32 "reg"="ws" %a1, <vscale x 2 x i64> "reg"="z" %a2, <vscale x 2 x i64> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2" "enc"="11000000110001001 ws_f:2=(a1-12) 000 zn1_f:4=a2>>1 000 a0:3" "asm"="mov za{a0}v.d[{a1}, 0:1], {lb} {a2}.d-{a2:+1}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.write.ver.vg2.nxv2i64(i32 %a0, i32 %a1, <vscale x 2 x i64> %a2, <vscale x 2 x i64> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.write.ver.vg2.nxv2i64(i32, i32, <vscale x 2 x i64>, <vscale x 2 x i64>)
+
+define void @SME.write.ver.vg2.nxv4f32(i32 "imm" %a0, i32 "reg"="ws" %a1, <vscale x 4 x float> "reg"="z" %a2, <vscale x 4 x float> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2" "enc"="11000000100001001 ws_f:2=(a1-12) 000 zn1_f:4=a2>>1 000 a0:2 0" "asm"="mov za{a0}v.s[{a1}, 0:{=0+1}], {lb} {a2}.s-{a2:+1}.s {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.write.ver.vg2.nxv4f32(i32 %a0, i32 %a1, <vscale x 4 x float> %a2, <vscale x 4 x float> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.write.ver.vg2.nxv4f32(i32, i32, <vscale x 4 x float>, <vscale x 4 x float>)
+
+define void @SME.write.ver.vg2.nxv4i32(i32 "imm" %a0, i32 "reg"="ws" %a1, <vscale x 4 x i32> "reg"="z" %a2, <vscale x 4 x i32> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2" "enc"="11000000100001001 ws_f:2=(a1-12) 000 zn1_f:4=a2>>1 000 a0:2 0" "asm"="mov za{a0}v.s[{a1}, 0:{=0+1}], {lb} {a2}.s-{a2:+1}.s {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.write.ver.vg2.nxv4i32(i32 %a0, i32 %a1, <vscale x 4 x i32> %a2, <vscale x 4 x i32> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.write.ver.vg2.nxv4i32(i32, i32, <vscale x 4 x i32>, <vscale x 4 x i32>)
+
+define void @SME.write.ver.vg2.nxv8i16(i32 "imm" %a0, i32 "reg"="ws" %a1, <vscale x 8 x i16> "reg"="z" %a2, <vscale x 8 x i16> "reg"="z" "list"="a2:+1" %a3) "feature"="sme,sve2,sme2" "enc"="11000000010001001 ws_f:2=(a1-12) 000 zn1_f:4=a2>>1 000 a0:1 00" "asm"="mov za{a0}v.h[{a1}, 0:{=0+1}], {lb} {a2}.h-{a2:+1}.h {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.write.ver.vg2.nxv8i16(i32 %a0, i32 %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.write.ver.vg2.nxv8i16(i32, i32, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.write.ver.vg4.nxv2f64(i32 "imm" %a0, i32 "reg"="ws" %a1, <vscale x 2 x double> "reg"="z" %a2, <vscale x 2 x double> "reg"="z" "list"="a2:+1" %a3, <vscale x 2 x double> "reg"="z" "list"="a2:+2" %a4, <vscale x 2 x double> "reg"="z" "list"="a2:+3" %a5) "feature"="sme,sve2,sme2" "enc"="11000000110001001 ws_f:2=(a1-12) 001 zn1_f:3=a2>>2 0000 a0:3" "asm"="mov za{a0}v.d[{a1}, 0:3], {lb} {a2}.d-{a2:+3}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.write.ver.vg4.nxv2f64(i32 %a0, i32 %a1, <vscale x 2 x double> %a2, <vscale x 2 x double> %a3, <vscale x 2 x double> %a4, <vscale x 2 x double> %a5)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.write.ver.vg4.nxv2f64(i32, i32, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>)
+
+define void @SME.write.ver.vg4.nxv2i64(i32 "imm" %a0, i32 "reg"="ws" %a1, <vscale x 2 x i64> "reg"="z" %a2, <vscale x 2 x i64> "reg"="z" "list"="a2:+1" %a3, <vscale x 2 x i64> "reg"="z" "list"="a2:+2" %a4, <vscale x 2 x i64> "reg"="z" "list"="a2:+3" %a5) "feature"="sme,sve2,sme2" "enc"="11000000110001001 ws_f:2=(a1-12) 001 zn1_f:3=a2>>2 0000 a0:3" "asm"="mov za{a0}v.d[{a1}, 0:3], {lb} {a2}.d-{a2:+3}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.write.ver.vg4.nxv2i64(i32 %a0, i32 %a1, <vscale x 2 x i64> %a2, <vscale x 2 x i64> %a3, <vscale x 2 x i64> %a4, <vscale x 2 x i64> %a5)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.write.ver.vg4.nxv2i64(i32, i32, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>)
+
 define void @SME.write.vert.nxv16i8(i32 "imm" %a0, i32 "reg"="ws" %a1, <vscale x 16 x i1> "reg"="pg" %a2, <vscale x 16 x i8> "reg"="z" %a3) "feature"="sme,sve2" "enc"="11000000000000001 ws_f:2=(a1-12) a2:3 a3:5 0 a0:4" "asm"="mov za0v.b[{a1}, {a0}], {a2}/m, {a3}.b" "nodecode" {
   call void @llvm.aarch64.sme.write.vert.nxv16i8(i32 %a0, i32 %a1, <vscale x 16 x i1> %a2, <vscale x 16 x i8> %a3)
   ret void
@@ -12692,6 +14330,90 @@ define void @SME.write.vert.nxv8i16(i32 "imm" %a0, i32 "reg"="ws" %a1, <vscale x
 }
 
 declare void @llvm.aarch64.sme.write.vert.nxv8i16(i32, i32, <vscale x 8 x i1>, <vscale x 8 x i16>)
+
+define void @SME.write.vg1x2.nxv16i8(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2) "feature"="sme,sve2,sme2" "enc"="11000000000001000 wv_f:2=(a0-8) 010 zn1_f:4=a1>>1 000 000" "asm"="mov za.d[{a0}, 0, vgx2], {lb} {a1}.d-{a1:+1}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.write.vg1x2.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.write.vg1x2.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.write.vg1x2.nxv2f64(i32 "reg"="wv" %a0, <vscale x 2 x double> "reg"="z" %a1, <vscale x 2 x double> "reg"="z" "list"="a1:+1" %a2) "feature"="sme,sve2,sme2" "enc"="11000000000001000 wv_f:2=(a0-8) 010 zn1_f:4=a1>>1 000 000" "asm"="mov za.d[{a0}, 0, vgx2], {lb} {a1}.d-{a1:+1}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.write.vg1x2.nxv2f64(i32 %a0, <vscale x 2 x double> %a1, <vscale x 2 x double> %a2)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.write.vg1x2.nxv2f64(i32, <vscale x 2 x double>, <vscale x 2 x double>)
+
+define void @SME.write.vg1x2.nxv2i64(i32 "reg"="wv" %a0, <vscale x 2 x i64> "reg"="z" %a1, <vscale x 2 x i64> "reg"="z" "list"="a1:+1" %a2) "feature"="sme,sve2,sme2" "enc"="11000000000001000 wv_f:2=(a0-8) 010 zn1_f:4=a1>>1 000 000" "asm"="mov za.d[{a0}, 0, vgx2], {lb} {a1}.d-{a1:+1}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.write.vg1x2.nxv2i64(i32 %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.write.vg1x2.nxv2i64(i32, <vscale x 2 x i64>, <vscale x 2 x i64>)
+
+define void @SME.write.vg1x2.nxv4f32(i32 "reg"="wv" %a0, <vscale x 4 x float> "reg"="z" %a1, <vscale x 4 x float> "reg"="z" "list"="a1:+1" %a2) "feature"="sme,sve2,sme2" "enc"="11000000000001000 wv_f:2=(a0-8) 010 zn1_f:4=a1>>1 000 000" "asm"="mov za.d[{a0}, 0, vgx2], {lb} {a1}.d-{a1:+1}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.write.vg1x2.nxv4f32(i32 %a0, <vscale x 4 x float> %a1, <vscale x 4 x float> %a2)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.write.vg1x2.nxv4f32(i32, <vscale x 4 x float>, <vscale x 4 x float>)
+
+define void @SME.write.vg1x2.nxv4i32(i32 "reg"="wv" %a0, <vscale x 4 x i32> "reg"="z" %a1, <vscale x 4 x i32> "reg"="z" "list"="a1:+1" %a2) "feature"="sme,sve2,sme2" "enc"="11000000000001000 wv_f:2=(a0-8) 010 zn1_f:4=a1>>1 000 000" "asm"="mov za.d[{a0}, 0, vgx2], {lb} {a1}.d-{a1:+1}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.write.vg1x2.nxv4i32(i32 %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.write.vg1x2.nxv4i32(i32, <vscale x 4 x i32>, <vscale x 4 x i32>)
+
+define void @SME.write.vg1x2.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2) "feature"="sme,sve2,sme2" "enc"="11000000000001000 wv_f:2=(a0-8) 010 zn1_f:4=a1>>1 000 000" "asm"="mov za.d[{a0}, 0, vgx2], {lb} {a1}.d-{a1:+1}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.write.vg1x2.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.write.vg1x2.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>)
+
+define void @SME.write.vg1x4.nxv16i8(i32 "reg"="wv" %a0, <vscale x 16 x i8> "reg"="z" %a1, <vscale x 16 x i8> "reg"="z" "list"="a1:+1" %a2, <vscale x 16 x i8> "reg"="z" "list"="a1:+2" %a3, <vscale x 16 x i8> "reg"="z" "list"="a1:+3" %a4) "feature"="sme,sve2,sme2" "enc"="11000000000001000 wv_f:2=(a0-8) 011 zn1_f:3=a1>>2 0000 000" "asm"="mov za.d[{a0}, 0, vgx4], {lb} {a1}.d-{a1:+3}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.write.vg1x4.nxv16i8(i32 %a0, <vscale x 16 x i8> %a1, <vscale x 16 x i8> %a2, <vscale x 16 x i8> %a3, <vscale x 16 x i8> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.write.vg1x4.nxv16i8(i32, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>, <vscale x 16 x i8>)
+
+define void @SME.write.vg1x4.nxv2f64(i32 "reg"="wv" %a0, <vscale x 2 x double> "reg"="z" %a1, <vscale x 2 x double> "reg"="z" "list"="a1:+1" %a2, <vscale x 2 x double> "reg"="z" "list"="a1:+2" %a3, <vscale x 2 x double> "reg"="z" "list"="a1:+3" %a4) "feature"="sme,sve2,sme2" "enc"="11000000000001000 wv_f:2=(a0-8) 011 zn1_f:3=a1>>2 0000 000" "asm"="mov za.d[{a0}, 0, vgx4], {lb} {a1}.d-{a1:+3}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.write.vg1x4.nxv2f64(i32 %a0, <vscale x 2 x double> %a1, <vscale x 2 x double> %a2, <vscale x 2 x double> %a3, <vscale x 2 x double> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.write.vg1x4.nxv2f64(i32, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>, <vscale x 2 x double>)
+
+define void @SME.write.vg1x4.nxv2i64(i32 "reg"="wv" %a0, <vscale x 2 x i64> "reg"="z" %a1, <vscale x 2 x i64> "reg"="z" "list"="a1:+1" %a2, <vscale x 2 x i64> "reg"="z" "list"="a1:+2" %a3, <vscale x 2 x i64> "reg"="z" "list"="a1:+3" %a4) "feature"="sme,sve2,sme2" "enc"="11000000000001000 wv_f:2=(a0-8) 011 zn1_f:3=a1>>2 0000 000" "asm"="mov za.d[{a0}, 0, vgx4], {lb} {a1}.d-{a1:+3}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.write.vg1x4.nxv2i64(i32 %a0, <vscale x 2 x i64> %a1, <vscale x 2 x i64> %a2, <vscale x 2 x i64> %a3, <vscale x 2 x i64> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.write.vg1x4.nxv2i64(i32, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>, <vscale x 2 x i64>)
+
+define void @SME.write.vg1x4.nxv4f32(i32 "reg"="wv" %a0, <vscale x 4 x float> "reg"="z" %a1, <vscale x 4 x float> "reg"="z" "list"="a1:+1" %a2, <vscale x 4 x float> "reg"="z" "list"="a1:+2" %a3, <vscale x 4 x float> "reg"="z" "list"="a1:+3" %a4) "feature"="sme,sve2,sme2" "enc"="11000000000001000 wv_f:2=(a0-8) 011 zn1_f:3=a1>>2 0000 000" "asm"="mov za.d[{a0}, 0, vgx4], {lb} {a1}.d-{a1:+3}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.write.vg1x4.nxv4f32(i32 %a0, <vscale x 4 x float> %a1, <vscale x 4 x float> %a2, <vscale x 4 x float> %a3, <vscale x 4 x float> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.write.vg1x4.nxv4f32(i32, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>, <vscale x 4 x float>)
+
+define void @SME.write.vg1x4.nxv4i32(i32 "reg"="wv" %a0, <vscale x 4 x i32> "reg"="z" %a1, <vscale x 4 x i32> "reg"="z" "list"="a1:+1" %a2, <vscale x 4 x i32> "reg"="z" "list"="a1:+2" %a3, <vscale x 4 x i32> "reg"="z" "list"="a1:+3" %a4) "feature"="sme,sve2,sme2" "enc"="11000000000001000 wv_f:2=(a0-8) 011 zn1_f:3=a1>>2 0000 000" "asm"="mov za.d[{a0}, 0, vgx4], {lb} {a1}.d-{a1:+3}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.write.vg1x4.nxv4i32(i32 %a0, <vscale x 4 x i32> %a1, <vscale x 4 x i32> %a2, <vscale x 4 x i32> %a3, <vscale x 4 x i32> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.write.vg1x4.nxv4i32(i32, <vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i32>, <vscale x 4 x i32>)
+
+define void @SME.write.vg1x4.nxv8i16(i32 "reg"="wv" %a0, <vscale x 8 x i16> "reg"="z" %a1, <vscale x 8 x i16> "reg"="z" "list"="a1:+1" %a2, <vscale x 8 x i16> "reg"="z" "list"="a1:+2" %a3, <vscale x 8 x i16> "reg"="z" "list"="a1:+3" %a4) "feature"="sme,sve2,sme2" "enc"="11000000000001000 wv_f:2=(a0-8) 011 zn1_f:3=a1>>2 0000 000" "asm"="mov za.d[{a0}, 0, vgx4], {lb} {a1}.d-{a1:+3}.d {rb}" "nodecode" {
+  call void @llvm.aarch64.sme.write.vg1x4.nxv8i16(i32 %a0, <vscale x 8 x i16> %a1, <vscale x 8 x i16> %a2, <vscale x 8 x i16> %a3, <vscale x 8 x i16> %a4)
+  ret void
+}
+
+declare void @llvm.aarch64.sme.write.vg1x4.nxv8i16(i32, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>, <vscale x 8 x i16>)
 
 define void @SME.write.zt.nxv16i8(<vscale x 16 x i8> "reg"="z" %a1) "feature"="sme,sve2,sme2,sme-lutv2" "enc"="110000000100111100000011111 a1:5" "asm"="movt zt0, {a1}" "nodecode" {
   call void @llvm.aarch64.sme.write.zt.nxv16i8(i32 0, <vscale x 16 x i8> %a1)
@@ -12882,6 +14604,118 @@ define void @SME.zero.zt() "feature"="sme,sve2,sme2" "enc"="11000000010010000000
 
 declare void @llvm.aarch64.sme.zero.zt(i32)
 
+define <vscale x 2 x i64> @SVE.ld1u.gather.index.nxv2i16(<vscale x 2 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="11000100111 a2:5 110 a0:3 a1:5 d:5" "asm"="ld1h {lb} {d}.d {rb}, {a0}/z, [{a1}, {a2}.d, lsl #1]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.epitome.sve.ld1.gather.index.nxv2i16(<vscale x 2 x i1> %a0, ptr %a1, <vscale x 2 x i64> %a2)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.epitome.sve.ld1.gather.index.nxv2i16(<vscale x 2 x i1>, ptr, <vscale x 2 x i64>)
+
+define <vscale x 2 x i64> @SVE.ld1u.gather.index.nxv2i32(<vscale x 2 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="11000101011 a2:5 110 a0:3 a1:5 d:5" "asm"="ld1w {lb} {d}.d {rb}, {a0}/z, [{a1}, {a2}.d, lsl #2]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.epitome.sve.ld1.gather.index.nxv2i32(<vscale x 2 x i1> %a0, ptr %a1, <vscale x 2 x i64> %a2)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.epitome.sve.ld1.gather.index.nxv2i32(<vscale x 2 x i1>, ptr, <vscale x 2 x i64>)
+
+define <vscale x 2 x i64> @SVE.ld1u.gather.nxv2i16(<vscale x 2 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="11000100110 a2:5 110 a0:3 a1:5 d:5" "asm"="ld1h {lb} {d}.d {rb}, {a0}/z, [{a1}, {a2}.d]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.epitome.sve.ld1.gather.nxv2i16(<vscale x 2 x i1> %a0, ptr %a1, <vscale x 2 x i64> %a2)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.epitome.sve.ld1.gather.nxv2i16(<vscale x 2 x i1>, ptr, <vscale x 2 x i64>)
+
+define <vscale x 2 x i64> @SVE.ld1u.gather.nxv2i32(<vscale x 2 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="11000101010 a2:5 110 a0:3 a1:5 d:5" "asm"="ld1w {lb} {d}.d {rb}, {a0}/z, [{a1}, {a2}.d]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.epitome.sve.ld1.gather.nxv2i32(<vscale x 2 x i1> %a0, ptr %a1, <vscale x 2 x i64> %a2)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.epitome.sve.ld1.gather.nxv2i32(<vscale x 2 x i1>, ptr, <vscale x 2 x i64>)
+
+define <vscale x 2 x i64> @SVE.ld1u.gather.nxv2i8(<vscale x 2 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="11000100010 a2:5 110 a0:3 a1:5 d:5" "asm"="ld1b {lb} {d}.d {rb}, {a0}/z, [{a1}, {a2}.d]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.epitome.sve.ld1.gather.nxv2i8(<vscale x 2 x i1> %a0, ptr %a1, <vscale x 2 x i64> %a2)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.epitome.sve.ld1.gather.nxv2i8(<vscale x 2 x i1>, ptr, <vscale x 2 x i64>)
+
+define <vscale x 2 x i64> @SVE.ld1u.gather.scalar.offset.nxv2i16.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" %a1, i64 "reg"="xsp" %a2) "feature"="sve" "enc"="11000100110 a1:5 110 a0:3 a2:5 d:5" "asm"="ld1h {lb} {d}.d {rb}, {a0}/z, [{a2}, {a1}.d]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.epitome.sve.ld1.gather.scalar.offset.nxv2i16.nxv2i64(<vscale x 2 x i1> %a0, <vscale x 2 x i64> %a1, i64 %a2)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.epitome.sve.ld1.gather.scalar.offset.nxv2i16.nxv2i64(<vscale x 2 x i1>, <vscale x 2 x i64>, i64)
+
+define <vscale x 2 x i64> @SVE.ld1u.gather.scalar.offset.nxv2i32.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" %a1, i64 "reg"="xsp" %a2) "feature"="sve" "enc"="11000101010 a1:5 110 a0:3 a2:5 d:5" "asm"="ld1w {lb} {d}.d {rb}, {a0}/z, [{a2}, {a1}.d]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.epitome.sve.ld1.gather.scalar.offset.nxv2i32.nxv2i64(<vscale x 2 x i1> %a0, <vscale x 2 x i64> %a1, i64 %a2)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.epitome.sve.ld1.gather.scalar.offset.nxv2i32.nxv2i64(<vscale x 2 x i1>, <vscale x 2 x i64>, i64)
+
+define <vscale x 2 x i64> @SVE.ld1u.gather.scalar.offset.nxv2i8.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" %a1, i64 "reg"="xsp" %a2) "feature"="sve" "enc"="11000100010 a1:5 110 a0:3 a2:5 d:5" "asm"="ld1b {lb} {d}.d {rb}, {a0}/z, [{a2}, {a1}.d]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.epitome.sve.ld1.gather.scalar.offset.nxv2i8.nxv2i64(<vscale x 2 x i1> %a0, <vscale x 2 x i64> %a1, i64 %a2)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.epitome.sve.ld1.gather.scalar.offset.nxv2i8.nxv2i64(<vscale x 2 x i1>, <vscale x 2 x i64>, i64)
+
+define <vscale x 4 x i32> @SVE.ld1u.gather.scalar.offset.nxv4i16.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" %a1, i64 "reg"="xsp" %a2) "feature"="sve" "enc"="10000100100 a1:5 010 a0:3 a2:5 d:5" "asm"="ld1h {lb} {d}.s {rb}, {a0}/z, [{a2}, {a1}.s, uxtw]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 4 x i32> @llvm.epitome.sve.ld1.gather.scalar.offset.nxv4i16.nxv4i32(<vscale x 4 x i1> %a0, <vscale x 4 x i32> %a1, i64 %a2)
+  ret <vscale x 4 x i32> %r
+}
+
+declare <vscale x 4 x i32> @llvm.epitome.sve.ld1.gather.scalar.offset.nxv4i16.nxv4i32(<vscale x 4 x i1>, <vscale x 4 x i32>, i64)
+
+define <vscale x 4 x i32> @SVE.ld1u.gather.scalar.offset.nxv4i8.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" %a1, i64 "reg"="xsp" %a2) "feature"="sve" "enc"="10000100000 a1:5 010 a0:3 a2:5 d:5" "asm"="ld1b {lb} {d}.s {rb}, {a0}/z, [{a2}, {a1}.s, uxtw]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 4 x i32> @llvm.epitome.sve.ld1.gather.scalar.offset.nxv4i8.nxv4i32(<vscale x 4 x i1> %a0, <vscale x 4 x i32> %a1, i64 %a2)
+  ret <vscale x 4 x i32> %r
+}
+
+declare <vscale x 4 x i32> @llvm.epitome.sve.ld1.gather.scalar.offset.nxv4i8.nxv4i32(<vscale x 4 x i1>, <vscale x 4 x i32>, i64)
+
+define <vscale x 4 x i32> @SVE.ld1u.gather.sxtw.index.nxv4i16(<vscale x 4 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="10000100111 a2:5 010 a0:3 a1:5 d:5" "asm"="ld1h {lb} {d}.s {rb}, {a0}/z, [{a1}, {a2}.s, sxtw #1]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 4 x i32> @llvm.epitome.sve.ld1.gather.sxtw.index.nxv4i16(<vscale x 4 x i1> %a0, ptr %a1, <vscale x 4 x i32> %a2)
+  ret <vscale x 4 x i32> %r
+}
+
+declare <vscale x 4 x i32> @llvm.epitome.sve.ld1.gather.sxtw.index.nxv4i16(<vscale x 4 x i1>, ptr, <vscale x 4 x i32>)
+
+define <vscale x 4 x i32> @SVE.ld1u.gather.sxtw.nxv4i16(<vscale x 4 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="10000100110 a2:5 010 a0:3 a1:5 d:5" "asm"="ld1h {lb} {d}.s {rb}, {a0}/z, [{a1}, {a2}.s, sxtw]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 4 x i32> @llvm.epitome.sve.ld1.gather.sxtw.nxv4i16(<vscale x 4 x i1> %a0, ptr %a1, <vscale x 4 x i32> %a2)
+  ret <vscale x 4 x i32> %r
+}
+
+declare <vscale x 4 x i32> @llvm.epitome.sve.ld1.gather.sxtw.nxv4i16(<vscale x 4 x i1>, ptr, <vscale x 4 x i32>)
+
+define <vscale x 4 x i32> @SVE.ld1u.gather.sxtw.nxv4i8(<vscale x 4 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="10000100010 a2:5 010 a0:3 a1:5 d:5" "asm"="ld1b {lb} {d}.s {rb}, {a0}/z, [{a1}, {a2}.s, sxtw]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 4 x i32> @llvm.epitome.sve.ld1.gather.sxtw.nxv4i8(<vscale x 4 x i1> %a0, ptr %a1, <vscale x 4 x i32> %a2)
+  ret <vscale x 4 x i32> %r
+}
+
+declare <vscale x 4 x i32> @llvm.epitome.sve.ld1.gather.sxtw.nxv4i8(<vscale x 4 x i1>, ptr, <vscale x 4 x i32>)
+
+define <vscale x 4 x i32> @SVE.ld1u.gather.uxtw.index.nxv4i16(<vscale x 4 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="10000100101 a2:5 010 a0:3 a1:5 d:5" "asm"="ld1h {lb} {d}.s {rb}, {a0}/z, [{a1}, {a2}.s, uxtw #1]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 4 x i32> @llvm.epitome.sve.ld1.gather.uxtw.index.nxv4i16(<vscale x 4 x i1> %a0, ptr %a1, <vscale x 4 x i32> %a2)
+  ret <vscale x 4 x i32> %r
+}
+
+declare <vscale x 4 x i32> @llvm.epitome.sve.ld1.gather.uxtw.index.nxv4i16(<vscale x 4 x i1>, ptr, <vscale x 4 x i32>)
+
+define <vscale x 4 x i32> @SVE.ld1u.gather.uxtw.nxv4i16(<vscale x 4 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="10000100100 a2:5 010 a0:3 a1:5 d:5" "asm"="ld1h {lb} {d}.s {rb}, {a0}/z, [{a1}, {a2}.s, uxtw]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 4 x i32> @llvm.epitome.sve.ld1.gather.uxtw.nxv4i16(<vscale x 4 x i1> %a0, ptr %a1, <vscale x 4 x i32> %a2)
+  ret <vscale x 4 x i32> %r
+}
+
+declare <vscale x 4 x i32> @llvm.epitome.sve.ld1.gather.uxtw.nxv4i16(<vscale x 4 x i1>, ptr, <vscale x 4 x i32>)
+
+define <vscale x 4 x i32> @SVE.ld1u.gather.uxtw.nxv4i8(<vscale x 4 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="10000100000 a2:5 010 a0:3 a1:5 d:5" "asm"="ld1b {lb} {d}.s {rb}, {a0}/z, [{a1}, {a2}.s, uxtw]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 4 x i32> @llvm.epitome.sve.ld1.gather.uxtw.nxv4i8(<vscale x 4 x i1> %a0, ptr %a1, <vscale x 4 x i32> %a2)
+  ret <vscale x 4 x i32> %r
+}
+
+declare <vscale x 4 x i32> @llvm.epitome.sve.ld1.gather.uxtw.nxv4i8(<vscale x 4 x i1>, ptr, <vscale x 4 x i32>)
+
 define <vscale x 2 x i64> @SVE.ld1u.nxv2i16(<vscale x 2 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1) "feature"="sve" "enc"="1010010011100000101 a0:3 a1:5 d:5" "asm"="ld1h {lb} {d}.d {rb}, {a0}/z, [{a1}]" "dclass"="z" "nodecode" {
   %r = call <vscale x 2 x i64> @llvm.epitome.sve.ld1.nxv2i16(<vscale x 2 x i1> %a0, ptr %a1)
   ret <vscale x 2 x i64> %r
@@ -12924,6 +14758,272 @@ define <vscale x 8 x i16> @SVE.ld1u.nxv8i8(<vscale x 8 x i1> "reg"="pg" %a0, ptr
 
 declare <vscale x 8 x i16> @llvm.epitome.sve.ld1.nxv8i8(<vscale x 8 x i1>, ptr)
 
+define <vscale x 2 x i64> @SVE.ldff1u.gather.index.nxv2i16(<vscale x 2 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="11000100111 a2:5 111 a0:3 a1:5 d:5" "asm"="ldff1h {lb} {d}.d {rb}, {a0}/z, [{a1}, {a2}.d, lsl #1]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.epitome.sve.ldff1.gather.index.nxv2i16(<vscale x 2 x i1> %a0, ptr %a1, <vscale x 2 x i64> %a2)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.epitome.sve.ldff1.gather.index.nxv2i16(<vscale x 2 x i1>, ptr, <vscale x 2 x i64>)
+
+define <vscale x 2 x i64> @SVE.ldff1u.gather.index.nxv2i32(<vscale x 2 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="11000101011 a2:5 111 a0:3 a1:5 d:5" "asm"="ldff1w {lb} {d}.d {rb}, {a0}/z, [{a1}, {a2}.d, lsl #2]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.epitome.sve.ldff1.gather.index.nxv2i32(<vscale x 2 x i1> %a0, ptr %a1, <vscale x 2 x i64> %a2)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.epitome.sve.ldff1.gather.index.nxv2i32(<vscale x 2 x i1>, ptr, <vscale x 2 x i64>)
+
+define <vscale x 2 x i64> @SVE.ldff1u.gather.nxv2i16(<vscale x 2 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="11000100110 a2:5 111 a0:3 a1:5 d:5" "asm"="ldff1h {lb} {d}.d {rb}, {a0}/z, [{a1}, {a2}.d]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.epitome.sve.ldff1.gather.nxv2i16(<vscale x 2 x i1> %a0, ptr %a1, <vscale x 2 x i64> %a2)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.epitome.sve.ldff1.gather.nxv2i16(<vscale x 2 x i1>, ptr, <vscale x 2 x i64>)
+
+define <vscale x 2 x i64> @SVE.ldff1u.gather.nxv2i32(<vscale x 2 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="11000101010 a2:5 111 a0:3 a1:5 d:5" "asm"="ldff1w {lb} {d}.d {rb}, {a0}/z, [{a1}, {a2}.d]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.epitome.sve.ldff1.gather.nxv2i32(<vscale x 2 x i1> %a0, ptr %a1, <vscale x 2 x i64> %a2)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.epitome.sve.ldff1.gather.nxv2i32(<vscale x 2 x i1>, ptr, <vscale x 2 x i64>)
+
+define <vscale x 2 x i64> @SVE.ldff1u.gather.nxv2i8(<vscale x 2 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve" "enc"="11000100010 a2:5 111 a0:3 a1:5 d:5" "asm"="ldff1b {lb} {d}.d {rb}, {a0}/z, [{a1}, {a2}.d]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.epitome.sve.ldff1.gather.nxv2i8(<vscale x 2 x i1> %a0, ptr %a1, <vscale x 2 x i64> %a2)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.epitome.sve.ldff1.gather.nxv2i8(<vscale x 2 x i1>, ptr, <vscale x 2 x i64>)
+
+define <vscale x 2 x i64> @SVE.ldff1u.gather.scalar.offset.nxv2i16.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" %a1, i64 "reg"="xsp" %a2) "feature"="sve" "enc"="11000100110 a1:5 111 a0:3 a2:5 d:5" "asm"="ldff1h {lb} {d}.d {rb}, {a0}/z, [{a2}, {a1}.d]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.epitome.sve.ldff1.gather.scalar.offset.nxv2i16.nxv2i64(<vscale x 2 x i1> %a0, <vscale x 2 x i64> %a1, i64 %a2)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.epitome.sve.ldff1.gather.scalar.offset.nxv2i16.nxv2i64(<vscale x 2 x i1>, <vscale x 2 x i64>, i64)
+
+define <vscale x 2 x i64> @SVE.ldff1u.gather.scalar.offset.nxv2i32.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" %a1, i64 "reg"="xsp" %a2) "feature"="sve" "enc"="11000101010 a1:5 111 a0:3 a2:5 d:5" "asm"="ldff1w {lb} {d}.d {rb}, {a0}/z, [{a2}, {a1}.d]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.epitome.sve.ldff1.gather.scalar.offset.nxv2i32.nxv2i64(<vscale x 2 x i1> %a0, <vscale x 2 x i64> %a1, i64 %a2)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.epitome.sve.ldff1.gather.scalar.offset.nxv2i32.nxv2i64(<vscale x 2 x i1>, <vscale x 2 x i64>, i64)
+
+define <vscale x 2 x i64> @SVE.ldff1u.gather.scalar.offset.nxv2i8.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" %a1, i64 "reg"="xsp" %a2) "feature"="sve" "enc"="11000100010 a1:5 111 a0:3 a2:5 d:5" "asm"="ldff1b {lb} {d}.d {rb}, {a0}/z, [{a2}, {a1}.d]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.epitome.sve.ldff1.gather.scalar.offset.nxv2i8.nxv2i64(<vscale x 2 x i1> %a0, <vscale x 2 x i64> %a1, i64 %a2)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.epitome.sve.ldff1.gather.scalar.offset.nxv2i8.nxv2i64(<vscale x 2 x i1>, <vscale x 2 x i64>, i64)
+
+define <vscale x 4 x i32> @SVE.ldff1u.gather.scalar.offset.nxv4i16.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" %a1, i64 "reg"="xsp" %a2) "feature"="sve" "enc"="10000100100 a1:5 011 a0:3 a2:5 d:5" "asm"="ldff1h {lb} {d}.s {rb}, {a0}/z, [{a2}, {a1}.s, uxtw]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 4 x i32> @llvm.epitome.sve.ldff1.gather.scalar.offset.nxv4i16.nxv4i32(<vscale x 4 x i1> %a0, <vscale x 4 x i32> %a1, i64 %a2)
+  ret <vscale x 4 x i32> %r
+}
+
+declare <vscale x 4 x i32> @llvm.epitome.sve.ldff1.gather.scalar.offset.nxv4i16.nxv4i32(<vscale x 4 x i1>, <vscale x 4 x i32>, i64)
+
+define <vscale x 4 x i32> @SVE.ldff1u.gather.scalar.offset.nxv4i8.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" %a1, i64 "reg"="xsp" %a2) "feature"="sve" "enc"="10000100000 a1:5 011 a0:3 a2:5 d:5" "asm"="ldff1b {lb} {d}.s {rb}, {a0}/z, [{a2}, {a1}.s, uxtw]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 4 x i32> @llvm.epitome.sve.ldff1.gather.scalar.offset.nxv4i8.nxv4i32(<vscale x 4 x i1> %a0, <vscale x 4 x i32> %a1, i64 %a2)
+  ret <vscale x 4 x i32> %r
+}
+
+declare <vscale x 4 x i32> @llvm.epitome.sve.ldff1.gather.scalar.offset.nxv4i8.nxv4i32(<vscale x 4 x i1>, <vscale x 4 x i32>, i64)
+
+define <vscale x 4 x i32> @SVE.ldff1u.gather.sxtw.index.nxv4i16(<vscale x 4 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="10000100111 a2:5 011 a0:3 a1:5 d:5" "asm"="ldff1h {lb} {d}.s {rb}, {a0}/z, [{a1}, {a2}.s, sxtw #1]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 4 x i32> @llvm.epitome.sve.ldff1.gather.sxtw.index.nxv4i16(<vscale x 4 x i1> %a0, ptr %a1, <vscale x 4 x i32> %a2)
+  ret <vscale x 4 x i32> %r
+}
+
+declare <vscale x 4 x i32> @llvm.epitome.sve.ldff1.gather.sxtw.index.nxv4i16(<vscale x 4 x i1>, ptr, <vscale x 4 x i32>)
+
+define <vscale x 4 x i32> @SVE.ldff1u.gather.sxtw.nxv4i16(<vscale x 4 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="10000100110 a2:5 011 a0:3 a1:5 d:5" "asm"="ldff1h {lb} {d}.s {rb}, {a0}/z, [{a1}, {a2}.s, sxtw]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 4 x i32> @llvm.epitome.sve.ldff1.gather.sxtw.nxv4i16(<vscale x 4 x i1> %a0, ptr %a1, <vscale x 4 x i32> %a2)
+  ret <vscale x 4 x i32> %r
+}
+
+declare <vscale x 4 x i32> @llvm.epitome.sve.ldff1.gather.sxtw.nxv4i16(<vscale x 4 x i1>, ptr, <vscale x 4 x i32>)
+
+define <vscale x 4 x i32> @SVE.ldff1u.gather.sxtw.nxv4i8(<vscale x 4 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="10000100010 a2:5 011 a0:3 a1:5 d:5" "asm"="ldff1b {lb} {d}.s {rb}, {a0}/z, [{a1}, {a2}.s, sxtw]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 4 x i32> @llvm.epitome.sve.ldff1.gather.sxtw.nxv4i8(<vscale x 4 x i1> %a0, ptr %a1, <vscale x 4 x i32> %a2)
+  ret <vscale x 4 x i32> %r
+}
+
+declare <vscale x 4 x i32> @llvm.epitome.sve.ldff1.gather.sxtw.nxv4i8(<vscale x 4 x i1>, ptr, <vscale x 4 x i32>)
+
+define <vscale x 4 x i32> @SVE.ldff1u.gather.uxtw.index.nxv4i16(<vscale x 4 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="10000100101 a2:5 011 a0:3 a1:5 d:5" "asm"="ldff1h {lb} {d}.s {rb}, {a0}/z, [{a1}, {a2}.s, uxtw #1]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 4 x i32> @llvm.epitome.sve.ldff1.gather.uxtw.index.nxv4i16(<vscale x 4 x i1> %a0, ptr %a1, <vscale x 4 x i32> %a2)
+  ret <vscale x 4 x i32> %r
+}
+
+declare <vscale x 4 x i32> @llvm.epitome.sve.ldff1.gather.uxtw.index.nxv4i16(<vscale x 4 x i1>, ptr, <vscale x 4 x i32>)
+
+define <vscale x 4 x i32> @SVE.ldff1u.gather.uxtw.nxv4i16(<vscale x 4 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="10000100100 a2:5 011 a0:3 a1:5 d:5" "asm"="ldff1h {lb} {d}.s {rb}, {a0}/z, [{a1}, {a2}.s, uxtw]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 4 x i32> @llvm.epitome.sve.ldff1.gather.uxtw.nxv4i16(<vscale x 4 x i1> %a0, ptr %a1, <vscale x 4 x i32> %a2)
+  ret <vscale x 4 x i32> %r
+}
+
+declare <vscale x 4 x i32> @llvm.epitome.sve.ldff1.gather.uxtw.nxv4i16(<vscale x 4 x i1>, ptr, <vscale x 4 x i32>)
+
+define <vscale x 4 x i32> @SVE.ldff1u.gather.uxtw.nxv4i8(<vscale x 4 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve" "enc"="10000100000 a2:5 011 a0:3 a1:5 d:5" "asm"="ldff1b {lb} {d}.s {rb}, {a0}/z, [{a1}, {a2}.s, uxtw]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 4 x i32> @llvm.epitome.sve.ldff1.gather.uxtw.nxv4i8(<vscale x 4 x i1> %a0, ptr %a1, <vscale x 4 x i32> %a2)
+  ret <vscale x 4 x i32> %r
+}
+
+declare <vscale x 4 x i32> @llvm.epitome.sve.ldff1.gather.uxtw.nxv4i8(<vscale x 4 x i1>, ptr, <vscale x 4 x i32>)
+
+define <vscale x 2 x i64> @SVE.ldff1u.nxv2i16(<vscale x 2 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1) "feature"="sve" "enc"="1010010011111111011 a0:3 a1:5 d:5" "asm"="ldff1h {lb} {d}.d {rb}, {a0}/z, [{a1}]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.epitome.sve.ldff1.nxv2i16(<vscale x 2 x i1> %a0, ptr %a1)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.epitome.sve.ldff1.nxv2i16(<vscale x 2 x i1>, ptr)
+
+define <vscale x 2 x i64> @SVE.ldff1u.nxv2i32(<vscale x 2 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1) "feature"="sve" "enc"="1010010101111111011 a0:3 a1:5 d:5" "asm"="ldff1w {lb} {d}.d {rb}, {a0}/z, [{a1}]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.epitome.sve.ldff1.nxv2i32(<vscale x 2 x i1> %a0, ptr %a1)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.epitome.sve.ldff1.nxv2i32(<vscale x 2 x i1>, ptr)
+
+define <vscale x 2 x i64> @SVE.ldff1u.nxv2i8(<vscale x 2 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1) "feature"="sve" "enc"="1010010001111111011 a0:3 a1:5 d:5" "asm"="ldff1b {lb} {d}.d {rb}, {a0}/z, [{a1}]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.epitome.sve.ldff1.nxv2i8(<vscale x 2 x i1> %a0, ptr %a1)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.epitome.sve.ldff1.nxv2i8(<vscale x 2 x i1>, ptr)
+
+define <vscale x 4 x i32> @SVE.ldff1u.nxv4i16(<vscale x 4 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1) "feature"="sve" "enc"="1010010011011111011 a0:3 a1:5 d:5" "asm"="ldff1h {lb} {d}.s {rb}, {a0}/z, [{a1}]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 4 x i32> @llvm.epitome.sve.ldff1.nxv4i16(<vscale x 4 x i1> %a0, ptr %a1)
+  ret <vscale x 4 x i32> %r
+}
+
+declare <vscale x 4 x i32> @llvm.epitome.sve.ldff1.nxv4i16(<vscale x 4 x i1>, ptr)
+
+define <vscale x 4 x i32> @SVE.ldff1u.nxv4i8(<vscale x 4 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1) "feature"="sve" "enc"="1010010001011111011 a0:3 a1:5 d:5" "asm"="ldff1b {lb} {d}.s {rb}, {a0}/z, [{a1}]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 4 x i32> @llvm.epitome.sve.ldff1.nxv4i8(<vscale x 4 x i1> %a0, ptr %a1)
+  ret <vscale x 4 x i32> %r
+}
+
+declare <vscale x 4 x i32> @llvm.epitome.sve.ldff1.nxv4i8(<vscale x 4 x i1>, ptr)
+
+define <vscale x 8 x i16> @SVE.ldff1u.nxv8i8(<vscale x 8 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1) "feature"="sve" "enc"="1010010000111111011 a0:3 a1:5 d:5" "asm"="ldff1b {lb} {d}.h {rb}, {a0}/z, [{a1}]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 8 x i16> @llvm.epitome.sve.ldff1.nxv8i8(<vscale x 8 x i1> %a0, ptr %a1)
+  ret <vscale x 8 x i16> %r
+}
+
+declare <vscale x 8 x i16> @llvm.epitome.sve.ldff1.nxv8i8(<vscale x 8 x i1>, ptr)
+
+define <vscale x 2 x i64> @SVE.ldnf1u.nxv2i16(<vscale x 2 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1) "feature"="sve" "enc"="1010010011110000101 a0:3 a1:5 d:5" "asm"="ldnf1h {lb} {d}.d {rb}, {a0}/z, [{a1}]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.epitome.sve.ldnf1.nxv2i16(<vscale x 2 x i1> %a0, ptr %a1)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.epitome.sve.ldnf1.nxv2i16(<vscale x 2 x i1>, ptr)
+
+define <vscale x 2 x i64> @SVE.ldnf1u.nxv2i32(<vscale x 2 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1) "feature"="sve" "enc"="1010010101110000101 a0:3 a1:5 d:5" "asm"="ldnf1w {lb} {d}.d {rb}, {a0}/z, [{a1}]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.epitome.sve.ldnf1.nxv2i32(<vscale x 2 x i1> %a0, ptr %a1)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.epitome.sve.ldnf1.nxv2i32(<vscale x 2 x i1>, ptr)
+
+define <vscale x 2 x i64> @SVE.ldnf1u.nxv2i8(<vscale x 2 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1) "feature"="sve" "enc"="1010010001110000101 a0:3 a1:5 d:5" "asm"="ldnf1b {lb} {d}.d {rb}, {a0}/z, [{a1}]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.epitome.sve.ldnf1.nxv2i8(<vscale x 2 x i1> %a0, ptr %a1)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.epitome.sve.ldnf1.nxv2i8(<vscale x 2 x i1>, ptr)
+
+define <vscale x 4 x i32> @SVE.ldnf1u.nxv4i16(<vscale x 4 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1) "feature"="sve" "enc"="1010010011010000101 a0:3 a1:5 d:5" "asm"="ldnf1h {lb} {d}.s {rb}, {a0}/z, [{a1}]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 4 x i32> @llvm.epitome.sve.ldnf1.nxv4i16(<vscale x 4 x i1> %a0, ptr %a1)
+  ret <vscale x 4 x i32> %r
+}
+
+declare <vscale x 4 x i32> @llvm.epitome.sve.ldnf1.nxv4i16(<vscale x 4 x i1>, ptr)
+
+define <vscale x 4 x i32> @SVE.ldnf1u.nxv4i8(<vscale x 4 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1) "feature"="sve" "enc"="1010010001010000101 a0:3 a1:5 d:5" "asm"="ldnf1b {lb} {d}.s {rb}, {a0}/z, [{a1}]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 4 x i32> @llvm.epitome.sve.ldnf1.nxv4i8(<vscale x 4 x i1> %a0, ptr %a1)
+  ret <vscale x 4 x i32> %r
+}
+
+declare <vscale x 4 x i32> @llvm.epitome.sve.ldnf1.nxv4i8(<vscale x 4 x i1>, ptr)
+
+define <vscale x 8 x i16> @SVE.ldnf1u.nxv8i8(<vscale x 8 x i1> "reg"="pg" %a0, ptr "reg"="xsp" %a1) "feature"="sve" "enc"="1010010000110000101 a0:3 a1:5 d:5" "asm"="ldnf1b {lb} {d}.h {rb}, {a0}/z, [{a1}]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 8 x i16> @llvm.epitome.sve.ldnf1.nxv8i8(<vscale x 8 x i1> %a0, ptr %a1)
+  ret <vscale x 8 x i16> %r
+}
+
+declare <vscale x 8 x i16> @llvm.epitome.sve.ldnf1.nxv8i8(<vscale x 8 x i1>, ptr)
+
+define <vscale x 2 x i64> @SVE.ldnt1u.gather.nxv2i16(<vscale x 2 x i1> "reg"="pg" %a0, ptr "reg"="x" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve,sve2" "enc"="11000100100 a1:5 110 a0:3 a2:5 d:5" "asm"="ldnt1h {lb} {d}.d {rb}, {a0}/z, [{a2}.d, {a1}]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.epitome.sve.ldnt1.gather.nxv2i16(<vscale x 2 x i1> %a0, ptr %a1, <vscale x 2 x i64> %a2)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.epitome.sve.ldnt1.gather.nxv2i16(<vscale x 2 x i1>, ptr, <vscale x 2 x i64>)
+
+define <vscale x 2 x i64> @SVE.ldnt1u.gather.nxv2i32(<vscale x 2 x i1> "reg"="pg" %a0, ptr "reg"="x" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve,sve2" "enc"="11000101000 a1:5 110 a0:3 a2:5 d:5" "asm"="ldnt1w {lb} {d}.d {rb}, {a0}/z, [{a2}.d, {a1}]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.epitome.sve.ldnt1.gather.nxv2i32(<vscale x 2 x i1> %a0, ptr %a1, <vscale x 2 x i64> %a2)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.epitome.sve.ldnt1.gather.nxv2i32(<vscale x 2 x i1>, ptr, <vscale x 2 x i64>)
+
+define <vscale x 2 x i64> @SVE.ldnt1u.gather.nxv2i8(<vscale x 2 x i1> "reg"="pg" %a0, ptr "reg"="x" %a1, <vscale x 2 x i64> "reg"="z" %a2) "feature"="sve,sve2" "enc"="11000100000 a1:5 110 a0:3 a2:5 d:5" "asm"="ldnt1b {lb} {d}.d {rb}, {a0}/z, [{a2}.d, {a1}]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.epitome.sve.ldnt1.gather.nxv2i8(<vscale x 2 x i1> %a0, ptr %a1, <vscale x 2 x i64> %a2)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.epitome.sve.ldnt1.gather.nxv2i8(<vscale x 2 x i1>, ptr, <vscale x 2 x i64>)
+
+define <vscale x 2 x i64> @SVE.ldnt1u.gather.scalar.offset.nxv2i16.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" %a1, i64 "reg"="x" %a2) "feature"="sve,sve2" "enc"="11000100100 a2:5 110 a0:3 a1:5 d:5" "asm"="ldnt1h {lb} {d}.d {rb}, {a0}/z, [{a1}.d, {a2}]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.epitome.sve.ldnt1.gather.scalar.offset.nxv2i16.nxv2i64(<vscale x 2 x i1> %a0, <vscale x 2 x i64> %a1, i64 %a2)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.epitome.sve.ldnt1.gather.scalar.offset.nxv2i16.nxv2i64(<vscale x 2 x i1>, <vscale x 2 x i64>, i64)
+
+define <vscale x 2 x i64> @SVE.ldnt1u.gather.scalar.offset.nxv2i32.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" %a1, i64 "reg"="x" %a2) "feature"="sve,sve2" "enc"="11000101000 a2:5 110 a0:3 a1:5 d:5" "asm"="ldnt1w {lb} {d}.d {rb}, {a0}/z, [{a1}.d, {a2}]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.epitome.sve.ldnt1.gather.scalar.offset.nxv2i32.nxv2i64(<vscale x 2 x i1> %a0, <vscale x 2 x i64> %a1, i64 %a2)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.epitome.sve.ldnt1.gather.scalar.offset.nxv2i32.nxv2i64(<vscale x 2 x i1>, <vscale x 2 x i64>, i64)
+
+define <vscale x 2 x i64> @SVE.ldnt1u.gather.scalar.offset.nxv2i8.nxv2i64(<vscale x 2 x i1> "reg"="pg" %a0, <vscale x 2 x i64> "reg"="z" %a1, i64 "reg"="x" %a2) "feature"="sve,sve2" "enc"="11000100000 a2:5 110 a0:3 a1:5 d:5" "asm"="ldnt1b {lb} {d}.d {rb}, {a0}/z, [{a1}.d, {a2}]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 2 x i64> @llvm.epitome.sve.ldnt1.gather.scalar.offset.nxv2i8.nxv2i64(<vscale x 2 x i1> %a0, <vscale x 2 x i64> %a1, i64 %a2)
+  ret <vscale x 2 x i64> %r
+}
+
+declare <vscale x 2 x i64> @llvm.epitome.sve.ldnt1.gather.scalar.offset.nxv2i8.nxv2i64(<vscale x 2 x i1>, <vscale x 2 x i64>, i64)
+
+define <vscale x 4 x i32> @SVE.ldnt1u.gather.scalar.offset.nxv4i16.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" %a1, i64 "reg"="x" %a2) "feature"="sve,sve2" "enc"="10000100100 a2:5 101 a0:3 a1:5 d:5" "asm"="ldnt1h {lb} {d}.s {rb}, {a0}/z, [{a1}.s, {a2}]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 4 x i32> @llvm.epitome.sve.ldnt1.gather.scalar.offset.nxv4i16.nxv4i32(<vscale x 4 x i1> %a0, <vscale x 4 x i32> %a1, i64 %a2)
+  ret <vscale x 4 x i32> %r
+}
+
+declare <vscale x 4 x i32> @llvm.epitome.sve.ldnt1.gather.scalar.offset.nxv4i16.nxv4i32(<vscale x 4 x i1>, <vscale x 4 x i32>, i64)
+
+define <vscale x 4 x i32> @SVE.ldnt1u.gather.scalar.offset.nxv4i8.nxv4i32(<vscale x 4 x i1> "reg"="pg" %a0, <vscale x 4 x i32> "reg"="z" %a1, i64 "reg"="x" %a2) "feature"="sve,sve2" "enc"="10000100000 a2:5 101 a0:3 a1:5 d:5" "asm"="ldnt1b {lb} {d}.s {rb}, {a0}/z, [{a1}.s, {a2}]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 4 x i32> @llvm.epitome.sve.ldnt1.gather.scalar.offset.nxv4i8.nxv4i32(<vscale x 4 x i1> %a0, <vscale x 4 x i32> %a1, i64 %a2)
+  ret <vscale x 4 x i32> %r
+}
+
+declare <vscale x 4 x i32> @llvm.epitome.sve.ldnt1.gather.scalar.offset.nxv4i8.nxv4i32(<vscale x 4 x i1>, <vscale x 4 x i32>, i64)
+
+define <vscale x 4 x i32> @SVE.ldnt1u.gather.uxtw.nxv4i16(<vscale x 4 x i1> "reg"="pg" %a0, ptr "reg"="x" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve,sve2" "enc"="10000100100 a1:5 101 a0:3 a2:5 d:5" "asm"="ldnt1h {lb} {d}.s {rb}, {a0}/z, [{a2}.s, {a1}]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 4 x i32> @llvm.epitome.sve.ldnt1.gather.uxtw.nxv4i16(<vscale x 4 x i1> %a0, ptr %a1, <vscale x 4 x i32> %a2)
+  ret <vscale x 4 x i32> %r
+}
+
+declare <vscale x 4 x i32> @llvm.epitome.sve.ldnt1.gather.uxtw.nxv4i16(<vscale x 4 x i1>, ptr, <vscale x 4 x i32>)
+
+define <vscale x 4 x i32> @SVE.ldnt1u.gather.uxtw.nxv4i8(<vscale x 4 x i1> "reg"="pg" %a0, ptr "reg"="x" %a1, <vscale x 4 x i32> "reg"="z" %a2) "feature"="sve,sve2" "enc"="10000100000 a1:5 101 a0:3 a2:5 d:5" "asm"="ldnt1b {lb} {d}.s {rb}, {a0}/z, [{a2}.s, {a1}]" "dclass"="z" "nodecode" {
+  %r = call <vscale x 4 x i32> @llvm.epitome.sve.ldnt1.gather.uxtw.nxv4i8(<vscale x 4 x i1> %a0, ptr %a1, <vscale x 4 x i32> %a2)
+  ret <vscale x 4 x i32> %r
+}
+
+declare <vscale x 4 x i32> @llvm.epitome.sve.ldnt1.gather.uxtw.nxv4i8(<vscale x 4 x i1>, ptr, <vscale x 4 x i32>)
+
 define void @SVE.st1u.nxv2i16(<vscale x 2 x i64> "reg"="z" %a0, <vscale x 2 x i1> "reg"="pg" %a1, ptr "reg"="xsp" %a2) "feature"="sve" "enc"="1110010011100000111 a1:3 a2:5 a0:5" "asm"="st1h {lb} {a0}.d {rb}, {a1}, [{a2}]" "nodecode" {
   call void @llvm.epitome.sve.st1.nxv2i16(<vscale x 2 x i64> %a0, <vscale x 2 x i1> %a1, ptr %a2)
   ret void
@@ -12965,6 +15065,188 @@ define void @SVE.st1u.nxv8i8(<vscale x 8 x i16> "reg"="z" %a0, <vscale x 8 x i1>
 }
 
 declare void @llvm.epitome.sve.st1.nxv8i8(<vscale x 8 x i16>, <vscale x 8 x i1>, ptr)
+
+define void @SVE.st1u.scatter.index.nxv2i16(<vscale x 2 x i64> "reg"="z" %a0, <vscale x 2 x i1> "reg"="pg" %a1, ptr "reg"="xsp" %a2, <vscale x 2 x i64> "reg"="z" %a3) "feature"="sve" "enc"="11100100101 a3:5 101 a1:3 a2:5 a0:5" "asm"="st1h {lb} {a0}.d {rb}, {a1}, [{a2}, {a3}.d, lsl #1]" "nodecode" {
+  call void @llvm.epitome.sve.st1.scatter.index.nxv2i16(<vscale x 2 x i64> %a0, <vscale x 2 x i1> %a1, ptr %a2, <vscale x 2 x i64> %a3)
+  ret void
+}
+
+declare void @llvm.epitome.sve.st1.scatter.index.nxv2i16(<vscale x 2 x i64>, <vscale x 2 x i1>, ptr, <vscale x 2 x i64>)
+
+define void @SVE.st1u.scatter.index.nxv2i32(<vscale x 2 x i64> "reg"="z" %a0, <vscale x 2 x i1> "reg"="pg" %a1, ptr "reg"="xsp" %a2, <vscale x 2 x i64> "reg"="z" %a3) "feature"="sve" "enc"="11100101001 a3:5 101 a1:3 a2:5 a0:5" "asm"="st1w {lb} {a0}.d {rb}, {a1}, [{a2}, {a3}.d, lsl #2]" "nodecode" {
+  call void @llvm.epitome.sve.st1.scatter.index.nxv2i32(<vscale x 2 x i64> %a0, <vscale x 2 x i1> %a1, ptr %a2, <vscale x 2 x i64> %a3)
+  ret void
+}
+
+declare void @llvm.epitome.sve.st1.scatter.index.nxv2i32(<vscale x 2 x i64>, <vscale x 2 x i1>, ptr, <vscale x 2 x i64>)
+
+define void @SVE.st1u.scatter.nxv2i16(<vscale x 2 x i64> "reg"="z" %a0, <vscale x 2 x i1> "reg"="pg" %a1, ptr "reg"="xsp" %a2, <vscale x 2 x i64> "reg"="z" %a3) "feature"="sve" "enc"="11100100100 a3:5 101 a1:3 a2:5 a0:5" "asm"="st1h {lb} {a0}.d {rb}, {a1}, [{a2}, {a3}.d]" "nodecode" {
+  call void @llvm.epitome.sve.st1.scatter.nxv2i16(<vscale x 2 x i64> %a0, <vscale x 2 x i1> %a1, ptr %a2, <vscale x 2 x i64> %a3)
+  ret void
+}
+
+declare void @llvm.epitome.sve.st1.scatter.nxv2i16(<vscale x 2 x i64>, <vscale x 2 x i1>, ptr, <vscale x 2 x i64>)
+
+define void @SVE.st1u.scatter.nxv2i32(<vscale x 2 x i64> "reg"="z" %a0, <vscale x 2 x i1> "reg"="pg" %a1, ptr "reg"="xsp" %a2, <vscale x 2 x i64> "reg"="z" %a3) "feature"="sve" "enc"="11100101000 a3:5 101 a1:3 a2:5 a0:5" "asm"="st1w {lb} {a0}.d {rb}, {a1}, [{a2}, {a3}.d]" "nodecode" {
+  call void @llvm.epitome.sve.st1.scatter.nxv2i32(<vscale x 2 x i64> %a0, <vscale x 2 x i1> %a1, ptr %a2, <vscale x 2 x i64> %a3)
+  ret void
+}
+
+declare void @llvm.epitome.sve.st1.scatter.nxv2i32(<vscale x 2 x i64>, <vscale x 2 x i1>, ptr, <vscale x 2 x i64>)
+
+define void @SVE.st1u.scatter.nxv2i8(<vscale x 2 x i64> "reg"="z" %a0, <vscale x 2 x i1> "reg"="pg" %a1, ptr "reg"="xsp" %a2, <vscale x 2 x i64> "reg"="z" %a3) "feature"="sve" "enc"="11100100000 a3:5 101 a1:3 a2:5 a0:5" "asm"="st1b {lb} {a0}.d {rb}, {a1}, [{a2}, {a3}.d]" "nodecode" {
+  call void @llvm.epitome.sve.st1.scatter.nxv2i8(<vscale x 2 x i64> %a0, <vscale x 2 x i1> %a1, ptr %a2, <vscale x 2 x i64> %a3)
+  ret void
+}
+
+declare void @llvm.epitome.sve.st1.scatter.nxv2i8(<vscale x 2 x i64>, <vscale x 2 x i1>, ptr, <vscale x 2 x i64>)
+
+define void @SVE.st1u.scatter.scalar.offset.nxv2i16.nxv2i64(<vscale x 2 x i64> "reg"="z" %a0, <vscale x 2 x i1> "reg"="pg" %a1, <vscale x 2 x i64> "reg"="z" %a2, i64 "reg"="xsp" %a3) "feature"="sve" "enc"="11100100100 a2:5 101 a1:3 a3:5 a0:5" "asm"="st1h {lb} {a0}.d {rb}, {a1}, [{a3}, {a2}.d]" "nodecode" {
+  call void @llvm.epitome.sve.st1.scatter.scalar.offset.nxv2i16.nxv2i64(<vscale x 2 x i64> %a0, <vscale x 2 x i1> %a1, <vscale x 2 x i64> %a2, i64 %a3)
+  ret void
+}
+
+declare void @llvm.epitome.sve.st1.scatter.scalar.offset.nxv2i16.nxv2i64(<vscale x 2 x i64>, <vscale x 2 x i1>, <vscale x 2 x i64>, i64)
+
+define void @SVE.st1u.scatter.scalar.offset.nxv2i32.nxv2i64(<vscale x 2 x i64> "reg"="z" %a0, <vscale x 2 x i1> "reg"="pg" %a1, <vscale x 2 x i64> "reg"="z" %a2, i64 "reg"="xsp" %a3) "feature"="sve" "enc"="11100101000 a2:5 101 a1:3 a3:5 a0:5" "asm"="st1w {lb} {a0}.d {rb}, {a1}, [{a3}, {a2}.d]" "nodecode" {
+  call void @llvm.epitome.sve.st1.scatter.scalar.offset.nxv2i32.nxv2i64(<vscale x 2 x i64> %a0, <vscale x 2 x i1> %a1, <vscale x 2 x i64> %a2, i64 %a3)
+  ret void
+}
+
+declare void @llvm.epitome.sve.st1.scatter.scalar.offset.nxv2i32.nxv2i64(<vscale x 2 x i64>, <vscale x 2 x i1>, <vscale x 2 x i64>, i64)
+
+define void @SVE.st1u.scatter.scalar.offset.nxv2i8.nxv2i64(<vscale x 2 x i64> "reg"="z" %a0, <vscale x 2 x i1> "reg"="pg" %a1, <vscale x 2 x i64> "reg"="z" %a2, i64 "reg"="xsp" %a3) "feature"="sve" "enc"="11100100000 a2:5 101 a1:3 a3:5 a0:5" "asm"="st1b {lb} {a0}.d {rb}, {a1}, [{a3}, {a2}.d]" "nodecode" {
+  call void @llvm.epitome.sve.st1.scatter.scalar.offset.nxv2i8.nxv2i64(<vscale x 2 x i64> %a0, <vscale x 2 x i1> %a1, <vscale x 2 x i64> %a2, i64 %a3)
+  ret void
+}
+
+declare void @llvm.epitome.sve.st1.scatter.scalar.offset.nxv2i8.nxv2i64(<vscale x 2 x i64>, <vscale x 2 x i1>, <vscale x 2 x i64>, i64)
+
+define void @SVE.st1u.scatter.scalar.offset.nxv4i16.nxv4i32(<vscale x 4 x i32> "reg"="z" %a0, <vscale x 4 x i1> "reg"="pg" %a1, <vscale x 4 x i32> "reg"="z" %a2, i64 "reg"="xsp" %a3) "feature"="sve" "enc"="11100100110 a2:5 100 a1:3 a3:5 a0:5" "asm"="st1h {lb} {a0}.s {rb}, {a1}, [{a3}, {a2}.s, uxtw]" "nodecode" {
+  call void @llvm.epitome.sve.st1.scatter.scalar.offset.nxv4i16.nxv4i32(<vscale x 4 x i32> %a0, <vscale x 4 x i1> %a1, <vscale x 4 x i32> %a2, i64 %a3)
+  ret void
+}
+
+declare void @llvm.epitome.sve.st1.scatter.scalar.offset.nxv4i16.nxv4i32(<vscale x 4 x i32>, <vscale x 4 x i1>, <vscale x 4 x i32>, i64)
+
+define void @SVE.st1u.scatter.scalar.offset.nxv4i8.nxv4i32(<vscale x 4 x i32> "reg"="z" %a0, <vscale x 4 x i1> "reg"="pg" %a1, <vscale x 4 x i32> "reg"="z" %a2, i64 "reg"="xsp" %a3) "feature"="sve" "enc"="11100100010 a2:5 100 a1:3 a3:5 a0:5" "asm"="st1b {lb} {a0}.s {rb}, {a1}, [{a3}, {a2}.s, uxtw]" "nodecode" {
+  call void @llvm.epitome.sve.st1.scatter.scalar.offset.nxv4i8.nxv4i32(<vscale x 4 x i32> %a0, <vscale x 4 x i1> %a1, <vscale x 4 x i32> %a2, i64 %a3)
+  ret void
+}
+
+declare void @llvm.epitome.sve.st1.scatter.scalar.offset.nxv4i8.nxv4i32(<vscale x 4 x i32>, <vscale x 4 x i1>, <vscale x 4 x i32>, i64)
+
+define void @SVE.st1u.scatter.sxtw.index.nxv4i16(<vscale x 4 x i32> "reg"="z" %a0, <vscale x 4 x i1> "reg"="pg" %a1, ptr "reg"="xsp" %a2, <vscale x 4 x i32> "reg"="z" %a3) "feature"="sve" "enc"="11100100111 a3:5 110 a1:3 a2:5 a0:5" "asm"="st1h {lb} {a0}.s {rb}, {a1}, [{a2}, {a3}.s, sxtw #1]" "nodecode" {
+  call void @llvm.epitome.sve.st1.scatter.sxtw.index.nxv4i16(<vscale x 4 x i32> %a0, <vscale x 4 x i1> %a1, ptr %a2, <vscale x 4 x i32> %a3)
+  ret void
+}
+
+declare void @llvm.epitome.sve.st1.scatter.sxtw.index.nxv4i16(<vscale x 4 x i32>, <vscale x 4 x i1>, ptr, <vscale x 4 x i32>)
+
+define void @SVE.st1u.scatter.sxtw.nxv4i16(<vscale x 4 x i32> "reg"="z" %a0, <vscale x 4 x i1> "reg"="pg" %a1, ptr "reg"="xsp" %a2, <vscale x 4 x i32> "reg"="z" %a3) "feature"="sve" "enc"="11100100110 a3:5 110 a1:3 a2:5 a0:5" "asm"="st1h {lb} {a0}.s {rb}, {a1}, [{a2}, {a3}.s, sxtw]" "nodecode" {
+  call void @llvm.epitome.sve.st1.scatter.sxtw.nxv4i16(<vscale x 4 x i32> %a0, <vscale x 4 x i1> %a1, ptr %a2, <vscale x 4 x i32> %a3)
+  ret void
+}
+
+declare void @llvm.epitome.sve.st1.scatter.sxtw.nxv4i16(<vscale x 4 x i32>, <vscale x 4 x i1>, ptr, <vscale x 4 x i32>)
+
+define void @SVE.st1u.scatter.sxtw.nxv4i8(<vscale x 4 x i32> "reg"="z" %a0, <vscale x 4 x i1> "reg"="pg" %a1, ptr "reg"="xsp" %a2, <vscale x 4 x i32> "reg"="z" %a3) "feature"="sve" "enc"="11100100010 a3:5 110 a1:3 a2:5 a0:5" "asm"="st1b {lb} {a0}.s {rb}, {a1}, [{a2}, {a3}.s, sxtw]" "nodecode" {
+  call void @llvm.epitome.sve.st1.scatter.sxtw.nxv4i8(<vscale x 4 x i32> %a0, <vscale x 4 x i1> %a1, ptr %a2, <vscale x 4 x i32> %a3)
+  ret void
+}
+
+declare void @llvm.epitome.sve.st1.scatter.sxtw.nxv4i8(<vscale x 4 x i32>, <vscale x 4 x i1>, ptr, <vscale x 4 x i32>)
+
+define void @SVE.st1u.scatter.uxtw.index.nxv4i16(<vscale x 4 x i32> "reg"="z" %a0, <vscale x 4 x i1> "reg"="pg" %a1, ptr "reg"="xsp" %a2, <vscale x 4 x i32> "reg"="z" %a3) "feature"="sve" "enc"="11100100111 a3:5 100 a1:3 a2:5 a0:5" "asm"="st1h {lb} {a0}.s {rb}, {a1}, [{a2}, {a3}.s, uxtw #1]" "nodecode" {
+  call void @llvm.epitome.sve.st1.scatter.uxtw.index.nxv4i16(<vscale x 4 x i32> %a0, <vscale x 4 x i1> %a1, ptr %a2, <vscale x 4 x i32> %a3)
+  ret void
+}
+
+declare void @llvm.epitome.sve.st1.scatter.uxtw.index.nxv4i16(<vscale x 4 x i32>, <vscale x 4 x i1>, ptr, <vscale x 4 x i32>)
+
+define void @SVE.st1u.scatter.uxtw.nxv4i16(<vscale x 4 x i32> "reg"="z" %a0, <vscale x 4 x i1> "reg"="pg" %a1, ptr "reg"="xsp" %a2, <vscale x 4 x i32> "reg"="z" %a3) "feature"="sve" "enc"="11100100110 a3:5 100 a1:3 a2:5 a0:5" "asm"="st1h {lb} {a0}.s {rb}, {a1}, [{a2}, {a3}.s, uxtw]" "nodecode" {
+  call void @llvm.epitome.sve.st1.scatter.uxtw.nxv4i16(<vscale x 4 x i32> %a0, <vscale x 4 x i1> %a1, ptr %a2, <vscale x 4 x i32> %a3)
+  ret void
+}
+
+declare void @llvm.epitome.sve.st1.scatter.uxtw.nxv4i16(<vscale x 4 x i32>, <vscale x 4 x i1>, ptr, <vscale x 4 x i32>)
+
+define void @SVE.st1u.scatter.uxtw.nxv4i8(<vscale x 4 x i32> "reg"="z" %a0, <vscale x 4 x i1> "reg"="pg" %a1, ptr "reg"="xsp" %a2, <vscale x 4 x i32> "reg"="z" %a3) "feature"="sve" "enc"="11100100010 a3:5 100 a1:3 a2:5 a0:5" "asm"="st1b {lb} {a0}.s {rb}, {a1}, [{a2}, {a3}.s, uxtw]" "nodecode" {
+  call void @llvm.epitome.sve.st1.scatter.uxtw.nxv4i8(<vscale x 4 x i32> %a0, <vscale x 4 x i1> %a1, ptr %a2, <vscale x 4 x i32> %a3)
+  ret void
+}
+
+declare void @llvm.epitome.sve.st1.scatter.uxtw.nxv4i8(<vscale x 4 x i32>, <vscale x 4 x i1>, ptr, <vscale x 4 x i32>)
+
+define void @SVE.stnt1u.scatter.nxv2i16(<vscale x 2 x i64> "reg"="z" %a0, <vscale x 2 x i1> "reg"="pg" %a1, ptr "reg"="x" %a2, <vscale x 2 x i64> "reg"="z" %a3) "feature"="sve,sve2" "enc"="11100100100 a2:5 001 a1:3 a3:5 a0:5" "asm"="stnt1h {lb} {a0}.d {rb}, {a1}, [{a3}.d, {a2}]" "nodecode" {
+  call void @llvm.epitome.sve.stnt1.scatter.nxv2i16(<vscale x 2 x i64> %a0, <vscale x 2 x i1> %a1, ptr %a2, <vscale x 2 x i64> %a3)
+  ret void
+}
+
+declare void @llvm.epitome.sve.stnt1.scatter.nxv2i16(<vscale x 2 x i64>, <vscale x 2 x i1>, ptr, <vscale x 2 x i64>)
+
+define void @SVE.stnt1u.scatter.nxv2i32(<vscale x 2 x i64> "reg"="z" %a0, <vscale x 2 x i1> "reg"="pg" %a1, ptr "reg"="x" %a2, <vscale x 2 x i64> "reg"="z" %a3) "feature"="sve,sve2" "enc"="11100101000 a2:5 001 a1:3 a3:5 a0:5" "asm"="stnt1w {lb} {a0}.d {rb}, {a1}, [{a3}.d, {a2}]" "nodecode" {
+  call void @llvm.epitome.sve.stnt1.scatter.nxv2i32(<vscale x 2 x i64> %a0, <vscale x 2 x i1> %a1, ptr %a2, <vscale x 2 x i64> %a3)
+  ret void
+}
+
+declare void @llvm.epitome.sve.stnt1.scatter.nxv2i32(<vscale x 2 x i64>, <vscale x 2 x i1>, ptr, <vscale x 2 x i64>)
+
+define void @SVE.stnt1u.scatter.nxv2i8(<vscale x 2 x i64> "reg"="z" %a0, <vscale x 2 x i1> "reg"="pg" %a1, ptr "reg"="x" %a2, <vscale x 2 x i64> "reg"="z" %a3) "feature"="sve,sve2" "enc"="11100100000 a2:5 001 a1:3 a3:5 a0:5" "asm"="stnt1b {lb} {a0}.d {rb}, {a1}, [{a3}.d, {a2}]" "nodecode" {
+  call void @llvm.epitome.sve.stnt1.scatter.nxv2i8(<vscale x 2 x i64> %a0, <vscale x 2 x i1> %a1, ptr %a2, <vscale x 2 x i64> %a3)
+  ret void
+}
+
+declare void @llvm.epitome.sve.stnt1.scatter.nxv2i8(<vscale x 2 x i64>, <vscale x 2 x i1>, ptr, <vscale x 2 x i64>)
+
+define void @SVE.stnt1u.scatter.scalar.offset.nxv2i16.nxv2i64(<vscale x 2 x i64> "reg"="z" %a0, <vscale x 2 x i1> "reg"="pg" %a1, <vscale x 2 x i64> "reg"="z" %a2, i64 "reg"="x" %a3) "feature"="sve,sve2" "enc"="11100100100 a3:5 001 a1:3 a2:5 a0:5" "asm"="stnt1h {lb} {a0}.d {rb}, {a1}, [{a2}.d, {a3}]" "nodecode" {
+  call void @llvm.epitome.sve.stnt1.scatter.scalar.offset.nxv2i16.nxv2i64(<vscale x 2 x i64> %a0, <vscale x 2 x i1> %a1, <vscale x 2 x i64> %a2, i64 %a3)
+  ret void
+}
+
+declare void @llvm.epitome.sve.stnt1.scatter.scalar.offset.nxv2i16.nxv2i64(<vscale x 2 x i64>, <vscale x 2 x i1>, <vscale x 2 x i64>, i64)
+
+define void @SVE.stnt1u.scatter.scalar.offset.nxv2i32.nxv2i64(<vscale x 2 x i64> "reg"="z" %a0, <vscale x 2 x i1> "reg"="pg" %a1, <vscale x 2 x i64> "reg"="z" %a2, i64 "reg"="x" %a3) "feature"="sve,sve2" "enc"="11100101000 a3:5 001 a1:3 a2:5 a0:5" "asm"="stnt1w {lb} {a0}.d {rb}, {a1}, [{a2}.d, {a3}]" "nodecode" {
+  call void @llvm.epitome.sve.stnt1.scatter.scalar.offset.nxv2i32.nxv2i64(<vscale x 2 x i64> %a0, <vscale x 2 x i1> %a1, <vscale x 2 x i64> %a2, i64 %a3)
+  ret void
+}
+
+declare void @llvm.epitome.sve.stnt1.scatter.scalar.offset.nxv2i32.nxv2i64(<vscale x 2 x i64>, <vscale x 2 x i1>, <vscale x 2 x i64>, i64)
+
+define void @SVE.stnt1u.scatter.scalar.offset.nxv2i8.nxv2i64(<vscale x 2 x i64> "reg"="z" %a0, <vscale x 2 x i1> "reg"="pg" %a1, <vscale x 2 x i64> "reg"="z" %a2, i64 "reg"="x" %a3) "feature"="sve,sve2" "enc"="11100100000 a3:5 001 a1:3 a2:5 a0:5" "asm"="stnt1b {lb} {a0}.d {rb}, {a1}, [{a2}.d, {a3}]" "nodecode" {
+  call void @llvm.epitome.sve.stnt1.scatter.scalar.offset.nxv2i8.nxv2i64(<vscale x 2 x i64> %a0, <vscale x 2 x i1> %a1, <vscale x 2 x i64> %a2, i64 %a3)
+  ret void
+}
+
+declare void @llvm.epitome.sve.stnt1.scatter.scalar.offset.nxv2i8.nxv2i64(<vscale x 2 x i64>, <vscale x 2 x i1>, <vscale x 2 x i64>, i64)
+
+define void @SVE.stnt1u.scatter.scalar.offset.nxv4i16.nxv4i32(<vscale x 4 x i32> "reg"="z" %a0, <vscale x 4 x i1> "reg"="pg" %a1, <vscale x 4 x i32> "reg"="z" %a2, i64 "reg"="x" %a3) "feature"="sve,sve2" "enc"="11100100110 a3:5 001 a1:3 a2:5 a0:5" "asm"="stnt1h {lb} {a0}.s {rb}, {a1}, [{a2}.s, {a3}]" "nodecode" {
+  call void @llvm.epitome.sve.stnt1.scatter.scalar.offset.nxv4i16.nxv4i32(<vscale x 4 x i32> %a0, <vscale x 4 x i1> %a1, <vscale x 4 x i32> %a2, i64 %a3)
+  ret void
+}
+
+declare void @llvm.epitome.sve.stnt1.scatter.scalar.offset.nxv4i16.nxv4i32(<vscale x 4 x i32>, <vscale x 4 x i1>, <vscale x 4 x i32>, i64)
+
+define void @SVE.stnt1u.scatter.scalar.offset.nxv4i8.nxv4i32(<vscale x 4 x i32> "reg"="z" %a0, <vscale x 4 x i1> "reg"="pg" %a1, <vscale x 4 x i32> "reg"="z" %a2, i64 "reg"="x" %a3) "feature"="sve,sve2" "enc"="11100100010 a3:5 001 a1:3 a2:5 a0:5" "asm"="stnt1b {lb} {a0}.s {rb}, {a1}, [{a2}.s, {a3}]" "nodecode" {
+  call void @llvm.epitome.sve.stnt1.scatter.scalar.offset.nxv4i8.nxv4i32(<vscale x 4 x i32> %a0, <vscale x 4 x i1> %a1, <vscale x 4 x i32> %a2, i64 %a3)
+  ret void
+}
+
+declare void @llvm.epitome.sve.stnt1.scatter.scalar.offset.nxv4i8.nxv4i32(<vscale x 4 x i32>, <vscale x 4 x i1>, <vscale x 4 x i32>, i64)
+
+define void @SVE.stnt1u.scatter.uxtw.nxv4i16(<vscale x 4 x i32> "reg"="z" %a0, <vscale x 4 x i1> "reg"="pg" %a1, ptr "reg"="x" %a2, <vscale x 4 x i32> "reg"="z" %a3) "feature"="sve,sve2" "enc"="11100100110 a2:5 001 a1:3 a3:5 a0:5" "asm"="stnt1h {lb} {a0}.s {rb}, {a1}, [{a3}.s, {a2}]" "nodecode" {
+  call void @llvm.epitome.sve.stnt1.scatter.uxtw.nxv4i16(<vscale x 4 x i32> %a0, <vscale x 4 x i1> %a1, ptr %a2, <vscale x 4 x i32> %a3)
+  ret void
+}
+
+declare void @llvm.epitome.sve.stnt1.scatter.uxtw.nxv4i16(<vscale x 4 x i32>, <vscale x 4 x i1>, ptr, <vscale x 4 x i32>)
+
+define void @SVE.stnt1u.scatter.uxtw.nxv4i8(<vscale x 4 x i32> "reg"="z" %a0, <vscale x 4 x i1> "reg"="pg" %a1, ptr "reg"="x" %a2, <vscale x 4 x i32> "reg"="z" %a3) "feature"="sve,sve2" "enc"="11100100010 a2:5 001 a1:3 a3:5 a0:5" "asm"="stnt1b {lb} {a0}.s {rb}, {a1}, [{a3}.s, {a2}]" "nodecode" {
+  call void @llvm.epitome.sve.stnt1.scatter.uxtw.nxv4i8(<vscale x 4 x i32> %a0, <vscale x 4 x i1> %a1, ptr %a2, <vscale x 4 x i32> %a3)
+  ret void
+}
+
+declare void @llvm.epitome.sve.stnt1.scatter.uxtw.nxv4i8(<vscale x 4 x i32>, <vscale x 4 x i1>, ptr, <vscale x 4 x i32>)
 
 declare void @llvm.epitome.sme.start.sm()
 

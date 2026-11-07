@@ -5,7 +5,7 @@ use super::Repr;
 use super::body::{Fx, Operand, Place, Pv, R, Val};
 use crate::resolve::DefId;
 use crate::ty::{Ty, TyKind};
-use epitome_ir::module::{BinOp, Value};
+use epitome_ir::module::{BinOp, Ordering, Value};
 
 impl Fx<'_, '_, '_, '_> {
     /// A call of intrinsic `d` at `targs`.
@@ -147,6 +147,84 @@ impl Fx<'_, '_, '_, '_> {
                 let g = self.b.module().declare(&f, it, &[it, it, it], false);
                 let r = self.b.call(g, &[x, x, s]).unwrap();
                 imm(r)
+            }
+            "unchecked_funnel_shl" | "unchecked_funnel_shr" => {
+                let x = self.imm(args[0])?;
+                let y = self.imm(args[1])?;
+                let s = self.imm(args[2])?;
+                let it = self.b.type_of(x);
+                let s = self.int_to(s, it, false);
+                let f = format!("llvm.{}.i{}", if name.ends_with("shl") { "fshl" } else { "fshr" }, self.bits(it));
+                let g = self.b.module().declare(&f, it, &[it, it, it], false);
+                let r = self.b.call(g, &[x, y, s]).unwrap();
+                imm(r)
+            }
+            // No bit is set in both: an `or`.
+            "disjoint_bitor" => {
+                let x = self.imm(args[0])?;
+                let y = self.imm(args[1])?;
+                let r = self.b.or(x, y);
+                imm(r)
+            }
+            "carrying_mul_add" => {
+                // `a × b + c + d` at twice the width, which cannot
+                // overflow: its low half (unsigned) and its high half.
+                let t = t0.ok_or("no type argument")?;
+                let signed = self.signed(t);
+                let vals = args.iter().map(|&a| self.imm(a)).collect::<R<Vec<Value>>>()?;
+                let it = self.b.type_of(vals[0]);
+                let bits = self.bits(it);
+                let (lo, hi) = if bits <= 64 {
+                    let wt = self.b.module().types.int(bits * 2);
+                    let w: Vec<Value> = vals.iter().map(|&v| self.int_to(v, wt, signed)).collect();
+                    let p = self.b.mul(w[0], w[1]);
+                    let p = self.b.add(p, w[2]);
+                    let p = self.b.add(p, w[3]);
+                    let lo = self.int_to(p, it, false);
+                    let sh = self.b.const_int(wt, bits as i64);
+                    let hi = if signed { self.b.ashr(p, sh) } else { self.b.lshr(p, sh) };
+                    (lo, self.int_to(hi, it, false))
+                } else {
+                    self.mul_add_128(&vals, signed)
+                };
+                let pt = self.temp(output)?;
+                for (i, v) in [lo, hi].into_iter().enumerate() {
+                    let f = self.field(pt, 0, i)?;
+                    let ft = self.field_ty(output, 0, i)?;
+                    self.store(Operand { ty: ft, v: Val::Imm(v) }, f)?;
+                }
+                Ok(Pv::Place(pt))
+            }
+            "carryless_mul" => {
+                // `a` shifted left by each bit set in `b`, all xored: a
+                // loop over the bits.
+                let x = self.imm(args[0])?;
+                let y = self.imm(args[1])?;
+                let it = self.b.type_of(x);
+                let bits = self.bits(it);
+                let from = self.b.current_block().ok_or("no block")?;
+                let body = self.new_block("clmul");
+                let exit = self.new_block("clmul.end");
+                self.b.br(body);
+                self.b.at(body);
+                let zero = self.b.const_int(it, 0);
+                let one = self.b.const_int(it, 1);
+                let i = self.b.phi(it, &[(zero, from)]);
+                let acc = self.b.phi(it, &[(zero, from)]);
+                let bit = self.b.lshr(y, i);
+                let bit = self.b.and(bit, one);
+                let mask = self.b.sub(zero, bit);
+                let part = self.b.shl(x, i);
+                let part = self.b.and(part, mask);
+                let next = self.b.xor(acc, part);
+                let i1 = self.b.add(i, one);
+                let n = self.b.const_int(it, bits as i64);
+                let more = self.b.icmp(epitome_ir::module::ICmpPred::Ult, i1, n);
+                self.b.add_incoming(i, i1, body);
+                self.b.add_incoming(acc, next, body);
+                self.b.cond_br(more, body, exit);
+                self.b.at(exit);
+                imm(next)
             }
             "ctpop" | "ctlz" | "cttz" | "ctlz_nonzero" | "cttz_nonzero" | "bswap" | "bitreverse" => {
                 let x = self.imm(args[0])?;
@@ -294,6 +372,92 @@ impl Fx<'_, '_, '_, '_> {
                 }
                 self.call_def(f, tcx.tys(l), inner, None)
             }
+            "compare_bytes" => {
+                // libc's `memcmp`.
+                let a = self.imm(args[0])?;
+                let b = self.imm(args[1])?;
+                let n = self.imm(args[2])?;
+                let ptr = self.ptr_t();
+                let i32t = self.b.module().types.int(32);
+                let g = self.b.module().declare("memcmp", i32t, &[ptr, ptr, isz], false);
+                let r = self.b.call(g, &[a, b, n]).unwrap();
+                imm(r)
+            }
+            "raw_eq" => {
+                // The bytes of `*a` and `*b` alike.
+                let t = t0.ok_or("no type argument")?;
+                let size = self.layout(t)?.size;
+                let r = if size == 0 {
+                    let i1 = self.b.module().types.int(1);
+                    self.b.const_int(i1, 1)
+                } else {
+                    let a = self.imm(args[0])?;
+                    let b = self.imm(args[1])?;
+                    let ptr = self.ptr_t();
+                    let i32t = self.b.module().types.int(32);
+                    let g = self.b.module().declare("memcmp", i32t, &[ptr, ptr, isz], false);
+                    let n = self.b.const_int(isz, size as i64);
+                    let c = self.b.call(g, &[a, b, n]).unwrap();
+                    let zero = self.b.const_int(i32t, 0);
+                    self.b.icmp(epitome_ir::module::ICmpPred::Eq, c, zero)
+                };
+                let r = self.bool_of(r);
+                imm(r)
+            }
+            "typed_swap_nonoverlapping" => {
+                let t = t0.ok_or("no type argument")?;
+                let size = self.layout(t)?.size;
+                let x = self.imm(args[0])?;
+                let y = self.imm(args[1])?;
+                let tmp = self.temp(t)?;
+                self.memcpy(tmp.addr, x, size);
+                self.memcpy(x, y, size);
+                self.memcpy(y, tmp.addr, size);
+                Ok(Pv::Val(self.unit()))
+            }
+            "breakpoint" => {
+                // x86-64's `int3`, as inline assembly.
+                use epitome_ir::module::{ConstKind, Constant, InlineAsm};
+                let void = self.b.module().types.void();
+                let fn_ty = self.b.module().types.function(void, &[], false);
+                let a = InlineAsm {
+                    fn_ty,
+                    side_effect: true,
+                    align_stack: false,
+                    intel_dialect: false,
+                    unwind: false,
+                    asm: b"int3".to_vec(),
+                    constraints: Vec::new(),
+                };
+                let ptr = self.ptr_t();
+                let callee = Value::Const(self.b.module().consts.intern(Constant { ty: ptr, kind: ConstKind::InlineAsm(a) }));
+                self.b.call_indirect(fn_ty, callee, &[]);
+                Ok(Pv::Val(self.unit()))
+            }
+            "type_id" => {
+                // A 128-bit hash of the type: of its key, which names
+                // every item in it by path and place, so two types have
+                // the same one only if they are the same.
+                let t = t0.ok_or("no type argument")?;
+                let mut key = String::new();
+                self.cx.type_key(t, &mut key);
+                let h = fnv128(key.as_bytes());
+                let i128t = self.b.module().types.int(128);
+                let v = self.int_const(i128t, h);
+                let p = self.temp(output)?;
+                self.store_imm(v, p.addr, 8);
+                Ok(Pv::Place(p))
+            }
+            "type_id_eq" => {
+                let i128t = self.b.module().types.int(128);
+                let a = self.mem(args[0])?;
+                let b = self.mem(args[1])?;
+                let a = self.load_imm(i128t, a, 8);
+                let b = self.load_imm(i128t, b, 8);
+                let c = self.b.icmp(epitome_ir::module::ICmpPred::Eq, a, b);
+                let r = self.bool_of(c);
+                imm(r)
+            }
             "ptr_guaranteed_cmp" => {
                 let c = self.compare("==", args[0], args[1])?;
                 let r = self.bool_of(c);
@@ -320,8 +484,226 @@ impl Fx<'_, '_, '_, '_> {
                     }
                 }
             }
+            _ if name.starts_with("atomic_") => self.atomic(name, &targs, args, output),
+            "float_to_int_unchecked" => {
+                // Not saturating: the value is known to fit.
+                let v = self.imm(args[0])?;
+                let Repr::Imm(it) = self.repr(output)? else { return Err("float_to_int_unchecked to a type in memory".into()) };
+                let op = if self.signed(output) { epitome_ir::module::CastOp::FPToSI } else { epitome_ir::module::CastOp::FPToUI };
+                let r = self.b.cast(op, v, it);
+                imm(r)
+            }
+            // Algebraic: free to reassociate, which the plain operation
+            // does not need to.
+            "fadd_algebraic" | "fsub_algebraic" | "fmul_algebraic" | "fdiv_algebraic" | "frem_algebraic" => {
+                let x = self.imm(args[0])?;
+                let y = self.imm(args[1])?;
+                let op = match &name[..4] {
+                    "fadd" => BinOp::FAdd,
+                    "fsub" => BinOp::FSub,
+                    "fmul" => BinOp::FMul,
+                    "fdiv" => BinOp::FDiv,
+                    _ => BinOp::FRem,
+                };
+                let r = self.b.binary(op, x, y);
+                imm(r)
+            }
+            _ if float_math(name).is_some() => {
+                let (op, _) = float_math(name).unwrap();
+                let vals = args.iter().map(|&a| self.imm(a)).collect::<R<Vec<Value>>>()?;
+                let ft = self.b.type_of(vals[0]);
+                let fbits = match self.b.module().types.get(ft) {
+                    epitome_ir::types::Type::Half => 16,
+                    epitome_ir::types::Type::Float => 32,
+                    epitome_ir::types::Type::Double => 64,
+                    epitome_ir::types::Type::Fp128 => 128,
+                    _ => return Err(format!("`{name}` of a type not supported")),
+                };
+                let tys: Vec<epitome_ir::types::TypeId> = vals.iter().map(|&v| self.b.type_of(v)).collect();
+                let f = if op == "powi" { format!("llvm.powi.f{fbits}.i32") } else { format!("llvm.{op}.f{fbits}") };
+                let g = self.b.module().declare(&f, ft, &tys, false);
+                let r = self.b.call(g, &vals).unwrap();
+                imm(r)
+            }
             _ => Err(format!("intrinsic `{name}` is not supported yet")),
         }
+    }
+
+    /// The atomic intrinsics: loads, stores, read-modify-writes,
+    /// compare-exchanges and fences, with the orderings their const
+    /// arguments name. A pointer is worked on as the integer of its size.
+    fn atomic(&mut self, name: &str, targs: &[Ty], args: Vec<Operand>, output: Ty) -> R<Pv> {
+        use epitome_ir::module::{Atomic, Op, RmwOp};
+        let tcx = self.cx.tcx;
+        // The orderings are the last arguments.
+        let orderings: Vec<Ordering> = targs.iter().filter_map(|&t| match tcx.kind(t) {
+            TyKind::ConstArg(c) => Some(c),
+            _ => None,
+        }).map(|c| self.atomic_ordering(c)).collect::<R<_>>()?;
+        let ord = |i: usize| orderings.get(i).copied().ok_or_else(|| format!("`{name}` without its ordering"));
+        if name == "atomic_fence" || name == "atomic_singlethreadfence" {
+            let scope = (name == "atomic_singlethreadfence").then(|| b"singlethread".to_vec().into_boxed_slice());
+            self.b.push(Op::Fence { scope, ordering: ord(0)? }, None);
+            return Ok(Pv::Val(self.unit()));
+        }
+        let t = *targs.first().ok_or("atomic without a type")?;
+        let size = self.layout(t)?.size;
+        let align = epitome_ir::module::Align::new(size.max(1));
+        let it = self.b.module().types.int(size as u32 * 8);
+        let is_ptr = matches!(tcx.kind(t), TyKind::Ptr(..) | TyKind::Ref(..) | TyKind::FnPtr(_));
+        let dst = self.imm(args[0])?;
+        // A value as the integer the operation works on, and back.
+        let to_int = |fx: &mut Self, o: Operand| -> R<Value> {
+            let v = fx.imm(o)?;
+            let vt = fx.b.type_of(v);
+            let ptr = fx.ptr_t();
+            Ok(if vt == ptr { fx.b.cast(epitome_ir::module::CastOp::PtrToInt, v, it) } else { fx.int_to(v, it, false) })
+        };
+        let from_int = |fx: &mut Self, v: Value| -> Value {
+            if is_ptr {
+                let ptr = fx.ptr_t();
+                fx.b.cast(epitome_ir::module::CastOp::IntToPtr, v, ptr)
+            } else {
+                v
+            }
+        };
+        let atomic = |o: Ordering| Some(Atomic { elementwise: false, scope: None, ordering: o });
+        match name {
+            "atomic_load" => {
+                let v = self.b.push(Op::Load { volatile: false, atomic: atomic(ord(0)?), ptr: dst, align }, Some(it)).unwrap();
+                let v = from_int(self, v);
+                Ok(Pv::Val(Operand { ty: output, v: Val::Imm(v) }))
+            }
+            "atomic_store" => {
+                let v = to_int(self, args[1])?;
+                self.b.push(Op::Store { volatile: false, atomic: atomic(ord(0)?), value: v, ptr: dst, align }, None);
+                Ok(Pv::Val(self.unit()))
+            }
+            "atomic_cxchg" | "atomic_cxchgweak" => {
+                let cmp = to_int(self, args[1])?;
+                let new = to_int(self, args[2])?;
+                let i1 = self.b.module().types.int(1);
+                let pair = self.b.module().types.struct_of(&[it, i1]);
+                let op = Op::CmpXchg {
+                    weak: name == "atomic_cxchgweak",
+                    volatile: false,
+                    ptr: dst,
+                    cmp,
+                    new,
+                    scope: None,
+                    success: ord(0)?,
+                    failure: ord(1)?,
+                    align,
+                };
+                let r = self.b.push(op, Some(pair)).unwrap();
+                let old = self.b.extract_value(r, &[0]);
+                let old = from_int(self, old);
+                let ok = self.b.extract_value(r, &[1]);
+                let ok = self.bool_of(ok);
+                // `(T, bool)`.
+                let p = self.temp(output)?;
+                let f0 = self.field(p, 0, 0)?;
+                self.store(Operand { ty: t, v: Val::Imm(old) }, f0)?;
+                let f1 = self.field(p, 0, 1)?;
+                self.store_imm(ok, f1.addr, 1);
+                Ok(Pv::Place(p))
+            }
+            _ => {
+                let op = match name {
+                    "atomic_xchg" => RmwOp::Xchg,
+                    "atomic_xadd" => RmwOp::Add,
+                    "atomic_xsub" => RmwOp::Sub,
+                    "atomic_and" => RmwOp::And,
+                    "atomic_nand" => RmwOp::Nand,
+                    "atomic_or" => RmwOp::Or,
+                    "atomic_xor" => RmwOp::Xor,
+                    "atomic_max" => RmwOp::Max,
+                    "atomic_min" => RmwOp::Min,
+                    "atomic_umax" => RmwOp::UMax,
+                    "atomic_umin" => RmwOp::UMin,
+                    _ => return Err(format!("intrinsic `{name}` is not supported yet")),
+                };
+                let v = to_int(self, args[1])?;
+                let op = Op::AtomicRmw { op, volatile: false, elementwise: false, ptr: dst, value: v, scope: None, ordering: ord(0)?, align };
+                let r = self.b.push(op, Some(it)).unwrap();
+                let r = from_int(self, r);
+                Ok(Pv::Val(Operand { ty: output, v: Val::Imm(r) }))
+            }
+        }
+    }
+
+    /// The ordering an `AtomicOrdering` const argument names (`{
+    /// AO::Relaxed }`, or `Relaxed` through a const parameter), as IR's:
+    /// Rust's `Relaxed` is `monotonic`.
+    fn atomic_ordering(&mut self, c: crate::ty::ConstId) -> R<Ordering> {
+        let name = match self.cx.tcx.const_of(c) {
+            crate::ty::Const::Expr(k, f, n) => {
+                let ast = &self.cx.crates[k as usize].files[f as usize].ast;
+                // The last name in it: `{ AO::Relaxed }` names `Relaxed`.
+                let text = ast.text(n);
+                text.rsplit(|c: char| !c.is_alphanumeric() && c != '_').find(|w| !w.is_empty()).unwrap_or("").to_string()
+            }
+            crate::ty::Const::Value(v) => ["Relaxed", "Release", "Acquire", "AcqRel", "SeqCst"].get(v as usize).copied().unwrap_or("").to_string(),
+            c => return Err(format!("an atomic ordering not known: {c:?}")),
+        };
+        Ok(match name.as_str() {
+            "Relaxed" => Ordering::Monotonic,
+            "Release" => Ordering::Release,
+            "Acquire" => Ordering::Acquire,
+            "AcqRel" => Ordering::AcqRel,
+            "SeqCst" => Ordering::SeqCst,
+            _ => return Err(format!("an atomic ordering not known: `{name}`")),
+        })
+    }
+
+    /// `a × b + c + d` of 128-bit integers, as its low and high halves,
+    /// from products of 64-bit halves: the back end has no arithmetic on
+    /// integers wider than 128 bits. Signed, the high half is corrected by
+    /// what the signs of the four take away.
+    fn mul_add_128(&mut self, v: &[Value], signed: bool) -> (Value, Value) {
+        use epitome_ir::module::ICmpPred;
+        let t = self.b.type_of(v[0]);
+        let m = self.int_const(t, u64::MAX as u128);
+        let s64 = self.b.const_int(t, 64);
+        let halves = |fx: &mut Self, x: Value| (fx.b.and(x, m), fx.b.lshr(x, s64));
+        let (a0, a1) = halves(self, v[0]);
+        let (b0, b1) = halves(self, v[1]);
+        let p00 = self.b.mul(a0, b0);
+        let p01 = self.b.mul(a0, b1);
+        let p10 = self.b.mul(a1, b0);
+        let p11 = self.b.mul(a1, b1);
+        let (p00l, p00h) = halves(self, p00);
+        let (p01l, p01h) = halves(self, p01);
+        let (p10l, p10h) = halves(self, p10);
+        let mid = self.b.add(p00h, p01l);
+        let mid = self.b.add(mid, p10l);
+        let (midl, midh) = halves(self, mid);
+        let lo = self.b.shl(midl, s64);
+        let mut lo = self.b.or(lo, p00l);
+        let hi = self.b.add(p11, p01h);
+        let hi = self.b.add(hi, p10h);
+        let mut hi = self.b.add(hi, midh);
+        let s127 = self.b.const_int(t, 127);
+        if signed {
+            let sa = self.b.ashr(v[0], s127);
+            let sb = self.b.ashr(v[1], s127);
+            let x = self.b.mul(sa, v[1]);
+            let y = self.b.mul(v[0], sb);
+            hi = self.b.add(hi, x);
+            hi = self.b.add(hi, y);
+        }
+        for &c in &v[2..4] {
+            let sum = self.b.add(lo, c);
+            let carry = self.b.icmp(ICmpPred::Ult, sum, lo);
+            let carry = self.int_to(carry, t, false);
+            hi = self.b.add(hi, carry);
+            if signed {
+                let sc = self.b.ashr(c, s127);
+                hi = self.b.add(hi, sc);
+            }
+            lo = sum;
+        }
+        (lo, hi)
     }
 
     fn bits(&mut self, t: epitome_ir::types::TypeId) -> u32 {
@@ -348,4 +730,54 @@ impl Fx<'_, '_, '_, '_> {
         }
         Ok(Pv::Val(self.arith(op, args[0], args[1])?))
     }
+}
+
+/// A float maths intrinsic of `core` (`sqrtf32`, `fabs`,
+/// `round_ties_even_f64`, `fmaf16`): the LLVM intrinsic it is, and its
+/// type's width if the name says it.
+fn float_math(name: &str) -> Option<(&'static str, Option<u32>)> {
+    let (base, bits) = ["f16", "f32", "f64", "f128"]
+        .iter()
+        .find_map(|w| name.strip_suffix(w).map(|b| (b.trim_end_matches('_'), w[1..].parse().ok())))
+        .unwrap_or((name, None));
+    let op = match base {
+        "sqrt" => "sqrt",
+        "floor" => "floor",
+        "ceil" => "ceil",
+        "trunc" => "trunc",
+        "round" => "round",
+        "round_ties_even" | "rint" | "nearbyint" => "roundeven",
+        "fabs" => "fabs",
+        "copysign" => "copysign",
+        "fma" => "fma",
+        "fmuladd" => "fmuladd",
+        // `maximum_number_nsz`: NaN loses, and either zero may win.
+        "minnum" | "minimum_number_nsz" => "minnum",
+        "maxnum" | "maximum_number_nsz" => "maxnum",
+        "minimum" => "minimum",
+        "maximum" => "maximum",
+        "powi" => "powi",
+        // The C library's, through the back end.
+        "sin" => "sin",
+        "cos" => "cos",
+        "tan" => "tan",
+        "exp" => "exp",
+        "exp2" => "exp2",
+        "log" => "log",
+        "log2" => "log2",
+        "log10" => "log10",
+        "pow" => "pow",
+        _ => return None,
+    };
+    Some((op, bits))
+}
+
+/// The 128-bit FNV-1a hash of `bytes`.
+fn fnv128(bytes: &[u8]) -> u128 {
+    let mut h: u128 = 0x6c62_272e_07bb_0142_62b8_2175_6295_c58d;
+    for &b in bytes {
+        h ^= b as u128;
+        h = h.wrapping_mul((1 << 88) + 0x13b);
+    }
+    h
 }

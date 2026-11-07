@@ -25,6 +25,7 @@
 //! Macros brought in by `use` are found by name in the crate (or a prelude
 //! crate) for now; name resolution will follow the `use` itself.
 
+pub mod asm;
 pub mod builtin;
 pub mod derive;
 pub mod mbe;
@@ -675,6 +676,17 @@ impl<'x, 's> Expander<'x, 's> {
         let input: Vec<Token<'s>> = self.desugar_docs(inner(ast, tt));
         let call_tok = ast.node(call).first as usize;
         let eof = ast.tokens_of(tt).last().map_or(Token(""), |t| Token(&t.0[..0]));
+        // `asm!` stays a call; its templates and operands' expressions
+        // are added to it, for the later stages.
+        let is_asm = match def {
+            Some(d) => matches!(&self.macros.defs[d].kind, MacroKind::Builtin(b) if *b == "asm"),
+            None => name == "asm",
+        };
+        if is_asm {
+            self.asm_children(file, call, call_tok, &input, &pos, &module);
+            self.result.builtins_left += 1;
+            return None;
+        }
         let tokens = match def {
             Some(d) => match &self.macros.defs[d].kind {
                 MacroKind::Rules(rules) => {
@@ -892,6 +904,117 @@ impl<'x, 's> Expander<'x, 's> {
             }
         }
         out
+    }
+
+    /// Adds to `asm!` call `call` (once) its templates, each worked out to
+    /// a string literal, then each operand's expressions, parsed: the
+    /// call's children become its path, its tokens, the templates and the
+    /// expressions, which `expand::asm::parse` of its tokens says the
+    /// meaning of. A template may be a macro's call (`concat!`, or a
+    /// `macro_rules!` that gives one), expanded now, as rustc does.
+    fn asm_children(&mut self, file: &mut ParsedFile<'s>, call: NodeId, call_tok: usize, input: &[Token<'s>], pos: &[u32], module: &[String]) {
+        let kids: Vec<NodeId> = file.ast.children(call).to_vec();
+        if kids.iter().filter(|&&c| !matches!(file.ast.kind(c), Kind::Attribute | Kind::DocComment)).count() > 2 {
+            return;
+        }
+        let Some(asm) = asm::parse(input) else { return };
+        let mut templates = Vec::new();
+        for t in &asm.templates {
+            match self.eager_string(file, call, t, pos, module, 0) {
+                Some(s) => templates.push(s),
+                None => {
+                    let at = file.ast.token(call).0;
+                    self.result.errors.push(Error::new(at, "an `asm!` template that is not a string"));
+                    return;
+                }
+            }
+        }
+        let mut out = kids;
+        for s in templates {
+            let Ok(tokens) = lex_text(self.session, "<asm!>", format!("\"{s}\"")) else { return };
+            let Some(n) = self.graft_expr(file, call, call_tok, &tokens) else { return };
+            out.push(n);
+        }
+        for (i, j) in asm.exprs() {
+            let tokens = asm.operands[i].exprs[j].unwrap().to_vec();
+            let Some(n) = self.graft_expr(file, call, call_tok, &tokens) else { return };
+            out.push(n);
+        }
+        file.ast.set_children(call, &out);
+    }
+
+    /// Parses `tokens` as an expression and adds its nodes to the file.
+    fn graft_expr(&mut self, file: &mut ParsedFile<'s>, call: NodeId, call_tok: usize, tokens: &[Token<'s>]) -> Option<NodeId> {
+        let eof = tokens.last().map_or(Token(""), |t| Token(&t.0[t.0.len()..]));
+        match parse_fragment(tokens.to_vec(), eof, self.edition, Fragment::Expr) {
+            Ok(frag) => {
+                let offset = file.ast.append_tokens(tokens, call_tok);
+                Some(file.ast.graft(&frag, offset))
+            }
+            Err(e) => {
+                let at = file.ast.token(call).0;
+                self.result.errors.push(Error::new(at, format!("in `asm!`: {}", e.message)));
+                None
+            }
+        }
+    }
+
+    /// The text of a string literal `tokens` is, or gives once expanded
+    /// (a call of `concat!`, or of a `macro_rules!` macro that gives one),
+    /// with its escapes as written.
+    fn eager_string(&mut self, file: &ParsedFile<'s>, call: NodeId, tokens: &[Token<'s>], pos: &[u32], module: &[String], depth: u32) -> Option<String> {
+        if depth > 16 {
+            return None;
+        }
+        if let [t] = tokens
+            && t.is_string()
+            && !t.0.starts_with('b')
+            && !t.0.starts_with('c')
+        {
+            let v = crate::cfg::string_value(t.0);
+            return Some(if t.0.starts_with('r') {
+                let q = builtin::quote_text(v);
+                q[1..q.len() - 1].to_string()
+            } else {
+                v.to_string()
+            });
+        }
+        // `path!(..)`.
+        let bang = tokens.iter().position(|t| t.0 == "!")?;
+        let (open, close) = (tokens.get(bang + 1)?.0, tokens.last()?.0);
+        if !matches!((open, close), ("(", ")") | ("[", "]") | ("{", "}")) {
+            return None;
+        }
+        let segs: Vec<&'s str> = tokens[..bang].iter().filter(|t| t.is_ident()).map(|t| t.ident_name()).collect();
+        let name = *segs.last()?;
+        let rooted = tokens.first().is_some_and(|t| t.0 == "::" || t.0 == ":");
+        let inner = &tokens[bang + 2..tokens.len() - 1];
+        let eof = Token(&tokens.last()?.0[..0]);
+        let out = match self.resolve(&segs, rooted, pos, module) {
+            Some(d) => match &self.macros.defs[d].kind {
+                MacroKind::Rules(rules) => {
+                    let make = |s: String| Token(self.session.add_text("<macro>", s));
+                    let dollar_crate = if self.macros.defs[d].krate == self.krate {
+                        vec![synth(5..10)]
+                    } else {
+                        self.macros.crate_path[self.macros.defs[d].krate].clone()
+                    };
+                    let mut cx = Transcribe { dollar_crate, make: &make, parens: (synth(0..1), synth(1..2)) };
+                    rules.expand(inner, eof, &mut cx).ok()?
+                }
+                MacroKind::Builtin(b) => {
+                    let cx = builtin::Context { session: self.session, file, call, crate_name: self.crate_name };
+                    builtin::expand(&cx, b, inner).ok()??
+                }
+                MacroKind::Proc(..) => return None,
+            },
+            None if builtin::is_builtin(name) => {
+                let cx = builtin::Context { session: self.session, file, call, crate_name: self.crate_name };
+                builtin::expand(&cx, name, inner).ok()??
+            }
+            None => return None,
+        };
+        self.eager_string(file, call, &out, pos, module, depth + 1)
     }
 
     /// Runs a built-in; `None` leaves the call as it is.

@@ -137,11 +137,12 @@ pub enum Item {
     /// Bytes, as a string.
     Bytes(Vec<u8>),
     Zero(u64),
-    /// The 64-bit address of `symbol` (as the platform names it), plus
-    /// `offset`.
+    /// The address of `symbol` (as the platform names it), plus `offset`,
+    /// in `size` bytes (a pointer's: 8, or 4 where pointers are 32 bits).
     Addr {
         symbol: String,
         offset: i64,
+        size: u8,
     },
     /// The 32-bit distance from the start of the global holding it
     /// (`base`, as the platform names it) to `symbol` (a relative lookup
@@ -158,7 +159,7 @@ impl Item {
             Item::Int { size, .. } => *size as u64,
             Item::Bytes(b) => b.len() as u64,
             Item::Zero(n) => *n,
-            Item::Addr { .. } => 8,
+            Item::Addr { size, .. } => u64::from(*size),
             Item::Rel32 { .. } => 4,
         }
     }
@@ -361,9 +362,11 @@ pub fn build(
                 Item::Int { size, value, .. } => sec.data.extend_from_slice(&value.to_le_bytes()[..*size as usize]),
                 Item::Bytes(b) => sec.data.extend_from_slice(b),
                 Item::Zero(n) => sec.data.resize(sec.data.len() + *n as usize, 0),
-                Item::Addr { symbol, offset } => {
-                    let kind =
-                        t.machine.data_reloc(8).ok_or("the description has no relocation for pointers in data")?;
+                Item::Addr { symbol, offset, size } => {
+                    let kind = t
+                        .machine
+                        .data_reloc(*size)
+                        .ok_or_else(|| format!("the description has no relocation for {size}-byte pointers in data"))?;
                     pending.push(Pending {
                         section: s,
                         offset: sec.data.len() as u64,
@@ -372,7 +375,7 @@ pub fn build(
                         addend: *offset,
                         instr: None,
                     });
-                    sec.data.extend_from_slice(&[0; 8]);
+                    sec.data.resize(sec.data.len() + *size as usize, 0);
                 }
                 // PC-relative, from the field: plus its distance from the
                 // global's start.
@@ -406,7 +409,10 @@ pub fn build(
     add_aliases(&mut obj, aliases)?;
     resolve(t, &mut obj, pending, abi.syntax == Syntax::MachO)?;
     let p = crate::unwind::Params { syntax: abi.syntax, data_align: t.machine.data_align(abi.syntax), ra: abi.lr };
-    crate::unwind::add_eh_frame(&mut obj, &t.machine, &p, &frames)?;
+    // (No unwind tables for a machine without calls: nothing unwinds.)
+    if !t.machine.lacks("calls") {
+        crate::unwind::add_eh_frame(&mut obj, &t.machine, &p, &frames)?;
+    }
     Ok(obj)
 }
 

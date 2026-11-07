@@ -162,6 +162,10 @@ pub struct Sel<'a, 'b> {
     /// For the next call emitted, from an invoke: its landing pad's block
     /// and action.
     landing_next: Option<(usize, usize)>,
+    /// Masks kept in mask registers (`legalize::mask_regs`), and their
+    /// class.
+    mask_regs: HashSet<LocalId>,
+    mask_reg_class: Option<Class>,
 }
 
 /// The inline assembly a call calls, if it does.
@@ -371,6 +375,8 @@ impl<'a, 'b> Sel<'a, 'b> {
             }
         }
         let clean = clean_bools(cx, f);
+        let mask_regs = crate::legalize::mask_regs(cx, f);
+        let mask_reg_class = cx.mask_reg_class();
         let mut bmap = HashMap::new();
         for (k, &b) in f.layout.iter().enumerate() {
             bmap.insert(b, k);
@@ -411,6 +417,8 @@ impl<'a, 'b> Sel<'a, 'b> {
             va_sysv: None,
             tail_blocks: HashSet::new(),
             landing_next: None,
+            mask_regs,
+            mask_reg_class,
         }
     }
 
@@ -466,15 +474,35 @@ impl<'a, 'b> Sel<'a, 'b> {
         }
         // A mask, in the class for the vectors in use, where the
         // description says.
+        // (Where that class is of a file of its own, as AVX-512's k
+        // registers are, only the masks `mask_regs` says are there; the
+        // others are in the widest class of vectors' masks.)
         if let Type::Vector { elem, .. } = self.cx.m.types.get(ty)
             && matches!(self.cx.m.types.get(*elem), Type::Int(1))
-            && let Some(&(_, c)) = m.mask_classes.iter().find(|(b, _)| *b == self.cx.vector_bits())
+            && let Some(&(_, c)) = m
+                .mask_classes
+                .iter()
+                .filter(|(b, c)| *b <= self.cx.vector_bits() && Some(*c) != self.mask_reg_class)
+                .max_by_key(|(b, _)| *b)
         {
             return c;
         }
         m.value_class(self.holds(ty), bits)
             .or_else(|| m.value_class(Holds::Int, 64))
+            .or_else(|| self.narrow_int_class())
             .expect("the description has an integer register class")
+    }
+
+    /// On a machine without 64-bit integers (`!target.lacks` i64), its
+    /// widest integer class: `fits` has turned away what needs more, so
+    /// what is asked for wide here (the parts of an aggregate, a pointer
+    /// never used) fits in it.
+    fn narrow_int_class(&self) -> Option<Class> {
+        let m = &self.t.machine;
+        if !m.lacks("i64") {
+            return None;
+        }
+        (8..=64).rev().step_by(8).find_map(|b| m.value_class(Holds::Int, b))
     }
 
     /// The class of integers of 64 bits (`wide`) or 32, as pointers and
@@ -483,6 +511,7 @@ impl<'a, 'b> Sel<'a, 'b> {
         let m = &self.t.machine;
         m.value_class(Holds::Int, if wide { 64 } else { 32 })
             .or_else(|| m.value_class(Holds::Int, 64))
+            .or_else(|| self.narrow_int_class())
             .expect("the description has an integer register class")
     }
 
@@ -499,15 +528,23 @@ impl<'a, 'b> Sel<'a, 'b> {
     }
 
     fn class_of(&self, v: Value) -> Class {
-        self.class_of_ty(self.ty_of(v))
+        match (v, self.mask_reg_class) {
+            (Value::Local(x), Some(c)) if self.mask_regs.contains(&x) => c,
+            _ => self.class_of_ty(self.ty_of(v)),
+        }
+    }
+
+    /// Is `class` of the file masks kept in mask registers are in?
+    fn mask_reg_file(&self, class: Class) -> bool {
+        let m = &self.t.machine;
+        self.mask_reg_class.is_some_and(|c| m.def(c).file == m.def(class).file)
     }
 
     fn vreg_of(&mut self, x: LocalId) -> VReg {
         if let Some(&v) = self.vreg.get(&x) {
             return v;
         }
-        let ty = self.f.locals[x.index()].ty;
-        let class = self.class_of_ty(ty);
+        let class = self.class_of(Value::Local(x));
         let v = self.mf.new_vreg(class);
         self.vreg.insert(x, v);
         v
@@ -882,8 +919,15 @@ impl<'a, 'b> Sel<'a, 'b> {
                     // what its file's classes do, of any width.)
                     let m = &self.t.machine;
                     let fixed = def.fixed.is_some();
+                    // (A mask kept in a mask register only where the
+                    // pattern takes one there, and others only elsewhere.)
+                    let in_mask_reg = matches!(v, Value::Local(x) if self.mask_regs.contains(&x));
+                    if mask && in_mask_reg != self.mask_reg_file(class) {
+                        return None;
+                    }
                     let held = m.holds_of(class) == Some(holds)
-                        || fixed && m.classes.iter().any(|c| c.file == def.file && c.holds == Some(holds));
+                        || fixed && m.classes.iter().any(|c| c.file == def.file && c.holds == Some(holds))
+                        || mask && in_mask_reg;
                     let wide = matches!(holds, Holds::Vector | Holds::Scalable);
                     if bits == 0
                         || !held
@@ -920,6 +964,17 @@ impl<'a, 'b> Sel<'a, 'b> {
                 }
                 Kind::Cond | Kind::Enum(_) => return None,
             }
+        }
+        // A mask made where its value is kept: in a mask register or not.
+        if self.mask_reg_class.is_some()
+            && let Some(r) = self.f.insts[covered[0].index()].result
+            && matches!(self.cx.m.types.get(self.f.locals[r.index()].ty), Type::Vector { elem, .. }
+                if matches!(self.cx.m.types.get(*elem), Type::Int(1)))
+            && let Some(e) = p.emit.iter().rev().find(|e| self.t.instrs[e.instr].has_result)
+            && let Kind::Reg(c) = self.t.instrs[e.instr].operands[0].kind
+            && self.mask_reg_file(c) != self.mask_regs.contains(&r)
+        {
+            return None;
         }
         // Immediates must fit their instructions.
         for e in &p.emit {
@@ -1014,12 +1069,14 @@ impl<'a, 'b> Sel<'a, 'b> {
                 self.is_fp(self.ty_of(*value)) == self.is_fp(self.f.locals[r.index()].ty)
                     && self.bits(self.ty_of(*value)) == self.bits(self.f.locals[r.index()].ty)
             }
-            // A mask's lanes are already all ones or all zeros. Where 32-bit
-            // values are kept sign-extended, extending one to 64 bits is
-            // free (and truncating to 32 bits is not).
+            // A mask's lanes are already all ones or all zeros (but not one
+            // in a mask register's bits). Where 32-bit values are kept
+            // sign-extended, extending one to 64 bits is free (and
+            // truncating to 32 bits is not).
             Op::Cast { op: CastOp::SExt, value, .. } => {
                 let r = self.f.insts[i.index()].result.unwrap();
                 matches!(self.cx.m.types.get(self.ty_of(*value)), Type::Vector { elem, .. } if self.bits(*elem) == 1)
+                    && !matches!(value, Value::Local(x) if self.mask_regs.contains(x))
                     || (self.t.machine.narrow == Narrow::Sign
                         && self.bits(self.ty_of(*value)) == 32
                         && self.bits(self.f.locals[r.index()].ty) == 64)
@@ -1170,6 +1227,10 @@ impl<'a, 'b> Sel<'a, 'b> {
                         self.needed.insert(d);
                     }
                 });
+                continue;
+            }
+            // (Without a trap, `unreachable` ends the program: see emission.)
+            if matches!(inst.op, Op::Unreachable) && self.t.role("trap").is_none() {
                 continue;
             }
             let Some(m) = self.best_match(i, layout_next) else {
@@ -1551,6 +1612,17 @@ impl<'a, 'b> Sel<'a, 'b> {
         };
         let d = self.mf.new_vreg(class);
         let arr = arrangement(len, ebits);
+        // A splat, from an integer register, where the class has an
+        // instruction for it (`dup.zv.32`: x86's vpbroadcastd).
+        if lanes.iter().all(|&l| l == lanes[0])
+            && lanes[0] != 0
+            && let Some(dup) = self.t.role(&format!("dup.{}.{ebits}", self.t.machine.def(class).name))
+            && self.cx.enabled(dup)
+        {
+            let g = self.int_reg(lanes[0], ebits > 32, false)?;
+            self.push(MInst::new(dup, vec![MOp::Reg(Reg::V(d)), MOp::Reg(g)]));
+            return Ok(Reg::V(d));
+        }
         // From 64-bit words, where the description says how
         // (`vec.from.x`: a word into the low half, the rest zero;
         // `vec.join.d`: a second word into the high half; x86's).
@@ -1959,6 +2031,21 @@ impl<'a, 'b> Sel<'a, 'b> {
                         self.push(MInst::copy(res, src));
                         ops[j] = MOp::Reg(res);
                     }
+                }
+            }
+            // A list of registers (`{zt1}, {zt1:+1}`): each member, the
+            // head too, copied into a value of its own, which allocation
+            // places with the others (`regalloc.rs`); the copies go where
+            // the values are already there. (One value may be in two
+            // places of a list, or in lists at different places.)
+            let heads: Vec<usize> = ins.operands.iter().filter_map(|o| o.list.map(|l| l.0)).collect();
+            for (j, o) in ins.operands.iter().enumerate() {
+                if (o.list.is_some() || heads.contains(&j))
+                    && let (Kind::Reg(c), MOp::Reg(src)) = (o.kind, &ops[j])
+                {
+                    let (w, src) = (self.mf.new_vreg(c), *src);
+                    self.push(MInst::copy(Reg::V(w), src));
+                    ops[j] = MOp::Reg(Reg::V(w));
                 }
             }
             let z = ins.zext;
@@ -2405,7 +2492,7 @@ impl<'a, 'b> Sel<'a, 'b> {
                         .value_class_in(file, holds, bits)
                         .ok_or_else(|| bad(format!("no register class of its file holds {:?}", c.codes)))?;
                     let v = self.mf.new_vreg(class);
-                    (MOp::Reg(Reg::V(v)), print.unwrap_or(class))
+                    (MOp::Reg(Reg::V(v)), print.unwrap_or_else(|| narrow_print(m, file, holds, bits, class)))
                 };
                 let class = match &op {
                     MOp::Reg(Reg::V(v)) => self.mf.vclass[*v as usize],
@@ -2443,6 +2530,16 @@ impl<'a, 'b> Sel<'a, 'b> {
                 ins.push(MOp::Reg(Reg::P(p)));
                 continue;
             }
+            // `s`: a global's address, written as its name.
+            if c.codes.contains('s')
+                && let Value::Const(k) = v
+                && let ConstKind::Global(g) = self.cx.m.consts.get(k).kind
+            {
+                let name = self.cx.m.global(g).name.clone().unwrap_or_default();
+                operands.push((false, ins.len(), AsmPrint::Sym));
+                ins.push(MOp::Sym(name));
+                continue;
+            }
             let konst = match v {
                 Value::Const(_) => self.cx.const_int(v),
                 _ => None,
@@ -2477,7 +2574,7 @@ impl<'a, 'b> Sel<'a, 'b> {
                             before.push(MInst::copy(Reg::V(d), r));
                             r = Reg::V(d);
                         }
-                        operands.push((false, ins.len(), AsmPrint::Reg(print.unwrap_or(class))));
+                        operands.push((false, ins.len(), AsmPrint::Reg(print.unwrap_or_else(|| narrow_print(m, *file, holds, bits, class)))));
                         ins.push(MOp::Reg(r));
                     }
                     (_, Some(AsmCode::Mem(tpl)), _) => {
@@ -2921,6 +3018,20 @@ impl<'a, 'b> Sel<'a, 'b> {
             (Some(_), _) => None,
             (None, v) => Some(self.reg_for(v, self.int_class(true))?),
         };
+        // A call to an `"epitome-opaque"` function, on a machine that has a
+        // launch instruction, starts that function's program on another
+        // unit: its arguments where a call's go, then the launch, which
+        // names it by symbol and returns nothing.
+        let launch = self.t.role("launch").filter(|_| match call.callee {
+            Value::Const(k) => match &self.cx.m.constant(k).kind {
+                ConstKind::Global(g) => match &self.cx.m.global(*g).kind {
+                    GlobalKind::Function(callee) => epitome_ir::fits::opaque(self.cx.m, &callee.fn_attrs),
+                    _ => false,
+                },
+                _ => false,
+            },
+            _ => false,
+        });
         // Stack arguments first, while every argument register is free;
         // a variable argument takes a whole 8-byte slot.
         let mut in_regs = Vec::new();
@@ -2962,7 +3073,7 @@ impl<'a, 'b> Sel<'a, 'b> {
         }
         // A tail call: when the call's result is what the function returns,
         // its frame goes first, and the callee returns to its caller.
-        let tail = if self.landing_next.is_some() { None } else { self.tail_ret(i, call, &locs) };
+        let tail = if self.landing_next.is_some() || launch.is_some() { None } else { self.tail_ret(i, call, &locs) };
         // Elective (autochop) unless the call must be a tail call.
         let tail = tail.filter(|_| {
             call.tail == TailKind::MustTail
@@ -2998,6 +3109,12 @@ impl<'a, 'b> Sel<'a, 'b> {
         }
         if call.tail == TailKind::MustTail {
             return self.err("a musttail call that cannot be made a tail call".to_string());
+        }
+        if let (Some(l), Some(s)) = (launch, &target) {
+            let mut m = MInst::new(l, vec![MOp::Sym(s.clone())]);
+            m.imp_uses = in_regs.iter().map(|&(p, _)| p).collect();
+            self.push(m);
+            return Ok(());
         }
         let mut inst_m = match (&target, callee_reg) {
             (Some(s), _) => MInst::new(self.t.by_role("call"), vec![MOp::Sym(s.clone())]),
@@ -3168,6 +3285,12 @@ impl<'a, 'b> Sel<'a, 'b> {
             }
             match &inst.op {
                 Op::Phi { .. } => continue,
+                // A machine without a trap ends the program where it would
+                // trap (`!target.lacks` trap): reaching it is undefined.
+                Op::Unreachable if self.t.role("trap").is_none() => {
+                    self.push(MInst::new(self.t.by_role("ret"), vec![]));
+                    continue;
+                }
                 Op::Call(call)
                     if prepare::callee_name(self.cx.m, call)
                         .is_some_and(|n| n.starts_with("llvm.stacksave") || n.starts_with("llvm.stackrestore")) =>
@@ -3427,8 +3550,7 @@ impl<'a, 'b> Sel<'a, 'b> {
                         continue;
                     }
                     let Some(&(v, _)) = incoming.iter().find(|(_, from)| *from == p) else { continue };
-                    let ty = f.locals[r.index()].ty;
-                    let class = self.class_of_ty(ty);
+                    let class = self.class_of(Value::Local(r));
                     let src = self.reg_for(v, class)?;
                     let d = Reg::V(self.vreg_of(r));
                     if src != d {
@@ -3757,4 +3879,16 @@ fn is_atomic(op: &Op) -> bool {
             | Op::CmpXchg { .. }
             | Op::Fence { .. }
     )
+}
+
+/// The class an inline-assembly operand's register is printed in: an
+/// integer narrower than the class it is in is named at its own width
+/// where the file has a class of it (an `i8` in a 32-bit register is
+/// `%al`, not `%eax`, as LLVM prints it).
+fn narrow_print(m: &crate::machine::Machine, file: usize, holds: crate::machine::Holds, bits: u32, class: Class) -> Class {
+    if holds == crate::machine::Holds::Int && bits < m.classes[class.0 as usize].bits {
+        m.width_class_in(file, bits).unwrap_or(class)
+    } else {
+        class
+    }
 }

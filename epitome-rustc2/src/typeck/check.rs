@@ -215,7 +215,7 @@ struct Loop<'s> {
 pub(super) struct FnCtxt<'a, 's> {
     pub(super) tcx: &'a TyCtxt<'s>,
     pub(super) r: &'a Resolver<'s>,
-    env: Env<'a, 's>,
+    pub(super) env: Env<'a, 's>,
     pub(super) infer: Infer<'a, 's>,
     pub(super) index: &'a Index<'s>,
     pub(super) k: u32,
@@ -532,6 +532,27 @@ impl<'a, 's> FnCtxt<'a, 's> {
         self.fill_holes(t)
     }
 
+    /// A written generic argument: a type, or a constant (`4`, `{ N + 1
+    /// }`, `{ Ordering::Relaxed }`) as a `ConstArg`.
+    fn written_arg(&mut self, n: NodeId) -> Ty {
+        if !matches!(self.ast.kind(n), Kind::Literal | Kind::Unary | Kind::Block) {
+            return self.written_ty(n);
+        }
+        let mut l = Lower {
+            tcx: self.tcx,
+            env: &self.env,
+            expanding: FastSet::default(),
+            impl_self: None,
+            holes: true,
+            k: self.k,
+            file: self.file,
+            owner: self.owner,
+            failed: false,
+        };
+        let c = l.konst(n);
+        self.mk(TyKind::ConstArg(c))
+    }
+
     /// `t` with each hole (`Infer(u32::MAX)`) replaced by a fresh variable.
     fn fill_holes(&mut self, t: Ty) -> Ty {
         let tcx = self.tcx;
@@ -685,13 +706,13 @@ impl<'a, 's> FnCtxt<'a, 's> {
     fn method_turbofish(&mut self, n: NodeId, item: DefId, seg: NodeId) {
         let ast = self.ast;
         let Some(g) = ast.child(seg, Kind::GenericArgs) else { return };
-        let written: Vec<NodeId> = ast.children(g).iter().copied().filter(|&a| is_type(ast.kind(a))).collect();
+        let written: Vec<NodeId> = ast.children(g).iter().copied().filter(|&a| is_generic_arg(ast.kind(a))).collect();
         let own = self.tcx.generics[item.0 as usize].own.len();
         let Some(args) = self.methods.iter().rev().find(|m| m.0 == n).map(|m| m.2.clone()) else { return };
         let start = args.len().saturating_sub(own);
         for (i, a) in written.into_iter().enumerate() {
             if let Some(&v) = args.get(start + i) {
-                let t = self.written_ty(a);
+                let t = self.written_arg(a);
                 self.infer.unify(v, t);
             }
         }
@@ -822,7 +843,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let segs: Vec<NodeId> = ast.children(path).iter().copied().filter(|&s| ast.kind(s) == Kind::Segment).collect();
         let written = |s: Option<&NodeId>| -> Vec<NodeId> {
             s.and_then(|&s| ast.child(s, Kind::GenericArgs))
-                .map(|g| ast.children(g).iter().copied().filter(|&a| is_type(ast.kind(a))).collect())
+                .map(|g| ast.children(g).iter().copied().filter(|&a| is_generic_arg(ast.kind(a))).collect())
                 .unwrap_or_default()
         };
         // On the last segment: the item's own (a variant's are its
@@ -833,7 +854,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let mut put = |cx: &mut Self, start: usize, ts: Vec<NodeId>| {
             for (i, a) in ts.into_iter().enumerate() {
                 if start + i < args.len() {
-                    args[start + i] = cx.written_ty(a);
+                    args[start + i] = cx.written_arg(a);
                 }
             }
         };
@@ -913,12 +934,14 @@ impl<'a, 's> FnCtxt<'a, 's> {
             Res::Partial(base, 1) => {
                 let name = self.last_segment_name(path);
                 let base = (**base).clone();
-                if let Some(q) = self.ast.child(path, Kind::QSelf)
+                let t = if let Some(q) = self.ast.child(path, Kind::QSelf)
                     && let Some(&tr) = self.ast.children(q).get(1)
                 {
-                    return self.qualified_trait_value(n, q, tr, name);
-                }
-                self.assoc_value(n, path, &base, name)
+                    self.qualified_trait_value(n, q, tr, name)
+                } else {
+                    self.assoc_value(n, path, &base, name)
+                };
+                self.path_turbofish(path, t)
             }
             Res::Partial(base, 2) => {
                 // `T::Assoc::item`: the associated type, then its item.
@@ -934,16 +957,37 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     let mut args = impl_args;
                     let fresh = (0..own).map(|_| self.infer.fresh()).collect::<Vec<_>>();
                     args.extend(fresh);
-                    return self.mk(TyKind::FnDef(item, tcx.list(args)));
+                    let t = self.mk(TyKind::FnDef(item, tcx.list(args)));
+                    return self.path_turbofish(path, t);
                 }
                 match self.trait_assoc_value(n, at, name) {
-                    Some(t) => t,
+                    Some(t) => self.path_turbofish(path, t),
                     None => self.err(n, "associated item not found"),
                 }
             }
             Res::Partial(..) => self.err(n, "path through an associated item"),
             Res::PrimTy(_) => self.err(n, "a type used as a value"),
         }
+    }
+
+    /// `Type::f::<A, B>` and `T::f::<A, B>`: the arguments written on the
+    /// last segment, for the function's own parameters (the last of its
+    /// arguments), which the lookup left as variables.
+    fn path_turbofish(&mut self, path: NodeId, t: Ty) -> Ty {
+        let tcx = self.tcx;
+        let ast = self.ast;
+        let TyKind::FnDef(item, l) = tcx.kind(t) else { return t };
+        let Some(&seg) = ast.children(path).iter().rev().find(|&&s| ast.kind(s) == Kind::Segment) else { return t };
+        let Some(g) = ast.child(seg, Kind::GenericArgs) else { return t };
+        let written: Vec<NodeId> = ast.children(g).iter().copied().filter(|&a| is_generic_arg(ast.kind(a))).collect();
+        let args = tcx.tys(l);
+        let own = tcx.generics[item.0 as usize].own.len();
+        let start = args.len().saturating_sub(own);
+        for (i, a) in written.into_iter().enumerate().take(own) {
+            let w = self.written_arg(a);
+            self.infer.unify(args[start + i], w);
+        }
+        t
     }
 
     fn last_segment_name(&self, path: NodeId) -> &'s str {
@@ -1098,8 +1142,28 @@ impl<'a, 's> FnCtxt<'a, 's> {
             let params = tcx.all_params(imp.def);
             let args = self.infer.instantiate(&params);
             let st = subst(tcx, imp.self_ty, &params, &args);
+            let fresh = self.infer.snapshot();
             if self.infer.unify(st, t) {
                 return Some((item, args));
+            }
+            self.infer.rollback(fresh);
+            // A self type with a projection among its arguments
+            // (`ControlFlow<R, R::Output>`): the other arguments first, which
+            // settle the projection's, then the projection, normalised.
+            if let (TyKind::Adt(d, l), TyKind::Adt(e, m)) = (tcx.kind(st), tcx.kind(self.infer.shallow(t)))
+                && d == e
+                && tcx.tys(l).into_iter().any(|x| matches!(tcx.kind(x), TyKind::Projection(..)))
+            {
+                let (ls, ms) = (tcx.tys(l), tcx.tys(m));
+                let plain = ls.iter().zip(&ms).filter(|(a, _)| !matches!(tcx.kind(**a), TyKind::Projection(..))).all(|(&a, &b)| self.infer.unify(a, b));
+                let ok = plain
+                    && ls.iter().zip(&ms).filter(|(a, _)| matches!(tcx.kind(**a), TyKind::Projection(..))).all(|(&a, &b)| {
+                        let n = self.normalize(a, 0);
+                        self.infer.unify(n, b)
+                    });
+                if ok {
+                    return Some((item, args));
+                }
             }
             self.infer.rollback(s);
         }
@@ -1140,6 +1204,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     let s = self.probe();
                     if let Some((item, impl_args)) = self.inherent_item(tj, name, Ns::Value)
                         && self.r.defs[item.0 as usize].kind == DefKind::AssocFn
+                        && self.has_self(item)
                     {
                         let own = tcx.generics[item.0 as usize].own.len();
                         let mut args = impl_args;
@@ -2033,7 +2098,18 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 self.mk(TyKind::Ref(Mutbl::Not, s))
             }
             "offset_of" => self.mk(TyKind::Uint(UintTy::Usize)),
-            "asm" | "assert" | "global_asm" | "naked_asm" | "trace_macros" | "log_syntax" => self.unit(),
+            "asm" => {
+                // Its templates and operands' expressions, which expansion
+                // added after its tokens.
+                for &c in &kids[2.min(kids.len())..] {
+                    self.expr(c, None);
+                }
+                let noreturn = kids.get(1).is_some_and(|&tt| {
+                    self.ast.tokens_of(tt).windows(3).any(|w| w[0].0 == "options" && w[1].0 == "(") && self.ast.tokens_of(tt).iter().any(|t| t.0 == "noreturn")
+                });
+                if noreturn { self.mk(TyKind::Never) } else { self.unit() }
+            }
+            "assert" | "global_asm" | "naked_asm" | "trace_macros" | "log_syntax" => self.unit(),
             "core_panic" | "std_panic" | "unreachable_2015" | "unreachable_2021" | "panic" => self.mk(TyKind::Never),
             _ => self.infer.fresh(),
         }
@@ -2390,4 +2466,10 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let fields = variant.map(|v| v.fields.iter().map(|f| (f.name, subst(tcx, f.ty, &params, &args))).collect()).unwrap_or_default();
         (at, fields)
     }
+}
+
+/// Whether a node in generic arguments is an argument: a type, or a
+/// constant written as a literal, a negated one or a block.
+fn is_generic_arg(k: Kind) -> bool {
+    is_type(k) || matches!(k, Kind::Literal | Kind::Unary | Kind::Block)
 }

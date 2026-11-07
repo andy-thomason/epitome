@@ -1482,6 +1482,12 @@ impl<'s, 'm, 'f> Combiner<'s, 'm, 'f> {
                 }
                 let x = self.int(c)?;
                 let to = eval::int_bits(sh.types(), ty)?;
+                // Wider than 64 bits, a sign extension's sign goes on past
+                // bit 63, which the 64-bit fold does not carry.
+                if op == CastOp::SExt && to > 64 && x.bits <= 64 {
+                    let v = eval::sext(x.value & eval::mask(x.bits), x.bits);
+                    return self.int_value_signed(ty, v);
+                }
                 match eval::fold_cast(op, flags, x.value, x.bits, to)? {
                     Folded::Int(v) => self.int_value(ty, v),
                     Folded::Poison => Some(sh.poison(ty)),
@@ -1528,6 +1534,20 @@ impl<'s, 'm, 'f> Combiner<'s, 'm, 'f> {
         };
         let k =
             sh.intern_const(Constant { ty: elem, kind: ConstKind::Int(ApInt::from_u64(bits, v & eval::mask(bits))) });
+        Some(Value::Const(if vector { sh.intern_const(Constant { ty, kind: ConstKind::Splat(k) }) } else { k }))
+    }
+
+    /// A signed integer constant of type `ty` (a splat for a vector), sign
+    /// extended to its width however wide.
+    fn int_value_signed(&self, ty: TypeId, v: i64) -> Option<Value> {
+        let sh = self.sh;
+        let (bits, elem, vector) = {
+            let types = sh.types();
+            let elem = types.scalar(ty);
+            let Type::Int(bits) = *types.get(elem) else { return None };
+            (bits, elem, elem != ty)
+        };
+        let k = sh.intern_const(Constant { ty: elem, kind: ConstKind::Int(ApInt::from_i64(bits, v)) });
         Some(Value::Const(if vector { sh.intern_const(Constant { ty, kind: ConstKind::Splat(k) }) } else { k }))
     }
 

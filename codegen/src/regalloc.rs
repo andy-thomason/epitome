@@ -15,6 +15,14 @@
 //! made one value (coalescing); where the allocation then spills, the one
 //! without coalescing is made too, and the smaller kept.
 //!
+//! Lists of registers (`st2 {z3.s, z4.s}`) are placed before anything
+//! else: selection copies each member into a value of its own, the list's
+//! values take consecutive registers together, and the copies' hints draw
+//! the values copied into them back to those registers (a value may share
+//! a register with its own copies there). A result is also
+//! drawn, more weakly, to an operand whose value ends where it starts,
+//! for two-address shapes.
+//!
 //! When no register is free, a value may take one from values that are
 //! cheaper to spill: those whose uses are sparser over their ranges (their
 //! weight, uses and definitions over length, is less), which then try
@@ -68,6 +76,24 @@ impl Busy {
             b = b.max(e);
         }
         self.0.insert(a, b);
+    }
+
+    /// Takes away a value's intervals, added when they met nothing already
+    /// there. They may meet each other (an empty block's segment shares its
+    /// position with the next block's), so it is their union that is one
+    /// entry each.
+    fn remove(&mut self, segs: &[Interval]) {
+        let mut k = 0;
+        while k < segs.len() {
+            let (a, mut b) = segs[k];
+            k += 1;
+            while k < segs.len() && segs[k].0 <= b {
+                b = b.max(segs[k].1);
+                k += 1;
+            }
+            let e = self.0.remove(&a);
+            debug_assert_eq!(e, Some(b), "an interval merged with another value's cannot be taken away");
+        }
     }
 }
 
@@ -280,15 +306,102 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
         }
     }
 
+    // Lists of registers (`{zt1}, {zt1:+1}`, `target.rs`): each
+    // instruction's members, `(value, place after the head)`, with the
+    // instruction and its head operand. Selection gave each member a value
+    // of its own, copied from the one it lists; these are placed first,
+    // together, and the values copied into them are drawn to their
+    // registers by the copies' hints, so that most copies go.
+    let mut lists: Vec<(Vec<(VReg, u8)>, usize, usize)> = Vec::new();
+    for b in &f.blocks {
+        for inst in &b.insts {
+            let Opcode::Instr(k) = inst.op else { continue };
+            let ins = &t.instrs[k];
+            let mut heads: Vec<usize> = ins.operands.iter().filter_map(|o| o.list.map(|l| l.0)).collect();
+            heads.dedup();
+            for h in heads {
+                let mut members = Vec::new();
+                for (j, o) in ins.operands.iter().enumerate() {
+                    let off = if j == h {
+                        0
+                    } else {
+                        match o.list {
+                            Some((x, off)) if x == h => off,
+                            _ => continue,
+                        }
+                    };
+                    match inst.ops.get(j) {
+                        Some(MOp::Reg(Reg::V(v))) => members.push((*v, off)),
+                        _ => return Err(format!("{}: a list of registers whose members are not values", f.name)),
+                    }
+                }
+                members.sort_by_key(|m| m.1);
+                lists.push((members, k, h));
+            }
+        }
+    }
+    let in_list: HashSet<VReg> = lists.iter().flat_map(|l| l.0.iter().map(|m| m.0)).collect();
+    // Two-address shapes: a result is drawn to the register of an operand
+    // whose value ends where the result starts (the instruction is its
+    // last read), so that the instruction reads and writes one register,
+    // as a two-address form of it would. Weaker than a copy's hint.
+    for s in &mut segs {
+        s.sort();
+    }
+    let mut weak: Vec<Vec<VReg>> = vec![Vec::new(); nv];
+    {
+        let ends_at = |v: VReg, p: u32| {
+            let s = &segs[v as usize];
+            let k = s.partition_point(|x| x.0 <= p);
+            k > 0 && s[k - 1].1 == p
+        };
+        let mut idx = 0u32;
+        for b in &f.blocks {
+            for inst in &b.insts {
+                if let Opcode::Instr(k) = inst.op
+                    && t.instrs[k].has_result
+                    && let Some(MOp::Reg(Reg::V(d))) = inst.ops.first()
+                {
+                    for (j, o) in t.instrs[k].operands.iter().enumerate().skip(1) {
+                        if !o.tied
+                            && let Some(MOp::Reg(Reg::V(u))) = inst.ops.get(j)
+                            && u != d
+                            && classes[*u as usize] == classes[*d as usize]
+                            && ends_at(*u, 2 * idx)
+                        {
+                            weak[*d as usize].push(*u);
+                            weak[*u as usize].push(*d);
+                        }
+                    }
+                }
+                idx += 1;
+            }
+        }
+    }
+
     if coalescing {
-        coalesce(f, &mut segs, &mut hints, &mut occ);
+        coalesce(f, &mut segs, &mut hints, &mut occ, &in_list, &mut weak);
+    }
+    // Each list member's value copied into it (after coalescing, which
+    // renames them): a value may share a register with its own copies, as
+    // nothing writes it between them and the instruction.
+    let mut copy_of: HashMap<VReg, VReg> = HashMap::new();
+    for b in &f.blocks {
+        for inst in &b.insts {
+            if let (Opcode::Copy, [MOp::Reg(Reg::V(d)), MOp::Reg(Reg::V(s))]) = (inst.op, &inst.ops[..])
+                && in_list.contains(d)
+            {
+                copy_of.insert(*d, *s);
+            }
+        }
     }
 
     // Linear scan.
     for s in &mut segs {
         s.sort();
     }
-    let mut order: Vec<VReg> = (0..nv as VReg).filter(|&v| !segs[v as usize].is_empty()).collect();
+    let mut order: Vec<VReg> =
+        (0..nv as VReg).filter(|&v| !segs[v as usize].is_empty() && !in_list.contains(&v)).collect();
     order.sort_by_key(|&v| (segs[v as usize][0].0, v));
     let mut taken: HashMap<u8, Busy> = HashMap::new();
     // The fixed stretches alone (which no value can be moved out of), and
@@ -322,6 +435,84 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
             })
         })
         .collect();
+    // Lists first: each list's first register, where its members are all
+    // free (they live from their copies to the instruction) and the
+    // instruction can encode it, the one that most members' copied
+    // values are already drawn to (a register they arrive in, an
+    // argument's), less the values live across the list that are drawn
+    // to its registers and would have to move, then one that need not be
+    // saved. Members are not moved
+    // again for others. The values copied into them, placed later, are
+    // drawn to these registers by the copies' hints: a value whose range
+    // ends in a list goes back along it to where the list wants it.
+    // Values drawn to a register by a copy of it (an argument, a result,
+    // a call's).
+    let pinned: Vec<(VReg, u8)> = (0..nv as VReg)
+        .filter(|v| !in_list.contains(v))
+        .flat_map(|v| hints[v as usize].iter().filter_map(move |h| if let Reg::P(p) = h { Some((v, *p)) } else { None }))
+        .collect();
+    let meet = |a: &[Interval], b: &[Interval]| a.iter().any(|&x| b.iter().any(|&y| x.0 <= y.1 && y.0 <= x.1));
+    for (members, k, head) in &lists {
+        let class = classes[members[0].0 as usize];
+        let size = m.def(class).names.len() as i64;
+        // The registers each member's copied value is drawn to.
+        let drawn = |v: VReg| -> Vec<u8> {
+            let mut out = Vec::new();
+            for h in &hints[v as usize] {
+                if let Reg::V(x) = h {
+                    for hh in &hints[*x as usize] {
+                        match hh {
+                            Reg::P(p) => out.push(*p),
+                            Reg::V(y) => out.extend(assigned[*y as usize]),
+                        }
+                    }
+                }
+            }
+            out
+        };
+        let saved = |p: u8| callee_saved.contains(&p) || fp_callee_saved.contains(&p);
+        let mut best: Option<((i64, usize, i64), Vec<u8>)> = None;
+        for n in 0..size {
+            if !t.instrs[*k].list_starts(*head, n) {
+                continue;
+            }
+            let regs: Option<Vec<u8>> = members
+                .iter()
+                .map(|&(v, off)| {
+                    let p = m.phys(class, (n + i64::from(off)).rem_euclid(size));
+                    let free = taken.get(&p).is_none_or(|b| segs[v as usize].iter().all(|&s| !b.meets(s)));
+                    (allocatable(p) && m.in_class(class, p) && free).then_some(p)
+                })
+                .collect();
+            let Some(regs) = regs else { continue };
+            let hits = members.iter().zip(&regs).filter(|((v, _), p)| drawn(*v).contains(p)).count() as i64;
+            let moves = members
+                .iter()
+                .zip(&regs)
+                .filter(|((v, _), p)| {
+                    pinned.iter().any(|&(w, q)| q == **p && meet(&segs[w as usize], &segs[*v as usize]))
+                })
+                .count() as i64;
+            let unsaved = regs.iter().filter(|&&p| !saved(p)).count();
+            let key = (hits - moves, unsaved, -n);
+            if best.as_ref().is_none_or(|b| key > b.0) {
+                best = Some((key, regs));
+            }
+        }
+        let Some((_, regs)) = best else {
+            return Err(format!("{}: no consecutive registers are free for a list of {}", f.name, members.len()));
+        };
+        for (&(v, _), &p) in members.iter().zip(&regs) {
+            assigned[v as usize] = Some(p);
+            moved.insert(v);
+            let busy = taken.entry(p).or_default();
+            let os = owners.entry(p).or_default();
+            for &s in &segs[v as usize] {
+                busy.add(s);
+                os.insert(s.0, (s.1, v));
+            }
+        }
+    }
     while let Some(v) = work.pop_front() {
         let mine = &segs[v as usize];
         let across_call = across[v as usize];
@@ -353,6 +544,14 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
             }
             frontier = next;
         }
+        // Then registers of values it would make a two-address shape with.
+        for &w in &weak[v as usize] {
+            if w != v
+                && let Some(p) = assigned[w as usize]
+            {
+                cands.push(p);
+            }
+        }
         let no_saved: Vec<u8> = Vec::new();
         let wide = too_wide(v);
         if wide && across_call {
@@ -369,34 +568,58 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
         // Only registers of the value's own class.
         let class = classes[v as usize];
         cands.retain(|&p| m.in_class(class, p));
-        let free = cands.iter().copied().find(|p| taken.get(p).is_none_or(|busy| mine.iter().all(|&m| !busy.meets(m))));
+        // Free, or taken where it meets only list members copied from this
+        // value (which then shares their register, and is not moved for
+        // others, as its stretches are merged with theirs).
+        let shared = |p: u8| {
+            !fixed_busy.get(&p).is_some_and(|fb| mine.iter().any(|&m| fb.meets(m)))
+                && owners.get(&p).is_some_and(|os| {
+                    mine.iter().all(|&(a, b)| {
+                        os.range(..=b).rev().take_while(|(_, (e, _))| *e >= a).all(|(_, (_, o))| copy_of.get(o) == Some(&v))
+                    })
+                })
+        };
+        let mut sharing = false;
+        let free = cands.iter().copied().find(|&p| {
+            if taken.get(&p).is_none_or(|busy| mine.iter().all(|&m| !busy.meets(m))) {
+                return true;
+            }
+            sharing = shared(p);
+            sharing
+        });
         // Else a register whose values in the way are all lighter (and
         // movable), the lightest in all.
         let free = free.map(|p| (p, Vec::new())).or_else(|| {
             let w = weight(v);
             let mut best: Option<(u8, Vec<VReg>, f64)> = None;
-            for &p in &cands {
+            'regs: for &p in &cands {
                 if fixed_busy.get(&p).is_some_and(|fb| mine.iter().any(|&m| fb.meets(m))) {
                     continue;
                 }
+                // The values in the way, in the order met. A register is
+                // given up at the first that cannot move (already moved
+                // once, or no lighter): a long value would otherwise list
+                // every value along it, on every register.
                 let mut away: Vec<VReg> = Vec::new();
+                let mut met: HashSet<VReg> = HashSet::new();
+                let mut cost = 0.0;
                 if let Some(os) = owners.get(&p) {
                     for &(a, b) in mine {
                         for (_, &(e, o)) in os.range(..=b).rev() {
                             if e < a {
                                 break;
                             }
-                            if !away.contains(&o) {
+                            if met.insert(o) {
+                                if moved.contains(&o) || weight(o) >= w {
+                                    continue 'regs;
+                                }
                                 away.push(o);
+                                cost += weight(o);
                             }
                         }
                     }
                 }
-                if away.iter().any(|o| moved.contains(o)) {
-                    continue;
-                }
-                let cost: f64 = away.iter().map(|&o| weight(o)).sum();
-                if away.iter().all(|&o| weight(o) < w) && best.as_ref().is_none_or(|b| cost < b.2) {
+                if best.as_ref().is_none_or(|b| cost < b.2) {
                     best = Some((p, away, cost));
                 }
             }
@@ -405,13 +628,19 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
         match free {
             Some((p, away)) => {
                 if !away.is_empty() {
+                    // A value's segments met nothing on the register when
+                    // they were added (neither fixed stretches nor other
+                    // values), so they are still entries of their own, and
+                    // taking them away is a lookup each, not a rebuild of
+                    // the register's whole map.
                     let os = owners.entry(p).or_default();
-                    os.retain(|_, (_, o)| !away.contains(o));
-                    let mut busy = fixed_busy.get(&p).cloned().unwrap_or_default();
-                    for (&a, &(b, _)) in os.iter() {
-                        busy.add((a, b));
+                    let busy = taken.entry(p).or_default();
+                    for &o in &away {
+                        for &s in &segs[o as usize] {
+                            os.remove(&s.0);
+                        }
+                        busy.remove(&segs[o as usize]);
                     }
-                    taken.insert(p, busy);
                     for o in away {
                         assigned[o as usize] = None;
                         moved.insert(o);
@@ -421,9 +650,28 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
                 assigned[v as usize] = Some(p);
                 let busy = taken.entry(p).or_default();
                 let os = owners.entry(p).or_default();
-                for &s in mine {
-                    busy.add(s);
-                    os.insert(s.0, (s.1, v));
+                for &(mut a, mut b) in mine {
+                    // (Sharing: the copies' stretches become this value's,
+                    // so that a register's owners stay disjoint, which the
+                    // searches of them rely on.)
+                    if sharing {
+                        let over: Vec<(u32, u32)> = os
+                            .range(..=b)
+                            .rev()
+                            .take_while(|(_, (e, _))| *e >= a)
+                            .map(|(&x, &(e, _))| (x, e))
+                            .collect();
+                        for (x, e) in over {
+                            os.remove(&x);
+                            a = a.min(x);
+                            b = b.max(e);
+                        }
+                    }
+                    busy.add((a, b));
+                    os.insert(a, (b, v));
+                }
+                if sharing {
+                    moved.insert(v);
                 }
             }
             None => spilled.push(v),
@@ -431,6 +679,18 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
     }
     if bail && !spilled.is_empty() {
         return Ok(false);
+    }
+    // Each list's members follow its head.
+    for (members, k, _) in &lists {
+        let class = classes[members[0].0 as usize];
+        let size = m.def(class).names.len() as i64;
+        let first = assigned[members[0].0 as usize].and_then(|p| m.field(class, p));
+        let right = first.is_some_and(|n| {
+            members.iter().all(|&(v, off)| assigned[v as usize] == Some(m.phys(class, (n + i64::from(off)).rem_euclid(size))))
+        });
+        if !right {
+            return Err(format!("{}: a list of registers for {} is not consecutive", f.name, t.instrs[*k].name));
+        }
     }
 
     // A spilled value is held in a register through stretches of a block
@@ -485,6 +745,14 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
             .collect()
     };
     let spilled_set: HashSet<VReg> = spilled.iter().copied().filter(|v| !remat.contains_key(v)).collect();
+    // A machine without a stack has nowhere to spill to.
+    if !spilled_set.is_empty() && t.machine.lacks("stack") {
+        let fname = f.name.trim_start_matches('@');
+        return Err(format!(
+            "@{fname}: does not fit: {} values live at once do not fit in its registers, and the machine has no stack",
+            spilled_set.len()
+        ));
+    }
     let mut local: HashMap<(VReg, usize), Vec<(u32, u32, u8)>> = HashMap::new();
     {
         let mut idx = 0u32;
@@ -755,7 +1023,14 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
 /// copies a register to itself and goes, and allocation places one value
 /// where it would have placed two, perhaps apart. Each merge is an
 /// elective change (autochop).
-fn coalesce(f: &mut MFunc, segs: &mut [Vec<Interval>], hints: &mut [Vec<Reg>], occ: &mut [u32]) {
+fn coalesce(
+    f: &mut MFunc,
+    segs: &mut [Vec<Interval>],
+    hints: &mut [Vec<Reg>],
+    occ: &mut [u32],
+    in_list: &HashSet<VReg>,
+    weak: &mut [Vec<VReg>],
+) {
     let n = segs.len();
     let mut parent: Vec<VReg> = (0..n as VReg).collect();
     fn root(parent: &mut [VReg], mut v: VReg) -> VReg {
@@ -785,7 +1060,11 @@ fn coalesce(f: &mut MFunc, segs: &mut [Vec<Interval>], hints: &mut [Vec<Reg>], o
         for inst in &b.insts {
             let (Opcode::Copy, [MOp::Reg(Reg::V(d)), MOp::Reg(Reg::V(s))]) = (inst.op, &inst.ops[..]) else { continue };
             let (d, s) = (root(&mut parent, *d), root(&mut parent, *s));
+            // (Not a list's member: placed with the others, for one
+            // instruction only.)
             if d == s
+                || in_list.contains(&d)
+                || in_list.contains(&s)
                 || f.vclass[d as usize] != f.vclass[s as usize]
                 || segs[d as usize].is_empty()
                 || segs[s as usize].is_empty()
@@ -800,6 +1079,8 @@ fn coalesce(f: &mut MFunc, segs: &mut [Vec<Interval>], hints: &mut [Vec<Reg>], o
             segs[d as usize] = all;
             let hs = std::mem::take(&mut hints[s as usize]);
             hints[d as usize].extend(hs);
+            let ws = std::mem::take(&mut weak[s as usize]);
+            weak[d as usize].extend(ws);
             occ[d as usize] += occ[s as usize];
             parent[s as usize] = d;
             merged = true;
@@ -823,6 +1104,11 @@ fn coalesce(f: &mut MFunc, segs: &mut [Vec<Interval>], hints: &mut [Vec<Reg>], o
             if let Reg::V(v) = r {
                 *v = roots[*v as usize];
             }
+        }
+    }
+    for w in weak.iter_mut() {
+        for v in w.iter_mut() {
+            *v = roots[*v as usize];
         }
     }
 }

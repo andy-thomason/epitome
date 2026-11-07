@@ -7,6 +7,9 @@
 //! - **Macros**: `.macro name params` ... `.endm`, used as `name args`,
 //!   with `\param` (and `\()`, nothing, and `\@`, the number of the use);
 //!   `.rept count` ... `.endr`; and `.if expr` / `.else` / `.endif`.
+//! - **Names of numbers**: `.set name, expr` and `.equ name, expr` of a
+//!   constant, the name then put in for itself (a `.set` of a label is
+//!   left to the assembler, as an alias).
 //! - **RISC-V's pseudo-instructions** of more than one instruction, where
 //!   the description asks for them (`"asm-pseudos"`): `li` of any 64-bit
 //!   value, and `la` and `lla`, PC-relative (`auipc`, then `addi` of
@@ -212,12 +215,46 @@ struct Macro {
     body: Vec<String>,
 }
 
-/// The statements with macros, `.rept` and `.if` done.
+/// `s` with each word that is a name of a number as that number.
+fn put_consts(s: &str, consts: &HashMap<String, i64>) -> String {
+    let word = |c: char| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '$');
+    let mut out = String::new();
+    let mut cur = String::new();
+    let flush = |cur: &mut String, out: &mut String| {
+        match consts.get(cur.as_str()) {
+            Some(v) => out.push_str(&v.to_string()),
+            None => out.push_str(cur),
+        }
+        cur.clear();
+    };
+    for c in s.chars() {
+        if word(c) {
+            cur.push(c);
+        } else {
+            flush(&mut cur, &mut out);
+            out.push(c);
+        }
+    }
+    flush(&mut cur, &mut out);
+    out
+}
+
+/// The statements with macros, `.rept` and `.if` done, and names of
+/// numbers (`.set`, `.equ`) put in.
 pub fn expand(stmts: Vec<(usize, String)>) -> Result<Vec<(usize, String)>, (usize, String)> {
+    expand_with(stmts, &|_| false)
+}
+
+/// As `expand`, with `whole` saying which statements start with no
+/// labels, whatever their colons (a bundle's prefix, `2: {`).
+pub fn expand_with(
+    stmts: Vec<(usize, String)>,
+    whole: &dyn Fn(&str) -> bool,
+) -> Result<Vec<(usize, String)>, (usize, String)> {
     // (Most text has none of these.)
     let block = |s: &str| {
         let w = labels(s).1.split_whitespace().next().unwrap_or("");
-        matches!(w, ".macro" | ".rept" | ".if" | ".ifne" | ".ifeq")
+        matches!(w, ".macro" | ".rept" | ".if" | ".ifne" | ".ifeq" | ".set" | ".equ")
     };
     if !stmts.iter().any(|(_, s)| block(s)) {
         return Ok(stmts);
@@ -229,6 +266,10 @@ pub fn expand(stmts: Vec<(usize, String)>) -> Result<Vec<(usize, String)>, (usiz
     // of it has been.
     let mut conds: Vec<(bool, bool)> = Vec::new();
     let mut uses = 0;
+    // Names of numbers (`.set n, 4`, `.equ n, 4`), put in for themselves in
+    // the statements after. A `.set` of a label is an alias, and is left to
+    // the assembler.
+    let mut consts: HashMap<String, i64> = HashMap::new();
     // A block's statements, to its end (`.endm`, `.endr`), nested ones in it.
     let block = |queue: &mut VecDeque<(usize, String, u32)>, open: &[&str], close: &str, n: usize| {
         let mut body = Vec::new();
@@ -253,7 +294,22 @@ pub fn expand(stmts: Vec<(usize, String)>) -> Result<Vec<(usize, String)>, (usiz
         if depth > 64 {
             return Err((n, "macros used within themselves".into()));
         }
-        let (labs, rest) = labels(&s);
+        // (A name set again takes its new value: the name itself is not
+        // put in.)
+        if conds.iter().all(|c| c.0)
+            && !whole(&s)
+            && let (labs, rest) = labels(&s)
+            && labs.is_empty()
+            && let Some((word, args)) = rest.split_once(char::is_whitespace)
+            && matches!(word, ".set" | ".equ")
+            && let Some((name, value)) = args.split_once(',')
+            && let Some(v) = eval(put_consts(value, &consts).trim())
+        {
+            consts.insert(name.trim().to_string(), v);
+            continue;
+        }
+        let s = if consts.is_empty() { s } else { put_consts(&s, &consts) };
+        let (labs, rest) = if whole(&s) { (Vec::new(), s.trim()) } else { labels(&s) };
         let (word, args) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));
         let keep = conds.iter().all(|c| c.0);
         match word {

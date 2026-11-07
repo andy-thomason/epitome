@@ -580,6 +580,13 @@ impl<'w, 's> Walker<'w, 's> {
                 if let Some(p) = self.ast.child(n, Kind::Path) {
                     self.record(p, Ns::Macro);
                 }
+                // What expansion added to a call it left (`asm!`'s
+                // operands): expressions like any other.
+                for c in self.ast.children(n).to_vec() {
+                    if !matches!(self.ast.kind(c), Kind::Path | Kind::TokenTree | Kind::Attribute | Kind::DocComment) {
+                        self.walk(c);
+                    }
+                }
             }
             Kind::Block => {
                 let saved = self.module;

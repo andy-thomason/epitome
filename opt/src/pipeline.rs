@@ -129,7 +129,53 @@ pub struct Report {
     pub timings: Vec<(&'static str, std::time::Duration)>,
 }
 
+/// Optimises `m`. Functions marked `"epitome-opaque"` are for another tool
+/// (Epitome's `docs/design/partial-machines.md`): their bodies are out of
+/// the module while it is optimised, so that no pass reads, changes or
+/// inlines them, and a call to one is a call to a declaration, which may
+/// read and write any memory its own attributes allow.
 pub fn run(m: &mut Module, opts: &Options) -> Report {
+    let fenced = take_opaque_bodies(m);
+    let report = optimise(m, opts);
+    for (g, body) in fenced {
+        if let GlobalKind::Function(f) = &mut m.globals[g.index()].kind {
+            f.locals = body.locals;
+            f.blocks = body.blocks;
+            f.layout = body.layout;
+            f.insts = body.insts;
+            f.has_body = true;
+        }
+    }
+    report
+}
+
+/// The bodies of `m`'s `"epitome-opaque"` functions, taken out, which
+/// leaves each a declaration (its parameters stay).
+fn take_opaque_bodies(m: &mut Module) -> Vec<(GlobalId, Function)> {
+    let opaque: Vec<GlobalId> = m
+        .global_order
+        .iter()
+        .copied()
+        .filter(|&g| match &m.globals[g.index()].kind {
+            GlobalKind::Function(f) => f.has_body && epitome_ir::fits::opaque(m, &f.fn_attrs),
+            _ => false,
+        })
+        .collect();
+    let mut out = Vec::new();
+    for g in opaque {
+        let GlobalKind::Function(f) = &mut m.globals[g.index()].kind else { continue };
+        let mut body = Function { locals: f.locals[..f.params.len()].to_vec(), ..Default::default() };
+        std::mem::swap(&mut body.locals, &mut f.locals);
+        body.blocks = std::mem::take(&mut f.blocks);
+        body.layout = std::mem::take(&mut f.layout);
+        body.insts = std::mem::take(&mut f.insts);
+        f.has_body = false;
+        out.push((g, body));
+    }
+    out
+}
+
+fn optimise(m: &mut Module, opts: &Options) -> Report {
     let threads = if opts.threads == 0 { par::default_threads() } else { opts.threads };
     let mut clock = std::time::Instant::now();
     let mut timings = Vec::new();

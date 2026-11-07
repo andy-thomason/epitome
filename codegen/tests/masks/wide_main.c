@@ -7,6 +7,7 @@ _Bool any(const uint8_t *); void frombits(uint8_t *, const uint8_t *, __int128);
 long cnt(const uint8_t *);
 uint64_t b64(const uint8_t *, const uint8_t *); uint32_t b32(const uint8_t *, const uint8_t *); void st64(uint8_t *, const uint8_t *);
 void f64(uint8_t *, const uint8_t *, uint64_t);
+void selbits(uint8_t *, const uint8_t *, const uint8_t *, uint16_t); void selload(uint8_t *, const uint8_t *, const uint8_t *, const uint8_t *);
 static uint32_t seed = 12345; static uint8_t rnd(void) { seed = seed * 1103515245 + 12345; return seed >> 16; }
 static void dump(const uint8_t *p, int n) { unsigned h = 0; for (int i = 0; i < n; i++) h = h * 31 + p[i]; printf("%08x ", h); }
 int main(void) {
@@ -22,6 +23,8 @@ int main(void) {
         printf("%016llx %08x ", (unsigned long long)b64(a, b), b32(a, b));
         memset(o, 0x55, 128); st64(o, a); dump(o, 12);
         f64(o, a, 0x0f0f00ff12345678ULL ^ t); dump(o, 64);
+        selbits(o, a, b, (uint16_t)(0x9a3c * (t + 1))); dump(o, 64);
+        uint8_t mb[2] = { (uint8_t)(0x5f ^ t), (uint8_t)(0x17 * t) }; selload(o, a, b, mb); dump(o, 64);
         printf("\n");
     }
     return 0;

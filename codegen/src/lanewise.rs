@@ -22,7 +22,9 @@ use epitome_ir::module::*;
 use epitome_ir::types::{Type, TypeId};
 
 use crate::prepare::{Ctx, Seq, callee_name};
-use crate::target::{Head, head_bits, wide_bits};
+use std::collections::HashSet;
+
+use crate::target::{Head, Kind, Tree, head_bits, wide_bits};
 
 fn vec_of(cx: &Ctx, ty: TypeId) -> Option<(u32, TypeId)> {
     match *cx.m.types.get(ty) {
@@ -41,7 +43,7 @@ fn lane_bits(cx: &Ctx, ty: TypeId) -> u32 {
         Type::Float => 32,
         Type::Double => 64,
         Type::Half => 16,
-        Type::Ptr(_) => 64,
+        Type::Ptr(a) => epitome_ir::layout::pointer_bits(cx.m.data_layout.as_deref(), *a),
         _ => 0,
     }
 }
@@ -93,14 +95,16 @@ fn elementwise(name: &str) -> Option<&str> {
 }
 
 /// Is there an instruction for `op`, as selection would look for it?
-fn selectable(cx: &Ctx, f: &Function, op: &Op, res: Option<TypeId>) -> bool {
+fn selectable(cx: &Ctx, f: &Function, op: &Op, r: LocalId, regs: &HashSet<LocalId>) -> bool {
+    let res = Some(f.locals[r.index()].ty);
     let hb = |v: Value| head_bits(cx.m, cx.value_ty(f, v));
     let res_hb = res.map_or(0, |t| head_bits(cx.m, t));
     let head = match op {
         Op::Binary { op, rhs, .. } => {
-            // (Shifts are by an immediate, the same in each lane.)
+            // (Shifts by a value not the same in each lane need a pattern
+            // taking the amounts in a register, not an immediate.)
             if matches!(op, BinOp::Shl | BinOp::LShr | BinOp::AShr) && !splat_const(cx, *rhs) {
-                return false;
+                return by_register(cx, Head::Bin(*op, res_hb));
             }
             Head::Bin(*op, res_hb)
         }
@@ -116,7 +120,39 @@ fn selectable(cx: &Ctx, f: &Function, op: &Op, res: Option<TypeId>) -> bool {
         Op::ExtractElement { vector, index } => return lane_pattern(cx, Head::ExtractElement(hb(*vector)), 1, *index),
         _ => return true,
     };
-    cx.selects_head(|h| *h == head)
+    // Where masks may be kept in mask registers (AVX-512's k), a pattern
+    // that takes or makes its masks where they are.
+    let Some(kc) = cx.mask_reg_class() else { return cx.selects_head(|h| *h == head) };
+    let mut masks = vec![Value::Local(r)];
+    op.for_each_value(|v| masks.push(*v));
+    let masks: Vec<Value> = masks.into_iter().filter(|v| is_mask(cx, cx.value_ty(f, *v))).collect();
+    if masks.is_empty() {
+        return cx.selects_head(|h| *h == head);
+    }
+    let in_reg = masks.iter().any(|v| matches!(v, Value::Local(x) if regs.contains(x)));
+    let kfile = cx.t.machine.def(kc).file;
+    cx.t.patterns.iter().any(|p| {
+        matches!(&p.tree, Tree::Op(h, _) if *h == head)
+            && p.emit.iter().all(|e| cx.enabled(e.instr))
+            && p.emit.iter().any(|e| {
+                cx.t.instrs[e.instr]
+                    .operands
+                    .iter()
+                    .any(|o| matches!(o.kind, Kind::Reg(c) if cx.t.machine.def(c).file == kfile))
+            }) == in_reg
+    })
+}
+
+/// Is there a pattern rooted at `head` (a shift) whose second operand is
+/// any register, not an immediate?
+fn by_register(cx: &Ctx, head: Head) -> bool {
+    cx.t.patterns.iter().any(|p| match &p.tree {
+        Tree::Op(h, kids) if *h == head => {
+            p.emit.iter().all(|e| cx.enabled(e.instr))
+                && matches!(kids.get(1), Some(Tree::Leaf(j)) if matches!(p.params[*j].kind, Kind::Reg(_)))
+        }
+        _ => false,
+    })
 }
 
 /// How many times `v` is used.
@@ -183,6 +219,8 @@ fn splat_const(cx: &Ctx, v: Value) -> bool {
 /// Where lanes are written and read: stack slots, made in the entry block.
 struct Lanes {
     slots: Vec<InstId>,
+    /// The masks kept in mask registers (`legalize::mask_regs`).
+    regs: HashSet<LocalId>,
 }
 
 impl Lanes {
@@ -292,7 +330,8 @@ pub fn lanewise(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
     }
     // (Lane numbers legalisation made as i32s, as i64s.)
     crate::prepare::lane_indices(cx, f);
-    let mut lanes = Lanes { slots: Vec::new() };
+    let regs = crate::legalize::mask_regs(cx, f);
+    let mut lanes = Lanes { slots: Vec::new(), regs };
     let blocks: Vec<BlockId> = f.layout.clone();
     // Operations first, then the inserts and extracts left.
     for pass in 0..2 {
@@ -335,7 +374,7 @@ fn one(cx: &mut Ctx, f: &mut Function, lanes: &mut Lanes, i: InstId) -> Result<O
         Op::Call(c) => callee_name(cx.m, c).is_some_and(|n| elementwise(&n).is_some()),
         _ => false,
     };
-    if !lanewise_op || selectable(cx, f, &op, Some(rty)) {
+    if !lanewise_op || selectable(cx, f, &op, r, &lanes.regs) {
         return Ok(None);
     }
     // A mask sign-extended to lanes of its width: its bits.
@@ -492,7 +531,7 @@ fn one_lane(cx: &mut Ctx, f: &mut Function, lanes: &mut Lanes, i: InstId) -> Opt
     };
     let vty = cx.value_ty(f, vector);
     let (len, _) = vec_of(cx, vty)?;
-    if is_mask(cx, vty) || selectable(cx, f, &op, Some(rty)) {
+    if is_mask(cx, vty) || selectable(cx, f, &op, r, &lanes.regs) {
         return None;
     }
     let k = cx.const_int(index)?;

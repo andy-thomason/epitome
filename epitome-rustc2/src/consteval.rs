@@ -185,7 +185,9 @@ impl Eval<'_, '_, '_> {
                     _ => None,
                 }
             }
-            Kind::PathExpr => self.path(kids[0]),
+            // A constant given as a generic argument reads as a type:
+            // `as_chunks::<CHUNK>()`.
+            Kind::PathExpr | Kind::PathType => self.path(kids[0]),
             Kind::Call => self.call(&kids),
             _ => None,
         };

@@ -103,11 +103,19 @@ pub(crate) struct Fx<'c, 'a, 's, 'm> {
     fname: String,
     strings: usize,
     blocks: usize,
+    /// What the function traps on where it is reached (see `trap_here`).
+    pub traps: Vec<String>,
+    /// The `try` blocks around: where each ends, and its value's slot.
+    tries: Vec<(BlockId, Place)>,
 }
 
+/// Source comments for `--dump-ir`: block, position in the block, text.
+pub(crate) type Notes = Vec<(BlockId, usize, String)>;
+
 /// Lowers the body of function (or closure) `it` into the function `decl`
-/// declares. Gives the source comments for `--dump-ir`.
-pub(crate) fn lower_fn(cx: &Cx, m: &mut Module, it: Item, decl: &Decl) -> R<Vec<(BlockId, usize, String)>> {
+/// declares. Gives the source comments for `--dump-ir`, and what the
+/// function traps on where it is reached (see `Fx::trap_here`).
+pub(crate) fn lower_fn(cx: &Cx, m: &mut Module, it: Item, decl: &Decl) -> R<(Notes, Vec<String>)> {
     let tcx = cx.tcx;
     let (owner, l, closure) = match it {
         Item::Fn(d, l) => (d, l, None),
@@ -147,26 +155,8 @@ pub(crate) fn lower_fn(cx: &Cx, m: &mut Module, it: Item, decl: &Decl) -> R<Vec<
         params: tcx.all_params(owner),
         args: tcx.tys(l),
     };
-    let mut fx = Fx {
-        cx,
-        b,
-        solver: cx.solver(),
-        body,
-        entry: BlockId(0),
-        locals: FastMap::default(),
-        upvars: FastMap::default(),
-        env: None,
-        ret: Ret::Void,
-        ret_ty: decl.abi.output,
-        loops: Vec::new(),
-        notes: Vec::new(),
-        fname: decl.name.clone(),
-        strings: 0,
-        blocks: 0,
-    };
-    fx.entry = fx.b.block("start");
-    let first = fx.b.new_block("body");
-    fx.b.at(first);
+    let mut fx = Fx::new(cx, b, body, decl.abi.output, &decl.name);
+    let first = fx.b.current_block().expect("the body block");
     let mut ir_param = 0;
     fx.ret = match decl.abi.ret {
         Repr::Mem => {
@@ -241,8 +231,9 @@ pub(crate) fn lower_fn(cx: &Cx, m: &mut Module, it: Item, decl: &Decl) -> R<Vec<
     fx.b.at(entry);
     fx.b.br(first);
     let notes = std::mem::take(&mut fx.notes);
+    let traps = std::mem::take(&mut fx.traps);
     fx.b.finish()?;
-    Ok(notes)
+    Ok((notes, traps))
 }
 
 /// Replaces `decl`'s body (or declaration) with one that traps.
@@ -268,27 +259,97 @@ pub(crate) fn trap_body(m: &mut Module, decl: &Decl) {
     let _ = b.finish();
 }
 
-/// Defines a `static`: a global with its value, which must be a constant
-/// the evaluator can work out (an integer, `bool` or `char`) for now.
-pub(crate) fn define_static(cx: &Cx, m: &mut Module, d: DefId, name: &str) -> R<GlobalId> {
+/// Defines a `static`: a global holding its value. A value the evaluator
+/// can work out (an integer, `bool` or `char`) is the global's
+/// initialiser. Any other is not known until its initialiser runs: the
+/// global starts as zeros, and the second result is true, for the caller
+/// to lower the initialiser (`lower_static_init`) to run at start-up.
+pub(crate) fn define_static(cx: &Cx, m: &mut Module, d: DefId, name: &str) -> R<(GlobalId, bool)> {
     let t = cx.tcx.type_of(d).ok_or("static without a type")?;
     let l = cx.layout(t)?;
-    let value = cx.lcx.eval_item(d).and_then(|v| v.int()).ok_or("only statics of integer values are supported")?;
-    let bytes: Vec<u8> = (0..l.size).map(|i| if i < 16 { (value as u128 >> (8 * i)) as u8 } else { 0 }).collect();
+    let value = cx.lcx.eval_item(d).and_then(|v| v.int());
+    let bytes: Vec<u8> = match value {
+        Some(value) => (0..l.size).map(|i| if i < 16 { (value as u128 >> (8 * i)) as u8 } else { 0 }).collect(),
+        None => vec![0; l.size as usize],
+    };
     let init = m.const_bytes(&bytes);
     let (_, _, ast, node) = cx.def_ast(d);
     let mutable = ast.children(node).iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == "mut");
     let mut g = epitome_ir::module::Global::builder(name).init(init).align(l.align.max(1));
-    if !mutable {
+    if !mutable && value.is_some() {
         g = g.constant();
     }
     if !crate::session::has_attribute(ast, node, "no_mangle") {
         g = g.linkage(Linkage::Internal);
     }
-    Ok(g.build(m))
+    Ok((g.build(m), value.is_none()))
+}
+
+/// The function `name` (`void()`, internal) that stores the value of
+/// static `d`'s initialiser in its global `g`, for `llvm.global_ctors` to
+/// run before `main`. A static's initialiser is a constant expression: it
+/// has no effects to run in another order, and in a `no_std` program
+/// nothing reads the static before `main`.
+pub(crate) fn lower_static_init(cx: &Cx, m: &mut Module, d: DefId, g: GlobalId, name: &str) -> R<GlobalId> {
+    let (k, f, ast, node) = cx.def_ast(d);
+    let t = cx.tcx.type_of(d).ok_or("static without a type")?;
+    let init = ast.children(node).iter().rev().copied().find(|&x| super::pat::is_expr(ast.kind(x))).ok_or("static without a value")?;
+    let b = IrFunction::builder(name).linkage(Linkage::Internal).begin(m);
+    let body = Body {
+        k,
+        f,
+        ast,
+        types: &cx.typeck.types[k as usize][f as usize],
+        tables: &cx.typeck.tables[k as usize][f as usize],
+        params: Vec::new(),
+        args: Vec::new(),
+    };
+    let unit = cx.tcx.unit();
+    let mut fx = Fx::new(cx, b, body, unit, name);
+    let first = fx.b.current_block().expect("the body block");
+    let o = fx.operand(init)?;
+    let addr = fx.b.module().global_value(g);
+    if !fx.terminated() {
+        fx.store(Operand { ty: t, v: o.v }, Place { addr, meta: None, ty: t })?;
+        fx.b.ret_void();
+    }
+    fx.close_open_blocks();
+    let entry = fx.entry;
+    fx.b.at(entry);
+    fx.b.br(first);
+    fx.b.finish()
 }
 
 impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
+    /// A body to lower into the function `b` begins (called `name`,
+    /// returning `ret_ty`): its entry block for stack slots, and the block
+    /// its code starts in, which is current.
+    fn new(cx: &'c Cx<'a, 's>, b: FunctionBuilder<'m>, body: Body<'a, 's>, ret_ty: Ty, name: &str) -> Self {
+        let mut fx = Fx {
+            cx,
+            b,
+            solver: cx.solver(),
+            body,
+            entry: BlockId(0),
+            locals: FastMap::default(),
+            upvars: FastMap::default(),
+            env: None,
+            ret: Ret::Void,
+            ret_ty,
+            loops: Vec::new(),
+            notes: Vec::new(),
+            fname: name.to_string(),
+            strings: 0,
+            blocks: 0,
+            traps: Vec::new(),
+            tries: Vec::new(),
+        };
+        fx.entry = fx.b.block("start");
+        let first = fx.b.new_block("body");
+        fx.b.at(first);
+        fx
+    }
+
     // ---- types and layouts ----
 
     /// `t` at this instance's arguments.
@@ -394,6 +455,25 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         epitome_ir::module::Value::Const(self.b.module().consts.intern(c))
     }
 
+    /// A float literal of type `f`: through `f64` for the narrower types,
+    /// and rounded exactly for `f128`, which holds more digits.
+    pub fn float_const(&mut self, tok: &str, f: FloatTy) -> R<Value> {
+        let ft = match f {
+            FloatTy::F16 => self.b.module().types.half(),
+            FloatTy::F32 => self.b.module().types.float(),
+            FloatTy::F64 => self.b.module().types.double(),
+            FloatTy::F128 => {
+                let body = ["f16", "f32", "f64", "f128"].iter().fold(tok, |t, s| t.strip_suffix(s).unwrap_or(t));
+                let bits = super::quad::decimal_to_quad(body).ok_or_else(|| format!("bad float literal {tok}"))?;
+                let ty = self.b.module().types.intern(epitome_ir::types::Type::Fp128);
+                let c = epitome_ir::module::Constant { ty, kind: epitome_ir::module::ConstKind::Float(bits) };
+                return Ok(Value::Const(self.b.module().consts.intern(c)));
+            }
+        };
+        let x = parse_float(tok).ok_or_else(|| format!("bad float literal {tok}"))?;
+        Ok(self.b.const_float(ft, x))
+    }
+
     /// A stack slot for a value of type `t`, in the entry block.
     pub fn temp(&mut self, t: Ty) -> R<Place> {
         let l = self.layout(t)?;
@@ -495,6 +575,17 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         self.dead();
     }
 
+    /// Something not supported yet, used where only a panic would reach
+    /// it (formatting a message, `dyn Debug`): it traps when reached, and
+    /// the rest of the function is lowered. `--lower-stats` lists these.
+    pub fn trap_here(&mut self, t: Ty, what: &str) -> Operand {
+        if !self.traps.iter().any(|x| x == what) {
+            self.traps.push(what.to_string());
+        }
+        self.trap();
+        Operand { ty: t, v: Val::Zst }
+    }
+
     /// Branches to a trap unless `ok` (an `i1`) holds.
     pub fn check(&mut self, ok: Value) {
         let good = self.new_block("ok");
@@ -581,7 +672,12 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 }
                 _ => Err(format!("a scalar was wanted, not {}", self.cx.tcx.display(self.cx.r, o.ty))),
             },
-            Val::Zst => Err("a scalar was wanted, not a zero-sized value".into()),
+            // After a trap or a call that does not return: the code is
+            // dead, and any value will do.
+            Val::Zst => match self.repr(o.ty)? {
+                Repr::Imm(t) => Ok(self.b.module().undef(t)),
+                _ => Err("a scalar was wanted, not a zero-sized value".into()),
+            },
         }
     }
 
@@ -804,7 +900,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         let tcx = self.cx.tcx;
         let (Some(src), Some(dst)) = (self.pointee(o.ty), self.pointee(to)) else { return Err("unsizing of something not a pointer".into()) };
         if let TyKind::Dyn(_) = tcx.kind(dst) {
-            return Err("`dyn` is not supported yet".into());
+            return Ok(self.trap_here(to, "`dyn` (unsizing)"));
         }
         let n = self.unsized_len(src, dst).ok_or_else(|| format!("unsizing {} to {}", tcx.display(self.cx.r, o.ty), tcx.display(self.cx.r, to)))?;
         let addr = self.imm(o)?;
@@ -1048,6 +1144,13 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                         self.trap();
                         Ok(Pv::Val(Operand { ty: tcx.mk(TyKind::Never), v: Val::Zst }))
                     }
+                    "asm" => self.inline_asm(n, &kids),
+                    // `core::fmt` comes later: where formatting is
+                    // reached, the program traps.
+                    "format_args" | "const_format_args" | "format_args_nl" => {
+                        let t = self.ty(n)?;
+                        Ok(Pv::Val(self.trap_here(t, "`format_args!`")))
+                    }
                     _ => Err(format!("macro `{name}!` is not supported")),
                 }
             }
@@ -1086,8 +1189,11 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
     fn block(&mut self, n: NodeId) -> R<Pv> {
         let ast = self.body.ast;
         let kids = self.kids(n);
-        if kids.iter().any(|&c| ast.kind(c) == Kind::Keyword && matches!(ast.token(c).0, "async" | "try" | "gen")) {
-            return Err("`async`, `try` and `gen` blocks are not supported yet".into());
+        if kids.iter().any(|&c| ast.kind(c) == Kind::Keyword && matches!(ast.token(c).0, "async" | "gen")) {
+            return Err("`async` and `gen` blocks are not supported yet".into());
+        }
+        if kids.iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == "try") {
+            return self.try_block(n, &kids);
         }
         let label = kids.first().filter(|&&c| ast.kind(c) == Kind::Lifetime).map(|&c| ast.token(c).0);
         let stmts: Vec<NodeId> = kids.iter().copied().filter(|&c| !matches!(ast.kind(c), Kind::Lifetime | Kind::Keyword | Kind::InnerAttribute)).collect();
@@ -1144,6 +1250,54 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         // A block whose statements diverge has type `!`: its "value" is
         // never used.
         Ok(value)
+    }
+
+    /// `try { stmts; e }`: `Try::from_output(e)`, and each `?` in it that
+    /// fails gives `FromResidual::from_residual` of its residual as the
+    /// block's value instead of returning.
+    fn try_block(&mut self, n: NodeId, kids: &[NodeId]) -> R<Pv> {
+        let ast = self.body.ast;
+        let tcx = self.cx.tcx;
+        let t = self.ty(n)?;
+        let result = self.temp(t)?;
+        let exit = self.new_block("try.end");
+        self.tries.push((exit, result));
+        let stmts: Vec<NodeId> = kids.iter().copied().filter(|&c| !matches!(ast.kind(c), Kind::Lifetime | Kind::Keyword | Kind::InnerAttribute)).collect();
+        let mut value = Pv::Val(self.unit());
+        let last = stmts.len().checked_sub(1);
+        for (i, &s) in stmts.iter().enumerate() {
+            match ast.kind(s) {
+                Kind::LetStmt => {
+                    self.note(s);
+                    self.let_stmt(s)?;
+                }
+                Kind::ExprStmt => {
+                    let Some(&e) = self.kids(s).last() else { continue };
+                    self.note(s);
+                    self.expr(e)?;
+                }
+                k if super::pat::is_expr(k) => {
+                    self.note(s);
+                    let v = self.expr(s)?;
+                    if Some(i) == last {
+                        value = v;
+                    }
+                }
+                _ => {}
+            }
+        }
+        self.tries.pop();
+        if !self.terminated() {
+            let tr = *tcx.lang.get("Try").ok_or("no `Try`")?;
+            let from_output = self.trait_method(tr, "from_output").ok_or("no `from_output`")?;
+            let v = self.operand_of(value)?;
+            let r = self.call_def(from_output, vec![t], vec![v], None)?;
+            let o = self.operand_of(r)?;
+            self.store(Operand { ty: t, v: o.v }, result)?;
+        }
+        self.goto(exit);
+        self.b.at(exit);
+        Ok(Pv::Place(result))
     }
 
     fn let_stmt(&mut self, s: NodeId) -> R<()> {
@@ -1252,14 +1406,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 Ok(Operand { ty: t, v: Val::Imm(v) })
             }
             TyKind::Float(f) => {
-                let digits: String = tok.trim_end_matches("f32").trim_end_matches("f64").chars().filter(|&c| c != '_').collect();
-                let x: f64 = digits.parse().map_err(|_| format!("bad float literal {tok}"))?;
-                let ft = match f {
-                    FloatTy::F32 => self.b.module().types.float(),
-                    FloatTy::F64 => self.b.module().types.double(),
-                    _ => return Err("f16 and f128 are not supported".into()),
-                };
-                let v = self.b.const_float(ft, x);
+                let v = self.float_const(tok, f)?;
                 Ok(Operand { ty: t, v: Val::Imm(v) })
             }
             TyKind::Ref(_, inner) => {
@@ -1299,7 +1446,10 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 let pid = *tcx.param_at.get(&(self.body.k, self.body.f, *gp)).ok_or("generic parameter not found")?;
                 let i = self.body.params.iter().position(|&x| x == pid).ok_or("const parameter not in scope")?;
                 let TyKind::ConstArg(c) = tcx.kind(self.body.args[i]) else { return Err("const parameter without a value".into()) };
-                let v = self.cx.lcx.eval_const(c, &Default::default()).ok_or("const argument the evaluator cannot work out")?;
+                let v = self.cx.lcx.eval_const(c, &Default::default()).ok_or_else(|| match tcx.const_of(c) {
+                    crate::ty::Const::Expr(k, f, e) => format!("const argument the evaluator cannot work out: {}", self.cx.crates[k as usize].files[f as usize].ast.text(e)),
+                    c => format!("const argument the evaluator cannot work out: {c:?}"),
+                })?;
                 let t = self.ty(n)?;
                 let Repr::Imm(it) = self.repr(t)? else { return Err("const parameter of a type in memory".into()) };
                 let v = self.int_const(it, v as u128);
@@ -1756,11 +1906,23 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                     } else {
                         v
                     }
+                } else if is_float(from_k) && from_k == TyKind::Float(FloatTy::F128) {
+                    self.f128_to_int(v, tt, self.signed(to))
+                } else if is_float(to_k) && to_k == TyKind::Float(FloatTy::F128) {
+                    // Through 128 bits, which the runtime converts.
+                    let i128t = self.b.module().types.int(128);
+                    let signed = self.signed(o.ty) || from_k == TyKind::Bool;
+                    let w = self.int_to(v, i128t, self.signed(o.ty));
+                    let op = if signed { CastOp::SIToFP } else { CastOp::UIToFP };
+                    self.b.cast(op, w, tt)
                 } else if is_float(from_k) {
-                    // Saturating, as Rust's `as` is: not yet; out-of-range
-                    // values give whatever the machine gives.
-                    let op = if self.signed(to) { CastOp::FPToSI } else { CastOp::FPToUI };
-                    self.b.cast(op, v, tt)
+                    // Saturating, as Rust's `as` is: out-of-range values
+                    // give the nearest the integer holds, NaN gives 0.
+                    let fbits = self.layout(o.ty)?.size * 8;
+                    let ibits = self.layout(to)?.size * 8;
+                    let name = format!("llvm.{}.sat.i{ibits}.f{fbits}", if self.signed(to) { "fptosi" } else { "fptoui" });
+                    let g = self.b.module().declare(&name, tt, &[ft], false);
+                    self.b.call(g, &[v]).unwrap()
                 } else if is_float(to_k) {
                     let op = if self.signed(o.ty) { CastOp::SIToFP } else { CastOp::UIToFP };
                     self.b.cast(op, v, tt)
@@ -1782,6 +1944,39 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             (Repr::Imm(_), Repr::Mem) if self.pointee(o.ty).is_some() && self.pointee(to).is_some() => self.unsize(o, to),
             _ => Err(format!("cast from {} to {}", tcx.display(self.cx.r, o.ty), tcx.display(self.cx.r, to))),
         }
+    }
+
+    /// An `f128` cast to integer type `to`, saturating as Rust's `as` does
+    /// (NaN gives 0), built from comparisons: the runtime converts through
+    /// 128 bits, and the value is in range wherever that result is used.
+    fn f128_to_int(&mut self, v: Value, to: TypeId, signed: bool) -> Value {
+        let bits = match self.b.module().types.get(to) {
+            epitome_ir::types::Type::Int(n) => *n,
+            _ => 64,
+        };
+        let qt = self.b.type_of(v);
+        let quad = |fx: &mut Self, b: u128| {
+            let c = epitome_ir::module::Constant { ty: qt, kind: epitome_ir::module::ConstKind::Float(b) };
+            Value::Const(fx.b.module().consts.intern(c))
+        };
+        // 2^k as a binary128, and -2^k.
+        let pow2 = |k: u32| (k as u128 + 16383) << 112;
+        let (lo, hi) = if signed { (pow2(bits - 1) | 1 << 127, pow2(bits - 1)) } else { (0, pow2(bits)) };
+        let (lo, hi) = (quad(self, lo), quad(self, hi));
+        let i128t = self.b.module().types.int(128);
+        let op = if signed { CastOp::FPToSI } else { CastOp::FPToUI };
+        let r = self.b.cast(op, v, i128t);
+        let r = self.int_to(r, to, signed);
+        let min = if signed { 1u128 << (bits - 1) } else { 0 };
+        let max = if signed { (1u128 << (bits - 1)) - 1 } else if bits == 128 { u128::MAX } else { (1u128 << bits) - 1 };
+        let (min, max) = (self.int_const(to, min), self.int_const(to, max));
+        let zero = self.int_const(to, 0);
+        let below = self.b.fcmp(FCmpPred::Olt, v, lo);
+        let above = self.b.fcmp(FCmpPred::Oge, v, hi);
+        let nan = self.b.fcmp(FCmpPred::Uno, v, v);
+        let r = self.b.select(below, min, r);
+        let r = self.b.select(above, max, r);
+        self.b.select(nan, zero, r)
     }
 
     /// An integer made `to` wide (truncated, or extended by `signed`).
@@ -2072,7 +2267,17 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         let residual = self.field(cf, brk, 0)?;
         let r = self.load(residual)?;
         let out = self.call_def(from_residual, l2, vec![r], None)?;
-        self.ret_value(out)?;
+        match self.tries.last().copied() {
+            // In a `try` block: its value.
+            Some((exit, result)) => {
+                if !self.terminated() {
+                    let o = self.operand_of(out)?;
+                    self.store(Operand { ty: result.ty, v: o.v }, result)?;
+                }
+                self.goto(exit);
+            }
+            None => self.ret_value(out)?,
+        }
         self.b.at(go_on);
         Ok(Pv::Place(self.field(cf, cont, 0)?))
     }
@@ -2086,7 +2291,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             // A call through the `Fn` traits: `f(a, b)` is `Fn::call(&f,
             // (a, b))`.
             let margs = self.sub_list(margs);
-            let callee = self.operand(kids[0])?;
+            let callee = self.expr(kids[0])?;
             let mut args = Vec::new();
             for &a in &arg_nodes {
                 args.push(self.operand(a)?);
@@ -2120,15 +2325,21 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 let callee = self.operand(kids[0])?;
                 self.call_fn_ptr(callee, args)
             }
+            // A closure called directly: through its place, so that what
+            // an `FnMut` changes stays changed.
+            TyKind::Closure(..) | TyKind::Ref(..) => {
+                let callee = self.expr(kids[0])?;
+                self.call_value(callee, Vec::new(), args)
+            }
             _ => Err(format!("call of {}", tcx.display(self.cx.r, ct))),
         }
     }
 
     /// A call through the `Fn` traits of a value of type `callee.ty`.
-    fn call_value(&mut self, callee: Operand, margs: Vec<Ty>, args: Vec<Operand>) -> R<Pv> {
+    fn call_value(&mut self, callee: Pv, margs: Vec<Ty>, args: Vec<Operand>) -> R<Pv> {
         let tcx = self.cx.tcx;
         let _ = margs;
-        let mut place = self.place_of(Pv::Val(callee))?;
+        let mut place = self.place_of(callee)?;
         while let TyKind::Ref(..) = tcx.kind(place.ty) {
             let o = self.load(place)?;
             place = self.deref(o)?;
@@ -2182,7 +2393,8 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         let tcx = self.cx.tcx;
         let r = self.cx.r;
         if crate::mono::has_param_or_infer_list(tcx, &targs) {
-            return Err(format!("call of `{}` with arguments not concrete", r.def_path(d)));
+            let a: Vec<String> = targs.iter().map(|&t| tcx.display(r, t)).collect();
+            return Err(format!("call of `{}` with arguments not concrete: <{}>", r.def_path(d), a.join(", ")));
         }
         let resolved = crate::mono::instance(r, self.cx.crates, tcx, &mut self.solver, d, targs.clone());
         match resolved {
@@ -2233,7 +2445,11 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 let fp = self.field(tuple, 0, i)?;
                 inner.push(self.load(fp)?);
             }
-            return self.call_value(args[0], targs, inner);
+            return self.call_value(Pv::Val(args[0]), targs, inner);
+        }
+        if targs.first().is_some_and(|&t| matches!(tcx.kind(t), TyKind::Dyn(_))) {
+            let out = self.cx.signature(&mut self.solver, d, &targs)?.1;
+            return Ok(Pv::Val(self.trap_here(out, "`dyn` (a method)")));
         }
         Err(format!("built-in `{}` on {}", self.cx.r.def_path(d), targs.first().map(|&t| tcx.display(self.cx.r, t)).unwrap_or_default()))
     }
@@ -2280,6 +2496,13 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             _ => Pv::Val(Operand { ty: abi.output, v: Val::Zst }),
         })
     }
+}
+
+/// The value of a float literal, without its suffix (`2.5f16`, `1e3`).
+pub(crate) fn parse_float(tok: &str) -> Option<f64> {
+    let t = ["f16", "f32", "f64", "f128"].iter().fold(tok, |t, s| t.strip_suffix(s).unwrap_or(t));
+    let digits: String = t.chars().filter(|&c| c != '_').collect();
+    digits.parse().ok()
 }
 
 /// The value of an integer literal, without its suffix.

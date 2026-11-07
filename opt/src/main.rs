@@ -4,6 +4,7 @@
 use std::process::ExitCode;
 use std::time::Instant;
 
+use epitome_ir::module::GlobalKind;
 use epitome_opt::inline::OptLevel;
 use epitome_opt::pipeline::{self, Options};
 use epitome_opt::recursion::RecursionMode;
@@ -41,9 +42,40 @@ const USAGE: &str = "usage: epitome-opt [options] <file.ll>
                           where it stopped, and the last change made
   --chop-counts           print each function's count of elective changes
   --rules=<file>          combine rules to try before the standard ones
+  --target=<path>         a machine description (a .ll file, or a
+                          directory of them): after optimising, warn of
+                          each use of what it lacks (!target.lacks), as
+                          epitome-llc would refuse it
   --print-memssa          print memory SSA for the result (each access, and
                           the write that reaches each load and store) as
                           comments; with --passes= alone, for the input";
+
+/// What a description says its machine lacks: a `.ll` file, or every one
+/// in a directory.
+fn read_machine(path: &str) -> Result<epitome_ir::fits::Machine, String> {
+    let p = std::path::Path::new(path);
+    let mut files: Vec<std::path::PathBuf> = if p.is_dir() {
+        std::fs::read_dir(p)
+            .map_err(|e| e.to_string())?
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|f| f.extension().is_some_and(|x| x == "ll"))
+            .collect()
+    } else {
+        vec![p.to_path_buf()]
+    };
+    files.sort();
+    let mut mc = epitome_ir::fits::Machine { arg_regs: usize::MAX, ..Default::default() };
+    for f in files {
+        let text = std::fs::read_to_string(&f).map_err(|e| format!("{}: {e}", f.display()))?;
+        let d = epitome_ir::parse_module(&text).map_err(|e| format!("{}:{e}", f.display()))?;
+        let one = epitome_ir::fits::Machine::read(&d)?;
+        mc.lacks.extend(one.lacks);
+        mc.widest = mc.widest.max(one.widest);
+        mc.launch |= one.launch;
+        mc.intrinsics.extend(one.intrinsics);
+    }
+    Ok(mc)
+}
 
 /// A runaway compilation stops at a memory limit (`epitome_ir::memlimit`;
 /// `EPITOME_MEMORY_LIMIT_MB`, default 8192) rather than taking the machine
@@ -60,6 +92,7 @@ fn main() -> ExitCode {
     let (mut remarks, mut cycles, mut stats, mut verify) = (false, false, false, false);
     let mut memssa = false;
     let (mut chop, mut chop_counts) = (None, false);
+    let mut target: Option<String> = None;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -113,6 +146,7 @@ fn main() -> ExitCode {
             "--stats" => stats = true,
             "--verify" => verify = true,
             "--print-memssa" => memssa = true,
+            s if s.starts_with("--target=") => target = Some(s["--target=".len()..].to_string()),
             "--chop-counts" => chop_counts = true,
             s if s.starts_with("--chop=") => chop = Some(s["--chop=".len()..].to_string()),
             s if s.starts_with("--rules=") => {
@@ -171,6 +205,32 @@ fn main() -> ExitCode {
     let t1 = Instant::now();
     let report = pipeline::run(&mut m, &opts);
     let t2 = Instant::now();
+    if let Some(t) = &target {
+        match read_machine(t) {
+            Ok(mc) => {
+                for g in m.global_order.clone() {
+                    let gl = &m.globals[g.index()];
+                    // (An opaque function is for another machine.)
+                    if let GlobalKind::Function(f) = &gl.kind
+                        && f.has_body
+                        && !epitome_ir::fits::opaque(&m, &f.fn_attrs)
+                    {
+                        let name = gl.name.clone().unwrap_or_default();
+                        // As epitome-llc will see it: without i64, narrowed.
+                        let f = (**f).clone();
+                        let f = if mc.lacks("i64") { epitome_ir::narrow::narrow(&mut m, &f, mc.widest) } else { f };
+                        for w in epitome_ir::fits::check(&mc, &m, &f, &name) {
+                            eprintln!("warning: {w}");
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("epitome-opt: {t}: {e}");
+                return ExitCode::FAILURE;
+            }
+        }
+    }
     let text = if memssa {
         let threads = if opts.threads == 0 { epitome_opt::par::default_threads() } else { opts.threads };
         let reports = epitome_opt::memssa::analyse_module(&mut m, threads, true);

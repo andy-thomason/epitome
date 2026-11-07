@@ -15,6 +15,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use epitome_codegen::objdump::Image;
 use epitome_codegen::target::Target;
 use epitome_codegen::{Options, compile};
 
@@ -185,4 +186,38 @@ fn sve_behaves_as_clangs_build() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// SME2's lists (`tests/sve/lists/sme2.ll`), which no qemu here runs:
+/// clang assembles our assembly, refusing a list that does not start where
+/// its encoding can, and its code must be ours, word for word.
+#[test]
+fn sme2_lists_assemble_as_ours() {
+    if !Command::new("clang").arg("--version").output().is_ok_and(|o| o.status.success()) {
+        eprintln!("clang not found; skipping");
+        return;
+    }
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/sve/lists");
+    let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("sve-lists");
+    std::fs::create_dir_all(&tmp).unwrap();
+    let t = Target::aarch64();
+    let src = std::fs::read_to_string(dir.join("sme2.ll")).unwrap();
+    let mut m = epitome_ir::parse_module(&src).unwrap();
+    let c = compile(&t, &mut m, &Options::default()).unwrap();
+    let s = tmp.join("sme2.s");
+    std::fs::write(&s, &c.asm).unwrap();
+    let o = tmp.join("sme2.clang.o");
+    let out = Command::new("clang")
+        .args(["--target=aarch64-unknown-linux-gnu", "-march=armv9-a+sme2", "-c"])
+        .arg(&s)
+        .arg("-o")
+        .arg(&o)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "clang:\n{}", String::from_utf8_lossy(&out.stderr));
+    let code = |bytes: &[u8]| -> Vec<u8> {
+        let img = Image::read(bytes, &t.machine).unwrap();
+        img.sections.iter().filter(|s| s.code).flat_map(|s| s.data.clone()).collect()
+    };
+    assert_eq!(code(&c.object_file(&t).unwrap()), code(&std::fs::read(&o).unwrap()), "{}", c.asm);
 }

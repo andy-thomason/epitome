@@ -62,6 +62,41 @@ impl Ctx<'_> {
             .unwrap_or(0)
     }
 
+    /// The class of masks of the widest vectors in use, where it is of a
+    /// register file of its own (AVX-512's k registers): only masks of
+    /// vectors that wide are kept there (`legalize::mask_regs`).
+    pub fn mask_reg_class(&self) -> Option<crate::target::Class> {
+        let m = &self.t.machine;
+        let vb = self.vector_bits();
+        let &(_, c) = m.mask_classes.iter().find(|(b, _)| *b == vb)?;
+        let v = m.value_class(crate::machine::Holds::Vector, vb)?;
+        (m.def(c).file != m.def(v).file).then_some(c)
+    }
+
+    /// Do comparisons of vectors of type `ty` have an instruction (of those
+    /// that are on) that writes the mask register class's file? Masks of
+    /// them may be kept there (`legalize::mask_regs`): AVX-512's 512-bit
+    /// vectors, and with avx512vl, 128- and 256-bit ones.
+    pub fn compares_into_mask_regs(&self, ty: TypeId) -> bool {
+        let Some(kc) = self.mask_reg_class() else { return false };
+        let Type::Vector { elem, scalable: false, .. } = *self.m.types.get(ty) else { return false };
+        let hb = crate::target::head_bits(self.m, ty);
+        let head = if matches!(self.m.types.get(elem), Type::Float | Type::Double) {
+            Head::FCmp(FCmpPred::Oeq, hb)
+        } else {
+            Head::ICmp(ICmpPred::Eq, hb)
+        };
+        let m = &self.t.machine;
+        self.t.patterns.iter().any(|p| {
+            matches!(&p.tree, Tree::Op(h, _) if *h == head)
+                && p.emit.iter().all(|e| self.enabled(e.instr))
+                && p.emit.last().is_some_and(|e| {
+                    matches!(self.t.instrs[e.instr].operands.first().map(|o| o.kind),
+                        Some(crate::target::Kind::Reg(c)) if m.def(c).file == m.def(kc).file)
+                })
+        })
+    }
+
     /// The narrowest vector kept whole in a register: narrower ones are
     /// done lane by lane.
     pub fn min_vector_bits(&self) -> u32 {
@@ -233,6 +268,7 @@ pub fn prepare(cx: &mut Ctx, f: &Function, fname: &str) -> Result<Function, Stri
     split_aggregate_memory(cx, &mut f);
     bool_memory(cx, &mut f);
     expand_small_mem_ops(cx, &mut f);
+    mem_op_loops(cx, &mut f);
     crate::legalize::legalize_vectors(cx, &mut f).map_err(|e| format!("@{fname}: {e}"))?;
     // Lanes of masks legalisation leaves (it handles those of split masks,
     // at their comparisons' widths; before it, this would get in its way).
@@ -368,6 +404,79 @@ fn memset_patterns(cx: &mut Ctx, f: &mut Function) {
             let one = cx.int(i64t, 1);
             let next = s.bin(BinOp::Add, n, one, i64t);
             let more = s.op(Op::ICmp { pred: ICmpPred::Ult, samesign: false, lhs: next, rhs: count }, i1);
+            let body = std::mem::take(&mut s.new);
+            f.insts[phi.index()].op = Op::Phi { fmf: FastMath::default(), incoming: vec![(zero, blk), (next, lp)] };
+            f.blocks[blk.index()].insts.extend(pre);
+            f.push_inst(blk, Op::CondBr { cond: none, then_dest: done, else_dest: lp }, None);
+            f.blocks[lp.index()].insts.push(phi);
+            f.blocks[lp.index()].insts.extend(body);
+            f.push_inst(lp, Op::CondBr { cond: more, then_dest: lp, else_dest: done }, None);
+            b = f.layout.iter().position(|&x| x == done).unwrap();
+            continue 'blocks;
+        }
+        b += 1;
+    }
+}
+
+/// On a machine without calls (but with memory), the `llvm.memcpy`,
+/// `llvm.memmove` and `llvm.memset` that `expand_small_mem_ops` leaves
+/// would be calls to the C library: each is a loop of byte loads and
+/// stores instead, counting in the length's own type.
+///
+/// blk: len == 0 ? done : lp
+/// lp:  n = phi [0, blk], [n + 1, lp]; at = n, or len - 1 - n for a
+///      memmove copying down onto its source; dst[at] = src[at] (or val);
+///      n + 1 < len ? lp : done
+fn mem_op_loops(cx: &mut Ctx, f: &mut Function) {
+    if !cx.t.machine.lacks("calls") || cx.t.machine.lacks("memory") {
+        return;
+    }
+    let (i1, i8t, ptr) = (cx.m.types.int(1), cx.m.types.int(8), cx.m.types.ptr(0));
+    let mut b = 0;
+    'blocks: while b < f.layout.len() {
+        let blk = f.layout[b];
+        for (k, &i) in f.blocks[blk.index()].insts.iter().enumerate() {
+            let Op::Call(call) = &f.insts[i.index()].op else { continue };
+            let name = callee_name(cx.m, call).unwrap_or_default();
+            let kind = ["llvm.memcpy.", "llvm.memmove.", "llvm.memset."].iter().position(|p| name.starts_with(p));
+            let Some(kind) = kind.filter(|_| call.args.len() == 4) else { continue };
+            let (dst, from, len) = (call.args[0].value, call.args[1].value, call.args[2].value);
+            let volatile = cx.const_int(call.args[3].value).is_some_and(|v| v != 0);
+            let len_ty = cx.value_ty(f, len);
+            let lp = f.split_block(blk, k, None);
+            let done = f.split_block(lp, 1, None);
+            f.blocks[lp.index()].insts.clear();
+            let mut s = Seq { f, new: Vec::new() };
+            let zero = cx.int(len_ty, 0);
+            let one = cx.int(len_ty, 1);
+            let none = s.op(Op::ICmp { pred: ICmpPred::Eq, samesign: false, lhs: len, rhs: zero }, i1);
+            // A memmove whose destination is above its source copies from the top down.
+            let down =
+                (kind == 1).then(|| s.op(Op::ICmp { pred: ICmpPred::Ugt, samesign: false, lhs: dst, rhs: from }, i1));
+            let last = down.map(|_| s.bin(BinOp::Sub, len, one, len_ty));
+            let pre = std::mem::take(&mut s.new);
+            let phi = s.f.add_inst(Op::Phi { fmf: FastMath::default(), incoming: vec![] }, Some((None, len_ty)));
+            let n = s.f.result(phi);
+            let at = match (down, last) {
+                (Some(down), Some(last)) => {
+                    let back = s.bin(BinOp::Sub, last, n, len_ty);
+                    s.op(Op::Select { fmf: FastMath::default(), cond: down, then_value: back, else_value: n }, len_ty)
+                }
+                _ => n,
+            };
+            let gep = |s: &mut Seq, base: Value| {
+                s.op(Op::Gep { flags: GepFlags::default(), source_ty: i8t, ptr: base, indices: vec![at].into() }, ptr)
+            };
+            let value = if kind == 2 {
+                from
+            } else {
+                let p = gep(&mut s, from);
+                s.op(Op::Load { volatile, atomic: None, ptr: p, align: None }, i8t)
+            };
+            let p = gep(&mut s, dst);
+            s.op_void(Op::Store { volatile, atomic: None, value, ptr: p, align: None });
+            let next = s.bin(BinOp::Add, n, one, len_ty);
+            let more = s.op(Op::ICmp { pred: ICmpPred::Ult, samesign: false, lhs: next, rhs: len }, i1);
             let body = std::mem::take(&mut s.new);
             f.insts[phi.index()].op = Op::Phi { fmf: FastMath::default(), incoming: vec![(zero, blk), (next, lp)] };
             f.blocks[blk.index()].insts.extend(pre);
@@ -2448,11 +2557,16 @@ fn const_exprs(cx: &mut Ctx, f: &mut Function) {
 /// or two instructions without the constant's register (and the shift
 /// often goes into the address it is added to).
 fn const_multiplies(cx: &mut Ctx, f: &mut Function) {
+    // Each multiplication's result and what replaces it, put in place in
+    // one pass at the end (a pass for each would take time in the square of
+    // the function's size); and each block made again with the new
+    // instructions in it, rather than spliced into the middle.
+    let mut replaced: std::collections::HashMap<LocalId, Value> = std::collections::HashMap::new();
     for b in f.layout.clone() {
-        let mut k = 0;
-        while k < f.blocks[b.index()].insts.len() {
-            let i = f.blocks[b.index()].insts[k];
-            k += 1;
+        let old = f.blocks[b.index()].insts.clone();
+        let mut out: Vec<InstId> = Vec::with_capacity(old.len());
+        for i in old {
+            out.push(i);
             let Op::Binary { op: BinOp::Mul, lhs, rhs, .. } = f.insts[i.index()].op else { continue };
             let Some(r) = f.insts[i.index()].result else { continue };
             let ty = f.locals[r.index()].ty;
@@ -2471,6 +2585,7 @@ fn const_multiplies(cx: &mut Ctx, f: &mut Function) {
             if odd != 1 && !(odd - 1).is_power_of_two() {
                 continue;
             }
+            out.pop();
             let mut s = Seq { f, new: Vec::new() };
             let mut v = x;
             if odd != 1 {
@@ -2482,13 +2597,13 @@ fn const_multiplies(cx: &mut Ctx, f: &mut Function) {
                 let n = cx.int(ty, i64::from(sh));
                 v = s.bin(BinOp::Shl, v, n, ty);
             }
-            let new = std::mem::take(&mut s.new);
-            let n = new.len();
-            f.blocks[b.index()].insts.splice(k - 1..k - 1, new);
-            k += n;
-            f.replace_uses(Value::Local(r), v);
+            out.extend(std::mem::take(&mut s.new));
+            out.push(i);
+            replaced.insert(r, v);
         }
+        f.blocks[b.index()].insts = out;
     }
+    f.replace_many(&replaced);
 }
 
 /// Integer operations with an operand that changes nothing (`or %x, 0`,
@@ -3529,16 +3644,21 @@ fn constant_addresses(f: &mut Function) {
         });
     }
     for b in f.layout.clone() {
-        let mut k = 0;
-        while k < f.blocks[b.index()].insts.len() {
-            let i = f.blocks[b.index()].insts[k];
-            k += 1;
+        // The block made again with the copies in it, rather than each
+        // inserted into the middle (in time growing with the block's size).
+        let old = f.blocks[b.index()].insts.clone();
+        let mut out: Vec<InstId> = Vec::with_capacity(old.len());
+        for i in old {
             let (Op::Load { ptr: Value::Local(l), .. } | Op::Store { ptr: Value::Local(l), .. }) =
                 f.insts[i.index()].op
             else {
+                out.push(i);
                 continue;
             };
-            let LocalDef::Inst(d) = f.locals[l.index()].def else { continue };
+            let LocalDef::Inst(d) = f.locals[l.index()].def else {
+                out.push(i);
+                continue;
+            };
             let constant = matches!(&f.insts[d.index()].op, Op::Gep { indices, .. }
                 if indices.iter().all(|&x| matches!(x, Value::Const(_))));
             if !constant
@@ -3547,18 +3667,20 @@ fn constant_addresses(f: &mut Function) {
                     format!("copy the address {} for one access", epitome_ir::printer::local_name(f, l))
                 })
             {
+                out.push(i);
                 continue;
             }
             let ty = f.locals[l.index()].ty;
             let copy = f.add_inst(f.insts[d.index()].op.clone(), Some((None, ty)));
-            f.blocks[b.index()].insts.insert(k - 1, copy);
-            k += 1;
+            out.push(copy);
+            out.push(i);
             let new = f.result(copy);
             if let Op::Load { ptr, .. } | Op::Store { ptr, .. } = &mut f.insts[i.index()].op {
                 *ptr = new;
             }
             count[l.index()] -= 1;
         }
+        f.blocks[b.index()].insts = out;
     }
 }
 
@@ -3965,7 +4087,10 @@ fn lower_switches(cx: &mut Ctx, f: &mut Function) {
 }
 
 fn lower_geps(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
-    let i64t = cx.i64t();
+    // Offsets are as wide as the data layout's indices: 64 bits, or 32
+    // where pointers are 32 bits.
+    let index_bits = cx.dl.pointer(0).index_bits;
+    let i64t = cx.m.types.int(index_bits);
     let i8t = cx.i8t();
     let blocks: Vec<BlockId> = f.layout.clone();
     for b in blocks {
@@ -4020,8 +4145,10 @@ fn lower_geps(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
                 let ity = cx.value_ty(f, idx);
                 let mut v = idx;
                 if ity != i64t {
+                    let wider = matches!(cx.m.types.get(ity), Type::Int(b) if *b > index_bits);
+                    let op = if wider { CastOp::Trunc } else { CastOp::SExt };
                     let c = f.add_inst(
-                        Op::Cast { op: CastOp::SExt, flags: IntFlags::NONE, fmf: FastMath::default(), value: v },
+                        Op::Cast { op, flags: IntFlags::NONE, fmf: FastMath::default(), value: v },
                         Some((None, i64t)),
                     );
                     new.push(c);
@@ -4184,9 +4311,12 @@ fn promote_odd(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
     };
     let blocks: Vec<BlockId> = f.layout.clone();
     for b in blocks {
-        let mut k = 0;
-        while k < f.blocks[b.index()].insts.len() {
-            let i = f.blocks[b.index()].insts[k];
+        // The block made again, each instruction after what it needs, rather
+        // than spliced into the middle (in time growing with the block's
+        // size for each).
+        let old = f.blocks[b.index()].insts.clone();
+        let mut out: Vec<InstId> = Vec::with_capacity(old.len());
+        for i in old {
             let mut new: Vec<InstId> = Vec::new();
             // What a store stores, before its constant is widened below:
             // a store of an `i24` constant writes three bytes, not four.
@@ -4341,9 +4471,8 @@ fn promote_odd(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
                         _ => unreachable!(),
                     }
                     f.insts[i.index()].op = last.unwrap();
-                    let n = new.len();
-                    f.blocks[b.index()].insts.splice(k..k, new);
-                    k += n + 1;
+                    out.extend(new);
+                    out.push(i);
                     continue;
                 }
             }
@@ -4413,10 +4542,10 @@ fn promote_odd(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
                 op = Op::Freeze(value);
             }
             f.insts[i.index()].op = op;
-            let n = new.len();
-            f.blocks[b.index()].insts.splice(k..k, new);
-            k += n + 1;
+            out.extend(new);
+            out.push(i);
         }
+        f.blocks[b.index()].insts = out;
     }
     Ok(())
 }
@@ -5434,6 +5563,34 @@ fn expand_intrinsics(cx: &mut Ctx, f: &mut Function) {
                 k += n;
                 continue;
             }
+            // Trailing zeros of vectors by leading zeros, where those have an
+            // instruction (AVX-512's vplzcnt): the zeros below the lowest
+            // one are the ones of ~x & (x - 1), and w - ctlz counts them.
+            if !scalar
+                && base == "llvm.cttz"
+                && !cx.selects_intrinsic(&name)
+                && cx.selects_intrinsic(&name.replacen("cttz", "ctlz", 1))
+                && let Type::Vector { len: _, elem, scalable: false } = *cx.m.types.get(ty)
+                && let Type::Int(eb) = *cx.m.types.get(elem)
+            {
+                let splat = |cx: &mut Ctx, v: i64| {
+                    let Value::Const(c) = cx.int(elem, v) else { unreachable!() };
+                    Value::Const(cx.m.consts.intern(Constant { ty, kind: ConstKind::Splat(c) }))
+                };
+                let (one, ones, width) = (splat(cx, 1), splat(cx, -1), splat(cx, i64::from(eb)));
+                let below = s.bin(BinOp::Sub, args[0], one, ty);
+                let not = s.bin(BinOp::Xor, args[0], ones, ty);
+                let low = s.bin(BinOp::And, not, below, ty);
+                let no = cx.int(i1, 0);
+                let lz = call_intrinsic(cx, &mut s, &name.replacen("cttz", "ctlz", 1), vec![low, no], ty);
+                let v = s.bin(BinOp::Sub, width, lz, ty);
+                let new = std::mem::take(&mut s.new);
+                f.replace_uses(Value::Local(r), v);
+                let n = new.len();
+                f.blocks[b.index()].insts.splice(k..=k, new);
+                k += n;
+                continue;
+            }
             // Bit counts and byte swaps of vectors without an instruction
             // (NEON counts only bytes' bits): lane by lane.
             if !scalar
@@ -5815,10 +5972,12 @@ fn offset_ptr(cx: &mut Ctx, s: &mut Seq, p: Value, off: u64, i8t: TypeId, i64t: 
 /// the bits or'ed; or the other way, each bit shifted down, truncated and
 /// inserted. Lane k is bit k. Run after `legalize::fix_masks`, which
 /// makes the common `icmp eq (bitcast mask), 0` a reduction; casts left
-/// unused by that are skipped.
+/// unused by that are skipped, and those of masks kept in mask registers
+/// (AVX-512's k), which are moves.
 pub(crate) fn bool_vector_casts(cx: &mut Ctx, f: &mut Function) {
     let i1 = cx.m.types.int(1);
     let i64t = cx.m.types.int(64);
+    let regs = crate::legalize::mask_regs(cx, f);
     let mut used = std::collections::HashSet::new();
     for &b in &f.layout {
         for &i in &f.blocks[b.index()].insts {
@@ -5840,7 +5999,7 @@ pub(crate) fn bool_vector_casts(cx: &mut Ctx, f: &mut Function) {
                 continue;
             };
             let value = *value;
-            if !used.contains(&r) {
+            if !used.contains(&r) || regs.contains(&r) || matches!(value, Value::Local(x) if regs.contains(&x)) {
                 k += 1;
                 continue;
             }
@@ -6041,6 +6200,15 @@ fn lower_const_divs(cx: &mut Ctx, f: &mut Function) {
                 continue;
             };
             if !matches!(op, BinOp::SDiv | BinOp::SRem | BinOp::UDiv | BinOp::URem) || !(w == 32 || w == 64) || d == 0 {
+                k += 1;
+                continue;
+            }
+            // The multiply needs a product twice as wide, which a machine
+            // without wide integers does not have: only shifts, for powers
+            // of two, else its division instruction.
+            let mask: u64 = if w == 64 { u64::MAX } else { (1u64 << w) - 1 };
+            let pow2 = (d.unsigned_abs() & mask).is_power_of_two() || ((d as u64) & mask).is_power_of_two();
+            if cx.t.machine.lacks("i64") && !pow2 && d != 1 && d != -1 {
                 k += 1;
                 continue;
             }

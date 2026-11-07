@@ -952,7 +952,9 @@ fn rewrite_vector_ops(cx: &mut Ctx, f: &mut Function) {
             match f.insts[i.index()].op.clone() {
                 Op::ICmp { pred: ICmpPred::Ne, samesign, lhs, rhs }
                     if vec_info(cx, cx.value_ty(f, lhs)).is_some()
-                        && !matches!(rhs, Value::Const(c) if matches!(cx.m.constant(c).kind, ConstKind::Zero)) =>
+                        && !matches!(rhs, Value::Const(c) if matches!(cx.m.constant(c).kind, ConstKind::Zero))
+                        // (AVX-512's comparisons into k registers have ne.)
+                        && !cx.compares_into_mask_regs(cx.value_ty(f, lhs)) =>
                 {
                     let t = cx.value_ty(f, lhs);
                     let x = f.add_inst(
@@ -1211,6 +1213,117 @@ pub(crate) fn mask_width(cx: &Ctx, f: &Function, v: Value, seen: &mut Vec<LocalI
     w
 }
 
+/// The masks kept in mask registers, where the description has them for
+/// the vectors in use (`Ctx::mask_reg_class`, AVX-512's k): masks are
+/// joined into groups by what makes masks of masks (logic, selects, phis,
+/// freezes), and a group is kept there if the vectors it compares, chooses
+/// between or widens to are all of types whose comparisons write mask
+/// registers (`Ctx::compares_into_mask_regs`: AVX-512's 512-bit vectors,
+/// and 128- and 256-bit ones with avx512vl), at whatever widths. The rest
+/// stay in vector registers as lanes.
+pub(crate) fn mask_regs(cx: &Ctx, f: &Function) -> std::collections::HashSet<LocalId> {
+    let mut out = std::collections::HashSet::new();
+    if cx.mask_reg_class().is_none() {
+        return out;
+    }
+    let mut able: HashMap<TypeId, bool> = HashMap::new();
+    let mut k_able = |ty: TypeId| *able.entry(ty).or_insert_with(|| cx.compares_into_mask_regs(ty));
+    let mask_local = |v: Value| match v {
+        Value::Local(x) => matches!(cx.m.types.get(f.locals[x.index()].ty),
+            Type::Vector { elem, scalable: false, .. } if matches!(cx.m.types.get(*elem), Type::Int(1)))
+        .then_some(x),
+        _ => None,
+    };
+    let mut parent: Vec<usize> = (0..f.locals.len()).collect();
+    fn find(p: &mut [usize], mut x: usize) -> usize {
+        while p[x] != x {
+            p[x] = p[p[x]];
+            x = p[x];
+        }
+        x
+    }
+    // (wide, narrow) for each local, then each group.
+    let mut seen = vec![(false, false); f.locals.len()];
+    let mut mark = |seen: &mut Vec<(bool, bool)>, x: LocalId, ty: TypeId| {
+        if vec_info(cx, ty).is_some() {
+            if k_able(ty) {
+                seen[x.index()].0 = true;
+            } else {
+                seen[x.index()].1 = true;
+            }
+        }
+    };
+    for i in f.insts_in_order() {
+        let inst = &f.insts[i.index()];
+        let r = inst.result.and_then(|r| mask_local(Value::Local(r)));
+        let join = |p: &mut Vec<usize>, a: Value| {
+            if let (Some(r), Some(a)) = (r, mask_local(a)) {
+                let (x, y) = (find(p, r.index()), find(p, a.index()));
+                p[x] = y;
+            }
+        };
+        match &inst.op {
+            Op::ICmp { lhs, .. } | Op::FCmp { lhs, .. } => {
+                if let Some(r) = r {
+                    mark(&mut seen, r, cx.value_ty(f, *lhs));
+                }
+            }
+            Op::Binary { lhs, rhs, .. } => {
+                join(&mut parent, *lhs);
+                join(&mut parent, *rhs);
+            }
+            Op::Freeze(a) => join(&mut parent, *a),
+            Op::Phi { incoming, .. } => {
+                for (v, _) in incoming.iter() {
+                    join(&mut parent, *v);
+                }
+            }
+            Op::Select { cond, then_value, else_value, .. } => {
+                if r.is_some() {
+                    join(&mut parent, *cond);
+                    join(&mut parent, *then_value);
+                    join(&mut parent, *else_value);
+                } else if let (Some(c), Some(res)) = (mask_local(*cond), inst.result) {
+                    mark(&mut seen, c, f.locals[res.index()].ty);
+                }
+            }
+            Op::Cast { op: CastOp::SExt | CastOp::ZExt, value, .. } => {
+                if let (Some(c), Some(res)) = (mask_local(*value), inst.result) {
+                    mark(&mut seen, c, f.locals[res.index()].ty);
+                }
+            }
+            // Masks' bits as lanes, and lanes as masks.
+            Op::Call(c) => {
+                let name = callee_name(cx.m, c).unwrap_or_default();
+                if name.starts_with("llvm.epitome.mask.bits.")
+                    && let (Some(a), Some(res)) = (c.args.first().and_then(|a| mask_local(a.value)), inst.result)
+                {
+                    mark(&mut seen, a, f.locals[res.index()].ty);
+                }
+                if name.starts_with("llvm.epitome.bits.mask.")
+                    && let (Some(r), Some(a)) = (r, c.args.first())
+                {
+                    mark(&mut seen, r, cx.value_ty(f, a.value));
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut group = vec![(false, false); f.locals.len()];
+    for x in 0..f.locals.len() {
+        let g = find(&mut parent, x);
+        group[g].0 |= seen[x].0;
+        group[g].1 |= seen[x].1;
+    }
+    for x in 0..f.locals.len() {
+        let g = find(&mut parent, x);
+        if group[g] == (true, false) && mask_local(Value::Local(LocalId(x as u32))).is_some() {
+            out.insert(LocalId(x as u32));
+        }
+    }
+    out
+}
+
 /// A constant mask combined with a mask (`xor <8 x i1> %m, <i1 true,
 /// ...>`): a comparison of integer lanes, of the width the other mask's
 /// comparison gives it, so that its lanes are as wide as the other's (all
@@ -1336,6 +1449,9 @@ fn fix_masks(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
             f.result(r)
         };
     let is_mask = |cx: &Ctx, ty: TypeId| vec_info(cx, ty).is_some_and(|(_, _, e)| e == 1);
+    // (Masks in mask registers are bits, of no lane width: as they are.)
+    let regs = mask_regs(cx, f);
+    let in_regs = |v: Value| matches!(v, Value::Local(x) if regs.contains(&x));
     let blocks: Vec<BlockId> = f.layout.clone();
     // Uses first, while the splats can still be told apart.
     for &b in &blocks {
@@ -1344,7 +1460,9 @@ fn fix_masks(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
             let i = f.blocks[b.index()].insts[k];
             let mut new = Vec::new();
             match f.insts[i.index()].op.clone() {
-                Op::Select { fmf, cond, then_value, else_value } if is_mask(cx, cx.value_ty(f, cond)) => {
+                Op::Select { fmf, cond, then_value, else_value }
+                    if is_mask(cx, cx.value_ty(f, cond)) && !in_regs(cond) =>
+                {
                     let (len, _, te) = vec_info(cx, cx.value_ty(f, then_value)).ok_or("a select of masks")?;
                     if let Some(w) = mask_width(cx, f, cond, &mut Vec::new())
                         && w != te
@@ -1354,7 +1472,7 @@ fn fix_masks(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
                         f.insts[i.index()].op = Op::Select { fmf, cond: c, then_value, else_value };
                     }
                 }
-                Op::Binary { op, flags, fmf, lhs, rhs } if is_mask(cx, cx.value_ty(f, lhs)) => {
+                Op::Binary { op, flags, fmf, lhs, rhs } if is_mask(cx, cx.value_ty(f, lhs)) && !in_regs(lhs) => {
                     let (len, _, _) = vec_info(cx, cx.value_ty(f, lhs)).unwrap();
                     if let (Some(a), Some(c)) =
                         (mask_width(cx, f, lhs, &mut Vec::new()), mask_width(cx, f, rhs, &mut Vec::new()))
@@ -1680,7 +1798,17 @@ pub fn legalize_vectors(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
                                 })
                                 .collect()
                         }
-                        _ => return Err("a select whose mask is not split as its values are".into()),
+                        // A mask not split, of values that are (one made
+                        // from bits: a load of `<16 x i1>`, a bitcast of an
+                        // `i16`): cut into parts, a lane at a time.
+                        v => match *cx.m.types.get(pt) {
+                            Type::Vector { len: pl, .. } => {
+                                let i1 = cx.m.types.int(1);
+                                let mt = vec_ty(cx, pl, i1);
+                                mask_parts(cx, &parts, &mut bld, v, n, mt)?
+                            }
+                            _ => return Err("a select whose mask is not split as its values are".into()),
+                        },
                     };
                     if c.len() != n {
                         return Err("a select whose mask is not split as its values are".into());

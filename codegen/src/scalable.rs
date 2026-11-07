@@ -27,7 +27,7 @@ fn scalable(cx: &Ctx, ty: TypeId) -> Option<(u32, TypeId, u32)> {
                 Type::Float => 32,
                 Type::Double => 64,
                 Type::Half | Type::BFloat => 16,
-                Type::Ptr(_) => 64,
+                Type::Ptr(a) => epitome_ir::layout::pointer_bits(cx.m.data_layout.as_deref(), *a),
                 _ => return None,
             };
             Some((len, elem, eb))
@@ -790,22 +790,31 @@ pub fn unpacked(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
                     let (x, y) = (hold(cx, &mut s, &held, a)?, hold(cx, &mut s, &held, bv)?);
                     s.op(Op::ShuffleVector { a: x, b: y, mask }, rct.unwrap())
                 }
+                // SVE's loads and stores of unpacked lanes (ld1b {z.d}, its
+                // first-faulting, non-faulting and gathering forms, and the
+                // scatters): llvm.epitome.sve's of the containers, the
+                // offsets too (an sxtw's reads each lane's low 32 bits).
                 Op::Call(ref call) => {
                     let name = crate::prepare::callee_name(cx.m, call).unwrap_or_default();
-                    let args: Vec<Value> = call.args.iter().map(|a| a.value).collect();
-                    if let Some(m) = name.strip_prefix("llvm.aarch64.sve.ld1.")
-                        && rct.is_some()
-                    {
-                        call_intrinsic(cx, &mut s, &format!("llvm.epitome.sve.ld1.{m}"), args, rct.unwrap())
-                    } else if let Some(m) = name.strip_prefix("llvm.aarch64.sve.st1.") {
-                        let x = hold(cx, &mut s, &held, args[0])?;
-                        let void = cx.m.types.intern(Type::Void);
-                        call_intrinsic(cx, &mut s, &format!("llvm.epitome.sve.st1.{m}"), vec![x, args[1], args[2]], void);
+                    let m = name
+                        .strip_prefix("llvm.aarch64.sve.")
+                        .filter(|m| {
+                            ["ld1.", "ldff1.", "ldnf1.", "ldnt1.", "st1.", "stnt1."].iter().any(|p| m.starts_with(p))
+                        })
+                        .ok_or_else(|| format!("{name} of unpacked scalable vectors is not supported yet"))?;
+                    let mut args = Vec::new();
+                    for a in &call.args {
+                        let held_ty = container(cx, cx.value_ty(s.f, a.value)).is_some();
+                        args.push(if held_ty { hold(cx, &mut s, &held, a.value)? } else { a.value });
+                    }
+                    let void = cx.m.types.intern(Type::Void);
+                    let r =
+                        call_intrinsic(cx, &mut s, &format!("llvm.epitome.sve.{m}"), args, rct.or(rty).unwrap_or(void));
+                    if res.is_none() {
                         out.extend(std::mem::take(&mut s.new));
                         continue;
-                    } else {
-                        return Err(format!("{name} of unpacked scalable vectors is not supported yet"));
                     }
+                    r
                 }
                 _ => {
                     return Err(format!(

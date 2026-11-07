@@ -110,13 +110,16 @@ impl Session {
 }
 
 /// The roots of crate `k`: its `main` if it has one, else every function
-/// that is not generic.
-pub fn roots(r: &Resolver, tcx: &TyCtxt, k: u32) -> Vec<Item> {
+/// that is not generic and has a body (not an intrinsic's declaration).
+pub fn roots(r: &Resolver, tcx: &TyCtxt, crates: &[ParsedCrate], k: u32) -> Vec<Item> {
     let fns: Vec<DefId> = (0..r.defs.len() as u32)
         .map(DefId)
         .filter(|&d| {
             let def = &r.defs[d.0 as usize];
-            def.krate == k && matches!(def.kind, DefKind::Fn | DefKind::AssocFn) && tcx.all_params(d).is_empty()
+            def.krate == k
+                && matches!(def.kind, DefKind::Fn | DefKind::AssocFn)
+                && tcx.all_params(d).is_empty()
+                && crates[def.krate as usize].files[def.file as usize].ast.child(def.node, Kind::Block).is_some()
         })
         .collect();
     let empty = tcx.list(Vec::new());
@@ -169,6 +172,19 @@ impl<'a, 's> Walk<'a, 's> {
         for n in nodes {
             match ast.kind(n) {
                 Kind::PathExpr | Kind::IdentPat | Kind::PathPat => self.path_use(k, f, n, &params, &args),
+                // `try { .. }` ends in `Try::from_output`.
+                Kind::Block
+                    if ast.children(n).iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == "try")
+                        && let Some(Some(t)) = types.get(n.0 as usize)
+                        && let Some(&tr) = tcx.lang.get("Try")
+                        && let Some(Res::Def(m)) = self.r.defs[tr.0 as usize]
+                            .module
+                            .and_then(|m| self.r.modules[m.0 as usize].names.get(&("from_output", Ns::Value)))
+                            .map(|b| &b.res) =>
+                {
+                    let (m, t) = (*m, self.sub(*t, &params, &args));
+                    self.call(m, vec![t]);
+                }
                 Kind::Closure => {
                     if let Some(Some(t)) = types.get(n.0 as usize)
                         && let TyKind::Closure(c, _, _) = tcx.kind(*t)
@@ -634,7 +650,7 @@ mod tests {
         let tcx = session.collect_types(&crates, &r);
         let index = crate::typeck::Index::new(&tcx, &r);
         let res = session.typeck_with(&crates, &r, &tcx, &index);
-        let roots = super::roots(&r, &tcx, 1);
+        let roots = super::roots(&r, &tcx, &crates, 1);
         let mono = session.collect_mono_items(&crates, &r, &tcx, &index, &res, roots);
         let dump = mono.dump(&r, &tcx);
         assert!(mono.unresolved.is_empty(), "not resolved: {:?}", mono.unresolved);

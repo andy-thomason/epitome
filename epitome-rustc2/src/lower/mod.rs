@@ -32,9 +32,11 @@
 //! becomes a body that traps, and the reason is kept: `--lower-stats`
 //! counts them.
 
+mod asm;
 mod body;
 mod intrinsic;
 mod pat;
+mod quad;
 
 use crate::hash::FastMap;
 use crate::layout::{Abi, Layout, LayoutCx, Prim, TargetData};
@@ -121,6 +123,10 @@ pub struct Lowered {
     /// Each function lowering could not finish, with why: their bodies
     /// trap.
     pub failures: Vec<Failure>,
+    /// Functions lowered but for something they use that is not supported
+    /// yet (`dyn`, formatting), where they trap: only panics reach these
+    /// in the programs so far.
+    pub partial: Vec<Failure>,
     /// Comments for `--dump-ir`: the source of each statement, before its
     /// first instruction.
     notes: FastMap<GlobalId, Vec<(epitome_ir::module::BlockId, usize, String)>>,
@@ -189,9 +195,10 @@ impl<'a, 's> Cx<'a, 's> {
             _ if l.size == 0 && l.is_sized() => Repr::Zst,
             Abi::Scalar(s) => Repr::Imm(match s.prim {
                 Prim::Int { size, .. } => m.types.int(size as u32 * 8),
+                Prim::Float { size: 2 } => m.types.half(),
                 Prim::Float { size: 4 } => m.types.float(),
                 Prim::Float { size: 8 } => m.types.double(),
-                Prim::Float { .. } => return Err("f16 and f128 are not supported".into()),
+                Prim::Float { .. } => m.types.intern(epitome_ir::types::Type::Fp128),
                 Prim::Pointer => m.types.ptr(0),
             }),
             _ => Repr::Mem,
@@ -394,6 +401,7 @@ impl Session {
         }
         named.sort_by(|a, b| a.0.cmp(&b.0));
         named.dedup_by(|a, b| a.0 == b.0);
+        let mut static_inits = Vec::new();
         for (name, it) in &named {
             match *it {
                 Item::Fn(d, _) | Item::Foreign(d) => {
@@ -444,8 +452,11 @@ impl Session {
                     cx.fns.insert(*it, Decl { g, abi, name: name.clone() });
                 }
                 Item::Static(d) => match body::define_static(&cx, &mut m, d, name) {
-                    Ok(g) => {
+                    Ok((g, needs_init)) => {
                         cx.statics.insert(d, g);
+                        if needs_init {
+                            static_inits.push((*it, d, g, name.clone()));
+                        }
                     }
                     Err(e) => failures.push(Failure { item: *it, name: name.clone(), why: e }),
                 },
@@ -456,6 +467,7 @@ impl Session {
         let mut notes = FastMap::default();
         let mut titles = FastMap::default();
         let mut functions = 0;
+        let mut partial = Vec::new();
         for (name, it) in &named {
             let (d, l) = match *it {
                 Item::Fn(d, l) | Item::Closure(_, d, l) => (d, l),
@@ -470,8 +482,11 @@ impl Session {
             titles.insert(decl.g, title);
             let got = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| body::lower_fn(&cx, &mut m, *it, &decl)));
             let why = match got {
-                Ok(Ok(n)) => {
+                Ok(Ok((n, t))) => {
                     notes.insert(decl.g, n);
+                    if !t.is_empty() {
+                        partial.push(Failure { item: *it, name: name.clone(), why: format!("traps where it uses {}", t.join(", ")) });
+                    }
                     continue;
                 }
                 Ok(Err(e)) => e,
@@ -483,9 +498,48 @@ impl Session {
             body::trap_body(&mut m, &decl);
             failures.push(Failure { item: *it, name: name.clone(), why });
         }
+        // Statics whose values are not known until their initialisers
+        // run: a function each, run before `main`.
+        let mut ctors = Vec::new();
+        for (it, d, g, name) in static_inits {
+            let fname = format!("{name}.init");
+            let got = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| body::lower_static_init(&cx, &mut m, d, g, &fname)));
+            match got {
+                Ok(Ok(f)) => {
+                    functions += 1;
+                    titles.insert(f, format!("the value of static {}", r.def_path(d)));
+                    ctors.push(f);
+                }
+                Ok(Err(e)) => failures.push(Failure { item: it, name: fname, why: e }),
+                Err(_) => failures.push(Failure { item: it, name: fname, why: "internal error".into() }),
+            }
+        }
+        if !ctors.is_empty() {
+            global_ctors(&mut m, &ctors);
+        }
         failures.sort_by(|a, b| a.name.cmp(&b.name));
-        Lowered { module: m, functions, failures, notes, titles }
+        partial.sort_by(|a, b| a.name.cmp(&b.name));
+        Lowered { module: m, functions, failures, partial, notes, titles }
     }
+}
+
+/// `@llvm.global_ctors`: each of `fs` run before `main`, in order.
+fn global_ctors(m: &mut Module, fs: &[GlobalId]) {
+    use epitome_ir::module::{ConstKind, Constant, Value};
+    let i32t = m.types.int(32);
+    let ptr = m.types.ptr(0);
+    let entry = m.types.struct_of(&[i32t, ptr, ptr]);
+    let mut entries = Vec::new();
+    for &f in fs {
+        let prio = Constant::int(&m.types, i32t, 65535);
+        let prio = m.consts.intern(prio);
+        let Value::Const(fc) = m.global_value(f) else { unreachable!("a global's address is a constant") };
+        let null = m.consts.intern(Constant { ty: ptr, kind: ConstKind::Null });
+        entries.push(m.consts.intern(Constant { ty: entry, kind: ConstKind::Struct(vec![prio, fc, null]) }));
+    }
+    let ty = m.types.array(entries.len() as u64, entry);
+    let init = Value::Const(m.consts.intern(Constant { ty, kind: ConstKind::Array(entries) }));
+    epitome_ir::module::Global::builder("llvm.global_ctors").init(init).linkage(Linkage::Appending).build(m);
 }
 
 /// `fn path<args>`, with the source location.
@@ -542,7 +596,7 @@ mod tests {
             let tcx = session.collect_types(&crates, &r);
             let index = crate::typeck::Index::new(&tcx, &r);
             let res = session.typeck_with(&crates, &r, &tcx, &index);
-            let roots = crate::mono::roots(&r, &tcx, 1);
+            let roots = crate::mono::roots(&r, &tcx, &crates, 1);
             let mono = session.collect_mono_items(&crates, &r, &tcx, &index, &res, roots);
             let lowered = session.lower(&crates, &r, &tcx, &index, &res, &mono, super::Target::x86_64_linux());
             let own: Vec<String> = lowered

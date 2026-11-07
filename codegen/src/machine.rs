@@ -77,8 +77,13 @@
 //! programs' object files.
 //!
 //! `!target.lacks` lists what the machine does not have, from `LACKABLE`
-//! (`docs/design/partial-machines.md`). So far only `stack` changes what a
-//! description must say: there is then no `sp`.
+//! (`docs/design/partial-machines.md`). The structure check then does not
+//! ask for the roles what it lacks would need (`load.x` and `sp` without a
+//! stack, `call` without calls, `trap`, `addr.*`, a 64-bit class); a
+//! convention of a machine without a stack needs only `args` and `result`,
+//! and without calls every register is free to use; without a trap,
+//! `unreachable` ends the program; and each function is checked against
+//! it before it is lowered (`epitome_ir::fits`).
 //!
 //! `!target.enums` names sets of values an operand written as a name takes
 //! (`"enum"="chan"` on the operand): each is its name, then pairs of a
@@ -261,6 +266,9 @@ pub struct ClassDef {
     pub file: usize,
     /// How wide a value it holds (0 for a view).
     pub bits: u32,
+    /// How wide its registers' names are (`"width"`, else `bits`): a view
+    /// such as x86's r8 (`%al`) holds nothing but names 8 bits.
+    pub width: u32,
     pub holds: Option<Holds>,
     /// The number it shares with the zero register is the stack pointer.
     pub sp: bool,
@@ -344,6 +352,11 @@ pub struct Machine {
     pub asm_modifiers: HashMap<char, AsmModifier>,
     /// How assembly starts a comment.
     pub asm_comment: String,
+    /// Every way a comment starts, for reading (`asm-comment`, several
+    /// separated by spaces: `# ;`); the first is how one is written.
+    pub asm_comments: Vec<String>,
+    /// Bundle formats (`!target.bundles`, `bundle.rs`).
+    pub bundles: Vec<crate::bundle::Format>,
     /// How inline assembly writes an immediate operand (`asm-imm`, with
     /// `{i}` the number: x86's AT&T `${i}`); modifier `c` writes it bare.
     pub asm_imm: String,
@@ -390,7 +403,7 @@ pub struct Machine {
 }
 
 /// What `!target.lacks` may list.
-pub const LACKABLE: &[&str] = &["memory", "stack", "calls", "globals", "float", "i64", "trap", "indirect"];
+pub use epitome_ir::fits::LACKABLE;
 
 /// A set of named values an operand may take (`!target.enums`).
 #[derive(Clone, Debug)]
@@ -477,6 +490,22 @@ impl Machine {
         self.lacks.iter().any(|l| l == what || (l == "memory" && (what == "stack" || what == "globals")))
     }
 
+    /// What `epitome_ir::fits` needs to know of the machine, with a
+    /// convention `abi`.
+    pub fn fits(&self, abi: &crate::abi::Abi) -> epitome_ir::fits::Machine {
+        let widest =
+            self.classes.iter().filter(|c| c.holds == Some(Holds::Int) && !c.sp).map(|c| c.bits).max().unwrap_or(0);
+        epitome_ir::fits::Machine {
+            lacks: self.lacks.clone(),
+            widest,
+            arg_regs: abi.args.len(),
+            result_regs: abi.result_list.as_ref().map_or(1, |r| r.len()),
+            // (Known to the target, which sets it: `Target::role`.)
+            launch: false,
+            intrinsics: Vec::new(),
+        }
+    }
+
     /// The enum named `name`, by its index.
     pub fn enum_index(&self, name: &str) -> Option<usize> {
         self.enums.iter().position(|e| e.name == name)
@@ -532,7 +561,11 @@ impl Machine {
             if fixed.is_some() && holds.is_some() {
                 return Err(format!("register class {class} is fixed, so holds no values"));
             }
-            classes.push(ClassDef { name: class.clone(), file, bits, holds, sp, names, fixed });
+            let width = match p.get("width") {
+                Some(w) => w.parse().map_err(|_| format!("register class {class}: width {w}"))?,
+                None => bits,
+            };
+            classes.push(ClassDef { name: class.clone(), file, bits, width, holds, sp, names, fixed });
         }
         if classes.is_empty() {
             return Err("the description names no registers (!target.registers)".into());
@@ -581,6 +614,8 @@ impl Machine {
             asm_constraints: HashMap::new(),
             asm_modifiers: HashMap::new(),
             asm_comment: String::new(),
+            asm_comments: Vec::new(),
+            bundles: Vec::new(),
             asm_imm: "{i}".into(),
             dwarf: HashMap::new(),
             dwarf_each: HashMap::new(),
@@ -670,7 +705,11 @@ impl Machine {
         mc.elf_machine = num("elf-machine")?.unwrap_or(0) as u16;
         mc.elf_flags = num("elf-flags")?.unwrap_or(0) as u32;
         mc.elf_format = params.get("elf-format").cloned().unwrap_or_else(|| "elf64-little".into());
-        mc.asm_comment = params.get("asm-comment").cloned().unwrap_or_else(|| "//".into());
+        mc.asm_comments = params
+            .get("asm-comment")
+            .map_or(vec!["//".to_string()], |c| c.split_whitespace().map(str::to_string).collect());
+        mc.asm_comment = mc.asm_comments.first().cloned().unwrap_or_else(|| "//".into());
+        mc.bundles = crate::bundle::Format::read(m)?;
         mc.asm_imm = params.get("asm-imm").cloned().unwrap_or_else(|| "{i}".into());
         if let Some(t) = all_params.iter().find(|t| t[0] == "cfi-data-align") {
             let v = |k: usize| t.get(k).and_then(|x| x.parse::<i64>().ok());
@@ -970,6 +1009,13 @@ impl Machine {
                 .map(|(k, _)| Class(k as u8))
         };
         pick(&|c| c.holds == Some(holds)).or_else(|| pick(&|_| true))
+    }
+
+    /// The class of file `file` exactly `bits` wide, if there is one: to
+    /// name a register at that width (an `i8` in a 32-bit register is
+    /// printed `%al`, as LLVM prints it).
+    pub fn width_class_in(&self, file: usize, bits: u32) -> Option<Class> {
+        self.classes.iter().position(|c| c.file == file && c.width == bits && !c.sp).map(|k| Class(k as u8))
     }
 
     /// The class of file `file` holding scalars of `bits` bits, for the

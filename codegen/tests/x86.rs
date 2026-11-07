@@ -69,6 +69,9 @@ fn samples(t: &Target, all: bool) -> String {
                 // (A mask, written `{%k1}`, is k1-k7: k0 is none.)
                 Kind::Reg(c) => (0..t.machine.def(c).names.len() as i64)
                     .filter(|&k| !(o.name == "m.index" && k == 4))
+                    // (Not the gaps of a class without its file's first
+                    // registers: kw is k1-k7.)
+                    .filter(|&k| !t.machine.def(c).names[k as usize].starts_with('-'))
                     .filter(|&k| !(k == 0 && ins.asm.contains(&format!("{{lb}}{{{}}}{{rb}}", o.name))))
                     .map(|k| V::Reg(t.machine.phys(c, k)))
                     .collect(),

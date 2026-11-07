@@ -224,6 +224,23 @@ def intrinsics():
                 asm = re.sub(r'\{=[^}]*\}', lambda m: re.sub(rf'(?<![\w.]){re.escape(n)}(?![\w.])', v, m.group(0)), asm)
             else:
                 rename[n] = v
+        # Lists of registers ({zt1}, {zt1:+1}): the arguments after the
+        # head's, which no field holds (unused=), are its members, placed
+        # by allocation ("list"="a0:+1").
+        members = {}
+        heads = {}
+        for n, k in re.findall(r'\{([a-z_0-9]+):\+(\d+)\}', asm):
+            heads[n] = max(heads.get(n, 0), int(k))
+        unused = {x[7:] for x in extra if x.startswith('unused=')}
+        for n, most in heads.items():
+            h = names.get(n, '')
+            if not re.fullmatch(r'a\d+', h):
+                members = None
+                break
+            for k in range(1, most + 1):
+                members[f'a{int(h[1:]) + k}'] = (h, k)
+        if heads and (members is None or set(members) != unused):
+            continue
         params, call = [], []
         bad = False
         for k, a in enumerate(args):
@@ -237,6 +254,9 @@ def intrinsics():
                 params.append(f'{ty} "imm" %{ak}')
             elif ak in of:
                 params.append(f'{ty} "reg"="{params81[of[ak]][1]}" %{ak}')
+            elif ak in (members or {}):
+                h, k = members[ak]
+                params.append(f'{ty} "reg"="{params81[of[h]][1]}" "list"="{h}:+{k}" %{ak}')
             elif ak == tied:
                 params.append(f'{ty} "reg"="{params81[of["d"]][1]}" "tied" %{ak}')
             else:
@@ -245,10 +265,6 @@ def intrinsics():
             bad = True
         dclass = params81[of['d']][1] if 'd' in of else None
         if bad or dclass in ('h', 'b', 'q') or 'half' in sig or 'bfloat' in sig and not ret.startswith('<'):
-            continue
-        # (Not of lists of registers, {zn}-{zn:+1}, whose members are
-        # separate arguments: nothing yet puts them in consecutive registers.)
-        if ':+' in asm:
             continue
         e = re.sub(r'(?<![\w.])([a-z][a-z0-9_]*)(?![\w.(])', lambda m: rename.get(m.group(1), m.group(1)), e)
         for n, v in rename.items():
@@ -313,20 +329,32 @@ def unpacked_memory():
     """Loads and stores of unpacked vectors (<vscale x 8 x i8>, a byte in
     each 16-bit lane), which codegen holds in their containers
     (<vscale x 8 x i16>): ld1b's and st1b's of those lanes, as
-    llvm.epitome.sve.ld1.nxv8i8 and .st1, of the container type."""
+    llvm.epitome.sve.ld1.nxv8i8 and .st1, of the container type. So too
+    the first-faulting and non-faulting loads, the gathers and the
+    scatters (ld1b {z.d}, [x, z.d]), their unpacked offsets (sxtw's of
+    <vscale x 2 x i32>) also in containers, as the instructions read only
+    each lane's low bits."""
+    unpacked = re.compile(r'<vscale x (\d+) x i(\d+)>')
+
+    def contain(m):
+        n, k = int(m.group(1)), int(m.group(2))
+        return m.group(0) if k == 1 or n * k >= 128 else f'<vscale x {n} x i{128 // n}>'
+
+    declares = {}
+    for line in out:
+        m = re.match(r'declare .*@llvm\.aarch64\.sve\.([\w.]+)\(', line)
+        if m:
+            declares[m.group(1)] = line
     for line in list(out):
-        m = re.match(r'define (\S+ |<[^>]*> )@SVE\.(ld1|st1)\.nxv(\d+)i(\d+)\(', line)
-        if not m or int(m.group(3)) * int(m.group(4)) >= 128:
+        m = re.match(r'define (\S+ |<[^>]*> )@SVE\.(ld1|ldff1|ldnf1|ldnt1|st1|stnt1)(\.[\w.]+)\(([^)]*)\)', line)
+        if not m or unpacked.sub(contain, m.group(1) + m.group(4)) == m.group(1) + m.group(4):
             continue
-        n, k = int(m.group(3)), int(m.group(4))
-        u, c = f'<vscale x {n} x i{k}>', f'<vscale x {n} x i{128 // n}>'
-        op = m.group(2)
-        new = (line.replace(u, c).replace(f'@SVE.{op}.nxv{n}i{k}(', f'@SVE.{op}u.nxv{n}i{k}(')
-               .replace(f'@llvm.aarch64.sve.{op}.nxv{n}i{k}(', f'@llvm.epitome.sve.{op}.nxv{n}i{k}('))
+        op, rest = m.group(2), m.group(3)
+        intr = re.search(r'@llvm\.aarch64\.sve\.([\w.]+)\(', line).group(1)
+        new = (unpacked.sub(contain, line).replace(f'@SVE.{op}{rest}(', f'@SVE.{op}u{rest}(')
+               .replace(f'@llvm.aarch64.sve.{intr}(', f'@llvm.epitome.sve.{intr}('))
         out.append(new)
-        ty = f'void @llvm.epitome.sve.st1.nxv{n}i{k}({c}, <vscale x {n} x i1>, ptr)' if op == 'st1' \
-            else f'{c} @llvm.epitome.sve.ld1.nxv{n}i{k}(<vscale x {n} x i1>, ptr)'
-        out.append(f'declare {ty}\n')
+        out.append(unpacked.sub(contain, declares[intr]).replace('@llvm.aarch64.sve.', '@llvm.epitome.sve.'))
 
 
 def sme_modes():

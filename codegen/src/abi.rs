@@ -375,6 +375,11 @@ impl Abi {
     }
 }
 
+/// The register a convention of a partial machine does not have (a frame
+/// pointer without a stack, a floating-point result without floating
+/// point): as `Machine::sp` is without a stack.
+pub const NONE: u8 = u8::MAX;
+
 /// Every convention the description names.
 pub fn read(m: &Module, prefix: &str, machine: &crate::machine::Machine) -> Result<Vec<Abi>, String> {
     let regs = |names: &[String]| machine.regs(names);
@@ -400,19 +405,86 @@ pub fn read(m: &Module, prefix: &str, machine: &crate::machine::Machine) -> Resu
                 props.insert(k.clone(), v.to_vec());
             }
         }
-        let get = |k: &str| props.get(k).cloned().ok_or_else(|| format!("{name}: no {k}"));
+        // What a machine lacks, its conventions need not say
+        // (docs/design/partial-machines.md): without a stack, only `args`
+        // and `result` are needed; without calls, nothing is saved across
+        // one; without floating point, no `fp-*`. What is left out is
+        // empty, or a default, or (a register) none.
+        let no_stack = machine.lacks("stack");
+        let no_calls = machine.lacks("calls");
+        let no_float = machine.lacks("float");
+        let waived = |k: &str| {
+            (no_float && k.starts_with("fp-"))
+                || (no_calls && matches!(k, "clobbers" | "saved" | "variadic"))
+                || (no_stack
+                    && matches!(
+                        k,
+                        "clobbers"
+                            | "saved"
+                            | "reserved"
+                            | "scratch"
+                            | "frame"
+                            | "stack-align"
+                            | "stack-args"
+                            | "variadic"
+                            | "syntax"
+                            | "triples"
+                    ))
+        };
+        let defaults = |k: &str| -> Vec<String> {
+            match k {
+                "stack-align" => vec!["1".into()],
+                "stack-args" => vec!["slots".into()],
+                "variadic" => vec!["stack".into()],
+                "syntax" => vec!["elf".into()],
+                _ => vec![],
+            }
+        };
+        let get = |k: &str| match props.get(k) {
+            Some(v) => Ok(v.clone()),
+            None if waived(k) => Ok(defaults(k)),
+            None => Err(format!("{name}: no {k}")),
+        };
         let one = |k: &str| -> Result<String, String> {
             get(k)?.first().cloned().ok_or_else(|| format!("{name}: empty {k}"))
         };
         let first = |k: &str| -> Result<u8, String> {
-            regs(&get(k)?)?.first().copied().ok_or_else(|| format!("{name}: empty {k}"))
+            match regs(&get(k)?)?.first() {
+                Some(&r) => Ok(r),
+                None if waived(k) => Ok(NONE),
+                None => Err(format!("{name}: empty {k}")),
+            }
         };
         let frame = regs(&get("frame")?)?;
+        let frame = if frame.is_empty() && no_stack { vec![NONE] } else { frame };
+        if frame.is_empty() {
+            return Err(format!("{name}: empty frame"));
+        }
         out.push(Abi {
             name: name.to_string(),
             args: regs(&get("args")?)?,
             result: first("result")?,
-            clobbers: regs(&get("clobbers")?)?,
+            clobbers: match props.get("clobbers") {
+                // Without calls nothing is saved across one: every register
+                // of the files values are held in is free to use.
+                None if machine.lacks("calls") => {
+                    let files: std::collections::BTreeSet<usize> = machine
+                        .classes
+                        .iter()
+                        .filter(|c| c.holds == Some(crate::machine::Holds::Int) && !c.sp)
+                        .map(|c| c.file)
+                        .collect();
+                    files
+                        .into_iter()
+                        .flat_map(|f| {
+                            let f = &machine.files[f];
+                            f.base..f.base.saturating_add(f.size)
+                        })
+                        .filter(|&r| r != machine.sp && Some(r) != machine.zero)
+                        .collect()
+                }
+                _ => regs(&get("clobbers")?)?,
+            },
             saved: regs(&get("saved")?)?,
             reserved: {
                 let mut r = regs(&get("reserved")?)?;

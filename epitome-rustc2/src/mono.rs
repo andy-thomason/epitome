@@ -109,9 +109,10 @@ impl Session {
     }
 }
 
-/// The roots of crate `k`: its `main` if it has one, else every function
-/// that is not generic and has a body (not an intrinsic's declaration).
-pub fn roots(r: &Resolver, tcx: &TyCtxt, crates: &[ParsedCrate], k: u32) -> Vec<Item> {
+/// The roots of crate `k`: its `main` if it has one (and it is not
+/// compiled as a library, `lib`), else every function that is not generic
+/// and has a body (not an intrinsic's declaration).
+pub fn roots(r: &Resolver, tcx: &TyCtxt, crates: &[ParsedCrate], k: u32, lib: bool) -> Vec<Item> {
     let fns: Vec<DefId> = (0..r.defs.len() as u32)
         .map(DefId)
         .filter(|&d| {
@@ -123,7 +124,8 @@ pub fn roots(r: &Resolver, tcx: &TyCtxt, crates: &[ParsedCrate], k: u32) -> Vec<
         })
         .collect();
     let empty = tcx.list(Vec::new());
-    match fns.iter().find(|&&d| r.defs[d.0 as usize].name == "main" && r.defs[d.0 as usize].kind == DefKind::Fn) {
+    let is_main = |d: DefId| r.defs[d.0 as usize].name == "main" && r.defs[d.0 as usize].kind == DefKind::Fn;
+    match fns.iter().find(|&&d| !lib && is_main(d)) {
         Some(&m) => vec![Item::Fn(m, empty)],
         None => fns.into_iter().map(|d| Item::Fn(d, empty)).collect(),
     }
@@ -650,7 +652,7 @@ mod tests {
         let tcx = session.collect_types(&crates, &r);
         let index = crate::typeck::Index::new(&tcx, &r);
         let res = session.typeck_with(&crates, &r, &tcx, &index);
-        let roots = super::roots(&r, &tcx, &crates, 1);
+        let roots = super::roots(&r, &tcx, &crates, 1, false);
         let mono = session.collect_mono_items(&crates, &r, &tcx, &index, &res, roots);
         let dump = mono.dump(&r, &tcx);
         assert!(mono.unresolved.is_empty(), "not resolved: {:?}", mono.unresolved);

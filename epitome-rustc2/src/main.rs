@@ -45,6 +45,9 @@
 //!   any function of the last crate could not be lowered.
 //! - `-O0`: with `-o`, do not optimise.
 //! - `--emit=obj`: with `-o`, write the object file to `PATH`, unlinked.
+//! - `--lib`: compile the last crate as a library: monomorphise from all
+//!   its non-generic functions (even if it has a `main`), and make them
+//!   external, so that optimising keeps them. With `-o`, use `--emit=obj`.
 //! - `--dump-layout`: the layout of every non-generic struct, enum, union
 //!   and type alias of the last crate given.
 //! - `--parse-tree dir`: parse every `.rs` file under `dir` (each on its
@@ -78,7 +81,7 @@ fn main() -> ExitCode {
     let (mut dump_mono, mut mono_stats) = (false, false);
     let (mut dump_ir, mut lower_stats) = (false, false);
     let mut output: Option<PathBuf> = None;
-    let (mut no_opt, mut emit_obj) = (false, false);
+    let (mut no_opt, mut emit_obj, mut lib) = (false, false, false);
     let mut tree: Option<PathBuf> = None;
     let mut cfg = CfgSet::host();
     let mut externs: Vec<(String, PathBuf)> = Vec::new();
@@ -109,6 +112,7 @@ fn main() -> ExitCode {
             "--dump-ir" => dump_ir = true,
             "-O0" => no_opt = true,
             "--emit=obj" => emit_obj = true,
+            "--lib" => lib = true,
             "-o" => output = value("-o").map(PathBuf::from),
             "--lower-stats" => lower_stats = true,
             _ if arg.starts_with("--cfg") => {
@@ -234,8 +238,8 @@ fn main() -> ExitCode {
             let index = epitome_rustc2::typeck::Index::new(&tcx, &r);
             let res = session.typeck_with(&crates, &r, &tcx, &index);
             let t = std::time::Instant::now();
-            let roots = epitome_rustc2::mono::roots(&r, &tcx, &crates, crates.len() as u32 - 1);
-            let mono = session.collect_mono_items(&crates, &r, &tcx, &index, &res, roots);
+            let roots = epitome_rustc2::mono::roots(&r, &tcx, &crates, crates.len() as u32 - 1, lib);
+            let mono = session.collect_mono_items(&crates, &r, &tcx, &index, &res, roots.clone());
             let elapsed = t.elapsed();
             if dump_mono {
                 print!("{}", mono.dump(&r, &tcx));
@@ -258,6 +262,9 @@ fn main() -> ExitCode {
                 let t = std::time::Instant::now();
                 let target = epitome_rustc2::lower::Target::host();
                 let mut lowered = session.lower(&crates, &r, &tcx, &index, &res, &mono, target);
+                if lib {
+                    lowered.export(&roots);
+                }
                 let elapsed = t.elapsed();
                 if dump_ir {
                     print!("{}", lowered.dump());

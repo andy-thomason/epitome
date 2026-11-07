@@ -83,6 +83,80 @@ define fp128 @uitofp.i32.f128(i32 %a) "libcall"="__floatunsitf" {
   %r = uitofp i32 %a to fp128
   ret fp128 %r
 }
+; The narrower integers by way of i32 (the runtime has no functions of
+; them): a value out of their range is poison, so its truncation will do.
+define i8 @fptosi.f128.i8(fp128 %a) "lower"="fptosi.f128.i8.lower" {
+  %r = fptosi fp128 %a to i8
+  ret i8 %r
+}
+define i8 @fptosi.f128.i8.lower(fp128 %a) {
+  %w = call i32 @__fixtfsi(fp128 %a)
+  %r = trunc i32 %w to i8
+  ret i8 %r
+}
+define i8 @fptoui.f128.i8(fp128 %a) "lower"="fptoui.f128.i8.lower" {
+  %r = fptoui fp128 %a to i8
+  ret i8 %r
+}
+define i8 @fptoui.f128.i8.lower(fp128 %a) {
+  %w = call i32 @__fixtfsi(fp128 %a)
+  %r = trunc i32 %w to i8
+  ret i8 %r
+}
+define fp128 @sitofp.i8.f128(i8 %a) "lower"="sitofp.i8.f128.lower" {
+  %r = sitofp i8 %a to fp128
+  ret fp128 %r
+}
+define fp128 @sitofp.i8.f128.lower(i8 %a) {
+  %w = sext i8 %a to i32
+  %r = call fp128 @__floatsitf(i32 %w)
+  ret fp128 %r
+}
+define fp128 @uitofp.i8.f128(i8 %a) "lower"="uitofp.i8.f128.lower" {
+  %r = uitofp i8 %a to fp128
+  ret fp128 %r
+}
+define fp128 @uitofp.i8.f128.lower(i8 %a) {
+  %w = zext i8 %a to i32
+  %r = call fp128 @__floatsitf(i32 %w)
+  ret fp128 %r
+}
+define i16 @fptosi.f128.i16(fp128 %a) "lower"="fptosi.f128.i16.lower" {
+  %r = fptosi fp128 %a to i16
+  ret i16 %r
+}
+define i16 @fptosi.f128.i16.lower(fp128 %a) {
+  %w = call i32 @__fixtfsi(fp128 %a)
+  %r = trunc i32 %w to i16
+  ret i16 %r
+}
+define i16 @fptoui.f128.i16(fp128 %a) "lower"="fptoui.f128.i16.lower" {
+  %r = fptoui fp128 %a to i16
+  ret i16 %r
+}
+define i16 @fptoui.f128.i16.lower(fp128 %a) {
+  %w = call i32 @__fixtfsi(fp128 %a)
+  %r = trunc i32 %w to i16
+  ret i16 %r
+}
+define fp128 @sitofp.i16.f128(i16 %a) "lower"="sitofp.i16.f128.lower" {
+  %r = sitofp i16 %a to fp128
+  ret fp128 %r
+}
+define fp128 @sitofp.i16.f128.lower(i16 %a) {
+  %w = sext i16 %a to i32
+  %r = call fp128 @__floatsitf(i32 %w)
+  ret fp128 %r
+}
+define fp128 @uitofp.i16.f128(i16 %a) "lower"="uitofp.i16.f128.lower" {
+  %r = uitofp i16 %a to fp128
+  ret fp128 %r
+}
+define fp128 @uitofp.i16.f128.lower(i16 %a) {
+  %w = zext i16 %a to i32
+  %r = call fp128 @__floatsitf(i32 %w)
+  ret fp128 %r
+}
 declare i64 @__fixtfdi(fp128)
 define i64 @fptosi.f128.i64(fp128 %a) "libcall"="__fixtfdi" {
   %r = fptosi fp128 %a to i64
@@ -440,6 +514,33 @@ declare fp128 @llvm.maxnum.f128(fp128, fp128)
 declare fp128 @fmaxf128(fp128, fp128)
 define fp128 @maxnum.f128(fp128 %a, fp128 %b) "libcall"="fmaxf128" "format"="elf" {
   %r = call fp128 @llvm.maxnum.f128(fp128 %a, fp128 %b)
+  ret fp128 %r
+}
+; IEEE 754-2019's minimum and maximum (a NaN if either is one, and -0
+; below +0) and minimumNumber and maximumNumber (the other if one is a
+; NaN, and -0 below +0): C23's, in glibc from 2.35.
+declare fp128 @llvm.minimum.f128(fp128, fp128)
+declare fp128 @fminimumf128(fp128, fp128)
+define fp128 @minimum.f128(fp128 %a, fp128 %b) "libcall"="fminimumf128" "format"="elf" {
+  %r = call fp128 @llvm.minimum.f128(fp128 %a, fp128 %b)
+  ret fp128 %r
+}
+declare fp128 @llvm.maximum.f128(fp128, fp128)
+declare fp128 @fmaximumf128(fp128, fp128)
+define fp128 @maximum.f128(fp128 %a, fp128 %b) "libcall"="fmaximumf128" "format"="elf" {
+  %r = call fp128 @llvm.maximum.f128(fp128 %a, fp128 %b)
+  ret fp128 %r
+}
+declare fp128 @llvm.minimumnum.f128(fp128, fp128)
+declare fp128 @fminimum_numf128(fp128, fp128)
+define fp128 @minimumnum.f128(fp128 %a, fp128 %b) "libcall"="fminimum_numf128" "format"="elf" {
+  %r = call fp128 @llvm.minimumnum.f128(fp128 %a, fp128 %b)
+  ret fp128 %r
+}
+declare fp128 @llvm.maximumnum.f128(fp128, fp128)
+declare fp128 @fmaximum_numf128(fp128, fp128)
+define fp128 @maximumnum.f128(fp128 %a, fp128 %b) "libcall"="fmaximum_numf128" "format"="elf" {
+  %r = call fp128 @llvm.maximumnum.f128(fp128 %a, fp128 %b)
   ret fp128 %r
 }
 declare fp128 @llvm.fma.f128(fp128, fp128, fp128)

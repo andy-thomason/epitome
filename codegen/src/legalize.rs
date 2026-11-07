@@ -1422,7 +1422,8 @@ fn is_bool_splat(cx: &Ctx, f: &Function, i: InstId) -> bool {
 ///   compared with zero, which makes a register of all ones or all zeros,
 ///   right at any width;
 /// - `icmp eq|ne (bitcast mask to iN), 0`, whether any lane is set, is the
-///   unsigned maximum of the mask's lanes compared with zero.
+///   unsigned maximum of the mask's lanes compared with zero (but for a
+///   mask in a mask register, whose bits are the integer: kortestw).
 fn fix_masks(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
     let i1 = cx.m.types.int(1);
     let i64t = cx.m.types.int(64);
@@ -1495,7 +1496,8 @@ fn fix_masks(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
                     if matches!(rhs, Value::Const(c) if matches!(cx.m.constant(c).kind, ConstKind::Zero | ConstKind::Int(_)) && cx.const_int(rhs) == Some(0))
                         && let LocalDef::Inst(d) = f.locals[x.index()].def
                         && let Op::Cast { op: CastOp::BitCast, value: m, .. } = f.insts[d.index()].op
-                        && is_mask(cx, cx.value_ty(f, m)) =>
+                        && is_mask(cx, cx.value_ty(f, m))
+                        && !in_regs(m) =>
                 {
                     let (len, _, _) = vec_info(cx, cx.value_ty(f, m)).unwrap();
                     let w = mask_width(cx, f, m, &mut Vec::new()).unwrap_or((cx.vector_bits() / len).max(8));

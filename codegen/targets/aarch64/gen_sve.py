@@ -224,6 +224,23 @@ def intrinsics():
                 asm = re.sub(r'\{=[^}]*\}', lambda m: re.sub(rf'(?<![\w.]){re.escape(n)}(?![\w.])', v, m.group(0)), asm)
             else:
                 rename[n] = v
+        # Lists of registers ({zt1}, {zt1:+1}): the arguments after the
+        # head's, which no field holds (unused=), are its members, placed
+        # by allocation ("list"="a0:+1").
+        members = {}
+        heads = {}
+        for n, k in re.findall(r'\{([a-z_0-9]+):\+(\d+)\}', asm):
+            heads[n] = max(heads.get(n, 0), int(k))
+        unused = {x[7:] for x in extra if x.startswith('unused=')}
+        for n, most in heads.items():
+            h = names.get(n, '')
+            if not re.fullmatch(r'a\d+', h):
+                members = None
+                break
+            for k in range(1, most + 1):
+                members[f'a{int(h[1:]) + k}'] = (h, k)
+        if heads and (members is None or set(members) != unused):
+            continue
         params, call = [], []
         bad = False
         for k, a in enumerate(args):
@@ -237,6 +254,9 @@ def intrinsics():
                 params.append(f'{ty} "imm" %{ak}')
             elif ak in of:
                 params.append(f'{ty} "reg"="{params81[of[ak]][1]}" %{ak}')
+            elif ak in (members or {}):
+                h, k = members[ak]
+                params.append(f'{ty} "reg"="{params81[of[h]][1]}" "list"="{h}:+{k}" %{ak}')
             elif ak == tied:
                 params.append(f'{ty} "reg"="{params81[of["d"]][1]}" "tied" %{ak}')
             else:
@@ -245,10 +265,6 @@ def intrinsics():
             bad = True
         dclass = params81[of['d']][1] if 'd' in of else None
         if bad or dclass in ('h', 'b', 'q') or 'half' in sig or 'bfloat' in sig and not ret.startswith('<'):
-            continue
-        # (Not of lists of registers, {zn}-{zn:+1}, whose members are
-        # separate arguments: nothing yet puts them in consecutive registers.)
-        if ':+' in asm:
             continue
         e = re.sub(r'(?<![\w.])([a-z][a-z0-9_]*)(?![\w.(])', lambda m: rename.get(m.group(1), m.group(1)), e)
         for n, v in rename.items():

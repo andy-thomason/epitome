@@ -156,14 +156,53 @@ first lane that ends the loop is that lane of the predicate made integers
   lengths with FA64 off (as on Apple's M4), so that an instruction
   streaming mode does not allow would fault.
 
+## Lists of registers (done, as operands)
+
+`st2 {z0.d-z1.d}`, `tbl {z0.b-z1.b}`, SME2's `{z0.s-z3.s}`: a template
+derives the members from the head (`{zt1:+1}`), and the intrinsic takes
+them as separate values. `gen_sve.py` gives each member a parameter
+`"list"="a0:+1"` (from discovery's `unused=` arguments after the head's),
+for 246 entries (st2-st4, tbl2, SME2's lists into ZA).
+
+- **Selection** copies each member, the head too, into a value of its
+  own just before the instruction, so one value may be in two places of
+  a list (`st2 {z3, z4}` of `a, a`) or in lists of different orders.
+- **Allocation** (`regalloc.rs`) places these values first, a list at a
+  time: the first register where all members are free and the
+  instruction can encode it (SME2's lists of two or four start at a
+  multiple of two or four: `Instr::list_starts` tries the encoding), the
+  one most members' copied values are drawn to (an argument's register,
+  an earlier list's), less the values live across the list that are
+  drawn to its registers and would have to move (an argument still
+  needed after), then one that need not be saved. They are never moved
+  for other values, and are kept out of coalescing.
+- **Back along the ranges**: the values copied into a list are placed
+  later, and the copies' hints draw each to its member's register, so a
+  value whose live range ends in a list takes the register the list
+  wants where it is free all along, and the copy goes. A value may also
+  share a register with its own copies in lists (nothing writes it
+  between them and the instruction), so one still needed after a list
+  stays where the list reads it: `st4 {z0-z3}` of the four arguments,
+  in order, is the store alone.
+- **Two-address shapes**: a result is drawn (more weakly than by a copy)
+  to the register of an operand whose range ends at the instruction, so
+  that it reads and writes one register as a two-address form would.
+- `tests/sve/lists.ll`: members out of order, one value twice, values
+  read after the list, a list in a loop, and forty values live into ten
+  `st4`s (spilled ones loaded straight into a list's registers).
+  `tests/sve/lists/sme2.ll`: SME2's lists from values arriving at odd
+  registers, two lists in one instruction; no qemu here runs SME2, so
+  clang assembles our assembly (refusing a list out of line) and its code
+  must be ours.
+
 ## Still to do
 
-- **Lists of registers** (`st2 {z0.d-z1.d}`, `tbl {z0.b-z1.b}`, SME2's
-  multi-vector forms): entries whose template derives one register from
-  another (`{zn:+1}`) are left out of `gen_sve.py`, as nothing yet puts
-  the separate values they take in consecutive registers (they were right
-  only by where the arguments arrived). Intrinsics returning tuples of
-  vectors too.
+- **Lists of registers as results**: intrinsics returning tuples of
+  vectors (`ld2`-`ld4`, SME2's multi-vector results and their destructive
+  forms), which `discover_sve.py` skips; a list as a result would be
+  members `d`, `d2`... placed as lists of operands are. And the `vg4`
+  writes of ZA's slices, which discovery pairs with the two-register
+  `mova`.
 - **SME**: calls with ZA live of functions without it (ZA's lazy save, a
   TPIDR2 block), streaming-compatible functions' calls of ones that are
   not (switches by a test of PSTATE.SM), the runtime's own calls in

@@ -81,6 +81,7 @@ define i32 @ADDWrr(i32 "reg"="w" %n, i32 "reg"="w" %m)
   | `"sym"` | A symbol, such as a called function or a global. |
   | `"cond"` | A condition, an `i1` parameter, filled in by a condition form. |
   | `"tied"` | Must be in the same register as the result (two-address). |
+  | `"list"="zt1:+1"` | A member of a list of registers: in the register after operand `zt1`'s (`{zt1:+1}` in the template), which no field holds. Allocation places the list (`regalloc.rs`). |
 
 - **The result** is called `d` in the encoding and the assembly template.
 - **`"enc"`** is the encoding, most significant bit first, written as in

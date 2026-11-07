@@ -28,6 +28,7 @@
 pub mod asm;
 pub mod builtin;
 pub mod derive;
+pub mod format;
 pub mod mbe;
 
 pub(crate) use mbe::match_delims as mbe_delims;

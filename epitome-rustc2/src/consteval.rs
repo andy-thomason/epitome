@@ -5,9 +5,11 @@
 //! integer, `bool` and `char` literals, arithmetic, bit operations,
 //! shifts and comparisons, `as` casts between integers, `if`, blocks with
 //! a tail, paths to `const` items and const parameters, the integer
-//! types' `MIN`, `MAX` and `BITS`, and `size_of::<T>()` and
-//! `align_of::<T>()`. Integers are worked out in `i128`; where the type is
-//! known (a cast, an array length) the value is wrapped to it. Anything
+//! types' `MIN`, `MAX` and `BITS`, `size_of::<T>()` and `align_of::<T>()`,
+//! the integer methods constants use (`u32::MAX.ilog10()`, `pow`,
+//! `count_ones`...), and `len` of a string or byte string constant.
+//! Integers are worked out in `i128`; where the type is known (a cast, an
+//! array length, a method's receiver) the value is wrapped to it. Anything
 //! else is not a constant it can evaluate, and gives `None`.
 
 use crate::ast::{Ast, Kind, NodeId};
@@ -87,6 +89,7 @@ impl<'a, 's> LayoutCx<'a, 's> {
             Const::Value(v) => Some(v as i128),
             Const::Param(p) => env.get(&p).copied(),
             Const::Expr(k, f, n) => self.eval(k, f, n, env)?.int(),
+            Const::SizeOf(t) => self.layout_of(t).ok().map(|l| l.size as i128),
             Const::Infer(_) | Const::Error => None,
         }
     }
@@ -147,7 +150,17 @@ impl Drop for Evaluating {
 fn is_value_expr(k: Kind) -> bool {
     matches!(
         k,
-        Kind::Literal | Kind::PathExpr | Kind::Binary | Kind::Unary | Kind::Cast | Kind::Paren | Kind::Block | Kind::If | Kind::Call | Kind::ConstBlock
+        Kind::Literal
+            | Kind::PathExpr
+            | Kind::Binary
+            | Kind::Unary
+            | Kind::Cast
+            | Kind::Paren
+            | Kind::Block
+            | Kind::If
+            | Kind::Call
+            | Kind::MethodCall
+            | Kind::ConstBlock
     )
 }
 
@@ -209,6 +222,7 @@ impl Eval<'_, '_, '_> {
             // `as_chunks::<CHUNK>()`.
             Kind::PathExpr | Kind::PathType => self.path(kids[0]),
             Kind::Call => self.call(&kids),
+            Kind::MethodCall => self.method(&kids),
             _ => None,
         };
         self.depth -= 1;
@@ -273,13 +287,21 @@ impl Eval<'_, '_, '_> {
                 let p = *cx.tcx.param_at.get(&(self.k, self.f, p))?;
                 self.env.get(&p).map(|&v| Value::Int(v))
             }
-            // `u32::MAX` and the like.
+            // `u32::MAX` and the like, and other associated constants of a
+            // primitive type (`char::MAX_LEN_UTF8`).
             Res::Partial(base, 1) => {
                 let Res::PrimTy(name) = *base else { return None };
                 let t = prim_named(name)?;
-                let (bits, signed) = int_bits(t, cx.ptr_bits())?;
+                let Some((bits, signed)) = int_bits(t, cx.ptr_bits()) else {
+                    let last = self.ast.children(path).iter().rev().find(|&&s| self.ast.kind(s) == Kind::Segment)?;
+                    return self.prim_assoc_const(t, self.ast.token(*last).0);
+                };
                 let last = self.ast.children(path).iter().rev().find(|&&s| self.ast.kind(s) == Kind::Segment)?;
-                Some(Value::Int(match self.ast.token(*last).0 {
+                let name = self.ast.token(*last).0;
+                if !matches!(name, "BITS" | "MAX" | "MIN") {
+                    return self.prim_assoc_const(t, name);
+                }
+                Some(Value::Int(match name {
                     "BITS" => bits as i128,
                     "MAX" if signed => (1i128 << (bits - 1)) - 1,
                     "MAX" if bits == 128 => i128::MAX, // u128::MAX does not fit; rarely a length.
@@ -291,6 +313,136 @@ impl Eval<'_, '_, '_> {
             }
             _ => None,
         }
+    }
+
+    /// The associated constant `name` of primitive type `t`, from its
+    /// inherent impls.
+    fn prim_assoc_const(&self, t: TyKind, name: &str) -> Option<Value> {
+        let cx = self.cx;
+        let tcx = cx.tcx;
+        tcx.impls.iter().filter(|i| i.trait_ref.is_none() && tcx.kind(i.self_ty) == t).find_map(|i| {
+            let m = cx.r.defs[i.def.0 as usize].module?;
+            match cx.r.modules[m.0 as usize].names.get(&(name, crate::resolve::Ns::Value)).map(|b| &b.res) {
+                Some(Res::Def(d)) if cx.r.defs[d.0 as usize].kind == DefKind::AssocConst => cx.eval_item(*d),
+                _ => None,
+            }
+        })
+    }
+
+    /// The integer type of expression `n`, as far as its syntax says: a
+    /// cast's, a suffixed literal's, `u32::MAX`'s, a `const` item's, a
+    /// method's result (as `method` works them out), or an operand's.
+    fn int_type(&self, n: NodeId) -> Option<(u32, bool)> {
+        let ast = self.ast;
+        let kids = self.kids(n);
+        let pb = self.cx.ptr_bits();
+        let t = match ast.kind(n) {
+            Kind::Cast => prim_named(&ast.text(kids[1]))?,
+            Kind::Paren => return self.int_type(*kids.last()?),
+            Kind::Binary => return self.int_type(kids[0]),
+            Kind::Literal => {
+                let t = ast.token(n).0;
+                let suffix = ["u128", "i128", "usize", "isize", "u64", "i64", "u32", "i32", "u16", "i16", "u8", "i8"]
+                    .into_iter()
+                    .find(|x| t.ends_with(x) && !t.starts_with("0x"))?;
+                prim_named(suffix)?
+            }
+            Kind::PathExpr => match self.res(kids[0])? {
+                Res::Partial(base, 1) => match **base {
+                    Res::PrimTy(name) => prim_named(name)?,
+                    _ => return None,
+                },
+                Res::Def(d) => self.cx.tcx.kind(self.cx.tcx.type_of(*d)?),
+                _ => return None,
+            },
+            Kind::MethodCall => {
+                let name = ast.token(*ast.children(kids[1]).first()?).0;
+                return match name {
+                    "ilog" | "ilog2" | "ilog10" | "count_ones" | "count_zeros" | "leading_zeros" | "trailing_zeros" => Some((32, false)),
+                    "len" => int_bits(TyKind::Uint(UintTy::Usize), pb),
+                    _ => self.int_type(kids[0]),
+                };
+            }
+            _ => return None,
+        };
+        int_bits(t, pb)
+    }
+
+    /// Whether `n` is a path to `u128::MAX` (which `i128` cannot hold).
+    fn is_u128_max(&self, n: NodeId) -> bool {
+        let ast = self.ast;
+        ast.kind(n) == Kind::PathExpr
+            && matches!(self.res(ast.children(n)[0]), Some(Res::Partial(b, 1)) if **b == Res::PrimTy("u128"))
+            && ast.text(n).trim().ends_with("MAX")
+    }
+
+    /// The length of a string or byte string: a literal, or a `const`
+    /// item whose value is one.
+    fn str_len(&self, n: NodeId) -> Option<usize> {
+        let ast = self.ast;
+        match ast.kind(n) {
+            Kind::Literal => crate::lower::parse_str(ast.token(n).0).map(|b| b.len()),
+            Kind::Paren => self.str_len(*self.kids(n).last()?),
+            Kind::PathExpr => {
+                let Res::Def(d) = self.res(ast.children(n)[0])?.clone() else { return None };
+                let def = &self.cx.r.defs[d.0 as usize];
+                if !matches!(def.kind, DefKind::Const | DefKind::AssocConst) {
+                    return None;
+                }
+                let a = &self.cx.crates[def.krate as usize].files[def.file as usize].ast;
+                let init = *a.children(def.node).last()?;
+                (a.kind(init) == Kind::Literal).then(|| crate::lower::parse_str(a.token(init).0).map(|b| b.len()))?
+            }
+            _ => None,
+        }
+    }
+
+    /// The integer methods constants use, on a receiver whose type
+    /// `int_type` knows (else `i128`'s), and `len` of a string.
+    fn method(&mut self, kids: &[NodeId]) -> Option<Value> {
+        let ast = self.ast;
+        let name = ast.token(*ast.children(kids[1]).first()?).0;
+        if name == "len" {
+            return self.str_len(kids[0]).map(|n| Value::Int(n as i128));
+        }
+        let (bits, signed) = self.int_type(kids[0]).unwrap_or((128, true));
+        let mask = if bits == 128 { u128::MAX } else { (1u128 << bits) - 1 };
+        // The receiver's bits, as an unsigned number of its width.
+        let x: u128 = if !signed && bits == 128 && self.is_u128_max(kids[0]) {
+            u128::MAX
+        } else {
+            (self.expr(kids[0])?.int()? as u128) & mask
+        };
+        let negative = signed && (x >> (bits - 1)) & 1 == 1;
+        let args: Vec<NodeId> = kids.get(2).map(|&a| self.kids(a)).unwrap_or_default();
+        let mut arg = |i: usize| -> Option<i128> { self.expr(*args.get(i)?)?.int() };
+        let back = |v: u128| Value::Int(wrap(v as i128, bits, signed));
+        Some(match name {
+            "ilog10" if x != 0 && !negative => Value::Int(x.ilog10() as i128),
+            "ilog2" if x != 0 && !negative => Value::Int(x.ilog2() as i128),
+            "ilog" if x != 0 && !negative => {
+                let b = arg(0)?;
+                if b < 2 {
+                    return None;
+                }
+                Value::Int(x.ilog(b as u128) as i128)
+            }
+            "count_ones" => Value::Int(x.count_ones() as i128),
+            "count_zeros" => Value::Int((bits - x.count_ones()) as i128),
+            "leading_zeros" => Value::Int((x.leading_zeros() - (128 - bits)) as i128),
+            "trailing_zeros" => Value::Int(x.trailing_zeros().min(bits) as i128),
+            "pow" => back(x.wrapping_pow(u32::try_from(arg(0)?).ok()?)),
+            "is_power_of_two" => Value::Bool(x.is_power_of_two()),
+            "next_power_of_two" => back(x.checked_next_power_of_two()?),
+            "wrapping_add" => back(x.wrapping_add(arg(0)? as u128)),
+            "wrapping_sub" => back(x.wrapping_sub(arg(0)? as u128)),
+            "wrapping_mul" => back(x.wrapping_mul(arg(0)? as u128)),
+            "min" | "max" => {
+                let (a, b) = (wrap(x as i128, bits, signed), arg(0)?);
+                Value::Int(if (name == "min") == (a < b) { a } else { b })
+            }
+            _ => return None,
+        })
     }
 
     /// `size_of::<T>()` and `align_of::<T>()`.

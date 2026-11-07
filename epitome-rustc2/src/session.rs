@@ -141,6 +141,10 @@ pub struct Session {
     /// Files read by `include!` (and later `include_str!`), which are
     /// sources of the compilation as much as module files are.
     pub included: Mutex<Vec<PathBuf>>,
+    /// The text ranges (start and end addresses) of the code
+    /// `format_args!` expands to, which resolves as if written in
+    /// `core::fmt` (as rustc reaches `fmt::rt` through lang items).
+    pub format_texts: Mutex<Vec<(usize, usize)>>,
 }
 
 /// Reading and parsing one file.
@@ -178,7 +182,13 @@ pub fn node_pos(ast: &Ast, id: NodeId) -> [u32; 2] {
 impl Session {
     pub fn new(options: Options) -> Self {
         let proc_macro_server = options.proc_macro_server.as_ref().map(crate::proc_macro::Server::new);
-        Session { sources: SourceMap::new(), options, proc_macro_server, included: Mutex::new(Vec::new()) }
+        Session {
+            sources: SourceMap::new(),
+            options,
+            proc_macro_server,
+            included: Mutex::new(Vec::new()),
+            format_texts: Mutex::new(Vec::new()),
+        }
     }
 
     pub(crate) fn threads(&self) -> usize {
@@ -189,6 +199,14 @@ impl Session {
     /// returns it for the life of the session.
     pub fn add_text(&self, name: &str, text: String) -> &str {
         &self.sources.add(Source::new(name, text)).text
+    }
+
+    /// Adds code `format_args!` expands to (see `format_texts`).
+    pub(crate) fn add_format_text(&self, text: String) -> &str {
+        let t = self.add_text("<format_args!>", text);
+        let start = t.as_ptr() as usize;
+        self.format_texts.lock().unwrap().push((start, start + t.len()));
+        t
     }
 
     /// Loads and parses crates, all at once.

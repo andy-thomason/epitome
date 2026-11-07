@@ -1624,6 +1624,8 @@ pub fn legalize_vectors(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
             // The parts of the result, or a replacement for it.
             let mut out_parts: Option<Vec<Value>> = None;
             let mut replace: Option<Value> = None;
+            // The new instructions are themselves to be legalised.
+            let mut again = false;
             match op {
                 Op::Binary { op, flags, fmf, lhs, rhs } if res_split.is_none() => {
                     // Masks, split as the comparisons that made them were.
@@ -2084,11 +2086,38 @@ pub fn legalize_vectors(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
                         }
                         _ => return Err("a cast from a vector narrower than a register to a split one".into()),
                     };
+                    let src_len = vec_info(cx, cx.value_ty(bld.f, src[0])).map_or(0, |v| v.0);
                     if !is_vec(cx, cx.value_ty(bld.f, src[0])) {
                         // Scalarised: lane for lane.
                         out_parts = Some(
                             src.iter().map(|&s| bld.op(Op::Cast { op, flags, fmf, value: s }, Some(te_ty))).collect(),
                         );
+                    } else if fe == 1 && src_len != cx.vector_bits() / te.max(8) {
+                        // A mask whose parts have other than the lanes a
+                        // register of the result has (`<4 x i1>` parts of a
+                        // `<16 x i32>` comparison, extended to `<16 x i8>`):
+                        // extended to the width its comparison had, where
+                        // the parts line up, then narrowed or widened a step
+                        // at a time; those casts are legalised in turn.
+                        let w = cx.vector_bits() / src_len;
+                        let wt = {
+                            let e = cx.m.types.int(w);
+                            vec_ty(cx, len, e)
+                        };
+                        let mut v = bld.op(Op::Cast { op, flags, fmf, value }, Some(wt));
+                        let mut at = w;
+                        while at != te {
+                            let next = if te < at { at / 2 } else { at * 2 };
+                            let nt = {
+                                let e = cx.m.types.int(next);
+                                vec_ty(cx, len, e)
+                            };
+                            let step = if te < at { CastOp::Trunc } else { op };
+                            v = bld.op(Op::Cast { op: step, flags: IntFlags::NONE, fmf, value: v }, Some(nt));
+                            at = next;
+                        }
+                        replace = Some(v);
+                        again = true;
                     } else if fe == te || fe == 1 {
                         // Lane for lane: each part on its own.
                         let pt = vec_ty(cx, cx.vector_bits() / te.max(8), te_ty);
@@ -2506,7 +2535,9 @@ pub fn legalize_vectors(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
             }
             let n = new.len();
             f.blocks[blk.index()].insts.splice(k..=k, new);
-            k += n;
+            if !again {
+                k += n;
+            }
         }
     }
     // Phis' incoming parts, now that every part is known.

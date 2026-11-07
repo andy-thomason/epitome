@@ -880,7 +880,8 @@ fn concat<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId, kids: &[NodeId]) -> 
         if t == Types::STRING {
             strings = true;
         } else if t == Types::UNKNOWN {
-            unknown = true;
+            // A replication of zero adds nothing (11.4.12.1).
+            unknown |= e.ex(x).kind != ExprKind::Replicate(0);
         } else if !e.d.types.is_integral(t) {
             if e.d.types.is_unpacked_array(t) {
                 unknown = true;

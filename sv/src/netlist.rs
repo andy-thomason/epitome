@@ -1,37 +1,45 @@
-//! The compiled netlist (docs/design/sv.md sections 8.1 and 8.3), first
-//! cut: combinational specialisations, two-state, every value in 32-bit
-//! lanes.
+//! The compiled netlist (docs/design/sv.md sections 8.1 and 8.3): two-state,
+//! values computed in 32-bit lanes and stored as narrow as they fit.
 //!
-//! Each specialisation becomes one function, `sv_eval_<n>(ptr %state)`,
-//! whose argument holds the state of a group of [`GROUP`] instances: for
-//! each variable or net, its 32-bit pieces (low piece first), each piece
-//! [`CHUNKS`] registers of [`LANES`] lanes. The function is a loop over the
-//! group's registers, so its code grows with the specialisation's source,
-//! not with the number of instances. A child instance's state is part of
-//! its parent's, and the parent calls the child's function once for the
-//! whole group, between two loops: one that works out the child's inputs,
-//! and one that reads its outputs.
+//! Each specialisation becomes one function, `sv_eval_<n>(ptr %state, ptr
+//! %port...)`, over a group of [`GROUP`] instances: for each variable or
+//! net, its 32-bit pieces (low piece first), each piece [`CHUNKS`]
+//! registers of [`LANES`] lanes. The function is a loop over the group's
+//! registers, so its code grows with the specialisation's source, not with
+//! the number of instances. A child instance's state is part of its
+//! parent's, and the parent calls the child's function once for the whole
+//! group, between two loops: one that works out the child's inputs, and
+//! one that reads its outputs.
+//!
+//! A specialisation with registers below it also has `_ff`, which runs its
+//! clocked processes where an edge came (each lane's edge a mask) and
+//! makes the registers' next values, and `_commit`; the top's `_step`
+//! settles, samples, commits and settles again (see [`Phase`]).
+//!
+//! Functions are written out where they are called. Fixed-size unpacked
+//! arrays are laid out as packed ones with the same bounds would be.
 //!
 //! The output is Epitome IR as text, `<16 x i32>` vectors and `<16 x i1>`
 //! masks, for `epitome-opt` and `epitome-codegen`.
 //!
-//! Not yet: clocked processes, four-state values, unpacked arrays, function
-//! calls, hierarchical references, gates, and loops whose trip count is not
-//! a constant. Generate loops arrive unrolled from the elaborator and stay
-//! unrolled; procedural `for` loops are unrolled here. Immediate assertions
-//! and `initial` blocks that only assert are dropped.
+//! Not yet: four-state values, tasks, hierarchical references, gates,
+//! latches, clocks made by the design's own registers (an edge is seen at
+//! the next evaluation), declaration initialisers of registers, and loops
+//! whose trip count is not a constant. Small generate loops are written
+//! out, others rolled back into loops; procedural `for` loops are unrolled.
+//! Immediate assertions and `initial` blocks that only assert are dropped.
 
 use std::cell::{Cell, RefCell};
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::fmt::Write;
 
 use crate::bdd::{Bdd, FALSE, Manager, TRUE, TooBig};
-use crate::design::types::{Type, TypeId};
+use crate::design::types::{Type, TypeId, UDim};
 use crate::hash::FxMap;
 use crate::design::value::{Bits, Logic};
 use crate::design::{
-    AssignKind, BinOp, CaseKind, Const, Design, Dir, DriverId, ExprId, ExprKind, InstId, Item, Lifetime, ObjId, ObjKind,
-    PartKind, ProcId, ProcKind, ScopeId, ScopeKind, SpecId, StmtId, StmtKind, UnOp, ops,
+    AssignKind, BinOp, Binding, CaseKind, Const, Design, Dir, DriverId, ExprId, ExprKind, InstId, Item, Lifetime, ObjId,
+    ObjKind, PartKind, ProcId, ProcKind, ScopeId, ScopeKind, SpecId, StmtId, StmtKind, SubId, SubKind, UnOp, ops,
 };
 
 /// Instances in one register: 32-bit lanes of a 512-bit vector.
@@ -172,6 +180,64 @@ impl Netlist {
     }
 }
 
+/// A type's width in the netlist: an integral type's, or a fixed-size
+/// unpacked array's, whose elements are side by side as those of a packed
+/// array with the same bounds would be; 0 for other types.
+fn tw(tys: &crate::design::types::Types, t: TypeId) -> u32 {
+    match tys.get(t) {
+        Type::Unpacked { elem, dim: UDim::Range(l, r) } => tw(tys, *elem) * ((l - r).unsigned_abs() as u32 + 1),
+        _ if tys.is_integral(t) => tys.width(t),
+        _ => 0,
+    }
+}
+
+/// The bounds of a type's first dimension, unpacked or packed.
+fn range_of(tys: &crate::design::types::Types, t: TypeId) -> (i64, i64) {
+    match tys.get(t) {
+        Type::Unpacked { dim: UDim::Range(l, r), .. } => (*l, *r),
+        _ => tys.packed_range(t).unwrap_or((tw(tys, t) as i64 - 1, 0)),
+    }
+}
+
+/// The width of one element of a type's first dimension.
+fn elem_bits(tys: &crate::design::types::Types, t: TypeId) -> u32 {
+    match tys.get(t) {
+        Type::Unpacked { elem, .. } => tw(tys, *elem),
+        _ => tys.elem_width(t),
+    }
+}
+
+/// Where elements `lo..=hi` of `t` start, in elements from the least
+/// significant end, if they are in range.
+fn lsb_off(tys: &crate::design::types::Types, t: TypeId, lo: i64, hi: i64) -> Option<i64> {
+    let (l, r) = range_of(tys, t);
+    if lo < l.min(r) || hi > l.max(r) {
+        return None;
+    }
+    Some(if l >= r { lo - r } else { r - hi })
+}
+
+/// Where a select from `lo` to `hi` starts, in elements from the least
+/// significant end, in range or out.
+fn sel_start(tys: &crate::design::types::Types, t: TypeId, lo: i64, hi: i64) -> i64 {
+    let (l, r) = range_of(tys, t);
+    let (lo, hi) = (lo.min(hi), lo.max(hi));
+    if l >= r { lo - r } else { r - hi }
+}
+
+/// A constant's bits in `w` bits: an unpacked one's elements side by side,
+/// the first the most significant.
+fn const_bits(c: &Const, w: u32) -> Option<Bits> {
+    match c {
+        Const::Aggregate(items) if !items.is_empty() && w % items.len() as u32 == 0 => {
+            let ew = w / items.len() as u32;
+            let parts: Option<Vec<Bits>> = items.iter().map(|i| const_bits(i, ew)).collect();
+            Some(Bits::concat(&parts?))
+        }
+        _ => ops::bits_of(c).map(|b| b.resize(w, b.signed())),
+    }
+}
+
 fn pieces(w: u32) -> usize {
     (w as usize).div_ceil(32).max(1)
 }
@@ -204,6 +270,26 @@ pub fn compile(d: &Design, top: InstId) -> Result<Netlist, String> {
     compile_with(d, top, &Options::default())
 }
 
+/// The functions of a specialisation with registers besides its settling
+/// one.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Phase {
+    /// Its clocked processes on the settled values, where their edges came:
+    /// the registers' next values.
+    Ff,
+    /// The next values become the registers'.
+    Commit,
+}
+
+impl Phase {
+    fn suffix(self) -> &'static str {
+        match self {
+            Phase::Ff => "_ff",
+            Phase::Commit => "_commit",
+        }
+    }
+}
+
 pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, String> {
     let mut n = Lowering {
         top: Some(d.instance(top).spec),
@@ -216,6 +302,8 @@ pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, 
         dropped: Cell::new(0),
         asserts: RefCell::default(),
         loops: Vec::new(),
+        sym_orders: RefCell::default(),
+        sub_locals: RefCell::default(),
         loop_vars: RefCell::default(),
     };
     let spec = d.instance(top).spec;
@@ -230,12 +318,13 @@ pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, 
             name: d.name(p.name).to_string(),
             dir: p.dir,
             offset: lay.objs[&o] as usize,
-            width: d.types.width(d.object(o).ty),
+            width: tw(&d.types, d.object(o).ty),
             lane: lay.lane(o),
         });
     }
     let dropped = n.dropped.get() + n.asserts.borrow().len();
-    Ok(Netlist { ir: n.ir, entry: fn_name(spec), size: lay.size as usize, ports, dropped })
+    let entry = if lay.clocked { format!("{}_step", fn_name(spec)) } else { fn_name(spec) };
+    Ok(Netlist { ir: n.ir, entry, size: lay.size as usize, ports, dropped })
 }
 
 fn fn_name(s: SpecId) -> String {
@@ -264,6 +353,23 @@ struct Layout {
     code: Vec<Node>,
     /// What it is proved to compute, if that replaces its own logic.
     known: Option<Known>,
+    /// Its clocked processes (`always_ff`, and `always` on edges).
+    ff: Vec<ProcId>,
+    /// What they assign with nonblocking assignments: its registers, each
+    /// with a slot for its next value.
+    regs: Vec<ObjId>,
+    shadow: HashMap<ObjId, u64>,
+    /// For each edge a clocked process waits on, the slot that holds the
+    /// value its expression had at the last evaluation.
+    prev: HashMap<ExprId, u64>,
+    /// It or a specialisation below it has registers.
+    clocked: bool,
+    /// Where its `_ff` function notes whether an edge came.
+    fired: u64,
+    /// The values only continuous assignments write, all in one loop:
+    /// each starts there from zero, not from its last value, as every bit
+    /// it has is one they drive or zero.
+    fresh: HashSet<ObjId>,
 }
 
 /// What a parent passes for a child's port.
@@ -298,6 +404,13 @@ impl Layout {
             kids: HashMap::new(),
             code: Vec::new(),
             known: None,
+            ff: Vec::new(),
+            regs: Vec::new(),
+            shadow: HashMap::new(),
+            prev: HashMap::new(),
+            clocked: false,
+            fired: 0,
+            fresh: HashSet::new(),
         }
     }
 
@@ -316,16 +429,23 @@ impl Layout {
 }
 
 /// A specialisation proved, for every value of its one input, to give a
-/// count of the input's trailing or leading zeros on each output (with a
-/// constant where the input is zero), or whether it is zero, or a
-/// constant. It is then that count, `llvm.ctlz` on lanes.
+/// count of the input's trailing or leading zeros, or of its ones, on each
+/// output (with a constant where the input is zero), or whether it is
+/// zero, or a constant. It is then that count: `llvm.ctlz` on lanes, or
+/// the ones counted a piece at a time.
 #[derive(Clone, Debug)]
 struct Known {
     input: ObjId,
     width: u32,
-    /// Zeros counted from the top rather than the bottom.
-    leading: bool,
+    count: Count,
     outs: Vec<(ObjId, Out)>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Count {
+    Trailing,
+    Leading,
+    Ones,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -395,6 +515,11 @@ struct Rolled {
 
 /// Fewest iterations worth a loop.
 const ROLL_MIN: usize = 4;
+/// Most expression nodes, over all iterations, of a run of iterations
+/// left unrolled: each iteration of a rolled loop is a pass over the
+/// group's state, which costs more than a small body written out (a loop
+/// that moves one bit an iteration, as a bit reversal does).
+const UNROLL_MAX: usize = 1024;
 
 struct Lowering<'d, 'a> {
     opts: Options,
@@ -411,6 +536,10 @@ struct Lowering<'d, 'a> {
     /// Immediate assertions left out.
     asserts: RefCell<HashSet<StmtId>>,
     loops: Vec<Rolled>,
+    /// Specialisations' code in order, kept for proving what their
+    /// parents compute after a layout of their own has dropped it.
+    sym_orders: RefCell<HashMap<SpecId, Vec<Node>>>,
+    sub_locals: RefCell<HashMap<SubId, Vec<ObjId>>>,
     /// The parameters that step in the loop being lowered: not constants
     /// there.
     loop_vars: RefCell<HashSet<ObjId>>,
@@ -427,13 +556,47 @@ impl<'d, 'a> Lowering<'d, 'a> {
         self.collect(d.spec(spec).scope, &mut objs, &mut code)?;
         for &o in &objs {
             let ob = d.object(o);
-            if !d.types.is_integral(ob.ty) {
-                return Err(format!("{}: only integral values are supported yet", d.name(ob.name)));
+            if tw(&d.types, ob.ty) == 0 {
+                return Err(format!("{}: only integral values and fixed-size arrays of them are supported yet", d.name(ob.name)));
+            }
+            // The state starts at zero: a variable that starts at anything
+            // else would silently not.
+            if ob.kind == ObjKind::Variable
+                && let Some(e) = ob.init
+                && !self.fold(e).and_then(|c| const_bits(&c, tw(&d.types, ob.ty))).is_some_and(|b| b.known_or_zero().is_zero())
+            {
+                return Err(format!("{}: initial values of variables are not supported yet", d.name(ob.name)));
             }
         }
         let mut lay = Layout::new();
         lay.statics = objs.iter().copied().collect();
+        // Clocked processes are not in the order of the rest: they run
+        // after it, on what it has worked out.
+        let (ff, code): (Vec<Node>, Vec<Node>) =
+            code.into_iter().partition(|n| matches!(*n, Node::Proc(p) if self.clocked(p).is_some()));
+        lay.ff = ff.into_iter().map(|n| if let Node::Proc(p) = n { p } else { unreachable!() }).collect();
+        let mut ff_reads = Vec::new();
+        for &p in &lay.ff {
+            let (terms, body) = self.clocked(p).unwrap();
+            let mut w = Vec::new();
+            self.nba_writes(body, &mut w);
+            for (o, _, _) in w {
+                if lay.statics.contains(&o) && !lay.regs.contains(&o) {
+                    lay.regs.push(o);
+                }
+            }
+            self.stmt_access(body, &mut ff_reads, &mut Vec::new(), &mut Vec::new());
+            for t in terms {
+                self.reads(t.expr, &mut ff_reads);
+                if let Some(c) = t.iff {
+                    self.reads(c, &mut ff_reads);
+                }
+            }
+        }
+        lay.regs.sort_unstable_by_key(|o| o.0);
+        let ff_reads: HashSet<ObjId> = ff_reads.into_iter().map(|t| t.0).collect();
         lay.elems = self.element_only(&objs, &code);
+        lay.elems.retain(|o, _| !lay.regs.contains(o) && !ff_reads.contains(o));
         for node in code {
             if let Node::In(i) = node {
                 self.layout(d.instance(i).spec)?;
@@ -443,6 +606,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 lay.code.push(node);
             }
         }
+        lay.clocked = !lay.ff.is_empty() || lay.code.iter().any(|n| matches!(*n, Node::Call(i) if self.layouts[&d.instance(i).spec].clocked));
         self.layouts.insert(spec, lay);
         let planes = self.opts.bit_planes;
         let below_top = self.top != Some(spec);
@@ -450,7 +614,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let port_lanes = |lay: &mut Layout| {
             for (k, p) in d.spec(spec).ports.iter().enumerate() {
                 if let Some(o) = p.object {
-                    let lane = Lane::of(d.types.width(d.object(o).ty), planes);
+                    let lane = Lane::of(tw(&d.types, d.object(o).ty), planes);
                     if lane != Lane::W32 {
                         lay.lanes.insert(o, lane);
                     }
@@ -470,7 +634,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 let o = p.object.expect("recognised specialisations have plain ports");
                 lay.statics.insert(o);
                 if !below_top {
-                    let w = d.types.width(d.object(o).ty);
+                    let w = tw(&d.types, d.object(o).ty);
                     lay.place(o, w, Lane::of(w, planes));
                 }
             }
@@ -501,19 +665,47 @@ impl<'d, 'a> Lowering<'d, 'a> {
         }
         let aliased: HashSet<ObjId> = args.iter().flat_map(|a| a.1.iter().flatten().copied()).collect();
         self.layouts.insert(spec, lay);
-        let local = self.loop_locals(spec)?;
+        let mut local = self.loop_locals(spec)?;
+        local.retain(|o| !ff_reads.contains(o));
+        let fresh = self.fresh_values(spec)?;
         let mut lay = self.layouts.remove(&spec).unwrap();
         for o in objs {
             if local.contains(&o) && !aliased.contains(&o) || lay.port_ix.contains_key(&o) {
                 continue;
             }
-            let w = d.types.width(d.object(o).ty);
+            let w = tw(&d.types, d.object(o).ty);
             match lay.elems.get(&o) {
                 Some(&e) => {
                     lay.objs.insert(o, lay.size);
                     lay.size = (lay.size + e.n as u64 * e.stride()).next_multiple_of(REG);
                 }
                 None => lay.place(o, w, Lane::of(w, planes)),
+            }
+        }
+        lay.fresh = fresh;
+        // The registers' next values, and the edges' last values. Only a
+        // port below the top needs a slot for its next value: its storage
+        // may be its parent's, read by the parent's clocked processes,
+        // which run after its own. The rest are written in place.
+        for o in lay.regs.clone() {
+            if !(below_top && d.object(o).dir.is_some()) {
+                continue;
+            }
+            let w = tw(&d.types, d.object(o).ty);
+            let lane = lay.lane(o);
+            lay.shadow.insert(o, lay.size);
+            lay.size = (lay.size + lane.bytes(w)).next_multiple_of(REG);
+        }
+        if !lay.ff.is_empty() {
+            lay.fired = lay.size;
+            lay.size += REG;
+        }
+        for p in lay.ff.clone() {
+            for t in self.clocked(p).unwrap().0 {
+                if !lay.prev.contains_key(&t.expr) {
+                    lay.prev.insert(t.expr, lay.size);
+                    lay.size = (lay.size + Lane::of(1, planes).bytes(1)).next_multiple_of(REG);
+                }
             }
         }
         // Slots for the ports not connected to a value whole.
@@ -525,7 +717,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     Some(o) => Arg::Alias(o),
                     None => {
                         let po = p.object.ok_or("interface ports are not supported yet")?;
-                        let w = d.types.width(d.object(po).ty);
+                        let w = tw(&d.types, d.object(po).ty);
                         let at = lay.size;
                         lay.size = (lay.size + Lane::of(w, planes).bytes(w)).next_multiple_of(REG);
                         Arg::Slot(at)
@@ -551,8 +743,8 @@ impl<'d, 'a> Lowering<'d, 'a> {
     fn alias_target(&self, lay: &Layout, e: ExprId, port: ObjId) -> Option<ObjId> {
         let d = self.d;
         let mut x = d.expr(e);
-        let w = d.types.width(d.object(port).ty);
-        while matches!(x.kind, ExprKind::Convert) && d.types.width(x.ty) == w && d.types.is_integral(d.expr(x.args[0]).ty) {
+        let w = tw(&d.types, d.object(port).ty);
+        while matches!(x.kind, ExprKind::Convert) && tw(&d.types, x.ty) == w && d.types.is_integral(d.expr(x.args[0]).ty) {
             x = d.expr(x.args[0]);
         }
         match x.kind {
@@ -560,7 +752,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 if matches!(d.object(o).kind, ObjKind::Variable | ObjKind::Net(_))
                     && lay.statics.contains(&o)
                     && !lay.elems.contains_key(&o)
-                    && d.types.width(d.object(o).ty) == w =>
+                    && tw(&d.types, d.object(o).ty) == w =>
             {
                 Some(o)
             }
@@ -623,6 +815,36 @@ impl<'d, 'a> Lowering<'d, 'a> {
             .collect())
     }
 
+    /// The values written only by continuous assignments, all of them in
+    /// one loop over the registers (see `Layout::fresh`).
+    fn fresh_values(&self, spec: SpecId) -> Result<HashSet<ObjId>, String> {
+        let lay = &self.layouts[&spec];
+        let mut seg = 0usize;
+        // For each value written: the loop its writers are in, if one, and
+        // whether they are all continuous assignments.
+        let mut writers: HashMap<ObjId, (Option<usize>, bool)> = HashMap::new();
+        for node in self.order(spec)? {
+            match node {
+                Node::Loop(_) => seg += 2,
+                Node::Call(_) => seg += 1,
+                _ => {}
+            }
+            let (_, w) = self.access(spec, node)?;
+            for (o, _, _) in w {
+                let e = writers.entry(o).or_insert((Some(seg), true));
+                if e.0 != Some(seg) {
+                    e.0 = None;
+                }
+                e.1 &= matches!(node, Node::Driver(_));
+            }
+        }
+        Ok(writers
+            .into_iter()
+            .filter(|(o, (one, drivers))| one.is_some() && *drivers && lay.statics.contains(o) && !lay.elems.contains_key(o) && !lay.regs.contains(o))
+            .map(|(o, _)| o)
+            .collect())
+    }
+
     /// The static values and the code of a scope and the generate blocks
     /// in it.
     fn collect(&mut self, scope: ScopeId, objs: &mut Vec<ObjId>, code: &mut Vec<Node>) -> Result<(), String> {
@@ -642,6 +864,12 @@ impl<'d, 'a> Lowering<'d, 'a> {
                             self.process_statics(pr.body, objs);
                             code.push(Node::Proc(p));
                         }
+                        // Clocked processes, set apart by `layout`.
+                        ProcKind::AlwaysFf | ProcKind::Always if self.clocked(p).is_some() => {
+                            self.process_statics(pr.body, objs);
+                            code.push(Node::Proc(p));
+                        }
+                        ProcKind::AlwaysFf => return Err("an always_ff that does not wait on edges is not supported yet".into()),
                         ProcKind::Initial if self.only_asserts(pr.body) => self.dropped.set(self.dropped.get() + 1),
                         k => return Err(format!("{k:?} processes are not supported yet")),
                     }
@@ -700,12 +928,12 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let mut out = HashMap::new();
         for &o in objs {
             let ob = d.object(o);
-            let w = d.types.width(ob.ty);
+            let w = tw(&d.types, ob.ty);
             if let (None, Some(Some(ew))) = (ob.dir, uses.get(&o))
                 && *ew <= 32
                 && w % ew == 0
                 && w / ew >= 2
-                && d.types.packed_range(ob.ty).is_some()
+                && (d.types.packed_range(ob.ty).is_some() || d.types.is_unpacked_array(ob.ty))
             {
                 out.insert(o, Elems { ew: *ew, n: w / ew, bits: *ew == 1 && self.opts.bit_planes });
             }
@@ -728,7 +956,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
             ExprKind::Object(o) => note(*o, None),
             ExprKind::Index if matches!(d.expr(x.args[0]).kind, ExprKind::Object(_)) => {
                 let ExprKind::Object(o) = d.expr(x.args[0]).kind else { unreachable!() };
-                note(o, Some(d.types.width(x.ty)));
+                note(o, Some(tw(&d.types, x.ty)));
                 self.expr_uses(x.args[1], uses);
             }
             _ => {
@@ -843,7 +1071,13 @@ impl<'d, 'a> Lowering<'d, 'a> {
             while end < iters.len() && shapes[at].is_some() && shapes[end] == shapes[at] {
                 end += 1;
             }
-            let rolled = if end - at >= ROLL_MIN { self.roll(&iters[at..end]) } else { None };
+            let big = || {
+                let (mut drivers, mut params) = (Vec::new(), Vec::new());
+                self.gather(iters[at], &mut drivers, &mut params);
+                let body: usize = drivers.iter().map(|dr| self.expr_size(d.drivers[dr.0 as usize].lhs) + self.expr_size(d.drivers[dr.0 as usize].rhs)).sum();
+                body * (end - at) > UNROLL_MAX
+            };
+            let rolled = if end - at >= ROLL_MIN && big() { self.roll(&iters[at..end]) } else { None };
             match rolled {
                 Some(r) => {
                     code.push(Node::Loop(self.loops.len()));
@@ -979,6 +1213,53 @@ impl<'d, 'a> Lowering<'d, 'a> {
         Some(Rolled { count: n as u32, body: drivers[0].clone(), steps, all: drivers.concat(), in_range })
     }
 
+    /// A function's variables, its formals among them: those declared in
+    /// its scope and the blocks within it, not its result.
+    fn sub_locals(&self, sub: SubId) -> Vec<ObjId> {
+        if let Some(v) = self.sub_locals.borrow().get(&sub) {
+            return v.clone();
+        }
+        let d = self.d;
+        let s = &d.subroutines[sub.0 as usize];
+        let mut out: Vec<ObjId> = s.args.clone();
+        let mut scopes = vec![s.scope];
+        let mut stmts = s.body.clone();
+        while let Some(st) = stmts.pop() {
+            match &d.stmt(st).kind {
+                StmtKind::Block { scope, stmts: b, .. } => {
+                    scopes.extend(*scope);
+                    stmts.extend(b);
+                }
+                StmtKind::For { scope, init, step, body, .. } => {
+                    scopes.extend(*scope);
+                    stmts.extend(init.iter().chain(step).chain([body]));
+                }
+                StmtKind::If { then, else_, .. } => stmts.extend(std::iter::once(*then).chain(*else_)),
+                StmtKind::Case { items, default, .. } => stmts.extend(items.iter().map(|i| i.1).chain(*default)),
+                _ => {}
+            }
+        }
+        let result = d.scope(s.scope).names.get(&s.name).copied();
+        for sc in scopes {
+            for item in &d.scope(sc).items {
+                if let Item::Object(o) = *item
+                    && d.object(o).kind == ObjKind::Variable
+                    && !out.contains(&o)
+                    && result != Some(Binding::Object(o))
+                {
+                    out.push(o);
+                }
+            }
+        }
+        self.sub_locals.borrow_mut().insert(sub, out.clone());
+        out
+    }
+
+    /// How many nodes an expression has.
+    fn expr_size(&self, e: ExprId) -> usize {
+        1 + self.d.expr(e).args.iter().map(|&a| self.expr_size(a)).sum::<usize>()
+    }
+
     /// The pairs of corresponding nodes of two expressions of the same shape.
     fn pair_exprs(&self, a: ExprId, b: ExprId, out: &mut Vec<(ExprId, ExprId)>) {
         out.push((a, b));
@@ -994,7 +1275,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let x = d.expr(e);
         let bt = d.expr(x.args[0]).ty;
         let Some(k) = self.fold(x.args[1]).and_then(|c| c.to_i64()) else { return false };
-        let (l, r) = d.types.packed_range(bt).unwrap_or((d.types.width(bt) as i64 - 1, 0));
+        let (l, r) = range_of(&d.types, bt);
         k >= l.min(r) && k <= l.max(r)
     }
 
@@ -1012,6 +1293,46 @@ impl<'d, 'a> Lowering<'d, 'a> {
             (k, l) => k == l,
         };
         same && x.args.iter().zip(&y.args).all(|(&p, &q)| self.same_expr(p, q, map))
+    }
+
+    /// A process that runs on edges: what it waits on, and its body.
+    fn clocked(&self, p: ProcId) -> Option<(&'d [crate::design::EventTerm], StmtId)> {
+        let d = self.d;
+        let pr = &d.processes[p.0 as usize];
+        if !matches!(pr.kind, ProcKind::AlwaysFf | ProcKind::Always) {
+            return None;
+        }
+        match &d.stmt(pr.body).kind {
+            StmtKind::Timed(crate::design::Timing::Event(terms), body)
+                if !terms.is_empty() && terms.iter().all(|t| matches!(t.edge, crate::design::Edge::Pos | crate::design::Edge::Neg)) =>
+            {
+                Some((terms.as_slice(), *body))
+            }
+            _ => None,
+        }
+    }
+
+    /// What a statement assigns with nonblocking assignments.
+    fn nba_writes(&self, s: StmtId, w: &mut Vec<(ObjId, u32, u32)>) {
+        let d = self.d;
+        match &d.stmt(s).kind {
+            StmtKind::Assign { kind: AssignKind::NonBlocking, lhs, .. } => self.writes(*lhs, w, &mut Vec::new()),
+            StmtKind::Block { stmts, .. } => stmts.iter().for_each(|&s| self.nba_writes(s, w)),
+            StmtKind::If { then, else_, .. } => {
+                self.nba_writes(*then, w);
+                if let Some(e) = else_ {
+                    self.nba_writes(*e, w);
+                }
+            }
+            StmtKind::Case { items, default, .. } => {
+                items.iter().for_each(|i| self.nba_writes(i.1, w));
+                if let Some(e) = default {
+                    self.nba_writes(*e, w);
+                }
+            }
+            StmtKind::For { body, .. } => self.nba_writes(*body, w),
+            _ => {}
+        }
     }
 
     /// Whether a statement does nothing but check assertions, so leaving
@@ -1057,6 +1378,24 @@ impl<'d, 'a> Lowering<'d, 'a> {
         }
         let text = f.finish();
         let _ = writeln!(self.ir, "; {}\n{text}", self.d.name(self.d.spec(spec).name));
+        if self.layouts[&spec].clocked {
+            for phase in [Phase::Ff, Phase::Commit] {
+                let mut f = Func::new(self, spec);
+                let any = f.phase(phase)?;
+                let text = if phase == Phase::Ff { f.finish_with(&any) } else { f.finish() };
+                let _ = writeln!(self.ir, "{text}");
+            }
+            if self.top == Some(spec) {
+                let n = fn_name(spec);
+                let _ = writeln!(
+                    self.ir,
+                    "; a step: settle, sample the registers, and where an edge came, commit\n; them and settle again\n\
+                     define void @{n}_step(ptr %s) {{\nentry:\n  call void @{n}(ptr %s)\n  %fired = call i1 @{n}_ff(ptr %s)\n  \
+                     br i1 %fired, label %commit, label %done\ncommit:\n  call void @{n}_commit(ptr %s)\n  call void @{n}(ptr %s)\n  \
+                     br label %done\ndone:\n  ret void\n}}\n"
+                );
+            }
+        }
         Ok(())
     }
 
@@ -1129,12 +1468,18 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let lay = &self.layouts[&spec];
         let mut r = Vec::new();
         let mut w = Vec::new();
-        let whole = |o: ObjId| (o, 0, d.types.width(d.object(o).ty).max(1));
+        let whole = |o: ObjId| (o, 0, tw(&d.types, d.object(o).ty).max(1));
         match node {
             Node::Proc(p) => {
+                // The bits it reads and writes, as its statements select
+                // them, so that processes that each work out some fields
+                // of one struct are ordered by those fields.
                 let pr = &d.processes[p.0 as usize];
-                r.extend(pr.reads.iter().filter(|o| lay.statics.contains(o)).map(|&o| whole(o)));
-                w.extend(pr.writes.iter().filter(|o| lay.statics.contains(o)).map(|&o| whole(o)));
+                let (mut pr_r, mut pr_w) = (Vec::new(), Vec::new());
+                self.stmt_access(pr.body, &mut pr_r, &mut pr_w, &mut Vec::new());
+                r.extend(pr_r.into_iter().filter(|t| lay.statics.contains(&t.0)));
+                w.extend(pr_w.into_iter().filter(|t| lay.statics.contains(&t.0)));
+                let _ = whole;
             }
             Node::Driver(dr) => {
                 let drv = &d.drivers[dr.0 as usize];
@@ -1166,6 +1511,84 @@ impl<'d, 'a> Lowering<'d, 'a> {
         Ok((r, w))
     }
 
+    /// What a statement reads and writes, with the functions it calls
+    /// (each once: `seen`).
+    fn stmt_access(&self, s: StmtId, r: &mut Vec<(ObjId, u32, u32)>, w: &mut Vec<(ObjId, u32, u32)>, seen: &mut Vec<SubId>) {
+        let d = self.d;
+        let e = |e: ExprId, r: &mut Vec<(ObjId, u32, u32)>, w: &mut Vec<(ObjId, u32, u32)>, seen: &mut Vec<SubId>| {
+            self.reads(e, r);
+            self.call_access(e, r, w, seen);
+        };
+        match &d.stmt(s).kind {
+            StmtKind::Block { stmts, .. } => stmts.iter().for_each(|&s| self.stmt_access(s, r, w, seen)),
+            StmtKind::Assign { kind, lhs, rhs, .. } => {
+                e(*rhs, r, w, seen);
+                if matches!(kind, AssignKind::Compound(_)) {
+                    self.reads(*lhs, r);
+                }
+                self.writes(*lhs, w, r);
+            }
+            StmtKind::Expr(x) => {
+                e(*x, r, w, seen);
+                if let ExprKind::Unary(UnOp::PreInc | UnOp::PostInc | UnOp::PreDec | UnOp::PostDec) = d.expr(*x).kind {
+                    self.writes(d.expr(*x).args[0], w, r);
+                }
+            }
+            StmtKind::If { cond, then, else_, .. } => {
+                e(*cond, r, w, seen);
+                self.stmt_access(*then, r, w, seen);
+                if let Some(x) = else_ {
+                    self.stmt_access(*x, r, w, seen);
+                }
+            }
+            StmtKind::Case { expr, items, default, .. } => {
+                e(*expr, r, w, seen);
+                for (labels, body) in items {
+                    labels.iter().for_each(|&l| e(l, r, w, seen));
+                    self.stmt_access(*body, r, w, seen);
+                }
+                if let Some(x) = default {
+                    self.stmt_access(*x, r, w, seen);
+                }
+            }
+            StmtKind::For { init, cond, step, body, .. } => {
+                init.iter().chain(step).for_each(|&s| self.stmt_access(s, r, w, seen));
+                if let Some(c) = cond {
+                    e(*c, r, w, seen);
+                }
+                self.stmt_access(*body, r, w, seen);
+            }
+            StmtKind::Return(Some(x)) => e(*x, r, w, seen),
+            _ => {}
+        }
+    }
+
+    /// What the functions an expression calls read and write, and the
+    /// targets of their output arguments.
+    fn call_access(&self, e: ExprId, r: &mut Vec<(ObjId, u32, u32)>, w: &mut Vec<(ObjId, u32, u32)>, seen: &mut Vec<SubId>) {
+        let d = self.d;
+        let x = d.expr(e);
+        if let ExprKind::Call(sub) = x.kind {
+            let s = &d.subroutines[sub.0 as usize];
+            for (i, &f) in s.args.iter().enumerate() {
+                if d.object(f).dir == Some(Dir::Output)
+                    && let Some(&a) = x.args.get(i)
+                {
+                    self.writes(a, w, r);
+                }
+            }
+            if !seen.contains(&sub) {
+                seen.push(sub);
+                for &st in &s.body {
+                    self.stmt_access(st, r, w, seen);
+                }
+            }
+        }
+        for &a in &x.args {
+            self.call_access(a, r, w, seen);
+        }
+    }
+
     fn port_dir(&self, i: InstId, name: crate::design::Sym) -> Option<Dir> {
         self.d.spec(self.d.instance(i).spec).ports.iter().find(|p| p.name == name).map(|p| p.dir)
     }
@@ -1175,7 +1598,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         match &x.kind {
             ExprKind::Object(o) => {
                 if matches!(self.d.object(*o).kind, ObjKind::Variable | ObjKind::Net(_)) {
-                    out.push((*o, 0, self.d.types.width(self.d.object(*o).ty).max(1)));
+                    out.push((*o, 0, tw(&self.d.types, self.d.object(*o).ty).max(1)));
                 }
             }
             ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_) => {
@@ -1227,11 +1650,11 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let x = d.expr(e);
         match &x.kind {
             ExprKind::Object(o) => {
-                matches!(d.object(*o).kind, ObjKind::Variable | ObjKind::Net(_)).then(|| (*o, 0, d.types.width(d.object(*o).ty).max(1)))
+                matches!(d.object(*o).kind, ObjKind::Variable | ObjKind::Net(_)).then(|| (*o, 0, tw(&d.types, d.object(*o).ty).max(1)))
             }
             ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_) => {
                 let (o, lo, hi) = self.span(x.args[0])?;
-                let whole = (o, 0, d.types.width(d.object(o).ty).max(1));
+                let whole = (o, 0, tw(&d.types, d.object(o).ty).max(1));
                 match self.const_select(e) {
                     Some(Some((off, w))) if off >= 0 && (lo as i64 + off + w as i64) <= hi as i64 => {
                         let lo = lo + off as u32;
@@ -1253,12 +1676,15 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let bt = d.expr(x.args[0]).ty;
         match &x.kind {
             ExprKind::Index => {
-                if !matches!(tys.get(bt), Type::Vector { .. } | Type::PackedArray { .. } | Type::Struct { packed: true, .. } | Type::Enum { .. }) {
+                if !matches!(
+                    tys.get(bt),
+                    Type::Vector { .. } | Type::PackedArray { .. } | Type::Struct { packed: true, .. } | Type::Enum { .. } | Type::Unpacked { .. }
+                ) {
                     return None;
                 }
                 let k = self.fold(x.args[1])?.to_i64()?;
-                let ew = tys.width(x.ty).max(1);
-                Some(ops::lsb_offset(tys, bt, k, k).map(|off| (off * ew as i64, ew)))
+                let ew = tw(tys, x.ty).max(1);
+                Some(lsb_off(tys, bt, k, k).map(|off| (off * ew as i64, ew)))
             }
             ExprKind::Part { kind, width } => {
                 let a = self.fold(x.args[1])?.to_i64()?;
@@ -1267,14 +1693,14 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     PartKind::Up => (a + *width as i64 - 1, a),
                     PartKind::Down => (a, a - *width as i64 + 1),
                 };
-                let ew = tys.elem_width(bt).max(1);
-                let (start, _) = ops::select_span(tys, bt, lo, hi);
+                let ew = elem_bits(tys, bt).max(1);
+                let start = sel_start(tys, bt, lo, hi);
                 Some(Some((start * ew as i64, *width * ew)))
             }
             ExprKind::Member(i) => match tys.get(bt) {
                 Type::Struct { packed: true, members, union, .. } => {
-                    let w = tys.width(members[*i as usize].ty);
-                    let below: u32 = if *union { 0 } else { members[*i as usize + 1..].iter().map(|m| tys.width(m.ty)).sum() };
+                    let w = tw(tys, members[*i as usize].ty);
+                    let below: u32 = if *union { 0 } else { members[*i as usize + 1..].iter().map(|m| tw(tys, m.ty)).sum() };
                     Some(Some((below as i64, w)))
                 }
                 _ => None,
@@ -1319,8 +1745,45 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 }
                 ops::unary(tys, *op, self.fold(x.args[0])?, x.ty)
             }
+            // A constant side that decides `&&` or `||` decides it whatever
+            // the other side is.
+            ExprKind::Binary(op @ (BinOp::LogAnd | BinOp::LogOr)) => {
+                let decides = |c: &Option<Const>| c.as_ref().and_then(ops::truth).filter(|&t| t == (*op == BinOp::LogOr));
+                let (a, b) = (self.fold(x.args[0]), self.fold(x.args[1]));
+                if let Some(t) = decides(&a).or(decides(&b)) {
+                    return Some(Const::Bits(Bits::from_bool(t)));
+                }
+                let (a, b) = (ops::truth(&a?)?, ops::truth(&b?)?);
+                Some(Const::Bits(Bits::from_bool(if *op == BinOp::LogAnd { a && b } else { a || b })))
+            }
             ExprKind::Binary(op) => ops::binary(tys, *op, self.fold(x.args[0])?, self.fold(x.args[1])?, x.ty),
             ExprKind::Convert => Some(ops::convert(tys, &self.fold(x.args[0])?, x.ty)),
+            ExprKind::SysCall(f) if x.args.len() == 1 => match d.name(*f) {
+                // The ceiling of the log base 2, as an integer (20.8.1).
+                "$clog2" => {
+                    let v = ops::bits_of(&self.fold(x.args[0])?)?.to_u64()?;
+                    let c = if v <= 1 { 0 } else { 64 - (v - 1).leading_zeros() as u64 };
+                    Some(Const::Bits(Bits::from_u64(tw(tys, x.ty), tys.is_signed(x.ty), c)))
+                }
+                "$signed" | "$unsigned" => Some(ops::convert(tys, &self.fold(x.args[0])?, x.ty)),
+                // The bounds of a packed type's first dimension (20.7), and
+                // its width (20.6.2), from the argument's type.
+                name @ ("$left" | "$right" | "$low" | "$high" | "$size" | "$bits") => {
+                    let a = d.expr(x.args[0]);
+                    let t = if let ExprKind::TypeRef(t) = a.kind { t } else { a.ty };
+                    let (l, r) = range_of(tys, t);
+                    let v = match name {
+                        "$left" => l,
+                        "$right" => r,
+                        "$low" => l.min(r),
+                        "$high" => l.max(r),
+                        "$size" => (l - r).abs() + 1,
+                        _ => tw(tys, t) as i64,
+                    };
+                    Some(Const::Bits(Bits::from_u64(tw(tys, x.ty), tys.is_signed(x.ty), v as u64)))
+                }
+                _ => None,
+            },
             ExprKind::Cond => {
                 if ops::truth(&self.fold(x.args[0])?)? {
                     self.fold(x.args[1])
@@ -1337,8 +1800,8 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 let bt = d.expr(x.args[0]).ty;
                 match (tys.get(bt), &b) {
                     (Type::Struct { packed: true, members, union, .. }, Const::Bits(bits)) => {
-                        let w = tys.width(members[*i as usize].ty);
-                        let below: u32 = if *union { 0 } else { members[*i as usize + 1..].iter().map(|m| tys.width(m.ty)).sum() };
+                        let w = tw(tys, members[*i as usize].ty);
+                        let below: u32 = if *union { 0 } else { members[*i as usize + 1..].iter().map(|m| tw(tys, m.ty)).sum() };
                         Some(Const::Bits(bits.slice(below, w).with_signed(tys.is_signed(x.ty))))
                     }
                     (_, Const::Aggregate(v)) => v.get(*i as usize).cloned(),
@@ -1406,6 +1869,15 @@ struct Env {
     edirty: HashSet<(ObjId, u32)>,
     /// The lanes that have left the innermost loop with `break`.
     brk: Option<M>,
+    /// The lanes that have returned from the function being run.
+    ret: Option<M>,
+    /// The registers' next values from nonblocking assignments so far.
+    nba: HashMap<ObjId, Val>,
+    /// Values and elements loaded from the state and not since written:
+    /// a load in one arm of a branch serves the rest of the loop, as the
+    /// code has no branches, without a select of it where the arms meet.
+    loaded: HashMap<ObjId, Val>,
+    eloaded: HashMap<(ObjId, u32), Val>,
 }
 
 /// One function being written.
@@ -1432,6 +1904,14 @@ struct Func<'l, 'd, 'a> {
     bits_of: HashMap<u32, u32>,
     /// In a rolled loop: the element selects known to be in range.
     in_range: HashSet<ExprId>,
+    /// The functions being run, innermost last, with their results.
+    calls: Vec<(SubId, Option<ObjId>)>,
+    /// Bits of temporaries known to be zero in every lane.
+    zeros: HashMap<u32, u32>,
+    /// Temporaries that are 0 or 1 a lane, bit `j` of a piece.
+    bit_of: HashMap<u32, (P, u32)>,
+    /// Running clocked processes: nonblocking assignments are allowed.
+    ff: bool,
 }
 
 const V16: &str = "<16 x i32>";
@@ -1461,11 +1941,17 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             }
         }
         let out = format!("define void @{}({params}) {{\nentry:\n", fn_name(spec));
-        Func { l, spec, out, next: 0, env: Env::default(), block: "entry".into(), loops: 0, rolled: 0, mem: false, uniform: HashSet::new(), mask_of: HashMap::new(), bits_of: HashMap::new(), in_range: HashSet::new() }
+        Func { l, spec, out, next: 0, env: Env::default(), block: "entry".into(), loops: 0, rolled: 0, mem: false, uniform: HashSet::new(), mask_of: HashMap::new(), bits_of: HashMap::new(), in_range: HashSet::new(), calls: Vec::new(), ff: false, zeros: HashMap::new(), bit_of: HashMap::new() }
     }
 
     fn finish(mut self) -> String {
         self.out.push_str("  ret void\n}\n");
+        self.out
+    }
+
+    /// The function's end, returning `v`, an `i1`.
+    fn finish_with(mut self, v: &str) -> String {
+        let _ = write!(self.out, "  ret i1 {v}\n}}\n");
         self.out
     }
 
@@ -1492,8 +1978,23 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 self.rolled_loop(l)?;
             } else if let Node::Call(i) = n {
                 self.run_loop(&seg)?;
-                let off = self.lay().kids[&i];
                 let child = self.d().instance(i).spec;
+                let args = self.child_args(i);
+                let _ = writeln!(self.out, "  call void @{}({args})", fn_name(child));
+                seg = vec![n];
+            } else {
+                seg.push(n);
+            }
+        }
+        self.run_loop(&seg)
+    }
+
+    /// The arguments of a call of child `i`'s functions: its state, and
+    /// what it has for each port.
+    fn child_args(&mut self, i: InstId) -> String {
+        {
+            {
+                let off = self.lay().kids[&i];
                 let t = self.tmp();
                 let _ = writeln!(self.out, "  %t{t} = getelementptr i8, ptr %s, i64 {off}");
                 let mut args = format!("ptr %t{t}");
@@ -1516,13 +2017,9 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     };
                     let _ = write!(args, ", ptr {p}");
                 }
-                let _ = writeln!(self.out, "  call void @{}({args})", fn_name(child));
-                seg = vec![n];
-            } else {
-                seg.push(n);
+                args
             }
         }
-        self.run_loop(&seg)
     }
 
     /// A loop over the group's registers running `nodes` in order.
@@ -1640,6 +2137,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     "  %t{a} = getelementptr i8, ptr {base}, i64 {off}\n  %t{v} = load {ty}, ptr %t{a}, align {align}\n  \
                      %t{z} = zext {ty} %t{v} to {V16}"
                 );
+                self.zeros.insert(z, if lane == Lane::B8 { !0xff } else { !0xffff });
                 Val { w, p: vec![P::V(z)] }
             }
         }
@@ -1722,7 +2220,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     let (Dir::Input, Arg::Slot(at)) = (port.dir, arg) else { continue };
                     let Some(e) = inst.connections.iter().find(|c| c.port == port.name).and_then(|c| c.expr) else { continue };
                     let o = port.object.ok_or("interface ports are not supported yet")?;
-                    let w = d.types.width(d.object(o).ty);
+                    let w = tw(&d.types, d.object(o).ty);
                     let v = self.expr(e)?;
                     let v = self.resize(&v, w, false);
                     self.store(Base::State(at), child.lane(o), &v);
@@ -1739,8 +2237,8 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                             let Some(e) = inst.connections.iter().find(|c| c.port == port.name).and_then(|c| c.expr) else { continue };
                             let o = port.object.ok_or("interface ports are not supported yet")?;
                             let ty = d.object(o).ty;
-                            let v = self.load(Base::State(at), child.lane(o), d.types.width(ty));
-                            let w = d.types.width(d.expr(e).ty);
+                            let v = self.load(Base::State(at), child.lane(o), tw(&d.types, ty));
+                            let w = tw(&d.types, d.expr(e).ty);
                             let v = self.resize(&v, w, d.types.is_signed(ty));
                             self.assign(e, v)?;
                         }
@@ -1768,7 +2266,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                         if let Item::Object(o) = *item {
                             let ob = d.object(o);
                             if ob.lifetime == Lifetime::Automatic && ob.kind == ObjKind::Variable {
-                                let w = d.types.width(ob.ty);
+                                let w = tw(&d.types, ob.ty);
                                 let v = match ob.init {
                                     Some(e) => {
                                         let v = self.expr(e)?;
@@ -1782,9 +2280,9 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     }
                 }
                 for &s in stmts {
-                    // After a `break` in some lanes, the rest of the block
-                    // is for the others.
-                    match self.env.brk {
+                    // After a `break` or `return` in some lanes, the rest
+                    // of the block is for the others.
+                    match self.stopped() {
                         Some(M::K(true)) => break,
                         Some(b @ M::V(_)) => {
                             let go = self.mnot(b);
@@ -1794,6 +2292,13 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     }
                 }
                 Ok(())
+            }
+            StmtKind::Assign { kind: AssignKind::NonBlocking, lhs, rhs, timing: None } => {
+                if !self.ff {
+                    return Err("nonblocking assignments outside clocked processes are not supported yet".into());
+                }
+                let v = self.expr(*rhs)?;
+                self.assign_nb(*lhs, v)
             }
             StmtKind::Assign { kind, lhs, rhs, timing: None } => {
                 let v = match kind {
@@ -1809,6 +2314,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 self.assign(*lhs, v)
             }
             StmtKind::Expr(e) => match d.expr(*e).kind {
+                ExprKind::Call(sub) => self.call(sub, &d.expr(*e).args).map(|_| ()),
                 ExprKind::Unary(op @ (UnOp::PreInc | UnOp::PostInc | UnOp::PreDec | UnOp::PostDec)) => {
                     let x = d.expr(*e).args[0];
                     let v = self.expr(x)?;
@@ -1854,7 +2360,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 for _ in 0..n {
                     // The lanes still looping: those that have not broken
                     // out, where the condition holds.
-                    let mut go = match self.env.brk {
+                    let mut go = match self.stopped() {
                         Some(b) => self.mnot(b),
                         None => M::K(true),
                     };
@@ -1872,7 +2378,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                         |f| {
                             f.stmt(body)?;
                             // A lane that broke out does not step.
-                            match f.env.brk {
+                            match f.stopped() {
                                 Some(M::K(true)) => Ok(()),
                                 Some(b @ M::V(_)) => {
                                     let on = f.mnot(b);
@@ -1885,6 +2391,17 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     )?;
                 }
                 self.env.brk = outer;
+                Ok(())
+            }
+            StmtKind::Return(v) => {
+                let Some(&(_, r)) = self.calls.last() else { return Err("return outside a function".into()) };
+                if let (Some(e), Some(r)) = (v, r) {
+                    let x = self.expr(*e)?;
+                    let w = tw(&d.types, d.object(r).ty);
+                    let x = self.resize(&x, w, d.types.is_signed(d.expr(*e).ty));
+                    self.env.vals.insert(r, x);
+                }
+                self.env.ret = Some(M::K(true));
                 Ok(())
             }
             StmtKind::Break => {
@@ -1906,7 +2423,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     /// with the values it starts with, which must be constants.
     fn trip_count(&mut self, cond: Option<ExprId>, step: &[StmtId]) -> Result<u32, String> {
         let saved = (self.env.clone(), self.out.len(), self.next);
-        let tables = (self.mask_of.clone(), self.bits_of.clone(), self.uniform.clone());
+        let tables = (self.mask_of.clone(), self.bits_of.clone(), self.uniform.clone(), self.zeros.clone(), self.bit_of.clone());
         let mut n = 0u32;
         let r = loop {
             let go = match cond {
@@ -1931,7 +2448,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         self.env = saved.0;
         self.out.truncate(saved.1);
         self.next = saved.2;
-        (self.mask_of, self.bits_of, self.uniform) = tables;
+        (self.mask_of, self.bits_of, self.uniform, self.zeros, self.bit_of) = tables;
         r
     }
 
@@ -1971,11 +2488,52 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             return Ok(self.eq(&masked, &val));
         }
         if kind == CaseKind::Inside {
-            return Err("case inside is not supported yet".into());
+            return self.inside_item(sel, st, item);
         }
         let v = self.expr(item)?;
         let v = self.resize(&v, w, d.types.is_signed(st));
         Ok(self.eq(sel, &v))
+    }
+
+    /// Whether `v` (of type `vt`) matches one item of `inside` (11.4.13):
+    /// a range `[lo:hi]` holds it, or it equals the item, with the item's
+    /// unknown bits matching anything.
+    fn inside_item(&mut self, v: &Val, vt: TypeId, item: ExprId) -> Result<M, String> {
+        let d = self.d();
+        let tys = &d.types;
+        let x = d.expr(item);
+        if x.kind == ExprKind::Range {
+            let (lo, hi) = (x.args[0], x.args[1]);
+            let signed = tys.is_signed(vt) && tys.is_signed(d.expr(lo).ty) && tys.is_signed(d.expr(hi).ty);
+            let (a, b) = (self.expr(lo)?, self.expr(hi)?);
+            let n = v.w.max(a.w).max(b.w);
+            let (v, a, b) = (self.resize(v, n, signed), self.resize(&a, n, signed), self.resize(&b, n, signed));
+            let below = self.lt(&v, &a, signed);
+            let above = self.lt(&b, &v, signed);
+            let out = self.mor(below, above);
+            return Ok(self.mnot(out));
+        }
+        let signed = tys.is_signed(vt) && tys.is_signed(x.ty);
+        let n = v.w.max(tw(tys, x.ty));
+        let v = self.resize(v, n, signed);
+        if let Some(Const::Bits(b)) = self.l.fold(item)
+            && !b.is_known()
+        {
+            let b = b.resize(n, signed);
+            let (mut care, mut val) = (Bits::zero(n, false), Bits::zero(n, false));
+            for i in 0..n {
+                if matches!(b.bit(i), Logic::Zero | Logic::One) {
+                    care.set_bit(i, Logic::One);
+                    val.set_bit(i, b.bit(i));
+                }
+            }
+            let (care, val) = (self.konst(&care), self.konst(&val));
+            let masked = self.bitwise("and", &v, &care);
+            return Ok(self.eq(&masked, &val));
+        }
+        let a = self.expr(item)?;
+        let a = self.resize(&a, n, signed);
+        Ok(self.eq(&v, &a))
     }
 
     /// Both arms, each on its own copy of the values, then a select of
@@ -1993,9 +2551,11 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         }
         let before = self.env.clone();
         then(self)?;
-        let a = std::mem::replace(&mut self.env, before.clone());
+        let mut a = std::mem::replace(&mut self.env, before.clone());
+        (self.env.loaded, self.env.eloaded) = (std::mem::take(&mut a.loaded), std::mem::take(&mut a.eloaded));
         else_(self)?;
-        let b = std::mem::replace(&mut self.env, before);
+        let mut b = std::mem::replace(&mut self.env, before);
+        (self.env.loaded, self.env.eloaded) = (std::mem::take(&mut b.loaded), std::mem::take(&mut b.eloaded));
         let mut keys: Vec<ObjId> = a.vals.keys().chain(b.vals.keys()).copied().collect();
         keys.sort_unstable_by_key(|o| o.0);
         keys.dedup();
@@ -2028,17 +2588,331 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             self.env.elems.insert((o, i), v);
         }
         self.env.edirty.extend(a.edirty.into_iter().chain(b.edirty));
-        self.env.brk = match (a.brk, b.brk) {
+        let mut keys: Vec<ObjId> = a.nba.keys().chain(b.nba.keys()).copied().collect();
+        keys.sort_unstable_by_key(|o| o.0);
+        keys.dedup();
+        for o in keys {
+            let side = |f: &mut Self, x: &HashMap<ObjId, Val>| match x.get(&o).or(f.env.nba.get(&o)) {
+                Some(v) => v.clone(),
+                None => f.read(o),
+            };
+            let (va, vb) = (side(self, &a.nba), side(self, &b.nba));
+            let v = if va == vb { va } else { self.select(m, &va, &vb) };
+            self.env.nba.insert(o, v);
+        }
+        self.env.brk = self.merge_stop(m, a.brk, b.brk);
+        self.env.ret = self.merge_stop(m, a.ret, b.ret);
+        Ok(())
+    }
+
+    /// A nonblocking assignment: the register's next value.
+    fn assign_nb(&mut self, lhs: ExprId, v: Val) -> Result<(), String> {
+        let d = self.d();
+        let x = d.expr(lhs);
+        match &x.kind {
+            ExprKind::Concat => {
+                let mut top: u32 = x.args.iter().map(|&a| tw(&d.types, d.expr(a).ty)).sum();
+                for &a in &x.args {
+                    let w = tw(&d.types, d.expr(a).ty);
+                    top -= w;
+                    let part = self.extract(&v, top, w);
+                    self.assign_nb(a, part)?;
+                }
+                Ok(())
+            }
+            ExprKind::Object(_) | ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_) => {
+                let (o, off, w) = self.place(lhs)?;
+                if !self.lay().regs.contains(&o) {
+                    return Err(format!("{} is assigned nonblocking but is not a register here", d.name(d.object(o).name)));
+                }
+                let old = match self.env.nba.get(&o) {
+                    Some(v) => v.clone(),
+                    None => self.read(o),
+                };
+                let new = match off {
+                    Off::K(k) => self.insert(&old, k, w, &v),
+                    Off::V(p, ok) => self.insert_var(&old, p, ok, w, &v),
+                    Off::Neg(_) => return Err("a part select partly out of range as a target".into()),
+                };
+                self.env.nba.insert(o, new);
+                Ok(())
+            }
+            k => Err(format!("nonblocking assignments to {k:?} are not supported yet")),
+        }
+    }
+
+    /// The function of a specialisation with registers for `phase`: its
+    /// children's, then its own loop.
+    /// Its `_ff` function returns whether an edge came in any lane, below
+    /// it too (`i1`): without one, nothing changes, and the step need not
+    /// commit or settle again.
+    fn phase(&mut self, phase: Phase) -> Result<String, String> {
+        let d = self.d();
+        let ret = if phase == Phase::Ff { "define i1 @" } else { "define void @" };
+        self.out = self.out.replacen(
+            &format!("define void @{}(", fn_name(self.spec)),
+            &format!("{ret}{}{}(", fn_name(self.spec), phase.suffix()),
+            1,
+        );
+        let mut any = String::from("false");
+        let fired = self.lay().fired;
+        if phase == Phase::Ff && !self.lay().ff.is_empty() {
+            let _ = writeln!(self.out, "  %fired = getelementptr i8, ptr %s, i64 {fired}\n  store i8 0, ptr %fired, align 1");
+        }
+        for n in self.lay().code.clone() {
+            if let Node::Call(i) = n
+                && self.l.layouts[&d.instance(i).spec].clocked
+            {
+                let args = self.child_args(i);
+                let child = format!("@{}{}", fn_name(d.instance(i).spec), phase.suffix());
+                if phase == Phase::Ff {
+                    let (t, o) = (self.tmp(), self.tmp());
+                    let _ = writeln!(self.out, "  %t{t} = call i1 {child}({args})\n  %t{o} = or i1 {any}, %t{t}");
+                    any = format!("%t{o}");
+                } else {
+                    let _ = writeln!(self.out, "  call void {child}({args})");
+                }
+            }
+        }
+        let lay = self.lay();
+        if lay.regs.is_empty() && lay.ff.is_empty() {
+            return Ok(any);
+        }
+        match phase {
+            Phase::Ff => {
+                self.run_loop_with(|f| f.ff_procs())?;
+                let (l, z, o) = (self.tmp(), self.tmp(), self.tmp());
+                let _ = writeln!(
+                    self.out,
+                    "  %t{l} = load i8, ptr %fired, align 1\n  %t{z} = icmp ne i8 %t{l}, 0\n  %t{o} = or i1 {any}, %t{z}"
+                );
+                Ok(format!("%t{o}"))
+            }
+            Phase::Commit if self.lay().shadow.is_empty() => Ok(any),
+            Phase::Commit => self.run_loop_with(|f| {
+                for o in f.lay().regs.clone() {
+                    let w = tw(&d.types, d.object(o).ty);
+                    let Some(&at) = f.lay().shadow.get(&o) else { continue };
+                    let lane = f.lay().lane(o);
+                    let v = f.load(Base::State(at), lane, w);
+                    f.set(o, v);
+                }
+                Ok(())
+            })
+            .map(|_| any),
+        }
+    }
+
+    /// Each clocked process where an edge it waits on came, on the
+    /// settled values: the registers' next values, kept apart until
+    /// every process has run.
+    fn ff_procs(&mut self) -> Result<(), String> {
+        let d = self.d();
+        let planes = self.l.opts.bit_planes;
+        let mut runs = Vec::new();
+        let mut seen = HashMap::new();
+        for p in self.lay().ff.clone() {
+            let (terms, body) = self.l.clocked(p).unwrap();
+            let mut fire = M::K(false);
+            for t in terms {
+                // An edge is a change of the expression's lowest bit
+                // (9.4.2).
+                let (now, before) = match seen.get(&t.expr) {
+                    Some(&x) => x,
+                    None => {
+                        let v = self.expr(t.expr)?;
+                        let now = self.extract(&v, 0, 1);
+                        let now = self.truth(&now);
+                        let at = self.lay().prev[&t.expr];
+                        let b = self.load(Base::State(at), Lane::of(1, planes), 1);
+                        let before = self.truth(&b);
+                        seen.insert(t.expr, (now, before));
+                        (now, before)
+                    }
+                };
+                let mut e = match t.edge {
+                    crate::design::Edge::Pos => {
+                        let nb = self.mnot(before);
+                        self.mand(now, nb)
+                    }
+                    _ => {
+                        let nn = self.mnot(now);
+                        self.mand(nn, before)
+                    }
+                };
+                if let Some(c) = t.iff {
+                    let c = self.expr(c)?;
+                    let c = self.truth(&c);
+                    e = self.mand(e, c);
+                }
+                fire = self.mor(fire, e);
+            }
+            runs.push((fire, body));
+        }
+        let mut prevs: Vec<(ExprId, M)> = seen.into_iter().map(|(e, (now, _))| (e, now)).collect();
+        prevs.sort_unstable_by_key(|p| p.0.0);
+        for (e, now) in prevs {
+            let at = self.lay().prev[&e];
+            let v = self.bit(now, 1);
+            self.store(Base::State(at), Lane::of(1, planes), &v);
+        }
+        // Whether an edge came in any lane of this register, kept for the
+        // function's result.
+        let mut all = M::K(false);
+        for r in &runs {
+            all = self.mor(all, r.0);
+        }
+        if let M::V(m) = all {
+            let (b, nz, z, l, o) = (self.tmp(), self.tmp(), self.tmp(), self.tmp(), self.tmp());
+            let _ = writeln!(
+                self.out,
+                "  %t{b} = bitcast {M16} %t{m} to i16\n  %t{nz} = icmp ne i16 %t{b}, 0\n  %t{z} = zext i1 %t{nz} to i8\n  \
+                 %t{l} = load i8, ptr %fired, align 1\n  %t{o} = or i8 %t{l}, %t{z}\n  store i8 %t{o}, ptr %fired, align 1"
+            );
+        } else if all == M::K(true) {
+            let _ = writeln!(self.out, "  store i8 1, ptr %fired, align 1");
+        }
+        self.ff = true;
+        for (fire, body) in runs {
+            self.branch(fire, |f| f.stmt(body), |_| Ok(()))?;
+            self.env.vals.retain(|o, _| d.object(*o).lifetime == Lifetime::Static);
+        }
+        self.ff = false;
+        for o in self.lay().regs.clone() {
+            let shadow = self.lay().shadow.get(&o).copied();
+            let v = match (self.env.nba.get(&o), shadow) {
+                (Some(v), _) => v.clone(),
+                (None, Some(_)) => self.read(o),
+                (None, None) => continue,
+            };
+            let lane = self.lay().lane(o);
+            let at = match shadow {
+                Some(at) => Base::State(at),
+                None => self.slot(o).expect("a register has a slot"),
+            };
+            self.store(at, lane, &v);
+        }
+        Ok(())
+    }
+
+    /// The lanes stopped after a branch on `m`, from those stopped in each
+    /// arm (none, where an arm says nothing).
+    fn merge_stop(&mut self, m: M, a: Option<M>, b: Option<M>) -> Option<M> {
+        match (a, b) {
             (Some(x), Some(y)) if x == y => Some(x),
-            (Some(x), Some(y)) => {
+            (x, y) if x.is_some() || y.is_some() => {
+                let (x, y) = (x.unwrap_or(M::K(false)), y.unwrap_or(M::K(false)));
                 let t = self.mand(m, x);
                 let nm = self.mnot(m);
                 let e = self.mand(nm, y);
                 Some(self.mor(t, e))
             }
-            (x, y) => x.or(y),
+            _ => None,
+        }
+    }
+
+    /// The lanes that have left the loop or returned from the function.
+    fn stopped(&mut self) -> Option<M> {
+        match (self.env.brk, self.env.ret) {
+            (Some(a), Some(b)) => Some(self.mor(a, b)),
+            (a, b) => a.or(b),
+        }
+    }
+
+    /// A call of a function, written out where it is called: its formals
+    /// and locals are values of this loop, and a `return` stops the lanes
+    /// that take it.
+    fn call(&mut self, sub: SubId, args: &[ExprId]) -> Result<Option<Val>, String> {
+        let d = self.d();
+        let s = &d.subroutines[sub.0 as usize];
+        if s.kind != SubKind::Function {
+            return Err(format!("task {} is not supported yet", d.name(s.name)));
+        }
+        if self.calls.iter().any(|c| c.0 == sub) || self.calls.len() > 64 {
+            return Err(format!("{} calls itself", d.name(s.name)));
+        }
+        let mut ins = Vec::new();
+        for (i, &f) in s.args.iter().enumerate() {
+            let w = tw(&d.types, d.object(f).ty);
+            let v = match (d.object(f).dir, args.get(i)) {
+                (Some(Dir::Input) | None, Some(&a)) => {
+                    let v = self.expr(a)?;
+                    self.resize(&v, w, d.types.is_signed(d.expr(a).ty))
+                }
+                (Some(Dir::Output), _) | (_, None) => Val::zero(w),
+                (dir, _) => return Err(format!("{dir:?} arguments of {} are not supported yet", d.name(s.name))),
+            };
+            ins.push((f, v));
+        }
+        let r = match d.scope(s.scope).names.get(&s.name) {
+            Some(Binding::Object(r)) => Some(*r),
+            _ => None,
         };
-        Ok(())
+        let locals = self.l.sub_locals(sub);
+        let mut saved = Vec::new();
+        for &o in locals.iter().chain(r.iter()) {
+            saved.push((o, self.env.vals.remove(&o)));
+        }
+        for (f, v) in ins {
+            self.env.vals.insert(f, v);
+        }
+        if let Some(r) = r {
+            self.env.vals.insert(r, Val::zero(tw(&d.types, d.object(r).ty)));
+        }
+        let outer = (self.env.brk.take(), self.env.ret.take());
+        self.calls.push((sub, r));
+        let mut result = Ok(());
+        for &o in locals.iter() {
+            if s.args.contains(&o) {
+                continue;
+            }
+            let w = tw(&d.types, d.object(o).ty);
+            let v = match d.object(o).init {
+                Some(e) => self.expr(e).map(|v| self.resize(&v, w, false)),
+                None => Ok(Val::zero(w)),
+            };
+            match v {
+                Ok(v) => {
+                    self.env.vals.insert(o, v);
+                }
+                Err(e) => result = Err(e),
+            }
+        }
+        for &st in &s.body {
+            if result.is_err() {
+                break;
+            }
+            result = match self.stopped() {
+                Some(M::K(true)) => break,
+                Some(m @ M::V(_)) => {
+                    let go = self.mnot(m);
+                    self.branch(go, |f| f.stmt(st), |_| Ok(()))
+                }
+                _ => self.stmt(st),
+            };
+        }
+        self.calls.pop();
+        (self.env.brk, self.env.ret) = outer;
+        let value = r.map(|r| self.read(r));
+        let mut outs = Vec::new();
+        for (i, &f) in s.args.iter().enumerate() {
+            if d.object(f).dir == Some(Dir::Output)
+                && let Some(&a) = args.get(i)
+            {
+                outs.push((a, self.read(f)));
+            }
+        }
+        for (o, v) in saved {
+            match v {
+                Some(v) => self.env.vals.insert(o, v),
+                None => self.env.vals.remove(&o),
+            };
+        }
+        result?;
+        for (a, v) in outs {
+            self.assign(a, v)?;
+        }
+        Ok(value)
     }
 
     /// The address of element `i` (a constant) of `o`, in this register's
@@ -2123,12 +2997,12 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
 
     /// Element `i` (a constant) of an object kept an element to a slot.
     fn read_elem(&mut self, o: ObjId, i: u32) -> Val {
-        if let Some(v) = self.env.elems.get(&(o, i)) {
+        if let Some(v) = self.env.elems.get(&(o, i)).or(self.env.eloaded.get(&(o, i))) {
             return v.clone();
         }
         let a = self.elem_addr(o, i);
         let v = self.load_slot(o, &a);
-        self.env.elems.insert((o, i), v.clone());
+        self.env.eloaded.insert((o, i), v.clone());
         v
     }
 
@@ -2163,9 +3037,9 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let d = self.d();
         let x = d.expr(e);
         let bt = d.expr(x.args[0]).ty;
-        let (l, r) = d.types.packed_range(bt).unwrap_or((d.types.width(bt) as i64 - 1, 0));
+        let (l, r) = range_of(&d.types, bt);
         let idx = match self.l.fold(x.args[1]) {
-            Some(c) => self.konst_of(&c, d.types.width(d.expr(x.args[1]).ty))?,
+            Some(c) => self.konst_of(&c, tw(&d.types, d.expr(x.args[1]).ty))?,
             None => self.expr(x.args[1])?,
         };
         let signed = d.types.is_signed(d.expr(x.args[1]).ty);
@@ -2238,6 +3112,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 // Any element may change: none is remembered.
                 self.flush_elems(Some(o));
                 self.env.elems.retain(|k, _| k.0 != o);
+                self.env.eloaded.retain(|k, _| k.0 != o);
                 let a = self.elem_addr_uniform(o, i, ok != M::K(true));
                 let v = match ok {
                     M::K(true) => v,
@@ -2271,7 +3146,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         }
         let ExprKind::Object(o) = d.expr(x.args[0]).kind else { return None };
         let el = self.lay().elems.get(&o)?;
-        (d.types.width(x.ty) == el.ew).then_some(o)
+        (tw(&d.types, x.ty) == el.ew).then_some(o)
     }
 
     /// An object's value: from this loop's values, from the state, or zero
@@ -2286,20 +3161,24 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             }
             return acc;
         }
-        if let Some(v) = self.env.vals.get(&o) {
+        if let Some(v) = self.env.vals.get(&o).or(self.env.loaded.get(&o)) {
             return v.clone();
         }
         let d = self.d();
-        let w = d.types.width(d.object(o).ty);
-        let v = match self.slot(o) {
+        let w = tw(&d.types, d.object(o).ty);
+        match self.slot(o) {
             Some(base) => {
                 let lane = self.lay().lane(o);
-                self.load(base, lane, w)
+                let v = self.load(base, lane, w);
+                self.env.loaded.insert(o, v.clone());
+                v
             }
-            None => Val::zero(w),
-        };
-        self.env.vals.insert(o, v.clone());
-        v
+            None => {
+                let v = Val::zero(w);
+                self.env.vals.insert(o, v.clone());
+                v
+            }
+        }
     }
 
     fn set(&mut self, o: ObjId, v: Val) {
@@ -2326,15 +3205,15 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let x = d.expr(lhs);
         match &x.kind {
             ExprKind::Object(o) => {
-                let w = d.types.width(d.object(*o).ty);
+                let w = tw(&d.types, d.object(*o).ty);
                 let v = self.resize(&v, w, false);
                 self.set(*o, v);
                 Ok(())
             }
             ExprKind::Concat => {
-                let mut top: u32 = x.args.iter().map(|&a| d.types.width(d.expr(a).ty)).sum();
+                let mut top: u32 = x.args.iter().map(|&a| tw(&d.types, d.expr(a).ty)).sum();
                 for &a in &x.args {
-                    let w = d.types.width(d.expr(a).ty);
+                    let w = tw(&d.types, d.expr(a).ty);
                     top -= w;
                     let part = self.extract(&v, top, w);
                     self.assign(a, part)?;
@@ -2356,7 +3235,11 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     self.mem_insert(o, p, ok, w, &v);
                     return Ok(());
                 }
-                let old = self.read(o);
+                let old = if self.lay().fresh.contains(&o) && !self.env.vals.contains_key(&o) {
+                    Val::zero(tw(&d.types, d.object(o).ty))
+                } else {
+                    self.read(o)
+                };
                 let new = match off {
                     Off::K(k) => self.insert(&old, k, w, &v),
                     Off::V(p, ok) => self.insert_var(&old, p, ok, w, &v),
@@ -2375,7 +3258,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let d = self.d();
         let x = d.expr(e);
         if let ExprKind::Object(o) = x.kind {
-            return Ok((o, Off::K(0), d.types.width(x.ty)));
+            return Ok((o, Off::K(0), tw(&d.types, x.ty)));
         }
         let (o, base, _) = self.place(x.args[0])?;
         let (off, w) = self.offset(e)?;
@@ -2401,20 +3284,20 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         if let Some(c) = self.l.const_select(e) {
             return Ok(match c {
                 Some((off, w)) => (Off::K(off as u32).with_sign(off), w),
-                None => (Off::V(P::K(0), M::K(false)), tys.width(x.ty)),
+                None => (Off::V(P::K(0), M::K(false)), tw(tys, x.ty)),
             });
         }
         let bt = d.expr(x.args[0]).ty;
-        let (l, r) = tys.packed_range(bt).unwrap_or((tys.width(bt) as i64 - 1, 0));
+        let (l, r) = range_of(tys, bt);
         let idx = self.expr(x.args[1])?;
         let signed = tys.is_signed(d.expr(x.args[1]).ty);
         let (lo_index, ew, w) = match &x.kind {
             ExprKind::Index => {
-                let ew = tys.width(x.ty).max(1);
+                let ew = tw(tys, x.ty).max(1);
                 (idx.clone(), ew, ew)
             }
             ExprKind::Part { kind, width } => {
-                let ew = tys.elem_width(bt).max(1);
+                let ew = elem_bits(tys, bt).max(1);
                 let lo = match kind {
                     PartKind::Up => idx.clone(),
                     PartKind::Down => {
@@ -2473,7 +3356,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 first as i32
             );
             self.uniform.insert(t);
-            let w = d.types.width(d.object(o).ty);
+            let w = tw(&d.types, d.object(o).ty);
             let mut p = vec![P::K(0); pieces(w)];
             p[0] = P::V(t);
             if pieces(w) > 1 {
@@ -2550,7 +3433,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let d = self.d();
         let base = self.base();
         let start = self.lay().objs[&o];
-        let last = pieces(d.types.width(d.object(o).ty)) as u64 - 1;
+        let last = pieces(tw(&d.types, d.object(o).ty)) as u64 - 1;
         let r = self.bin("and", off, P::K(31));
         if let P::K(k) = off {
             let q = (k as u64 / 32).min(last);
@@ -2637,6 +3520,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             let _ = writeln!(self.out, "  store {V16} {}, ptr {a}, align 64", ps(n));
         }
         self.env.vals.remove(&o);
+        self.env.loaded.remove(&o);
     }
 
     /// The function of a specialisation proved to count zeros.
@@ -2644,7 +3528,27 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let x = self.read(k.input);
         let n = x.p.len();
         let zero = self.eq(&x, &Val::zero(k.width));
-        let count = if k.leading {
+        let count = if k.count == Count::Ones {
+            // Each piece's ones, in two-bit, then four-bit fields, then
+            // bytes, which a multiply adds into the top byte.
+            let mut c = P::K(0);
+            for &p in &x.p {
+                let a = self.bin("lshr", p, P::K(1));
+                let a = self.bin("and", a, P::K(0x5555_5555));
+                let p = self.bin("sub", p, a);
+                let a = self.bin("and", p, P::K(0x3333_3333));
+                let b = self.bin("lshr", p, P::K(2));
+                let b = self.bin("and", b, P::K(0x3333_3333));
+                let p = self.bin("add", a, b);
+                let a = self.bin("lshr", p, P::K(4));
+                let p = self.bin("add", p, a);
+                let p = self.bin("and", p, P::K(0x0F0F_0F0F));
+                let p = self.bin("mul", p, P::K(0x0101_0101));
+                let p = self.bin("lshr", p, P::K(24));
+                c = self.bin("add", c, p);
+            }
+            c
+        } else if k.count == Count::Leading {
             // From the top piece down; the top piece's bits moved up to
             // the top of its lane.
             let top_bits = k.width - 32 * (n as u32 - 1);
@@ -2677,10 +3581,10 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         };
         let d = self.d();
         for &(o, out) in &k.outs {
-            let w = d.types.width(d.object(o).ty);
+            let w = tw(&d.types, d.object(o).ty);
             let v = match out {
                 Out::Count { at_zero } => {
-                    let c = self.sel(zero, P::K(at_zero as u32), count);
+                    let c = if k.count == Count::Ones && at_zero == 0 { count } else { self.sel(zero, P::K(at_zero as u32), count) };
                     let v = Val { w: 32, p: vec![c] };
                     self.resize(&v, w, false)
                 }
@@ -2713,16 +3617,16 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         if !matches!(x.kind, ExprKind::Object(_) | ExprKind::Const(_))
             && let Some(c) = self.l.fold(e)
         {
-            return self.konst_of(&c, tys.width(x.ty));
+            return self.konst_of(&c, tw(tys, x.ty));
         }
-        let w = tys.width(x.ty);
+        let w = tw(tys, x.ty);
         match &x.kind {
             ExprKind::Const(c) => self.konst_of(d.konst(*c), w),
             ExprKind::Object(o) => {
                 let ob = d.object(*o);
                 match ob.kind {
                     ObjKind::Variable | ObjKind::Net(_) => {
-                        if ob.lifetime == Lifetime::Static && !self.lay().statics.contains(o) {
+                        if ob.lifetime == Lifetime::Static && !self.lay().statics.contains(o) && !self.env.vals.contains_key(o) {
                             return Err(format!("{} is not in this module", d.name(ob.name)));
                         }
                         Ok(self.read(*o))
@@ -2762,7 +3666,8 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             ExprKind::Concat => {
                 let mut acc = Val::zero(w);
                 let mut top = w;
-                for &a in &x.args {
+                // A replication of zero is no part of the value (11.4.12.1).
+                for &a in x.args.iter().filter(|&&a| d.expr(a).kind != ExprKind::Replicate(0)) {
                     let v = self.expr(a)?;
                     top -= v.w;
                     acc = self.insert(&acc, top, v.w, &v);
@@ -2771,6 +3676,23 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             }
             ExprKind::Replicate(n) => {
                 let v = self.expr(x.args[0])?;
+                // One bit: all ones or none, the bit's negation; a few
+                // that fit a piece, a multiply.
+                if v.w == 1 && w > 1 {
+                    let fill = match v.p[0] {
+                        P::V(t) if self.mask_of.contains_key(&t) => {
+                            let m = self.mask_of[&t];
+                            self.sel(m, P::K(!0), P::K(0))
+                        }
+                        p => self.bin("sub", P::K(0), p),
+                    };
+                    return Ok(self.norm(Val { w, p: vec![fill; pieces(w)] }));
+                }
+                if v.w > 0 && w <= 32 && *n > 1 {
+                    let k: u32 = (0..*n).fold(0u32, |k, i| k | 1 << (i * v.w));
+                    let p = self.bin("mul", v.p[0], P::K(k));
+                    return Ok(self.norm(Val { w, p: vec![p] }));
+                }
                 let mut acc = Val::zero(w);
                 for k in 0..*n {
                     acc = self.insert(&acc, k * v.w, v.w, &v);
@@ -2806,6 +3728,50 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     }
                 })
             }
+            ExprKind::SysCall(f) => match d.name(*f) {
+                // The same bits, read as signed or unsigned (11.7).
+                "$signed" | "$unsigned" if x.args.len() == 1 => {
+                    let v = self.expr(x.args[0])?;
+                    Ok(self.resize(&v, w, tys.is_signed(d.expr(x.args[0]).ty)))
+                }
+                name => Err(format!("{name} is not supported yet")),
+            },
+            // A packed target's pattern is its elements concatenated, the
+            // first the most significant (10.9).
+            ExprKind::Pattern if tw(tys, x.ty) > 0 && !x.args.is_empty() => {
+                let widths: Vec<u32> = match tys.get(x.ty) {
+                    Type::Struct { packed: true, union: false, members, .. } => members.iter().map(|m| tw(tys, m.ty)).collect(),
+                    Type::Unpacked { elem, .. } => vec![tw(tys, *elem); x.args.len()],
+                    Type::Struct { .. } => return Err("an assignment pattern for a packed union is not supported yet".into()),
+                    _ => vec![w / x.args.len() as u32; x.args.len()],
+                };
+                if widths.len() != x.args.len() || widths.iter().sum::<u32>() != w {
+                    return Err("an assignment pattern that does not fill its type".into());
+                }
+                let mut acc = Val::zero(w);
+                let mut top = w;
+                for (&a, &ew) in x.args.iter().zip(&widths) {
+                    let v = self.expr(a)?;
+                    let v = self.resize(&v, ew, tys.is_signed(d.expr(a).ty));
+                    top -= ew;
+                    acc = self.insert(&acc, top, ew, &v);
+                }
+                Ok(acc)
+            }
+            ExprKind::Call(sub) => {
+                let v = self.call(*sub, &x.args)?.ok_or("a call of a void function as a value")?;
+                Ok(self.resize(&v, w, tys.is_signed(x.ty)))
+            }
+            ExprKind::Inside => {
+                let v = self.expr(x.args[0])?;
+                let vt = d.expr(x.args[0]).ty;
+                let mut m = M::K(false);
+                for &r in &x.args[1..] {
+                    let hit = self.inside_item(&v, vt, r)?;
+                    m = self.mor(m, hit);
+                }
+                Ok(self.bit(m, w))
+            }
             ExprKind::Convert => {
                 let st = d.expr(x.args[0]).ty;
                 if !tys.is_integral(st) || !tys.is_integral(x.ty) {
@@ -2819,7 +3785,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     }
 
     fn konst_of(&mut self, c: &Const, w: u32) -> Result<Val, String> {
-        let b = ops::bits_of(c).ok_or("a constant that is not a packed value")?;
+        let b = const_bits(c, w).ok_or("a constant that is not a packed value")?;
         let b = b.known_or_zero();
         Ok(self.resize(&self.konst(&b), w, b.signed()))
     }
@@ -2836,7 +3802,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     }
 
     fn unary(&mut self, op: UnOp, a: Val, ty: TypeId) -> Result<Val, String> {
-        let w = self.d().types.width(ty);
+        let w = tw(&self.d().types, ty);
         Ok(match op {
             UnOp::Plus => self.resize(&a, w, false),
             UnOp::Neg => {
@@ -2890,7 +3856,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     /// `op` on `a` and `b`; `ty` is the result's type, `at` the operands'.
     fn binary(&mut self, op: BinOp, a: Val, b: Val, ty: TypeId, at: TypeId) -> Result<Val, String> {
         let tys = &self.d().types;
-        let w = tys.width(ty);
+        let w = tw(tys, ty);
         let signed = tys.is_signed(at);
         Ok(match op {
             BinOp::And | BinOp::Or | BinOp::Xor | BinOp::Xnor => {
@@ -2910,6 +3876,10 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 let (a, b) = (self.resize(&a, w, false), self.resize(&b, w, false));
                 let p = self.bin("mul", a.p[0], b.p[0]);
                 self.norm(Val { w, p: vec![p] })
+            }
+            BinOp::Mul => {
+                let (a, b) = (self.resize(&a, w, false), self.resize(&b, w, false));
+                self.mul_wide(&a, &b)
             }
             BinOp::Shl | BinOp::AShl | BinOp::Shr | BinOp::AShr => {
                 let a = self.resize(&a, w, false);
@@ -2986,6 +3956,63 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
 
     // ---- values ----
 
+    /// `a * b` in `a`'s width, wider than a piece: each pair of pieces
+    /// multiplied in 64-bit lanes, the products' halves added by column in
+    /// 64-bit lanes, and the carries passed up.
+    fn mul_wide(&mut self, a: &Val, b: &Val) -> Val {
+        const V64: &str = "<16 x i64>";
+        let n = a.p.len();
+        let wide = |f: &mut Self, p: P| -> String {
+            match p {
+                P::K(k) => format!("splat (i64 {k})"),
+                P::V(t) => {
+                    let x = f.tmp();
+                    let _ = writeln!(f.out, "  %t{x} = zext {V16} %t{t} to {V64}");
+                    format!("%t{x}")
+                }
+            }
+        };
+        let a64: Vec<Option<String>> = a.p.iter().map(|&p| (p != P::K(0)).then(|| wide(self, p))).collect();
+        let b64: Vec<Option<String>> = b.p.iter().map(|&p| (p != P::K(0)).then(|| wide(self, p))).collect();
+        // The columns' sums: the low halves of the products of pieces i and
+        // j in column i + j, their high halves in the next.
+        let mut cols: Vec<Vec<String>> = vec![Vec::new(); n];
+        for i in 0..n {
+            for j in 0..n - i {
+                let (Some(x), Some(y)) = (&a64[i], &b64[j]) else { continue };
+                let p = self.tmp();
+                let _ = writeln!(self.out, "  %t{p} = mul {V64} {x}, {y}");
+                let (lo, hi) = (self.tmp(), self.tmp());
+                let _ = writeln!(self.out, "  %t{lo} = and {V64} %t{p}, splat (i64 4294967295)\n  %t{hi} = lshr {V64} %t{p}, splat (i64 32)");
+                cols[i + j].push(format!("%t{lo}"));
+                if i + j + 1 < n {
+                    cols[i + j + 1].push(format!("%t{hi}"));
+                }
+            }
+        }
+        let mut carry: Option<String> = None;
+        let mut out = Vec::with_capacity(n);
+        for col in cols.iter_mut().take(n) {
+            col.extend(carry.take());
+            let mut sum = col.first().cloned();
+            for t in col.iter().skip(1) {
+                let s = self.tmp();
+                let _ = writeln!(self.out, "  %t{s} = add {V64} {}, {t}", sum.unwrap());
+                sum = Some(format!("%t{s}"));
+            }
+            match sum {
+                None => out.push(P::K(0)),
+                Some(s) => {
+                    let (lo, c) = (self.tmp(), self.tmp());
+                    let _ = writeln!(self.out, "  %t{lo} = trunc {V64} {s} to {V16}\n  %t{c} = lshr {V64} {s}, splat (i64 32)");
+                    out.push(P::V(lo));
+                    carry = Some(format!("%t{c}"));
+                }
+            }
+        }
+        self.norm(Val { w: a.w, p: out })
+    }
+
     /// A mask as a `w`-bit 0 or 1.
     fn bit(&mut self, m: M, w: u32) -> Val {
         let p0 = match m {
@@ -2994,6 +4021,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 let t = self.tmp();
                 let _ = writeln!(self.out, "  %t{t} = zext {M16} %t{n} to {V16}");
                 self.mask_of.insert(t, m);
+                self.zeros.insert(t, !1);
                 if self.uniform.contains(&n) {
                     self.uniform.insert(t);
                 }
@@ -3135,9 +4163,14 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     fn extract(&mut self, v: &Val, lo: u32, w: u32) -> Val {
         // One bit: a test of it, which is a mask (vptestmd).
         if w == 1 && lo < v.w && matches!(v.p[(lo / 32) as usize], P::V(_)) {
-            let x = self.bin("and", v.p[(lo / 32) as usize], P::K(1 << (lo % 32)));
+            let piece = v.p[(lo / 32) as usize];
+            let x = self.bin("and", piece, P::K(1 << (lo % 32)));
             let m = self.icmp("ne", x, P::K(0));
-            return self.bit(m, 1);
+            let b = self.bit(m, 1);
+            if let (P::V(t), M::V(_)) = (b.p[0], m) {
+                self.bit_of.insert(t, (piece, lo % 32));
+            }
+            return b;
         }
         let s = self.lshr_const(v, lo as u64, None);
         self.resize(&s, w, false)
@@ -3147,6 +4180,20 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     fn insert(&mut self, v: &Val, lo: u32, w: u32, x: &Val) -> Val {
         if lo >= v.w {
             return v.clone();
+        }
+        // A bit of another value moved here: shifted into place and kept,
+        // not tested and extended.
+        if w == 1
+            && let P::V(t) = x.p[0]
+            && let Some(&(src, j)) = self.bit_of.get(&t)
+        {
+            let (q, b) = ((lo / 32) as usize, lo % 32);
+            let moved = if b >= j { self.bin("shl", src, P::K(b - j)) } else { self.bin("lshr", src, P::K(j - b)) };
+            let moved = self.bin("and", moved, P::K(1 << b));
+            let kept = self.bin("and", v.p[q], P::K(!(1 << b)));
+            let mut p = v.p.clone();
+            p[q] = self.bin("or", kept, moved);
+            return Val { w: v.w, p };
         }
         let x = self.resize(x, w, false);
         let x = self.resize(&x, v.w, false);
@@ -3292,7 +4339,26 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
 
     // ---- instructions, folding constants ----
 
+    /// The bits of `p` known to be zero in every lane.
+    fn kz(&self, p: P) -> u32 {
+        match p {
+            P::K(c) => !c,
+            P::V(t) => self.zeros.get(&t).copied().unwrap_or(0),
+        }
+    }
+
     fn bin(&mut self, op: &str, a: P, b: P) -> P {
+        // A mask that clears only bits known to be zero changes nothing;
+        // one that keeps only those, everything.
+        let (za, zb) = (self.kz(a), self.kz(b));
+        match op {
+            "and" if za | zb == !0 => return P::K(0),
+            "and" if matches!(b, P::K(m) if !za & !m == 0) => return a,
+            "and" if matches!(a, P::K(m) if !zb & !m == 0) => return b,
+            "or" | "xor" if za == !0 => return b,
+            "or" | "xor" if zb == !0 => return a,
+            _ => {}
+        }
         // Logic on values made from masks is logic on the masks.
         if let ("and" | "or" | "xor", P::V(x), P::V(y)) = (op, a, b)
             && let (Some(&mx), Some(&my)) = (self.mask_of.get(&x), self.mask_of.get(&y))
@@ -3331,6 +4397,23 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let _ = writeln!(self.out, "  %t{t} = {op} {V16} {}, {}", ps(a), ps(b));
         if self.is_uniform(a) && self.is_uniform(b) {
             self.uniform.insert(t);
+        }
+        // What is known of its bits.
+        let lead = |z: u32| (!z).leading_zeros();
+        let z = match (op, b) {
+            ("and", _) => za | zb,
+            ("or" | "xor", _) => za & zb,
+            ("shl", P::K(s)) => (za << s) | ((1u32 << s) - 1),
+            ("lshr", P::K(s)) => (za >> s) | !(u32::MAX >> s),
+            // A sum has at most one bit more than its wider operand.
+            ("add", _) => match lead(za).min(lead(zb)).saturating_sub(1) {
+                0 => 0,
+                l => !(u32::MAX >> l),
+            },
+            _ => 0,
+        };
+        if z != 0 {
+            self.zeros.insert(t, z);
         }
         P::V(t)
     }
@@ -3382,6 +4465,10 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 let _ = writeln!(self.out, "  %t{t} = select {M16} %t{n}, {V16} {}, {V16} {}", ps(a), ps(b));
                 if self.uniform.contains(&n) && self.is_uniform(a) && self.is_uniform(b) {
                     self.uniform.insert(t);
+                }
+                let z = self.kz(a) & self.kz(b);
+                if z != 0 {
+                    self.zeros.insert(t, z);
                 }
                 P::V(t)
             }
@@ -3524,7 +4611,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
     fn recognise(&self, spec: SpecId) -> Option<Known> {
         let d = self.d;
         let lay = &self.layouts[&spec];
-        if !lay.kids.is_empty() || lay.code.is_empty() {
+        if lay.code.is_empty() || lay.clocked {
             return None;
         }
         let ports = &d.spec(spec).ports;
@@ -3539,23 +4626,16 @@ impl<'d, 'a> Lowering<'d, 'a> {
             }
         }
         let input = input?;
-        let w = d.types.width(d.object(input).ty);
+        let w = tw(&d.types, d.object(input).ty);
         if !(2..=64).contains(&w) || outs.is_empty() {
             return None;
         }
         let order = self.order(spec).ok()?;
+        self.sym_orders.borrow_mut().insert(spec, order.clone());
         let mut s = Sym { l: self, m: Manager::new(1 << 20), env: FxMap::default() };
         let x: Bits2 = (0..w).map(|i| s.m.var(i)).collect::<Result<_, _>>().ok()?;
         s.env.insert(input, x.clone());
-        for node in order {
-            let ok = match node {
-                Node::Driver(dr) => s.driver(dr),
-                Node::Loop(l) => self.loops[l].all.iter().try_for_each(|&dr| s.driver(dr)),
-                Node::Proc(p) => s.stmt(d.processes[p.0 as usize].body),
-                _ => Err(Unproved),
-            };
-            ok.ok()?;
-        }
+        s.run(&order).ok()?;
         // The counts, where the input is not zero, in enough bits.
         let nb = 32 - w.leading_zeros();
         let mut zero = TRUE;
@@ -3574,10 +4654,17 @@ impl<'d, 'a> Lowering<'d, 'a> {
             let k = s.konst((w - 1 - i) as u64, nb);
             leading = s.ite_vec(x[i as usize], &k, &leading).ok()?;
         }
+        // The ones, added a bit at a time.
+        let mut ones = s.konst(0, nb);
+        for &b in &x {
+            let mut one = vec![FALSE; nb as usize];
+            one[0] = b;
+            ones = s.add(&ones, &one, FALSE).ok()?;
+        }
         let mut dir = None;
         let mut known = Vec::new();
         for o in outs {
-            let ow = d.types.width(d.object(o).ty) as usize;
+            let ow = tw(&d.types, d.object(o).ty) as usize;
             let bits = s.env.get(&o).cloned().unwrap_or_else(|| vec![FALSE; ow]);
             let out = if bits.iter().all(|&b| b <= TRUE) {
                 Out::Const(bits.iter().enumerate().fold(0, |v, (i, &b)| v | ((b == TRUE) as u64) << i))
@@ -3597,9 +4684,11 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     Ok(true)
                 };
                 let lead = if matches(&mut s, &trailing).ok()? {
-                    false
+                    Count::Trailing
                 } else if matches(&mut s, &leading).ok()? {
-                    true
+                    Count::Leading
+                } else if matches(&mut s, &ones).ok()? {
+                    Count::Ones
                 } else {
                     return None;
                 };
@@ -3612,7 +4701,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
             };
             known.push((o, out));
         }
-        Some(Known { input, width: w, leading: dir?, outs: known })
+        Some(Known { input, width: w, count: dir?, outs: known })
     }
 }
 
@@ -3659,6 +4748,64 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
             return None;
         }
         Some(v.iter().enumerate().fold(0, |a, (i, &b)| a | ((b == TRUE) as i64) << i))
+    }
+
+    /// A specialisation's code, in order.
+    fn run(&mut self, order: &[Node]) -> Sr<()> {
+        let d = self.d();
+        for &node in order {
+            match node {
+                Node::Driver(dr) => self.driver(dr)?,
+                Node::Loop(l) => self.l.loops[l].all.iter().try_for_each(|&dr| self.driver(dr))?,
+                Node::Proc(p) => self.stmt(d.processes[p.0 as usize].body)?,
+                Node::In(_) => {}
+                Node::Call(i) => self.call(i)?,
+            }
+        }
+        Ok(())
+    }
+
+    /// A child instance: its inputs, its code on values of its own, then
+    /// its outputs.
+    fn call(&mut self, i: InstId) -> Sr<()> {
+        let d = self.d();
+        let inst = d.instance(i);
+        let order = match self.l.sym_orders.borrow().get(&inst.spec) {
+            Some(o) => o.clone(),
+            None => self.l.order(inst.spec).map_err(|_| Unproved)?,
+        };
+        let mut env = FxMap::default();
+        let conn = |p: &crate::design::Port| inst.connections.iter().find(|c| c.port == p.name).and_then(|c| c.expr);
+        for p in &d.spec(inst.spec).ports {
+            let o = p.object.ok_or(Unproved)?;
+            if p.dir == Dir::Input {
+                let w = tw(&d.types, d.object(o).ty) as usize;
+                let v = match conn(p) {
+                    Some(e) => self.expr(e)?,
+                    None => vec![FALSE; w],
+                };
+                env.insert(o, self.resize(&v, w, false));
+            }
+        }
+        let outer = std::mem::replace(&mut self.env, env);
+        let ran = self.run(&order);
+        let inner = std::mem::replace(&mut self.env, outer);
+        ran?;
+        for p in &d.spec(inst.spec).ports {
+            match p.dir {
+                Dir::Input => {}
+                Dir::Output => {
+                    let o = p.object.ok_or(Unproved)?;
+                    let Some(e) = conn(p) else { continue };
+                    let ty = d.object(o).ty;
+                    let v = inner.get(&o).cloned().unwrap_or_else(|| vec![FALSE; tw(&d.types, ty) as usize]);
+                    let v = self.resize(&v, tw(&d.types, d.expr(e).ty) as usize, d.types.is_signed(ty));
+                    self.assign(e, v)?;
+                }
+                _ => return Err(Unproved),
+            }
+        }
+        Ok(())
     }
 
     fn driver(&mut self, dr: DriverId) -> Sr<()> {
@@ -3723,15 +4870,15 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
         };
         match &x.kind {
             ExprKind::Index => {
-                let ew = tys.width(x.ty).max(1) as i64;
+                let ew = tw(tys, x.ty).max(1) as i64;
                 // Out of range: past the top, so that it reads zeros.
-                let off = ops::lsb_offset(tys, bt, k, k).unwrap_or(tys.width(bt) as i64);
+                let off = lsb_off(tys, bt, k, k).unwrap_or(tw(tys, bt) as i64);
                 Ok((off * ew, ew as usize))
             }
             ExprKind::Part { kind: kind @ (PartKind::Up | PartKind::Down), width } => {
-                let ew = tys.elem_width(bt).max(1) as i64;
+                let ew = elem_bits(tys, bt).max(1) as i64;
                 let (hi, lo) = if *kind == PartKind::Up { (k + *width as i64 - 1, k) } else { (k, k - *width as i64 + 1) };
-                let (start, _) = ops::select_span(tys, bt, lo, hi);
+                let start = sel_start(tys, bt, lo, hi);
                 Ok((start * ew, (*width as i64 * ew) as usize))
             }
             _ => Err(Unproved),
@@ -3742,7 +4889,7 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
         let d = self.d();
         let tys = &d.types;
         let x = d.expr(e);
-        let w = tys.width(x.ty) as usize;
+        let w = tw(tys, x.ty) as usize;
         if !matches!(x.kind, ExprKind::Object(_)) && let Some(c) = self.l.fold(e) {
             return self.const_of(&c, w);
         }
@@ -3755,7 +4902,7 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
             ExprKind::Const(c) => self.const_of(d.konst(*c), w)?,
             ExprKind::Object(o) => match d.object(*o).kind {
                 ObjKind::Variable | ObjKind::Net(_) => {
-                    let ow = tys.width(d.object(*o).ty) as usize;
+                    let ow = tw(tys, d.object(*o).ty) as usize;
                     let v = self.env.get(o).cloned().unwrap_or_else(|| vec![FALSE; ow]);
                     self.resize(&v, w, false)
                 }
@@ -3817,7 +4964,7 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
             ExprKind::Binary(op) if matches!(op, BinOp::Eq | BinOp::Ne | BinOp::CaseEq | BinOp::CaseNe | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge) => {
                 let at = d.expr(x.args[0]).ty;
                 let signed = tys.is_signed(at);
-                let n = tys.width(at).max(tys.width(d.expr(x.args[1]).ty)) as usize;
+                let n = tw(tys, at).max(tw(tys, d.expr(x.args[1]).ty)) as usize;
                 let a = self.expr(x.args[0])?;
                 let b = self.expr(x.args[1])?;
                 let (mut a, mut b) = (self.resize(&a, n, signed), self.resize(&b, n, signed));
@@ -3908,7 +5055,7 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
             ExprKind::Concat => {
                 let mut at = 0;
                 for &a in x.args.iter().rev() {
-                    let w = d.types.width(d.expr(a).ty) as usize;
+                    let w = tw(&d.types, d.expr(a).ty) as usize;
                     let part: Bits2 = (0..w).map(|i| v.get(at + i).copied().unwrap_or(FALSE)).collect();
                     self.assign(a, part)?;
                     at += w;
@@ -3917,7 +5064,7 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
             }
             _ => {
                 let (o, off, w) = self.place(lhs)?;
-                let ow = d.types.width(d.object(o).ty) as usize;
+                let ow = tw(&d.types, d.object(o).ty) as usize;
                 let mut cur = self.env.get(&o).cloned().unwrap_or_else(|| vec![FALSE; ow]);
                 for i in 0..w {
                     let at = off + i as i64;
@@ -3937,7 +5084,7 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
         let x = d.expr(e);
         match &x.kind {
             ExprKind::Object(o) if matches!(d.object(*o).kind, ObjKind::Variable | ObjKind::Net(_)) => {
-                Ok((*o, 0, d.types.width(x.ty) as usize))
+                Ok((*o, 0, tw(&d.types, x.ty) as usize))
             }
             ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_) => {
                 let (o, base, _) = self.place(x.args[0])?;
@@ -3962,7 +5109,7 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
                         if let Item::Object(o) = *item
                             && d.object(o).lifetime == Lifetime::Automatic
                         {
-                            let w = d.types.width(d.object(o).ty) as usize;
+                            let w = tw(&d.types, d.object(o).ty) as usize;
                             let v = match d.object(o).init {
                                 Some(e) => self.expr(e)?,
                                 None => vec![FALSE; w],
@@ -4036,7 +5183,7 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
         keys.sort_unstable_by_key(|o| o.0);
         keys.dedup();
         for o in keys {
-            let ow = self.d().types.width(self.d().object(o).ty) as usize;
+            let ow = tw(&self.d().types, self.d().object(o).ty) as usize;
             let va = a.get(&o).cloned().unwrap_or_else(|| vec![FALSE; ow]);
             let vb = b.get(&o).cloned().unwrap_or_else(|| vec![FALSE; ow]);
             let v = self.ite_vec(c, &va, &vb)?;

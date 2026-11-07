@@ -356,6 +356,8 @@ struct Layout {
     prev: HashMap<ExprId, u64>,
     /// It or a specialisation below it has registers.
     clocked: bool,
+    /// Where its `_ff` function notes whether an edge came.
+    fired: u64,
 }
 
 /// What a parent passes for a child's port.
@@ -395,6 +397,7 @@ impl Layout {
             shadow: HashMap::new(),
             prev: HashMap::new(),
             clocked: false,
+            fired: 0,
         }
     }
 
@@ -663,6 +666,10 @@ impl<'d, 'a> Lowering<'d, 'a> {
             let lane = lay.lane(o);
             lay.shadow.insert(o, lay.size);
             lay.size = (lay.size + lane.bytes(w)).next_multiple_of(REG);
+        }
+        if !lay.ff.is_empty() {
+            lay.fired = lay.size;
+            lay.size += REG;
         }
         for p in lay.ff.clone() {
             for t in self.clocked(p).unwrap().0 {
@@ -1315,17 +1322,18 @@ impl<'d, 'a> Lowering<'d, 'a> {
         if self.layouts[&spec].clocked {
             for phase in [Phase::Ff, Phase::Commit] {
                 let mut f = Func::new(self, spec);
-                f.phase(phase)?;
-                let text = f.finish();
+                let any = f.phase(phase)?;
+                let text = if phase == Phase::Ff { f.finish_with(&any) } else { f.finish() };
                 let _ = writeln!(self.ir, "{text}");
             }
             if self.top == Some(spec) {
                 let n = fn_name(spec);
                 let _ = writeln!(
                     self.ir,
-                    "; a step: settle, sample the registers, commit them, settle again\n\
-                     define void @{n}_step(ptr %s) {{\nentry:\n  call void @{n}(ptr %s)\n  call void @{n}_ff(ptr %s)\n  \
-                     call void @{n}_commit(ptr %s)\n  call void @{n}(ptr %s)\n  ret void\n}}\n"
+                    "; a step: settle, sample the registers, and where an edge came, commit\n; them and settle again\n\
+                     define void @{n}_step(ptr %s) {{\nentry:\n  call void @{n}(ptr %s)\n  %fired = call i1 @{n}_ff(ptr %s)\n  \
+                     br i1 %fired, label %commit, label %done\ncommit:\n  call void @{n}_commit(ptr %s)\n  call void @{n}(ptr %s)\n  \
+                     br label %done\ndone:\n  ret void\n}}\n"
                 );
             }
         }
@@ -1806,6 +1814,11 @@ struct Env {
     ret: Option<M>,
     /// The registers' next values from nonblocking assignments so far.
     nba: HashMap<ObjId, Val>,
+    /// Values and elements loaded from the state and not since written:
+    /// a load in one arm of a branch serves the rest of the loop, as the
+    /// code has no branches, without a select of it where the arms meet.
+    loaded: HashMap<ObjId, Val>,
+    eloaded: HashMap<(ObjId, u32), Val>,
 }
 
 /// One function being written.
@@ -1870,6 +1883,12 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
 
     fn finish(mut self) -> String {
         self.out.push_str("  ret void\n}\n");
+        self.out
+    }
+
+    /// The function's end, returning `v`, an `i1`.
+    fn finish_with(mut self, v: &str) -> String {
+        let _ = write!(self.out, "  ret i1 {v}\n}}\n");
         self.out
     }
 
@@ -2468,9 +2487,11 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         }
         let before = self.env.clone();
         then(self)?;
-        let a = std::mem::replace(&mut self.env, before.clone());
+        let mut a = std::mem::replace(&mut self.env, before.clone());
+        (self.env.loaded, self.env.eloaded) = (std::mem::take(&mut a.loaded), std::mem::take(&mut a.eloaded));
         else_(self)?;
-        let b = std::mem::replace(&mut self.env, before);
+        let mut b = std::mem::replace(&mut self.env, before);
+        (self.env.loaded, self.env.eloaded) = (std::mem::take(&mut b.loaded), std::mem::take(&mut b.eloaded));
         let mut keys: Vec<ObjId> = a.vals.keys().chain(b.vals.keys()).copied().collect();
         keys.sort_unstable_by_key(|o| o.0);
         keys.dedup();
@@ -2558,23 +2579,51 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
 
     /// The function of a specialisation with registers for `phase`: its
     /// children's, then its own loop.
-    fn phase(&mut self, phase: Phase) -> Result<(), String> {
+    /// Its `_ff` function returns whether an edge came in any lane, below
+    /// it too (`i1`): without one, nothing changes, and the step need not
+    /// commit or settle again.
+    fn phase(&mut self, phase: Phase) -> Result<String, String> {
         let d = self.d();
-        self.out = self.out.replacen(&format!("@{}(", fn_name(self.spec)), &format!("@{}{}(", fn_name(self.spec), phase.suffix()), 1);
+        let ret = if phase == Phase::Ff { "define i1 @" } else { "define void @" };
+        self.out = self.out.replacen(
+            &format!("define void @{}(", fn_name(self.spec)),
+            &format!("{ret}{}{}(", fn_name(self.spec), phase.suffix()),
+            1,
+        );
+        let mut any = String::from("false");
+        let fired = self.lay().fired;
+        if phase == Phase::Ff && !self.lay().ff.is_empty() {
+            let _ = writeln!(self.out, "  %fired = getelementptr i8, ptr %s, i64 {fired}\n  store i8 0, ptr %fired, align 1");
+        }
         for n in self.lay().code.clone() {
             if let Node::Call(i) = n
                 && self.l.layouts[&d.instance(i).spec].clocked
             {
                 let args = self.child_args(i);
-                let _ = writeln!(self.out, "  call void @{}{}({args})", fn_name(d.instance(i).spec), phase.suffix());
+                let child = format!("@{}{}", fn_name(d.instance(i).spec), phase.suffix());
+                if phase == Phase::Ff {
+                    let (t, o) = (self.tmp(), self.tmp());
+                    let _ = writeln!(self.out, "  %t{t} = call i1 {child}({args})\n  %t{o} = or i1 {any}, %t{t}");
+                    any = format!("%t{o}");
+                } else {
+                    let _ = writeln!(self.out, "  call void {child}({args})");
+                }
             }
         }
         let lay = self.lay();
         if lay.regs.is_empty() && lay.ff.is_empty() {
-            return Ok(());
+            return Ok(any);
         }
         match phase {
-            Phase::Ff => self.run_loop_with(|f| f.ff_procs()),
+            Phase::Ff => {
+                self.run_loop_with(|f| f.ff_procs())?;
+                let (l, z, o) = (self.tmp(), self.tmp(), self.tmp());
+                let _ = writeln!(
+                    self.out,
+                    "  %t{l} = load i8, ptr %fired, align 1\n  %t{z} = icmp ne i8 %t{l}, 0\n  %t{o} = or i1 {any}, %t{z}"
+                );
+                Ok(format!("%t{o}"))
+            }
             Phase::Commit => self.run_loop_with(|f| {
                 for o in f.lay().regs.clone() {
                     let w = tw(&d.types, d.object(o).ty);
@@ -2584,7 +2633,8 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     f.set(o, v);
                 }
                 Ok(())
-            }),
+            })
+            .map(|_| any),
         }
     }
 
@@ -2640,6 +2690,22 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             let at = self.lay().prev[&e];
             let v = self.bit(now, 1);
             self.store(Base::State(at), Lane::of(1, planes), &v);
+        }
+        // Whether an edge came in any lane of this register, kept for the
+        // function's result.
+        let mut all = M::K(false);
+        for r in &runs {
+            all = self.mor(all, r.0);
+        }
+        if let M::V(m) = all {
+            let (b, nz, z, l, o) = (self.tmp(), self.tmp(), self.tmp(), self.tmp(), self.tmp());
+            let _ = writeln!(
+                self.out,
+                "  %t{b} = bitcast {M16} %t{m} to i16\n  %t{nz} = icmp ne i16 %t{b}, 0\n  %t{z} = zext i1 %t{nz} to i8\n  \
+                 %t{l} = load i8, ptr %fired, align 1\n  %t{o} = or i8 %t{l}, %t{z}\n  store i8 %t{o}, ptr %fired, align 1"
+            );
+        } else if all == M::K(true) {
+            let _ = writeln!(self.out, "  store i8 1, ptr %fired, align 1");
         }
         self.ff = true;
         for (fire, body) in runs {
@@ -2861,12 +2927,12 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
 
     /// Element `i` (a constant) of an object kept an element to a slot.
     fn read_elem(&mut self, o: ObjId, i: u32) -> Val {
-        if let Some(v) = self.env.elems.get(&(o, i)) {
+        if let Some(v) = self.env.elems.get(&(o, i)).or(self.env.eloaded.get(&(o, i))) {
             return v.clone();
         }
         let a = self.elem_addr(o, i);
         let v = self.load_slot(o, &a);
-        self.env.elems.insert((o, i), v.clone());
+        self.env.eloaded.insert((o, i), v.clone());
         v
     }
 
@@ -2976,6 +3042,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 // Any element may change: none is remembered.
                 self.flush_elems(Some(o));
                 self.env.elems.retain(|k, _| k.0 != o);
+                self.env.eloaded.retain(|k, _| k.0 != o);
                 let a = self.elem_addr_uniform(o, i, ok != M::K(true));
                 let v = match ok {
                     M::K(true) => v,
@@ -3024,20 +3091,24 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             }
             return acc;
         }
-        if let Some(v) = self.env.vals.get(&o) {
+        if let Some(v) = self.env.vals.get(&o).or(self.env.loaded.get(&o)) {
             return v.clone();
         }
         let d = self.d();
         let w = tw(&d.types, d.object(o).ty);
-        let v = match self.slot(o) {
+        match self.slot(o) {
             Some(base) => {
                 let lane = self.lay().lane(o);
-                self.load(base, lane, w)
+                let v = self.load(base, lane, w);
+                self.env.loaded.insert(o, v.clone());
+                v
             }
-            None => Val::zero(w),
-        };
-        self.env.vals.insert(o, v.clone());
-        v
+            None => {
+                let v = Val::zero(w);
+                self.env.vals.insert(o, v.clone());
+                v
+            }
+        }
     }
 
     fn set(&mut self, o: ObjId, v: Val) {
@@ -3375,6 +3446,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             let _ = writeln!(self.out, "  store {V16} {}, ptr {a}, align 64", ps(n));
         }
         self.env.vals.remove(&o);
+        self.env.loaded.remove(&o);
     }
 
     /// The function of a specialisation proved to count zeros.

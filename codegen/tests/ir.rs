@@ -3,7 +3,9 @@
 //! `NAME.main.c` (built by clang) and run on this machine; the two must
 //! print the same. On an AArch64 Mac with clang, or on x86-64 Linux (with
 //! its triple and data layout, leaving out what calls AArch64's
-//! intrinsics).
+//! intrinsics). A file with the line `; clang cannot build this` is built
+//! by us only, and its driver checks the results itself (and fails if
+//! they are wrong).
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -89,10 +91,8 @@ fn ir_behaves_as_clangs_build() {
             // (Nor number_minmax: of two NaNs, clang's x86 build returns a
             // signalling one as it is, where LLVM's reference says a quiet
             // one, as ours does.)
-            // (Nor module_asm, whose assembly is AArch64's, nor fp128_ops:
-            // fp128 on x86-64 is not done yet.)
-            if text.contains("@llvm.aarch64.") || ["number_minmax", "module_asm", "fp128_ops"].contains(&name.as_str())
-            {
+            // (Nor module_asm, whose assembly is AArch64's.)
+            if text.contains("@llvm.aarch64.") || ["number_minmax", "module_asm"].contains(&name.as_str()) {
                 continue;
             }
             let text: String = text
@@ -112,6 +112,11 @@ fn ir_behaves_as_clangs_build() {
             let mut m = epitome_ir::parse_module(&src).map_err(|e| format!("{e:?}"))?;
             let ours = tmp.join(format!("{name}.ours.o"));
             std::fs::write(&ours, compile(&t, &mut m, &Options::default())?.object_file(&t)?).unwrap();
+            if src.lines().any(|l| l == "; clang cannot build this") {
+                output(&ours, &main, &tmp.join(format!("{name}.ours")))?;
+                println!("ok {name}");
+                return Ok(());
+            }
             let theirs = tmp.join(format!("{name}.clang.o"));
             let st = Command::new("clang").arg("-c").arg(&ll).arg("-o").arg(&theirs).status().unwrap();
             if !st.success() {

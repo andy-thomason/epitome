@@ -946,10 +946,10 @@ test ; llvm.x86.sse41.round.pd ; <2 x double>(<2 x double>, i32 4) ; ; sse4.1
 test ; llvm.x86.sse41.round.ps ; <4 x float>(<4 x float>, i32 4) ; ; sse4.1
 test ; llvm.x86.sse41.round.sd ; <2 x double>(<2 x double>, <2 x double>, i32 4) ; ; sse4.1
 test ; llvm.x86.sse41.round.ss ; <4 x float>(<4 x float>, <4 x float>, i32 4) ; ; sse4.1
-skip ; llvm.x86.sse42.crc32.32.16 ; llc cannot build it (LLVM ERROR: Cannot select: intrinsic %llvm.x86.sse42.crc32.32.16)
-skip ; llvm.x86.sse42.crc32.32.32 ; llc cannot build it (LLVM ERROR: Cannot select: intrinsic %llvm.x86.sse42.crc32.32.32)
-skip ; llvm.x86.sse42.crc32.32.8 ; llc cannot build it (LLVM ERROR: Cannot select: intrinsic %llvm.x86.sse42.crc32.32.8)
-skip ; llvm.x86.sse42.crc32.64.64 ; llc cannot build it (LLVM ERROR: Cannot select: intrinsic %llvm.x86.sse42.crc32.64.64)
+test ; llvm.x86.sse42.crc32.32.16 ; i32(i32, i16) ; ; crc32
+test ; llvm.x86.sse42.crc32.32.32 ; i32(i32, i32) ; ; crc32
+test ; llvm.x86.sse42.crc32.32.8 ; i32(i32, i8) ; ; crc32
+test ; llvm.x86.sse42.crc32.64.64 ; i64(i64, i64) ; ; crc32
 test ; llvm.x86.sse42.pcmpestri128 ; i32(<16 x i8>, i32, <16 x i8>, i32, i8 4) ; ; sse4.2
 test ; llvm.x86.sse42.pcmpestria128 ; i32(<16 x i8>, i32, <16 x i8>, i32, i8 4) ; ; sse4.2
 test ; llvm.x86.sse42.pcmpestric128 ; i32(<16 x i8>, i32, <16 x i8>, i32, i8 4) ; ; sse4.2

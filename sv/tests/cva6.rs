@@ -621,7 +621,7 @@ fn guarded_arms() {
         }
     });
     check_against(&b, &v, cycles, n, &stim, &|w| format!("{w:x?}"));
-    assert!(b.net.ir.matches("br i1 %g").count() >= 4, "the costly arms are not guarded");
+    assert!(b.net.ir.matches(", label %G").count() >= 4, "the costly arms are not guarded");
     let ns = time_replay(&b, &v, cycles, n, &stim, 3);
     // The same without guards, every arm run and merged by selects.
     let opts = epitome_sv::netlist::Options { guard_min: 0, ..netlist_options() };

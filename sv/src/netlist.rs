@@ -1,15 +1,31 @@
 //! The compiled netlist (docs/design/sv.md sections 8.1 and 8.3): two-state,
-//! values computed in 32-bit lanes and stored as narrow as they fit.
+//! values stored as narrow as they fit.
 //!
-//! Each specialisation becomes one function, `sv_eval_<n>(ptr %state, ptr
-//! %port...)`, over a group of [`GROUP`] instances: for each variable or
-//! net, its 32-bit pieces (low piece first), each piece [`CHUNKS`]
-//! registers of [`LANES`] lanes. The function is a loop over the group's
-//! registers, so its code grows with the specialisation's source, not with
-//! the number of instances. A child instance's state is part of its
-//! parent's, and the parent calls the child's function once for the whole
-//! group, between two loops: one that works out the child's inputs, and
-//! one that reads its outputs.
+//! A lane is one instance of a specialisation: in one of the independent
+//! simulations the netlist is built for ([`Options::sims`]), and, below an
+//! array of instances (a generate loop's), in one of its iterations. Each
+//! specialisation becomes one function for each number of lanes it runs
+//! with, `sv_eval_<n>_<lanes>(ptr %s, ptr %p...)`, almost always one. The
+//! lanes set the code's [`Shape`]:
+//!
+//! - one lane is scalar code: plain integers, each value in 64-bit pieces
+//!   (one for up to 64 bits), and costly arms of an `if` or `case` behind
+//!   real branches (see [`Options::branch_min`]);
+//! - up to 4, 8 or 16 lanes are vectors of that many 32-bit lanes, each value
+//!   in 32-bit pieces, with `if` and `case` as selects;
+//! - more lanes are a loop over registers of 16, so the code grows with the
+//!   specialisation's source, not with the number of instances.
+//!
+//! For each variable or net, the state holds its pieces (low piece first),
+//! each piece a register of lanes for each register the shape has. A child
+//! instance's state is part of its parent's, and the parent calls the
+//! child's function between two passes: one that works out the child's
+//! inputs, and one that reads its outputs. A single child runs with its
+//! parent's lanes, and its ports are where its parent keeps the values they
+//! are connected to; an array of `k` children is one call with `k` times
+//! the parent's lanes, iteration `i` in lanes `i * w..(i + 1) * w` for a
+//! parent `w` lanes wide, and the parent copies each iteration's inputs to
+//! its lanes and its outputs back.
 //!
 //! A specialisation with registers below it also has `_ff`, which runs its
 //! clocked processes where an edge came (each lane's edge a mask) and
@@ -19,8 +35,8 @@
 //! Functions are written out where they are called. Fixed-size unpacked
 //! arrays are laid out as packed ones with the same bounds would be.
 //!
-//! The output is Epitome IR as text, `<16 x i32>` vectors and `<16 x i1>`
-//! masks, for `epitome-opt` and `epitome-codegen`.
+//! The output is Epitome IR as text, for `epitome-opt` and
+//! `epitome-codegen`.
 //!
 //! Not yet: four-state values, tasks, hierarchical references, gates,
 //! latches, clocks made by the design's own registers (an edge is seen at
@@ -31,7 +47,7 @@
 //! Immediate assertions and `initial` blocks that only assert are dropped.
 
 use std::cell::{Cell, RefCell};
-use std::collections::{BinaryHeap, HashMap, HashSet};
+use std::collections::{BTreeSet, BinaryHeap, HashMap, HashSet};
 use std::fmt::Write;
 
 use crate::bdd::{Bdd, FALSE, Manager, TRUE, TooBig};
@@ -43,16 +59,108 @@ use crate::design::{
     ObjKind, PartKind, ProcId, ProcKind, ScopeId, ScopeKind, SpecId, StmtId, StmtKind, SubId, SubKind, UnOp, ops,
 };
 
-/// Instances in one register: 32-bit lanes of a 512-bit vector.
+/// Most lanes in one register: 32-bit lanes of a 512-bit vector.
 pub const LANES: usize = 16;
-/// Registers in a group.
-pub const CHUNKS: usize = 32;
-/// Instances in a group.
-pub const GROUP: usize = LANES * CHUNKS;
-/// Bytes in one register of lanes.
-const REG: u64 = 64;
-/// Bytes in one piece of a value for the whole group.
-const PIECE: u64 = REG * CHUNKS as u64;
+/// A group: 512 independent simulations, the lanes a regression of many
+/// runs fills ([`Options::sims`]).
+pub const GROUP: usize = 512;
+
+/// How a function runs its lanes: `n` lanes a register (1 is scalar code),
+/// and `chunks` registers of them, a loop over them when more than one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Shape {
+    pub n: u32,
+    pub chunks: u32,
+}
+
+impl Shape {
+    /// The shape for `lanes` lanes: scalar for one, 128-, 256- or 512-bit
+    /// registers of 32-bit lanes for up to 4, 8 or 16, and more registers
+    /// of 16 beyond that.
+    pub fn of(lanes: u32) -> Shape {
+        match lanes {
+            0 | 1 => Shape { n: 1, chunks: 1 },
+            2..=4 => Shape { n: 4, chunks: 1 },
+            5..=8 => Shape { n: 8, chunks: 1 },
+            _ => Shape { n: 16, chunks: lanes.div_ceil(16) },
+        }
+    }
+
+    pub fn scalar(self) -> bool {
+        self.n == 1
+    }
+
+    /// The lanes it has room for, padding included.
+    pub fn width(self) -> u32 {
+        self.n * self.chunks
+    }
+
+    /// Bits in a piece of a value: 64 in scalar code, else a lane's 32.
+    fn pb(self) -> u32 {
+        if self.scalar() { 64 } else { 32 }
+    }
+}
+
+/// How a value is stored for each register of lanes: computed on in
+/// pieces, it is kept as narrow as it fits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Lane {
+    /// One bit: a bit plane, 16 bits a register (registers of 16 lanes
+    /// only).
+    Bit,
+    /// Up to 8 bits: a byte a lane.
+    B8,
+    /// Up to 16 bits.
+    B16,
+    /// 32-bit pieces, as many as the width needs (in scalar code, values of
+    /// 17 to 32 bits).
+    W32,
+    /// 64-bit pieces: scalar code's values wider than 32 bits.
+    W64,
+}
+
+impl Lane {
+    fn of(w: u32, sh: Shape, bit_planes: bool) -> Lane {
+        match w {
+            1 if bit_planes && sh.n == 16 => Lane::Bit,
+            0..=8 => Lane::B8,
+            9..=16 => Lane::B16,
+            17..=32 => Lane::W32,
+            _ if sh.scalar() => Lane::W64,
+            _ => Lane::W32,
+        }
+    }
+
+    /// Bytes for one register of lanes (a piece of `W32` or `W64`).
+    fn reg_bytes(self, sh: Shape) -> u64 {
+        let lane = match self {
+            Lane::Bit => return sh.n as u64 / 8,
+            Lane::B8 => 1,
+            Lane::B16 => 2,
+            Lane::W32 => 4,
+            Lane::W64 => 8,
+        };
+        lane * sh.n as u64
+    }
+
+    /// Bytes from one piece of a value to the next.
+    fn piece_bytes(self, sh: Shape) -> u64 {
+        self.reg_bytes(sh) * sh.chunks as u64
+    }
+
+    fn pieces(self, w: u32) -> u64 {
+        match self {
+            Lane::W32 => pieces(w) as u64,
+            Lane::W64 => (w as u64).div_ceil(64).max(1),
+            _ => 1,
+        }
+    }
+
+    /// Bytes for a `w`-bit value.
+    fn bytes(self, w: u32, sh: Shape) -> u64 {
+        self.pieces(w) * self.piece_bytes(sh)
+    }
+}
 
 /// The compiled netlist of one top-level instance.
 pub struct Netlist {
@@ -60,15 +168,17 @@ pub struct Netlist {
     pub ir: String,
     /// The top specialisation's function.
     pub entry: String,
-    /// Bytes of state for one group.
+    /// Bytes of state.
     pub size: usize,
+    /// The independent simulations the state holds, lanes `0..lanes`.
+    pub lanes: usize,
     /// The top's ports, where they are in the state.
     pub ports: Vec<Field>,
     /// Assertions and assertion-only `initial` blocks left out.
     pub dropped: usize,
 }
 
-/// Where a value is in a group's state.
+/// Where a value is in the state.
 #[derive(Clone, Debug)]
 pub struct Field {
     pub name: String,
@@ -76,77 +186,45 @@ pub struct Field {
     pub offset: usize,
     pub width: u32,
     pub lane: Lane,
-}
-
-/// How a value is stored for each register of lanes: computed on in 32-bit
-/// lanes, it is kept as narrow as it fits.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Lane {
-    /// One bit: a bit plane, 16 bits a register.
-    Bit,
-    /// Up to 8 bits: a byte a lane.
-    B8,
-    /// Up to 16 bits.
-    B16,
-    /// 32-bit pieces, as many as the width needs.
-    W32,
-}
-
-impl Lane {
-    fn of(w: u32, bit_planes: bool) -> Lane {
-        match w {
-            1 if bit_planes => Lane::Bit,
-            0..=8 => Lane::B8,
-            9..=16 => Lane::B16,
-            _ => Lane::W32,
-        }
-    }
-
-    /// Bytes for one register of lanes (a piece of `W32`).
-    fn reg_bytes(self) -> u64 {
-        match self {
-            Lane::Bit => 2,
-            Lane::B8 => LANES as u64,
-            Lane::B16 => 2 * LANES as u64,
-            Lane::W32 => REG,
-        }
-    }
-
-    /// Bytes for a `w`-bit value for the group.
-    fn bytes(self, w: u32) -> u64 {
-        let n = if self == Lane::W32 { pieces(w) as u64 } else { 1 };
-        n * self.reg_bytes() * CHUNKS as u64
-    }
+    /// The shape of the function whose state it is in.
+    pub shape: Shape,
 }
 
 impl Field {
-    /// The byte offset of `piece` (bits `32 * piece` up) of instance `n`,
-    /// for a value in 32-bit pieces.
-    pub fn at(&self, piece: usize, n: usize) -> usize {
-        assert_eq!(self.lane, Lane::W32);
-        self.offset + piece * PIECE as usize + (n / LANES) * REG as usize + (n % LANES) * 4
+    /// The byte offset of 32-bit word `k` (bits `32 * k` up) of lane `n`,
+    /// for a value in 32- or 64-bit pieces.
+    pub fn at(&self, k: usize, n: usize) -> usize {
+        match self.lane {
+            Lane::W32 => self.offset + k * Lane::W32.piece_bytes(self.shape) as usize + n * 4,
+            Lane::W64 => {
+                assert_eq!(n, 0, "64-bit pieces are scalar code's");
+                self.offset + k * 4
+            }
+            l => panic!("{l:?} is not in pieces"),
+        }
     }
 
+    /// Its 32-bit words.
     pub fn pieces(&self) -> usize {
         pieces(self.width)
     }
 
-    /// Writes instance `n`'s value (its low 64 bits; the rest zero).
+    /// Writes lane `n`'s value (its low 64 bits; the rest zero).
     ///
     /// # Safety
-    /// `state` is a group's state for this netlist.
+    /// `state` is a state for this netlist.
     pub unsafe fn put(&self, state: *mut u8, n: usize, v: u64) {
         let v = if self.width < 64 { v & ((1u64 << self.width) - 1) } else { v };
-        let (r, l) = (n / LANES, n % LANES);
+        let (r, l) = (n / 16, n % 16);
         unsafe {
             match self.lane {
                 Lane::Bit => {
                     let p = state.add(self.offset + 2 * r) as *mut u16;
                     p.write(p.read() & !(1 << l) | ((v as u16 & 1) << l));
                 }
-                Lane::B8 => state.add(self.offset + LANES * r + l).write(v as u8),
-                Lane::B16 => (state.add(self.offset + 2 * (LANES * r + l)) as *mut u16).write(v as u16),
-                Lane::W32 => {
+                Lane::B8 => state.add(self.offset + n).write(v as u8),
+                Lane::B16 => (state.add(self.offset + 2 * n) as *mut u16).write(v as u16),
+                Lane::W32 | Lane::W64 => {
                     for k in 0..self.pieces() {
                         let piece = if k < 2 { (v >> (32 * k)) as u32 } else { 0 };
                         (state.add(self.at(k, n)) as *mut u32).write(piece);
@@ -156,18 +234,18 @@ impl Field {
         }
     }
 
-    /// Instance `n`'s value (its low 64 bits).
+    /// Lane `n`'s value (its low 64 bits).
     ///
     /// # Safety
-    /// `state` is a group's state for this netlist.
+    /// `state` is a state for this netlist.
     pub unsafe fn get(&self, state: *const u8, n: usize) -> u64 {
-        let (r, l) = (n / LANES, n % LANES);
+        let (r, l) = (n / 16, n % 16);
         unsafe {
             match self.lane {
                 Lane::Bit => ((state.add(self.offset + 2 * r) as *const u16).read() >> l & 1) as u64,
-                Lane::B8 => state.add(self.offset + LANES * r + l).read() as u64,
-                Lane::B16 => (state.add(self.offset + 2 * (LANES * r + l)) as *const u16).read() as u64,
-                Lane::W32 => {
+                Lane::B8 => state.add(self.offset + n).read() as u64,
+                Lane::B16 => (state.add(self.offset + 2 * n) as *const u16).read() as u64,
+                Lane::W32 | Lane::W64 => {
                     (0..self.pieces().min(2)).map(|k| ((state.add(self.at(k, n)) as *const u32).read() as u64) << (32 * k)).sum()
                 }
             }
@@ -239,34 +317,48 @@ fn const_bits(c: &Const, w: u32) -> Option<Bits> {
     }
 }
 
+/// 32-bit words in a `w`-bit value.
 fn pieces(w: u32) -> usize {
     (w as usize).div_ceil(32).max(1)
 }
 
-/// The bits of the top piece of a `w`-bit value.
-fn top_mask(w: u32) -> u32 {
-    if w % 32 == 0 { !0 } else { (1u32 << (w % 32)) - 1 }
+/// The low `pb` bits set.
+fn ones_of(pb: u32) -> u64 {
+    if pb >= 64 { !0 } else { (1u64 << pb) - 1 }
+}
+
+/// The bits of the top piece of a `w`-bit value, in pieces of `pb` bits.
+fn top_mask(w: u32, pb: u32) -> u64 {
+    if w % pb == 0 { ones_of(pb) } else { (1u64 << (w % pb)) - 1 }
 }
 
 /// Choices in how the netlist is laid out.
 #[derive(Clone, Copy, Debug)]
 pub struct Options {
     /// One-bit elements as bit planes, a 16-bit mask for each register of
-    /// lanes: for targets with mask registers (AVX-512, SVE). Otherwise
-    /// they take a 32-bit lane each.
+    /// 16 lanes: for targets with mask registers (AVX-512, SVE). Otherwise
+    /// they take a lane each.
     pub bit_planes: bool,
     /// Specialisations proved to count zeros of their input (`recognise`)
     /// become that count, `llvm.ctlz` on lanes, not their own logic.
     pub recognise: bool,
-    /// Costly arms run only where some lane of a register takes them:
-    /// arms of at least this many instructions a register of lanes (see
-    /// [`GUARD_MIN`]); 0 for none, every arm run and selects merging them.
+    /// Costly arms of vector code run only where some lane of a register
+    /// takes them: arms of at least this many instructions a register of
+    /// lanes (see [`GUARD_MIN`]); 0 for none, every arm run and selects
+    /// merging them.
     pub guard_min: usize,
+    /// Arms of scalar code of at least this many instructions are behind a
+    /// branch (see [`BRANCH_MIN`]); smaller ones are run and selected
+    /// between, as in vector code. 0 for none.
+    pub branch_min: usize,
+    /// Independent simulations of the top run at once, each a lane of every
+    /// specialisation (more than 16 are rounded up to a multiple of 16).
+    pub sims: usize,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { bit_planes: true, recognise: true, guard_min: GUARD_MIN }
+        Options { bit_planes: true, recognise: true, guard_min: GUARD_MIN, branch_min: BRANCH_MIN, sims: 1 }
     }
 }
 
@@ -295,9 +387,15 @@ impl Phase {
     }
 }
 
+/// A specialisation, lowered for so many lanes.
+type Key = (SpecId, u32);
+
 pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, String> {
+    let sims = if opts.sims > 16 { opts.sims.next_multiple_of(16) } else { opts.sims.max(1) };
+    let spec = d.instance(top).spec;
+    let key = (spec, sims as u32);
     let mut n = Lowering {
-        top: Some(d.instance(top).spec),
+        top: Some(key),
         opts: *opts,
         d,
         layouts: HashMap::new(),
@@ -310,12 +408,16 @@ pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, 
         sym_orders: RefCell::default(),
         sub_locals: RefCell::default(),
         loop_vars: RefCell::default(),
+        codes: HashMap::new(),
+        arrays: HashMap::new(),
+        decls: RefCell::default(),
     };
-    let spec = d.instance(top).spec;
-    n.layout(spec)?;
-    n.ir.push_str("declare i32 @llvm.umin.i32(i32, i32)\ndeclare <16 x i32> @llvm.ctlz.v16i32(<16 x i32>, i1)\n\n");
-    n.function(spec)?;
-    let lay = &n.layouts[&spec];
+    n.layout(key)?;
+    n.function(key)?;
+    for decl in n.decls.borrow().iter() {
+        let _ = writeln!(n.ir, "{decl}");
+    }
+    let lay = &n.layouts[&key];
     let mut ports = Vec::new();
     for p in &d.spec(spec).ports {
         let o = p.object.ok_or_else(|| format!("interface port {} is not supported yet", d.name(p.name)))?;
@@ -325,19 +427,21 @@ pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, 
             offset: lay.objs[&o] as usize,
             width: tw(&d.types, d.object(o).ty),
             lane: lay.lane(o),
+            shape: lay.shape,
         });
     }
     let dropped = n.dropped.get() + n.asserts.borrow().len();
-    let entry = if lay.clocked { format!("{}_step", fn_name(spec)) } else { fn_name(spec) };
-    Ok(Netlist { ir: n.ir, entry, size: lay.size as usize, ports, dropped })
+    let entry = if lay.clocked { format!("{}_step", fn_name(key)) } else { fn_name(key) };
+    Ok(Netlist { ir: n.ir, entry, size: lay.size as usize, lanes: sims, ports, dropped })
 }
 
-fn fn_name(s: SpecId) -> String {
-    format!("sv_eval_{}", s.0)
+fn fn_name((s, lanes): Key) -> String {
+    format!("sv_eval_{}_{lanes}", s.0)
 }
 
 /// Where a specialisation's values and children are in its state.
 struct Layout {
+    shape: Shape,
     size: u64,
     /// The specialisation's static values.
     statics: HashSet<ObjId>,
@@ -348,12 +452,15 @@ struct Layout {
     lanes: HashMap<ObjId, Lane>,
     /// Below the top: the ports, as the function's pointer parameters.
     port_ix: HashMap<ObjId, usize>,
-    /// For each child, what is passed for each of its ports.
+    /// For each child (an array's first instance, for an array), what is
+    /// passed for each of its ports.
     args: HashMap<InstId, Vec<Arg>>,
     /// The objects kept an element to a slot (docs/design/sv.md section
     /// 8.3); the rest are 32-bit pieces.
     elems: HashMap<ObjId, Elems>,
+    /// Where each child's state is, and what the child is lowered as.
     kids: HashMap<InstId, u64>,
+    kid_keys: HashMap<InstId, Key>,
     /// Its processes, drivers and children, in source order.
     code: Vec<Node>,
     /// What it is proved to compute, if that replaces its own logic.
@@ -383,8 +490,9 @@ enum Arg {
     /// The parent's own value, connected whole: the child reads and writes
     /// it where it is, with nothing copied.
     Alias(ObjId),
-    /// A slot in the parent's state, at this offset, that the parent fills
-    /// before the call (an input) or reads after it (an output).
+    /// A slot in the parent's state, at this offset and laid out as the
+    /// child's values are, that the parent fills before the call (an input)
+    /// or reads after it (an output).
     Slot(u64),
 }
 
@@ -397,8 +505,9 @@ enum Base {
 }
 
 impl Layout {
-    fn new() -> Layout {
+    fn new(shape: Shape) -> Layout {
         Layout {
+            shape,
             size: 0,
             statics: HashSet::new(),
             objs: HashMap::new(),
@@ -407,6 +516,7 @@ impl Layout {
             args: HashMap::new(),
             elems: HashMap::new(),
             kids: HashMap::new(),
+            kid_keys: HashMap::new(),
             code: Vec::new(),
             known: None,
             ff: Vec::new(),
@@ -423,13 +533,26 @@ impl Layout {
         self.lanes.get(&o).copied().unwrap_or(Lane::W32)
     }
 
+    /// Room for `bytes` at the end, aligned to `align`: where it is.
+    fn room(&mut self, bytes: u64, align: u64) -> u64 {
+        let at = self.size.next_multiple_of(align.max(1));
+        self.size = at + bytes;
+        at
+    }
+
+    /// Room for a `w`-bit value stored as `lane`.
+    fn room_for(&mut self, w: u32, lane: Lane) -> u64 {
+        let sh = self.shape;
+        self.room(lane.bytes(w, sh), lane.reg_bytes(sh))
+    }
+
     /// A slot for `o`, `w` bits wide, at the end.
     fn place(&mut self, o: ObjId, w: u32, lane: Lane) {
-        self.objs.insert(o, self.size);
+        let at = self.room_for(w, lane);
+        self.objs.insert(o, at);
         if lane != Lane::W32 {
             self.lanes.insert(o, lane);
         }
-        self.size = (self.size + lane.bytes(w)).next_multiple_of(REG);
     }
 }
 
@@ -463,28 +586,30 @@ enum Out {
 }
 
 /// An object used only an element at a time, kept an element to a slot:
-/// one-bit elements as bit planes, a 16-bit mask for each register of
-/// lanes (a k register with AVX-512); wider ones (up to 32 bits) in a
-/// register of 32-bit lanes each. Selecting an element is then choosing
-/// an address, with no shifts.
+/// in vector code, one-bit elements as bit planes, a 16-bit mask for each
+/// register of lanes (a k register with AVX-512), and wider ones (up to 32
+/// bits) in a register of 32-bit lanes each; in scalar code, each element
+/// as narrow as it fits (up to 64 bits). Selecting an element is then
+/// choosing an address, with no shifts.
 #[derive(Clone, Copy, Debug)]
 struct Elems {
     /// The element's width.
     ew: u32,
     /// How many elements.
     n: u32,
-    /// One-bit elements as bit planes.
-    bits: bool,
+    /// How each element is stored.
+    lane: Lane,
+    /// Bytes from one element's slot to the next.
+    stride: u64,
 }
 
 impl Elems {
     fn planes(self) -> bool {
-        self.bits
+        self.lane == Lane::Bit
     }
 
-    /// Bytes from one element's slot to the next.
     fn stride(self) -> u64 {
-        if self.planes() { 2 * CHUNKS as u64 } else { PIECE }
+        self.stride
     }
 }
 
@@ -528,6 +653,11 @@ const ROLL_MIN: usize = 4;
 /// instructions costs some 30 to 60, so below this the selects are cheaper
 /// on average even where the arm is skipped half the time.
 pub const GUARD_MIN: usize = 64;
+/// Fewest instructions of an arm of an `if` or `case` in scalar code worth
+/// a branch around it rather than running it and selecting its values: a
+/// branch costs a compare and a jump, and now and then a misprediction,
+/// where the selects cost both arms' work every time.
+pub const BRANCH_MIN: usize = 8;
 /// Most expression nodes, over all iterations, of a run of iterations
 /// left unrolled: each iteration of a rolled loop is a pass over the
 /// group's state, which costs more than a small body written out.
@@ -548,10 +678,10 @@ struct Lowering<'d, 'a> {
     opts: Options,
     /// The top specialisation: its ports are in its state; every other
     /// specialisation's are where its parent passes pointers to.
-    top: Option<SpecId>,
+    top: Option<Key>,
     d: &'d Design<'a>,
-    layouts: HashMap<SpecId, Layout>,
-    done: HashSet<SpecId>,
+    layouts: HashMap<Key, Layout>,
+    done: HashSet<Key>,
     ir: String,
     folds: RefCell<HashMap<ExprId, Option<Const>>>,
     /// `initial` blocks and kept syntax left out.
@@ -566,12 +696,21 @@ struct Lowering<'d, 'a> {
     /// The parameters that step in the loop being lowered: not constants
     /// there.
     loop_vars: RefCell<HashSet<ObjId>>,
+    /// Each specialisation's static values and code, as `collect` finds
+    /// them.
+    codes: HashMap<SpecId, (Vec<ObjId>, Vec<Node>)>,
+    /// Arrays of instances (a generate loop's, one an iteration), by their
+    /// first instance: called as one, with a lane block an iteration.
+    arrays: HashMap<InstId, Vec<InstId>>,
+    /// The intrinsics the functions call.
+    decls: RefCell<BTreeSet<String>>,
 }
 
 impl<'d, 'a> Lowering<'d, 'a> {
-    fn layout(&mut self, spec: SpecId) -> Result<(), String> {
-        if self.layouts.contains_key(&spec) {
-            return Ok(());
+    /// A specialisation's static values and code, found once.
+    fn code_of(&mut self, spec: SpecId) -> Result<(Vec<ObjId>, Vec<Node>), String> {
+        if let Some(c) = self.codes.get(&spec) {
+            return Ok(c.clone());
         }
         let d = self.d;
         let mut objs = Vec::new();
@@ -591,7 +730,35 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 return Err(format!("{}: initial values of variables are not supported yet", d.name(ob.name)));
             }
         }
-        let mut lay = Layout::new();
+        self.codes.insert(spec, (objs.clone(), code.clone()));
+        Ok((objs, code))
+    }
+
+    /// The instances an instance node stands for: an array's, or itself.
+    fn members(&self, i: InstId) -> Vec<InstId> {
+        self.arrays.get(&i).cloned().unwrap_or_else(|| vec![i])
+    }
+
+    /// The lanes child `i` runs with, below a function of shape `sh` with
+    /// `lanes` lanes: its parent's, or, for an array, a block as wide as
+    /// the parent's registers for each iteration.
+    fn child_lanes(&self, sh: Shape, lanes: u32, i: InstId) -> u32 {
+        match self.members(i).len() as u32 {
+            1 => lanes,
+            k => k * sh.width(),
+        }
+    }
+
+    fn layout(&mut self, key: Key) -> Result<(), String> {
+        if self.layouts.contains_key(&key) {
+            return Ok(());
+        }
+        let d = self.d;
+        let (spec, lanes) = key;
+        let sh = Shape::of(lanes);
+        let planes = self.opts.bit_planes;
+        let (objs, code) = self.code_of(spec)?;
+        let mut lay = Layout::new(sh);
         lay.statics = objs.iter().copied().collect();
         // Clocked processes are not in the order of the rest: they run
         // after it, on what it has worked out.
@@ -618,26 +785,58 @@ impl<'d, 'a> Lowering<'d, 'a> {
         }
         lay.regs.sort_unstable_by_key(|o| o.0);
         let ff_reads: HashSet<ObjId> = ff_reads.into_iter().map(|t| t.0).collect();
-        lay.elems = self.element_only(&objs, &code);
+        lay.elems = self.element_only(&objs, &code, sh);
         lay.elems.retain(|o, _| !lay.regs.contains(o) && !ff_reads.contains(o));
         for node in code {
             if let Node::In(i) = node {
-                self.layout(d.instance(i).spec)?;
                 lay.code.push(Node::In(i));
                 lay.code.push(Node::Call(i));
             } else {
                 lay.code.push(node);
             }
         }
-        lay.clocked = !lay.ff.is_empty() || lay.code.iter().any(|n| matches!(*n, Node::Call(i) if self.layouts[&d.instance(i).spec].clocked));
-        self.layouts.insert(spec, lay);
-        let planes = self.opts.bit_planes;
-        let below_top = self.top != Some(spec);
+        // An array whose call would wait on itself (an iteration's input
+        // made from another's output) is called an instance at a time.
+        self.layouts.insert(key, lay);
+        let arrays: Vec<InstId> = self.layouts[&key].code.iter().filter_map(|n| if let Node::In(i) = *n { Some(i) } else { None }).filter(|i| self.arrays.contains_key(i)).collect();
+        if !arrays.is_empty() && self.order(key).is_err() {
+            let split: HashMap<InstId, Vec<InstId>> = arrays.iter().map(|i| (*i, self.arrays.remove(i).unwrap())).collect();
+            let entry = self.codes.get_mut(&spec).unwrap();
+            entry.1 = entry.1.iter().flat_map(|&n| match n {
+                Node::In(i) => split.get(&i).cloned().unwrap_or_else(|| vec![i]).into_iter().map(Node::In).collect(),
+                n => vec![n],
+            }).collect();
+            let (_, code) = self.code_of(spec)?;
+            let mut lay = self.layouts.remove(&key).unwrap();
+            lay.code.clear();
+            for node in code {
+                match node {
+                    Node::In(i) => {
+                        lay.code.push(Node::In(i));
+                        lay.code.push(Node::Call(i));
+                    }
+                    Node::Proc(p) if self.clocked(p).is_some() => {}
+                    n => lay.code.push(n),
+                }
+            }
+            self.layouts.insert(key, lay);
+        }
+        let mut lay = self.layouts.remove(&key).unwrap();
+        for node in lay.code.clone() {
+            if let Node::In(i) = node {
+                let ck = (d.instance(i).spec, self.child_lanes(sh, lanes, i));
+                self.layout(ck)?;
+                lay.kid_keys.insert(i, ck);
+            }
+        }
+        lay.clocked = !lay.ff.is_empty() || lay.kid_keys.values().any(|k| self.layouts[k].clocked);
+        self.layouts.insert(key, lay);
+        let below_top = self.top != Some(key);
         // Below the top, ports are the function's pointer parameters.
         let port_lanes = |lay: &mut Layout| {
             for (k, p) in d.spec(spec).ports.iter().enumerate() {
                 if let Some(o) = p.object {
-                    let lane = Lane::of(tw(&d.types, d.object(o).ty), planes);
+                    let lane = Lane::of(tw(&d.types, d.object(o).ty), sh, planes);
                     if lane != Lane::W32 {
                         lay.lanes.insert(o, lane);
                     }
@@ -649,30 +848,31 @@ impl<'d, 'a> Lowering<'d, 'a> {
         };
         // A specialisation proved to count zeros keeps only its ports.
         if self.opts.recognise
-            && let Some(k) = self.recognise(spec)
+            && let Some(k) = self.recognise(key)
         {
-            let mut lay = Layout::new();
+            let mut lay = Layout::new(sh);
             port_lanes(&mut lay);
             for p in &d.spec(spec).ports {
                 let o = p.object.expect("recognised specialisations have plain ports");
                 lay.statics.insert(o);
                 if !below_top {
                     let w = tw(&d.types, d.object(o).ty);
-                    lay.place(o, w, Lane::of(w, planes));
+                    lay.place(o, w, Lane::of(w, sh, planes));
                 }
             }
             lay.known = Some(k);
-            self.layouts.insert(spec, lay);
+            self.layouts.insert(key, lay);
             return Ok(());
         }
-        let mut lay = self.layouts.remove(&spec).unwrap();
+        let mut lay = self.layouts.remove(&key).unwrap();
         port_lanes(&mut lay);
         // What each child's ports are connected to: the parent's own values
-        // where they are connected whole.
+        // where a single child's are connected whole.
         let mut args: Vec<(InstId, Vec<Option<ObjId>>)> = Vec::new();
         for node in &lay.code {
             if let Node::In(i) = *node {
                 let inst = d.instance(i);
+                let single = self.members(i).len() == 1;
                 let row = d
                     .spec(inst.spec)
                     .ports
@@ -680,18 +880,18 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     .map(|p| {
                         let po = p.object?;
                         let e = inst.connections.iter().find(|c| c.port == p.name)?.expr?;
-                        self.alias_target(&lay, e, po)
+                        if single { self.alias_target(&lay, e, po) } else { None }
                     })
                     .collect();
                 args.push((i, row));
             }
         }
         let aliased: HashSet<ObjId> = args.iter().flat_map(|a| a.1.iter().flatten().copied()).collect();
-        self.layouts.insert(spec, lay);
-        let mut local = self.loop_locals(spec)?;
+        self.layouts.insert(key, lay);
+        let mut local = self.loop_locals(key)?;
         local.retain(|o| !ff_reads.contains(o));
-        let fresh = self.fresh_values(spec)?;
-        let mut lay = self.layouts.remove(&spec).unwrap();
+        let fresh = self.fresh_values(key)?;
+        let mut lay = self.layouts.remove(&key).unwrap();
         for o in objs {
             if local.contains(&o) && !aliased.contains(&o) || lay.port_ix.contains_key(&o) {
                 continue;
@@ -699,10 +899,10 @@ impl<'d, 'a> Lowering<'d, 'a> {
             let w = tw(&d.types, d.object(o).ty);
             match lay.elems.get(&o) {
                 Some(&e) => {
-                    lay.objs.insert(o, lay.size);
-                    lay.size = (lay.size + e.n as u64 * e.stride()).next_multiple_of(REG);
+                    let at = lay.room(e.n as u64 * e.stride(), e.lane.reg_bytes(sh));
+                    lay.objs.insert(o, at);
                 }
-                None => lay.place(o, w, Lane::of(w, planes)),
+                None => lay.place(o, w, Lane::of(w, sh, planes)),
             }
         }
         lay.fresh = fresh;
@@ -716,34 +916,34 @@ impl<'d, 'a> Lowering<'d, 'a> {
             }
             let w = tw(&d.types, d.object(o).ty);
             let lane = lay.lane(o);
-            lay.shadow.insert(o, lay.size);
-            lay.size = (lay.size + lane.bytes(w)).next_multiple_of(REG);
+            let at = lay.room_for(w, lane);
+            lay.shadow.insert(o, at);
         }
         if !lay.ff.is_empty() {
-            lay.fired = lay.size;
-            lay.size += REG;
+            lay.fired = lay.room(1, 1);
         }
         for p in lay.ff.clone() {
             for t in self.clocked(p).unwrap().0 {
                 if !lay.prev.contains_key(&t.expr) {
-                    lay.prev.insert(t.expr, lay.size);
-                    lay.size = (lay.size + Lane::of(1, planes).bytes(1)).next_multiple_of(REG);
+                    let at = lay.room_for(1, Lane::of(1, sh, planes));
+                    lay.prev.insert(t.expr, at);
                 }
             }
         }
-        // Slots for the ports not connected to a value whole.
+        // Slots for the ports not connected to a value whole, laid out as
+        // the child's values are.
         for (i, row) in args {
-            let child = d.instance(i).spec;
+            let ck = lay.kid_keys[&i];
+            let csh = Shape::of(ck.1);
             let mut out = Vec::new();
-            for (p, alias) in d.spec(child).ports.iter().zip(row) {
+            for (p, alias) in d.spec(ck.0).ports.iter().zip(row) {
                 out.push(match alias {
                     Some(o) => Arg::Alias(o),
                     None => {
                         let po = p.object.ok_or("interface ports are not supported yet")?;
                         let w = tw(&d.types, d.object(po).ty);
-                        let at = lay.size;
-                        lay.size = (lay.size + Lane::of(w, planes).bytes(w)).next_multiple_of(REG);
-                        Arg::Slot(at)
+                        let lane = Lane::of(w, csh, planes);
+                        Arg::Slot(lay.room(lane.bytes(w, csh), lane.reg_bytes(csh)))
                     }
                 });
             }
@@ -751,11 +951,12 @@ impl<'d, 'a> Lowering<'d, 'a> {
         }
         for node in lay.code.clone() {
             if let Node::In(i) = node {
-                lay.kids.insert(i, lay.size);
-                lay.size += self.layouts[&d.instance(i).spec].size;
+                let size = self.layouts[&lay.kid_keys[&i]].size;
+                let at = lay.room(size, 64);
+                lay.kids.insert(i, at);
             }
         }
-        self.layouts.insert(spec, lay);
+        self.layouts.insert(key, lay);
         Ok(())
     }
 
@@ -786,10 +987,10 @@ impl<'d, 'a> Lowering<'d, 'a> {
     /// The internal values worked out and used within one loop over the
     /// registers, written before they are read there: they need no slot in
     /// the state.
-    fn loop_locals(&self, spec: SpecId) -> Result<HashSet<ObjId>, String> {
+    fn loop_locals(&self, key: Key) -> Result<HashSet<ObjId>, String> {
         let d = self.d;
-        let lay = &self.layouts[&spec];
-        let order = self.order(spec)?;
+        let lay = &self.layouts[&key];
+        let order = self.order(key)?;
         // The loop each node runs in, as Func::body splits them.
         let mut seg = 0usize;
         let mut rolled = HashSet::new();
@@ -811,7 +1012,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 }
                 _ => seg,
             };
-            let (r, w) = self.access(spec, node)?;
+            let (r, w) = self.access(key, node)?;
             let writes: HashSet<ObjId> = w.iter().map(|t| t.0).collect();
             for (o, written) in w.iter().map(|t| (t.0, true)).chain(r.iter().filter(|t| !writes.contains(&t.0)).map(|t| (t.0, false))) {
                 let e = used.entry(o).or_insert_with(|| (HashSet::new(), usize::MAX, usize::MAX));
@@ -840,19 +1041,19 @@ impl<'d, 'a> Lowering<'d, 'a> {
 
     /// The values written only by continuous assignments, all of them in
     /// one loop over the registers (see `Layout::fresh`).
-    fn fresh_values(&self, spec: SpecId) -> Result<HashSet<ObjId>, String> {
-        let lay = &self.layouts[&spec];
+    fn fresh_values(&self, key: Key) -> Result<HashSet<ObjId>, String> {
+        let lay = &self.layouts[&key];
         let mut seg = 0usize;
         // For each value written: the loop its writers are in, if one, and
         // whether they are all continuous assignments.
         let mut writers: HashMap<ObjId, (Option<usize>, bool)> = HashMap::new();
-        for node in self.order(spec)? {
+        for node in self.order(key)? {
             match node {
                 Node::Loop(_) => seg += 2,
                 Node::Call(_) => seg += 1,
                 _ => {}
             }
-            let (_, w) = self.access(spec, node)?;
+            let (_, w) = self.access(key, node)?;
             for (o, _, _) in w {
                 let e = writers.entry(o).or_insert((Some(seg), true));
                 if e.0 != Some(seg) {
@@ -904,7 +1105,9 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     }
                     code.push(Node::Driver(dr));
                 }
-                Item::Instance(i) => code.push(Node::In(i)),
+                // An array's instances are one node, its first's.
+                Item::Instance(i) if !self.arrays.values().any(|m| m[0] != i && m.contains(&i)) => code.push(Node::In(i)),
+                Item::Instance(_) => {}
                 Item::Cell(_) => return Err("gates and UDPs are not supported yet".into()),
                 Item::Scope(s) => match d.scope(s).kind {
                     ScopeKind::Generate if self.is_generate_loop(s) => self.generate_loop(s, objs, code)?,
@@ -921,7 +1124,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
     /// The objects that every use selects one element of, with the same
     /// element width: these are kept an element to a slot. Ports are not,
     /// so that a parent and a child meet in one layout.
-    fn element_only(&self, objs: &[ObjId], code: &[Node]) -> HashMap<ObjId, Elems> {
+    fn element_only(&self, objs: &[ObjId], code: &[Node], sh: Shape) -> HashMap<ObjId, Elems> {
         let d = self.d;
         let mut uses: HashMap<ObjId, Option<u32>> = HashMap::new();
         for node in code {
@@ -940,9 +1143,11 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 }
                 Node::Proc(p) => self.stmt_uses(d.processes[p.0 as usize].body, &mut uses),
                 Node::In(i) | Node::Call(i) => {
-                    for c in &d.instance(i).connections {
-                        if let Some(e) = c.expr {
-                            self.expr_uses(e, &mut uses);
+                    for m in self.members(i) {
+                        for c in &d.instance(m).connections {
+                            if let Some(e) = c.expr {
+                                self.expr_uses(e, &mut uses);
+                            }
                         }
                     }
                 }
@@ -953,12 +1158,16 @@ impl<'d, 'a> Lowering<'d, 'a> {
             let ob = d.object(o);
             let w = tw(&d.types, ob.ty);
             if let (None, Some(Some(ew))) = (ob.dir, uses.get(&o))
-                && *ew <= 32
+                && *ew <= sh.pb()
                 && w % ew == 0
                 && w / ew >= 2
                 && (d.types.packed_range(ob.ty).is_some() || d.types.is_unpacked_array(ob.ty))
             {
-                out.insert(o, Elems { ew: *ew, n: w / ew, bits: *ew == 1 && self.opts.bit_planes });
+                let lane = match Lane::of(*ew, sh, self.opts.bit_planes) {
+                    Lane::B8 | Lane::B16 if !sh.scalar() => Lane::W32,
+                    l => l,
+                };
+                out.insert(o, Elems { ew: *ew, n: w / ew, lane, stride: lane.piece_bytes(sh) });
             }
         }
         out
@@ -1086,6 +1295,24 @@ impl<'d, 'a> Lowering<'d, 'a> {
     fn generate_loop(&mut self, s: ScopeId, objs: &mut Vec<ObjId>, code: &mut Vec<Node>) -> Result<(), String> {
         let d = self.d;
         let iters: Vec<ScopeId> = d.scope(s).items.iter().filter_map(|i| if let Item::Scope(k) = i { Some(*k) } else { None }).collect();
+        // Where every iteration has instances of the same specialisations,
+        // in the same order, the instances at each place are an array.
+        let insts: Vec<Vec<InstId>> = iters
+            .iter()
+            .map(|&i| {
+                let mut v = Vec::new();
+                self.iteration_instances(i, &mut v);
+                v
+            })
+            .collect();
+        if iters.len() >= 2
+            && !insts[0].is_empty()
+            && insts.iter().all(|v| v.len() == insts[0].len() && v.iter().zip(&insts[0]).all(|(a, b)| d.instance(*a).spec == d.instance(*b).spec))
+        {
+            for j in 0..insts[0].len() {
+                self.arrays.insert(insts[0][j], insts.iter().map(|v| v[j]).collect());
+            }
+        }
         // Runs of iterations of the same shape.
         let shapes: Vec<Option<String>> = iters.iter().map(|&i| self.shape(i)).collect();
         let mut at = 0;
@@ -1115,6 +1342,19 @@ impl<'d, 'a> Lowering<'d, 'a> {
             at = end;
         }
         Ok(())
+    }
+
+    /// The instances in an iteration of a generate loop, and in the generate
+    /// blocks in it that are not loops, in order.
+    fn iteration_instances(&self, s: ScopeId, out: &mut Vec<InstId>) {
+        let d = self.d;
+        for item in &d.scope(s).items {
+            match *item {
+                Item::Instance(i) => out.push(i),
+                Item::Scope(k) if d.scope(k).kind == ScopeKind::Generate && !self.is_generate_loop(k) => self.iteration_instances(k, out),
+                _ => {}
+            }
+        }
     }
 
     /// An iteration's code, as the source nodes it was made from, if it is
@@ -1379,37 +1619,39 @@ impl<'d, 'a> Lowering<'d, 'a> {
         }
     }
 
-    /// The function for `spec`, after its children's.
-    fn function(&mut self, spec: SpecId) -> Result<(), String> {
-        if !self.done.insert(spec) {
+    /// The function for `key`, after its children's.
+    fn function(&mut self, key: Key) -> Result<(), String> {
+        if !self.done.insert(key) {
             return Ok(());
         }
-        let kids: Vec<SpecId> = self.layouts[&spec].kids.keys().map(|&i| self.d.instance(i).spec).collect();
+        let mut kids: Vec<Key> = self.layouts[&key].kid_keys.values().copied().collect();
+        kids.sort_unstable_by_key(|k| (k.0.0, k.1));
         for k in kids {
             self.function(k)?;
         }
-        let mut f = Func::new(self, spec);
-        match &self.layouts[&spec].known {
+        let spec = key.0;
+        let mut f = Func::new(self, key);
+        match &self.layouts[&key].known {
             Some(k) => {
                 let k = k.clone();
                 f.run_loop_with(|f| f.known(&k))?;
             }
             None => {
-                let order = self.order(spec)?;
+                let order = self.order(key)?;
                 f.body(&order)?;
             }
         }
         let text = f.finish();
-        let _ = writeln!(self.ir, "; {}\n{text}", self.d.name(self.d.spec(spec).name));
-        if self.layouts[&spec].clocked {
+        let _ = writeln!(self.ir, "; {}, {} lanes\n{text}", self.d.name(self.d.spec(spec).name), key.1);
+        if self.layouts[&key].clocked {
             for phase in [Phase::Ff, Phase::Commit] {
-                let mut f = Func::new(self, spec);
+                let mut f = Func::new(self, key);
                 let any = f.phase(phase)?;
                 let text = if phase == Phase::Ff { f.finish_with(&any) } else { f.finish() };
                 let _ = writeln!(self.ir, "{text}");
             }
-            if self.top == Some(spec) {
-                let n = fn_name(spec);
+            if self.top == Some(key) {
+                let n = fn_name(key);
                 let _ = writeln!(
                     self.ir,
                     "; a step: settle, sample the registers, and where an edge came, commit\n; them and settle again\n\
@@ -1425,13 +1667,14 @@ impl<'d, 'a> Lowering<'d, 'a> {
     /// The specialisation's code in an order where everything is worked
     /// out before it is read: a topological sort on the bits each node
     /// reads and writes.
-    fn order(&self, spec: SpecId) -> Result<Vec<Node>, String> {
-        let lay = &self.layouts[&spec];
+    fn order(&self, key: Key) -> Result<Vec<Node>, String> {
+        let spec = key.0;
+        let lay = &self.layouts[&key];
         let nodes = &lay.code;
         let mut reads = Vec::with_capacity(nodes.len());
         let mut writers: HashMap<ObjId, Vec<(u32, u32, usize)>> = HashMap::new();
         for (n, node) in nodes.iter().enumerate() {
-            let (r, w) = self.access(spec, *node)?;
+            let (r, w) = self.access(key, *node)?;
             for (o, lo, hi) in w {
                 writers.entry(o).or_default().push((lo, hi, n));
             }
@@ -1486,9 +1729,9 @@ impl<'d, 'a> Lowering<'d, 'a> {
     /// The bits a node reads and writes: (object, from, to) with `to`
     /// exclusive.
     #[allow(clippy::type_complexity)]
-    fn access(&self, spec: SpecId, node: Node) -> Result<(Vec<(ObjId, u32, u32)>, Vec<(ObjId, u32, u32)>), String> {
+    fn access(&self, key: Key, node: Node) -> Result<(Vec<(ObjId, u32, u32)>, Vec<(ObjId, u32, u32)>), String> {
         let d = self.d;
-        let lay = &self.layouts[&spec];
+        let lay = &self.layouts[&key];
         let mut r = Vec::new();
         let mut w = Vec::new();
         let whole = |o: ObjId| (o, 0, tw(&d.types, d.object(o).ty).max(1));
@@ -1517,16 +1760,20 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 }
             }
             Node::In(i) => {
-                for c in &d.instance(i).connections {
-                    if let (Some(e), Some(Dir::Input)) = (c.expr, self.port_dir(i, c.port)) {
-                        self.reads(e, &mut r);
+                for m in self.members(i) {
+                    for c in &d.instance(m).connections {
+                        if let (Some(e), Some(Dir::Input)) = (c.expr, self.port_dir(m, c.port)) {
+                            self.reads(e, &mut r);
+                        }
                     }
                 }
             }
             Node::Call(i) => {
-                for c in &d.instance(i).connections {
-                    if let (Some(e), Some(Dir::Output)) = (c.expr, self.port_dir(i, c.port)) {
-                        self.writes(e, &mut w, &mut r);
+                for m in self.members(i) {
+                    for c in &d.instance(m).connections {
+                        if let (Some(e), Some(Dir::Output)) = (c.expr, self.port_dir(m, c.port)) {
+                            self.writes(e, &mut w, &mut r);
+                        }
                     }
                 }
             }
@@ -1841,10 +2088,11 @@ impl<'d, 'a> Lowering<'d, 'a> {
     }
 }
 
-/// One 32-bit piece of a value in every lane: a constant, or `%tN`.
+/// One piece of a value in every lane (32 bits in vector code, 64 in
+/// scalar code): a constant, or `%tN`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum P {
-    K(u32),
+    K(u64),
     V(u32),
 }
 
@@ -1860,26 +2108,6 @@ enum M {
 struct Val {
     w: u32,
     p: Vec<P>,
-}
-
-impl Val {
-    fn zero(w: u32) -> Val {
-        Val { w, p: vec![P::K(0); pieces(w)] }
-    }
-
-    fn is_const(&self) -> Option<u64> {
-        if self.p.len() > 2 {
-            return None;
-        }
-        let mut v = 0u64;
-        for (k, p) in self.p.iter().enumerate() {
-            match p {
-                P::K(x) => v |= (*x as u64) << (32 * k),
-                P::V(_) => return None,
-            }
-        }
-        Some(v)
-    }
 }
 
 #[derive(Clone, Default)]
@@ -1903,10 +2131,42 @@ struct Env {
     eloaded: HashMap<(ObjId, u32), Val>,
 }
 
+/// The IR types of a shape's values.
+#[derive(Clone, Copy)]
+struct Tys {
+    /// A piece of a value in every lane.
+    v: &'static str,
+    /// A mask.
+    m: &'static str,
+    /// Lanes twice a piece's width, for products.
+    wide: &'static str,
+    /// Stored values: bytes, halves, and 32-bit pieces.
+    b8: &'static str,
+    b16: &'static str,
+    w32: &'static str,
+    /// An integer of a bit a lane.
+    bits: &'static str,
+}
+
+fn tys(n: u32) -> Tys {
+    match n {
+        1 => Tys { v: "i64", m: "i1", wide: "i128", b8: "i8", b16: "i16", w32: "i32", bits: "i1" },
+        4 => Tys { v: "<4 x i32>", m: "<4 x i1>", wide: "<4 x i64>", b8: "<4 x i8>", b16: "<4 x i16>", w32: "<4 x i32>", bits: "i4" },
+        8 => Tys { v: "<8 x i32>", m: "<8 x i1>", wide: "<8 x i64>", b8: "<8 x i8>", b16: "<8 x i16>", w32: "<8 x i32>", bits: "i8" },
+        16 => Tys { v: "<16 x i32>", m: "<16 x i1>", wide: "<16 x i64>", b8: "<16 x i8>", b16: "<16 x i16>", w32: "<16 x i32>", bits: "i16" },
+        _ => unreachable!("{n} lanes a register"),
+    }
+}
+
 /// One function being written.
 struct Func<'l, 'd, 'a> {
     l: &'l Lowering<'d, 'a>,
-    spec: SpecId,
+    key: Key,
+    /// Its shape, and what follows from it: the bits in a piece, and the
+    /// types.
+    sh: Shape,
+    pb: u32,
+    t: Tys,
     out: String,
     next: u32,
     env: Env,
@@ -1930,7 +2190,7 @@ struct Func<'l, 'd, 'a> {
     /// The functions being run, innermost last, with their results.
     calls: Vec<(SubId, Option<ObjId>)>,
     /// Bits of temporaries known to be zero in every lane.
-    zeros: HashMap<u32, u32>,
+    zeros: HashMap<u32, u64>,
     /// Temporaries that are 0 or 1 a lane, bit `j` of a piece.
     bit_of: HashMap<u32, (P, u32)>,
     /// Blocks written for arms run only where some lane needs them.
@@ -1941,34 +2201,112 @@ struct Func<'l, 'd, 'a> {
     ff: bool,
 }
 
-const V16: &str = "<16 x i32>";
-const M16: &str = "<16 x i1>";
-
-fn ps(p: P) -> String {
+/// A piece as an operand: a constant, splat in vector code.
+fn ps(p: P, scalar: bool) -> String {
     match p {
-        P::K(k) => format!("splat (i32 {})", k as i32),
+        P::K(k) if scalar => format!("{}", k as i64),
+        P::K(k) => format!("splat (i32 {})", k as u32 as i32),
         P::V(n) => format!("%t{n}"),
     }
 }
 
-fn ms(m: M) -> String {
+fn ms(m: M, scalar: bool) -> String {
     match m {
+        M::K(b) if scalar => format!("{b}"),
         M::K(b) => format!("splat (i1 {b})"),
         M::V(n) => format!("%t{n}"),
     }
 }
 
 impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
-    fn new(l: &'l Lowering<'d, 'a>, spec: SpecId) -> Self {
-        let lay = &l.layouts[&spec];
+    fn new(l: &'l Lowering<'d, 'a>, key: Key) -> Self {
+        let lay = &l.layouts[&key];
         let mut params = String::from("ptr %s");
-        for k in 0..l.d.spec(spec).ports.len() {
+        for k in 0..l.d.spec(key.0).ports.len() {
             if !lay.port_ix.is_empty() {
                 let _ = write!(params, ", ptr %p{k}");
             }
         }
-        let out = format!("define void @{}({params}) {{\nentry:\n", fn_name(spec));
-        Func { l, spec, out, next: 0, env: Env::default(), block: "entry".into(), loops: 0, rolled: 0, mem: false, uniform: HashSet::new(), mask_of: HashMap::new(), bits_of: HashMap::new(), in_range: HashSet::new(), calls: Vec::new(), ff: false, zeros: HashMap::new(), bit_of: HashMap::new(), guards: 0, trial: false }
+        let out = format!("define void @{}({params}) {{\nentry:\n", fn_name(key));
+        let sh = lay.shape;
+        Func {
+            l,
+            key,
+            sh,
+            pb: sh.pb(),
+            t: tys(sh.n),
+            out,
+            next: 0,
+            env: Env::default(),
+            block: "entry".into(),
+            loops: 0,
+            rolled: 0,
+            mem: false,
+            uniform: HashSet::new(),
+            mask_of: HashMap::new(),
+            bits_of: HashMap::new(),
+            in_range: HashSet::new(),
+            calls: Vec::new(),
+            ff: false,
+            zeros: HashMap::new(),
+            bit_of: HashMap::new(),
+            guards: 0,
+            trial: false,
+        }
+    }
+
+    fn sc(&self) -> bool {
+        self.sh.scalar()
+    }
+
+    fn ps(&self, p: P) -> String {
+        ps(p, self.sc())
+    }
+
+    fn ms(&self, m: M) -> String {
+        ms(m, self.sc())
+    }
+
+    /// Pieces in a `w`-bit value.
+    fn np(&self, w: u32) -> usize {
+        (w as usize).div_ceil(self.pb as usize).max(1)
+    }
+
+    fn ones_k(&self) -> u64 {
+        ones_of(self.pb)
+    }
+
+    fn top_mask(&self, w: u32) -> u64 {
+        top_mask(w, self.pb)
+    }
+
+    /// A constant piece: `x`'s low `pb` bits.
+    fn k(&self, x: i64) -> P {
+        P::K(x as u64 & self.ones_k())
+    }
+
+    fn zero(&self, w: u32) -> Val {
+        Val { w, p: vec![P::K(0); self.np(w)] }
+    }
+
+    /// The value's low 64 bits, if it is a constant no wider than that.
+    fn is_const(&self, v: &Val) -> Option<u64> {
+        if v.p.len() as u32 * self.pb > 64 {
+            return None;
+        }
+        let mut x = 0u64;
+        for (k, p) in v.p.iter().enumerate() {
+            match p {
+                P::K(c) => x |= c << (self.pb * k as u32),
+                P::V(_) => return None,
+            }
+        }
+        Some(x)
+    }
+
+    /// A call of an intrinsic, declared once.
+    fn intrinsic(&self, decl: String) {
+        self.l.decls.borrow_mut().insert(decl);
     }
 
     fn finish(mut self) -> String {
@@ -1987,7 +2325,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     }
 
     fn lay(&self) -> &'l Layout {
-        &self.l.layouts[&self.spec]
+        &self.l.layouts[&self.key]
     }
 
     fn tmp(&mut self) -> u32 {
@@ -2005,7 +2343,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 self.rolled_loop(l)?;
             } else if let Node::Call(i) = n {
                 self.run_loop(&seg)?;
-                let child = self.d().instance(i).spec;
+                let child = self.lay().kid_keys[&i];
                 let args = self.child_args(i);
                 let _ = writeln!(self.out, "  call void @{}({args})", fn_name(child));
                 seg = vec![n];
@@ -2057,19 +2395,24 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         self.run_loop_with(|f| nodes.iter().try_for_each(|&n| f.node(n)))
     }
 
-    /// A loop over the group's registers whose body `body` writes.
+    /// A pass over the registers of lanes whose body `body` writes: a loop
+    /// over them where there are more than one.
     fn run_loop_with(&mut self, body: impl FnOnce(&mut Self) -> Result<(), String>) -> Result<(), String> {
         let k = self.loops;
         self.loops += 1;
-        let prev = std::mem::replace(&mut self.block, format!("L{k}"));
-        let _ = writeln!(
-            self.out,
-            "  br label %L{k}\nL{k}:\n  %c{k} = phi i64 [ 0, %{prev} ], [ %c{k}.next, %L{k}.latch ]\n  %c{k}.off = shl i64 %c{k}, 6\n  \
-             %b{k} = getelementptr i8, ptr %s, i64 %c{k}.off\n  %c{k}.half = shl i64 %c{k}, 1\n  \
-             %h{k} = getelementptr i8, ptr %s, i64 %c{k}.half\n  %c{k}.b8 = shl i64 %c{k}, 4\n  \
-             %q{k} = getelementptr i8, ptr %s, i64 %c{k}.b8\n  %c{k}.b16 = shl i64 %c{k}, 5\n  \
-             %w{k} = getelementptr i8, ptr %s, i64 %c{k}.b16"
-        );
+        let looped = self.looped();
+        let mut prev = String::new();
+        if looped {
+            prev = std::mem::replace(&mut self.block, format!("L{k}"));
+            let _ = writeln!(
+                self.out,
+                "  br label %L{k}\nL{k}:\n  %c{k} = phi i64 [ 0, %{prev} ], [ %c{k}.next, %L{k}.latch ]\n  %c{k}.off = shl i64 %c{k}, 6\n  \
+                 %b{k} = getelementptr i8, ptr %s, i64 %c{k}.off\n  %c{k}.half = shl i64 %c{k}, 1\n  \
+                 %h{k} = getelementptr i8, ptr %s, i64 %c{k}.half\n  %c{k}.b8 = shl i64 %c{k}, 4\n  \
+                 %q{k} = getelementptr i8, ptr %s, i64 %c{k}.b8\n  %c{k}.b16 = shl i64 %c{k}, 5\n  \
+                 %w{k} = getelementptr i8, ptr %s, i64 %c{k}.b16"
+            );
+        }
         self.env = Env::default();
         body(self)?;
         let mut dirty: Vec<ObjId> = self.env.dirty.iter().copied().collect();
@@ -2081,19 +2424,43 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             self.store(base, lane, &v);
         }
         self.flush_elems(None);
-        let _ = writeln!(
-            self.out,
-            "  %c{k}.next = add i64 %c{k}, 1\n  %c{k}.end = icmp eq i64 %c{k}.next, {CHUNKS}\n  \
-             br i1 %c{k}.end, label %X{k}, label %L{k}\nX{k}:"
-        );
-        // The back edge leaves from the last block of the body.
-        self.out = self.out.replace(&format!("%L{k}.latch"), &format!("%{}", self.block));
-        self.block = format!("X{k}");
+        if looped {
+            let _ = writeln!(
+                self.out,
+                "  %c{k}.next = add i64 %c{k}, 1\n  %c{k}.end = icmp eq i64 %c{k}.next, {}\n  \
+                 br i1 %c{k}.end, label %X{k}, label %L{k}\nX{k}:",
+                self.sh.chunks
+            );
+            // The back edge leaves from the last block of the body.
+            self.out = self.out.replace(&format!("%L{k}.latch"), &format!("%{}", self.block));
+            self.block = format!("X{k}");
+            let _ = prev;
+        }
         Ok(())
     }
 
+    /// Whether a pass over the registers is a loop: more than one.
+    fn looped(&self) -> bool {
+        self.sh.chunks > 1
+    }
+
+    /// Where this register's part of the state is, for values stored as
+    /// `lane`.
+    fn reg_base(&self, lane: Lane) -> String {
+        if !self.looped() {
+            return "%s".into();
+        }
+        let k = self.loops - 1;
+        match lane {
+            Lane::Bit => format!("%h{k}"),
+            Lane::B8 => format!("%q{k}"),
+            Lane::B16 => format!("%w{k}"),
+            Lane::W32 | Lane::W64 => format!("%b{k}"),
+        }
+    }
+
     fn base(&self) -> String {
-        format!("%b{}", self.loops - 1)
+        self.reg_base(Lane::W32)
     }
 
     /// Where a value of this function is, if it has a place.
@@ -2109,9 +2476,12 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     /// part of it, as `off` would be from the state; `None` otherwise.
     fn port_base(&mut self, base: Base, lane: Lane) -> Option<String> {
         let Base::Port(p) = base else { return None };
+        if !self.looped() {
+            return Some(format!("%p{p}"));
+        }
         let k = self.loops - 1;
         let step = match lane {
-            Lane::W32 => "off",
+            Lane::W32 | Lane::W64 => "off",
             Lane::Bit => "half",
             Lane::B8 => "b8",
             Lane::B16 => "b16",
@@ -2122,47 +2492,59 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     }
 
     fn load(&mut self, base: Base, lane: Lane, w: u32) -> Val {
-        let k = self.loops - 1;
+        let stride = lane.piece_bytes(self.sh);
+        self.load_with(base, lane, w, stride)
+    }
+
+    /// A value from the state, its pieces `stride` bytes apart.
+    fn load_with(&mut self, base: Base, lane: Lane, w: u32, stride: u64) -> Val {
         let ptr = self.port_base(base, lane);
         let off = match base {
             Base::State(at) => at,
             Base::Port(_) => 0,
         };
-        let a = self.tmp();
+        let b = ptr.unwrap_or_else(|| self.reg_base(lane));
+        let (t, n, sc) = (self.t, self.sh.n as u64, self.sc());
         match lane {
-            Lane::W32 => {
-                let base = ptr.clone().unwrap_or_else(|| self.base());
+            Lane::W32 | Lane::W64 => {
+                let (ty, align) = match lane {
+                    Lane::W64 => ("i64", 8),
+                    _ => (t.w32, 4 * n),
+                };
                 let mut p = Vec::new();
-                for i in 0..pieces(w) as u64 {
+                for i in 0..lane.pieces(w) {
                     let (a, v) = (self.tmp(), self.tmp());
-                    let _ = writeln!(
-                        self.out,
-                        "  %t{a} = getelementptr i8, ptr {base}, i64 {}\n  %t{v} = load {V16}, ptr %t{a}, align 64",
-                        off + i * PIECE
-                    );
-                    p.push(P::V(v));
+                    let _ = writeln!(self.out, "  %t{a} = getelementptr i8, ptr {b}, i64 {}\n  %t{v} = load {ty}, ptr %t{a}, align {align}", off + i * stride);
+                    if sc && lane == Lane::W32 {
+                        let z = self.tmp();
+                        let _ = writeln!(self.out, "  %t{z} = zext i32 %t{v} to i64");
+                        self.zeros.insert(z, !0xffff_ffff);
+                        p.push(P::V(z));
+                    } else {
+                        p.push(P::V(v));
+                    }
                 }
                 Val { w, p }
             }
             Lane::Bit => {
-                let (i, m) = (self.tmp(), self.tmp());
-                let h = ptr.clone().unwrap_or_else(|| format!("%h{k}"));
+                let (a, i, m) = (self.tmp(), self.tmp(), self.tmp());
                 let _ = writeln!(
                     self.out,
-                    "  %t{a} = getelementptr i8, ptr {h}, i64 {off}\n  %t{i} = load i16, ptr %t{a}, align 2\n  \
-                     %t{m} = bitcast i16 %t{i} to {M16}"
+                    "  %t{a} = getelementptr i8, ptr {b}, i64 {off}\n  %t{i} = load i16, ptr %t{a}, align 2\n  \
+                     %t{m} = bitcast i16 %t{i} to {}",
+                    t.m
                 );
                 self.bits_of.insert(m, i);
                 self.bit(M::V(m), w)
             }
             Lane::B8 | Lane::B16 => {
-                let (base, ty, align) = if lane == Lane::B8 { (format!("%q{k}"), "<16 x i8>", 16) } else { (format!("%w{k}"), "<16 x i16>", 32) };
-                let base = ptr.clone().unwrap_or(base);
-                let (v, z) = (self.tmp(), self.tmp());
+                let (ty, align) = if lane == Lane::B8 { (t.b8, n) } else { (t.b16, 2 * n) };
+                let (a, v, z) = (self.tmp(), self.tmp(), self.tmp());
                 let _ = writeln!(
                     self.out,
-                    "  %t{a} = getelementptr i8, ptr {base}, i64 {off}\n  %t{v} = load {ty}, ptr %t{a}, align {align}\n  \
-                     %t{z} = zext {ty} %t{v} to {V16}"
+                    "  %t{a} = getelementptr i8, ptr {b}, i64 {off}\n  %t{v} = load {ty}, ptr %t{a}, align {align}\n  \
+                     %t{z} = zext {ty} %t{v} to {}",
+                    t.v
                 );
                 self.zeros.insert(z, if lane == Lane::B8 { !0xff } else { !0xffff });
                 Val { w, p: vec![P::V(z)] }
@@ -2171,51 +2553,86 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     }
 
     fn store(&mut self, base: Base, lane: Lane, v: &Val) {
-        let k = self.loops - 1;
+        let stride = lane.piece_bytes(self.sh);
+        self.store_with(base, lane, v, stride)
+    }
+
+    /// The bits of mask `m` as an integer, a bit a lane (16 lanes).
+    fn mask_bits(&mut self, m: M) -> String {
+        match m {
+            M::K(b) => format!("{}", if b { -1 } else { 0 }),
+            M::V(n) => match self.bits_of.get(&n) {
+                Some(&i) => format!("%t{i}"),
+                None => {
+                    let t = self.tmp();
+                    let _ = writeln!(self.out, "  %t{t} = bitcast {} %t{n} to {}", self.t.m, self.t.bits);
+                    format!("%t{t}")
+                }
+            },
+        }
+    }
+
+    /// Whether any lane of `m` is set, an `i1`.
+    fn any(&mut self, m: M) -> String {
+        match m {
+            M::K(b) => format!("{b}"),
+            M::V(n) if self.sc() => format!("%t{n}"),
+            M::V(_) => {
+                let bits = self.mask_bits(m);
+                let t = self.tmp();
+                let _ = writeln!(self.out, "  %t{t} = icmp ne {} {bits}, 0", self.t.bits);
+                format!("%t{t}")
+            }
+        }
+    }
+
+    /// A value to the state, its pieces `stride` bytes apart.
+    fn store_with(&mut self, base: Base, lane: Lane, v: &Val, stride: u64) {
         let ptr = self.port_base(base, lane);
         let off = match base {
             Base::State(at) => at,
             Base::Port(_) => 0,
         };
+        let b = ptr.unwrap_or_else(|| self.reg_base(lane));
+        let (t, n, sc) = (self.t, self.sh.n as u64, self.sc());
         match lane {
-            Lane::W32 => {
-                let base = ptr.clone().unwrap_or_else(|| self.base());
+            Lane::W32 | Lane::W64 => {
+                let (ty, align) = match lane {
+                    Lane::W64 => ("i64", 8),
+                    _ => (t.w32, 4 * n),
+                };
                 for (i, &p) in v.p.iter().enumerate() {
+                    let x = if sc && lane == Lane::W32 {
+                        match p {
+                            P::K(k) => format!("{}", k as u32 as i32),
+                            P::V(_) => {
+                                let x = self.tmp();
+                                let _ = writeln!(self.out, "  %t{x} = trunc i64 {} to i32", self.ps(p));
+                                format!("%t{x}")
+                            }
+                        }
+                    } else {
+                        self.ps(p)
+                    };
                     let a = self.tmp();
-                    let _ = writeln!(
-                        self.out,
-                        "  %t{a} = getelementptr i8, ptr {base}, i64 {}\n  store {V16} {}, ptr %t{a}, align 64",
-                        off + i as u64 * PIECE,
-                        ps(p)
-                    );
+                    let _ = writeln!(self.out, "  %t{a} = getelementptr i8, ptr {b}, i64 {}\n  store {ty} {x}, ptr %t{a}, align {align}", off + i as u64 * stride);
                 }
             }
             Lane::Bit => {
                 let m = self.truth(v);
-                let bits = match m {
-                    M::K(b) => format!("{}", if b { -1 } else { 0 }),
-                    M::V(n) => match self.bits_of.get(&n) {
-                        Some(&i) => format!("%t{i}"),
-                        None => {
-                            let t = self.tmp();
-                            let _ = writeln!(self.out, "  %t{t} = bitcast {M16} %t{n} to i16");
-                            format!("%t{t}")
-                        }
-                    },
-                };
+                let bits = self.mask_bits(m);
                 let a = self.tmp();
-                let h = ptr.clone().unwrap_or_else(|| format!("%h{k}"));
-                let _ = writeln!(self.out, "  %t{a} = getelementptr i8, ptr {h}, i64 {off}\n  store i16 {bits}, ptr %t{a}, align 2");
+                let _ = writeln!(self.out, "  %t{a} = getelementptr i8, ptr {b}, i64 {off}\n  store i16 {bits}, ptr %t{a}, align 2");
             }
             Lane::B8 | Lane::B16 => {
-                let (base, ty, align) = if lane == Lane::B8 { (format!("%q{k}"), "<16 x i8>", 16) } else { (format!("%w{k}"), "<16 x i16>", 32) };
-                let base = ptr.clone().unwrap_or(base);
-                let (a, t) = (self.tmp(), self.tmp());
+                let (ty, align) = if lane == Lane::B8 { (t.b8, n) } else { (t.b16, 2 * n) };
+                let (a, x) = (self.tmp(), self.tmp());
                 let _ = writeln!(
                     self.out,
-                    "  %t{a} = getelementptr i8, ptr {base}, i64 {off}\n  %t{t} = trunc {V16} {} to {ty}\n  \
-                     store {ty} %t{t}, ptr %t{a}, align {align}",
-                    ps(v.p[0])
+                    "  %t{a} = getelementptr i8, ptr {b}, i64 {off}\n  %t{x} = trunc {} {} to {ty}\n  \
+                     store {ty} %t{x}, ptr %t{a}, align {align}",
+                    t.v,
+                    self.ps(v.p[0])
                 );
             }
         }
@@ -2238,36 +2655,60 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 Ok(())
             }
             Node::In(i) => {
-                let inst = d.instance(i);
-                let child = &self.l.layouts[&inst.spec];
+                let ck = self.lay().kid_keys[&i];
+                let child = &self.l.layouts[&ck];
+                let members = self.l.members(i);
                 let args = self.lay().args[&i].clone();
-                for (port, arg) in d.spec(inst.spec).ports.iter().zip(args) {
+                for (port, arg) in d.spec(ck.0).ports.iter().zip(args) {
                     // Values connected whole are where the child reads them;
                     // an unconnected input's slot stays zero.
                     let (Dir::Input, Arg::Slot(at)) = (port.dir, arg) else { continue };
-                    let Some(e) = inst.connections.iter().find(|c| c.port == port.name).and_then(|c| c.expr) else { continue };
                     let o = port.object.ok_or("interface ports are not supported yet")?;
                     let w = tw(&d.types, d.object(o).ty);
-                    let v = self.expr(e)?;
-                    let v = self.resize(&v, w, false);
-                    self.store(Base::State(at), child.lane(o), &v);
+                    let mut vals = Vec::with_capacity(members.len());
+                    for &m in &members {
+                        vals.push(match d.instance(m).connections.iter().find(|c| c.port == port.name).and_then(|c| c.expr) {
+                            Some(e) => {
+                                let v = self.expr(e)?;
+                                Some(self.resize(&v, w, false))
+                            }
+                            None => None,
+                        });
+                    }
+                    match &vals[..] {
+                        [v] => {
+                            if let Some(v) = v {
+                                self.store(Base::State(at), child.lane(o), v);
+                            }
+                        }
+                        _ => self.to_lanes(at, child.lane(o), w, child.shape, &vals),
+                    }
                 }
                 Ok(())
             }
             Node::Call(i) => {
-                let inst = d.instance(i);
-                let child = &self.l.layouts[&inst.spec];
+                let ck = self.lay().kid_keys[&i];
+                let child = &self.l.layouts[&ck];
+                let members = self.l.members(i);
                 let args = self.lay().args[&i].clone();
-                for (port, arg) in d.spec(inst.spec).ports.iter().zip(args) {
+                for (port, arg) in d.spec(ck.0).ports.iter().zip(args) {
                     match (port.dir, arg) {
                         (Dir::Output, Arg::Slot(at)) => {
-                            let Some(e) = inst.connections.iter().find(|c| c.port == port.name).and_then(|c| c.expr) else { continue };
                             let o = port.object.ok_or("interface ports are not supported yet")?;
                             let ty = d.object(o).ty;
-                            let v = self.load(Base::State(at), child.lane(o), tw(&d.types, ty));
-                            let w = tw(&d.types, d.expr(e).ty);
-                            let v = self.resize(&v, w, d.types.is_signed(ty));
-                            self.assign(e, v)?;
+                            let cw = tw(&d.types, ty);
+                            let mut regs = HashMap::new();
+                            for (t, &m) in members.iter().enumerate() {
+                                let Some(e) = d.instance(m).connections.iter().find(|c| c.port == port.name).and_then(|c| c.expr) else { continue };
+                                let v = if members.len() == 1 {
+                                    self.load(Base::State(at), child.lane(o), cw)
+                                } else {
+                                    self.from_lanes(at, child.lane(o), cw, child.shape, t, &mut regs)
+                                };
+                                let w = tw(&d.types, d.expr(e).ty);
+                                let v = self.resize(&v, w, d.types.is_signed(ty));
+                                self.assign(e, v)?;
+                            }
                         }
                         (Dir::Input | Dir::Output, _) => {}
                         (dir, _) => return Err(format!("{dir:?} ports are not supported yet")),
@@ -2276,6 +2717,195 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 Ok(())
             }
         }
+    }
+
+    /// 32-bit word `k` of lane `s` of `v`, an `i32` operand.
+    fn word_of(&mut self, v: &Val, k: usize, s: u32) -> String {
+        if self.sc() {
+            let p = v.p.get(k / 2).copied().unwrap_or(P::K(0));
+            let sh = 32 * (k % 2) as u32;
+            if let P::K(x) = p {
+                return format!("{}", (x >> sh) as u32 as i32);
+            }
+            let p = self.bin("lshr", p, P::K(sh as u64));
+            let t = self.tmp();
+            let _ = writeln!(self.out, "  %t{t} = trunc i64 {} to i32", self.ps(p));
+            return format!("%t{t}");
+        }
+        match v.p.get(k).copied().unwrap_or(P::K(0)) {
+            P::K(x) => format!("{}", x as u32 as i32),
+            P::V(n) => {
+                let t = self.tmp();
+                let _ = writeln!(self.out, "  %t{t} = extractelement {} %t{n}, i64 {s}", self.t.v);
+                format!("%t{t}")
+            }
+        }
+    }
+
+    /// An array of children's input, each iteration's value in `vals`, to
+    /// the child's slot at `at` (stored as `lane`, for the child's shape
+    /// `csh`): iteration `t`'s in the lanes as wide as this function's
+    /// registers from `t` times that.
+    fn to_lanes(&mut self, at: u64, lane: Lane, w: u32, csh: Shape, vals: &[Option<Val>]) {
+        let sh = self.sh;
+        if sh.n == 16 {
+            // Registers of 16 both sides: this pass's register of an
+            // iteration's lanes is one of the child's.
+            let stride = lane.piece_bytes(csh);
+            for (t, v) in vals.iter().enumerate() {
+                if let Some(v) = v {
+                    let blk = t as u64 * sh.chunks as u64 * lane.reg_bytes(csh);
+                    self.store_with(Base::State(at + blk), lane, v, stride);
+                }
+            }
+            return;
+        }
+        // Lane by lane: each of the child's registers made from the lanes it
+        // holds, then stored as one.
+        let (wp, nc, ct) = (sh.width() as usize, csh.n as usize, tys(csh.n));
+        let lanes = vals.len() * wp;
+        let words = if lane == Lane::W32 { pieces(w) } else { 1 };
+        for k in 0..words {
+            for r in 0..lanes.div_ceil(nc) {
+                let mut acc = String::from("zeroinitializer");
+                for j in 0..nc.min(lanes - r * nc) {
+                    let l = r * nc + j;
+                    let Some(v) = &vals[l / wp] else { continue };
+                    let word = self.word_of(v, k, (l % wp) as u32);
+                    let x = self.tmp();
+                    let _ = writeln!(self.out, "  %t{x} = insertelement {} {acc}, i32 {word}, i64 {j}", ct.w32);
+                    acc = format!("%t{x}");
+                }
+                let a = self.tmp();
+                match lane {
+                    Lane::W32 => {
+                        let off = at + k as u64 * lane.piece_bytes(csh) + r as u64 * lane.reg_bytes(csh);
+                        let _ = writeln!(self.out, "  %t{a} = getelementptr i8, ptr %s, i64 {off}\n  store {} {acc}, ptr %t{a}, align {}", ct.w32, 4 * nc);
+                    }
+                    Lane::B8 | Lane::B16 => {
+                        let (ty, eb) = if lane == Lane::B8 { (ct.b8, 1) } else { (ct.b16, 2) };
+                        let x = self.tmp();
+                        let _ = writeln!(
+                            self.out,
+                            "  %t{a} = getelementptr i8, ptr %s, i64 {}\n  %t{x} = trunc {} {acc} to {ty}\n  store {ty} %t{x}, ptr %t{a}, align {}",
+                            at + r as u64 * lane.reg_bytes(csh),
+                            ct.w32,
+                            eb * nc
+                        );
+                    }
+                    Lane::Bit => {
+                        let (m, b) = (self.tmp(), self.tmp());
+                        let _ = writeln!(
+                            self.out,
+                            "  %t{a} = getelementptr i8, ptr %s, i64 {}\n  %t{m} = icmp ne {} {acc}, zeroinitializer\n  \
+                             %t{b} = bitcast {} %t{m} to {}\n  store {} %t{b}, ptr %t{a}, align 2",
+                            at + r as u64 * lane.reg_bytes(csh),
+                            ct.w32,
+                            ct.m,
+                            ct.bits,
+                            ct.bits
+                        );
+                    }
+                    Lane::W64 => unreachable!("an array's child is not scalar"),
+                }
+            }
+        }
+    }
+
+    /// Iteration `t`'s value of an array of children's output, from the
+    /// child's slot at `at` (as [`Func::to_lanes`] lays it out); `regs`
+    /// keeps the child's registers already loaded, by word and register.
+    fn from_lanes(&mut self, at: u64, lane: Lane, w: u32, csh: Shape, t: usize, regs: &mut HashMap<(usize, usize), String>) -> Val {
+        let sh = self.sh;
+        if sh.n == 16 {
+            let stride = lane.piece_bytes(csh);
+            let blk = t as u64 * sh.chunks as u64 * lane.reg_bytes(csh);
+            return self.load_with(Base::State(at + blk), lane, w, stride);
+        }
+        let (wp, nc, ct) = (sh.width() as usize, csh.n as usize, tys(csh.n));
+        let words = if lane == Lane::W32 { pieces(w) } else { 1 };
+        // Each word of each lane, an i32.
+        let mut got: Vec<Vec<String>> = vec![Vec::new(); wp];
+        for k in 0..words {
+            for (s, got) in got.iter_mut().enumerate() {
+                let l = t * wp + s;
+                let (r, j) = (l / nc, l % nc);
+                let reg = match regs.get(&(k, r)) {
+                    Some(x) => x.clone(),
+                    None => {
+                        let a = self.tmp();
+                        let x = match lane {
+                            Lane::W32 => {
+                                let (v, off) = (self.tmp(), at + k as u64 * lane.piece_bytes(csh) + r as u64 * lane.reg_bytes(csh));
+                                let _ = writeln!(self.out, "  %t{a} = getelementptr i8, ptr %s, i64 {off}\n  %t{v} = load {}, ptr %t{a}, align {}", ct.w32, 4 * nc);
+                                v
+                            }
+                            Lane::B8 | Lane::B16 => {
+                                let (ty, eb) = if lane == Lane::B8 { (ct.b8, 1) } else { (ct.b16, 2) };
+                                let (v, z) = (self.tmp(), self.tmp());
+                                let _ = writeln!(
+                                    self.out,
+                                    "  %t{a} = getelementptr i8, ptr %s, i64 {}\n  %t{v} = load {ty}, ptr %t{a}, align {}\n  %t{z} = zext {ty} %t{v} to {}",
+                                    at + r as u64 * lane.reg_bytes(csh),
+                                    eb * nc,
+                                    ct.w32
+                                );
+                                z
+                            }
+                            Lane::Bit => {
+                                let (v, m, z) = (self.tmp(), self.tmp(), self.tmp());
+                                let _ = writeln!(
+                                    self.out,
+                                    "  %t{a} = getelementptr i8, ptr %s, i64 {}\n  %t{v} = load {}, ptr %t{a}, align 2\n  \
+                                     %t{m} = bitcast {} %t{v} to {}\n  %t{z} = zext {} %t{m} to {}",
+                                    at + r as u64 * lane.reg_bytes(csh),
+                                    ct.bits,
+                                    ct.bits,
+                                    ct.m,
+                                    ct.m,
+                                    ct.w32
+                                );
+                                z
+                            }
+                            Lane::W64 => unreachable!("an array's child is not scalar"),
+                        };
+                        let x = format!("%t{x}");
+                        regs.insert((k, r), x.clone());
+                        x
+                    }
+                };
+                let e = self.tmp();
+                let _ = writeln!(self.out, "  %t{e} = extractelement {} {reg}, i64 {j}", ct.w32);
+                got.push(format!("%t{e}"));
+            }
+        }
+        if self.sc() {
+            let mut p = Vec::new();
+            for q in 0..self.np(w) {
+                let mut acc = P::K(0);
+                for half in 0..2 {
+                    let Some(word) = got[0].get(2 * q + half) else { break };
+                    let z = self.tmp();
+                    let _ = writeln!(self.out, "  %t{z} = zext i32 {word} to i64");
+                    self.zeros.insert(z, !0xffff_ffff);
+                    let x = self.bin("shl", P::V(z), P::K(32 * half as u64));
+                    acc = self.bin("or", acc, x);
+                }
+                p.push(acc);
+            }
+            return Val { w, p };
+        }
+        let mut p = Vec::new();
+        for k in 0..words {
+            let mut acc = String::from("zeroinitializer");
+            for (s, got) in got.iter().enumerate() {
+                let x = self.tmp();
+                let _ = writeln!(self.out, "  %t{x} = insertelement {} {acc}, i32 {}, i64 {s}", self.t.v, got[k]);
+                acc = format!("%t{x}");
+            }
+            p.push(P::V(acc[2..].parse().unwrap()));
+        }
+        Val { w, p }
     }
 
     // ---- statements ----
@@ -2299,7 +2929,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                                         let v = self.expr(e)?;
                                         self.resize(&v, w, false)
                                     }
-                                    None => Val::zero(w),
+                                    None => self.zero(w),
                                 };
                                 self.env.vals.insert(o, v);
                             }
@@ -2511,6 +3141,11 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 if self.worth_guarding(*body) {
                     let m = mask(self)?;
                     return match m {
+                        M::V(_) if self.sc() => {
+                            let mut arms: Vec<StmtId> = rest.iter().map(|i| i.1).chain(default).collect();
+                            arms.push(*body);
+                            self.diamond(m, &arms, |f| f.stmt(*body), Some(|f: &mut Self| f.case_chain(kind, sel, st, rest, default)))
+                        }
                         M::V(_) => self.branch_guarded(m, *body, true, |f| f.case_chain(kind, sel, st, rest, default), None),
                         _ => self.branch(m, |f| f.stmt(*body), |f| f.case_chain(kind, sel, st, rest, default)),
                     };
@@ -2539,11 +3174,16 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     }
 
     /// An `if`: as [`Func::branch`], but an arm much bigger than the test of
-    /// whether any lane takes it is run only where one does.
+    /// whether any lane takes it is run only where one does; in scalar
+    /// code, both arms behind a branch.
     fn cond(&mut self, m: M, then: StmtId, else_: Option<StmtId>) -> Result<(), String> {
         let variable = matches!(m, M::V(_));
         let gt = variable && self.worth_guarding(then);
         let ge = else_.filter(|&e| variable && self.worth_guarding(e));
+        if self.sc() && (gt || ge.is_some()) {
+            let arms: Vec<StmtId> = std::iter::once(then).chain(else_).collect();
+            return self.diamond(m, &arms, |f| f.stmt(then), else_.map(|e| move |f: &mut Self| f.stmt(e)));
+        }
         self.branch_guarded(
             m,
             then,
@@ -2557,9 +3197,10 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     }
 
     /// Whether the arm `s` is worth a branch around it, taken only where
-    /// some lane takes the arm (see [`GUARD_MIN`]).
+    /// some lane takes the arm (see [`GUARD_MIN`], and [`BRANCH_MIN`] for
+    /// scalar code).
     fn worth_guarding(&mut self, s: StmtId) -> bool {
-        let min = self.l.opts.guard_min;
+        let min = if self.sc() { self.l.opts.branch_min } else { self.l.opts.guard_min };
         if self.trial || self.mem || min == 0 {
             return false;
         }
@@ -2647,6 +3288,24 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let M::V(n) = c else { unreachable!("a constant condition is not guarded") };
         let (mut r, mut w) = (Vec::new(), Vec::new());
         self.l.stmt_access(s, &mut r, &mut w, &mut Vec::new());
+        self.preload(w);
+        let any = self.any(M::V(n));
+        let k = self.guards;
+        self.guards += 1;
+        let skip = self.env.clone();
+        let from = std::mem::replace(&mut self.block, format!("G{k}"));
+        let _ = writeln!(self.out, "  br i1 {any}, label %G{k}, label %J{k}\nG{k}:");
+        body(self)?;
+        let taken = std::mem::take(&mut self.env);
+        let at = std::mem::replace(&mut self.block, format!("J{k}"));
+        let _ = writeln!(self.out, "  br label %J{k}\nJ{k}:");
+        self.env = self.join(skip, &from, taken, &at)?;
+        Ok(())
+    }
+
+    /// Loads what an arm may write, each object of `w`, so that the way
+    /// around it has their values.
+    fn preload(&mut self, w: Vec<(ObjId, u32, u32)>) {
         let mut objs: Vec<ObjId> = w.into_iter().map(|t| t.0).collect();
         objs.sort_unstable_by_key(|o| o.0);
         objs.dedup();
@@ -2655,25 +3314,109 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 self.read(o);
             }
         }
-        let bits = match self.bits_of.get(&n) {
-            Some(&i) => format!("%t{i}"),
-            None => {
-                let t = self.tmp();
-                let _ = writeln!(self.out, "  %t{t} = bitcast {M16} %t{n} to i16");
-                format!("%t{t}")
-            }
-        };
+    }
+
+    /// Scalar code's `if`: `then` where `m` holds and `else_` where it does
+    /// not, each in a block of its own, and each value either changes
+    /// joined after them with a phi. What the statements `arms` may write
+    /// is loaded first, so that both ways have it.
+    fn diamond(
+        &mut self,
+        m: M,
+        arms: &[StmtId],
+        then: impl FnOnce(&mut Self) -> Result<(), String>,
+        else_: Option<impl FnOnce(&mut Self) -> Result<(), String>>,
+    ) -> Result<(), String> {
+        let M::V(n) = m else { unreachable!("a constant condition is not a branch") };
+        let (mut r, mut w) = (Vec::new(), Vec::new());
+        for &s in arms {
+            self.l.stmt_access(s, &mut r, &mut w, &mut Vec::new());
+        }
+        self.preload(w);
+        let before = self.env.clone();
         let k = self.guards;
         self.guards += 1;
-        let skip = self.env.clone();
-        let from = std::mem::replace(&mut self.block, format!("G{k}"));
-        let _ = writeln!(self.out, "  %g{k} = icmp ne i16 {bits}, 0\n  br i1 %g{k}, label %G{k}, label %J{k}\nG{k}:");
-        body(self)?;
-        let taken = std::mem::take(&mut self.env);
-        let at = std::mem::replace(&mut self.block, format!("J{k}"));
-        let _ = writeln!(self.out, "  br label %J{k}\nJ{k}:");
-        self.env = self.join(skip, &from, taken, &at)?;
+        let other = if else_.is_some() { format!("E{k}") } else { format!("J{k}") };
+        let from = std::mem::replace(&mut self.block, format!("T{k}"));
+        let _ = writeln!(self.out, "  br i1 %t{n}, label %T{k}, label %{other}\nT{k}:");
+        then(self)?;
+        let a = std::mem::replace(&mut self.env, before.clone());
+        let at_a = std::mem::replace(&mut self.block, other.clone());
+        let _ = writeln!(self.out, "  br label %J{k}");
+        let (b, at_b) = match else_ {
+            Some(e) => {
+                let _ = writeln!(self.out, "{other}:");
+                e(self)?;
+                let _ = writeln!(self.out, "  br label %J{k}");
+                (std::mem::take(&mut self.env), std::mem::replace(&mut self.block, format!("J{k}")))
+            }
+            None => (before.clone(), from),
+        };
+        let _ = writeln!(self.out, "J{k}:");
+        self.block = format!("J{k}");
+        self.env = self.join2(&before, a, &at_a, b, &at_b)?;
         Ok(())
+    }
+
+    /// The values after two blocks, `a` from `at_a` and `b` from `at_b`,
+    /// both from the values `before`: a phi of each either changed.
+    fn join2(&mut self, before: &Env, a: Env, at_a: &str, b: Env, at_b: &str) -> Result<Env, String> {
+        let d = self.d();
+        let mut out = before.clone();
+        out.dirty.extend(a.dirty.iter().chain(&b.dirty).copied());
+        out.edirty.extend(a.edirty.iter().chain(&b.edirty).copied());
+        let around = |f: &mut Self, o: ObjId| -> Result<Val, String> {
+            match before.vals.get(&o).or(before.loaded.get(&o)) {
+                Some(v) => Ok(v.clone()),
+                None if f.slot(o).is_none() => Ok(f.zero(tw(&d.types, d.object(o).ty))),
+                None => Err(format!("{} is not loaded before a branch", d.name(d.object(o).name))),
+            }
+        };
+        let mut keys: Vec<ObjId> = a.vals.keys().chain(b.vals.keys()).copied().collect();
+        keys.sort_unstable_by_key(|o| o.0);
+        keys.dedup();
+        for o in keys {
+            let va = match a.vals.get(&o) {
+                Some(v) => v.clone(),
+                None => around(self, o)?,
+            };
+            let vb = match b.vals.get(&o) {
+                Some(v) => v.clone(),
+                None => around(self, o)?,
+            };
+            let v = self.phi(&va, at_a, &vb, at_b);
+            out.vals.insert(o, v);
+        }
+        let mut keys: Vec<(ObjId, u32)> = a.elems.keys().chain(b.elems.keys()).copied().collect();
+        keys.sort_unstable_by_key(|k| (k.0.0, k.1));
+        keys.dedup();
+        for k in keys {
+            let was = before.elems.get(&k).or(before.eloaded.get(&k)).cloned();
+            let va = a.elems.get(&k).cloned().or(was.clone()).ok_or("an element not loaded before a branch")?;
+            let vb = b.elems.get(&k).cloned().or(was).ok_or("an element not loaded before a branch")?;
+            let v = self.phi(&va, at_a, &vb, at_b);
+            out.elems.insert(k, v);
+        }
+        let mut keys: Vec<ObjId> = a.nba.keys().chain(b.nba.keys()).copied().collect();
+        keys.sort_unstable_by_key(|o| o.0);
+        keys.dedup();
+        for o in keys {
+            let was = match before.nba.get(&o) {
+                Some(v) => v.clone(),
+                None => around(self, o)?,
+            };
+            let va = a.nba.get(&o).cloned().unwrap_or_else(|| was.clone());
+            let vb = b.nba.get(&o).cloned().unwrap_or(was);
+            let v = self.phi(&va, at_a, &vb, at_b);
+            out.nba.insert(o, v);
+        }
+        let stop = |f: &mut Self, x: Option<M>, y: Option<M>| match (x, y) {
+            (x, y) if x == y => x,
+            (x, y) => Some(f.mphi(x.unwrap_or(M::K(false)), at_a, y.unwrap_or(M::K(false)), at_b)),
+        };
+        out.brk = stop(self, a.brk, b.brk);
+        out.ret = stop(self, a.ret, b.ret);
+        Ok(out)
     }
 
     /// The values after a guarded block: those it changed are phis of their
@@ -2686,7 +3429,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let around = |f: &mut Self, o: ObjId| -> Result<Val, String> {
             match skip.vals.get(&o).or(skip.loaded.get(&o)) {
                 Some(v) => Ok(v.clone()),
-                None if f.slot(o).is_none() => Ok(Val::zero(tw(&d.types, d.object(o).ty))),
+                None if f.slot(o).is_none() => Ok(f.zero(tw(&d.types, d.object(o).ty))),
                 None => Err(format!("{} is not loaded before a guarded block", d.name(d.object(o).name))),
             }
         };
@@ -2733,7 +3476,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     return x;
                 }
                 let t = self.tmp();
-                let _ = writeln!(self.out, "  %t{t} = phi {V16} [ {}, %{at} ], [ {}, %{from} ]", ps(x), ps(y));
+                let _ = writeln!(self.out, "  %t{t} = phi {} [ {}, %{at} ], [ {}, %{from} ]", self.t.v, self.ps(x), self.ps(y));
                 let z = self.kz(x) & self.kz(y);
                 if z != 0 {
                     self.zeros.insert(t, z);
@@ -2749,7 +3492,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             return a;
         }
         let t = self.tmp();
-        let _ = writeln!(self.out, "  %t{t} = phi {M16} [ {}, %{at} ], [ {}, %{from} ]", ms(a), ms(b));
+        let _ = writeln!(self.out, "  %t{t} = phi {} [ {}, %{at} ], [ {}, %{from} ]", self.t.m, self.ms(a), self.ms(b));
         M::V(t)
     }
 
@@ -2980,8 +3723,8 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let d = self.d();
         let ret = if phase == Phase::Ff { "define i1 @" } else { "define void @" };
         self.out = self.out.replacen(
-            &format!("define void @{}(", fn_name(self.spec)),
-            &format!("{ret}{}{}(", fn_name(self.spec), phase.suffix()),
+            &format!("define void @{}(", fn_name(self.key)),
+            &format!("{ret}{}{}(", fn_name(self.key), phase.suffix()),
             1,
         );
         let mut any = String::from("false");
@@ -2991,10 +3734,10 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         }
         for n in self.lay().code.clone() {
             if let Node::Call(i) = n
-                && self.l.layouts[&d.instance(i).spec].clocked
+                && self.l.layouts[&self.lay().kid_keys[&i]].clocked
             {
                 let args = self.child_args(i);
-                let child = format!("@{}{}", fn_name(d.instance(i).spec), phase.suffix());
+                let child = format!("@{}{}", fn_name(self.lay().kid_keys[&i]), phase.suffix());
                 if phase == Phase::Ff {
                     let (t, o) = (self.tmp(), self.tmp());
                     let _ = writeln!(self.out, "  %t{t} = call i1 {child}({args})\n  %t{o} = or i1 {any}, %t{t}");
@@ -3054,7 +3797,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                         let now = self.extract(&v, 0, 1);
                         let now = self.truth(&now);
                         let at = self.lay().prev[&t.expr];
-                        let b = self.load(Base::State(at), Lane::of(1, planes), 1);
+                        let b = self.load(Base::State(at), Lane::of(1, self.sh, planes), 1);
                         let before = self.truth(&b);
                         seen.insert(t.expr, (now, before));
                         (now, before)
@@ -3084,7 +3827,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         for (e, now) in prevs {
             let at = self.lay().prev[&e];
             let v = self.bit(now, 1);
-            self.store(Base::State(at), Lane::of(1, planes), &v);
+            self.store(Base::State(at), Lane::of(1, self.sh, planes), &v);
         }
         // Whether an edge came in any lane of this register, kept for the
         // function's result.
@@ -3092,11 +3835,12 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         for r in &runs {
             all = self.mor(all, r.0);
         }
-        if let M::V(m) = all {
-            let (b, nz, z, l, o) = (self.tmp(), self.tmp(), self.tmp(), self.tmp(), self.tmp());
+        if let M::V(_) = all {
+            let nz = self.any(all);
+            let (z, l, o) = (self.tmp(), self.tmp(), self.tmp());
             let _ = writeln!(
                 self.out,
-                "  %t{b} = bitcast {M16} %t{m} to i16\n  %t{nz} = icmp ne i16 %t{b}, 0\n  %t{z} = zext i1 %t{nz} to i8\n  \
+                "  %t{z} = zext i1 {nz} to i8\n  \
                  %t{l} = load i8, ptr %fired, align 1\n  %t{o} = or i8 %t{l}, %t{z}\n  store i8 %t{o}, ptr %fired, align 1"
             );
         } else if all == M::K(true) {
@@ -3169,7 +3913,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     let v = self.expr(a)?;
                     self.resize(&v, w, d.types.is_signed(d.expr(a).ty))
                 }
-                (Some(Dir::Output), _) | (_, None) => Val::zero(w),
+                (Some(Dir::Output), _) | (_, None) => self.zero(w),
                 (dir, _) => return Err(format!("{dir:?} arguments of {} are not supported yet", d.name(s.name))),
             };
             ins.push((f, v));
@@ -3187,7 +3931,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             self.env.vals.insert(f, v);
         }
         if let Some(r) = r {
-            self.env.vals.insert(r, Val::zero(tw(&d.types, d.object(r).ty)));
+            self.env.vals.insert(r, self.zero(tw(&d.types, d.object(r).ty)));
         }
         let outer = (self.env.brk.take(), self.env.ret.take());
         self.calls.push((sub, r));
@@ -3199,7 +3943,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             let w = tw(&d.types, d.object(o).ty);
             let v = match d.object(o).init {
                 Some(e) => self.expr(e).map(|v| self.resize(&v, w, false)),
-                None => Ok(Val::zero(w)),
+                None => Ok(self.zero(w)),
             };
             match v {
                 Ok(v) => {
@@ -3249,10 +3993,23 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     /// part of the state.
     fn elem_addr(&mut self, o: ObjId, i: u32) -> String {
         let e = self.lay().elems[&o];
-        let base = if e.planes() { format!("%h{}", self.loops - 1) } else { self.base() };
+        let base = self.reg_base(e.lane);
         let a = self.tmp();
         let _ = writeln!(self.out, "  %t{a} = getelementptr i8, ptr {base}, i64 {}", self.lay().objs[&o] + i as u64 * e.stride());
         format!("%t{a}")
+    }
+
+    /// Lane 0 of a piece, an `i64` operand (zero-extended from a lane).
+    fn lane0(&mut self, p: P) -> String {
+        match p {
+            P::K(k) => format!("{k}"),
+            P::V(n) if self.sc() => format!("%t{n}"),
+            P::V(n) => {
+                let (x, z) = (self.tmp(), self.tmp());
+                let _ = writeln!(self.out, "  %t{x} = extractelement {} %t{n}, i64 0\n  %t{z} = zext i32 %t{x} to i64", self.t.v);
+                format!("%t{z}")
+            }
+        }
     }
 
     /// The address of element `i`, the same in every lane (held at the
@@ -3260,68 +4017,84 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     fn elem_addr_uniform(&mut self, o: ObjId, i: P, clamp: bool) -> String {
         if let P::K(k) = i {
             let n = self.lay().elems[&o].n;
-            return self.elem_addr(o, k.min(n - 1));
+            return self.elem_addr(o, k.min(n as u64 - 1) as u32);
         }
         let e = self.lay().elems[&o];
-        let base = if e.planes() { format!("%h{}", self.loops - 1) } else { self.base() };
+        let base = self.reg_base(e.lane);
         let off = self.lay().objs[&o];
-        let t: Vec<u32> = (0..7).map(|_| self.tmp()).collect();
-        let _ = writeln!(self.out, "  %t{} = extractelement {V16} {}, i64 0", t[0], ps(i));
+        let ix = self.lane0(i);
+        let t: Vec<u32> = (0..6).map(|_| self.tmp()).collect();
         // Held at the last element where the index may be out of range
         // (its value is then not used): a compare and select, which a
         // loop's invariants can be hoisted past, not a call.
         let ix = if clamp {
-            let _ = writeln!(
-                self.out,
-                "  %t{} = icmp ugt i32 %t{}, {}\n  %t{} = select i1 %t{}, i32 {}, i32 %t{}",
-                t[6], t[0], e.n - 1, t[1], t[6], e.n - 1, t[0]
-            );
-            t[1]
+            let _ = writeln!(self.out, "  %t{} = icmp ugt i64 {ix}, {}\n  %t{} = select i1 %t{}, i64 {}, i64 {ix}", t[0], e.n - 1, t[1], t[0], e.n - 1);
+            format!("%t{}", t[1])
         } else {
-            t[0]
+            ix
         };
         let _ = writeln!(
             self.out,
-            "  %t{} = zext i32 %t{ix} to i64\n  %t{} = mul i64 %t{}, {}\n  %t{} = getelementptr i8, ptr {base}, i64 {off}\n  \
-             %t{} = getelementptr i8, ptr %t{}, i64 %t{}",
-            t[2], t[3], t[2], e.stride(), t[4], t[5], t[4], t[3]
+            "  %t{} = mul i64 {ix}, {}\n  %t{} = getelementptr i8, ptr {base}, i64 {off}\n  %t{} = getelementptr i8, ptr %t{}, i64 %t{}",
+            t[2],
+            e.stride(),
+            t[3],
+            t[4],
+            t[3],
+            t[2]
         );
-        format!("%t{}", t[5])
+        format!("%t{}", t[4])
+    }
+
+    /// The storage type of an element slot, and its alignment.
+    fn slot_ty(&self, e: Elems) -> (&'static str, u64) {
+        match e.lane {
+            Lane::Bit => ("i16", 2),
+            Lane::B8 => ("i8", 1),
+            Lane::B16 => ("i16", 2),
+            Lane::W32 if self.sc() => ("i32", 4),
+            Lane::W32 => (self.t.w32, 4 * self.sh.n as u64),
+            Lane::W64 => ("i64", 8),
+        }
     }
 
     fn load_slot(&mut self, o: ObjId, addr: &str) -> Val {
         let e = self.lay().elems[&o];
+        let (ty, align) = self.slot_ty(e);
         let t = self.tmp();
+        let _ = writeln!(self.out, "  %t{t} = load {ty}, ptr {addr}, align {align}");
         if e.planes() {
             let m = self.tmp();
-            let _ = writeln!(self.out, "  %t{t} = load i16, ptr {addr}, align 2\n  %t{m} = bitcast i16 %t{t} to {M16}");
+            let _ = writeln!(self.out, "  %t{m} = bitcast i16 %t{t} to {}", self.t.m);
             self.bits_of.insert(m, t);
-            self.bit(M::V(m), 1)
-        } else {
-            let _ = writeln!(self.out, "  %t{t} = load {V16}, ptr {addr}, align 64");
-            Val { w: e.ew, p: vec![P::V(t)] }
+            return self.bit(M::V(m), 1);
         }
+        if ty != self.t.v {
+            let z = self.tmp();
+            let _ = writeln!(self.out, "  %t{z} = zext {ty} %t{t} to {}", self.t.v);
+            self.zeros.insert(z, !self.top_mask(e.ew));
+            return Val { w: e.ew, p: vec![P::V(z)] };
+        }
+        Val { w: e.ew, p: vec![P::V(t)] }
     }
 
     fn store_slot(&mut self, o: ObjId, addr: &str, v: &Val) {
         let e = self.lay().elems[&o];
+        let (ty, align) = self.slot_ty(e);
         if e.planes() {
             let m = self.truth(v);
-            let bits = match m {
-                M::K(b) => format!("{}", if b { -1 } else { 0 }),
-                M::V(n) => match self.bits_of.get(&n) {
-                    Some(&i) => format!("%t{i}"),
-                    None => {
-                        let t = self.tmp();
-                        let _ = writeln!(self.out, "  %t{t} = bitcast {M16} %t{n} to i16");
-                        format!("%t{t}")
-                    }
-                },
-            };
+            let bits = self.mask_bits(m);
             let _ = writeln!(self.out, "  store i16 {bits}, ptr {addr}, align 2");
         } else {
             let v = self.resize(v, e.ew, false);
-            let _ = writeln!(self.out, "  store {V16} {}, ptr {addr}, align 64", ps(v.p[0]));
+            let x = if ty != self.t.v {
+                let x = self.tmp();
+                let _ = writeln!(self.out, "  %t{x} = trunc {} {} to {ty}", self.t.v, self.ps(v.p[0]));
+                format!("%t{x}")
+            } else {
+                self.ps(v.p[0])
+            };
+            let _ = writeln!(self.out, "  store {ty} {x}, ptr {addr}, align {align}");
         }
     }
 
@@ -3375,7 +4148,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let signed = d.types.is_signed(d.expr(x.args[1]).ty);
         let k = idx.p[0];
         if self.in_range.contains(&e) {
-            let i = if l >= r { self.bin("sub", k, P::K(r as u32)) } else { self.bin("sub", P::K(r as u32), k) };
+            let i = if l >= r { self.bin("sub", k, self.k(r)) } else { self.bin("sub", self.k(r), k) };
             return Ok((i, M::K(true)));
         }
         let mut ok = M::K(true);
@@ -3385,11 +4158,11 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         }
         let (min, max) = (l.min(r), l.max(r));
         let (ge, le) = if signed { ("sge", "sle") } else { ("uge", "ule") };
-        let a = self.icmp(ge, k, P::K(min as u32));
-        let b = self.icmp(le, k, P::K(max as u32));
+        let a = self.icmp(ge, k, self.k(min));
+        let b = self.icmp(le, k, self.k(max));
         ok = self.mand(ok, a);
         ok = self.mand(ok, b);
-        let i = if l >= r { self.bin("sub", k, P::K(r as u32)) } else { self.bin("sub", P::K(r as u32), k) };
+        let i = if l >= r { self.bin("sub", k, self.k(r)) } else { self.bin("sub", self.k(r), k) };
         Ok((i, ok))
     }
 
@@ -3398,17 +4171,17 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let el = self.lay().elems[&o];
         let (i, ok) = self.elem_index(e)?;
         let v = match i {
-            P::K(k) if k < el.n => self.read_elem(o, k),
-            P::K(_) => Val::zero(el.ew),
+            P::K(k) if k < el.n as u64 => self.read_elem(o, k as u32),
+            P::K(_) => self.zero(el.ew),
             _ if self.is_uniform(i) => {
                 let a = self.elem_addr_uniform(o, i, ok != M::K(true));
                 self.load_slot(o, &a)
             }
             // A different element a lane: each, chosen by a select.
             _ => {
-                let mut acc = Val::zero(el.ew);
+                let mut acc = self.zero(el.ew);
                 for k in 0..el.n {
-                    let hit = self.icmp("eq", i, P::K(k));
+                    let hit = self.icmp("eq", i, P::K(k as u64));
                     let v = self.read_elem(o, k);
                     acc = self.select(hit, &v, &acc);
                 }
@@ -3418,7 +4191,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         if ok == M::K(true) {
             return Ok(v);
         }
-        let z = Val::zero(el.ew);
+        let z = self.zero(el.ew);
         Ok(self.select(ok, &v, &z))
     }
 
@@ -3427,7 +4200,8 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let el = self.lay().elems[&o];
         let (i, ok) = self.elem_index(e)?;
         match i {
-            P::K(k) if k < el.n => {
+            P::K(k) if k < el.n as u64 => {
+                let k = k as u32;
                 let v = match ok {
                     M::K(true) => v,
                     _ => {
@@ -3455,7 +4229,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             }
             _ => {
                 for k in 0..el.n {
-                    let hit = self.icmp("eq", i, P::K(k));
+                    let hit = self.icmp("eq", i, P::K(k as u64));
                     let hit = self.mand(hit, ok);
                     let old = self.read_elem(o, k);
                     let new = self.select(hit, &v, &old);
@@ -3484,7 +4258,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     fn read(&mut self, o: ObjId) -> Val {
         if let Some(&e) = self.lay().elems.get(&o) {
             // The whole value, from its elements.
-            let mut acc = Val::zero(e.n * e.ew);
+            let mut acc = self.zero(e.n * e.ew);
             for i in 0..e.n {
                 let v = self.read_elem(o, i);
                 acc = self.insert(&acc, i * e.ew, e.ew, &v);
@@ -3504,7 +4278,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 v
             }
             None => {
-                let v = Val::zero(w);
+                let v = self.zero(w);
                 self.env.vals.insert(o, v.clone());
                 v
             }
@@ -3557,8 +4331,8 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 let (o, off, w) = self.place(lhs)?;
                 if self.mem
                     && !self.lay().elems.contains_key(&o)
-                    && self.lay().lane(o) == Lane::W32
-                    && w <= 32
+                    && self.lay().lane(o) == self.piece_lane()
+                    && w <= self.pb
                     && self.lay().objs.contains_key(&o)
                     && let Some((p, ok)) = self.uniform_off(off)
                 {
@@ -3566,7 +4340,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     return Ok(());
                 }
                 let old = if self.lay().fresh.contains(&o) && !self.env.vals.contains_key(&o) {
-                    Val::zero(tw(&d.types, d.object(o).ty))
+                    self.zero(tw(&d.types, d.object(o).ty))
                 } else {
                     self.read(o)
                 };
@@ -3651,15 +4425,15 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         }
         let (min, max) = (l.min(r), l.max(r));
         let (lt, le) = if signed { ("sge", "sle") } else { ("uge", "ule") };
-        let a = self.icmp(lt, k, P::K(min as u32));
+        let a = self.icmp(lt, k, self.k(min));
         // A part select that runs off the top reads and writes the bits
         // still in range.
         let top = if matches!(x.kind, ExprKind::Part { .. }) && l >= r { max } else { max - n + 1 };
-        let b = self.icmp(le, k, P::K(top as u32));
+        let b = self.icmp(le, k, self.k(top));
         ok = self.mand(ok, a);
         ok = self.mand(ok, b);
-        let elems = if l >= r { self.bin("sub", k, P::K(r as u32)) } else { self.bin("sub", P::K((r - n + 1) as u32), k) };
-        let bits = if ew.is_power_of_two() { self.bin("shl", elems, P::K(ew.trailing_zeros())) } else { self.bin("mul", elems, P::K(ew)) };
+        let elems = if l >= r { self.bin("sub", k, self.k(r)) } else { self.bin("sub", self.k(r - n + 1), k) };
+        let bits = if ew.is_power_of_two() { self.bin("shl", elems, P::K(ew.trailing_zeros() as u64)) } else { self.bin("mul", elems, P::K(ew as u64)) };
         Ok((Off::V(bits, ok), w))
     }
 
@@ -3677,20 +4451,22 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let mut steps = Vec::new();
         for &(o, first, step) in &lp.steps {
             let (a, b, c, t) = (self.tmp(), self.tmp(), self.tmp(), self.tmp());
-            let _ = writeln!(
-                self.out,
-                "  %t{a} = mul i32 %r{k}, {}\n  %t{b} = add i32 %t{a}, {}\n  \
-                 %t{c} = insertelement {V16} poison, i32 %t{b}, i64 0\n  \
-                 %t{t} = shufflevector {V16} %t{c}, {V16} poison, {V16} zeroinitializer",
-                step as i32,
-                first as i32
-            );
+            let _ = writeln!(self.out, "  %t{a} = mul i32 %r{k}, {}\n  %t{b} = add i32 %t{a}, {}", step as i32, first as i32);
+            if self.sc() {
+                let _ = writeln!(self.out, "  %t{t} = sext i32 %t{b} to i64");
+            } else {
+                let v = self.t.v;
+                let _ = writeln!(
+                    self.out,
+                    "  %t{c} = insertelement {v} poison, i32 %t{b}, i64 0\n  %t{t} = shufflevector {v} %t{c}, {v} poison, {v} zeroinitializer"
+                );
+            }
             self.uniform.insert(t);
             let w = tw(&d.types, d.object(o).ty);
-            let mut p = vec![P::K(0); pieces(w)];
+            let mut p = vec![P::K(0); self.np(w)];
             p[0] = P::V(t);
-            if pieces(w) > 1 {
-                let f = self.bin("ashr", P::V(t), P::K(31));
+            if self.np(w) > 1 {
+                let f = self.bin("ashr", P::V(t), P::K(self.pb as u64 - 1));
                 for q in &mut p[1..] {
                     *q = f;
                 }
@@ -3732,7 +4508,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 if self.mem
                     && self.lay().objs.contains_key(&o)
                     && !self.lay().elems.contains_key(&o)
-                    && self.lay().lane(o) == Lane::W32 =>
+                    && self.lay().lane(o) == self.piece_lane() =>
             {
                 Some(o)
             }
@@ -3740,10 +4516,15 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         }
     }
 
+    /// How values in whole pieces are stored.
+    fn piece_lane(&self) -> Lane {
+        if self.sc() { Lane::W64 } else { Lane::W32 }
+    }
+
     /// A select's offset if it is the same in every lane.
     fn uniform_off(&self, off: Off) -> Option<(P, M)> {
         match off {
-            Off::K(k) => Some((P::K(k), M::K(true))),
+            Off::K(k) => Some((P::K(k as u64), M::K(true))),
             Off::V(p, ok) if self.is_uniform(p) => Some((p, ok)),
             _ => None,
         }
@@ -3756,38 +4537,48 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         }
     }
 
-    /// The addresses of the two pieces holding bits `off..off + 32` of
+    /// The addresses of the two pieces holding bits `off..off + pb` of
     /// `o` (the second held at the last piece), and the shift within the
     /// first.
     fn piece_addrs(&mut self, o: ObjId, off: P) -> (String, String, P) {
         let d = self.d();
         let base = self.base();
         let start = self.lay().objs[&o];
-        let last = pieces(tw(&d.types, d.object(o).ty)) as u64 - 1;
-        let r = self.bin("and", off, P::K(31));
+        let lane = self.piece_lane();
+        let stride = lane.piece_bytes(self.sh);
+        let pb = self.pb as u64;
+        let last = lane.pieces(tw(&d.types, d.object(o).ty)) - 1;
+        let r = self.bin("and", off, P::K(pb - 1));
         if let P::K(k) = off {
-            let q = (k as u64 / 32).min(last);
+            let q = (k / pb).min(last);
             let q1 = (q + 1).min(last);
             let (a, b) = (self.tmp(), self.tmp());
             let _ = writeln!(
                 self.out,
                 "  %t{a} = getelementptr i8, ptr {base}, i64 {}\n  %t{b} = getelementptr i8, ptr {base}, i64 {}",
-                start + q * PIECE,
-                start + q1 * PIECE
+                start + q * stride,
+                start + q1 * stride
             );
             return (format!("%t{a}"), format!("%t{b}"), r);
         }
-        let t = self.tmp();
-        let _ = writeln!(self.out, "  %t{t} = extractelement {V16} {}, i64 0", ps(off));
-        let n: Vec<u32> = (0..9).map(|_| self.tmp()).collect();
+        let x = self.lane0(off);
+        let n: Vec<u32> = (0..10).map(|_| self.tmp()).collect();
         let _ = writeln!(
             self.out,
-            "  %t{0} = lshr i32 %t{t}, 5\n  %t{1} = call i32 @llvm.umin.i32(i32 %t{0}, i32 {last})\n  \
-             %t{2} = add i32 %t{1}, 1\n  %t{3} = call i32 @llvm.umin.i32(i32 %t{2}, i32 {last})\n  \
-             %t{4} = zext i32 %t{1} to i64\n  %t{5} = zext i32 %t{3} to i64\n  \
-             %t{6} = mul i64 %t{4}, {PIECE}\n  %t{7} = mul i64 %t{5}, {PIECE}\n  \
+            "  %t{0} = lshr i64 {x}, {lg}\n  %t{1} = icmp ugt i64 %t{0}, {last}\n  %t{2} = select i1 %t{1}, i64 {last}, i64 %t{0}\n  \
+             %t{3} = add i64 %t{2}, 1\n  %t{4} = icmp ugt i64 %t{3}, {last}\n  %t{5} = select i1 %t{4}, i64 {last}, i64 %t{3}\n  \
+             %t{6} = mul i64 %t{2}, {stride}\n  %t{7} = mul i64 %t{5}, {stride}\n  \
              %t{8} = getelementptr i8, ptr {base}, i64 {start}",
-            n[0], n[1], n[2], n[3], n[4], n[5], n[6], n[7], n[8]
+            n[0],
+            n[1],
+            n[2],
+            n[3],
+            n[4],
+            n[5],
+            n[6],
+            n[7],
+            n[8],
+            lg = self.pb.trailing_zeros()
         );
         let (a, b) = (self.tmp(), self.tmp());
         let _ = writeln!(
@@ -3800,35 +4591,39 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
 
     fn load_at(&mut self, addr: &str) -> P {
         let t = self.tmp();
-        let _ = writeln!(self.out, "  %t{t} = load {V16}, ptr {addr}, align 64");
+        let ty = if self.sc() { "i64" } else { self.t.v };
+        let _ = writeln!(self.out, "  %t{t} = load {ty}, ptr {addr}, align {}", self.piece_lane().reg_bytes(self.sh));
         P::V(t)
     }
 
-    /// Bits `off..off + w` (`w` at most 32) of `o`, read from the state.
+    /// Bits `off..off + w` (`w` at most a piece) of `o`, read from the
+    /// state.
     fn mem_extract(&mut self, o: ObjId, off: P, ok: M, w: u32) -> Val {
+        let pb = self.pb as u64;
         let (a0, a1, r) = self.piece_addrs(o, off);
         let (v0, v1) = (self.load_at(&a0), self.load_at(&a1));
         let lo = self.bin("lshr", v0, r);
-        let ri = self.bin("sub", P::K(32), r);
-        let ri = self.bin("and", ri, P::K(31));
+        let ri = self.bin("sub", P::K(pb), r);
+        let ri = self.bin("and", ri, P::K(pb - 1));
         let rz = self.icmp("eq", r, P::K(0));
         let hi = self.bin("shl", v1, ri);
         let hi = self.sel(rz, P::K(0), hi);
         let v = self.bin("or", lo, hi);
         let v = self.norm(Val { w, p: vec![v] });
-        let z = Val::zero(w);
+        let z = self.zero(w);
         self.select(ok, &v, &z)
     }
 
-    /// Writes `x` to bits `off..off + w` (`w` at most 32) of `o` in the
-    /// state.
+    /// Writes `x` to bits `off..off + w` (`w` at most a piece) of `o` in
+    /// the state.
     fn mem_insert(&mut self, o: ObjId, off: P, ok: M, w: u32, x: &Val) {
+        let pb = self.pb as u64;
         let (a0, a1, r) = self.piece_addrs(o, off);
         let (v0, v1) = (self.load_at(&a0), self.load_at(&a1));
         let x = self.resize(x, w, false).p[0];
-        let m = P::K(top_mask(w));
-        let ri = self.bin("sub", P::K(32), r);
-        let ri = self.bin("and", ri, P::K(31));
+        let m = P::K(self.top_mask(w));
+        let ri = self.bin("sub", P::K(pb), r);
+        let ri = self.bin("and", ri, P::K(pb - 1));
         let rz = self.icmp("eq", r, P::K(0));
         let m0 = self.bin("shl", m, r);
         let x0 = self.bin("shl", x, r);
@@ -3836,8 +4631,9 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let m1 = self.sel(rz, P::K(0), m1);
         let x1 = self.bin("lshr", x, ri);
         let x1 = self.sel(rz, P::K(0), x1);
+        let all = self.ones_k();
         let put = |f: &mut Self, v: P, m: P, x: P| {
-            let keep = f.bin("xor", m, P::K(!0));
+            let keep = f.bin("xor", m, P::K(all));
             let kept = f.bin("and", v, keep);
             let n = f.bin("or", kept, x);
             f.sel(ok, n, v)
@@ -3846,8 +4642,9 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let n0 = put(self, v0, m0, x0);
         // The second piece first: where both are the last piece, the
         // first's write is the one that stays.
+        let (ty, align) = (if self.sc() { "i64" } else { self.t.v }, self.piece_lane().reg_bytes(self.sh));
         for (a, n) in [(a1, n1), (a0, n0)] {
-            let _ = writeln!(self.out, "  store {V16} {}, ptr {a}, align 64", ps(n));
+            let _ = writeln!(self.out, "  store {ty} {}, ptr {a}, align {align}", self.ps(n));
         }
         self.env.vals.remove(&o);
         self.env.loaded.remove(&o);
@@ -3857,53 +4654,58 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     fn known(&mut self, k: &Known) -> Result<(), String> {
         let x = self.read(k.input);
         let n = x.p.len();
-        let zero = self.eq(&x, &Val::zero(k.width));
+        let pb = self.pb;
+        let z0 = self.zero(k.width);
+        let zero = self.eq(&x, &z0);
+        // A constant of the piece's width made of a repeated byte.
+        let bytes = |b: u8| u64::from_ne_bytes([b; 8]) & ones_of(pb);
         let count = if k.count == Count::Ones {
             // Each piece's ones, in two-bit, then four-bit fields, then
             // bytes, which a multiply adds into the top byte.
             let mut c = P::K(0);
             for &p in &x.p {
                 let a = self.bin("lshr", p, P::K(1));
-                let a = self.bin("and", a, P::K(0x5555_5555));
+                let a = self.bin("and", a, P::K(bytes(0x55)));
                 let p = self.bin("sub", p, a);
-                let a = self.bin("and", p, P::K(0x3333_3333));
+                let a = self.bin("and", p, P::K(bytes(0x33)));
                 let b = self.bin("lshr", p, P::K(2));
-                let b = self.bin("and", b, P::K(0x3333_3333));
+                let b = self.bin("and", b, P::K(bytes(0x33)));
                 let p = self.bin("add", a, b);
                 let a = self.bin("lshr", p, P::K(4));
                 let p = self.bin("add", p, a);
-                let p = self.bin("and", p, P::K(0x0F0F_0F0F));
-                let p = self.bin("mul", p, P::K(0x0101_0101));
-                let p = self.bin("lshr", p, P::K(24));
+                let p = self.bin("and", p, P::K(bytes(0x0F)));
+                let p = self.bin("mul", p, P::K(bytes(0x01)));
+                let p = self.bin("lshr", p, P::K(pb as u64 - 8));
                 c = self.bin("add", c, p);
             }
             c
         } else if k.count == Count::Leading {
             // From the top piece down; the top piece's bits moved up to
             // the top of its lane.
-            let top_bits = k.width - 32 * (n as u32 - 1);
-            let top = self.bin("shl", x.p[n - 1], P::K(32 - top_bits));
+            let top_bits = k.width - pb * (n as u32 - 1);
+            let top = self.bin("shl", x.p[n - 1], P::K((pb - top_bits) as u64));
             let mut c = self.ctlz(top);
             if n == 2 {
                 let lo = self.ctlz(x.p[0]);
-                let lo = self.bin("add", lo, P::K(top_bits));
+                let lo = self.bin("add", lo, P::K(top_bits as u64));
                 let z = self.icmp("eq", x.p[1], P::K(0));
                 c = self.sel(z, lo, c);
             }
             c
         } else {
-            // 32 - ctlz(~p & (p - 1)), the trailing zeros of a piece.
+            // pb - ctlz(~p & (p - 1)), the trailing zeros of a piece.
+            let all = self.ones_k();
             let tz = |f: &mut Self, p: P| {
-                let a = f.bin("xor", p, P::K(!0));
+                let a = f.bin("xor", p, P::K(all));
                 let b = f.bin("sub", p, P::K(1));
                 let c = f.bin("and", a, b);
                 let l = f.ctlz(c);
-                f.bin("sub", P::K(32), l)
+                f.bin("sub", P::K(pb as u64), l)
             };
             let mut c = tz(self, x.p[0]);
             if n == 2 {
                 let hi = tz(self, x.p[1]);
-                let hi = self.bin("add", hi, P::K(32));
+                let hi = self.bin("add", hi, P::K(pb as u64));
                 let z = self.icmp("eq", x.p[0], P::K(0));
                 c = self.sel(z, hi, c);
             }
@@ -3914,8 +4716,8 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             let w = tw(&d.types, d.object(o).ty);
             let v = match out {
                 Out::Count { at_zero } => {
-                    let c = if k.count == Count::Ones && at_zero == 0 { count } else { self.sel(zero, P::K(at_zero as u32), count) };
-                    let v = Val { w: 32, p: vec![c] };
+                    let c = if k.count == Count::Ones && at_zero == 0 { count } else { self.sel(zero, self.k(at_zero as i64), count) };
+                    let v = Val { w: pb, p: vec![c] };
                     self.resize(&v, w, false)
                 }
                 Out::Zero { inverted } => {
@@ -3931,10 +4733,13 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
 
     fn ctlz(&mut self, p: P) -> P {
         if let P::K(k) = p {
-            return P::K(k.leading_zeros());
+            return P::K((k.leading_zeros() - (64 - self.pb)) as u64);
         }
+        let v = self.t.v;
+        let name = if self.sc() { "llvm.ctlz.i64".to_string() } else { format!("llvm.ctlz.v{}i32", self.sh.n) };
+        self.intrinsic(format!("declare {v} @{name}({v}, i1)"));
         let t = self.tmp();
-        let _ = writeln!(self.out, "  %t{t} = call {V16} @llvm.ctlz.v16i32({V16} {}, i1 false)", ps(p));
+        let _ = writeln!(self.out, "  %t{t} = call {v} @{name}({v} {}, i1 false)", self.ps(p));
         P::V(t)
     }
 
@@ -3994,7 +4799,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 }
             }
             ExprKind::Concat => {
-                let mut acc = Val::zero(w);
+                let mut acc = self.zero(w);
                 let mut top = w;
                 // A replication of zero is no part of the value (11.4.12.1).
                 for &a in x.args.iter().filter(|&&a| d.expr(a).kind != ExprKind::Replicate(0)) {
@@ -4016,14 +4821,14 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                         }
                         p => self.bin("sub", P::K(0), p),
                     };
-                    return Ok(self.norm(Val { w, p: vec![fill; pieces(w)] }));
+                    return Ok(self.norm(Val { w, p: vec![fill; self.np(w)] }));
                 }
-                if v.w > 0 && w <= 32 && *n > 1 {
-                    let k: u32 = (0..*n).fold(0u32, |k, i| k | 1 << (i * v.w));
+                if v.w > 0 && w <= self.pb && *n > 1 {
+                    let k: u64 = (0..*n).fold(0u64, |k, i| k | 1 << (i * v.w));
                     let p = self.bin("mul", v.p[0], P::K(k));
                     return Ok(self.norm(Val { w, p: vec![p] }));
                 }
-                let mut acc = Val::zero(w);
+                let mut acc = self.zero(w);
                 for k in 0..*n {
                     acc = self.insert(&acc, k * v.w, v.w, &v);
                 }
@@ -4036,7 +4841,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 if let Some(o) = self.in_memory(x.args[0]) {
                     let (off, w2) = self.offset(e)?;
                     if let Some((p, ok)) = self.uniform_off(off)
-                        && w2 <= 32
+                        && w2 <= self.pb
                     {
                         return Ok(self.mem_extract(o, p, ok, w2));
                     }
@@ -4053,7 +4858,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     Off::V(p, ok) => {
                         let v = self.lshr_var(&base, p, None);
                         let v = self.extract(&v, 0, w);
-                        let z = Val::zero(w);
+                        let z = self.zero(w);
                         self.select(ok, &v, &z)
                     }
                 })
@@ -4078,7 +4883,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 if widths.len() != x.args.len() || widths.iter().sum::<u32>() != w {
                     return Err("an assignment pattern that does not fill its type".into());
                 }
-                let mut acc = Val::zero(w);
+                let mut acc = self.zero(w);
                 let mut top = w;
                 for (&a, &ew) in x.args.iter().zip(&widths) {
                     let v = self.expr(a)?;
@@ -4122,10 +4927,11 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
 
     fn konst(&self, b: &Bits) -> Val {
         let w = b.width().max(1);
-        let p = (0..pieces(w) as u32)
+        let pb = self.pb;
+        let p = (0..self.np(w) as u32)
             .map(|k| {
-                let lo = 32 * k;
-                if lo >= b.width() { P::K(0) } else { P::K(b.slice(lo, 32.min(b.width() - lo)).to_u64().unwrap_or(0) as u32) }
+                let lo = pb * k;
+                if lo >= b.width() { P::K(0) } else { P::K(b.slice(lo, pb.min(b.width() - lo)).to_u64().unwrap_or(0)) }
             })
             .collect();
         Val { w, p }
@@ -4137,7 +4943,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             UnOp::Plus => self.resize(&a, w, false),
             UnOp::Neg => {
                 let a = self.resize(&a, w, false);
-                self.add(&Val::zero(w), &a, true)
+                self.add(&self.zero(w), &a, true)
             }
             UnOp::Not => {
                 let a = self.resize(&a, w, false);
@@ -4168,7 +4974,8 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 for &p in &a.p[1..] {
                     x = self.bin("xor", x, p);
                 }
-                for s in [16, 8, 4, 2, 1] {
+                let pb = self.pb as u64;
+                for s in [32, 16, 8, 4, 2, 1].into_iter().filter(|&s| s < pb) {
                     let y = self.bin("lshr", x, P::K(s));
                     x = self.bin("xor", x, y);
                 }
@@ -4214,8 +5021,8 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             BinOp::Shl | BinOp::AShl | BinOp::Shr | BinOp::AShr => {
                 let a = self.resize(&a, w, false);
                 let fill = (op == BinOp::AShr && tys.is_signed(ty)).then(|| self.sign_fill(&a));
-                match b.is_const() {
-                    Some(n) if b.p.len() <= 2 => {
+                match self.is_const(&b) {
+                    Some(n) => {
                         if matches!(op, BinOp::Shl | BinOp::AShl) {
                             self.shl_const(&a, n)
                         } else {
@@ -4231,7 +5038,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                         let v = if matches!(op, BinOp::Shl | BinOp::AShl) { self.shl_var(&a, b.p[0]) } else { self.lshr_var(&a, b.p[0], fill) };
                         let big = match fill {
                             Some(f) => Val { w, p: vec![f; a.p.len()] },
-                            None => Val::zero(w),
+                            None => self.zero(w),
                         };
                         let big = self.norm(big);
                         self.select(ok, &v, &big)
@@ -4287,23 +5094,25 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     // ---- values ----
 
     /// `a * b` in `a`'s width, wider than a piece: each pair of pieces
-    /// multiplied in 64-bit lanes, the products' halves added by column in
-    /// 64-bit lanes, and the carries passed up.
+    /// multiplied in lanes twice as wide, the products' halves added by
+    /// column in those, and the carries passed up.
     fn mul_wide(&mut self, a: &Val, b: &Val) -> Val {
-        const V64: &str = "<16 x i64>";
         let n = a.p.len();
+        let (v, wt, sc, pb) = (self.t.v, self.t.wide, self.sc(), self.pb);
         let wide = |f: &mut Self, p: P| -> String {
             match p {
+                P::K(k) if sc => format!("{k}"),
                 P::K(k) => format!("splat (i64 {k})"),
                 P::V(t) => {
                     let x = f.tmp();
-                    let _ = writeln!(f.out, "  %t{x} = zext {V16} %t{t} to {V64}");
+                    let _ = writeln!(f.out, "  %t{x} = zext {v} %t{t} to {wt}");
                     format!("%t{x}")
                 }
             }
         };
         let a64: Vec<Option<String>> = a.p.iter().map(|&p| (p != P::K(0)).then(|| wide(self, p))).collect();
         let b64: Vec<Option<String>> = b.p.iter().map(|&p| (p != P::K(0)).then(|| wide(self, p))).collect();
+        let half = if sc { "64".to_string() } else { "splat (i64 32)".to_string() };
         // The columns' sums: the low halves of the products of pieces i and
         // j in column i + j, their high halves in the next.
         let mut cols: Vec<Vec<String>> = vec![Vec::new(); n];
@@ -4311,15 +5120,16 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             for j in 0..n - i {
                 let (Some(x), Some(y)) = (&a64[i], &b64[j]) else { continue };
                 let p = self.tmp();
-                let _ = writeln!(self.out, "  %t{p} = mul {V64} {x}, {y}");
-                let (lo, hi) = (self.tmp(), self.tmp());
-                let _ = writeln!(self.out, "  %t{lo} = and {V64} %t{p}, splat (i64 4294967295)\n  %t{hi} = lshr {V64} %t{p}, splat (i64 32)");
+                let _ = writeln!(self.out, "  %t{p} = mul {wt} {x}, {y}");
+                let (t, lo, hi) = (self.tmp(), self.tmp(), self.tmp());
+                let _ = writeln!(self.out, "  %t{t} = trunc {wt} %t{p} to {v}\n  %t{lo} = zext {v} %t{t} to {wt}\n  %t{hi} = lshr {wt} %t{p}, {half}");
                 cols[i + j].push(format!("%t{lo}"));
                 if i + j + 1 < n {
                     cols[i + j + 1].push(format!("%t{hi}"));
                 }
             }
         }
+        let _ = pb;
         let mut carry: Option<String> = None;
         let mut out = Vec::with_capacity(n);
         for col in cols.iter_mut().take(n) {
@@ -4327,14 +5137,14 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             let mut sum = col.first().cloned();
             for t in col.iter().skip(1) {
                 let s = self.tmp();
-                let _ = writeln!(self.out, "  %t{s} = add {V64} {}, {t}", sum.unwrap());
+                let _ = writeln!(self.out, "  %t{s} = add {wt} {}, {t}", sum.unwrap());
                 sum = Some(format!("%t{s}"));
             }
             match sum {
                 None => out.push(P::K(0)),
                 Some(s) => {
                     let (lo, c) = (self.tmp(), self.tmp());
-                    let _ = writeln!(self.out, "  %t{lo} = trunc {V64} {s} to {V16}\n  %t{c} = lshr {V64} {s}, splat (i64 32)");
+                    let _ = writeln!(self.out, "  %t{lo} = trunc {wt} {s} to {v}\n  %t{c} = lshr {wt} {s}, {half}");
                     out.push(P::V(lo));
                     carry = Some(format!("%t{c}"));
                 }
@@ -4346,10 +5156,10 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     /// A mask as a `w`-bit 0 or 1.
     fn bit(&mut self, m: M, w: u32) -> Val {
         let p0 = match m {
-            M::K(b) => P::K(b as u32),
+            M::K(b) => P::K(b as u64),
             M::V(n) => {
                 let t = self.tmp();
-                let _ = writeln!(self.out, "  %t{t} = zext {M16} %t{n} to {V16}");
+                let _ = writeln!(self.out, "  %t{t} = zext {} %t{n} to {}", self.t.m, self.t.v);
                 self.mask_of.insert(t, m);
                 self.zeros.insert(t, !1);
                 if self.uniform.contains(&n) {
@@ -4358,20 +5168,20 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 P::V(t)
             }
         };
-        let mut p = vec![P::K(0); pieces(w)];
+        let mut p = vec![P::K(0); self.np(w)];
         p[0] = p0;
         Val { w, p }
     }
 
     fn ones(&self, w: u32) -> Val {
-        let mut p = vec![P::K(!0); pieces(w)];
-        *p.last_mut().unwrap() = P::K(top_mask(w));
+        let mut p = vec![P::K(self.ones_k()); self.np(w)];
+        *p.last_mut().unwrap() = P::K(self.top_mask(w));
         Val { w, p }
     }
 
     fn norm(&mut self, mut v: Val) -> Val {
-        let t = top_mask(v.w);
-        if t != !0 {
+        let t = self.top_mask(v.w);
+        if t != self.ones_k() {
             let last = *v.p.last().unwrap();
             *v.p.last_mut().unwrap() = self.bin("and", last, P::K(t));
         }
@@ -4386,7 +5196,8 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             let n = self.mnot(m);
             return self.bit(n, 1);
         }
-        let p = a.p.iter().map(|&x| self.bin("xor", x, P::K(!0))).collect();
+        let all = self.ones_k();
+        let p = a.p.iter().map(|&x| self.bin("xor", x, P::K(all))).collect();
         self.norm(Val { w: a.w, p })
     }
 
@@ -4397,17 +5208,18 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
 
     /// `a + b`, or `a - b` as `a + ~b + 1`, in `a`'s width.
     fn add(&mut self, a: &Val, b: &Val, sub: bool) -> Val {
-        let mut carry = P::K(sub as u32);
+        let mut carry = P::K(sub as u64);
+        let all = self.ones_k();
         let mut p = Vec::with_capacity(a.p.len());
         for (&x, &y) in a.p.iter().zip(&b.p) {
-            let y = if sub { self.bin("xor", y, P::K(!0)) } else { y };
+            let y = if sub { self.bin("xor", y, P::K(all)) } else { y };
             let s1 = self.bin("add", x, y);
             let s = self.bin("add", s1, carry);
             if p.len() + 1 < a.p.len() {
                 let c1 = self.icmp("ult", s1, x);
                 let c2 = self.icmp("ult", s, s1);
                 let c = self.mor(c1, c2);
-                carry = self.bit(c, 32).p[0];
+                carry = self.bit(c, self.pb).p[0];
             }
             p.push(s);
         }
@@ -4425,14 +5237,15 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
 
     fn lt(&mut self, a: &Val, b: &Val, signed: bool) -> M {
         let n = a.p.len();
+        let pb = self.pb;
         let mut m = M::K(false);
         for k in 0..n {
             let (x, y, pred) = if k == n - 1 && signed {
-                let sh = 32 - (a.w - 32 * (n as u32 - 1));
-                let x = self.bin("shl", a.p[k], P::K(sh));
-                let x = self.bin("ashr", x, P::K(sh));
-                let y = self.bin("shl", b.p[k], P::K(sh));
-                let y = self.bin("ashr", y, P::K(sh));
+                let sh = P::K((pb - (a.w - pb * (n as u32 - 1))) as u64);
+                let x = self.bin("shl", a.p[k], sh);
+                let x = self.bin("ashr", x, sh);
+                let y = self.bin("shl", b.p[k], sh);
+                let y = self.bin("ashr", y, sh);
                 (x, y, "slt")
             } else {
                 (a.p[k], b.p[k], "ult")
@@ -4461,9 +5274,10 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     /// All ones where the sign bit is set.
     fn sign_fill(&mut self, a: &Val) -> P {
         let top = *a.p.last().unwrap();
-        let sh = 32 - (a.w - 32 * (a.p.len() as u32 - 1));
-        let x = self.bin("shl", top, P::K(sh));
-        self.bin("ashr", x, P::K(31))
+        let pb = self.pb;
+        let sh = pb - (a.w - pb * (a.p.len() as u32 - 1));
+        let x = self.bin("shl", top, P::K(sh as u64));
+        self.bin("ashr", x, P::K(pb as u64 - 1))
     }
 
     /// `v` cut or extended to `w` bits.
@@ -4471,34 +5285,35 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         if w == v.w {
             return v.clone();
         }
+        let n = self.np(w);
         if w < v.w {
-            let mut p = v.p[..pieces(w)].to_vec();
-            p.truncate(pieces(w));
+            let p = v.p[..n].to_vec();
             return self.norm(Val { w, p });
         }
         let mut p = v.p.clone();
         if signed {
             let fill = self.sign_fill(v);
-            let above = self.bin("and", fill, P::K(!top_mask(v.w)));
+            let above = self.bin("and", fill, P::K(!self.top_mask(v.w) & self.ones_k()));
             let last = p.len() - 1;
             p[last] = self.bin("or", p[last], above);
-            p.resize(pieces(w), fill);
+            p.resize(n, fill);
         } else {
-            p.resize(pieces(w), P::K(0));
+            p.resize(n, P::K(0));
         }
         self.norm(Val { w, p })
     }
 
     /// Bits `lo..lo + w` of `v`.
     fn extract(&mut self, v: &Val, lo: u32, w: u32) -> Val {
+        let pb = self.pb;
         // One bit: a test of it, which is a mask (vptestmd).
-        if w == 1 && lo < v.w && matches!(v.p[(lo / 32) as usize], P::V(_)) {
-            let piece = v.p[(lo / 32) as usize];
-            let x = self.bin("and", piece, P::K(1 << (lo % 32)));
+        if w == 1 && lo < v.w && matches!(v.p[(lo / pb) as usize], P::V(_)) {
+            let piece = v.p[(lo / pb) as usize];
+            let x = self.bin("and", piece, P::K(1 << (lo % pb)));
             let m = self.icmp("ne", x, P::K(0));
             let b = self.bit(m, 1);
             if let (P::V(t), M::V(_)) = (b.p[0], m) {
-                self.bit_of.insert(t, (piece, lo % 32));
+                self.bit_of.insert(t, (piece, lo % pb));
             }
             return b;
         }
@@ -4511,16 +5326,17 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         if lo >= v.w {
             return v.clone();
         }
+        let pb = self.pb;
         // A bit of another value moved here: shifted into place and kept,
         // not tested and extended.
         if w == 1
             && let P::V(t) = x.p[0]
             && let Some(&(src, j)) = self.bit_of.get(&t)
         {
-            let (q, b) = ((lo / 32) as usize, lo % 32);
-            let moved = if b >= j { self.bin("shl", src, P::K(b - j)) } else { self.bin("lshr", src, P::K(j - b)) };
+            let (q, b) = ((lo / pb) as usize, lo % pb);
+            let moved = if b >= j { self.bin("shl", src, P::K((b - j) as u64)) } else { self.bin("lshr", src, P::K((j - b) as u64)) };
             let moved = self.bin("and", moved, P::K(1 << b));
-            let kept = self.bin("and", v.p[q], P::K(!(1 << b)));
+            let kept = self.bin("and", v.p[q], P::K(!(1u64 << b) & self.ones_k()));
             let mut p = v.p.clone();
             p[q] = self.bin("or", kept, moved);
             return Val { w: v.w, p };
@@ -4551,14 +5367,15 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
 
     fn shl_const(&mut self, v: &Val, n: u64) -> Val {
         if n >= v.w as u64 {
-            return Val::zero(v.w);
+            return self.zero(v.w);
         }
-        let (q, r) = ((n / 32) as usize, (n % 32) as u32);
+        let pb = self.pb as u64;
+        let (q, r) = ((n / pb) as usize, n % pb);
         let get = |k: isize| if k < 0 { P::K(0) } else { v.p[k as usize] };
         let mut p = Vec::with_capacity(v.p.len());
         for k in 0..v.p.len() as isize {
             let hi = self.bin("shl", get(k - q as isize), P::K(r));
-            let lo = if r == 0 { P::K(0) } else { self.bin("lshr", get(k - q as isize - 1), P::K(32 - r)) };
+            let lo = if r == 0 { P::K(0) } else { self.bin("lshr", get(k - q as isize - 1), P::K(pb - r)) };
             p.push(self.bin("or", hi, lo));
         }
         self.norm(Val { w: v.w, p })
@@ -4570,18 +5387,19 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let len = v.p.len();
         let mut src = v.p.clone();
         if fill.is_some() {
-            let above = self.bin("and", f, P::K(!top_mask(v.w)));
+            let above = self.bin("and", f, P::K(!self.top_mask(v.w) & self.ones_k()));
             src[len - 1] = self.bin("or", src[len - 1], above);
         }
         if n >= v.w as u64 {
             return self.norm(Val { w: v.w, p: vec![f; len] });
         }
-        let (q, r) = ((n / 32) as usize, (n % 32) as u32);
+        let pb = self.pb as u64;
+        let (q, r) = ((n / pb) as usize, n % pb);
         let get = |k: usize| if k < len { src[k] } else { f };
         let mut p = Vec::with_capacity(len);
         for k in 0..len {
             let lo = self.bin("lshr", get(k + q), P::K(r));
-            let hi = if r == 0 { P::K(0) } else { self.bin("shl", get(k + q + 1), P::K(32 - r)) };
+            let hi = if r == 0 { P::K(0) } else { self.bin("shl", get(k + q + 1), P::K(pb - r)) };
             p.push(self.bin("or", lo, hi));
         }
         self.norm(Val { w: v.w, p })
@@ -4590,7 +5408,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     /// `v << s` for a shift in each lane; zero if `s >= v.w`.
     fn shl_var(&mut self, v: &Val, s: P) -> Val {
         if let P::K(n) = s {
-            return self.shl_const(v, n as u64);
+            return self.shl_const(v, n);
         }
         let len = v.p.len();
         let (q, r, ri, rz) = self.split_shift(s);
@@ -4606,27 +5424,27 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     P::K(0)
                 };
                 let term = self.bin("or", hi, lo);
-                let hit = self.icmp("eq", q, P::K(t as u32));
+                let hit = self.icmp("eq", q, P::K(t as u64));
                 acc = self.sel(hit, term, acc);
             }
             p.push(acc);
         }
-        let big = self.icmp("uge", s, P::K(v.w));
+        let big = self.icmp("uge", s, P::K(v.w as u64));
         let v2 = self.norm(Val { w: v.w, p });
-        let z = Val::zero(v.w);
+        let z = self.zero(v.w);
         self.select(big, &z, &v2)
     }
 
     /// `v >> s` for a shift in each lane, shifting in `fill`.
     fn lshr_var(&mut self, v: &Val, s: P, fill: Option<P>) -> Val {
         if let P::K(n) = s {
-            return self.lshr_const(v, n as u64, fill);
+            return self.lshr_const(v, n, fill);
         }
         let f = fill.unwrap_or(P::K(0));
         let len = v.p.len();
         let mut src = v.p.clone();
         if fill.is_some() {
-            let above = self.bin("and", f, P::K(!top_mask(v.w)));
+            let above = self.bin("and", f, P::K(!self.top_mask(v.w) & self.ones_k()));
             src[len - 1] = self.bin("or", src[len - 1], above);
         }
         let get = |k: usize| if k < len { src[k] } else { f };
@@ -4640,24 +5458,25 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 let x = self.bin("shl", get(k + t + 1), ri);
                 let hi = self.sel(rz, P::K(0), x);
                 let term = self.bin("or", lo, hi);
-                let hit = self.icmp("eq", q, P::K(t as u32));
+                let hit = self.icmp("eq", q, P::K(t as u64));
                 acc = self.sel(hit, term, acc);
             }
             p.push(acc);
         }
-        let big = self.icmp("uge", s, P::K(v.w));
+        let big = self.icmp("uge", s, P::K(v.w as u64));
         let v2 = self.norm(Val { w: v.w, p });
         let b = self.norm(Val { w: v.w, p: vec![f; len] });
         self.select(big, &b, &v2)
     }
 
-    /// A shift's whole pieces, the bits within a piece, `32 - bits` (mod
-    /// 32) and whether the bits are zero, so no shift is by 32 or more.
+    /// A shift's whole pieces, the bits within a piece, `pb - bits` (mod
+    /// pb) and whether the bits are zero, so no shift is by a piece or more.
     fn split_shift(&mut self, s: P) -> (P, P, P, M) {
-        let q = self.bin("lshr", s, P::K(5));
-        let r = self.bin("and", s, P::K(31));
-        let ri = self.bin("sub", P::K(32), r);
-        let ri = self.bin("and", ri, P::K(31));
+        let pb = self.pb as u64;
+        let q = self.bin("lshr", s, P::K(pb.trailing_zeros() as u64));
+        let r = self.bin("and", s, P::K(pb - 1));
+        let ri = self.bin("sub", P::K(pb), r);
+        let ri = self.bin("and", ri, P::K(pb - 1));
         let rz = self.icmp("eq", r, P::K(0));
         (q, r, ri, rz)
     }
@@ -4669,22 +5488,32 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
 
     // ---- instructions, folding constants ----
 
-    /// The bits of `p` known to be zero in every lane.
-    fn kz(&self, p: P) -> u32 {
-        match p {
-            P::K(c) => !c,
-            P::V(t) => self.zeros.get(&t).copied().unwrap_or(0),
-        }
+    /// The bits of `p` known to be zero in every lane (those above a piece
+    /// among them).
+    fn kz(&self, p: P) -> u64 {
+        let above = !self.ones_k();
+        above
+            | match p {
+                P::K(c) => !c,
+                P::V(t) => self.zeros.get(&t).copied().unwrap_or(0),
+            }
+    }
+
+    /// `x` as a signed number of the piece's width.
+    fn signed(&self, x: u64) -> i64 {
+        let s = 64 - self.pb;
+        ((x << s) as i64) >> s
     }
 
     fn bin(&mut self, op: &str, a: P, b: P) -> P {
+        let (all, pb) = (self.ones_k(), self.pb as u64);
         // A mask that clears only bits known to be zero changes nothing;
         // one that keeps only those, everything.
         let (za, zb) = (self.kz(a), self.kz(b));
         match op {
             "and" if za | zb == !0 => return P::K(0),
-            "and" if matches!(b, P::K(m) if !za & !m == 0) => return a,
-            "and" if matches!(a, P::K(m) if !zb & !m == 0) => return b,
+            "and" if matches!(b, P::K(m) if !za & !m & all == 0) => return a,
+            "and" if matches!(a, P::K(m) if !zb & !m & all == 0) => return b,
             "or" | "xor" if za == !0 => return b,
             "or" | "xor" if zb == !0 => return a,
             _ => {}
@@ -4697,51 +5526,54 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             return self.bit(m, 1).p[0];
         }
         if let (P::K(x), P::K(y)) = (a, b) {
-            return P::K(match op {
-                "and" => x & y,
-                "or" => x | y,
-                "xor" => x ^ y,
-                "add" => x.wrapping_add(y),
-                "sub" => x.wrapping_sub(y),
-                "mul" => x.wrapping_mul(y),
-                "shl" => x.checked_shl(y).unwrap_or(0),
-                "lshr" => x.checked_shr(y).unwrap_or(0),
-                "ashr" => (x as i32).checked_shr(y).unwrap_or((x as i32) >> 31) as u32,
-                _ => unreachable!("{op}"),
-            });
+            return P::K(
+                all & match op {
+                    "and" => x & y,
+                    "or" => x | y,
+                    "xor" => x ^ y,
+                    "add" => x.wrapping_add(y),
+                    "sub" => x.wrapping_sub(y),
+                    "mul" => x.wrapping_mul(y),
+                    "shl" if y < pb => x << y,
+                    "lshr" if y < pb => x >> y,
+                    "shl" | "lshr" => 0,
+                    "ashr" => (self.signed(x) >> y.min(pb - 1)) as u64,
+                    _ => unreachable!("{op}"),
+                },
+            );
         }
         match (op, a, b) {
             ("and", P::K(0), _) | ("and", _, P::K(0)) => return P::K(0),
-            ("and", P::K(u32::MAX), x) | ("and", x, P::K(u32::MAX)) => return x,
+            ("and", P::K(m), x) | ("and", x, P::K(m)) if m == all => return x,
             ("or" | "xor" | "add", P::K(0), x) | ("or" | "xor" | "add" | "sub" | "shl" | "lshr" | "ashr", x, P::K(0)) => {
                 return x;
             }
-            ("or", P::K(u32::MAX), _) | ("or", _, P::K(u32::MAX)) => return P::K(!0),
+            ("or", P::K(m), _) | ("or", _, P::K(m)) if m == all => return P::K(all),
             ("shl" | "lshr", P::K(0), _) => return P::K(0),
-            ("shl" | "lshr", _, P::K(n)) if n >= 32 => return P::K(0),
+            ("shl" | "lshr", _, P::K(n)) if n >= pb => return P::K(0),
             ("and" | "or", x, y) if x == y => return x,
             ("xor", x, y) if x == y => return P::K(0),
             _ => {}
         }
         let t = self.tmp();
-        let _ = writeln!(self.out, "  %t{t} = {op} {V16} {}, {}", ps(a), ps(b));
+        let _ = writeln!(self.out, "  %t{t} = {op} {} {}, {}", self.t.v, self.ps(a), self.ps(b));
         if self.is_uniform(a) && self.is_uniform(b) {
             self.uniform.insert(t);
         }
         // What is known of its bits.
-        let lead = |z: u32| (!z).leading_zeros();
+        let lead = |z: u64| (!z & all).leading_zeros() - (64 - pb as u32);
         let z = match (op, b) {
             ("and", _) => za | zb,
             ("or" | "xor", _) => za & zb,
-            ("shl", P::K(s)) => (za << s) | ((1u32 << s) - 1),
-            ("lshr", P::K(s)) => (za >> s) | !(u32::MAX >> s),
+            ("shl", P::K(s)) => (za << s) | ((1u64 << s) - 1),
+            ("lshr", P::K(s)) => (za >> s) | !(all >> s),
             // A sum has at most one bit more than its wider operand.
             ("add", _) => match lead(za).min(lead(zb)).saturating_sub(1) {
                 0 => 0,
-                l => !(u32::MAX >> l),
+                l => !(all >> l),
             },
             _ => 0,
-        };
+        } & all;
         if z != 0 {
             self.zeros.insert(t, z);
         }
@@ -4755,6 +5587,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             return if (k == 1) == (pred == "eq") { m } else { self.mnot(m) };
         }
         if let (P::K(x), P::K(y)) = (a, b) {
+            let (sx, sy) = (self.signed(x), self.signed(y));
             return M::K(match pred {
                 "eq" => x == y,
                 "ne" => x != y,
@@ -4762,10 +5595,10 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 "ule" => x <= y,
                 "ugt" => x > y,
                 "uge" => x >= y,
-                "slt" => (x as i32) < (y as i32),
-                "sle" => (x as i32) <= (y as i32),
-                "sgt" => (x as i32) > (y as i32),
-                "sge" => (x as i32) >= (y as i32),
+                "slt" => sx < sy,
+                "sle" => sx <= sy,
+                "sgt" => sx > sy,
+                "sge" => sx >= sy,
                 _ => unreachable!("{pred}"),
             });
         }
@@ -4778,7 +5611,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             return M::K(matches!(pred, "eq" | "ule" | "uge" | "sle" | "sge"));
         }
         let t = self.tmp();
-        let _ = writeln!(self.out, "  %t{t} = icmp {pred} {V16} {}, {}", ps(a), ps(b));
+        let _ = writeln!(self.out, "  %t{t} = icmp {pred} {} {}, {}", self.t.v, self.ps(a), self.ps(b));
         if self.is_uniform(a) && self.is_uniform(b) {
             self.uniform.insert(t);
         }
@@ -4792,11 +5625,11 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             M::V(_) if a == b => a,
             M::V(n) => {
                 let t = self.tmp();
-                let _ = writeln!(self.out, "  %t{t} = select {M16} %t{n}, {V16} {}, {V16} {}", ps(a), ps(b));
+                let _ = writeln!(self.out, "  %t{t} = select {} %t{n}, {v} {}, {v} {}", self.t.m, self.ps(a), self.ps(b), v = self.t.v);
                 if self.uniform.contains(&n) && self.is_uniform(a) && self.is_uniform(b) {
                     self.uniform.insert(t);
                 }
-                let z = self.kz(a) & self.kz(b);
+                let z = self.kz(a) & self.kz(b) & self.ones_k();
                 if z != 0 {
                     self.zeros.insert(t, z);
                 }
@@ -4828,12 +5661,12 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         };
         if let (Some(x), Some(y)) = (bits(self, a), bits(self, b)) {
             let (i, t) = (self.tmp(), self.tmp());
-            let _ = writeln!(self.out, "  %t{i} = {op} i16 {x}, {y}\n  %t{t} = bitcast i16 %t{i} to {M16}");
+            let _ = writeln!(self.out, "  %t{i} = {op} i16 {x}, {y}\n  %t{t} = bitcast i16 %t{i} to {}", self.t.m);
             self.bits_of.insert(t, i);
             return M::V(t);
         }
         let t = self.tmp();
-        let _ = writeln!(self.out, "  %t{t} = {op} {M16} {}, {}", ms(a), ms(b));
+        let _ = writeln!(self.out, "  %t{t} = {op} {} {}, {}", self.t.m, self.ms(a), self.ms(b));
         M::V(t)
     }
 
@@ -4870,7 +5703,7 @@ impl Off {
 
     fn var(self) -> (P, M) {
         match self {
-            Off::K(k) => (P::K(k), M::K(true)),
+            Off::K(k) => (P::K(k as u64), M::K(true)),
             Off::Neg(_) => (P::K(0), M::K(false)),
             Off::V(p, m) => (p, m),
         }
@@ -4938,9 +5771,10 @@ impl<'d, 'a> Lowering<'d, 'a> {
     /// computes, if every output is proved, for every input, to be a count
     /// of its trailing (or leading) zeros away from zero, whether it is
     /// zero, or a constant.
-    fn recognise(&self, spec: SpecId) -> Option<Known> {
+    fn recognise(&self, key: Key) -> Option<Known> {
         let d = self.d;
-        let lay = &self.layouts[&spec];
+        let spec = key.0;
+        let lay = &self.layouts[&key];
         if lay.code.is_empty() || lay.clocked {
             return None;
         }
@@ -4960,7 +5794,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         if !(2..=64).contains(&w) || outs.is_empty() {
             return None;
         }
-        let order = self.order(spec).ok()?;
+        let order = self.order(key).ok()?;
         self.sym_orders.borrow_mut().insert(spec, order.clone());
         let mut s = Sym { l: self, m: Manager::new(1 << 20), env: FxMap::default() };
         let x: Bits2 = (0..w).map(|i| s.m.var(i)).collect::<Result<_, _>>().ok()?;
@@ -5089,7 +5923,7 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
                 Node::Loop(l) => self.l.loops[l].all.iter().try_for_each(|&dr| self.driver(dr))?,
                 Node::Proc(p) => self.stmt(d.processes[p.0 as usize].body)?,
                 Node::In(_) => {}
-                Node::Call(i) => self.call(i)?,
+                Node::Call(i) => self.l.members(i).into_iter().try_for_each(|m| self.call(m))?,
             }
         }
         Ok(())
@@ -5102,7 +5936,10 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
         let inst = d.instance(i);
         let order = match self.l.sym_orders.borrow().get(&inst.spec) {
             Some(o) => o.clone(),
-            None => self.l.order(inst.spec).map_err(|_| Unproved)?,
+            None => {
+                let key = self.l.layouts.keys().find(|k| k.0 == inst.spec).copied().ok_or(Unproved)?;
+                self.l.order(key).map_err(|_| Unproved)?
+            }
         };
         let mut env = FxMap::default();
         let conn = |p: &crate::design::Port| inst.connections.iter().find(|c| c.port == p.name).and_then(|c| c.expr);

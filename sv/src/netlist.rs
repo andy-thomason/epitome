@@ -3,7 +3,7 @@
 //!
 //! Each specialisation becomes one function, `sv_eval_<n>(ptr %state, ptr
 //! %port...)`, over a group of [`GROUP`] instances: for each variable or
-//! net, its 32-bit pieces (low piece first), each piece [`CHUNKS`]
+//! net, its 32-bit pieces (low piece first), each piece [`CHUNKS`] (or fewer)
 //! registers of [`LANES`] lanes. The function is a loop over the group's
 //! registers, so its code grows with the specialisation's source, not with
 //! the number of instances. A child instance's state is part of its
@@ -44,14 +44,18 @@ use crate::design::{
 
 /// Instances in one register: 32-bit lanes of a 512-bit vector.
 pub const LANES: usize = 16;
-/// Registers in a group.
+/// Registers in a group, at most: fewer where a group's state would not
+/// fit [`STATE_MAX`] (`Netlist::chunks`).
 pub const CHUNKS: usize = 32;
-/// Instances in a group.
+/// Instances in a group, at most.
 pub const GROUP: usize = LANES * CHUNKS;
 /// Bytes in one register of lanes.
 const REG: u64 = 64;
-/// Bytes in one piece of a value for the whole group.
-const PIECE: u64 = REG * CHUNKS as u64;
+/// Most bytes of state a group is given registers for: each function's
+/// loop goes over all of a group's state, which then stays in a core's
+/// second-level cache (1 MB on AMD's Zen 5; a group of CVA6's issue stage
+/// with 32 registers, 1.6 MB, ran a third as fast as with 8).
+pub const STATE_MAX: u64 = 512 << 10;
 
 /// The compiled netlist of one top-level instance.
 pub struct Netlist {
@@ -65,6 +69,10 @@ pub struct Netlist {
     pub ports: Vec<Field>,
     /// Assertions and assertion-only `initial` blocks left out.
     pub dropped: usize,
+    /// With `Options::profile`, what each counter of `sv_prof` times.
+    pub profile: Vec<String>,
+    /// Registers of lanes in a group.
+    pub chunks: usize,
 }
 
 /// Where a value is in a group's state.
@@ -75,6 +83,8 @@ pub struct Field {
     pub offset: usize,
     pub width: u32,
     pub lane: Lane,
+    /// Bytes from one 32-bit piece to the next.
+    pub piece: usize,
 }
 
 /// How a value is stored for each register of lanes: computed on in 32-bit
@@ -111,10 +121,10 @@ impl Lane {
         }
     }
 
-    /// Bytes for a `w`-bit value for the group.
-    fn bytes(self, w: u32) -> u64 {
+    /// Bytes for a `w`-bit value for a group of `chunks` registers.
+    fn bytes(self, w: u32, chunks: u64) -> u64 {
         let n = if self == Lane::W32 { pieces(w) as u64 } else { 1 };
-        n * self.reg_bytes() * CHUNKS as u64
+        n * self.reg_bytes() * chunks
     }
 }
 
@@ -123,7 +133,7 @@ impl Field {
     /// for a value in 32-bit pieces.
     pub fn at(&self, piece: usize, n: usize) -> usize {
         assert_eq!(self.lane, Lane::W32);
-        self.offset + piece * PIECE as usize + (n / LANES) * REG as usize + (n % LANES) * 4
+        self.offset + piece * self.piece + (n / LANES) * REG as usize + (n % LANES) * 4
     }
 
     pub fn pieces(&self) -> usize {
@@ -175,6 +185,11 @@ impl Field {
 }
 
 impl Netlist {
+    /// Instances in a group.
+    pub fn group(&self) -> usize {
+        LANES * self.chunks
+    }
+
     pub fn port(&self, name: &str) -> Option<&Field> {
         self.ports.iter().find(|p| p.name == name)
     }
@@ -261,11 +276,18 @@ pub struct Options {
     /// arms of at least this many instructions a register of lanes (see
     /// [`GUARD_MIN`]); 0 for none, every arm run and selects merging them.
     pub guard_min: usize,
+    /// For profiling: the intrinsic that reads a cycle counter
+    /// (`llvm.x86.rdtsc`), and each call of a child's function and each
+    /// part of the top's step adds the cycles it took to an `i64` of the
+    /// global `sv_prof`, named in [`Netlist::profile`].
+    pub profile: Option<&'static str>,
+    /// Registers of lanes in a group, if not as many as fit [`STATE_MAX`].
+    pub chunks: Option<usize>,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { bit_planes: true, recognise: true, guard_min: GUARD_MIN }
+        Options { bit_planes: true, recognise: true, guard_min: GUARD_MIN, profile: None, chunks: None }
     }
 }
 
@@ -295,26 +317,22 @@ impl Phase {
 }
 
 pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, String> {
-    let mut n = Lowering {
-        top: Some(d.instance(top).spec),
-        opts: *opts,
-        d,
-        layouts: HashMap::new(),
-        done: HashSet::new(),
-        ir: String::new(),
-        folds: RefCell::default(),
-        dropped: Cell::new(0),
-        asserts: RefCell::default(),
-        loops: Vec::new(),
-        sym_orders: RefCell::default(),
-        sub_locals: RefCell::default(),
-        loop_vars: RefCell::default(),
-        port_deps: RefCell::default(),
-        parts: HashMap::new(),
-        comb_reads: RefCell::default(),
-        watch: Vec::new(),
-    };
     let spec = d.instance(top).spec;
+    // As many registers a group as keep its state within STATE_MAX.
+    let chunks = match opts.chunks {
+        Some(c) => c.clamp(1, CHUNKS) as u64,
+        None => {
+            let mut n = Lowering::new(d, top, opts, CHUNKS as u64);
+            n.layout(spec)?;
+            let per = n.layouts[&spec].size.div_ceil(CHUNKS as u64);
+            let mut c = CHUNKS as u64;
+            while c > 1 && per * c > STATE_MAX {
+                c /= 2;
+            }
+            c
+        }
+    };
+    let mut n = Lowering::new(d, top, opts, chunks);
     n.layout(spec)?;
     // The inputs the top's settling reads, each with a copy of its value
     // at the last settling, and whether there has been one.
@@ -326,7 +344,8 @@ pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, 
                 continue;
             }
             let lay = &n.layouts[&spec];
-            let bytes = lay.lane(o).bytes(tw(&d.types, d.object(o).ty));
+            // (Whole registers: what follows a narrow value is compared too.)
+            let bytes = lay.lane(o).bytes(tw(&d.types, d.object(o).ty), n.chunks).next_multiple_of(REG);
             n.watch.push((lay.objs[&o], bytes, size));
             size += bytes;
         }
@@ -345,11 +364,43 @@ pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, 
             offset: lay.objs[&o] as usize,
             width: tw(&d.types, d.object(o).ty),
             lane: lay.lane(o),
+            piece: (REG * n.chunks) as usize,
         });
     }
     let dropped = n.dropped.get() + n.asserts.borrow().len();
     let entry = if lay.clocked { format!("{}_step", fn_name(spec)) } else { fn_name(spec) };
-    Ok(Netlist { ir: n.ir, entry, size: lay.size as usize, ports, dropped })
+    let profile = n.profile.take();
+    let mut ir = n.ir;
+    if let Some(counter) = opts.profile {
+        let _ = write!(ir, "\n@sv_prof = global [{} x i64] zeroinitializer\ndeclare i64 @{counter}()\n", profile.len().max(1));
+    }
+    Ok(Netlist { ir, entry, size: lay.size as usize, ports, dropped, profile, chunks: n.chunks as usize })
+}
+
+impl<'d, 'a> Lowering<'d, 'a> {
+    fn new(d: &'d Design<'a>, top: InstId, opts: &Options, chunks: u64) -> Self {
+        Lowering {
+            top: Some(d.instance(top).spec),
+            opts: *opts,
+            chunks,
+            d,
+            layouts: HashMap::new(),
+            done: HashSet::new(),
+            ir: String::new(),
+            folds: RefCell::default(),
+            dropped: Cell::new(0),
+            asserts: RefCell::default(),
+            loops: Vec::new(),
+            sym_orders: RefCell::default(),
+            sub_locals: RefCell::default(),
+            loop_vars: RefCell::default(),
+            port_deps: RefCell::default(),
+            parts: HashMap::new(),
+            comb_reads: RefCell::default(),
+            watch: Vec::new(),
+            profile: RefCell::default(),
+        }
+    }
 }
 
 fn fn_name(s: SpecId) -> String {
@@ -359,6 +410,8 @@ fn fn_name(s: SpecId) -> String {
 /// Where a specialisation's values and children are in its state.
 struct Layout {
     size: u64,
+    /// Registers of lanes in a group.
+    chunks: u64,
     /// The specialisation's static values.
     statics: HashSet<ObjId>,
     /// Where those that need one have their slot in the state: not those
@@ -483,9 +536,10 @@ enum Base {
 }
 
 impl Layout {
-    fn new() -> Layout {
+    fn new(chunks: u64) -> Layout {
         Layout {
             size: 0,
+            chunks,
             statics: HashSet::new(),
             objs: HashMap::new(),
             lanes: HashMap::new(),
@@ -520,7 +574,7 @@ impl Layout {
         if lane != Lane::W32 {
             self.lanes.insert(o, lane);
         }
-        self.size = (self.size + lane.bytes(w)).next_multiple_of(REG);
+        self.size = (self.size + lane.bytes(w, self.chunks)).next_multiple_of(REG);
     }
 }
 
@@ -573,9 +627,10 @@ impl Elems {
         self.bits
     }
 
-    /// Bytes from one element's slot to the next.
-    fn stride(self) -> u64 {
-        if self.planes() { 2 * CHUNKS as u64 } else { PIECE }
+    /// Bytes from one element's slot to the next, in a group of `chunks`
+    /// registers.
+    fn stride(self, chunks: u64) -> u64 {
+        if self.planes() { 2 * chunks } else { REG * chunks }
     }
 }
 
@@ -633,6 +688,8 @@ const UNROLL_MAX: usize = 1024;
 
 struct Lowering<'d, 'a> {
     opts: Options,
+    /// Registers of lanes in a group.
+    chunks: u64,
     /// The top specialisation: its ports are in its state; every other
     /// specialisation's are where its parent passes pointers to.
     top: Option<SpecId>,
@@ -661,6 +718,8 @@ struct Lowering<'d, 'a> {
     /// For the top's step: each input its settling reads, its bytes and
     /// where its copy is; last, where it notes that it has settled.
     watch: Vec<(u64, u64, u64)>,
+    /// With `Options::profile`, what each counter times.
+    profile: RefCell<Vec<String>>,
 }
 
 impl<'d, 'a> Lowering<'d, 'a> {
@@ -686,7 +745,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 return Err(format!("{}: initial values of variables are not supported yet", d.name(ob.name)));
             }
         }
-        let mut lay = Layout::new();
+        let mut lay = Layout::new(self.chunks);
         lay.statics = objs.iter().copied().collect();
         // Clocked processes are not in the order of the rest: they run
         // after it, on what it has worked out.
@@ -763,7 +822,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         if self.opts.recognise
             && let Some(k) = self.recognise(spec)
         {
-            let mut lay = Layout::new();
+            let mut lay = Layout::new(self.chunks);
             port_lanes(&mut lay);
             for p in &d.spec(spec).ports {
                 let o = p.object.expect("recognised specialisations have plain ports");
@@ -812,7 +871,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
             match (lay.elems.get(&o), lay.pads.get(&o)) {
                 (Some(&e), _) => {
                     lay.objs.insert(o, lay.size);
-                    lay.size = (lay.size + e.n as u64 * e.stride()).next_multiple_of(REG);
+                    lay.size = (lay.size + e.n as u64 * e.stride(lay.chunks)).next_multiple_of(REG);
                 }
                 (None, Some(p)) => lay.place(o, p.width(), Lane::W32),
                 (None, None) => lay.place(o, w, Lane::of(w, planes)),
@@ -831,7 +890,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
             let w = tw(&d.types, d.object(o).ty);
             let lane = lay.lane(o);
             lay.shadow.insert(o, lay.size);
-            lay.size = (lay.size + lane.bytes(w)).next_multiple_of(REG);
+            lay.size = (lay.size + lane.bytes(w, lay.chunks)).next_multiple_of(REG);
         }
         if !lay.ff.is_empty() {
             lay.fired = lay.size;
@@ -841,7 +900,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
             for t in self.clocked(p).unwrap().0 {
                 if !lay.prev.contains_key(&t.expr) {
                     lay.prev.insert(t.expr, lay.size);
-                    lay.size = (lay.size + Lane::of(1, planes).bytes(1)).next_multiple_of(REG);
+                    lay.size = (lay.size + Lane::of(1, planes).bytes(1, lay.chunks)).next_multiple_of(REG);
                 }
             }
         }
@@ -856,7 +915,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                         let po = p.object.ok_or("interface ports are not supported yet")?;
                         let w = tw(&d.types, d.object(po).ty);
                         let at = lay.size;
-                        lay.size = (lay.size + Lane::of(w, planes).bytes(w)).next_multiple_of(REG);
+                        lay.size = (lay.size + Lane::of(w, planes).bytes(w, lay.chunks)).next_multiple_of(REG);
                         Arg::Slot(at)
                     }
                 });
@@ -1657,6 +1716,10 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     acc = format!("%w{k}.acc");
                     from = format!("X{k}");
                 }
+                let settle = self.timed("step settle".into(), &format!("call void @{n}(ptr %s)"), "q0");
+                let ff = self.timed("step ff".into(), &format!("%fired = call i1 @{n}_ff(ptr %s)"), "q1");
+                let commit = self.timed("step commit".into(), &format!("call void @{n}_commit(ptr %s)"), "q2");
+                let again = self.timed("step settle again".into(), &format!("call void @{n}(ptr %s)"), "q3");
                 let _ = writeln!(
                     self.ir,
                     "; a step: settle, unless no input it reads has changed since it last did,\n\
@@ -1665,9 +1728,9 @@ impl<'d, 'a> Lowering<'d, 'a> {
                      %diff.bits = bitcast {M16} %diff to i16\n  %same = icmp eq i16 %diff.bits, 0\n  \
                      %settled.p = getelementptr i8, ptr %s, i64 {settled}\n  %settled = load i8, ptr %settled.p, align 1\n  \
                      %was = icmp ne i8 %settled, 0\n  %skip = and i1 %same, %was\n  br i1 %skip, label %sample, label %settle\n\
-                     settle:\n  call void @{n}(ptr %s)\n  store i8 1, ptr %settled.p, align 1\n  br label %sample\n\
-                     sample:\n  %fired = call i1 @{n}_ff(ptr %s)\n  \
-                     br i1 %fired, label %commit, label %done\ncommit:\n  call void @{n}_commit(ptr %s)\n  call void @{n}(ptr %s)\n  \
+                     settle:\n{settle}  store i8 1, ptr %settled.p, align 1\n  br label %sample\n\
+                     sample:\n{ff}  \
+                     br i1 %fired, label %commit, label %done\ncommit:\n{commit}{again}  \
                      br label %done\ndone:\n  ret void\n}}\n"
                 );
             }
@@ -1800,6 +1863,21 @@ impl<'d, 'a> Lowering<'d, 'a> {
             }
         }
         (r, w)
+    }
+
+    /// `call`, a line of IR, timed into a counter for `what` where
+    /// profiling; `t` names its temporaries.
+    fn timed(&self, what: String, call: &str, t: &str) -> String {
+        let Some(counter) = self.opts.profile else { return format!("  {call}\n") };
+        let mut names = self.profile.borrow_mut();
+        let k = names.len();
+        names.push(what);
+        format!(
+            "  %{t}.t0 = call i64 @{counter}()\n  {call}\n  %{t}.t1 = call i64 @{counter}()\n  %{t}.dt = sub i64 %{t}.t1, %{t}.t0\n  \
+             %{t}.at = getelementptr i8, ptr @sv_prof, i64 {}\n  %{t}.was = load i64, ptr %{t}.at, align 8\n  \
+             %{t}.now = add i64 %{t}.was, %{t}.dt\n  store i64 %{t}.now, ptr %{t}.at, align 8\n",
+            8 * k
+        )
     }
 
     /// Whether a specialisation's settling code reads an input of its,
@@ -2632,6 +2710,11 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         self.next
     }
 
+    /// Bytes in one piece of a value for the whole group.
+    fn piece(&self) -> u64 {
+        REG * self.l.chunks
+    }
+
     /// Splits the nodes into loops at the children's calls, and writes them.
     fn body(&mut self, order: &[Node]) -> Result<(), String> {
         let mut seg: Vec<Node> = Vec::new();
@@ -2649,7 +2732,10 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     Node::Early(_) => "_a",
                     _ => "_b",
                 };
-                let _ = writeln!(self.out, "  call void @{}{part}({args})", fn_name(child));
+                let what = format!("{} {}{part}", self.d().name(self.d().spec(self.spec).name), self.d().name(self.d().spec(child).name));
+                let t = self.tmp();
+                let text = self.l.timed(what, &format!("call void @{}{part}({args})", fn_name(child)), &format!("p{t}"));
+                self.out.push_str(&text);
                 seg = vec![n];
             } else {
                 seg.push(n);
@@ -2727,8 +2813,9 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         self.flush_elems(None);
         let _ = writeln!(
             self.out,
-            "  %c{k}.next = add i64 %c{k}, 1\n  %c{k}.end = icmp eq i64 %c{k}.next, {CHUNKS}\n  \
-             br i1 %c{k}.end, label %X{k}, label %L{k}\nX{k}:"
+            "  %c{k}.next = add i64 %c{k}, 1\n  %c{k}.end = icmp eq i64 %c{k}.next, {}\n  \
+             br i1 %c{k}.end, label %X{k}, label %L{k}\nX{k}:",
+            self.l.chunks
         );
         // The back edge leaves from the last block of the body.
         self.out = self.out.replace(&format!("%L{k}.latch"), &format!("%{}", self.block));
@@ -2782,7 +2869,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     let _ = writeln!(
                         self.out,
                         "  %t{a} = getelementptr i8, ptr {base}, i64 {}\n  %t{v} = load {V16}, ptr %t{a}, align 64",
-                        off + i * PIECE
+                        off + i * self.piece()
                     );
                     p.push(P::V(v));
                 }
@@ -2829,7 +2916,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     let _ = writeln!(
                         self.out,
                         "  %t{a} = getelementptr i8, ptr {base}, i64 {}\n  store {V16} {}, ptr %t{a}, align 64",
-                        off + i as u64 * PIECE,
+                        off + i as u64 * self.piece(),
                         ps(p)
                     );
                 }
@@ -3605,12 +3692,17 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             {
                 let args = self.child_args(i);
                 let child = format!("@{}{}", fn_name(d.instance(i).spec), phase.suffix());
+                let what = format!("{} {}{}", d.name(d.spec(self.spec).name), d.name(d.spec(d.instance(i).spec).name), phase.suffix());
                 if phase == Phase::Ff {
                     let (t, o) = (self.tmp(), self.tmp());
-                    let _ = writeln!(self.out, "  %t{t} = call i1 {child}({args})\n  %t{o} = or i1 {any}, %t{t}");
+                    let text = self.l.timed(what, &format!("%t{t} = call i1 {child}({args})"), &format!("p{t}"));
+                    self.out.push_str(&text);
+                    let _ = writeln!(self.out, "  %t{o} = or i1 {any}, %t{t}");
                     any = format!("%t{o}");
                 } else {
-                    let _ = writeln!(self.out, "  call void {child}({args})");
+                    let t = self.tmp();
+                    let text = self.l.timed(what, &format!("call void {child}({args})"), &format!("p{t}"));
+                    self.out.push_str(&text);
                 }
             }
         }
@@ -3861,7 +3953,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let e = self.lay().elems[&o];
         let base = if e.planes() { format!("%h{}", self.loops - 1) } else { self.base() };
         let a = self.tmp();
-        let _ = writeln!(self.out, "  %t{a} = getelementptr i8, ptr {base}, i64 {}", self.lay().objs[&o] + i as u64 * e.stride());
+        let _ = writeln!(self.out, "  %t{a} = getelementptr i8, ptr {base}, i64 {}", self.lay().objs[&o] + i as u64 * e.stride(self.l.chunks));
         format!("%t{a}")
     }
 
@@ -3894,7 +3986,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             self.out,
             "  %t{} = zext i32 %t{ix} to i64\n  %t{} = mul i64 %t{}, {}\n  %t{} = getelementptr i8, ptr {base}, i64 {off}\n  \
              %t{} = getelementptr i8, ptr %t{}, i64 %t{}",
-            t[2], t[3], t[2], e.stride(), t[4], t[5], t[4], t[3]
+            t[2], t[3], t[2], e.stride(self.l.chunks), t[4], t[5], t[4], t[3]
         );
         format!("%t{}", t[5])
     }
@@ -4178,7 +4270,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
 
     /// Piece `j` of a padded array, from the state.
     fn load_piece(&mut self, o: ObjId, j: usize) -> P {
-        let at = self.lay().objs[&o] + j as u64 * PIECE;
+        let at = self.lay().objs[&o] + j as u64 * self.piece();
         let (a, v) = (self.tmp(), self.tmp());
         let base = self.base();
         let _ = writeln!(self.out, "  %t{a} = getelementptr i8, ptr {base}, i64 {at}\n  %t{v} = load {V16}, ptr %t{a}, align 64");
@@ -4200,7 +4292,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 self.sel(m, x, old)
             }
         };
-        let at = self.lay().objs[&o] + j as u64 * PIECE;
+        let at = self.lay().objs[&o] + j as u64 * self.piece();
         let a = self.tmp();
         let base = self.base();
         let _ = writeln!(self.out, "  %t{a} = getelementptr i8, ptr {base}, i64 {at}\n  store {V16} {}, ptr %t{a}, align 64", ps(x));
@@ -4777,8 +4869,8 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             let _ = writeln!(
                 self.out,
                 "  %t{a} = getelementptr i8, ptr {base}, i64 {}\n  %t{b} = getelementptr i8, ptr {base}, i64 {}",
-                start + q * PIECE,
-                start + q1 * PIECE
+                start + q * self.piece(),
+                start + q1 * self.piece()
             );
             return (format!("%t{a}"), format!("%t{b}"), r);
         }
@@ -4790,9 +4882,10 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             "  %t{0} = lshr i32 %t{t}, 5\n  %t{1} = call i32 @llvm.umin.i32(i32 %t{0}, i32 {last})\n  \
              %t{2} = add i32 %t{1}, 1\n  %t{3} = call i32 @llvm.umin.i32(i32 %t{2}, i32 {last})\n  \
              %t{4} = zext i32 %t{1} to i64\n  %t{5} = zext i32 %t{3} to i64\n  \
-             %t{6} = mul i64 %t{4}, {PIECE}\n  %t{7} = mul i64 %t{5}, {PIECE}\n  \
+             %t{6} = mul i64 %t{4}, {piece}\n  %t{7} = mul i64 %t{5}, {piece}\n  \
              %t{8} = getelementptr i8, ptr {base}, i64 {start}",
-            n[0], n[1], n[2], n[3], n[4], n[5], n[6], n[7], n[8]
+            n[0], n[1], n[2], n[3], n[4], n[5], n[6], n[7], n[8],
+            piece = self.piece()
         );
         let (a, b) = (self.tmp(), self.tmp());
         let _ = writeln!(

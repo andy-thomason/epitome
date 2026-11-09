@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use common::*;
-use epitome_sv::netlist::{self, GROUP};
+use epitome_sv::netlist;
 
 const OPS: &str = r#"
 module ops (
@@ -79,8 +79,8 @@ fn operators_lane_by_lane() {
     let mut rng = Rng(0x2545_F491_4F6C_DD1D);
     let mut st = State::new(net.size);
     for round in 0..4 {
-        let mut ins = Vec::with_capacity(GROUP);
-        for n in 0..GROUP {
+        let mut ins = Vec::with_capacity(net.group());
+        for n in 0..net.group() {
             let mut a = rng.next() & m56;
             let mut b = rng.next() & m56;
             match (round + n) % 5 {
@@ -192,8 +192,8 @@ fn cva6_pmp_entry() {
     let (m56, mcw) = ((1u64 << 56) - 1, (1u64 << 54) - 1);
     let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
     let mut st = State::new(net.size);
-    let mut ins = Vec::with_capacity(GROUP);
-    for n in 0..GROUP {
+    let mut ins = Vec::with_capacity(net.group());
+    for n in 0..net.group() {
         let mode = rng.next() % 4;
         let t = rng.next() % 55;
         let conf = if mode == 3 { (rng.next() << (t + 1) | ((1 << t) - 1)) & mcw } else { rng.next() & mcw };
@@ -222,8 +222,8 @@ fn cva6_pmp_entry() {
     for _ in 0..iters {
         unsafe { (b.eval)(std::hint::black_box(st.ptr)) };
     }
-    let ns = t0.elapsed().as_secs_f64() * 1e9 / (iters * GROUP) as f64;
-    eprintln!("pmp_entry: {GROUP} instances agree with the model ({matches} match); {ns:.2} ns an instance");
+    let ns = t0.elapsed().as_secs_f64() * 1e9 / (iters * net.group()) as f64;
+    eprintln!("pmp_entry: {} instances agree with the model ({matches} match); {ns:.2} ns an instance", net.group());
 }
 
 const PMP_UNIT_TOP: &str = r#"
@@ -290,8 +290,8 @@ fn cva6_pmp() {
     let (m56, mcw) = ((1u64 << 56) - 1, (1u64 << 54) - 1);
     let mut rng = Rng(0x0DDB_1A5E_5BAD_5EED);
     let mut st = State::new(net.size);
-    let mut ins = Vec::with_capacity(GROUP);
-    for n in 0..GROUP {
+    let mut ins = Vec::with_capacity(net.group());
+    for n in 0..net.group() {
         // Ascending TOR bounds and NAPOT regions, mixed, so that entries
         // match, overlap and miss.
         let mut conf_addr = [0u64; 8];
@@ -347,8 +347,8 @@ fn cva6_pmp() {
     for _ in 0..iters {
         unsafe { (b.eval)(std::hint::black_box(st.ptr)) };
     }
-    let ns = t0.elapsed().as_secs_f64() * 1e9 / (iters * GROUP) as f64;
-    eprintln!("pmp: {GROUP} instances agree with the model ({allowed} allowed); {ns:.2} ns an instance");
+    let ns = t0.elapsed().as_secs_f64() * 1e9 / (iters * net.group()) as f64;
+    eprintln!("pmp: {} instances agree with the model ({allowed} allowed); {ns:.2} ns an instance", net.group());
 }
 
 /// common_cells' lzc at several widths, both modes: recognised as a count
@@ -397,7 +397,8 @@ fn lzc_recognised_matches_its_logic() {
         let mut ins = vec![0u64, mask];
         ins.extend((0..w).map(|i| 1u64 << i));
         ins.extend((0..w).map(|i| mask << i & mask));
-        while ins.len() < GROUP {
+        let group = built.iter().map(|b| b.net.group()).min().unwrap();
+        while ins.len() < group {
             let r = rng.next();
             ins.push((r >> (rng.next() % 64)) & mask);
         }
@@ -408,7 +409,7 @@ fn lzc_recognised_matches_its_logic() {
                 st.put(&b.net, "in_i", n, v);
             }
             unsafe { (b.eval)(st.ptr) };
-            outs.push((0..GROUP).map(|n| (st.get(&b.net, "cnt_o", n), st.get(&b.net, "empty_o", n))).collect::<Vec<_>>());
+            outs.push((0..group).map(|n| (st.get(&b.net, "cnt_o", n), st.get(&b.net, "empty_o", n))).collect::<Vec<_>>());
         }
         for (n, &v) in ins.iter().enumerate() {
             assert_eq!(outs[0][n], outs[1][n], "{name}: in {v:x}: recognised gives {:?}, its logic {:?}", outs[0][n], outs[1][n]);
@@ -417,6 +418,6 @@ fn lzc_recognised_matches_its_logic() {
                 assert_eq!(outs[0][n].0, want, "{name}: in {v:x}");
             }
         }
-        eprintln!("{name}: recognised and its logic agree on {GROUP} inputs; code {} bytes against {}", built[0].sizes.iter().map(|s| s.1).sum::<u64>(), built[1].sizes.iter().map(|s| s.1).sum::<u64>());
+        eprintln!("{name}: recognised and its logic agree on {group} inputs; code {} bytes against {}", built[0].sizes.iter().map(|s| s.1).sum::<u64>(), built[1].sizes.iter().map(|s| s.1).sum::<u64>());
     }
 }

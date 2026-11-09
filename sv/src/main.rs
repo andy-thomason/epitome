@@ -180,7 +180,7 @@ fn print_netlist(d: &epitome_sv::design::Design) -> ExitCode {
                 print!("{}", n.ir);
                 eprintln!(
                     "epitome-sv: {} instances a group, {} bytes of state; entry {}; {} assertions left out",
-                    epitome_sv::netlist::GROUP,
+                    n.group(),
                     n.size,
                     n.entry,
                     n.dropped

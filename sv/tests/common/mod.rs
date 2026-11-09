@@ -595,10 +595,10 @@ pub fn rv_instruction(rng: &mut Rng) -> u32 {
 }
 
 /// The netlist's time an instance a cycle on the same stimulus as
-/// [`Verilated::bench`]: the first state's inputs (its lanes' worth of
-/// instances) replayed `reps` times
-/// from a zeroed state, timing only the evaluations, as which arms run
-/// depends on the values.
+/// [`Verilated::bench`]: the first instances' inputs (a state's worth, or
+/// for states of few lanes, as many states as make a group) replayed `reps`
+/// times from zeroed states, timing only the evaluations, as which arms
+/// run depends on the values.
 pub fn time_replay(b: &Built, v: &Verilated, cycles: usize, n: usize, stim: &[u32], reps: usize) -> f64 {
     // NETLIST_REPS multiplies the repetitions, for a profiler to watch.
     let reps = reps * std::env::var("NETLIST_REPS").ok().and_then(|r| r.parse().ok()).unwrap_or(1);
@@ -608,48 +608,51 @@ pub fn time_replay(b: &Built, v: &Verilated, cycles: usize, n: usize, stim: &[u3
     let clock = v.clock.as_deref().map(field);
     let iw = v.in_words();
     let group = net.group();
+    // States of few lanes each are timed a pass over many, as one call
+    // takes too little time to time on its own.
+    let states = (n / group).clamp(1, (GROUP / group).max(1));
     let mut spent = std::time::Duration::ZERO;
     let counters = if b.prof.is_null() { &mut [][..] } else { unsafe { std::slice::from_raw_parts_mut(b.prof, 2 * net.profile.len()) } };
     counters.fill(0);
     for _ in 0..reps {
-        let mut st = State::new(net.size);
+        let mut sts: Vec<State> = (0..states).map(|_| State::new(net.size)).collect();
         for c in 0..cycles {
-            for k in 0..group.min(n) {
-                let mut at = (c * n + k) * iw;
-                for f in &ins {
-                    st.put_words(f, k, &stim[at..at + words(f.width)]);
-                    at += words(f.width);
+            for (g, st) in sts.iter_mut().enumerate() {
+                for k in 0..group.min(n) {
+                    let mut at = (c * n + g * group + k) * iw;
+                    for f in &ins {
+                        st.put_words(f, k, &stim[at..at + words(f.width)]);
+                        at += words(f.width);
+                    }
                 }
             }
-            match &clock {
-                Some(clk) => {
-                    for level in [0, 1] {
+            let levels: &[u64] = if clock.is_some() { &[0, 1] } else { &[0] };
+            for &level in levels {
+                if let Some(clk) = &clock {
+                    for st in &sts {
                         for k in 0..group {
                             unsafe { clk.put(st.ptr, k, level) };
                         }
-                        let t0 = std::time::Instant::now();
-                        unsafe { (b.eval)(std::hint::black_box(st.ptr)) };
-                        spent += t0.elapsed();
                     }
                 }
-                None => {
-                    let t0 = std::time::Instant::now();
+                let t0 = std::time::Instant::now();
+                for st in &sts {
                     unsafe { (b.eval)(std::hint::black_box(st.ptr)) };
-                    spent += t0.elapsed();
                 }
+                spent += t0.elapsed();
             }
         }
     }
     // The counters, per instance a cycle, largest first, with the calls
     // a group a cycle.
-    let per = (reps * cycles) as f64;
+    let per = (reps * cycles * states) as f64;
     let mut rows: Vec<(f64, f64, &str)> =
         counters.chunks(2).zip(&net.profile).map(|(c, n)| (c[0] as f64 / per / group as f64, c[1] as f64 / per, n.as_str())).collect();
     rows.sort_by(|a, b| b.0.total_cmp(&a.0));
     for (c, k, n) in rows {
         eprintln!("profile: {c:10.1} ticks an instance a cycle, {k:5.2} calls a cycle  {n}");
     }
-    spent.as_secs_f64() * 1e9 / (reps * cycles * group) as f64
+    spent.as_secs_f64() * 1e9 / (reps * cycles * states * group) as f64
 }
 
 /// A RISC-V instruction word as a program's mix has them: mostly integer

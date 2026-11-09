@@ -2,22 +2,30 @@
 //! values computed in 32-bit lanes and stored as narrow as they fit.
 //!
 //! Each specialisation becomes one function, `sv_eval_<n>(ptr %state, ptr
-//! %port...)`, over a group of [`GROUP`] instances: for each variable or
-//! net, its 32-bit pieces (low piece first), each piece [`CHUNKS`] (or fewer)
-//! registers of [`LANES`] lanes. The function is a loop over the group's
-//! registers, so its code grows with the specialisation's source, not with
-//! the number of instances. A child instance's state is part of its
-//! parent's, and the parent calls the child's function once for the whole
-//! group, between two loops: one that works out the child's inputs, and
-//! one that reads its outputs.
+//! %port...)`, over a group of instances: for each variable or net, its
+//! 32-bit pieces (low piece first), each piece [`CHUNKS`] registers of
+//! [`LANES`] lanes, or fewer where a group's state would not fit
+//! [`STATE_MAX`] (`Netlist::chunks`). The function is a loop over the
+//! group's registers, so its code grows with the specialisation's source,
+//! not with the number of instances. A child instance's state is part of
+//! its parent's, and the parent calls the child's function once for the
+//! whole group, between two loops: one that works out the child's inputs,
+//! and one that reads its outputs. Where the parent's code loops through a
+//! child, though no output of the child depends on itself, the child is
+//! called twice (see [`Split`]), each call with a function of its own.
 //!
 //! A specialisation with registers below it also has `_ff`, which runs its
 //! clocked processes where an edge came (each lane's edge a mask) and
 //! makes the registers' next values, and `_commit`; the top's `_step`
-//! settles, samples, commits and settles again (see [`Phase`]).
+//! settles (unless no input it reads has changed since it last did),
+//! samples, commits and settles again (see [`Phase`]).
 //!
 //! Functions are written out where they are called. Fixed-size unpacked
-//! arrays are laid out as packed ones with the same bounds would be.
+//! arrays are laid out as packed ones with the same bounds would be. A
+//! select of one of few wide elements by a value is a choice among them
+//! (`Off::Dec`); arrays of such elements are padded to whole pieces
+//! ([`Pad`]), and wide arrays and registers stay in the state
+//! (`Layout::kept`), loaded and stored where they are used.
 //!
 //! The output is Epitome IR as text, `<16 x i32>` vectors and `<16 x i1>`
 //! masks, for `epitome-opt` and `epitome-codegen`.

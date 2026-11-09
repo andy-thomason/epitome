@@ -378,6 +378,8 @@ struct Layout {
     /// The children called twice, as the parent's code loops through them
     /// though none of their outputs depends on itself.
     splits: HashMap<InstId, Split>,
+    /// The arrays kept an element to a piece-aligned run (see [`Pad`]).
+    pads: HashMap<ObjId, Pad>,
 }
 
 /// A child called twice: first with the inputs that some of its outputs
@@ -390,6 +392,31 @@ struct Split {
     ins: HashSet<ObjId>,
     /// The outputs it gives.
     outs: HashSet<ObjId>,
+}
+
+/// An array of wide elements that is indexed by a value, kept with each
+/// element starting a 32-bit piece: a select of one of its elements, the
+/// same bits of each, is then the same shift whichever it is, and a
+/// select of whole pieces. It stays in the state: each select loads the
+/// pieces it reads, and each assignment stores the pieces it changes in
+/// the lanes that run it (`Func::path`), so the arms of a branch need no
+/// selects of it where they meet.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Pad {
+    /// The element's width.
+    ew: u32,
+    n: u32,
+}
+
+impl Pad {
+    /// Bits from one element to the next.
+    fn stride(self) -> u32 {
+        pieces(self.ew) as u32 * 32
+    }
+
+    fn width(self) -> u32 {
+        self.n * self.stride()
+    }
 }
 
 /// Bits of an object: (object, from, to) with `to` exclusive.
@@ -444,6 +471,7 @@ impl Layout {
             fired: 0,
             fresh: HashSet::new(),
             splits: HashMap::new(),
+            pads: HashMap::new(),
         }
     }
 
@@ -643,6 +671,8 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let ff_reads: HashSet<ObjId> = ff_reads.into_iter().map(|t| t.0).collect();
         lay.elems = self.element_only(&objs, &code);
         lay.elems.retain(|o, _| !lay.regs.contains(o) && !ff_reads.contains(o));
+        lay.pads = self.padded(&objs, &code, &lay.ff);
+        lay.pads.retain(|o, _| !lay.elems.contains_key(o));
         for node in code {
             if let Node::In(i) = node {
                 self.layout(d.instance(i).spec)?;
@@ -713,7 +743,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let aliased: HashSet<ObjId> = args.iter().flat_map(|a| a.1.iter().flatten().copied()).collect();
         self.layouts.insert(spec, lay);
         let mut local = self.loop_locals(spec)?;
-        local.retain(|o| !ff_reads.contains(o));
+        local.retain(|o| !ff_reads.contains(o) && !self.layouts[&spec].pads.contains_key(o));
         let fresh = self.fresh_values(spec)?;
         let mut lay = self.layouts.remove(&spec).unwrap();
         for o in objs {
@@ -721,15 +751,17 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 continue;
             }
             let w = tw(&d.types, d.object(o).ty);
-            match lay.elems.get(&o) {
-                Some(&e) => {
+            match (lay.elems.get(&o), lay.pads.get(&o)) {
+                (Some(&e), _) => {
                     lay.objs.insert(o, lay.size);
                     lay.size = (lay.size + e.n as u64 * e.stride()).next_multiple_of(REG);
                 }
-                None => lay.place(o, w, Lane::of(w, planes)),
+                (None, Some(p)) => lay.place(o, p.width(), Lane::W32),
+                (None, None) => lay.place(o, w, Lane::of(w, planes)),
             }
         }
         lay.fresh = fresh;
+        lay.fresh.retain(|o| !lay.pads.contains_key(o));
         // The registers' next values, and the edges' last values. Only a
         // port below the top needs a slot for its next value: its storage
         // may be its parent's, read by the parent's clocked processes,
@@ -799,6 +831,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 if matches!(d.object(o).kind, ObjKind::Variable | ObjKind::Net(_))
                     && lay.statics.contains(&o)
                     && !lay.elems.contains_key(&o)
+                    && !lay.pads.contains_key(&o)
                     && tw(&d.types, d.object(o).ty) == w =>
             {
                 Some(o)
@@ -940,6 +973,86 @@ impl<'d, 'a> Lowering<'d, 'a> {
             }
         }
         Ok(())
+    }
+
+    /// The arrays to keep padded (see [`Pad`]): internal ones of at least
+    /// two elements wider than a piece and not a whole number of pieces,
+    /// that some select indexes by a value.
+    fn padded(&self, objs: &[ObjId], code: &[Node], ff: &[ProcId]) -> HashMap<ObjId, Pad> {
+        let d = self.d;
+        let mut exprs = Vec::new();
+        for node in code {
+            match *node {
+                Node::Driver(dr) => exprs.extend([d.drivers[dr.0 as usize].lhs, d.drivers[dr.0 as usize].rhs]),
+                Node::Loop(l) => {
+                    for &dr in &self.loops[l].all {
+                        exprs.extend([d.drivers[dr.0 as usize].lhs, d.drivers[dr.0 as usize].rhs]);
+                    }
+                }
+                Node::Proc(p) => self.stmt_exprs(d.processes[p.0 as usize].body, &mut exprs),
+                _ => {}
+            }
+        }
+        for &p in ff {
+            self.stmt_exprs(d.processes[p.0 as usize].body, &mut exprs);
+        }
+        let mut indexed = HashSet::new();
+        while let Some(e) = exprs.pop() {
+            let x = d.expr(e);
+            if let ExprKind::Index = x.kind
+                && let Some(&base) = x.args.first()
+                && let ExprKind::Object(o) = &d.expr(base).kind
+                && self.const_select(e).is_none()
+            {
+                indexed.insert(*o);
+            }
+            exprs.extend(x.args.iter().copied());
+        }
+        let mut out = HashMap::new();
+        for &o in objs {
+            let ob = d.object(o);
+            if ob.dir.is_some() || !indexed.contains(&o) || !(d.types.packed_range(ob.ty).is_some() || d.types.is_unpacked_array(ob.ty)) {
+                continue;
+            }
+            let (w, ew) = (tw(&d.types, ob.ty), elem_bits(&d.types, ob.ty));
+            if ew > 32 && ew % 32 != 0 && w % ew == 0 && w / ew >= 2 {
+                out.insert(o, Pad { ew, n: w / ew });
+            }
+        }
+        out
+    }
+
+    /// The expressions a statement holds, at their tops.
+    fn stmt_exprs(&self, s: StmtId, out: &mut Vec<ExprId>) {
+        let d = self.d;
+        match &d.stmt(s).kind {
+            StmtKind::Block { stmts, .. } => stmts.iter().for_each(|&s| self.stmt_exprs(s, out)),
+            StmtKind::Assign { lhs, rhs, .. } => out.extend([*lhs, *rhs]),
+            StmtKind::Expr(e) | StmtKind::Return(Some(e)) => out.push(*e),
+            StmtKind::If { cond, then, else_, .. } => {
+                out.push(*cond);
+                self.stmt_exprs(*then, out);
+                if let Some(e) = else_ {
+                    self.stmt_exprs(*e, out);
+                }
+            }
+            StmtKind::Case { expr, items, default, .. } => {
+                out.push(*expr);
+                for (labels, body) in items {
+                    out.extend(labels.iter().copied());
+                    self.stmt_exprs(*body, out);
+                }
+                if let Some(s) = default {
+                    self.stmt_exprs(*s, out);
+                }
+            }
+            StmtKind::For { init, cond, step, body, .. } => {
+                init.iter().chain(step).for_each(|&s| self.stmt_exprs(s, out));
+                out.extend(cond.iter().copied());
+                self.stmt_exprs(*body, out);
+            }
+            _ => {}
+        }
     }
 
     /// The objects that every use selects one element of, with the same
@@ -2243,6 +2356,9 @@ struct Func<'l, 'd, 'a> {
     trial: bool,
     /// Running clocked processes: nonblocking assignments are allowed.
     ff: bool,
+    /// The lanes running the code being written: those taking every arm
+    /// it is in.
+    path: M,
 }
 
 const V16: &str = "<16 x i32>";
@@ -2272,7 +2388,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             }
         }
         let out = format!("define void @{}({params}) {{\nentry:\n", fn_name(spec));
-        Func { l, spec, out, next: 0, env: Env::default(), block: "entry".into(), loops: 0, rolled: 0, mem: false, uniform: HashSet::new(), mask_of: HashMap::new(), bits_of: HashMap::new(), in_range: HashSet::new(), calls: Vec::new(), ff: false, zeros: HashMap::new(), bit_of: HashMap::new(), guards: 0, trial: false }
+        Func { l, spec, out, next: 0, env: Env::default(), block: "entry".into(), loops: 0, rolled: 0, mem: false, uniform: HashSet::new(), mask_of: HashMap::new(), bits_of: HashMap::new(), in_range: HashSet::new(), calls: Vec::new(), ff: false, zeros: HashMap::new(), bit_of: HashMap::new(), guards: 0, trial: false, path: M::K(true) }
     }
 
     fn finish(mut self) -> String {
@@ -2375,7 +2491,9 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
              %w{k} = getelementptr i8, ptr %s, i64 %c{k}.b16"
         );
         self.env = Env::default();
+        let path = std::mem::replace(&mut self.path, M::K(true));
         body(self)?;
+        self.path = path;
         let mut dirty: Vec<ObjId> = self.env.dirty.iter().copied().collect();
         dirty.sort_unstable_by_key(|o| o.0);
         for o in dirty {
@@ -2531,6 +2649,10 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             Node::Loop(_) => unreachable!("rolled loops are loops of their own"),
             Node::Driver(dr) => {
                 let drv = &d.drivers[dr.0 as usize];
+                if let Some((o, v)) = self.padded_copy(drv.lhs, drv.rhs) {
+                    self.set(o, v);
+                    return Ok(());
+                }
                 let v = self.expr(drv.rhs)?;
                 self.assign(drv.lhs, v)
             }
@@ -2638,8 +2760,20 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 if !self.ff {
                     return Err("nonblocking assignments outside clocked processes are not supported yet".into());
                 }
+                if let Some((o, v)) = self.padded_copy(*lhs, *rhs) {
+                    if !self.lay().regs.contains(&o) {
+                        return Err(format!("{} is assigned nonblocking but is not a register here", d.name(d.object(o).name)));
+                    }
+                    self.env.nba.insert(o, v);
+                    return Ok(());
+                }
                 let v = self.expr(*rhs)?;
                 self.assign_nb(*lhs, v)
+            }
+            StmtKind::Assign { kind: AssignKind::Blocking, lhs, rhs, timing: None } if self.padded_copy(*lhs, *rhs).is_some() => {
+                let (o, v) = self.padded_copy(*lhs, *rhs).unwrap();
+                self.set(o, v);
+                Ok(())
             }
             StmtKind::Assign { kind, lhs, rhs, timing: None } => {
                 let v = match kind {
@@ -2864,13 +2998,14 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         }
         let before = self.env.clone();
         // The other arm first, as `b`, guarded on its own lanes if costly.
-        match ge {
-            Some(e) => {
-                let nm = self.mnot(m);
-                self.guard(nm, e, |f| f.stmt(e))?;
-            }
-            None => else_(self)?,
-        }
+        let (path, nm) = (self.path, self.mnot(m));
+        self.path = self.mand(path, nm);
+        let ran = match ge {
+            Some(e) => self.guard(nm, e, |f| f.stmt(e)),
+            None => else_(self),
+        };
+        self.path = path;
+        ran?;
         if !gt {
             let b = std::mem::replace(&mut self.env, before);
             (self.env.loaded, self.env.eloaded) = (b.loaded.clone(), b.eloaded.clone());
@@ -2893,7 +3028,11 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     /// selected by `m` (as the end of [`Func::branch`]).
     fn run_then_merge(&mut self, m: M, then: StmtId, mut b: Env) -> Result<(), String> {
         let before = self.env.clone();
-        self.stmt(then)?;
+        let path = self.path;
+        self.path = self.mand(path, m);
+        let ran = self.stmt(then);
+        self.path = path;
+        ran?;
         let mut a = std::mem::replace(&mut self.env, before);
         (self.env.loaded, self.env.eloaded) = (std::mem::take(&mut a.loaded), std::mem::take(&mut a.eloaded));
         for (o, v) in std::mem::take(&mut b.loaded) {
@@ -2917,7 +3056,14 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         objs.sort_unstable_by_key(|o| o.0);
         objs.dedup();
         for o in objs {
-            if self.slot(o).is_some() || self.lay().elems.contains_key(&o) {
+            if self.lay().pads.contains_key(&o) {
+                // Kept in the state, but a register's next value is not:
+                // its value from before, for the way around.
+                if self.ff && self.lay().regs.contains(&o) && !self.env.nba.contains_key(&o) {
+                    let v = self.read(o);
+                    self.env.loaded.insert(o, v);
+                }
+            } else if self.slot(o).is_some() || self.lay().elems.contains_key(&o) {
                 self.read(o);
             }
         }
@@ -2952,7 +3098,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let around = |f: &mut Self, o: ObjId| -> Result<Val, String> {
             match skip.vals.get(&o).or(skip.loaded.get(&o)) {
                 Some(v) => Ok(v.clone()),
-                None if f.slot(o).is_none() => Ok(Val::zero(tw(&d.types, d.object(o).ty))),
+                None if f.slot(o).is_none() => Ok(Val::zero(f.width(o))),
                 None => Err(format!("{} is not loaded before a guarded block", d.name(d.object(o).name))),
             }
         };
@@ -3107,10 +3253,15 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             M::V(_) => {}
         }
         let before = self.env.clone();
+        let path = self.path;
+        self.path = self.mand(path, m);
         then(self)?;
         let mut a = std::mem::replace(&mut self.env, before.clone());
         (self.env.loaded, self.env.eloaded) = (std::mem::take(&mut a.loaded), std::mem::take(&mut a.eloaded));
+        let nm = self.mnot(m);
+        self.path = self.mand(path, nm);
         else_(self)?;
+        self.path = path;
         let mut b = std::mem::replace(&mut self.env, before);
         (self.env.loaded, self.env.eloaded) = (std::mem::take(&mut b.loaded), std::mem::take(&mut b.eloaded));
         self.merge(m, a, b);
@@ -3192,7 +3343,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     Some(v) => v.clone(),
                     None => self.read(o),
                 };
-                let new = self.insert_off(&old, off, w, &v)?;
+                let new = self.write_at(o, &old, off, w, &v)?;
                 self.env.nba.insert(o, new);
                 Ok(())
             }
@@ -3720,11 +3871,14 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             }
             return acc;
         }
+        if let Some(p) = self.lay().pads.get(&o).copied() {
+            let p = (0..pieces(p.width())).map(|j| self.load_piece(o, j)).collect();
+            return Val { w: self.width(o), p };
+        }
         if let Some(v) = self.env.vals.get(&o).or(self.env.loaded.get(&o)) {
             return v.clone();
         }
-        let d = self.d();
-        let w = tw(&d.types, d.object(o).ty);
+        let w = self.width(o);
         match self.slot(o) {
             Some(base) => {
                 let lane = self.lay().lane(o);
@@ -3740,7 +3894,185 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         }
     }
 
+    /// An object's width as it is kept: padded, for a [`Pad`].
+    fn width(&self, o: ObjId) -> u32 {
+        match self.lay().pads.get(&o) {
+            Some(p) => p.width(),
+            None => tw(&self.d().types, self.d().object(o).ty),
+        }
+    }
+
+    /// A value of a padded array's type, padded.
+    fn pad(&mut self, p: Pad, v: &Val) -> Val {
+        let mut acc = Val::zero(p.width());
+        for k in 0..p.n {
+            let x = self.extract(v, k * p.ew, p.ew);
+            acc = self.insert(&acc, k * p.stride(), p.ew, &x);
+        }
+        acc
+    }
+
+    fn unpad(&mut self, p: Pad, v: &Val) -> Val {
+        let mut acc = Val::zero(p.n * p.ew);
+        for k in 0..p.n {
+            let x = self.extract(v, k * p.stride(), p.ew);
+            acc = self.insert(&acc, k * p.ew, p.ew, &x);
+        }
+        acc
+    }
+
+    /// Where a select of a padded array is in it as kept, if within one
+    /// element.
+    fn padded_off(&self, p: Pad, off: Off, w: u32) -> Option<Off> {
+        match off {
+            Off::K(k) if k % p.ew + w <= p.ew => Some(Off::K(k / p.ew * p.stride() + k % p.ew)),
+            Off::Dec { i, n, stride, add, ok } if stride == p.ew && add + w <= p.ew => Some(Off::Dec { i, n, stride: p.stride(), add, ok }),
+            _ => None,
+        }
+    }
+
+    /// A whole padded array copied from another of the same shape: its
+    /// value as kept.
+    fn padded_copy(&mut self, lhs: ExprId, rhs: ExprId) -> Option<(ObjId, Val)> {
+        let d = self.d();
+        let ExprKind::Object(a) = d.expr(lhs).kind else { return None };
+        let mut x = d.expr(rhs);
+        while matches!(x.kind, ExprKind::Convert) && tw(&d.types, x.ty) == tw(&d.types, d.expr(x.args[0]).ty) {
+            x = d.expr(x.args[0]);
+        }
+        let ExprKind::Object(b) = x.kind else { return None };
+        let pa = *self.lay().pads.get(&a)?;
+        (self.lay().pads.get(&b) == Some(&pa)).then(|| (a, self.read(b)))
+    }
+
+    /// Piece `j` of a padded array, from the state.
+    fn load_piece(&mut self, o: ObjId, j: usize) -> P {
+        let at = self.lay().objs[&o] + j as u64 * PIECE;
+        let (a, v) = (self.tmp(), self.tmp());
+        let base = self.base();
+        let _ = writeln!(self.out, "  %t{a} = getelementptr i8, ptr {base}, i64 {at}\n  %t{v} = load {V16}, ptr %t{a}, align 64");
+        P::V(v)
+    }
+
+    /// Stores `x` as piece `j` of a padded array in the lanes of `m` that
+    /// run this code; `old` is what is there.
+    fn store_piece_over(&mut self, o: ObjId, j: usize, x: P, m: M, old: Option<P>) {
+        let m = self.mand(m, self.path);
+        if m == M::K(false) || old == Some(x) {
+            return;
+        }
+        let x = match (m, old) {
+            (M::K(true), _) => x,
+            (m, Some(old)) => self.sel(m, x, old),
+            (m, None) => {
+                let old = self.load_piece(o, j);
+                self.sel(m, x, old)
+            }
+        };
+        let at = self.lay().objs[&o] + j as u64 * PIECE;
+        let a = self.tmp();
+        let base = self.base();
+        let _ = writeln!(self.out, "  %t{a} = getelementptr i8, ptr {base}, i64 {at}\n  store {V16} {}, ptr %t{a}, align 64", ps(x));
+    }
+
+    fn store_piece(&mut self, o: ObjId, j: usize, x: P, m: M) {
+        self.store_piece_over(o, j, x, m, None)
+    }
+
+    /// The `w` bits at `off` in `o`.
+    fn read_at(&mut self, o: ObjId, off: Off, w: u32) -> Val {
+        let Some(p) = self.lay().pads.get(&o).copied() else {
+            let v = self.read(o);
+            return self.extract_off(&v, off, w);
+        };
+        match self.padded_off(p, off, w) {
+            // The pieces the bits are in, of each element they may be in.
+            Some(Off::K(k)) => {
+                let (q, r) = ((k / 32) as usize, k % 32);
+                let span = (r + w).div_ceil(32) as usize;
+                let v = Val { w: 32 * span as u32, p: (0..span).map(|j| self.load_piece(o, q + j)).collect() };
+                self.extract(&v, r, w)
+            }
+            Some(Off::Dec { i, n, stride, add, ok }) => {
+                let (q, r) = ((add / 32) as usize, add % 32);
+                let span = (r + w).div_ceil(32) as usize;
+                let mut acc = vec![P::K(0); span];
+                for k in 0..n.min(p.n) {
+                    let at = (k * stride / 32) as usize + q;
+                    let hit = self.icmp("eq", i, P::K(k));
+                    for (j, a) in acc.iter_mut().enumerate() {
+                        let x = self.load_piece(o, at + j);
+                        *a = self.sel(hit, x, *a);
+                    }
+                }
+                let acc = Val { w: 32 * span as u32, p: acc };
+                let x = self.extract(&acc, r, w);
+                let z = Val::zero(w);
+                self.select(ok, &x, &z)
+            }
+            _ => {
+                let v = self.read(o);
+                let v = self.unpad(p, &v);
+                self.extract_off(&v, off, w)
+            }
+        }
+    }
+
+    /// Sets the `w` bits at `off` in a padded array to `x`, in the state.
+    fn write_kept(&mut self, o: ObjId, p: Pad, off: Off, w: u32, x: &Val) -> Result<(), String> {
+        // Each element's pieces that the bits are in, where `hit`.
+        let put = |f: &mut Self, at: usize, r: u32, hit: M| {
+            let span = (r + w).div_ceil(32) as usize;
+            let old: Vec<P> = (0..span).map(|j| f.load_piece(o, at + j)).collect();
+            let v = f.insert(&Val { w: 32 * span as u32, p: old.clone() }, r, w, x);
+            for j in 0..span {
+                f.store_piece_over(o, at + j, v.p[j], hit, Some(old[j]));
+            }
+        };
+        match self.padded_off(p, off, w) {
+            Some(Off::K(k)) => put(self, (k / 32) as usize, k % 32, M::K(true)),
+            Some(Off::Dec { i, n, stride, add, ok }) => {
+                for k in 0..n.min(p.n) {
+                    let hit = self.icmp("eq", i, P::K(k));
+                    let hit = self.mand(hit, ok);
+                    put(self, ((k * stride + add) / 32) as usize, add % 32, hit);
+                }
+            }
+            _ => {
+                let old = self.read(o);
+                let u = self.unpad(p, &old);
+                let u = self.insert_off(&u, off, w, x)?;
+                let new = self.pad(p, &u);
+                for j in 0..new.p.len() {
+                    self.store_piece_over(o, j, new.p[j], M::K(true), Some(old.p[j]));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// `old`, the value of `o` as kept, with the `w` bits at `off` set to `v`.
+    fn write_at(&mut self, o: ObjId, old: &Val, off: Off, w: u32, v: &Val) -> Result<Val, String> {
+        match self.lay().pads.get(&o).copied() {
+            Some(p) => match self.padded_off(p, off, w) {
+                Some(off) => self.insert_off(old, off, w, v),
+                None => {
+                    let u = self.unpad(p, old);
+                    let u = self.insert_off(&u, off, w, v)?;
+                    Ok(self.pad(p, &u))
+                }
+            },
+            None => self.insert_off(old, off, w, v),
+        }
+    }
+
     fn set(&mut self, o: ObjId, v: Val) {
+        if self.lay().pads.contains_key(&o) {
+            for (j, &x) in v.p.iter().enumerate() {
+                self.store_piece(o, j, x, M::K(true));
+            }
+            return;
+        }
         if let Some(&e) = self.lay().elems.get(&o) {
             for i in 0..e.n {
                 let x = self.extract(&v, i * e.ew, e.ew);
@@ -3766,6 +4098,10 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             ExprKind::Object(o) => {
                 let w = tw(&d.types, d.object(*o).ty);
                 let v = self.resize(&v, w, false);
+                let v = match self.lay().pads.get(o).copied() {
+                    Some(p) => self.pad(p, &v),
+                    None => v,
+                };
                 self.set(*o, v);
                 Ok(())
             }
@@ -3784,8 +4120,13 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     return self.elem_write(o, lhs, v);
                 }
                 let (o, off, w) = self.place(lhs)?;
+                if let Some(p) = self.lay().pads.get(&o).copied() {
+                    let v = self.resize(&v, w, false);
+                    return self.write_kept(o, p, off, w, &v);
+                }
                 if self.mem
                     && !self.lay().elems.contains_key(&o)
+                    && !self.lay().pads.contains_key(&o)
                     && self.lay().lane(o) == Lane::W32
                     && w <= 32
                     && self.lay().objs.contains_key(&o)
@@ -3795,11 +4136,11 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     return Ok(());
                 }
                 let old = if self.lay().fresh.contains(&o) && !self.env.vals.contains_key(&o) {
-                    Val::zero(tw(&d.types, d.object(o).ty))
+                    Val::zero(self.width(o))
                 } else {
                     self.read(o)
                 };
-                let new = self.insert_off(&old, off, w, &v)?;
+                let new = self.write_at(o, &old, off, w, &v)?;
                 self.set(o, new);
                 Ok(())
             }
@@ -3862,6 +4203,27 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 let v = self.shl_const(&v, k as u64);
                 self.extract(&v, 0, w)
             }
+            // Elements at whole pieces: the pieces chosen, then one shift.
+            Off::Dec { i, n, stride, add, ok } if stride % 32 == 0 && Self::decodes(v.p.len(), n, w) => {
+                let (q, r) = ((add / 32) as usize, add % 32);
+                let span = (r + w).div_ceil(32) as usize;
+                let mut acc = vec![P::K(0); span];
+                for k in 0..n {
+                    let at = (k * stride / 32) as usize + q;
+                    if at >= v.p.len() {
+                        break;
+                    }
+                    let hit = self.icmp("eq", i, P::K(k));
+                    for (j, a) in acc.iter_mut().enumerate() {
+                        let x = v.p.get(at + j).copied().unwrap_or(P::K(0));
+                        *a = self.sel(hit, x, *a);
+                    }
+                }
+                let acc = Val { w: 32 * span as u32, p: acc };
+                let x = self.extract(&acc, r, w);
+                let z = Val::zero(w);
+                self.select(ok, &x, &z)
+            }
             Off::Dec { i, n, stride, add, ok } if Self::decodes(v.p.len(), n, w) => {
                 let mut acc = Val::zero(w);
                 for k in 0..n {
@@ -3890,6 +4252,38 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         Ok(match off {
             Off::K(k) => self.insert(v, k, w, x),
             Off::Neg(_) => return Err("a part select partly out of range as a target".into()),
+            // Elements at whole pieces: `x` shifted into place once, then
+            // each element's pieces chosen.
+            Off::Dec { i, n, stride, add, ok } if stride % 32 == 0 && Self::decodes(v.p.len(), n, w) => {
+                let (q, r) = ((add / 32) as usize, add % 32);
+                let span = (r + w).div_ceil(32) as usize;
+                let zero = Val::zero(32 * span as u32);
+                let xs = self.insert(&zero, r, w, x);
+                let ones = self.ones(w);
+                let m = self.insert(&zero, r, w, &ones);
+                let mut acc = v.clone();
+                for k in 0..n {
+                    let at = (k * stride / 32) as usize + q;
+                    if at >= v.p.len() {
+                        break;
+                    }
+                    let hit = self.icmp("eq", i, P::K(k));
+                    let hit = self.mand(hit, ok);
+                    for j in 0..span.min(v.p.len() - at) {
+                        let old = acc.p[at + j];
+                        let new = match m.p[j] {
+                            P::K(u32::MAX) => xs.p[j],
+                            mj => {
+                                let keep = self.bin("xor", mj, P::K(!0));
+                                let kept = self.bin("and", old, keep);
+                                self.bin("or", kept, xs.p[j])
+                            }
+                        };
+                        acc.p[at + j] = self.sel(hit, new, old);
+                    }
+                }
+                self.norm(acc)
+            }
             Off::Dec { i, n, stride, add, ok } if Self::decodes(v.p.len(), n, w) => {
                 let mut acc = v.clone();
                 for k in 0..n {
@@ -3925,7 +4319,11 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     }
                     at = x.args[0];
                 }
-                ExprKind::Object(o) if var && matches!(d.object(o).kind, ObjKind::Variable | ObjKind::Net(_)) => break,
+                ExprKind::Object(o)
+                    if (var || self.lay().pads.contains_key(&o)) && matches!(d.object(o).kind, ObjKind::Variable | ObjKind::Net(_)) =>
+                {
+                    break;
+                }
                 _ => return Ok(None),
             }
         }
@@ -4064,6 +4462,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 if self.mem
                     && self.lay().objs.contains_key(&o)
                     && !self.lay().elems.contains_key(&o)
+                    && !self.lay().pads.contains_key(&o)
                     && self.lay().lane(o) == Lane::W32 =>
             {
                 Some(o)
@@ -4292,7 +4691,11 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                         if ob.lifetime == Lifetime::Static && !self.lay().statics.contains(o) && !self.env.vals.contains_key(o) {
                             return Err(format!("{} is not in this module", d.name(ob.name)));
                         }
-                        Ok(self.read(*o))
+                        let v = self.read(*o);
+                        Ok(match self.lay().pads.get(o).copied() {
+                            Some(p) => self.unpad(p, &v),
+                            None => v,
+                        })
                     }
                     _ => {
                         if let Some(v) = self.env.vals.get(o) {
@@ -4375,8 +4778,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     }
                 }
                 if let Some((o, off, w)) = self.read_place(e)? {
-                    let v = self.read(o);
-                    return Ok(self.extract_off(&v, off, w));
+                    return Ok(self.read_at(o, off, w));
                 }
                 let base = self.expr(x.args[0])?;
                 let (off, w) = self.offset(e)?;

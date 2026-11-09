@@ -35,8 +35,12 @@ module ops (
     output logic [7:0]  cat,
     output logic [5:0]  sel,
     output logic [55:0] mux,
-    output logic [55:0] each
+    output logic [55:0] each,
+    output logic [7:0]  pri
 );
+  function automatic logic odd(input logic [55:0] x);
+    return x[0];
+  endfunction
   assign sum = a + b;
   assign diff = a - b;
   assign bits = (a & b) | (~a ^ b);
@@ -58,6 +62,12 @@ module ops (
     endcase
     each = '0;
     for (int i = 0; i < 8; i++) each[i*7 +: 7] = a[i*7 +: 7] + 7'd1;
+    // A chain whose conditions are made after its arms, one of them a
+    // function's result.
+    pri = 8'd0;
+    if (a[3:0] == 4'd1) pri = 8'd1;
+    else if (odd(b)) pri = 8'd2;
+    else if (m == 2'd3) pri = {2'b0, s};
   end
 endmodule
 "#;
@@ -117,6 +127,7 @@ fn operators_lane_by_lane() {
                 ("sel", (if s < 56 { (a >> s) & 1 } else { 0 }) << 5 | if s < 56 { (b2 >> s) & 0x1F } else { 0 }),
                 ("mux", [a, b2, a ^ b2, 0][m as usize]),
                 ("each", each),
+                ("pri", if a & 0xF == 1 { 1 } else if b2 & 1 == 1 { 2 } else if m == 3 { s } else { 0 }),
             ];
             for (port, w) in want {
                 let got = st.get(net, port, n);

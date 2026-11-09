@@ -633,3 +633,33 @@ fn guarded_arms() {
         v.bench(cycles, n, &stim, 3)
     );
 }
+
+#[test]
+fn cva6_issue_stage() {
+    let Some((cva6, (t, triple, mattr))) = setup() else { return };
+    let (files, incs) = slice_files(
+        &cva6,
+        "issue_top",
+        include_str!("cva6/issue_top.sv"),
+        &[
+            "core/cvxif_issue_register_commit_if_driver.sv",
+            "core/raw_checker.sv",
+            "core/ariane_regfile_ff.sv",
+            "core/scoreboard.sv",
+            "core/issue_read_operands.sv",
+            "core/issue_stage.sv",
+        ],
+    );
+    let b = build("issue_stage", netlist_of(files.clone(), incs.clone(), "issue_top"), &t, triple, &mattr);
+    report("issue_stage", &b);
+    let Some(v) = verilate("issue_stage", &files, &incs, "issue_top", &b.net.ports, Some("clk_i")) else { return };
+    let (cycles, n) = (60, GROUP);
+    let mut rng = Rng(0x155E_57A6_E000_0001);
+    let stim = stimulus_with(&v, cycles, n, &mut rng, &mut |name, c, rng, w| match name {
+        "rst_ni" => w[0] = (c > 0 && rng.next() % 64 != 0) as u32,
+        _ => {}
+    });
+    check_against(&b, &v, cycles, n, &stim, &|w| format!("{w:x?}"));
+    let ns = time_replay(&b, &v, cycles, n, &stim, 3);
+    eprintln!("issue_stage: {n} instances, {cycles} cycles agree with Verilator; {ns:.2} ns an instance a cycle; Verilator {}", v.bench(cycles, n, &stim, 3));
+}

@@ -90,4 +90,50 @@ package slice_pkg;
     logic [31:0] instr;
     logic accept;
   } x_compressed_resp_t;
+  typedef struct packed {
+    logic valid;
+    logic [CVA6Cfg.XLEN-1:0] data;
+    logic ex_valid;
+    logic [CVA6Cfg.TRANS_ID_BITS-1:0] trans_id;
+  } writeback_t;
+  typedef struct packed {
+    logic                    valid;
+    logic [CVA6Cfg.VLEN-1:0] pc;
+    logic [CVA6Cfg.VLEN-1:0] target_address;
+    logic                    is_mispredict;
+    logic                    is_taken;
+    cf_t                     cf_type;
+  } bp_resolve_t;
+  typedef struct packed {
+    fu_t                              fu;
+    fu_op                             operation;
+    logic [CVA6Cfg.XLEN-1:0]          operand_a;
+    logic [CVA6Cfg.XLEN-1:0]          operand_b;
+    logic [CVA6Cfg.XLEN-1:0]          imm;
+    logic [CVA6Cfg.TRANS_ID_BITS-1:0] trans_id;
+  } fu_data_t;
+  typedef logic [CVA6Cfg.X_NUM_RS+CVA6Cfg.X_DUALREAD-1:0] readregflags_t;
+  typedef logic [CVA6Cfg.X_DUALWRITE:0] writeregflags_t;
+  typedef logic [CVA6Cfg.X_ID_WIDTH-1:0] id_t;
+  typedef struct packed {
+    logic [31:0] instr;
+    hartid_t hartid;
+    id_t id;
+  } x_issue_req_t;
+  typedef struct packed {
+    logic accept;
+    writeregflags_t writeback;
+    readregflags_t register_read;
+  } x_issue_resp_t;
+  typedef struct packed {
+    hartid_t hartid;
+    id_t id;
+    logic [CVA6Cfg.X_NUM_RS-1:0][CVA6Cfg.X_RFR_WIDTH-1:0] rs;
+    readregflags_t rs_valid;
+  } x_register_t;
+  typedef struct packed {
+    hartid_t hartid;
+    id_t id;
+    logic commit_kill;
+  } x_commit_t;
 endpackage

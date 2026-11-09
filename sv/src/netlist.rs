@@ -309,6 +309,7 @@ pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, 
         sym_orders: RefCell::default(),
         sub_locals: RefCell::default(),
         loop_vars: RefCell::default(),
+        port_deps: RefCell::default(),
     };
     let spec = d.instance(top).spec;
     n.layout(spec)?;
@@ -374,6 +375,33 @@ struct Layout {
     /// each starts there from zero, not from its last value, as every bit
     /// it has is one they drive or zero.
     fresh: HashSet<ObjId>,
+    /// The children called twice, as the parent's code loops through them
+    /// though none of their outputs depends on itself.
+    splits: HashMap<InstId, Split>,
+}
+
+/// A child called twice: first with the inputs that some of its outputs
+/// depend on (the rest as they were), for those outputs, then again with
+/// all of them, for the rest. Its code settles, so the second call gives
+/// the first call's outputs again.
+#[derive(Clone, Debug, Default)]
+struct Split {
+    /// The child's inputs that the first call needs.
+    ins: HashSet<ObjId>,
+    /// The outputs it gives.
+    outs: HashSet<ObjId>,
+}
+
+/// Bits of an object: (object, from, to) with `to` exclusive.
+type Span = (ObjId, u32, u32);
+
+/// A piece of a specialisation's combinational code, statement by
+/// statement in its processes: the bits it writes, from the bits it
+/// reads (and those that decide whether it runs).
+struct Dep {
+    node: usize,
+    w: Vec<Span>,
+    r: Vec<Span>,
 }
 
 /// What a parent passes for a child's port.
@@ -415,6 +443,7 @@ impl Layout {
             clocked: false,
             fired: 0,
             fresh: HashSet::new(),
+            splits: HashMap::new(),
         }
     }
 
@@ -495,6 +524,10 @@ enum Node {
     In(InstId),
     /// The call of a child's function, then its outputs.
     Call(InstId),
+    /// For a child called twice (`Layout::splits`): the inputs its first
+    /// call needs, and that call with the outputs it gives.
+    Pre(InstId),
+    Early(InstId),
     /// A run of a generate loop's iterations, rolled back into a loop.
     Loop(usize),
 }
@@ -555,6 +588,7 @@ struct Lowering<'d, 'a> {
     /// The parameters that step in the loop being lowered: not constants
     /// there.
     loop_vars: RefCell<HashSet<ObjId>>,
+    port_deps: RefCell<HashMap<SpecId, std::rc::Rc<HashMap<ObjId, HashSet<ObjId>>>>>,
 }
 
 impl<'d, 'a> Lowering<'d, 'a> {
@@ -620,6 +654,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         }
         lay.clocked = !lay.ff.is_empty() || lay.code.iter().any(|n| matches!(*n, Node::Call(i) if self.layouts[&d.instance(i).spec].clocked));
         self.layouts.insert(spec, lay);
+        self.split_calls(spec)?;
         let planes = self.opts.bit_planes;
         let below_top = self.top != Some(spec);
         // Below the top, ports are the function's pointer parameters.
@@ -794,13 +829,13 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     seg += 1;
                     at
                 }
-                Node::Call(_) => {
+                Node::Call(_) | Node::Early(_) => {
                     seg += 1;
                     seg
                 }
                 _ => seg,
             };
-            let (r, w) = self.access(spec, node)?;
+            let (r, w) = self.access(spec, node);
             let writes: HashSet<ObjId> = w.iter().map(|t| t.0).collect();
             for (o, written) in w.iter().map(|t| (t.0, true)).chain(r.iter().filter(|t| !writes.contains(&t.0)).map(|t| (t.0, false))) {
                 let e = used.entry(o).or_insert_with(|| (HashSet::new(), usize::MAX, usize::MAX));
@@ -838,10 +873,10 @@ impl<'d, 'a> Lowering<'d, 'a> {
         for node in self.order(spec)? {
             match node {
                 Node::Loop(_) => seg += 2,
-                Node::Call(_) => seg += 1,
+                Node::Call(_) | Node::Early(_) => seg += 1,
                 _ => {}
             }
-            let (_, w) = self.access(spec, node)?;
+            let (_, w) = self.access(spec, node);
             for (o, _, _) in w {
                 let e = writers.entry(o).or_insert((Some(seg), true));
                 if e.0 != Some(seg) {
@@ -928,7 +963,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     }
                 }
                 Node::Proc(p) => self.stmt_uses(d.processes[p.0 as usize].body, &mut uses),
-                Node::In(i) | Node::Call(i) => {
+                Node::In(i) | Node::Call(i) | Node::Pre(i) | Node::Early(i) => {
                     for c in &d.instance(i).connections {
                         if let Some(e) = c.expr {
                             self.expr_uses(e, &mut uses);
@@ -1415,12 +1450,26 @@ impl<'d, 'a> Lowering<'d, 'a> {
     /// out before it is read: a topological sort on the bits each node
     /// reads and writes.
     fn order(&self, spec: SpecId) -> Result<Vec<Node>, String> {
+        self.order_of(spec).map_err(|stuck| {
+            let nodes = &self.layouts[&spec].code;
+            let some: Vec<String> = stuck.iter().take(4).map(|&n| format!("{:?}", nodes[n])).collect();
+            format!(
+                "a combinational loop in {}: {} nodes wait on each other, such as {}",
+                self.d.name(self.d.spec(spec).name),
+                stuck.len(),
+                some.join(", ")
+            )
+        })
+    }
+
+    /// [`Self::order`], or the nodes left waiting on each other.
+    fn order_of(&self, spec: SpecId) -> Result<Vec<Node>, Vec<usize>> {
         let lay = &self.layouts[&spec];
         let nodes = &lay.code;
         let mut reads = Vec::with_capacity(nodes.len());
         let mut writers: HashMap<ObjId, Vec<(u32, u32, usize)>> = HashMap::new();
         for (n, node) in nodes.iter().enumerate() {
-            let (r, w) = self.access(spec, *node)?;
+            let (r, w) = self.access(spec, *node);
             for (o, lo, hi) in w {
                 writers.entry(o).or_default().push((lo, hi, n));
             }
@@ -1437,8 +1486,14 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     }
                 }
             }
-            if let Node::Call(i) = nodes[n] {
-                from.push(nodes.iter().position(|&x| x == Node::In(i)).unwrap());
+            // A child's inputs before its call; a first call before the
+            // inputs of the second.
+            let at = |x: Node| nodes.iter().position(|&y| y == x).unwrap();
+            match nodes[n] {
+                Node::Call(i) => from.push(at(Node::In(i))),
+                Node::Early(i) => from.push(at(Node::Pre(i))),
+                Node::In(i) if lay.splits.contains_key(&i) => from.push(at(Node::Early(i))),
+                _ => {}
             }
             from.sort_unstable();
             from.dedup();
@@ -1460,22 +1515,14 @@ impl<'d, 'a> Lowering<'d, 'a> {
             }
         }
         if order.len() < nodes.len() {
-            let stuck: Vec<String> =
-                (0..nodes.len()).filter(|&n| preds[n] > 0).take(4).map(|n| format!("{:?}", nodes[n])).collect();
-            return Err(format!(
-                "a combinational loop in {}: {} nodes wait on each other, such as {}",
-                self.d.name(self.d.spec(spec).name),
-                nodes.len() - order.len(),
-                stuck.join(", ")
-            ));
+            return Err((0..nodes.len()).filter(|&n| preds[n] > 0).collect());
         }
         Ok(order)
     }
 
     /// The bits a node reads and writes: (object, from, to) with `to`
     /// exclusive.
-    #[allow(clippy::type_complexity)]
-    fn access(&self, spec: SpecId, node: Node) -> Result<(Vec<(ObjId, u32, u32)>, Vec<(ObjId, u32, u32)>), String> {
+    fn access(&self, spec: SpecId, node: Node) -> (Vec<Span>, Vec<Span>) {
         let d = self.d;
         let lay = &self.layouts[&spec];
         let mut r = Vec::new();
@@ -1505,22 +1552,294 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     self.writes(drv.lhs, &mut w, &mut r);
                 }
             }
-            Node::In(i) => {
-                for c in &d.instance(i).connections {
-                    if let (Some(e), Some(Dir::Input)) = (c.expr, self.port_dir(i, c.port)) {
+            Node::In(i) | Node::Pre(i) => {
+                let pre = if let Node::Pre(_) = node { lay.splits.get(&i) } else { None };
+                for (p, e) in self.connections(i) {
+                    if p.dir == Dir::Input && pre.is_none_or(|s| p.object.is_some_and(|o| s.ins.contains(&o))) {
                         self.reads(e, &mut r);
                     }
                 }
             }
-            Node::Call(i) => {
-                for c in &d.instance(i).connections {
-                    if let (Some(e), Some(Dir::Output)) = (c.expr, self.port_dir(i, c.port)) {
+            Node::Call(i) | Node::Early(i) => {
+                let split = lay.splits.get(&i);
+                for (p, e) in self.connections(i) {
+                    let early = split.is_some_and(|s| p.object.is_some_and(|o| s.outs.contains(&o)));
+                    if p.dir == Dir::Output && (split.is_none() || early == matches!(node, Node::Early(_))) {
                         self.writes(e, &mut w, &mut r);
                     }
                 }
             }
         }
-        Ok((r, w))
+        (r, w)
+    }
+
+    /// The pieces of a specialisation's combinational code (see [`Dep`]).
+    fn deps(&self, spec: SpecId) -> Vec<Dep> {
+        let d = self.d;
+        let lay = &self.layouts[&spec];
+        let mut out = Vec::new();
+        for (n, &node) in lay.code.iter().enumerate() {
+            match node {
+                Node::Proc(p) => self.stmt_deps(d.processes[p.0 as usize].body, n, &mut Vec::new(), &mut out),
+                // Each output from the inputs it depends on in the child.
+                Node::Call(i) => {
+                    let pd = self.port_deps(d.instance(i).spec);
+                    let conns = self.connections(i);
+                    for &(p, e) in &conns {
+                        let Some(o) = p.object.filter(|_| p.dir == Dir::Output) else { continue };
+                        let (mut w, mut r) = (Vec::new(), Vec::new());
+                        self.writes(e, &mut w, &mut r);
+                        for &(q, qe) in &conns {
+                            if q.dir == Dir::Input && q.object.is_some_and(|qo| pd.get(&o).is_some_and(|s| s.contains(&qo))) {
+                                self.reads(qe, &mut r);
+                            }
+                        }
+                        out.push(Dep { node: n, w, r });
+                    }
+                }
+                Node::In(_) | Node::Pre(_) | Node::Early(_) => {}
+                Node::Driver(_) | Node::Loop(_) => {
+                    let (r, w) = self.access(spec, node);
+                    out.push(Dep { node: n, w, r });
+                }
+            }
+        }
+        out
+    }
+
+    /// A statement's pieces: each assignment, from what it reads and the
+    /// conditions it runs under (`ctl`; after a `break`, `continue` or
+    /// `return`, the conditions it was under stay for the rest).
+    fn stmt_deps(&self, s: StmtId, node: usize, ctl: &mut Vec<Span>, out: &mut Vec<Dep>) {
+        let d = self.d;
+        let piece = |lhs: Option<ExprId>, rhs: &[ExprId], ctl: &[Span], out: &mut Vec<Dep>| {
+            let (mut w, mut r) = (Vec::new(), ctl.to_vec());
+            for &e in rhs {
+                self.reads(e, &mut r);
+                self.call_access(e, &mut r, &mut w, &mut Vec::new());
+            }
+            if let Some(l) = lhs {
+                self.writes(l, &mut w, &mut r);
+            }
+            if !w.is_empty() {
+                out.push(Dep { node, w, r });
+            }
+        };
+        match &d.stmt(s).kind {
+            StmtKind::Block { stmts, .. } => stmts.iter().for_each(|&s| self.stmt_deps(s, node, ctl, out)),
+            StmtKind::Assign { kind, lhs, rhs, .. } => {
+                let mut rhs = vec![*rhs];
+                if matches!(kind, AssignKind::Compound(_)) {
+                    rhs.push(*lhs);
+                }
+                piece(Some(*lhs), &rhs, ctl, out);
+            }
+            StmtKind::Expr(x) => {
+                let lhs = match d.expr(*x).kind {
+                    ExprKind::Unary(UnOp::PreInc | UnOp::PostInc | UnOp::PreDec | UnOp::PostDec) => Some(d.expr(*x).args[0]),
+                    _ => None,
+                };
+                piece(lhs, &[*x], ctl, out);
+            }
+            StmtKind::If { cond, then, else_, .. } => {
+                let at = ctl.len();
+                self.reads(*cond, ctl);
+                self.stmt_deps(*then, node, ctl, out);
+                if let Some(x) = else_ {
+                    self.stmt_deps(*x, node, ctl, out);
+                }
+                if !stops(d, *then) && !else_.is_some_and(|x| stops(d, x)) {
+                    ctl.truncate(at);
+                }
+            }
+            StmtKind::Case { expr, items, default, .. } => {
+                let at = ctl.len();
+                self.reads(*expr, ctl);
+                for (labels, _) in items {
+                    labels.iter().for_each(|&l| self.reads(l, ctl));
+                }
+                for (_, body) in items {
+                    self.stmt_deps(*body, node, ctl, out);
+                }
+                if let Some(x) = default {
+                    self.stmt_deps(*x, node, ctl, out);
+                }
+                if !items.iter().any(|i| stops(d, i.1)) && !default.is_some_and(|x| stops(d, x)) {
+                    ctl.truncate(at);
+                }
+            }
+            StmtKind::For { init, cond, step, body, .. } => {
+                init.iter().for_each(|&s| self.stmt_deps(s, node, ctl, out));
+                let at = ctl.len();
+                if let Some(c) = cond {
+                    self.reads(*c, ctl);
+                }
+                // Twice, for what one iteration hands the next.
+                for _ in 0..2 {
+                    self.stmt_deps(*body, node, ctl, out);
+                    step.iter().for_each(|&s| self.stmt_deps(s, node, ctl, out));
+                }
+                if !stops(d, *body) {
+                    ctl.truncate(at);
+                }
+            }
+            StmtKind::Return(Some(x)) => piece(None, &[*x], ctl, out),
+            _ => {}
+        }
+    }
+
+    /// For each output of a specialisation, the inputs its value depends
+    /// on through its combinational code (none, for a register).
+    fn port_deps(&self, spec: SpecId) -> std::rc::Rc<HashMap<ObjId, HashSet<ObjId>>> {
+        if let Some(r) = self.port_deps.borrow().get(&spec) {
+            return r.clone();
+        }
+        let d = self.d;
+        let lay = &self.layouts[&spec];
+        let ports = &d.spec(spec).ports;
+        let ins: HashSet<ObjId> = ports.iter().filter(|p| p.dir == Dir::Input).filter_map(|p| p.object).collect();
+        let mut out = HashMap::new();
+        if lay.known.is_some() {
+            for p in ports.iter().filter(|p| p.dir == Dir::Output) {
+                out.insert(p.object.unwrap(), ins.clone());
+            }
+        } else {
+            let deps = self.deps(spec);
+            let from = Self::sources(&deps, |o| ins.contains(&o).then_some(o));
+            for p in ports.iter().filter(|p| p.dir == Dir::Output) {
+                let Some(o) = p.object else { continue };
+                let mut s = HashSet::new();
+                for (k, dep) in deps.iter().enumerate() {
+                    if dep.w.iter().any(|t| t.0 == o) {
+                        s.extend(from[k].iter().copied());
+                    }
+                }
+                out.insert(o, s);
+            }
+        }
+        let r = std::rc::Rc::new(out);
+        self.port_deps.borrow_mut().insert(spec, r.clone());
+        r
+    }
+
+    /// For each piece, the sources it depends on, through the pieces
+    /// that write what it reads: `source` says which objects are sources,
+    /// and names them.
+    fn sources<T: Copy + Eq + std::hash::Hash>(deps: &[Dep], source: impl Fn(ObjId) -> Option<T>) -> Vec<HashSet<T>> {
+        let mut writers: HashMap<ObjId, Vec<(u32, u32, usize)>> = HashMap::new();
+        for (k, dep) in deps.iter().enumerate() {
+            for &(o, lo, hi) in &dep.w {
+                writers.entry(o).or_default().push((lo, hi, k));
+            }
+        }
+        // Who each piece reads from.
+        let mut from: Vec<HashSet<T>> = vec![HashSet::new(); deps.len()];
+        let mut preds: Vec<Vec<usize>> = vec![Vec::new(); deps.len()];
+        for (k, dep) in deps.iter().enumerate() {
+            for &(o, lo, hi) in &dep.r {
+                if let Some(t) = source(o) {
+                    from[k].insert(t);
+                }
+                for &(wlo, whi, j) in writers.get(&o).map(|v| v.as_slice()).unwrap_or(&[]) {
+                    if wlo < hi && lo < whi && j != k {
+                        preds[k].push(j);
+                    }
+                }
+            }
+            preds[k].sort_unstable();
+            preds[k].dedup();
+        }
+        loop {
+            let mut changed = false;
+            for k in 0..deps.len() {
+                for j in preds[k].clone() {
+                    if j != k && !from[j].is_subset(&from[k]) {
+                        let add: Vec<T> = from[j].iter().copied().collect();
+                        from[k].extend(add);
+                        changed = true;
+                    }
+                }
+            }
+            if !changed {
+                return from;
+            }
+        }
+    }
+
+    /// Calls children twice where the code loops only through them (see
+    /// [`Split`]): for a child whose call is in a loop, the outputs that
+    /// depend on no input the loop goes through come from a first call.
+    fn split_calls(&mut self, spec: SpecId) -> Result<(), String> {
+        let d = self.d;
+        let mut tried = HashSet::new();
+        loop {
+            let Err(stuck) = self.order_of(spec) else { return Ok(()) };
+            let lay = &self.layouts[&spec];
+            let cands: Vec<InstId> = stuck
+                .iter()
+                .filter_map(|&n| if let Node::Call(i) = lay.code[n] { Some(i) } else { None })
+                .filter(|i| !lay.splits.contains_key(i) && !tried.contains(i))
+                .collect();
+            let Some(&i) = cands.first() else { return self.order(spec).map(|_| ()) };
+            tried.insert(i);
+            // What the child's outputs reach in the parent, and so the
+            // inputs that the loop goes through.
+            let deps = self.deps(spec);
+            let call = lay.code.iter().position(|&x| x == Node::Call(i)).unwrap();
+            let mut reached: Vec<Span> = deps.iter().filter(|x| x.node == call).flat_map(|x| x.w.iter().copied()).collect();
+            let mut done = vec![false; deps.len()];
+            loop {
+                let mut more = false;
+                for (k, dep) in deps.iter().enumerate() {
+                    if !done[k] && dep.node != call && dep.r.iter().any(|&(o, lo, hi)| reached.iter().any(|&(ro, rlo, rhi)| ro == o && rlo < hi && lo < rhi)) {
+                        done[k] = true;
+                        more = true;
+                        reached.extend(dep.w.iter().copied());
+                    }
+                }
+                if !more {
+                    break;
+                }
+            }
+            let child = d.instance(i).spec;
+            let pd = self.port_deps(child);
+            let mut late = HashSet::new();
+            let mut split = Split::default();
+            for (p, e) in self.connections(i) {
+                let Some(o) = p.object.filter(|_| p.dir == Dir::Input) else { continue };
+                let mut r = Vec::new();
+                self.reads(e, &mut r);
+                if r.iter().any(|&(o, lo, hi)| reached.iter().any(|&(ro, rlo, rhi)| ro == o && rlo < hi && lo < rhi)) {
+                    late.insert(o);
+                }
+            }
+            for p in d.spec(child).ports.iter().filter(|p| p.dir == Dir::Output) {
+                let Some(o) = p.object else { continue };
+                let need = pd.get(&o).cloned().unwrap_or_default();
+                if need.is_disjoint(&late) {
+                    split.outs.insert(o);
+                    split.ins.extend(need);
+                }
+            }
+            if split.outs.is_empty() {
+                continue;
+            }
+            let lay = self.layouts.get_mut(&spec).unwrap();
+            let at = lay.code.iter().position(|&x| x == Node::In(i)).unwrap();
+            lay.code.splice(at..at, [Node::Pre(i), Node::Early(i)]);
+            lay.splits.insert(i, split);
+        }
+    }
+
+    /// A child's ports and what each is connected to.
+    fn connections(&self, i: InstId) -> Vec<(&'d crate::design::Port, ExprId)> {
+        let d = self.d;
+        let inst = d.instance(i);
+        d.spec(inst.spec)
+            .ports
+            .iter()
+            .filter_map(|p| Some((p, inst.connections.iter().find(|c| c.port == p.name)?.expr?)))
+            .collect()
     }
 
     /// What a statement reads and writes, with the functions it calls
@@ -1599,10 +1918,6 @@ impl<'d, 'a> Lowering<'d, 'a> {
         for &a in &x.args {
             self.call_access(a, r, w, seen);
         }
-    }
-
-    fn port_dir(&self, i: InstId, name: crate::design::Sym) -> Option<Dir> {
-        self.d.spec(self.d.instance(i).spec).ports.iter().find(|p| p.name == name).map(|p| p.dir)
     }
 
     fn reads(&self, e: ExprId, out: &mut Vec<(ObjId, u32, u32)>) {
@@ -1992,7 +2307,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 self.run_loop(&seg)?;
                 seg.clear();
                 self.rolled_loop(l)?;
-            } else if let Node::Call(i) = n {
+            } else if let Node::Call(i) | Node::Early(i) = n {
                 self.run_loop(&seg)?;
                 let child = self.d().instance(i).spec;
                 let args = self.child_args(i);
@@ -2226,14 +2541,18 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 self.env.vals.retain(|o, _| d.object(*o).lifetime == Lifetime::Static);
                 Ok(())
             }
-            Node::In(i) => {
+            Node::In(i) | Node::Pre(i) => {
                 let inst = d.instance(i);
                 let child = &self.l.layouts[&inst.spec];
                 let args = self.lay().args[&i].clone();
+                let pre = if let Node::Pre(_) = n { self.lay().splits.get(&i) } else { None };
                 for (port, arg) in d.spec(inst.spec).ports.iter().zip(args) {
                     // Values connected whole are where the child reads them;
                     // an unconnected input's slot stays zero.
                     let (Dir::Input, Arg::Slot(at)) = (port.dir, arg) else { continue };
+                    if pre.is_some_and(|s| port.object.is_none_or(|o| !s.ins.contains(&o))) {
+                        continue;
+                    }
                     let Some(e) = inst.connections.iter().find(|c| c.port == port.name).and_then(|c| c.expr) else { continue };
                     let o = port.object.ok_or("interface ports are not supported yet")?;
                     let w = tw(&d.types, d.object(o).ty);
@@ -2243,11 +2562,17 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 }
                 Ok(())
             }
-            Node::Call(i) => {
+            Node::Call(i) | Node::Early(i) => {
                 let inst = d.instance(i);
                 let child = &self.l.layouts[&inst.spec];
                 let args = self.lay().args[&i].clone();
+                let split = self.lay().splits.get(&i);
                 for (port, arg) in d.spec(inst.spec).ports.iter().zip(args) {
+                    if let Some(s) = split
+                        && port.object.is_some_and(|o| s.outs.contains(&o)) != matches!(n, Node::Early(_))
+                    {
+                        continue;
+                    }
                     match (port.dir, arg) {
                         (Dir::Output, Arg::Slot(at)) => {
                             let Some(e) = inst.connections.iter().find(|c| c.port == port.name).and_then(|c| c.expr) else { continue };
@@ -2867,11 +3192,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     Some(v) => v.clone(),
                     None => self.read(o),
                 };
-                let new = match off {
-                    Off::K(k) => self.insert(&old, k, w, &v),
-                    Off::V(p, ok) => self.insert_var(&old, p, ok, w, &v),
-                    Off::Neg(_) => return Err("a part select partly out of range as a target".into()),
-                };
+                let new = self.insert_off(&old, off, w, &v)?;
                 self.env.nba.insert(o, new);
                 Ok(())
             }
@@ -3478,11 +3799,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 } else {
                     self.read(o)
                 };
-                let new = match off {
-                    Off::K(k) => self.insert(&old, k, w, &v),
-                    Off::V(p, ok) => self.insert_var(&old, p, ok, w, &v),
-                    Off::Neg(_) => return Err("a part select partly out of range as a target".into()),
-                };
+                let new = self.insert_off(&old, off, w, &v)?;
                 self.set(o, new);
                 Ok(())
             }
@@ -3503,15 +3820,119 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let off = match (base, off) {
             (Off::K(a), Off::K(b)) => Off::K(a + b),
             (Off::Neg(_), _) | (_, Off::Neg(_)) => return Err("a part select partly out of range as a target".into()),
+            (Off::K(k), Off::Dec { i, n, stride, add, ok }) | (Off::Dec { i, n, stride, add, ok }, Off::K(k)) => {
+                Off::Dec { i, n, stride, add: add + k, ok }
+            }
             (a, b) => {
-                let (pa, ma) = a.var();
-                let (pb, mb) = b.var();
+                let (pa, ma) = self.off_var(a);
+                let (pb, mb) = self.off_var(b);
                 let p = self.bin("add", pa, pb);
                 let m = self.mand(ma, mb);
                 Off::V(p, m)
             }
         };
         Ok((o, off, w))
+    }
+
+    /// A select's bit offset as a value a lane, and whether it is in range.
+    fn off_var(&mut self, off: Off) -> (P, M) {
+        match off {
+            Off::K(k) => (P::K(k), M::K(true)),
+            Off::Neg(_) => (P::K(0), M::K(false)),
+            Off::V(p, m) => (p, m),
+            Off::Dec { i, stride, add, ok, .. } => {
+                let p = if stride.is_power_of_two() { self.bin("shl", i, P::K(stride.trailing_zeros())) } else { self.bin("mul", i, P::K(stride)) };
+                (self.bin("add", p, P::K(add)), ok)
+            }
+        }
+    }
+
+    /// Whether choosing among `n` elements costs less than shifting a
+    /// value of `len` pieces, for `w` bits.
+    fn decodes(len: usize, n: u32, w: u32) -> bool {
+        n as usize * (3 * pieces(w) + 2) < 3 * len * len
+    }
+
+    /// The `w` bits of `v` at `off`.
+    fn extract_off(&mut self, v: &Val, off: Off, w: u32) -> Val {
+        match off {
+            Off::K(k) => self.extract(v, k, w),
+            Off::Neg(k) => {
+                let v = self.resize(v, v.w + k, false);
+                let v = self.shl_const(&v, k as u64);
+                self.extract(&v, 0, w)
+            }
+            Off::Dec { i, n, stride, add, ok } if Self::decodes(v.p.len(), n, w) => {
+                let mut acc = Val::zero(w);
+                for k in 0..n {
+                    if k * stride + add >= v.w {
+                        break;
+                    }
+                    let hit = self.icmp("eq", i, P::K(k));
+                    let x = self.extract(v, k * stride + add, w);
+                    acc = self.select(hit, &x, &acc);
+                }
+                let z = Val::zero(w);
+                self.select(ok, &acc, &z)
+            }
+            _ => {
+                let (p, ok) = self.off_var(off);
+                let v = self.lshr_var(v, p, None);
+                let v = self.extract(&v, 0, w);
+                let z = Val::zero(w);
+                self.select(ok, &v, &z)
+            }
+        }
+    }
+
+    /// `v` with the `w` bits at `off` replaced by `x`.
+    fn insert_off(&mut self, v: &Val, off: Off, w: u32, x: &Val) -> Result<Val, String> {
+        Ok(match off {
+            Off::K(k) => self.insert(v, k, w, x),
+            Off::Neg(_) => return Err("a part select partly out of range as a target".into()),
+            Off::Dec { i, n, stride, add, ok } if Self::decodes(v.p.len(), n, w) => {
+                let mut acc = v.clone();
+                for k in 0..n {
+                    if k * stride + add >= v.w {
+                        break;
+                    }
+                    let hit = self.icmp("eq", i, P::K(k));
+                    let hit = self.mand(hit, ok);
+                    let new = self.insert(&acc, k * stride + add, w, x);
+                    acc = self.select(hit, &new, &acc);
+                }
+                acc
+            }
+            _ => {
+                let (p, ok) = self.off_var(off);
+                self.insert_var(v, p, ok, w, x)
+            }
+        })
+    }
+
+    /// The object, offset and width of a select of selects of an object,
+    /// if one is variable: read as one select, not each in turn.
+    fn read_place(&mut self, e: ExprId) -> Result<Option<(ObjId, Off, u32)>, String> {
+        let d = self.d();
+        let mut at = e;
+        let mut var = false;
+        loop {
+            let x = d.expr(at);
+            match x.kind {
+                ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_) => {
+                    if !matches!(x.kind, ExprKind::Member(_)) && self.l.const_select(at).is_none() {
+                        var = true;
+                    }
+                    at = x.args[0];
+                }
+                ExprKind::Object(o) if var && matches!(d.object(o).kind, ObjKind::Variable | ObjKind::Net(_)) => break,
+                _ => return Ok(None),
+            }
+        }
+        match self.place(e) {
+            Ok(p) => Ok(Some(p)),
+            Err(_) => Ok(None),
+        }
     }
 
     /// The bit offset of a select in its base, and its width.
@@ -3567,6 +3988,9 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         ok = self.mand(ok, a);
         ok = self.mand(ok, b);
         let elems = if l >= r { self.bin("sub", k, P::K(r as u32)) } else { self.bin("sub", P::K((r - n + 1) as u32), k) };
+        if matches!(x.kind, ExprKind::Index) {
+            return Ok((Off::Dec { i: elems, n: (max - min + 1) as u32, stride: ew, add: 0, ok }, w));
+        }
         let bits = if ew.is_power_of_two() { self.bin("shl", elems, P::K(ew.trailing_zeros())) } else { self.bin("mul", elems, P::K(ew)) };
         Ok((Off::V(bits, ok), w))
     }
@@ -3649,10 +4073,11 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     }
 
     /// A select's offset if it is the same in every lane.
-    fn uniform_off(&self, off: Off) -> Option<(P, M)> {
+    fn uniform_off(&mut self, off: Off) -> Option<(P, M)> {
         match off {
             Off::K(k) => Some((P::K(k), M::K(true))),
             Off::V(p, ok) if self.is_uniform(p) => Some((p, ok)),
+            Off::Dec { i, .. } if self.is_uniform(i) => Some(self.off_var(off)),
             _ => None,
         }
     }
@@ -3949,22 +4374,13 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                         return Ok(self.mem_extract(o, p, ok, w2));
                     }
                 }
+                if let Some((o, off, w)) = self.read_place(e)? {
+                    let v = self.read(o);
+                    return Ok(self.extract_off(&v, off, w));
+                }
                 let base = self.expr(x.args[0])?;
                 let (off, w) = self.offset(e)?;
-                Ok(match off {
-                    Off::K(k) => self.extract(&base, k, w),
-                    Off::Neg(k) => {
-                        let v = self.resize(&base, base.w + k, false);
-                        let v = self.shl_const(&v, k as u64);
-                        self.extract(&v, 0, w)
-                    }
-                    Off::V(p, ok) => {
-                        let v = self.lshr_var(&base, p, None);
-                        let v = self.extract(&v, 0, w);
-                        let z = Val::zero(w);
-                        self.select(ok, &v, &z)
-                    }
-                })
+                Ok(self.extract_off(&base, off, w))
             }
             ExprKind::SysCall(f) => match d.name(*f) {
                 // The same bits, read as signed or unsigned (11.7).
@@ -4410,6 +4826,13 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             }
             return b;
         }
+        // Only the pieces the bits are in.
+        let first = (lo / 32) as usize;
+        if first > 0 && first < v.p.len() {
+            let end = (((lo + w).min(v.w) as usize).div_ceil(32) + 1).min(v.p.len());
+            let part = Val { w: v.w.min(32 * end as u32) - 32 * first as u32, p: v.p[first..end].to_vec() };
+            return self.extract(&part, lo % 32, w);
+        }
         let s = self.lshr_const(v, lo as u64, None);
         self.resize(&s, w, false)
     }
@@ -4769,19 +5192,28 @@ enum Off {
     K(u32),
     Neg(u32),
     V(P, M),
+    /// Element `i` (from the least significant) of `n`, each `stride`
+    /// bits, then `add` bits up; in range where `ok`. A select of one of
+    /// few wide elements is then one select an element of the bits it
+    /// takes, not a shift of the whole value.
+    Dec { i: P, n: u32, stride: u32, add: u32, ok: M },
 }
 
 impl Off {
     fn with_sign(self, off: i64) -> Off {
         if off < 0 { Off::Neg((-off) as u32) } else { self }
     }
+}
 
-    fn var(self) -> (P, M) {
-        match self {
-            Off::K(k) => (P::K(k), M::K(true)),
-            Off::Neg(_) => (P::K(0), M::K(false)),
-            Off::V(p, m) => (p, m),
-        }
+/// Whether a statement holds a `break`, `continue` or `return`.
+fn stops(d: &Design, s: StmtId) -> bool {
+    match &d.stmt(s).kind {
+        StmtKind::Break | StmtKind::Continue | StmtKind::Return(_) => true,
+        StmtKind::Block { stmts, .. } => stmts.iter().any(|&s| stops(d, s)),
+        StmtKind::If { then, else_, .. } => stops(d, *then) || else_.is_some_and(|x| stops(d, x)),
+        StmtKind::Case { items, default, .. } => items.iter().any(|i| stops(d, i.1)) || default.is_some_and(|x| stops(d, x)),
+        StmtKind::For { body, .. } => stops(d, *body),
+        _ => false,
     }
 }
 
@@ -4998,6 +5430,7 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
                 Node::Proc(p) => self.stmt(d.processes[p.0 as usize].body)?,
                 Node::In(_) => {}
                 Node::Call(i) => self.call(i)?,
+                Node::Pre(_) | Node::Early(_) => return Err(Unproved),
             }
         }
         Ok(())

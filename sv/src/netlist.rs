@@ -2141,7 +2141,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         // The inputs compared with their copies, and copied: each a loop
         // over its registers, as they lie one after another.
         let mut changed = b.const_int(t.i1, 0);
-        for &(at, lane, w, copy) in &self.watch {
+        for (wi, &(at, lane, w, copy)) in self.watch.iter().enumerate() {
             let ty = match (sh.scalar(), lane) {
                 (_, Lane::Bit) => t.i16,
                 (true, Lane::B8) => t.i8,
@@ -2154,7 +2154,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
             };
             let (unit, units) = (lane.reg_bytes(sh), lane.pieces(w) * sh.chunks as u64);
             let zero = b.module().const_zero(ty);
-            let lp = b.new_block("watch");
+            let lp = b.new_block(&format!("watch{wi}"));
             b.br(lp);
             b.at(lp);
             let z64 = b.const_int(t.i64, 0);
@@ -2177,7 +2177,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
             let end = b.icmp(ICmpPred::Eq, next, k);
             b.add_incoming(i, next, lp);
             b.add_incoming(acc, acc2, lp);
-            let out = b.new_block("watched");
+            let out = b.new_block(&format!("watched{wi}"));
             b.cond_br(end, out, lp);
             b.at(out);
             // Whether any lane of it differs.
@@ -3300,7 +3300,10 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
 
     /// A new block, not yet written to.
     fn new_block(&mut self, name: &str) -> BlockId {
-        self.b.new_block(name)
+        // (Numbered: each block's name its own, so that the IR prints as
+        // text that parses.)
+        let n = self.b.function().blocks.len();
+        self.b.new_block(&format!("{name}{n}"))
     }
 
     /// Writes to block `b` from now on.

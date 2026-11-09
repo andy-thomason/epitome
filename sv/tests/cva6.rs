@@ -624,6 +624,8 @@ fn guarded_arms() {
     // (Scalar code puts costly arms behind branches of its own.)
     let ir = b.net.ir();
     let guards = ir.matches("label %guard").count() + ir.matches("label %then").count();
+    // (The IR as text parses back.)
+    epitome_ir::parse_module(&ir).unwrap_or_else(|e| panic!("the netlist's IR as text: {e:?}"));
     assert!(guards >= 4, "the costly arms are not guarded");
     let ns = time_replay(&b, &v, cycles, n, &stim, 3);
     // The same without guards, every arm run and merged by selects.

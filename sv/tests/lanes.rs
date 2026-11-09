@@ -210,8 +210,8 @@ fn pmp_entries_as_lanes() {
         assert_eq!(net.ir.matches("; pmp_entry").count(), 1, "pmp_entry lowered more than once");
         // (Its function's name, from the line after its comment.)
         let head = &net.ir[net.ir.find(&format!("; pmp_entry, {lanes} lanes\n")).unwrap()..];
-        let name = head.lines().nth(1).and_then(|l| l.split('@').nth(1)).and_then(|l| l.split('(').next()).unwrap().to_string();
-        let calls = net.ir.matches(&format!("call void @{name}(")).count();
+        let entry = head.lines().nth(1).and_then(|l| l.split('@').nth(1)).and_then(|l| l.split('(').next()).unwrap().to_string();
+        let calls = net.ir.matches(&format!("call void @{entry}(")).count();
         assert_eq!(calls, if sims <= 8 { 1 } else { 8 }, "pmp_entry's calls");
         let b = build(&name, net, &t, triple, &mattr);
         report(&name, &b);

@@ -117,7 +117,11 @@ fn popcount_tree() {
         )
         .unwrap();
         let files = vec![cva6.join("vendor/pulp-platform/common_cells/src/popcount.sv"), src];
-        let b = build(&name, netlist_of(files.clone(), Vec::new(), &name), &t, triple, &mattr);
+        let net = netlist_of(files.clone(), Vec::new(), &name);
+        // The tree is proved to count ones: at most the top and the count,
+        // none of the instances below it.
+        assert!(net.ir.matches("\ndefine void @sv_eval_").count() <= 2, "{name}: the popcount tree is not recognised");
+        let b = build(&name, net, &t, triple, &mattr);
         let mut rng = Rng(0x5EED ^ w as u64);
         let mask = if w == 64 { !0 } else { (1u64 << w) - 1 };
         let stim: Vec<u32> = (0..GROUP)

@@ -310,6 +310,7 @@ pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, 
         sub_locals: RefCell::default(),
         loop_vars: RefCell::default(),
         port_deps: RefCell::default(),
+        parts: HashMap::new(),
     };
     let spec = d.instance(top).spec;
     n.layout(spec)?;
@@ -380,6 +381,21 @@ struct Layout {
     splits: HashMap<InstId, Split>,
     /// The arrays kept an element to a piece-aligned run (see [`Pad`]).
     pads: HashMap<ObjId, Pad>,
+    /// Wide values that stay in the state, not in registers: padded
+    /// arrays, other arrays indexed by a value, and registers that no
+    /// clocked process reads. Each select loads the pieces it reads, and
+    /// each assignment stores the pieces it changes in the lanes that run
+    /// it (`Func::path`), so the arms of a branch need no selects of them
+    /// where they meet, nor phis around a guarded arm.
+    kept: HashSet<ObjId>,
+    /// Of those, the registers: nonblocking assignments store their next
+    /// values in place, as no clocked process reads them.
+    in_place: HashSet<ObjId>,
+    /// For a child its parent calls twice (see [`Split`]): its code in two
+    /// functions, `_a` with what the first call's outputs need, and `_b`
+    /// with the rest and what of `_a` reads inputs the first call does not
+    /// have, run again.
+    part: Option<(Vec<Node>, Vec<Node>)>,
 }
 
 /// A child called twice: first with the inputs that some of its outputs
@@ -397,10 +413,7 @@ struct Split {
 /// An array of wide elements that is indexed by a value, kept with each
 /// element starting a 32-bit piece: a select of one of its elements, the
 /// same bits of each, is then the same shift whichever it is, and a
-/// select of whole pieces. It stays in the state: each select loads the
-/// pieces it reads, and each assignment stores the pieces it changes in
-/// the lanes that run it (`Func::path`), so the arms of a branch need no
-/// selects of it where they meet.
+/// select of whole pieces. It is kept in the state (`Layout::kept`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Pad {
     /// The element's width.
@@ -472,6 +485,9 @@ impl Layout {
             fresh: HashSet::new(),
             splits: HashMap::new(),
             pads: HashMap::new(),
+            kept: HashSet::new(),
+            in_place: HashSet::new(),
+            part: None,
         }
     }
 
@@ -580,6 +596,8 @@ struct Rolled {
 
 /// Fewest iterations worth a loop.
 const ROLL_MIN: usize = 4;
+/// Fewest pieces of a value worth keeping in the state (`Layout::kept`).
+const KEPT_MIN: usize = 8;
 /// Fewest instructions, for one register of lanes, of an arm of an `if` or
 /// `case` (or a clocked process's body) worth a branch around it, taken only
 /// when some lane needs the arm. The test is a few instructions (the mask's
@@ -617,6 +635,9 @@ struct Lowering<'d, 'a> {
     /// there.
     loop_vars: RefCell<HashSet<ObjId>>,
     port_deps: RefCell<HashMap<SpecId, std::rc::Rc<HashMap<ObjId, HashSet<ObjId>>>>>,
+    /// The specialisations called twice, each by its one parent, with
+    /// what the first call has and gives.
+    parts: HashMap<SpecId, Split>,
 }
 
 impl<'d, 'a> Lowering<'d, 'a> {
@@ -671,8 +692,18 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let ff_reads: HashSet<ObjId> = ff_reads.into_iter().map(|t| t.0).collect();
         lay.elems = self.element_only(&objs, &code);
         lay.elems.retain(|o, _| !lay.regs.contains(o) && !ff_reads.contains(o));
-        lay.pads = self.padded(&objs, &code, &lay.ff);
+        let indexed = self.indexed(&code, &lay.ff);
+        lay.pads = self.padded(&objs, &indexed);
         lay.pads.retain(|o, _| !lay.elems.contains_key(o));
+        lay.kept = lay.pads.keys().copied().collect();
+        for &o in &objs {
+            let ob = d.object(o);
+            let reg = lay.regs.contains(&o) && !ff_reads.contains(&o);
+            if ob.dir.is_none() && !lay.elems.contains_key(&o) && pieces(tw(&d.types, ob.ty)) >= KEPT_MIN && (reg || indexed.contains(&o)) {
+                lay.kept.insert(o);
+            }
+        }
+        lay.in_place = lay.kept.iter().copied().filter(|o| lay.regs.contains(o) && !ff_reads.contains(o)).collect();
         for node in code {
             if let Node::In(i) = node {
                 self.layout(d.instance(i).spec)?;
@@ -685,6 +716,10 @@ impl<'d, 'a> Lowering<'d, 'a> {
         lay.clocked = !lay.ff.is_empty() || lay.code.iter().any(|n| matches!(*n, Node::Call(i) if self.layouts[&d.instance(i).spec].clocked));
         self.layouts.insert(spec, lay);
         self.split_calls(spec)?;
+        if let Some(split) = self.parts.get(&spec).cloned() {
+            let part = self.part_of(spec, &split);
+            self.layouts.get_mut(&spec).unwrap().part = part;
+        }
         let planes = self.opts.bit_planes;
         let below_top = self.top != Some(spec);
         // Below the top, ports are the function's pointer parameters.
@@ -743,7 +778,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let aliased: HashSet<ObjId> = args.iter().flat_map(|a| a.1.iter().flatten().copied()).collect();
         self.layouts.insert(spec, lay);
         let mut local = self.loop_locals(spec)?;
-        local.retain(|o| !ff_reads.contains(o) && !self.layouts[&spec].pads.contains_key(o));
+        local.retain(|o| !ff_reads.contains(o) && !self.layouts[&spec].kept.contains(o));
         let fresh = self.fresh_values(spec)?;
         let mut lay = self.layouts.remove(&spec).unwrap();
         for o in objs {
@@ -761,7 +796,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
             }
         }
         lay.fresh = fresh;
-        lay.fresh.retain(|o| !lay.pads.contains_key(o));
+        lay.fresh.retain(|o| !lay.kept.contains(o));
         // The registers' next values, and the edges' last values. Only a
         // port below the top needs a slot for its next value: its storage
         // may be its parent's, read by the parent's clocked processes,
@@ -846,7 +881,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
     fn loop_locals(&self, spec: SpecId) -> Result<HashSet<ObjId>, String> {
         let d = self.d;
         let lay = &self.layouts[&spec];
-        let order = self.order(spec)?;
+        let (order, second) = self.sequence(spec)?;
         // The loop each node runs in, as Func::body splits them.
         let mut seg = 0usize;
         let mut rolled = HashSet::new();
@@ -854,6 +889,9 @@ impl<'d, 'a> Lowering<'d, 'a> {
         // it is first written and first read only.
         let mut used: HashMap<ObjId, (HashSet<usize>, usize, usize)> = HashMap::new();
         for (pos, &node) in order.iter().enumerate() {
+            if pos == second {
+                seg += 1;
+            }
             let at = match node {
                 Node::Loop(_) => {
                     seg += 1;
@@ -903,7 +941,11 @@ impl<'d, 'a> Lowering<'d, 'a> {
         // For each value written: the loop its writers are in, if one, and
         // whether they are all continuous assignments.
         let mut writers: HashMap<ObjId, (Option<usize>, bool)> = HashMap::new();
-        for node in self.order(spec)? {
+        let (order, second) = self.sequence(spec)?;
+        for (pos, node) in order.into_iter().enumerate() {
+            if pos == second {
+                seg += 1;
+            }
             match node {
                 Node::Loop(_) => seg += 2,
                 Node::Call(_) | Node::Early(_) => seg += 1,
@@ -975,10 +1017,8 @@ impl<'d, 'a> Lowering<'d, 'a> {
         Ok(())
     }
 
-    /// The arrays to keep padded (see [`Pad`]): internal ones of at least
-    /// two elements wider than a piece and not a whole number of pieces,
-    /// that some select indexes by a value.
-    fn padded(&self, objs: &[ObjId], code: &[Node], ff: &[ProcId]) -> HashMap<ObjId, Pad> {
+    /// The objects that some select indexes by a value.
+    fn indexed(&self, code: &[Node], ff: &[ProcId]) -> HashSet<ObjId> {
         let d = self.d;
         let mut exprs = Vec::new();
         for node in code {
@@ -1008,6 +1048,14 @@ impl<'d, 'a> Lowering<'d, 'a> {
             }
             exprs.extend(x.args.iter().copied());
         }
+        indexed
+    }
+
+    /// The arrays to keep padded (see [`Pad`]): internal ones of at least
+    /// two elements wider than a piece and not a whole number of pieces,
+    /// that some select indexes by a value.
+    fn padded(&self, objs: &[ObjId], indexed: &HashSet<ObjId>) -> HashMap<ObjId, Pad> {
+        let d = self.d;
         let mut out = HashMap::new();
         for &o in objs {
             let ob = d.object(o);
@@ -1526,18 +1574,36 @@ impl<'d, 'a> Lowering<'d, 'a> {
             self.function(k)?;
         }
         let mut f = Func::new(self, spec);
+        let mut parts = String::new();
         match &self.layouts[&spec].known {
             Some(k) => {
                 let k = k.clone();
                 f.run_loop_with(|f| f.known(&k))?;
             }
-            None => {
-                let order = self.order(spec)?;
-                f.body(&order)?;
-            }
+            None => match self.layouts[&spec].part.clone() {
+                None => {
+                    let order = self.order(spec)?;
+                    f.body(&order)?;
+                }
+                // The two parts, and the whole as one then the other.
+                Some((a, b)) => {
+                    let name = fn_name(spec);
+                    let header = f.out.clone();
+                    let params = header[header.find('(').unwrap() + 1..header.find(')').unwrap()].to_string();
+                    for (part, nodes) in [("_a", &a), ("_b", &b)] {
+                        let mut g = Func::new(self, spec);
+                        g.out = g.out.replacen(&format!("@{name}("), &format!("@{name}{part}("), 1);
+                        g.body(nodes)?;
+                        let text = g.finish();
+                        let _ = writeln!(parts, "{text}");
+                    }
+                    let args = params.split(", ").collect::<Vec<_>>().join(", ");
+                    let _ = writeln!(f.out, "  call void @{name}_a({args})\n  call void @{name}_b({args})");
+                }
+            },
         }
         let text = f.finish();
-        let _ = writeln!(self.ir, "; {}\n{text}", self.d.name(self.d.spec(spec).name));
+        let _ = writeln!(self.ir, "; {}\n{parts}{text}", self.d.name(self.d.spec(spec).name));
         if self.layouts[&spec].clocked {
             for phase in [Phase::Ff, Phase::Commit] {
                 let mut f = Func::new(self, spec);
@@ -1940,7 +2006,80 @@ impl<'d, 'a> Lowering<'d, 'a> {
             let lay = self.layouts.get_mut(&spec).unwrap();
             let at = lay.code.iter().position(|&x| x == Node::In(i)).unwrap();
             lay.code.splice(at..at, [Node::Pre(i), Node::Early(i)]);
-            lay.splits.insert(i, split);
+            lay.splits.insert(i, split.clone());
+            // A child with one instance gets functions for the two calls,
+            // laid out again with them.
+            if !self.parts.contains_key(&child) && d.instances.iter().filter(|x| x.spec == child).count() == 1 {
+                self.parts.insert(child, split);
+                let dropped = self.dropped.get();
+                self.layouts.remove(&child);
+                self.layout(child)?;
+                self.dropped.set(dropped);
+            }
+        }
+    }
+
+    /// The two parts of a child called twice (see `Layout::part`), if
+    /// the first leaves out some of its code.
+    fn part_of(&self, spec: SpecId, split: &Split) -> Option<(Vec<Node>, Vec<Node>)> {
+        let d = self.d;
+        let lay = &self.layouts[&spec];
+        let order = self.order(spec).ok()?;
+        let acc: Vec<(Vec<Span>, Vec<Span>)> = order.iter().map(|&n| self.access(spec, n)).collect();
+        let overlaps = |a: &[Span], b: &[Span]| a.iter().any(|&(o, lo, hi)| b.iter().any(|&(p, plo, phi)| o == p && plo < hi && lo < phi));
+        // The nodes a node waits on besides what it reads.
+        let before = |n: Node| -> Vec<Node> {
+            match n {
+                Node::Call(i) => vec![Node::In(i)],
+                Node::Early(i) => vec![Node::Pre(i)],
+                Node::In(i) if lay.splits.contains_key(&i) => vec![Node::Early(i)],
+                _ => Vec::new(),
+            }
+        };
+        // What the first call's outputs need, from the last node back.
+        let mut need: Vec<Span> = split.outs.iter().map(|&o| (o, 0, tw(&d.types, d.object(o).ty).max(1))).collect();
+        let mut a = HashSet::new();
+        let mut forced = HashSet::new();
+        for (k, &n) in order.iter().enumerate().rev() {
+            if forced.contains(&n) || overlaps(&acc[k].1, &need) {
+                a.insert(n);
+                need.extend(acc[k].0.iter().copied());
+                forced.extend(before(n));
+            }
+        }
+        // What reads an input the first call does not have.
+        let late: Vec<Span> = d
+            .spec(spec)
+            .ports
+            .iter()
+            .filter(|p| p.dir == Dir::Input)
+            .filter_map(|p| p.object)
+            .filter(|o| !split.ins.contains(o))
+            .map(|o| (o, 0, tw(&d.types, d.object(o).ty).max(1)))
+            .collect();
+        let mut stale = late;
+        let mut again = HashSet::new();
+        for (k, &n) in order.iter().enumerate() {
+            if overlaps(&acc[k].0, &stale) || before(n).iter().any(|b| again.contains(b)) {
+                again.insert(n);
+                stale.extend(acc[k].1.iter().copied());
+            }
+        }
+        let first: Vec<Node> = order.iter().copied().filter(|n| a.contains(n)).collect();
+        if first.len() == order.len() || first.is_empty() {
+            return None;
+        }
+        let second: Vec<Node> =
+            order.iter().copied().filter(|n| a.contains(n) && again.contains(n)).chain(order.iter().copied().filter(|n| !a.contains(n))).collect();
+        Some((first, second))
+    }
+
+    /// The code in the order it runs, and where the second part of a child
+    /// called twice starts, if it is.
+    fn sequence(&self, spec: SpecId) -> Result<(Vec<Node>, usize), String> {
+        match &self.layouts[&spec].part {
+            Some((a, b)) => Ok((a.iter().chain(b).copied().collect(), a.len())),
+            None => Ok((self.order(spec)?, usize::MAX)),
         }
     }
 
@@ -2427,7 +2566,12 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 self.run_loop(&seg)?;
                 let child = self.d().instance(i).spec;
                 let args = self.child_args(i);
-                let _ = writeln!(self.out, "  call void @{}({args})", fn_name(child));
+                let part = match n {
+                    _ if !self.lay().splits.contains_key(&i) || self.l.layouts[&child].part.is_none() => "",
+                    Node::Early(_) => "_a",
+                    _ => "_b",
+                };
+                let _ = writeln!(self.out, "  call void @{}{part}({args})", fn_name(child));
                 seg = vec![n];
             } else {
                 seg.push(n);
@@ -2764,7 +2908,11 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     if !self.lay().regs.contains(&o) {
                         return Err(format!("{} is assigned nonblocking but is not a register here", d.name(d.object(o).name)));
                     }
-                    self.env.nba.insert(o, v);
+                    if self.lay().in_place.contains(&o) {
+                        self.set(o, v);
+                    } else {
+                        self.env.nba.insert(o, v);
+                    }
                     return Ok(());
                 }
                 let v = self.expr(*rhs)?;
@@ -3056,10 +3204,10 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         objs.sort_unstable_by_key(|o| o.0);
         objs.dedup();
         for o in objs {
-            if self.lay().pads.contains_key(&o) {
-                // Kept in the state, but a register's next value is not:
-                // its value from before, for the way around.
-                if self.ff && self.lay().regs.contains(&o) && !self.env.nba.contains_key(&o) {
+            if self.lay().kept.contains(&o) {
+                // Kept in the state, but a register's next value is not,
+                // unless in place: its value from before, for the way around.
+                if self.ff && self.lay().regs.contains(&o) && !self.lay().in_place.contains(&o) && !self.env.nba.contains_key(&o) {
                     let v = self.read(o);
                     self.env.loaded.insert(o, v);
                 }
@@ -3338,6 +3486,10 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 let (o, off, w) = self.place(lhs)?;
                 if !self.lay().regs.contains(&o) {
                     return Err(format!("{} is assigned nonblocking but is not a register here", d.name(d.object(o).name)));
+                }
+                if self.lay().in_place.contains(&o) {
+                    let v = self.resize(&v, w, false);
+                    return self.write_kept(o, off, w, &v);
                 }
                 let old = match self.env.nba.get(&o) {
                     Some(v) => v.clone(),
@@ -3871,9 +4023,10 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             }
             return acc;
         }
-        if let Some(p) = self.lay().pads.get(&o).copied() {
-            let p = (0..pieces(p.width())).map(|j| self.load_piece(o, j)).collect();
-            return Val { w: self.width(o), p };
+        if self.lay().kept.contains(&o) {
+            let w = self.width(o);
+            let p = (0..pieces(w)).map(|j| self.load_piece(o, j)).collect();
+            return Val { w, p };
         }
         if let Some(v) = self.env.vals.get(&o).or(self.env.loaded.get(&o)) {
             return v.clone();
@@ -3979,13 +4132,32 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         self.store_piece_over(o, j, x, m, None)
     }
 
+    /// Where a select of a value kept in the state is there (see
+    /// [`Self::padded_off`]), if it is a constant or one of few elements.
+    fn kept_off(&self, o: ObjId, off: Off, w: u32) -> Option<Off> {
+        match (self.lay().pads.get(&o), off) {
+            (Some(&p), off) => self.padded_off(p, off, w),
+            (None, off @ (Off::K(_) | Off::Dec { .. })) => Some(off),
+            _ => None,
+        }
+    }
+
+    /// A value as its type has it, from how it is kept.
+    fn logical(&mut self, o: ObjId, v: &Val) -> Val {
+        match self.lay().pads.get(&o).copied() {
+            Some(p) => self.unpad(p, v),
+            None => v.clone(),
+        }
+    }
+
     /// The `w` bits at `off` in `o`.
     fn read_at(&mut self, o: ObjId, off: Off, w: u32) -> Val {
-        let Some(p) = self.lay().pads.get(&o).copied() else {
+        if !self.lay().kept.contains(&o) {
             let v = self.read(o);
             return self.extract_off(&v, off, w);
-        };
-        match self.padded_off(p, off, w) {
+        }
+        let n = self.width(o).div_ceil(32);
+        match self.kept_off(o, off, w) {
             // The pieces the bits are in, of each element they may be in.
             Some(Off::K(k)) => {
                 let (q, r) = ((k / 32) as usize, k % 32);
@@ -3993,13 +4165,19 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 let v = Val { w: 32 * span as u32, p: (0..span).map(|j| self.load_piece(o, q + j)).collect() };
                 self.extract(&v, r, w)
             }
-            Some(Off::Dec { i, n, stride, add, ok }) => {
+            Some(Off::Dec { i, n: count, stride, add, ok }) if stride % 32 == 0 => {
                 let (q, r) = ((add / 32) as usize, add % 32);
                 let span = (r + w).div_ceil(32) as usize;
                 let mut acc = vec![P::K(0); span];
-                for k in 0..n.min(p.n) {
+                for k in 0..count {
                     let at = (k * stride / 32) as usize + q;
+                    if at + span > n as usize {
+                        break;
+                    }
                     let hit = self.icmp("eq", i, P::K(k));
+                    if hit == M::K(false) {
+                        continue;
+                    }
                     for (j, a) in acc.iter_mut().enumerate() {
                         let x = self.load_piece(o, at + j);
                         *a = self.sel(hit, x, *a);
@@ -4012,14 +4190,15 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             }
             _ => {
                 let v = self.read(o);
-                let v = self.unpad(p, &v);
+                let v = self.logical(o, &v);
                 self.extract_off(&v, off, w)
             }
         }
     }
 
-    /// Sets the `w` bits at `off` in a padded array to `x`, in the state.
-    fn write_kept(&mut self, o: ObjId, p: Pad, off: Off, w: u32, x: &Val) -> Result<(), String> {
+    /// Sets the `w` bits at `off` in a value kept in the state to `x`.
+    fn write_kept(&mut self, o: ObjId, off: Off, w: u32, x: &Val) -> Result<(), String> {
+        let n = self.width(o).div_ceil(32) as usize;
         // Each element's pieces that the bits are in, where `hit`.
         let put = |f: &mut Self, at: usize, r: u32, hit: M| {
             let span = (r + w).div_ceil(32) as usize;
@@ -4029,20 +4208,29 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 f.store_piece_over(o, at + j, v.p[j], hit, Some(old[j]));
             }
         };
-        match self.padded_off(p, off, w) {
+        match self.kept_off(o, off, w) {
             Some(Off::K(k)) => put(self, (k / 32) as usize, k % 32, M::K(true)),
-            Some(Off::Dec { i, n, stride, add, ok }) => {
-                for k in 0..n.min(p.n) {
+            Some(Off::Dec { i, n: count, stride, add, ok }) if stride % 32 == 0 => {
+                for k in 0..count {
+                    let at = ((k * stride + add) / 32) as usize;
+                    if at + (add % 32 + w).div_ceil(32) as usize > n {
+                        break;
+                    }
                     let hit = self.icmp("eq", i, P::K(k));
                     let hit = self.mand(hit, ok);
-                    put(self, ((k * stride + add) / 32) as usize, add % 32, hit);
+                    if hit != M::K(false) {
+                        put(self, at, add % 32, hit);
+                    }
                 }
             }
             _ => {
                 let old = self.read(o);
-                let u = self.unpad(p, &old);
+                let u = self.logical(o, &old);
                 let u = self.insert_off(&u, off, w, x)?;
-                let new = self.pad(p, &u);
+                let new = match self.lay().pads.get(&o).copied() {
+                    Some(p) => self.pad(p, &u),
+                    None => u,
+                };
                 for j in 0..new.p.len() {
                     self.store_piece_over(o, j, new.p[j], M::K(true), Some(old.p[j]));
                 }
@@ -4067,7 +4255,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     }
 
     fn set(&mut self, o: ObjId, v: Val) {
-        if self.lay().pads.contains_key(&o) {
+        if self.lay().kept.contains(&o) {
             for (j, &x) in v.p.iter().enumerate() {
                 self.store_piece(o, j, x, M::K(true));
             }
@@ -4120,13 +4308,13 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     return self.elem_write(o, lhs, v);
                 }
                 let (o, off, w) = self.place(lhs)?;
-                if let Some(p) = self.lay().pads.get(&o).copied() {
+                if self.lay().kept.contains(&o) {
                     let v = self.resize(&v, w, false);
-                    return self.write_kept(o, p, off, w, &v);
+                    return self.write_kept(o, off, w, &v);
                 }
                 if self.mem
                     && !self.lay().elems.contains_key(&o)
-                    && !self.lay().pads.contains_key(&o)
+                    && !self.lay().kept.contains(&o)
                     && self.lay().lane(o) == Lane::W32
                     && w <= 32
                     && self.lay().objs.contains_key(&o)
@@ -4320,7 +4508,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     at = x.args[0];
                 }
                 ExprKind::Object(o)
-                    if (var || self.lay().pads.contains_key(&o)) && matches!(d.object(o).kind, ObjKind::Variable | ObjKind::Net(_)) =>
+                    if (var || self.lay().kept.contains(&o)) && matches!(d.object(o).kind, ObjKind::Variable | ObjKind::Net(_)) =>
                 {
                     break;
                 }
@@ -4387,7 +4575,14 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         ok = self.mand(ok, b);
         let elems = if l >= r { self.bin("sub", k, P::K(r as u32)) } else { self.bin("sub", P::K((r - n + 1) as u32), k) };
         if matches!(x.kind, ExprKind::Index) {
-            return Ok((Off::Dec { i: elems, n: (max - min + 1) as u32, stride: ew, add: 0, ok }, w));
+            let n = (max - min + 1) as u32;
+            // (A constant here, an unrolled loop's variable, is one element.)
+            if let (P::K(k), M::K(true)) = (elems, ok)
+                && k < n
+            {
+                return Ok((Off::K(k * ew), w));
+            }
+            return Ok((Off::Dec { i: elems, n, stride: ew, add: 0, ok }, w));
         }
         let bits = if ew.is_power_of_two() { self.bin("shl", elems, P::K(ew.trailing_zeros())) } else { self.bin("mul", elems, P::K(ew)) };
         Ok((Off::V(bits, ok), w))
@@ -4462,7 +4657,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 if self.mem
                     && self.lay().objs.contains_key(&o)
                     && !self.lay().elems.contains_key(&o)
-                    && !self.lay().pads.contains_key(&o)
+                    && !self.lay().kept.contains(&o)
                     && self.lay().lane(o) == Lane::W32 =>
             {
                 Some(o)

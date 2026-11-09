@@ -567,6 +567,8 @@ pub fn rv_instruction(rng: &mut Rng) -> u32 {
 /// from a zeroed state, timing only the evaluations, as which arms run
 /// depends on the values.
 pub fn time_replay(b: &Built, v: &Verilated, cycles: usize, n: usize, stim: &[u32], reps: usize) -> f64 {
+    // NETLIST_REPS multiplies the repetitions, for a profiler to watch.
+    let reps = reps * std::env::var("NETLIST_REPS").ok().and_then(|r| r.parse().ok()).unwrap_or(1);
     let net = &b.net;
     let field = |name: &str| net.port(name).unwrap().clone();
     let ins: Vec<Field> = v.ins.iter().map(|p| field(&p.0)).collect();

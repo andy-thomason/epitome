@@ -526,6 +526,9 @@ struct Layout {
     /// Where each child's state is, and what the child is lowered as.
     kids: HashMap<InstId, u64>,
     kid_keys: HashMap<InstId, Key>,
+    /// The arrays of children called as one, by their first instance (see
+    /// `Lowering::arrays`).
+    groups: HashMap<InstId, Vec<InstId>>,
     /// In vector code with arrays of children: room for a value's pieces,
     /// through which they go a lane at a time to and from the children's.
     scratch: u64,
@@ -653,6 +656,7 @@ impl Layout {
             elems: HashMap::new(),
             kids: HashMap::new(),
             kid_keys: HashMap::new(),
+            groups: HashMap::new(),
             scratch: 0,
             code: Vec::new(),
             known: None,
@@ -860,7 +864,7 @@ struct Lowering<'d, 'a> {
     revs: Vec<Reversal>,
     /// Specialisations' code in order, kept for proving what their
     /// parents compute after a layout of their own has dropped it.
-    sym_orders: RefCell<HashMap<SpecId, Vec<Node>>>,
+    sym_orders: RefCell<HashMap<Key, Vec<Node>>>,
     sub_locals: RefCell<HashMap<SubId, Vec<ObjId>>>,
     /// The parameters that step in the loop being lowered: not constants
     /// there.
@@ -881,7 +885,8 @@ struct Lowering<'d, 'a> {
     /// them.
     codes: HashMap<SpecId, (Vec<ObjId>, Vec<Node>)>,
     /// Arrays of instances (a generate loop's, one an iteration), by their
-    /// first instance: called as one, with a lane block an iteration.
+    /// first instance: called as one, with a lane block an iteration, by a
+    /// parent narrower than registers of 16 lanes (`Layout::groups`).
     arrays: HashMap<InstId, Vec<InstId>>,
     /// The intrinsics the functions call.
     decls: RefCell<BTreeSet<String>>,
@@ -915,19 +920,15 @@ impl<'d, 'a> Lowering<'d, 'a> {
         Ok((objs, code))
     }
 
-    /// The instances an instance node stands for: an array's, or itself.
-    fn members(&self, i: InstId) -> Vec<InstId> {
-        self.arrays.get(&i).cloned().unwrap_or_else(|| vec![i])
+    /// The instances an instance node of `key`'s code stands for: an
+    /// array's, or itself.
+    fn members(&self, key: Key, i: InstId) -> Vec<InstId> {
+        self.layouts.get(&key).and_then(|l| l.groups.get(&i)).cloned().unwrap_or_else(|| vec![i])
     }
 
-    /// The lanes child `i` runs with, below a function of shape `sh` with
-    /// `lanes` lanes: its parent's, or, for an array, a block as wide as
-    /// the parent's registers for each iteration.
-    fn child_lanes(&self, sh: Shape, lanes: u32, i: InstId) -> u32 {
-        match self.members(i).len() as u32 {
-            1 => lanes,
-            k => k * sh.width(),
-        }
+    /// The instances an instance node may stand for: an array's, or itself.
+    fn candidates(&self, i: InstId) -> Vec<InstId> {
+        self.arrays.get(&i).cloned().unwrap_or_else(|| vec![i])
     }
 
     fn layout(&mut self, key: Key) -> Result<(), String> {
@@ -980,60 +981,54 @@ impl<'d, 'a> Lowering<'d, 'a> {
             }
         }
         lay.in_place = lay.kept.iter().copied().filter(|o| lay.regs.contains(o) && !ff_reads.contains(o)).collect();
-        for node in code {
-            if let Node::In(i) = node {
-                lay.code.push(Node::In(i));
-                lay.code.push(Node::Call(i));
-            } else {
-                lay.code.push(node);
-            }
-        }
-        // An array whose call would wait on itself (an iteration's input
-        // made from another's output) is called an instance at a time.
-        self.layouts.insert(key, lay);
-        let arrays: Vec<InstId> = match self.order_of(key) {
-            Ok(_) => Vec::new(),
-            Err(stuck) => {
-                let code = &self.layouts[&key].code;
-                let mut v: Vec<InstId> = stuck
-                    .iter()
-                    .filter_map(|&n| if let Node::In(i) | Node::Call(i) = code[n] { Some(i) } else { None })
-                    .filter(|i| self.arrays.contains_key(i))
-                    .collect();
-                v.sort_unstable_by_key(|i| i.0);
-                v.dedup();
-                v
-            }
-        };
-        if !arrays.is_empty() {
-            let split: HashMap<InstId, Vec<InstId>> = arrays.iter().map(|i| (*i, self.arrays.remove(i).unwrap())).collect();
-            let entry = self.codes.get_mut(&spec).unwrap();
-            entry.1 = entry
-                .1
-                .iter()
-                .flat_map(|&n| match n {
-                    Node::In(i) => split.get(&i).cloned().unwrap_or_else(|| vec![i]).into_iter().map(Node::In).collect(),
-                    n => vec![n],
-                })
-                .collect();
-            let (_, code) = self.code_of(spec)?;
-            let mut nodes = Vec::new();
+        // Arrays of children are called as one by a parent narrower than
+        // registers of 16 lanes, a block of the child's lanes an iteration;
+        // in wider ones each instance has as many lanes as its parent, and
+        // its ports are where the parent keeps what they are connected to.
+        let arrays = self.arrays.clone();
+        let expand = move |lay: &mut Layout, code: Vec<Node>, groups: &HashMap<InstId, Vec<InstId>>| {
+            lay.code.clear();
             for node in code {
                 match node {
                     Node::In(i) => {
-                        nodes.push(Node::In(i));
-                        nodes.push(Node::Call(i));
+                        let ms = if groups.contains_key(&i) { vec![i] } else { arrays.get(&i).cloned().unwrap_or_else(|| vec![i]) };
+                        for m in ms {
+                            lay.code.push(Node::In(m));
+                            lay.code.push(Node::Call(m));
+                        }
                     }
-                    Node::Proc(p) if self.clocked(p).is_some() => {}
-                    n => nodes.push(n),
+                    n => lay.code.push(n),
                 }
             }
-            self.layouts.get_mut(&key).unwrap().code = nodes;
+        };
+        if sh.n < 16 {
+            lay.groups = code.iter().filter_map(|n| if let Node::In(i) = *n { self.arrays.get(&i).map(|m| (i, m.clone())) } else { None }).collect();
+        }
+        let groups = lay.groups.clone();
+        expand(&mut lay, code.clone(), &groups);
+        // An array whose call would wait on itself (an iteration's input
+        // made from another's output) is called an instance at a time.
+        self.layouts.insert(key, lay);
+        if let Err(stuck) = self.order_of(key) {
+            let lay = self.layouts.get_mut(&key).unwrap();
+            let looped: HashSet<InstId> =
+                stuck.iter().filter_map(|&n| if let Node::In(i) | Node::Call(i) = lay.code[n] { Some(i) } else { None }).collect();
+            if lay.groups.keys().any(|i| looped.contains(i)) {
+                lay.groups.retain(|i, _| !looped.contains(i));
+                let groups = lay.groups.clone();
+                expand(lay, code, &groups);
+            }
         }
         let mut lay = self.layouts.remove(&key).unwrap();
         for node in lay.code.clone() {
             if let Node::In(i) = node {
-                let ck = (d.instance(i).spec, self.child_lanes(sh, lanes, i));
+                // A block as wide as this function's registers for each
+                // iteration of an array; a single child's lanes are these.
+                let lanes = match lay.groups.get(&i) {
+                    Some(m) => m.len() as u32 * sh.width(),
+                    None => lanes,
+                };
+                let ck = (d.instance(i).spec, lanes);
                 self.layout(ck)?;
                 lay.kid_keys.insert(i, ck);
             }
@@ -1086,7 +1081,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         for node in &lay.code {
             if let Node::In(i) = *node {
                 let inst = d.instance(i);
-                let single = self.members(i).len() == 1;
+                let single = !lay.groups.contains_key(&i);
                 let row = d
                     .spec(inst.spec)
                     .ports
@@ -1180,7 +1175,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let widest = lay
             .kid_keys
             .iter()
-            .filter(|(i, _)| self.members(**i).len() > 1)
+            .filter(|(i, _)| lay.groups.contains_key(*i))
             .flat_map(|(_, k)| d.spec(k.0).ports.iter().filter_map(|p| p.object).map(|o| pieces(tw(&d.types, d.object(o).ty))))
             .max();
         if let Some(words) = widest.filter(|_| !sh.scalar() && sh.chunks == 1) {
@@ -1478,7 +1473,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 }
                 Node::Proc(p) => self.stmt_uses(d.processes[p.0 as usize].body, &mut uses),
                 Node::In(i) | Node::Call(i) | Node::Pre(i) | Node::Early(i) => {
-                    for m in self.members(i) {
+                    for m in self.candidates(i) {
                         for c in &d.instance(m).connections {
                             if let Some(e) = c.expr {
                                 self.expr_uses(e, &mut uses);
@@ -2247,7 +2242,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
             }
             Node::In(i) | Node::Pre(i) => {
                 let pre = if let Node::Pre(_) = node { lay.splits.get(&i) } else { None };
-                for (p, e) in self.member_connections(i) {
+                for (p, e) in self.member_connections(key, i) {
                     if p.dir == Dir::Input && pre.is_none_or(|s| p.object.is_some_and(|o| s.ins.contains(&o))) {
                         self.reads(e, &mut r);
                     }
@@ -2255,7 +2250,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
             }
             Node::Call(i) | Node::Early(i) => {
                 let split = lay.splits.get(&i);
-                for (p, e) in self.member_connections(i) {
+                for (p, e) in self.member_connections(key, i) {
                     let early = split.is_some_and(|s| p.object.is_some_and(|o| s.outs.contains(&o)));
                     if p.dir == Dir::Output && (split.is_none() || early == matches!(node, Node::Early(_))) {
                         self.writes(e, &mut w, &mut r);
@@ -2300,7 +2295,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 Node::In(i) | Node::Pre(i) => {
                     let child = lay.kid_keys[&i];
                     let args = lay.args.get(&i);
-                    for (p, e) in self.member_connections(i) {
+                    for (p, e) in self.member_connections(key, i) {
                         let mut rs = Vec::new();
                         self.reads(e, &mut rs);
                         let k = self.d.spec(child.0).ports.iter().position(|q| q.name == p.name);
@@ -2330,7 +2325,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 // (An array's outputs, each from any iteration's inputs.)
                 Node::Call(i) => {
                     let pd = self.port_deps(lay.kid_keys[&i]);
-                    let conns = self.member_connections(i);
+                    let conns = self.member_connections(key, i);
                     for &(p, e) in &conns {
                         let Some(o) = p.object.filter(|_| p.dir == Dir::Output) else { continue };
                         let (mut w, mut r) = (Vec::new(), Vec::new());
@@ -2651,8 +2646,8 @@ impl<'d, 'a> Lowering<'d, 'a> {
 
     /// An instance node's ports and what each is connected to: every
     /// iteration's, for an array.
-    fn member_connections(&self, i: InstId) -> Vec<(&'d crate::design::Port, ExprId)> {
-        self.members(i).into_iter().flat_map(|m| self.connections(m)).collect()
+    fn member_connections(&self, key: Key, i: InstId) -> Vec<(&'d crate::design::Port, ExprId)> {
+        self.members(key, i).into_iter().flat_map(|m| self.connections(m)).collect()
     }
 
     /// A child's ports and what each is connected to.
@@ -3577,7 +3572,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             Node::In(i) | Node::Pre(i) => {
                 let ck = self.lay().kid_keys[&i];
                 let child = &self.l.layouts[&ck];
-                let members = self.l.members(i);
+                let members = self.l.members(self.key, i);
                 let args = self.lay().args[&i].clone();
                 let pre = if let Node::Pre(_) = n { self.lay().splits.get(&i) } else { None };
                 for (port, arg) in d.spec(ck.0).ports.iter().zip(args) {
@@ -3613,7 +3608,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             Node::Call(i) | Node::Early(i) => {
                 let ck = self.lay().kid_keys[&i];
                 let child = &self.l.layouts[&ck];
-                let members = self.l.members(i);
+                let members = self.l.members(self.key, i);
                 let args = self.lay().args[&i].clone();
                 let split = self.lay().splits.get(&i);
                 for (port, arg) in d.spec(ck.0).ports.iter().zip(args) {
@@ -7254,6 +7249,8 @@ struct Sym<'s, 'd, 'a> {
     l: &'s Lowering<'d, 'a>,
     m: Manager,
     env: FxMap<ObjId, Bits2>,
+    /// What the code being run is lowered as.
+    key: Key,
 }
 
 impl<'d, 'a> Lowering<'d, 'a> {
@@ -7285,8 +7282,8 @@ impl<'d, 'a> Lowering<'d, 'a> {
             return None;
         }
         let order = self.order(key).ok()?;
-        self.sym_orders.borrow_mut().insert(spec, order.clone());
-        let mut s = Sym { l: self, m: Manager::new(1 << 20), env: FxMap::default() };
+        self.sym_orders.borrow_mut().insert(key, order.clone());
+        let mut s = Sym { l: self, m: Manager::new(1 << 20), env: FxMap::default(), key };
         let x: Bits2 = (0..w).map(|i| s.m.var(i)).collect::<Result<_, _>>().ok()?;
         s.env.insert(input, x.clone());
         s.run(&order).ok()?;
@@ -7414,7 +7411,7 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
                 Node::Rev(r) => self.l.revs[r].all.iter().try_for_each(|&dr| self.driver(dr))?,
                 Node::Proc(p) => self.stmt(d.processes[p.0 as usize].body)?,
                 Node::In(_) => {}
-                Node::Call(i) => self.l.members(i).into_iter().try_for_each(|m| self.call(m))?,
+                Node::Call(i) => self.l.members(self.key, i).into_iter().try_for_each(|m| self.call(m))?,
                 Node::Pre(_) | Node::Early(_) => return Err(Unproved),
             }
         }
@@ -7426,12 +7423,10 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
     fn call(&mut self, i: InstId) -> Sr<()> {
         let d = self.d();
         let inst = d.instance(i);
-        let order = match self.l.sym_orders.borrow().get(&inst.spec) {
+        let key = *self.l.layouts.get(&self.key).and_then(|l| l.kid_keys.get(&i)).ok_or(Unproved)?;
+        let order = match self.l.sym_orders.borrow().get(&key) {
             Some(o) => o.clone(),
-            None => {
-                let key = self.l.layouts.keys().find(|k| k.0 == inst.spec).copied().ok_or(Unproved)?;
-                self.l.order(key).map_err(|_| Unproved)?
-            }
+            None => self.l.order(key).map_err(|_| Unproved)?,
         };
         let mut env = FxMap::default();
         let conn = |p: &crate::design::Port| inst.connections.iter().find(|c| c.port == p.name).and_then(|c| c.expr);
@@ -7447,7 +7442,9 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
             }
         }
         let outer = std::mem::replace(&mut self.env, env);
+        let caller = std::mem::replace(&mut self.key, key);
         let ran = self.run(&order);
+        self.key = caller;
         let inner = std::mem::replace(&mut self.env, outer);
         ran?;
         for p in &d.spec(inst.spec).ports {

@@ -112,7 +112,8 @@ endmodule
 
 /// The arrays design for one simulation, a few, and many, against
 /// Verilator: arrays of instances are lanes of one call (the cells, the
-/// leaves of each row), a chain of them an instance at a time.
+/// leaves of each row) below parents narrower than 16 lanes, a chain of
+/// them an instance at a time.
 #[test]
 fn arrays_of_instances() {
     let Some((t, triple, mattr)) = host() else {
@@ -174,7 +175,7 @@ endmodule
 
 /// CVA6's PMP unit for one simulation, a few and many, against Verilator:
 /// its eight `pmp_entry`s are one call with eight lanes for each lane of
-/// the unit.
+/// the unit, or with as many simulations as fill registers of 16, eight.
 #[test]
 fn pmp_entries_as_lanes() {
     let Some(cva6) = std::env::var_os("CVA6_DIR").map(PathBuf::from) else {
@@ -195,16 +196,23 @@ fn pmp_entries_as_lanes() {
     for sims in [1, 3, 16, GROUP] {
         let name = format!("pmp_lanes_{sims}");
         let net = netlist_with(files.clone(), incs.clone(), "pmp_top", options_for(sims));
-        // pmp_entry for eight lanes for each of the unit's (its registers'
-        // width of them, padding included).
-        let width = match sims {
-            1 => 1,
-            2..=4 => 4,
-            5..=8 => 8,
+        // Below a unit narrower than registers of 16 lanes, pmp_entry for
+        // eight lanes for each of the unit's (its registers' width of them,
+        // padding included), one call; below a wider one, eight calls with
+        // the unit's lanes.
+        let lanes = match sims {
+            1 => 8,
+            2..=4 => 8 * 4,
+            5..=8 => 8 * 8,
             s => s.next_multiple_of(16),
         };
-        assert!(net.ir.contains(&format!("; pmp_entry, {} lanes\n", 8 * width)), "pmp_entry is not lowered for 8 lanes of each of the unit's");
+        assert!(net.ir.contains(&format!("; pmp_entry, {lanes} lanes\n")), "pmp_entry is not lowered for {lanes} lanes");
         assert_eq!(net.ir.matches("; pmp_entry").count(), 1, "pmp_entry lowered more than once");
+        // (Its function's name, from the line after its comment.)
+        let head = &net.ir[net.ir.find(&format!("; pmp_entry, {lanes} lanes\n")).unwrap()..];
+        let name = head.lines().nth(1).and_then(|l| l.split('@').nth(1)).and_then(|l| l.split('(').next()).unwrap().to_string();
+        let calls = net.ir.matches(&format!("call void @{name}(")).count();
+        assert_eq!(calls, if sims <= 8 { 1 } else { 8 }, "pmp_entry's calls");
         let b = build(&name, net, &t, triple, &mattr);
         report(&name, &b);
         if v.is_none() {

@@ -25,6 +25,7 @@ pub mod isel;
 pub mod lanewise;
 pub mod layout;
 pub mod legalize;
+pub mod load;
 pub mod machine;
 pub mod macho;
 pub mod mir;
@@ -63,9 +64,13 @@ pub struct Compiled {
     /// For Mach-O: the least macOS version the code is for, from the
     /// module's triple (`arm64-apple-macosx26.0.0`), else 11.0.
     pub min_os: (u32, u32, u32),
+    /// The assembly, unless `Options::no_asm` left it empty (`assembly`
+    /// writes it then).
     pub asm: String,
     /// Whether the module had assembly of its own, which `asm` ends with.
     pub module_asm: bool,
+    /// The module's own assembly, line by line.
+    pub module_asm_lines: Vec<String>,
     /// With `keep_going`: the functions that could not be compiled, and why.
     pub errors: Vec<String>,
     /// Autochop: the functions counted (in module order), each one's count
@@ -140,6 +145,12 @@ pub struct Options {
     pub threads: usize,
     /// Autochop: how far elective choices may go (`epitome_ir::chop`).
     pub chop: Option<epitome_ir::chop::Limit>,
+    /// Leave `Compiled::asm` empty: for a caller that wants only the
+    /// object, or the code loaded (`load`), which are encoded from the
+    /// machine functions, not from the text. `Compiled::assembly` writes
+    /// the text if it is wanted after all (inline assembly wants it: only
+    /// the assembler reads that).
+    pub no_asm: bool,
 }
 
 /// Time spent in each stage of compiling functions, summed over every
@@ -464,64 +475,32 @@ pub fn compile(t: &Target, m: &mut Module, opts: &Options) -> Result<Compiled, S
     }
     let cx = Ctx { m, dl: &dl, t, features: Default::default(), hfa: abi.hfa };
     let min_os = min_os_version(&String::from_utf8_lossy(cx.m.triple.as_deref().unwrap_or_default()));
-    let mut out = String::new();
-    if abi.syntax == abi::Syntax::MachO {
-        let (a, b, c) = min_os;
-        let update = if c == 0 { String::new() } else { format!(", {c}") };
-        out.push_str(&format!("\t.build_version macos, {a}, {b}{update}\n"));
-    }
-    out.push_str(&format!("\t{}\n", abi.section_directive(object::SectionKind::Text)));
-    // Each function's text, in parallel; then in order.
-    let all: Vec<usize> = (0..funcs.len()).collect();
-    let texts = par_run(
-        funcs.len(),
-        &all,
-        threads,
-        || (),
-        |_, k| {
-            let mut s = String::new();
-            asm::function(t, &funcs[k], k, &mut s).map(|()| s)
-        },
-        || (),
-    );
-    for text in texts {
-        out.push_str(&text?);
-    }
     // A machine without globals has no data: `fits` has rejected every
     // function that would use some, so what is left is unused.
     let mut globals = if t.machine.lacks("globals") { Vec::new() } else { asm::collect_globals(&cx, &abi)? };
     globals.extend(asm::eh_stubs(&funcs, &abi));
-    asm::print_globals(&abi, &globals, &mut out);
     let aliases = asm::collect_aliases(&cx, &abi)?;
-    asm::print_aliases(&aliases, &mut out);
-    // The module's own assembly, after ours (which the assembler then
-    // assembles, rather than the object being written directly).
-    let module_asm = !cx.m.module_asm.is_empty();
-    if module_asm {
-        out.push_str(&format!("\t{}\n", abi.section_directive(object::SectionKind::Text)));
-        for line in &cx.m.module_asm {
-            out.push_str(&String::from_utf8_lossy(line));
-            out.push('\n');
-        }
-    }
-    if abi.syntax == abi::Syntax::Elf {
-        // The stack need not be executable.
-        out.push_str("\t.section .note.GNU-stack,\"\",%progbits\n");
-    }
-    Ok(Compiled {
-        module_asm,
+    let module_asm_lines: Vec<String> =
+        cx.m.module_asm.iter().map(|line| String::from_utf8_lossy(line).into_owned()).collect();
+    let mut c = Compiled {
+        module_asm: !module_asm_lines.is_empty(),
+        module_asm_lines,
         funcs,
         globals,
         aliases,
         abi,
         min_os,
-        asm: out,
+        asm: String::new(),
         errors,
         chop_names,
         chop_counts: chop.counts(),
         chop_stopped: chop.stopped_at(),
         opaque: opaque_ir,
-    })
+    };
+    if !opts.no_asm {
+        c.asm = c.text(t, threads)?;
+    }
+    Ok(c)
 }
 
 /// The macOS version a triple names (`macosx26.0.0`, `macos14.2`), or 11.0,
@@ -536,6 +515,73 @@ pub fn min_os_version(triple: &str) -> (u32, u32, u32) {
 }
 
 impl Compiled {
+    /// The assembly: `asm`, or if `Options::no_asm` left that out, written
+    /// now.
+    pub fn assembly(&self, t: &Target) -> Result<std::borrow::Cow<'_, str>, String> {
+        if !self.asm.is_empty() {
+            return Ok(std::borrow::Cow::Borrowed(&self.asm));
+        }
+        let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(self.funcs.len()).max(1);
+        self.text(t, threads).map(std::borrow::Cow::Owned)
+    }
+
+    /// The assembly for the functions, the globals and the module's own
+    /// assembly, the functions' written on up to `threads` threads.
+    fn text(&self, t: &Target, threads: usize) -> Result<String, String> {
+        let abi = &self.abi;
+        let mut out = String::new();
+        if abi.syntax == abi::Syntax::MachO {
+            let (a, b, c) = self.min_os;
+            let update = if c == 0 { String::new() } else { format!(", {c}") };
+            out.push_str(&format!("\t.build_version macos, {a}, {b}{update}\n"));
+        }
+        out.push_str(&format!("\t{}\n", abi.section_directive(object::SectionKind::Text)));
+        // Each function's text, in parallel; then in order.
+        let funcs = &self.funcs;
+        let all: Vec<usize> = (0..funcs.len()).collect();
+        let texts = par_run(
+            funcs.len(),
+            &all,
+            threads,
+            || (),
+            |_, k| {
+                let mut s = String::new();
+                asm::function(t, &funcs[k], k, &mut s).map(|()| s)
+            },
+            || (),
+        );
+        for text in texts {
+            out.push_str(&text?);
+        }
+        asm::print_globals(abi, &self.globals, &mut out);
+        asm::print_aliases(&self.aliases, &mut out);
+        // The module's own assembly, after ours (which the assembler then
+        // assembles, rather than the object being written directly).
+        if self.module_asm {
+            out.push_str(&format!("\t{}\n", abi.section_directive(object::SectionKind::Text)));
+            for line in &self.module_asm_lines {
+                out.push_str(line);
+                out.push('\n');
+            }
+        }
+        if abi.syntax == abi::Syntax::Elf {
+            // The stack need not be executable.
+            out.push_str("\t.section .note.GNU-stack,\"\",%progbits\n");
+        }
+        Ok(out)
+    }
+
+    /// Whether there is assembly only the assembler reads: the module's
+    /// own, or inline assembly in a function.
+    pub fn has_inline_asm(&self) -> bool {
+        self.module_asm || self.funcs.iter().any(|f| !f.asms.is_empty())
+    }
+
+    /// The assembly, assembled.
+    pub fn assembled(&self, t: &Target) -> Result<assembler::Assembled, String> {
+        assembler::Assembler::new(t).assemble(&self.assembly(t)?, Some(self.abi.syntax))
+    }
+
     /// The object file's contents, in the abstract (see `object`).
     pub fn object(&self, t: &Target) -> Result<object::Object, String> {
         object::build(t, &self.abi, &self.funcs, &self.globals, &self.aliases)
@@ -545,8 +591,8 @@ impl Compiled {
     /// inline assembly, whose text only an assembler reads, by assembling
     /// the assembly.
     pub fn object_file(&self, t: &Target) -> Result<Vec<u8>, String> {
-        if self.module_asm || self.funcs.iter().any(|f| !f.asms.is_empty()) {
-            return assembler::Assembler::new(t).assemble(&self.asm, Some(self.abi.syntax)).and_then(|a| a.file(t));
+        if self.has_inline_asm() {
+            return self.assembled(t)?.file(t);
         }
         let obj = self.object(t)?;
         match self.abi.syntax {

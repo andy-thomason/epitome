@@ -311,9 +311,28 @@ pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, 
         loop_vars: RefCell::default(),
         port_deps: RefCell::default(),
         parts: HashMap::new(),
+        comb_reads: RefCell::default(),
+        watch: Vec::new(),
     };
     let spec = d.instance(top).spec;
     n.layout(spec)?;
+    // The inputs the top's settling reads, each with a copy of its value
+    // at the last settling, and whether there has been one.
+    if n.layouts[&spec].clocked {
+        let mut size = n.layouts[&spec].size;
+        for p in &d.spec(spec).ports {
+            let Some(o) = p.object.filter(|_| p.dir == Dir::Input) else { continue };
+            if !n.comb_reads(spec, o) {
+                continue;
+            }
+            let lay = &n.layouts[&spec];
+            let bytes = lay.lane(o).bytes(tw(&d.types, d.object(o).ty));
+            n.watch.push((lay.objs[&o], bytes, size));
+            size += bytes;
+        }
+        n.watch.push((0, 0, size));
+        n.layouts.get_mut(&spec).unwrap().size = size + REG;
+    }
     n.ir.push_str("declare i32 @llvm.umin.i32(i32, i32)\ndeclare <16 x i32> @llvm.ctlz.v16i32(<16 x i32>, i1)\n\n");
     n.function(spec)?;
     let lay = &n.layouts[&spec];
@@ -638,6 +657,10 @@ struct Lowering<'d, 'a> {
     /// The specialisations called twice, each by its one parent, with
     /// what the first call has and gives.
     parts: HashMap<SpecId, Split>,
+    comb_reads: RefCell<HashMap<(SpecId, ObjId), bool>>,
+    /// For the top's step: each input its settling reads, its bytes and
+    /// where its copy is; last, where it notes that it has settled.
+    watch: Vec<(u64, u64, u64)>,
 }
 
 impl<'d, 'a> Lowering<'d, 'a> {
@@ -1613,10 +1636,37 @@ impl<'d, 'a> Lowering<'d, 'a> {
             }
             if self.top == Some(spec) {
                 let n = fn_name(spec);
+                // The inputs compared with their copies, and copied.
+                let mut cmp = String::new();
+                let mut acc = "zeroinitializer".to_string();
+                let mut from = "entry".to_string();
+                let (watch, settled) = self.watch.split_at(self.watch.len() - 1);
+                let settled = settled[0].2;
+                for (k, &(at, bytes, copy)) in watch.iter().enumerate() {
+                    let _ = write!(
+                        cmp,
+                        "  br label %W{k}\nW{k}:\n  %w{k} = phi i64 [ 0, %{from} ], [ %w{k}.next, %W{k} ]\n  \
+                         %w{k}.in = phi {V16} [ {acc}, %{from} ], [ %w{k}.acc, %W{k} ]\n  %w{k}.a = add i64 %w{k}, {at}\n  \
+                         %w{k}.p = getelementptr i8, ptr %s, i64 %w{k}.a\n  %w{k}.v = load {V16}, ptr %w{k}.p, align 64\n  \
+                         %w{k}.b = add i64 %w{k}, {copy}\n  %w{k}.q = getelementptr i8, ptr %s, i64 %w{k}.b\n  \
+                         %w{k}.u = load {V16}, ptr %w{k}.q, align 64\n  store {V16} %w{k}.v, ptr %w{k}.q, align 64\n  \
+                         %w{k}.x = xor {V16} %w{k}.v, %w{k}.u\n  %w{k}.acc = or {V16} %w{k}.in, %w{k}.x\n  \
+                         %w{k}.next = add i64 %w{k}, 64\n  %w{k}.end = icmp eq i64 %w{k}.next, {bytes}\n  \
+                         br i1 %w{k}.end, label %X{k}, label %W{k}\nX{k}:\n"
+                    );
+                    acc = format!("%w{k}.acc");
+                    from = format!("X{k}");
+                }
                 let _ = writeln!(
                     self.ir,
-                    "; a step: settle, sample the registers, and where an edge came, commit\n; them and settle again\n\
-                     define void @{n}_step(ptr %s) {{\nentry:\n  call void @{n}(ptr %s)\n  %fired = call i1 @{n}_ff(ptr %s)\n  \
+                    "; a step: settle, unless no input it reads has changed since it last did,\n\
+                     ; sample the registers, and where an edge came, commit them and settle again\n\
+                     define void @{n}_step(ptr %s) {{\nentry:\n{cmp}  %diff = icmp ne {V16} {acc}, zeroinitializer\n  \
+                     %diff.bits = bitcast {M16} %diff to i16\n  %same = icmp eq i16 %diff.bits, 0\n  \
+                     %settled.p = getelementptr i8, ptr %s, i64 {settled}\n  %settled = load i8, ptr %settled.p, align 1\n  \
+                     %was = icmp ne i8 %settled, 0\n  %skip = and i1 %same, %was\n  br i1 %skip, label %sample, label %settle\n\
+                     settle:\n  call void @{n}(ptr %s)\n  store i8 1, ptr %settled.p, align 1\n  br label %sample\n\
+                     sample:\n  %fired = call i1 @{n}_ff(ptr %s)\n  \
                      br i1 %fired, label %commit, label %done\ncommit:\n  call void @{n}_commit(ptr %s)\n  call void @{n}(ptr %s)\n  \
                      br label %done\ndone:\n  ret void\n}}\n"
                 );
@@ -1750,6 +1800,34 @@ impl<'d, 'a> Lowering<'d, 'a> {
             }
         }
         (r, w)
+    }
+
+    /// Whether a specialisation's settling code reads an input of its,
+    /// itself or in a child, or only its clocked processes do (a clock).
+    fn comb_reads(&self, spec: SpecId, o: ObjId) -> bool {
+        if let Some(&r) = self.comb_reads.borrow().get(&(spec, o)) {
+            return r;
+        }
+        let lay = &self.layouts[&spec];
+        let mut r = lay.known.is_some();
+        for &node in &lay.code {
+            match node {
+                Node::In(i) | Node::Pre(i) => {
+                    let child = self.d.instance(i).spec;
+                    for (p, e) in self.connections(i) {
+                        let mut rs = Vec::new();
+                        self.reads(e, &mut rs);
+                        if p.dir == Dir::Input && rs.iter().any(|t| t.0 == o) && p.object.is_some_and(|q| self.comb_reads(child, q)) {
+                            r = true;
+                        }
+                    }
+                }
+                Node::Call(_) | Node::Early(_) => {}
+                _ => r |= self.access(spec, node).0.iter().any(|t| t.0 == o),
+            }
+        }
+        self.comb_reads.borrow_mut().insert((spec, o), r);
+        r
     }
 
     /// The pieces of a specialisation's combinational code (see [`Dep`]).

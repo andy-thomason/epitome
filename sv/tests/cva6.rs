@@ -633,3 +633,127 @@ fn guarded_arms() {
         v.bench(cycles, n, &stim, 3)
     );
 }
+
+/// Bit offsets of scoreboard_entry_t's fields (a packed struct, the
+/// first member highest), from its width: the exception is what is left.
+struct Sbe {
+    ex: usize,
+}
+
+impl Sbe {
+    fn of(width: u32) -> Sbe {
+        Sbe { ex: width as usize - 186 }
+    }
+    // (From the least significant: six flags, the branch prediction (43
+    // bits: address, cf, valid), the exception, use_pc, use_zimm, use_imm,
+    // valid, result, rd, rs2, rs1, op, fu, trans_id, pc.)
+    const BP_VALID: usize = 48;
+    const EX: usize = 49;
+    fn use_pc(&self) -> usize {
+        Self::EX + self.ex
+    }
+    fn result(&self) -> usize {
+        self.use_pc() + 4
+    }
+    fn rd(&self) -> usize {
+        self.result() + 64
+    }
+    fn op(&self) -> usize {
+        self.rd() + 15
+    }
+    fn fu(&self) -> usize {
+        self.op() + 8
+    }
+    fn pc(&self) -> usize {
+        self.fu() + 7
+    }
+}
+
+/// A register number, the low ones more often (so that instructions
+/// depend on each other).
+fn reg(rng: &mut Rng) -> u64 {
+    if rng.next() % 2 == 0 { rng.next() % 6 } else { rng.next() % 32 }
+}
+
+#[test]
+fn cva6_issue_stage() {
+    let Some((cva6, (t, triple, mattr))) = setup() else { return };
+    let (files, incs) = slice_files(
+        &cva6,
+        "issue_top",
+        include_str!("cva6/issue_top.sv"),
+        &[
+            "core/cvxif_issue_register_commit_if_driver.sv",
+            "core/raw_checker.sv",
+            "core/ariane_regfile_ff.sv",
+            "core/scoreboard.sv",
+            "core/issue_read_operands.sv",
+            "core/issue_stage.sv",
+        ],
+    );
+    let b = build("issue_stage", netlist_of(files.clone(), incs.clone(), "issue_top"), &t, triple, &mattr);
+    report("issue_stage", &b);
+    let Some(v) = verilate("issue_stage", &files, &incs, "issue_top", &b.net.ports, Some("clk_i")) else { return };
+    let sbe = Sbe::of(b.net.port("decoded_instr_i").unwrap().width);
+    let ex = sbe.ex;
+    let (cycles, n) = (200, GROUP);
+    let mut rng = Rng(0x155E_57A6_E000_0001);
+    // Random, with flushes, stalls and exceptions now and then.
+    let stim = stimulus_with(&v, cycles, n, &mut rng, &mut |name, c, rng, w| match name {
+        "rst_ni" => w[0] = (c > 0 && rng.next() % 64 != 0) as u32,
+        "flush_i" => w[0] = (rng.next() % 16 == 0) as u32,
+        "flush_unissued_instr_i" | "stall_i" => w[0] = (rng.next() % 8 == 0) as u32,
+        "decoded_instr_i" => {
+            set_bits(w, Sbe::EX + 1, 1, (rng.next() % 8 == 0) as u64);
+            set_bits(w, sbe.fu(), 4, rng.next() % 12);
+            set_bits(w, sbe.rd(), 15, reg(rng) | reg(rng) << 5 | reg(rng) << 10);
+        }
+        "ex_ex_i" => {
+            for k in 0..5 {
+                set_bits(w, k * ex + 1, 1, (rng.next() % 8 == 0) as u64);
+            }
+        }
+        "waddr_i" => w[0] = (reg(rng) | reg(rng) << 5) as u32,
+        _ => {}
+    });
+    check_against(&b, &v, cycles, n, &stim, &|w| format!("{w:x?}"));
+    let ns = time_replay(&b, &v, cycles, n, &stim, 3);
+    eprintln!("issue_stage: {n} instances, {cycles} cycles agree with Verilator; {ns:.2} ns an instance a cycle; Verilator {}", v.bench(cycles, n, &stim, 3));
+    // A program's flow: instructions mostly for the ALU, loads, stores and
+    // branches, results written back and committed now and then, no
+    // exceptions, flushes rare.
+    let typ = stimulus_with(&v, cycles, n, &mut rng, &mut |name, c, rng, w| match name {
+        "rst_ni" => w[0] = (c > 0) as u32,
+        "flush_i" => w[0] = (rng.next() % 256 == 0) as u32,
+        "flush_unissued_instr_i" => w[0] = (rng.next() % 64 == 0) as u32,
+        "stall_i" | "fpu_early_valid_i" | "x_we_i" => w[0] = 0,
+        "decoded_instr_valid_i" | "lsu_ready_i" => w[0] = (rng.next() % 8 != 0) as u32,
+        "flu_ready_i" | "fpu_ready_i" | "xfu_ready_i" | "x_issue_ready_i" | "x_register_ready_i" => w[0] = 1,
+        "decoded_instr_i" => {
+            w.fill(0);
+            let fu = [3, 3, 3, 3, 1, 1, 2, 4, 4, 5, 6, 7, 0][rng.next() as usize % 13];
+            set_bits(w, sbe.pc(), 39, rng.next() & 0x7F_FFFF_FFFE);
+            set_bits(w, sbe.fu(), 4, fu);
+            set_bits(w, sbe.op(), 8, rng.next() % 226);
+            set_bits(w, sbe.rd(), 15, reg(rng) | reg(rng) << 5 | reg(rng) << 10);
+            set_bits(w, sbe.result(), 64, ((rng.next() as i64) >> 52) as u64);
+            set_bits(w, sbe.use_pc(), 3, [0, 0, 4, 4, 1][rng.next() as usize % 5]);
+        }
+        "orig_instr_i" => w[0] = rv_instruction_typical(rng),
+        "is_ctrl_flow_i" => w[0] = 0,
+        "x_issue_resp_i" => w[0] = 0,
+        "hart_id_i" => w.fill(0),
+        "wt_valid_i" => w[0] = (0..4).map(|k| ((rng.next() % 4 == 0) as u32) << k).sum(),
+        "ex_ex_i" | "resolved_branch_i" => w.fill(0),
+        "resolve_branch_i" => w[0] = (rng.next() % 16 == 0) as u32,
+        "waddr_i" => w[0] = (reg(rng) | reg(rng) << 5) as u32,
+        "we_gpr_i" => w[0] = (rng.next() % 3 == 0) as u32 | ((rng.next() % 8 == 0) as u32) << 1,
+        "we_fpr_i" => w[0] = 0,
+        "commit_ack_i" => w[0] = if rng.next() % 2 == 0 { 1 | ((rng.next() % 4 == 0) as u32) << 1 } else { 0 },
+        _ => {}
+    });
+    let _ = Sbe::BP_VALID;
+    check_against(&b, &v, cycles, n, &typ, &|w| format!("{w:x?}"));
+    let ns = time_replay(&b, &v, cycles, n, &typ, 3);
+    eprintln!("issue_stage, typical: {ns:.2} ns an instance a cycle; Verilator {}", v.bench(cycles, n, &typ, 3));
+}

@@ -2,22 +2,30 @@
 //! values computed in 32-bit lanes and stored as narrow as they fit.
 //!
 //! Each specialisation becomes one function, `sv_eval_<n>(ptr %state, ptr
-//! %port...)`, over a group of [`GROUP`] instances: for each variable or
-//! net, its 32-bit pieces (low piece first), each piece [`CHUNKS`]
-//! registers of [`LANES`] lanes. The function is a loop over the group's
-//! registers, so its code grows with the specialisation's source, not with
-//! the number of instances. A child instance's state is part of its
-//! parent's, and the parent calls the child's function once for the whole
-//! group, between two loops: one that works out the child's inputs, and
-//! one that reads its outputs.
+//! %port...)`, over a group of instances: for each variable or net, its
+//! 32-bit pieces (low piece first), each piece [`CHUNKS`] registers of
+//! [`LANES`] lanes, or fewer where a group's state would not fit
+//! [`STATE_MAX`] (`Netlist::chunks`). The function is a loop over the
+//! group's registers, so its code grows with the specialisation's source,
+//! not with the number of instances. A child instance's state is part of
+//! its parent's, and the parent calls the child's function once for the
+//! whole group, between two loops: one that works out the child's inputs,
+//! and one that reads its outputs. Where the parent's code loops through a
+//! child, though no output of the child depends on itself, the child is
+//! called twice (see [`Split`]), each call with a function of its own.
 //!
 //! A specialisation with registers below it also has `_ff`, which runs its
 //! clocked processes where an edge came (each lane's edge a mask) and
 //! makes the registers' next values, and `_commit`; the top's `_step`
-//! settles, samples, commits and settles again (see [`Phase`]).
+//! settles (unless no input it reads has changed since it last did),
+//! samples, commits and settles again (see [`Phase`]).
 //!
 //! Functions are written out where they are called. Fixed-size unpacked
-//! arrays are laid out as packed ones with the same bounds would be.
+//! arrays are laid out as packed ones with the same bounds would be. A
+//! select of one of few wide elements by a value is a choice among them
+//! (`Off::Dec`); arrays of such elements are padded to whole pieces
+//! ([`Pad`]), and wide arrays and registers stay in the state
+//! (`Layout::kept`), loaded and stored where they are used.
 //!
 //! The output is Epitome IR as text, `<16 x i32>` vectors and `<16 x i1>`
 //! masks, for `epitome-opt` and `epitome-codegen`.
@@ -45,14 +53,18 @@ use crate::design::{
 
 /// Instances in one register: 32-bit lanes of a 512-bit vector.
 pub const LANES: usize = 16;
-/// Registers in a group.
+/// Registers in a group, at most: fewer where a group's state would not
+/// fit [`STATE_MAX`] (`Netlist::chunks`).
 pub const CHUNKS: usize = 32;
-/// Instances in a group.
+/// Instances in a group, at most.
 pub const GROUP: usize = LANES * CHUNKS;
 /// Bytes in one register of lanes.
 const REG: u64 = 64;
-/// Bytes in one piece of a value for the whole group.
-const PIECE: u64 = REG * CHUNKS as u64;
+/// Most bytes of state a group is given registers for: each function's
+/// loop goes over all of a group's state, which then stays in a core's
+/// second-level cache (1 MB on AMD's Zen 5; a group of CVA6's issue stage
+/// with 32 registers, 1.6 MB, ran a third as fast as with 8).
+pub const STATE_MAX: u64 = 512 << 10;
 
 /// The compiled netlist of one top-level instance.
 pub struct Netlist {
@@ -66,6 +78,10 @@ pub struct Netlist {
     pub ports: Vec<Field>,
     /// Assertions and assertion-only `initial` blocks left out.
     pub dropped: usize,
+    /// With `Options::profile`, what each counter of `sv_prof` times.
+    pub profile: Vec<String>,
+    /// Registers of lanes in a group.
+    pub chunks: usize,
 }
 
 /// Where a value is in a group's state.
@@ -76,6 +92,8 @@ pub struct Field {
     pub offset: usize,
     pub width: u32,
     pub lane: Lane,
+    /// Bytes from one 32-bit piece to the next.
+    pub piece: usize,
 }
 
 /// How a value is stored for each register of lanes: computed on in 32-bit
@@ -112,10 +130,10 @@ impl Lane {
         }
     }
 
-    /// Bytes for a `w`-bit value for the group.
-    fn bytes(self, w: u32) -> u64 {
+    /// Bytes for a `w`-bit value for a group of `chunks` registers.
+    fn bytes(self, w: u32, chunks: u64) -> u64 {
         let n = if self == Lane::W32 { pieces(w) as u64 } else { 1 };
-        n * self.reg_bytes() * CHUNKS as u64
+        n * self.reg_bytes() * chunks
     }
 }
 
@@ -124,7 +142,7 @@ impl Field {
     /// for a value in 32-bit pieces.
     pub fn at(&self, piece: usize, n: usize) -> usize {
         assert_eq!(self.lane, Lane::W32);
-        self.offset + piece * PIECE as usize + (n / LANES) * REG as usize + (n % LANES) * 4
+        self.offset + piece * self.piece + (n / LANES) * REG as usize + (n % LANES) * 4
     }
 
     pub fn pieces(&self) -> usize {
@@ -176,6 +194,11 @@ impl Field {
 }
 
 impl Netlist {
+    /// Instances in a group.
+    pub fn group(&self) -> usize {
+        LANES * self.chunks
+    }
+
     pub fn port(&self, name: &str) -> Option<&Field> {
         self.ports.iter().find(|p| p.name == name)
     }
@@ -262,11 +285,18 @@ pub struct Options {
     /// arms of at least this many instructions a register of lanes (see
     /// [`GUARD_MIN`]); 0 for none, every arm run and selects merging them.
     pub guard_min: usize,
+    /// For profiling: the intrinsic that reads a cycle counter
+    /// (`llvm.x86.rdtsc`), and each call of a child's function and each
+    /// part of the top's step adds the cycles it took to an `i64` of the
+    /// global `sv_prof`, and one to the next, named in [`Netlist::profile`].
+    pub profile: Option<&'static str>,
+    /// Registers of lanes in a group, if not as many as fit [`STATE_MAX`].
+    pub chunks: Option<usize>,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { bit_planes: true, recognise: true, guard_min: GUARD_MIN }
+        Options { bit_planes: true, recognise: true, guard_min: GUARD_MIN, profile: None, chunks: None }
     }
 }
 
@@ -296,23 +326,41 @@ impl Phase {
 }
 
 pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, String> {
-    let mut n = Lowering {
-        top: Some(d.instance(top).spec),
-        opts: *opts,
-        d,
-        layouts: HashMap::new(),
-        done: HashSet::new(),
-        ir: String::new(),
-        folds: RefCell::default(),
-        dropped: Cell::new(0),
-        asserts: RefCell::default(),
-        loops: Vec::new(),
-        sym_orders: RefCell::default(),
-        sub_locals: RefCell::default(),
-        loop_vars: RefCell::default(),
-    };
     let spec = d.instance(top).spec;
+    // As many registers a group as keep its state within STATE_MAX.
+    let chunks = match opts.chunks {
+        Some(c) => c.clamp(1, CHUNKS) as u64,
+        None => {
+            let mut n = Lowering::new(d, top, opts, CHUNKS as u64);
+            n.layout(spec)?;
+            let per = n.layouts[&spec].size.div_ceil(CHUNKS as u64);
+            let mut c = CHUNKS as u64;
+            while c > 1 && per * c > STATE_MAX {
+                c /= 2;
+            }
+            c
+        }
+    };
+    let mut n = Lowering::new(d, top, opts, chunks);
     n.layout(spec)?;
+    // The inputs the top's settling reads, each with a copy of its value
+    // at the last settling, and whether there has been one.
+    if n.layouts[&spec].clocked {
+        let mut size = n.layouts[&spec].size;
+        for p in &d.spec(spec).ports {
+            let Some(o) = p.object.filter(|_| p.dir == Dir::Input) else { continue };
+            if !n.comb_reads(spec, o) {
+                continue;
+            }
+            let lay = &n.layouts[&spec];
+            // (Whole registers: what follows a narrow value is compared too.)
+            let bytes = lay.lane(o).bytes(tw(&d.types, d.object(o).ty), n.chunks).next_multiple_of(REG);
+            n.watch.push((lay.objs[&o], bytes, size));
+            size += bytes;
+        }
+        n.watch.push((0, 0, size));
+        n.layouts.get_mut(&spec).unwrap().size = size + REG;
+    }
     n.ir.push_str("declare i32 @llvm.umin.i32(i32, i32)\ndeclare <16 x i32> @llvm.ctlz.v16i32(<16 x i32>, i1)\n\n");
     n.function(spec)?;
     let lay = &n.layouts[&spec];
@@ -325,11 +373,43 @@ pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, 
             offset: lay.objs[&o] as usize,
             width: tw(&d.types, d.object(o).ty),
             lane: lay.lane(o),
+            piece: (REG * n.chunks) as usize,
         });
     }
     let dropped = n.dropped.get() + n.asserts.borrow().len();
     let entry = if lay.clocked { format!("{}_step", fn_name(spec)) } else { fn_name(spec) };
-    Ok(Netlist { ir: n.ir, entry, size: lay.size as usize, ports, dropped })
+    let profile = n.profile.take();
+    let mut ir = n.ir;
+    if let Some(counter) = opts.profile {
+        let _ = write!(ir, "\n@sv_prof = global [{} x i64] zeroinitializer\ndeclare i64 @{counter}()\n", 2 * profile.len().max(1));
+    }
+    Ok(Netlist { ir, entry, size: lay.size as usize, ports, dropped, profile, chunks: n.chunks as usize })
+}
+
+impl<'d, 'a> Lowering<'d, 'a> {
+    fn new(d: &'d Design<'a>, top: InstId, opts: &Options, chunks: u64) -> Self {
+        Lowering {
+            top: Some(d.instance(top).spec),
+            opts: *opts,
+            chunks,
+            d,
+            layouts: HashMap::new(),
+            done: HashSet::new(),
+            ir: String::new(),
+            folds: RefCell::default(),
+            dropped: Cell::new(0),
+            asserts: RefCell::default(),
+            loops: Vec::new(),
+            sym_orders: RefCell::default(),
+            sub_locals: RefCell::default(),
+            loop_vars: RefCell::default(),
+            port_deps: RefCell::default(),
+            parts: HashMap::new(),
+            comb_reads: RefCell::default(),
+            watch: Vec::new(),
+            profile: RefCell::default(),
+        }
+    }
 }
 
 fn fn_name(s: SpecId) -> String {
@@ -339,6 +419,8 @@ fn fn_name(s: SpecId) -> String {
 /// Where a specialisation's values and children are in its state.
 struct Layout {
     size: u64,
+    /// Registers of lanes in a group.
+    chunks: u64,
     /// The specialisation's static values.
     statics: HashSet<ObjId>,
     /// Where those that need one have their slot in the state: not those
@@ -375,6 +457,72 @@ struct Layout {
     /// each starts there from zero, not from its last value, as every bit
     /// it has is one they drive or zero.
     fresh: HashSet<ObjId>,
+    /// The children called twice, as the parent's code loops through them
+    /// though none of their outputs depends on itself.
+    splits: HashMap<InstId, Split>,
+    /// The arrays kept an element to a piece-aligned run (see [`Pad`]).
+    pads: HashMap<ObjId, Pad>,
+    /// Wide values that stay in the state, not in registers: padded
+    /// arrays, other arrays indexed by a value, and registers that no
+    /// clocked process reads. Each select loads the pieces it reads, and
+    /// each assignment stores the pieces it changes in the lanes that run
+    /// it (`Func::path`), so the arms of a branch need no selects of them
+    /// where they meet, nor phis around a guarded arm.
+    kept: HashSet<ObjId>,
+    /// Of those, the registers: nonblocking assignments store their next
+    /// values in place, as no clocked process reads them.
+    in_place: HashSet<ObjId>,
+    /// For a child its parent calls twice (see [`Split`]): its code in two
+    /// functions, `_a` with what the first call's outputs need, and `_b`
+    /// with the rest and what of `_a` reads inputs the first call does not
+    /// have, run again.
+    part: Option<(Vec<Node>, Vec<Node>)>,
+}
+
+/// A child called twice: first with the inputs that some of its outputs
+/// depend on (the rest as they were), for those outputs, then again with
+/// all of them, for the rest. Its code settles, so the second call gives
+/// the first call's outputs again.
+#[derive(Clone, Debug, Default)]
+struct Split {
+    /// The child's inputs that the first call needs.
+    ins: HashSet<ObjId>,
+    /// The outputs it gives.
+    outs: HashSet<ObjId>,
+}
+
+/// An array of wide elements that is indexed by a value, kept with each
+/// element starting a 32-bit piece: a select of one of its elements, the
+/// same bits of each, is then the same shift whichever it is, and a
+/// select of whole pieces. It is kept in the state (`Layout::kept`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Pad {
+    /// The element's width.
+    ew: u32,
+    n: u32,
+}
+
+impl Pad {
+    /// Bits from one element to the next.
+    fn stride(self) -> u32 {
+        pieces(self.ew) as u32 * 32
+    }
+
+    fn width(self) -> u32 {
+        self.n * self.stride()
+    }
+}
+
+/// Bits of an object: (object, from, to) with `to` exclusive.
+type Span = (ObjId, u32, u32);
+
+/// A piece of a specialisation's combinational code, statement by
+/// statement in its processes: the bits it writes, from the bits it
+/// reads (and those that decide whether it runs).
+struct Dep {
+    node: usize,
+    w: Vec<Span>,
+    r: Vec<Span>,
 }
 
 /// What a parent passes for a child's port.
@@ -397,9 +545,10 @@ enum Base {
 }
 
 impl Layout {
-    fn new() -> Layout {
+    fn new(chunks: u64) -> Layout {
         Layout {
             size: 0,
+            chunks,
             statics: HashSet::new(),
             objs: HashMap::new(),
             lanes: HashMap::new(),
@@ -416,6 +565,11 @@ impl Layout {
             clocked: false,
             fired: 0,
             fresh: HashSet::new(),
+            splits: HashMap::new(),
+            pads: HashMap::new(),
+            kept: HashSet::new(),
+            in_place: HashSet::new(),
+            part: None,
         }
     }
 
@@ -429,7 +583,7 @@ impl Layout {
         if lane != Lane::W32 {
             self.lanes.insert(o, lane);
         }
-        self.size = (self.size + lane.bytes(w)).next_multiple_of(REG);
+        self.size = (self.size + lane.bytes(w, self.chunks)).next_multiple_of(REG);
     }
 }
 
@@ -482,9 +636,10 @@ impl Elems {
         self.bits
     }
 
-    /// Bytes from one element's slot to the next.
-    fn stride(self) -> u64 {
-        if self.planes() { 2 * CHUNKS as u64 } else { PIECE }
+    /// Bytes from one element's slot to the next, in a group of `chunks`
+    /// registers.
+    fn stride(self, chunks: u64) -> u64 {
+        if self.planes() { 2 * chunks } else { REG * chunks }
     }
 }
 
@@ -496,6 +651,10 @@ enum Node {
     In(InstId),
     /// The call of a child's function, then its outputs.
     Call(InstId),
+    /// For a child called twice (`Layout::splits`): the inputs its first
+    /// call needs, and that call with the outputs it gives.
+    Pre(InstId),
+    Early(InstId),
     /// A run of a generate loop's iterations, rolled back into a loop.
     Loop(usize),
 }
@@ -520,6 +679,8 @@ struct Rolled {
 
 /// Fewest iterations worth a loop.
 const ROLL_MIN: usize = 4;
+/// Fewest pieces of a value worth keeping in the state (`Layout::kept`).
+const KEPT_MIN: usize = 8;
 /// Fewest instructions, for one register of lanes, of an arm of an `if` or
 /// `case` (or a clocked process's body) worth a branch around it, taken only
 /// when some lane needs the arm. The test is a few instructions (the mask's
@@ -546,6 +707,8 @@ const UNROLL_TINY_MAX: usize = 8192;
 
 struct Lowering<'d, 'a> {
     opts: Options,
+    /// Registers of lanes in a group.
+    chunks: u64,
     /// The top specialisation: its ports are in its state; every other
     /// specialisation's are where its parent passes pointers to.
     top: Option<SpecId>,
@@ -566,6 +729,16 @@ struct Lowering<'d, 'a> {
     /// The parameters that step in the loop being lowered: not constants
     /// there.
     loop_vars: RefCell<HashSet<ObjId>>,
+    port_deps: RefCell<HashMap<SpecId, std::rc::Rc<HashMap<ObjId, HashSet<ObjId>>>>>,
+    /// The specialisations called twice, each by its one parent, with
+    /// what the first call has and gives.
+    parts: HashMap<SpecId, Split>,
+    comb_reads: RefCell<HashMap<(SpecId, ObjId), bool>>,
+    /// For the top's step: each input its settling reads, its bytes and
+    /// where its copy is; last, where it notes that it has settled.
+    watch: Vec<(u64, u64, u64)>,
+    /// With `Options::profile`, what each counter times.
+    profile: RefCell<Vec<String>>,
 }
 
 impl<'d, 'a> Lowering<'d, 'a> {
@@ -591,7 +764,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 return Err(format!("{}: initial values of variables are not supported yet", d.name(ob.name)));
             }
         }
-        let mut lay = Layout::new();
+        let mut lay = Layout::new(self.chunks);
         lay.statics = objs.iter().copied().collect();
         // Clocked processes are not in the order of the rest: they run
         // after it, on what it has worked out.
@@ -620,6 +793,18 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let ff_reads: HashSet<ObjId> = ff_reads.into_iter().map(|t| t.0).collect();
         lay.elems = self.element_only(&objs, &code);
         lay.elems.retain(|o, _| !lay.regs.contains(o) && !ff_reads.contains(o));
+        let indexed = self.indexed(&code, &lay.ff);
+        lay.pads = self.padded(&objs, &indexed);
+        lay.pads.retain(|o, _| !lay.elems.contains_key(o));
+        lay.kept = lay.pads.keys().copied().collect();
+        for &o in &objs {
+            let ob = d.object(o);
+            let reg = lay.regs.contains(&o) && !ff_reads.contains(&o);
+            if ob.dir.is_none() && !lay.elems.contains_key(&o) && pieces(tw(&d.types, ob.ty)) >= KEPT_MIN && (reg || indexed.contains(&o)) {
+                lay.kept.insert(o);
+            }
+        }
+        lay.in_place = lay.kept.iter().copied().filter(|o| lay.regs.contains(o) && !ff_reads.contains(o)).collect();
         for node in code {
             if let Node::In(i) = node {
                 self.layout(d.instance(i).spec)?;
@@ -631,6 +816,11 @@ impl<'d, 'a> Lowering<'d, 'a> {
         }
         lay.clocked = !lay.ff.is_empty() || lay.code.iter().any(|n| matches!(*n, Node::Call(i) if self.layouts[&d.instance(i).spec].clocked));
         self.layouts.insert(spec, lay);
+        self.split_calls(spec)?;
+        if let Some(split) = self.parts.get(&spec).cloned() {
+            let part = self.part_of(spec, &split);
+            self.layouts.get_mut(&spec).unwrap().part = part;
+        }
         let planes = self.opts.bit_planes;
         let below_top = self.top != Some(spec);
         // Below the top, ports are the function's pointer parameters.
@@ -651,7 +841,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         if self.opts.recognise
             && let Some(k) = self.recognise(spec)
         {
-            let mut lay = Layout::new();
+            let mut lay = Layout::new(self.chunks);
             port_lanes(&mut lay);
             for p in &d.spec(spec).ports {
                 let o = p.object.expect("recognised specialisations have plain ports");
@@ -689,7 +879,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let aliased: HashSet<ObjId> = args.iter().flat_map(|a| a.1.iter().flatten().copied()).collect();
         self.layouts.insert(spec, lay);
         let mut local = self.loop_locals(spec)?;
-        local.retain(|o| !ff_reads.contains(o));
+        local.retain(|o| !ff_reads.contains(o) && !self.layouts[&spec].kept.contains(o));
         let fresh = self.fresh_values(spec)?;
         let mut lay = self.layouts.remove(&spec).unwrap();
         for o in objs {
@@ -697,15 +887,17 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 continue;
             }
             let w = tw(&d.types, d.object(o).ty);
-            match lay.elems.get(&o) {
-                Some(&e) => {
+            match (lay.elems.get(&o), lay.pads.get(&o)) {
+                (Some(&e), _) => {
                     lay.objs.insert(o, lay.size);
-                    lay.size = (lay.size + e.n as u64 * e.stride()).next_multiple_of(REG);
+                    lay.size = (lay.size + e.n as u64 * e.stride(lay.chunks)).next_multiple_of(REG);
                 }
-                None => lay.place(o, w, Lane::of(w, planes)),
+                (None, Some(p)) => lay.place(o, p.width(), Lane::W32),
+                (None, None) => lay.place(o, w, Lane::of(w, planes)),
             }
         }
         lay.fresh = fresh;
+        lay.fresh.retain(|o| !lay.kept.contains(o));
         // The registers' next values, and the edges' last values. Only a
         // port below the top needs a slot for its next value: its storage
         // may be its parent's, read by the parent's clocked processes,
@@ -717,7 +909,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
             let w = tw(&d.types, d.object(o).ty);
             let lane = lay.lane(o);
             lay.shadow.insert(o, lay.size);
-            lay.size = (lay.size + lane.bytes(w)).next_multiple_of(REG);
+            lay.size = (lay.size + lane.bytes(w, lay.chunks)).next_multiple_of(REG);
         }
         if !lay.ff.is_empty() {
             lay.fired = lay.size;
@@ -727,7 +919,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
             for t in self.clocked(p).unwrap().0 {
                 if !lay.prev.contains_key(&t.expr) {
                     lay.prev.insert(t.expr, lay.size);
-                    lay.size = (lay.size + Lane::of(1, planes).bytes(1)).next_multiple_of(REG);
+                    lay.size = (lay.size + Lane::of(1, planes).bytes(1, lay.chunks)).next_multiple_of(REG);
                 }
             }
         }
@@ -742,7 +934,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                         let po = p.object.ok_or("interface ports are not supported yet")?;
                         let w = tw(&d.types, d.object(po).ty);
                         let at = lay.size;
-                        lay.size = (lay.size + Lane::of(w, planes).bytes(w)).next_multiple_of(REG);
+                        lay.size = (lay.size + Lane::of(w, planes).bytes(w, lay.chunks)).next_multiple_of(REG);
                         Arg::Slot(at)
                     }
                 });
@@ -775,6 +967,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 if matches!(d.object(o).kind, ObjKind::Variable | ObjKind::Net(_))
                     && lay.statics.contains(&o)
                     && !lay.elems.contains_key(&o)
+                    && !lay.pads.contains_key(&o)
                     && tw(&d.types, d.object(o).ty) == w =>
             {
                 Some(o)
@@ -789,7 +982,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
     fn loop_locals(&self, spec: SpecId) -> Result<HashSet<ObjId>, String> {
         let d = self.d;
         let lay = &self.layouts[&spec];
-        let order = self.order(spec)?;
+        let (order, second) = self.sequence(spec)?;
         // The loop each node runs in, as Func::body splits them.
         let mut seg = 0usize;
         let mut rolled = HashSet::new();
@@ -797,6 +990,9 @@ impl<'d, 'a> Lowering<'d, 'a> {
         // it is first written and first read only.
         let mut used: HashMap<ObjId, (HashSet<usize>, usize, usize)> = HashMap::new();
         for (pos, &node) in order.iter().enumerate() {
+            if pos == second {
+                seg += 1;
+            }
             let at = match node {
                 Node::Loop(_) => {
                     seg += 1;
@@ -805,13 +1001,13 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     seg += 1;
                     at
                 }
-                Node::Call(_) => {
+                Node::Call(_) | Node::Early(_) => {
                     seg += 1;
                     seg
                 }
                 _ => seg,
             };
-            let (r, w) = self.access(spec, node)?;
+            let (r, w) = self.access(spec, node);
             let writes: HashSet<ObjId> = w.iter().map(|t| t.0).collect();
             for (o, written) in w.iter().map(|t| (t.0, true)).chain(r.iter().filter(|t| !writes.contains(&t.0)).map(|t| (t.0, false))) {
                 let e = used.entry(o).or_insert_with(|| (HashSet::new(), usize::MAX, usize::MAX));
@@ -846,13 +1042,17 @@ impl<'d, 'a> Lowering<'d, 'a> {
         // For each value written: the loop its writers are in, if one, and
         // whether they are all continuous assignments.
         let mut writers: HashMap<ObjId, (Option<usize>, bool)> = HashMap::new();
-        for node in self.order(spec)? {
+        let (order, second) = self.sequence(spec)?;
+        for (pos, node) in order.into_iter().enumerate() {
+            if pos == second {
+                seg += 1;
+            }
             match node {
                 Node::Loop(_) => seg += 2,
-                Node::Call(_) => seg += 1,
+                Node::Call(_) | Node::Early(_) => seg += 1,
                 _ => {}
             }
-            let (_, w) = self.access(spec, node)?;
+            let (_, w) = self.access(spec, node);
             for (o, _, _) in w {
                 let e = writers.entry(o).or_insert((Some(seg), true));
                 if e.0 != Some(seg) {
@@ -918,6 +1118,92 @@ impl<'d, 'a> Lowering<'d, 'a> {
         Ok(())
     }
 
+    /// The objects that some select indexes by a value.
+    fn indexed(&self, code: &[Node], ff: &[ProcId]) -> HashSet<ObjId> {
+        let d = self.d;
+        let mut exprs = Vec::new();
+        for node in code {
+            match *node {
+                Node::Driver(dr) => exprs.extend([d.drivers[dr.0 as usize].lhs, d.drivers[dr.0 as usize].rhs]),
+                Node::Loop(l) => {
+                    for &dr in &self.loops[l].all {
+                        exprs.extend([d.drivers[dr.0 as usize].lhs, d.drivers[dr.0 as usize].rhs]);
+                    }
+                }
+                Node::Proc(p) => self.stmt_exprs(d.processes[p.0 as usize].body, &mut exprs),
+                _ => {}
+            }
+        }
+        for &p in ff {
+            self.stmt_exprs(d.processes[p.0 as usize].body, &mut exprs);
+        }
+        let mut indexed = HashSet::new();
+        while let Some(e) = exprs.pop() {
+            let x = d.expr(e);
+            if let ExprKind::Index = x.kind
+                && let Some(&base) = x.args.first()
+                && let ExprKind::Object(o) = &d.expr(base).kind
+                && self.const_select(e).is_none()
+            {
+                indexed.insert(*o);
+            }
+            exprs.extend(x.args.iter().copied());
+        }
+        indexed
+    }
+
+    /// The arrays to keep padded (see [`Pad`]): internal ones of at least
+    /// two elements wider than a piece and not a whole number of pieces,
+    /// that some select indexes by a value.
+    fn padded(&self, objs: &[ObjId], indexed: &HashSet<ObjId>) -> HashMap<ObjId, Pad> {
+        let d = self.d;
+        let mut out = HashMap::new();
+        for &o in objs {
+            let ob = d.object(o);
+            if ob.dir.is_some() || !indexed.contains(&o) || !(d.types.packed_range(ob.ty).is_some() || d.types.is_unpacked_array(ob.ty)) {
+                continue;
+            }
+            let (w, ew) = (tw(&d.types, ob.ty), elem_bits(&d.types, ob.ty));
+            if ew > 32 && ew % 32 != 0 && w % ew == 0 && w / ew >= 2 {
+                out.insert(o, Pad { ew, n: w / ew });
+            }
+        }
+        out
+    }
+
+    /// The expressions a statement holds, at their tops.
+    fn stmt_exprs(&self, s: StmtId, out: &mut Vec<ExprId>) {
+        let d = self.d;
+        match &d.stmt(s).kind {
+            StmtKind::Block { stmts, .. } => stmts.iter().for_each(|&s| self.stmt_exprs(s, out)),
+            StmtKind::Assign { lhs, rhs, .. } => out.extend([*lhs, *rhs]),
+            StmtKind::Expr(e) | StmtKind::Return(Some(e)) => out.push(*e),
+            StmtKind::If { cond, then, else_, .. } => {
+                out.push(*cond);
+                self.stmt_exprs(*then, out);
+                if let Some(e) = else_ {
+                    self.stmt_exprs(*e, out);
+                }
+            }
+            StmtKind::Case { expr, items, default, .. } => {
+                out.push(*expr);
+                for (labels, body) in items {
+                    out.extend(labels.iter().copied());
+                    self.stmt_exprs(*body, out);
+                }
+                if let Some(s) = default {
+                    self.stmt_exprs(*s, out);
+                }
+            }
+            StmtKind::For { init, cond, step, body, .. } => {
+                init.iter().chain(step).for_each(|&s| self.stmt_exprs(s, out));
+                out.extend(cond.iter().copied());
+                self.stmt_exprs(*body, out);
+            }
+            _ => {}
+        }
+    }
+
     /// The objects that every use selects one element of, with the same
     /// element width: these are kept an element to a slot. Ports are not,
     /// so that a parent and a child meet in one layout.
@@ -939,7 +1225,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     }
                 }
                 Node::Proc(p) => self.stmt_uses(d.processes[p.0 as usize].body, &mut uses),
-                Node::In(i) | Node::Call(i) => {
+                Node::In(i) | Node::Call(i) | Node::Pre(i) | Node::Early(i) => {
                     for c in &d.instance(i).connections {
                         if let Some(e) = c.expr {
                             self.expr_uses(e, &mut uses);
@@ -1389,18 +1675,36 @@ impl<'d, 'a> Lowering<'d, 'a> {
             self.function(k)?;
         }
         let mut f = Func::new(self, spec);
+        let mut parts = String::new();
         match &self.layouts[&spec].known {
             Some(k) => {
                 let k = k.clone();
                 f.run_loop_with(|f| f.known(&k))?;
             }
-            None => {
-                let order = self.order(spec)?;
-                f.body(&order)?;
-            }
+            None => match self.layouts[&spec].part.clone() {
+                None => {
+                    let order = self.order(spec)?;
+                    f.body(&order)?;
+                }
+                // The two parts, and the whole as one then the other.
+                Some((a, b)) => {
+                    let name = fn_name(spec);
+                    let header = f.out.clone();
+                    let params = header[header.find('(').unwrap() + 1..header.find(')').unwrap()].to_string();
+                    for (part, nodes) in [("_a", &a), ("_b", &b)] {
+                        let mut g = Func::new(self, spec);
+                        g.out = g.out.replacen(&format!("@{name}("), &format!("@{name}{part}("), 1);
+                        g.body(nodes)?;
+                        let text = g.finish();
+                        let _ = writeln!(parts, "{text}");
+                    }
+                    let args = params.split(", ").collect::<Vec<_>>().join(", ");
+                    let _ = writeln!(f.out, "  call void @{name}_a({args})\n  call void @{name}_b({args})");
+                }
+            },
         }
         let text = f.finish();
-        let _ = writeln!(self.ir, "; {}\n{text}", self.d.name(self.d.spec(spec).name));
+        let _ = writeln!(self.ir, "; {}\n{parts}{text}", self.d.name(self.d.spec(spec).name));
         if self.layouts[&spec].clocked {
             for phase in [Phase::Ff, Phase::Commit] {
                 let mut f = Func::new(self, spec);
@@ -1410,11 +1714,42 @@ impl<'d, 'a> Lowering<'d, 'a> {
             }
             if self.top == Some(spec) {
                 let n = fn_name(spec);
+                // The inputs compared with their copies, and copied.
+                let mut cmp = String::new();
+                let mut acc = "zeroinitializer".to_string();
+                let mut from = "entry".to_string();
+                let (watch, settled) = self.watch.split_at(self.watch.len() - 1);
+                let settled = settled[0].2;
+                for (k, &(at, bytes, copy)) in watch.iter().enumerate() {
+                    let _ = write!(
+                        cmp,
+                        "  br label %W{k}\nW{k}:\n  %w{k} = phi i64 [ 0, %{from} ], [ %w{k}.next, %W{k} ]\n  \
+                         %w{k}.in = phi {V16} [ {acc}, %{from} ], [ %w{k}.acc, %W{k} ]\n  %w{k}.a = add i64 %w{k}, {at}\n  \
+                         %w{k}.p = getelementptr i8, ptr %s, i64 %w{k}.a\n  %w{k}.v = load {V16}, ptr %w{k}.p, align 64\n  \
+                         %w{k}.b = add i64 %w{k}, {copy}\n  %w{k}.q = getelementptr i8, ptr %s, i64 %w{k}.b\n  \
+                         %w{k}.u = load {V16}, ptr %w{k}.q, align 64\n  store {V16} %w{k}.v, ptr %w{k}.q, align 64\n  \
+                         %w{k}.x = xor {V16} %w{k}.v, %w{k}.u\n  %w{k}.acc = or {V16} %w{k}.in, %w{k}.x\n  \
+                         %w{k}.next = add i64 %w{k}, 64\n  %w{k}.end = icmp eq i64 %w{k}.next, {bytes}\n  \
+                         br i1 %w{k}.end, label %X{k}, label %W{k}\nX{k}:\n"
+                    );
+                    acc = format!("%w{k}.acc");
+                    from = format!("X{k}");
+                }
+                let settle = self.timed("step settle".into(), &format!("call void @{n}(ptr %s)"), "q0");
+                let ff = self.timed("step ff".into(), &format!("%fired = call i1 @{n}_ff(ptr %s)"), "q1");
+                let commit = self.timed("step commit".into(), &format!("call void @{n}_commit(ptr %s)"), "q2");
+                let again = self.timed("step settle again".into(), &format!("call void @{n}(ptr %s)"), "q3");
                 let _ = writeln!(
                     self.ir,
-                    "; a step: settle, sample the registers, and where an edge came, commit\n; them and settle again\n\
-                     define void @{n}_step(ptr %s) {{\nentry:\n  call void @{n}(ptr %s)\n  %fired = call i1 @{n}_ff(ptr %s)\n  \
-                     br i1 %fired, label %commit, label %done\ncommit:\n  call void @{n}_commit(ptr %s)\n  call void @{n}(ptr %s)\n  \
+                    "; a step: settle, unless no input it reads has changed since it last did,\n\
+                     ; sample the registers, and where an edge came, commit them and settle again\n\
+                     define void @{n}_step(ptr %s) {{\nentry:\n{cmp}  %diff = icmp ne {V16} {acc}, zeroinitializer\n  \
+                     %diff.bits = bitcast {M16} %diff to i16\n  %same = icmp eq i16 %diff.bits, 0\n  \
+                     %settled.p = getelementptr i8, ptr %s, i64 {settled}\n  %settled = load i8, ptr %settled.p, align 1\n  \
+                     %was = icmp ne i8 %settled, 0\n  %skip = and i1 %same, %was\n  br i1 %skip, label %sample, label %settle\n\
+                     settle:\n{settle}  store i8 1, ptr %settled.p, align 1\n  br label %sample\n\
+                     sample:\n{ff}  \
+                     br i1 %fired, label %commit, label %done\ncommit:\n{commit}{again}  \
                      br label %done\ndone:\n  ret void\n}}\n"
                 );
             }
@@ -1426,12 +1761,26 @@ impl<'d, 'a> Lowering<'d, 'a> {
     /// out before it is read: a topological sort on the bits each node
     /// reads and writes.
     fn order(&self, spec: SpecId) -> Result<Vec<Node>, String> {
+        self.order_of(spec).map_err(|stuck| {
+            let nodes = &self.layouts[&spec].code;
+            let some: Vec<String> = stuck.iter().take(4).map(|&n| format!("{:?}", nodes[n])).collect();
+            format!(
+                "a combinational loop in {}: {} nodes wait on each other, such as {}",
+                self.d.name(self.d.spec(spec).name),
+                stuck.len(),
+                some.join(", ")
+            )
+        })
+    }
+
+    /// [`Self::order`], or the nodes left waiting on each other.
+    fn order_of(&self, spec: SpecId) -> Result<Vec<Node>, Vec<usize>> {
         let lay = &self.layouts[&spec];
         let nodes = &lay.code;
         let mut reads = Vec::with_capacity(nodes.len());
         let mut writers: HashMap<ObjId, Vec<(u32, u32, usize)>> = HashMap::new();
         for (n, node) in nodes.iter().enumerate() {
-            let (r, w) = self.access(spec, *node)?;
+            let (r, w) = self.access(spec, *node);
             for (o, lo, hi) in w {
                 writers.entry(o).or_default().push((lo, hi, n));
             }
@@ -1448,8 +1797,14 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     }
                 }
             }
-            if let Node::Call(i) = nodes[n] {
-                from.push(nodes.iter().position(|&x| x == Node::In(i)).unwrap());
+            // A child's inputs before its call; a first call before the
+            // inputs of the second.
+            let at = |x: Node| nodes.iter().position(|&y| y == x).unwrap();
+            match nodes[n] {
+                Node::Call(i) => from.push(at(Node::In(i))),
+                Node::Early(i) => from.push(at(Node::Pre(i))),
+                Node::In(i) if lay.splits.contains_key(&i) => from.push(at(Node::Early(i))),
+                _ => {}
             }
             from.sort_unstable();
             from.dedup();
@@ -1471,22 +1826,14 @@ impl<'d, 'a> Lowering<'d, 'a> {
             }
         }
         if order.len() < nodes.len() {
-            let stuck: Vec<String> =
-                (0..nodes.len()).filter(|&n| preds[n] > 0).take(4).map(|n| format!("{:?}", nodes[n])).collect();
-            return Err(format!(
-                "a combinational loop in {}: {} nodes wait on each other, such as {}",
-                self.d.name(self.d.spec(spec).name),
-                nodes.len() - order.len(),
-                stuck.join(", ")
-            ));
+            return Err((0..nodes.len()).filter(|&n| preds[n] > 0).collect());
         }
         Ok(order)
     }
 
     /// The bits a node reads and writes: (object, from, to) with `to`
     /// exclusive.
-    #[allow(clippy::type_complexity)]
-    fn access(&self, spec: SpecId, node: Node) -> Result<(Vec<(ObjId, u32, u32)>, Vec<(ObjId, u32, u32)>), String> {
+    fn access(&self, spec: SpecId, node: Node) -> (Vec<Span>, Vec<Span>) {
         let d = self.d;
         let lay = &self.layouts[&spec];
         let mut r = Vec::new();
@@ -1516,22 +1863,413 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     self.writes(drv.lhs, &mut w, &mut r);
                 }
             }
-            Node::In(i) => {
-                for c in &d.instance(i).connections {
-                    if let (Some(e), Some(Dir::Input)) = (c.expr, self.port_dir(i, c.port)) {
+            Node::In(i) | Node::Pre(i) => {
+                let pre = if let Node::Pre(_) = node { lay.splits.get(&i) } else { None };
+                for (p, e) in self.connections(i) {
+                    if p.dir == Dir::Input && pre.is_none_or(|s| p.object.is_some_and(|o| s.ins.contains(&o))) {
                         self.reads(e, &mut r);
                     }
                 }
             }
-            Node::Call(i) => {
-                for c in &d.instance(i).connections {
-                    if let (Some(e), Some(Dir::Output)) = (c.expr, self.port_dir(i, c.port)) {
+            Node::Call(i) | Node::Early(i) => {
+                let split = lay.splits.get(&i);
+                for (p, e) in self.connections(i) {
+                    let early = split.is_some_and(|s| p.object.is_some_and(|o| s.outs.contains(&o)));
+                    if p.dir == Dir::Output && (split.is_none() || early == matches!(node, Node::Early(_))) {
                         self.writes(e, &mut w, &mut r);
                     }
                 }
             }
         }
-        Ok((r, w))
+        (r, w)
+    }
+
+    /// `call`, a line of IR, timed into a counter for `what` where
+    /// profiling; `t` names its temporaries.
+    fn timed(&self, what: String, call: &str, t: &str) -> String {
+        let Some(counter) = self.opts.profile else { return format!("  {call}\n") };
+        let mut names = self.profile.borrow_mut();
+        let k = names.len();
+        names.push(what);
+        format!(
+            "  %{t}.t0 = call i64 @{counter}()\n  {call}\n  %{t}.t1 = call i64 @{counter}()\n  %{t}.dt = sub i64 %{t}.t1, %{t}.t0\n  \
+             %{t}.at = getelementptr i8, ptr @sv_prof, i64 {}\n  %{t}.was = load i64, ptr %{t}.at, align 8\n  \
+             %{t}.now = add i64 %{t}.was, %{t}.dt\n  store i64 %{t}.now, ptr %{t}.at, align 8\n  \
+             %{t}.nat = getelementptr i8, ptr @sv_prof, i64 {}\n  %{t}.n = load i64, ptr %{t}.nat, align 8\n  \
+             %{t}.n1 = add i64 %{t}.n, 1\n  store i64 %{t}.n1, ptr %{t}.nat, align 8\n",
+            16 * k,
+            16 * k + 8
+        )
+    }
+
+    /// Whether a specialisation's settling code reads an input of its,
+    /// itself or in a child, or only its clocked processes do (a clock).
+    fn comb_reads(&self, spec: SpecId, o: ObjId) -> bool {
+        if let Some(&r) = self.comb_reads.borrow().get(&(spec, o)) {
+            return r;
+        }
+        let lay = &self.layouts[&spec];
+        let mut r = lay.known.is_some();
+        for &node in &lay.code {
+            match node {
+                Node::In(i) | Node::Pre(i) => {
+                    let child = self.d.instance(i).spec;
+                    for (p, e) in self.connections(i) {
+                        let mut rs = Vec::new();
+                        self.reads(e, &mut rs);
+                        if p.dir == Dir::Input && rs.iter().any(|t| t.0 == o) && p.object.is_some_and(|q| self.comb_reads(child, q)) {
+                            r = true;
+                        }
+                    }
+                }
+                Node::Call(_) | Node::Early(_) => {}
+                _ => r |= self.access(spec, node).0.iter().any(|t| t.0 == o),
+            }
+        }
+        self.comb_reads.borrow_mut().insert((spec, o), r);
+        r
+    }
+
+    /// The pieces of a specialisation's combinational code (see [`Dep`]).
+    fn deps(&self, spec: SpecId) -> Vec<Dep> {
+        let d = self.d;
+        let lay = &self.layouts[&spec];
+        let mut out = Vec::new();
+        for (n, &node) in lay.code.iter().enumerate() {
+            match node {
+                Node::Proc(p) => self.stmt_deps(d.processes[p.0 as usize].body, n, &mut Vec::new(), &mut out),
+                // Each output from the inputs it depends on in the child.
+                Node::Call(i) => {
+                    let pd = self.port_deps(d.instance(i).spec);
+                    let conns = self.connections(i);
+                    for &(p, e) in &conns {
+                        let Some(o) = p.object.filter(|_| p.dir == Dir::Output) else { continue };
+                        let (mut w, mut r) = (Vec::new(), Vec::new());
+                        self.writes(e, &mut w, &mut r);
+                        for &(q, qe) in &conns {
+                            if q.dir == Dir::Input && q.object.is_some_and(|qo| pd.get(&o).is_some_and(|s| s.contains(&qo))) {
+                                self.reads(qe, &mut r);
+                            }
+                        }
+                        out.push(Dep { node: n, w, r });
+                    }
+                }
+                Node::In(_) | Node::Pre(_) | Node::Early(_) => {}
+                Node::Driver(_) | Node::Loop(_) => {
+                    let (r, w) = self.access(spec, node);
+                    out.push(Dep { node: n, w, r });
+                }
+            }
+        }
+        out
+    }
+
+    /// A statement's pieces: each assignment, from what it reads and the
+    /// conditions it runs under (`ctl`; after a `break`, `continue` or
+    /// `return`, the conditions it was under stay for the rest).
+    fn stmt_deps(&self, s: StmtId, node: usize, ctl: &mut Vec<Span>, out: &mut Vec<Dep>) {
+        let d = self.d;
+        let piece = |lhs: Option<ExprId>, rhs: &[ExprId], ctl: &[Span], out: &mut Vec<Dep>| {
+            let (mut w, mut r) = (Vec::new(), ctl.to_vec());
+            for &e in rhs {
+                self.reads(e, &mut r);
+                self.call_access(e, &mut r, &mut w, &mut Vec::new());
+            }
+            if let Some(l) = lhs {
+                self.writes(l, &mut w, &mut r);
+            }
+            if !w.is_empty() {
+                out.push(Dep { node, w, r });
+            }
+        };
+        match &d.stmt(s).kind {
+            StmtKind::Block { stmts, .. } => stmts.iter().for_each(|&s| self.stmt_deps(s, node, ctl, out)),
+            StmtKind::Assign { kind, lhs, rhs, .. } => {
+                let mut rhs = vec![*rhs];
+                if matches!(kind, AssignKind::Compound(_)) {
+                    rhs.push(*lhs);
+                }
+                piece(Some(*lhs), &rhs, ctl, out);
+            }
+            StmtKind::Expr(x) => {
+                let lhs = match d.expr(*x).kind {
+                    ExprKind::Unary(UnOp::PreInc | UnOp::PostInc | UnOp::PreDec | UnOp::PostDec) => Some(d.expr(*x).args[0]),
+                    _ => None,
+                };
+                piece(lhs, &[*x], ctl, out);
+            }
+            StmtKind::If { cond, then, else_, .. } => {
+                let at = ctl.len();
+                self.reads(*cond, ctl);
+                self.stmt_deps(*then, node, ctl, out);
+                if let Some(x) = else_ {
+                    self.stmt_deps(*x, node, ctl, out);
+                }
+                if !stops(d, *then) && !else_.is_some_and(|x| stops(d, x)) {
+                    ctl.truncate(at);
+                }
+            }
+            StmtKind::Case { expr, items, default, .. } => {
+                let at = ctl.len();
+                self.reads(*expr, ctl);
+                for (labels, _) in items {
+                    labels.iter().for_each(|&l| self.reads(l, ctl));
+                }
+                for (_, body) in items {
+                    self.stmt_deps(*body, node, ctl, out);
+                }
+                if let Some(x) = default {
+                    self.stmt_deps(*x, node, ctl, out);
+                }
+                if !items.iter().any(|i| stops(d, i.1)) && !default.is_some_and(|x| stops(d, x)) {
+                    ctl.truncate(at);
+                }
+            }
+            StmtKind::For { init, cond, step, body, .. } => {
+                init.iter().for_each(|&s| self.stmt_deps(s, node, ctl, out));
+                let at = ctl.len();
+                if let Some(c) = cond {
+                    self.reads(*c, ctl);
+                }
+                // Twice, for what one iteration hands the next.
+                for _ in 0..2 {
+                    self.stmt_deps(*body, node, ctl, out);
+                    step.iter().for_each(|&s| self.stmt_deps(s, node, ctl, out));
+                }
+                if !stops(d, *body) {
+                    ctl.truncate(at);
+                }
+            }
+            StmtKind::Return(Some(x)) => piece(None, &[*x], ctl, out),
+            _ => {}
+        }
+    }
+
+    /// For each output of a specialisation, the inputs its value depends
+    /// on through its combinational code (none, for a register).
+    fn port_deps(&self, spec: SpecId) -> std::rc::Rc<HashMap<ObjId, HashSet<ObjId>>> {
+        if let Some(r) = self.port_deps.borrow().get(&spec) {
+            return r.clone();
+        }
+        let d = self.d;
+        let lay = &self.layouts[&spec];
+        let ports = &d.spec(spec).ports;
+        let ins: HashSet<ObjId> = ports.iter().filter(|p| p.dir == Dir::Input).filter_map(|p| p.object).collect();
+        let mut out = HashMap::new();
+        if lay.known.is_some() {
+            for p in ports.iter().filter(|p| p.dir == Dir::Output) {
+                out.insert(p.object.unwrap(), ins.clone());
+            }
+        } else {
+            let deps = self.deps(spec);
+            let from = Self::sources(&deps, |o| ins.contains(&o).then_some(o));
+            for p in ports.iter().filter(|p| p.dir == Dir::Output) {
+                let Some(o) = p.object else { continue };
+                let mut s = HashSet::new();
+                for (k, dep) in deps.iter().enumerate() {
+                    if dep.w.iter().any(|t| t.0 == o) {
+                        s.extend(from[k].iter().copied());
+                    }
+                }
+                out.insert(o, s);
+            }
+        }
+        let r = std::rc::Rc::new(out);
+        self.port_deps.borrow_mut().insert(spec, r.clone());
+        r
+    }
+
+    /// For each piece, the sources it depends on, through the pieces
+    /// that write what it reads: `source` says which objects are sources,
+    /// and names them.
+    fn sources<T: Copy + Eq + std::hash::Hash>(deps: &[Dep], source: impl Fn(ObjId) -> Option<T>) -> Vec<HashSet<T>> {
+        let mut writers: HashMap<ObjId, Vec<(u32, u32, usize)>> = HashMap::new();
+        for (k, dep) in deps.iter().enumerate() {
+            for &(o, lo, hi) in &dep.w {
+                writers.entry(o).or_default().push((lo, hi, k));
+            }
+        }
+        // Who each piece reads from.
+        let mut from: Vec<HashSet<T>> = vec![HashSet::new(); deps.len()];
+        let mut preds: Vec<Vec<usize>> = vec![Vec::new(); deps.len()];
+        for (k, dep) in deps.iter().enumerate() {
+            for &(o, lo, hi) in &dep.r {
+                if let Some(t) = source(o) {
+                    from[k].insert(t);
+                }
+                for &(wlo, whi, j) in writers.get(&o).map(|v| v.as_slice()).unwrap_or(&[]) {
+                    if wlo < hi && lo < whi && j != k {
+                        preds[k].push(j);
+                    }
+                }
+            }
+            preds[k].sort_unstable();
+            preds[k].dedup();
+        }
+        loop {
+            let mut changed = false;
+            for k in 0..deps.len() {
+                for j in preds[k].clone() {
+                    if j != k && !from[j].is_subset(&from[k]) {
+                        let add: Vec<T> = from[j].iter().copied().collect();
+                        from[k].extend(add);
+                        changed = true;
+                    }
+                }
+            }
+            if !changed {
+                return from;
+            }
+        }
+    }
+
+    /// Calls children twice where the code loops only through them (see
+    /// [`Split`]): for a child whose call is in a loop, the outputs that
+    /// depend on no input the loop goes through come from a first call.
+    fn split_calls(&mut self, spec: SpecId) -> Result<(), String> {
+        let d = self.d;
+        let mut tried = HashSet::new();
+        loop {
+            let Err(stuck) = self.order_of(spec) else { return Ok(()) };
+            let lay = &self.layouts[&spec];
+            let cands: Vec<InstId> = stuck
+                .iter()
+                .filter_map(|&n| if let Node::Call(i) = lay.code[n] { Some(i) } else { None })
+                .filter(|i| !lay.splits.contains_key(i) && !tried.contains(i))
+                .collect();
+            let Some(&i) = cands.first() else { return self.order(spec).map(|_| ()) };
+            tried.insert(i);
+            // What the child's outputs reach in the parent, and so the
+            // inputs that the loop goes through.
+            let deps = self.deps(spec);
+            let call = lay.code.iter().position(|&x| x == Node::Call(i)).unwrap();
+            let mut reached: Vec<Span> = deps.iter().filter(|x| x.node == call).flat_map(|x| x.w.iter().copied()).collect();
+            let mut done = vec![false; deps.len()];
+            loop {
+                let mut more = false;
+                for (k, dep) in deps.iter().enumerate() {
+                    if !done[k] && dep.node != call && dep.r.iter().any(|&(o, lo, hi)| reached.iter().any(|&(ro, rlo, rhi)| ro == o && rlo < hi && lo < rhi)) {
+                        done[k] = true;
+                        more = true;
+                        reached.extend(dep.w.iter().copied());
+                    }
+                }
+                if !more {
+                    break;
+                }
+            }
+            let child = d.instance(i).spec;
+            let pd = self.port_deps(child);
+            let mut late = HashSet::new();
+            let mut split = Split::default();
+            for (p, e) in self.connections(i) {
+                let Some(o) = p.object.filter(|_| p.dir == Dir::Input) else { continue };
+                let mut r = Vec::new();
+                self.reads(e, &mut r);
+                if r.iter().any(|&(o, lo, hi)| reached.iter().any(|&(ro, rlo, rhi)| ro == o && rlo < hi && lo < rhi)) {
+                    late.insert(o);
+                }
+            }
+            for p in d.spec(child).ports.iter().filter(|p| p.dir == Dir::Output) {
+                let Some(o) = p.object else { continue };
+                let need = pd.get(&o).cloned().unwrap_or_default();
+                if need.is_disjoint(&late) {
+                    split.outs.insert(o);
+                    split.ins.extend(need);
+                }
+            }
+            if split.outs.is_empty() {
+                continue;
+            }
+            let lay = self.layouts.get_mut(&spec).unwrap();
+            let at = lay.code.iter().position(|&x| x == Node::In(i)).unwrap();
+            lay.code.splice(at..at, [Node::Pre(i), Node::Early(i)]);
+            lay.splits.insert(i, split.clone());
+            // A child with one instance gets functions for the two calls,
+            // laid out again with them.
+            if !self.parts.contains_key(&child) && d.instances.iter().filter(|x| x.spec == child).count() == 1 {
+                self.parts.insert(child, split);
+                let dropped = self.dropped.get();
+                self.layouts.remove(&child);
+                self.layout(child)?;
+                self.dropped.set(dropped);
+            }
+        }
+    }
+
+    /// The two parts of a child called twice (see `Layout::part`), if
+    /// the first leaves out some of its code.
+    fn part_of(&self, spec: SpecId, split: &Split) -> Option<(Vec<Node>, Vec<Node>)> {
+        let d = self.d;
+        let lay = &self.layouts[&spec];
+        let order = self.order(spec).ok()?;
+        let acc: Vec<(Vec<Span>, Vec<Span>)> = order.iter().map(|&n| self.access(spec, n)).collect();
+        let overlaps = |a: &[Span], b: &[Span]| a.iter().any(|&(o, lo, hi)| b.iter().any(|&(p, plo, phi)| o == p && plo < hi && lo < phi));
+        // The nodes a node waits on besides what it reads.
+        let before = |n: Node| -> Vec<Node> {
+            match n {
+                Node::Call(i) => vec![Node::In(i)],
+                Node::Early(i) => vec![Node::Pre(i)],
+                Node::In(i) if lay.splits.contains_key(&i) => vec![Node::Early(i)],
+                _ => Vec::new(),
+            }
+        };
+        // What the first call's outputs need, from the last node back.
+        let mut need: Vec<Span> = split.outs.iter().map(|&o| (o, 0, tw(&d.types, d.object(o).ty).max(1))).collect();
+        let mut a = HashSet::new();
+        let mut forced = HashSet::new();
+        for (k, &n) in order.iter().enumerate().rev() {
+            if forced.contains(&n) || overlaps(&acc[k].1, &need) {
+                a.insert(n);
+                need.extend(acc[k].0.iter().copied());
+                forced.extend(before(n));
+            }
+        }
+        // What reads an input the first call does not have.
+        let late: Vec<Span> = d
+            .spec(spec)
+            .ports
+            .iter()
+            .filter(|p| p.dir == Dir::Input)
+            .filter_map(|p| p.object)
+            .filter(|o| !split.ins.contains(o))
+            .map(|o| (o, 0, tw(&d.types, d.object(o).ty).max(1)))
+            .collect();
+        let mut stale = late;
+        let mut again = HashSet::new();
+        for (k, &n) in order.iter().enumerate() {
+            if overlaps(&acc[k].0, &stale) || before(n).iter().any(|b| again.contains(b)) {
+                again.insert(n);
+                stale.extend(acc[k].1.iter().copied());
+            }
+        }
+        let first: Vec<Node> = order.iter().copied().filter(|n| a.contains(n)).collect();
+        if first.len() == order.len() || first.is_empty() {
+            return None;
+        }
+        let second: Vec<Node> =
+            order.iter().copied().filter(|n| a.contains(n) && again.contains(n)).chain(order.iter().copied().filter(|n| !a.contains(n))).collect();
+        Some((first, second))
+    }
+
+    /// The code in the order it runs, and where the second part of a child
+    /// called twice starts, if it is.
+    fn sequence(&self, spec: SpecId) -> Result<(Vec<Node>, usize), String> {
+        match &self.layouts[&spec].part {
+            Some((a, b)) => Ok((a.iter().chain(b).copied().collect(), a.len())),
+            None => Ok((self.order(spec)?, usize::MAX)),
+        }
+    }
+
+    /// A child's ports and what each is connected to.
+    fn connections(&self, i: InstId) -> Vec<(&'d crate::design::Port, ExprId)> {
+        let d = self.d;
+        let inst = d.instance(i);
+        d.spec(inst.spec)
+            .ports
+            .iter()
+            .filter_map(|p| Some((p, inst.connections.iter().find(|c| c.port == p.name)?.expr?)))
+            .collect()
     }
 
     /// What a statement reads and writes, with the functions it calls
@@ -1610,10 +2348,6 @@ impl<'d, 'a> Lowering<'d, 'a> {
         for &a in &x.args {
             self.call_access(a, r, w, seen);
         }
-    }
-
-    fn port_dir(&self, i: InstId, name: crate::design::Sym) -> Option<Dir> {
-        self.d.spec(self.d.instance(i).spec).ports.iter().find(|p| p.name == name).map(|p| p.dir)
     }
 
     fn reads(&self, e: ExprId, out: &mut Vec<(ObjId, u32, u32)>) {
@@ -1939,6 +2673,9 @@ struct Func<'l, 'd, 'a> {
     trial: bool,
     /// Running clocked processes: nonblocking assignments are allowed.
     ff: bool,
+    /// The lanes running the code being written: those taking every arm
+    /// it is in.
+    path: M,
 }
 
 const V16: &str = "<16 x i32>";
@@ -1968,7 +2705,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             }
         }
         let out = format!("define void @{}({params}) {{\nentry:\n", fn_name(spec));
-        Func { l, spec, out, next: 0, env: Env::default(), block: "entry".into(), loops: 0, rolled: 0, mem: false, uniform: HashSet::new(), mask_of: HashMap::new(), bits_of: HashMap::new(), in_range: HashSet::new(), calls: Vec::new(), ff: false, zeros: HashMap::new(), bit_of: HashMap::new(), guards: 0, trial: false }
+        Func { l, spec, out, next: 0, env: Env::default(), block: "entry".into(), loops: 0, rolled: 0, mem: false, uniform: HashSet::new(), mask_of: HashMap::new(), bits_of: HashMap::new(), in_range: HashSet::new(), calls: Vec::new(), ff: false, zeros: HashMap::new(), bit_of: HashMap::new(), guards: 0, trial: false, path: M::K(true) }
     }
 
     fn finish(mut self) -> String {
@@ -1995,6 +2732,11 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         self.next
     }
 
+    /// Bytes in one piece of a value for the whole group.
+    fn piece(&self) -> u64 {
+        REG * self.l.chunks
+    }
+
     /// Splits the nodes into loops at the children's calls, and writes them.
     fn body(&mut self, order: &[Node]) -> Result<(), String> {
         let mut seg: Vec<Node> = Vec::new();
@@ -2003,11 +2745,19 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 self.run_loop(&seg)?;
                 seg.clear();
                 self.rolled_loop(l)?;
-            } else if let Node::Call(i) = n {
+            } else if let Node::Call(i) | Node::Early(i) = n {
                 self.run_loop(&seg)?;
                 let child = self.d().instance(i).spec;
                 let args = self.child_args(i);
-                let _ = writeln!(self.out, "  call void @{}({args})", fn_name(child));
+                let part = match n {
+                    _ if !self.lay().splits.contains_key(&i) || self.l.layouts[&child].part.is_none() => "",
+                    Node::Early(_) => "_a",
+                    _ => "_b",
+                };
+                let what = format!("{} {}{part}", self.d().name(self.d().spec(self.spec).name), self.d().name(self.d().spec(child).name));
+                let t = self.tmp();
+                let text = self.l.timed(what, &format!("call void @{}{part}({args})", fn_name(child)), &format!("p{t}"));
+                self.out.push_str(&text);
                 seg = vec![n];
             } else {
                 seg.push(n);
@@ -2071,7 +2821,9 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
              %w{k} = getelementptr i8, ptr %s, i64 %c{k}.b16"
         );
         self.env = Env::default();
+        let path = std::mem::replace(&mut self.path, M::K(true));
         body(self)?;
+        self.path = path;
         let mut dirty: Vec<ObjId> = self.env.dirty.iter().copied().collect();
         dirty.sort_unstable_by_key(|o| o.0);
         for o in dirty {
@@ -2083,8 +2835,9 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         self.flush_elems(None);
         let _ = writeln!(
             self.out,
-            "  %c{k}.next = add i64 %c{k}, 1\n  %c{k}.end = icmp eq i64 %c{k}.next, {CHUNKS}\n  \
-             br i1 %c{k}.end, label %X{k}, label %L{k}\nX{k}:"
+            "  %c{k}.next = add i64 %c{k}, 1\n  %c{k}.end = icmp eq i64 %c{k}.next, {}\n  \
+             br i1 %c{k}.end, label %X{k}, label %L{k}\nX{k}:",
+            self.l.chunks
         );
         // The back edge leaves from the last block of the body.
         self.out = self.out.replace(&format!("%L{k}.latch"), &format!("%{}", self.block));
@@ -2138,7 +2891,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     let _ = writeln!(
                         self.out,
                         "  %t{a} = getelementptr i8, ptr {base}, i64 {}\n  %t{v} = load {V16}, ptr %t{a}, align 64",
-                        off + i * PIECE
+                        off + i * self.piece()
                     );
                     p.push(P::V(v));
                 }
@@ -2185,7 +2938,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     let _ = writeln!(
                         self.out,
                         "  %t{a} = getelementptr i8, ptr {base}, i64 {}\n  store {V16} {}, ptr %t{a}, align 64",
-                        off + i as u64 * PIECE,
+                        off + i as u64 * self.piece(),
                         ps(p)
                     );
                 }
@@ -2227,6 +2980,10 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             Node::Loop(_) => unreachable!("rolled loops are loops of their own"),
             Node::Driver(dr) => {
                 let drv = &d.drivers[dr.0 as usize];
+                if let Some((o, v)) = self.padded_copy(drv.lhs, drv.rhs) {
+                    self.set(o, v);
+                    return Ok(());
+                }
                 let v = self.expr(drv.rhs)?;
                 self.assign(drv.lhs, v)
             }
@@ -2237,14 +2994,18 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 self.env.vals.retain(|o, _| d.object(*o).lifetime == Lifetime::Static);
                 Ok(())
             }
-            Node::In(i) => {
+            Node::In(i) | Node::Pre(i) => {
                 let inst = d.instance(i);
                 let child = &self.l.layouts[&inst.spec];
                 let args = self.lay().args[&i].clone();
+                let pre = if let Node::Pre(_) = n { self.lay().splits.get(&i) } else { None };
                 for (port, arg) in d.spec(inst.spec).ports.iter().zip(args) {
                     // Values connected whole are where the child reads them;
                     // an unconnected input's slot stays zero.
                     let (Dir::Input, Arg::Slot(at)) = (port.dir, arg) else { continue };
+                    if pre.is_some_and(|s| port.object.is_none_or(|o| !s.ins.contains(&o))) {
+                        continue;
+                    }
                     let Some(e) = inst.connections.iter().find(|c| c.port == port.name).and_then(|c| c.expr) else { continue };
                     let o = port.object.ok_or("interface ports are not supported yet")?;
                     let w = tw(&d.types, d.object(o).ty);
@@ -2254,11 +3015,17 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 }
                 Ok(())
             }
-            Node::Call(i) => {
+            Node::Call(i) | Node::Early(i) => {
                 let inst = d.instance(i);
                 let child = &self.l.layouts[&inst.spec];
                 let args = self.lay().args[&i].clone();
+                let split = self.lay().splits.get(&i);
                 for (port, arg) in d.spec(inst.spec).ports.iter().zip(args) {
+                    if let Some(s) = split
+                        && port.object.is_some_and(|o| s.outs.contains(&o)) != matches!(n, Node::Early(_))
+                    {
+                        continue;
+                    }
                     match (port.dir, arg) {
                         (Dir::Output, Arg::Slot(at)) => {
                             let Some(e) = inst.connections.iter().find(|c| c.port == port.name).and_then(|c| c.expr) else { continue };
@@ -2324,8 +3091,24 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 if !self.ff {
                     return Err("nonblocking assignments outside clocked processes are not supported yet".into());
                 }
+                if let Some((o, v)) = self.padded_copy(*lhs, *rhs) {
+                    if !self.lay().regs.contains(&o) {
+                        return Err(format!("{} is assigned nonblocking but is not a register here", d.name(d.object(o).name)));
+                    }
+                    if self.lay().in_place.contains(&o) {
+                        self.set(o, v);
+                    } else {
+                        self.env.nba.insert(o, v);
+                    }
+                    return Ok(());
+                }
                 let v = self.expr(*rhs)?;
                 self.assign_nb(*lhs, v)
+            }
+            StmtKind::Assign { kind: AssignKind::Blocking, lhs, rhs, timing: None } if self.padded_copy(*lhs, *rhs).is_some() => {
+                let (o, v) = self.padded_copy(*lhs, *rhs).unwrap();
+                self.set(o, v);
+                Ok(())
             }
             StmtKind::Assign { kind, lhs, rhs, timing: None } => {
                 let v = match kind {
@@ -2598,13 +3381,14 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         }
         let before = self.env.clone();
         // The other arm first, as `b`, guarded on its own lanes if costly.
-        match ge {
-            Some(e) => {
-                let nm = self.mnot(m);
-                self.guard(nm, e, |f| f.stmt(e))?;
-            }
-            None => else_(self)?,
-        }
+        let (path, nm) = (self.path, self.mnot(m));
+        self.path = self.mand(path, nm);
+        let ran = match ge {
+            Some(e) => self.guard(nm, e, |f| f.stmt(e)),
+            None => else_(self),
+        };
+        self.path = path;
+        ran?;
         if !gt {
             let b = std::mem::replace(&mut self.env, before);
             (self.env.loaded, self.env.eloaded) = (b.loaded.clone(), b.eloaded.clone());
@@ -2627,7 +3411,11 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     /// selected by `m` (as the end of [`Func::branch`]).
     fn run_then_merge(&mut self, m: M, then: StmtId, mut b: Env) -> Result<(), String> {
         let before = self.env.clone();
-        self.stmt(then)?;
+        let path = self.path;
+        self.path = self.mand(path, m);
+        let ran = self.stmt(then);
+        self.path = path;
+        ran?;
         let mut a = std::mem::replace(&mut self.env, before);
         (self.env.loaded, self.env.eloaded) = (std::mem::take(&mut a.loaded), std::mem::take(&mut a.eloaded));
         for (o, v) in std::mem::take(&mut b.loaded) {
@@ -2651,7 +3439,14 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         objs.sort_unstable_by_key(|o| o.0);
         objs.dedup();
         for o in objs {
-            if self.slot(o).is_some() || self.lay().elems.contains_key(&o) {
+            if self.lay().kept.contains(&o) {
+                // Kept in the state, but a register's next value is not,
+                // unless in place: its value from before, for the way around.
+                if self.ff && self.lay().regs.contains(&o) && !self.lay().in_place.contains(&o) && !self.env.nba.contains_key(&o) {
+                    let v = self.read(o);
+                    self.env.loaded.insert(o, v);
+                }
+            } else if self.slot(o).is_some() || self.lay().elems.contains_key(&o) {
                 self.read(o);
             }
         }
@@ -2686,7 +3481,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let around = |f: &mut Self, o: ObjId| -> Result<Val, String> {
             match skip.vals.get(&o).or(skip.loaded.get(&o)) {
                 Some(v) => Ok(v.clone()),
-                None if f.slot(o).is_none() => Ok(Val::zero(tw(&d.types, d.object(o).ty))),
+                None if f.slot(o).is_none() => Ok(Val::zero(f.width(o))),
                 None => Err(format!("{} is not loaded before a guarded block", d.name(d.object(o).name))),
             }
         };
@@ -2842,7 +3637,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         match m {
             M::K(true) => then(self),
             M::K(false) => else_(self),
-            M::V(_) => self.arms(|_| Ok(m), then, else_),
+            M::V(_) => self.arms(Some(m), |_| Ok(m), then, else_),
         }
     }
 
@@ -2856,7 +3651,9 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         else_: impl FnOnce(&mut Self) -> Result<(), String>,
     ) -> Result<(), String> {
         match self.trial(&mask)? {
-            (M::V(_), true) => self.arms(mask, then, else_),
+            // (Not where values are kept in the state: an arm's stores to
+            // them need its lanes while it is written.)
+            (M::V(_), true) if self.lay().kept.is_empty() => self.arms(None, mask, then, else_),
             _ => {
                 let m = mask(self)?;
                 self.branch(m, then, else_)
@@ -2868,15 +3665,27 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     /// values before them, and the selects.
     fn arms(
         &mut self,
+        early: Option<M>,
         mask: impl FnOnce(&mut Self) -> Result<M, String>,
         then: impl FnOnce(&mut Self) -> Result<(), String>,
         else_: impl FnOnce(&mut Self) -> Result<(), String>,
     ) -> Result<(), String> {
         let before = self.env.clone();
+        // The lanes running each arm, where the condition is known now
+        // (stores to values kept in the state are made in those lanes).
+        let path = self.path;
+        if let Some(m) = early {
+            let nm = self.mnot(m);
+            self.path = self.mand(path, nm);
+        }
         else_(self)?;
         let mut b = std::mem::replace(&mut self.env, before.clone());
         (self.env.loaded, self.env.eloaded) = (std::mem::take(&mut b.loaded), std::mem::take(&mut b.eloaded));
+        if let Some(m) = early {
+            self.path = self.mand(path, m);
+        }
         then(self)?;
+        self.path = path;
         let mut a = std::mem::replace(&mut self.env, before);
         (self.env.loaded, self.env.eloaded) = (std::mem::take(&mut a.loaded), std::mem::take(&mut a.eloaded));
         let m = mask(self)?;
@@ -2955,15 +3764,15 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 if !self.lay().regs.contains(&o) {
                     return Err(format!("{} is assigned nonblocking but is not a register here", d.name(d.object(o).name)));
                 }
+                if self.lay().in_place.contains(&o) {
+                    let v = self.resize(&v, w, false);
+                    return self.write_kept(o, off, w, &v);
+                }
                 let old = match self.env.nba.get(&o) {
                     Some(v) => v.clone(),
                     None => self.read(o),
                 };
-                let new = match off {
-                    Off::K(k) => self.insert(&old, k, w, &v),
-                    Off::V(p, ok) => self.insert_var(&old, p, ok, w, &v),
-                    Off::Neg(_) => return Err("a part select partly out of range as a target".into()),
-                };
+                let new = self.write_at(o, &old, off, w, &v)?;
                 self.env.nba.insert(o, new);
                 Ok(())
             }
@@ -2995,12 +3804,17 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             {
                 let args = self.child_args(i);
                 let child = format!("@{}{}", fn_name(d.instance(i).spec), phase.suffix());
+                let what = format!("{} {}{}", d.name(d.spec(self.spec).name), d.name(d.spec(d.instance(i).spec).name), phase.suffix());
                 if phase == Phase::Ff {
                     let (t, o) = (self.tmp(), self.tmp());
-                    let _ = writeln!(self.out, "  %t{t} = call i1 {child}({args})\n  %t{o} = or i1 {any}, %t{t}");
+                    let text = self.l.timed(what, &format!("%t{t} = call i1 {child}({args})"), &format!("p{t}"));
+                    self.out.push_str(&text);
+                    let _ = writeln!(self.out, "  %t{o} = or i1 {any}, %t{t}");
                     any = format!("%t{o}");
                 } else {
-                    let _ = writeln!(self.out, "  call void {child}({args})");
+                    let t = self.tmp();
+                    let text = self.l.timed(what, &format!("call void {child}({args})"), &format!("p{t}"));
+                    self.out.push_str(&text);
                 }
             }
         }
@@ -3251,7 +4065,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let e = self.lay().elems[&o];
         let base = if e.planes() { format!("%h{}", self.loops - 1) } else { self.base() };
         let a = self.tmp();
-        let _ = writeln!(self.out, "  %t{a} = getelementptr i8, ptr {base}, i64 {}", self.lay().objs[&o] + i as u64 * e.stride());
+        let _ = writeln!(self.out, "  %t{a} = getelementptr i8, ptr {base}, i64 {}", self.lay().objs[&o] + i as u64 * e.stride(self.l.chunks));
         format!("%t{a}")
     }
 
@@ -3284,7 +4098,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             self.out,
             "  %t{} = zext i32 %t{ix} to i64\n  %t{} = mul i64 %t{}, {}\n  %t{} = getelementptr i8, ptr {base}, i64 {off}\n  \
              %t{} = getelementptr i8, ptr %t{}, i64 %t{}",
-            t[2], t[3], t[2], e.stride(), t[4], t[5], t[4], t[3]
+            t[2], t[3], t[2], e.stride(self.l.chunks), t[4], t[5], t[4], t[3]
         );
         format!("%t{}", t[5])
     }
@@ -3491,11 +4305,15 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             }
             return acc;
         }
+        if self.lay().kept.contains(&o) {
+            let w = self.width(o);
+            let p = (0..pieces(w)).map(|j| self.load_piece(o, j)).collect();
+            return Val { w, p };
+        }
         if let Some(v) = self.env.vals.get(&o).or(self.env.loaded.get(&o)) {
             return v.clone();
         }
-        let d = self.d();
-        let w = tw(&d.types, d.object(o).ty);
+        let w = self.width(o);
         match self.slot(o) {
             Some(base) => {
                 let lane = self.lay().lane(o);
@@ -3511,7 +4329,220 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         }
     }
 
+    /// An object's width as it is kept: padded, for a [`Pad`].
+    fn width(&self, o: ObjId) -> u32 {
+        match self.lay().pads.get(&o) {
+            Some(p) => p.width(),
+            None => tw(&self.d().types, self.d().object(o).ty),
+        }
+    }
+
+    /// A value of a padded array's type, padded.
+    fn pad(&mut self, p: Pad, v: &Val) -> Val {
+        let mut acc = Val::zero(p.width());
+        for k in 0..p.n {
+            let x = self.extract(v, k * p.ew, p.ew);
+            acc = self.insert(&acc, k * p.stride(), p.ew, &x);
+        }
+        acc
+    }
+
+    fn unpad(&mut self, p: Pad, v: &Val) -> Val {
+        let mut acc = Val::zero(p.n * p.ew);
+        for k in 0..p.n {
+            let x = self.extract(v, k * p.stride(), p.ew);
+            acc = self.insert(&acc, k * p.ew, p.ew, &x);
+        }
+        acc
+    }
+
+    /// Where a select of a padded array is in it as kept, if within one
+    /// element.
+    fn padded_off(&self, p: Pad, off: Off, w: u32) -> Option<Off> {
+        match off {
+            Off::K(k) if k % p.ew + w <= p.ew => Some(Off::K(k / p.ew * p.stride() + k % p.ew)),
+            Off::Dec { i, n, stride, add, ok } if stride == p.ew && add + w <= p.ew => Some(Off::Dec { i, n, stride: p.stride(), add, ok }),
+            _ => None,
+        }
+    }
+
+    /// A whole padded array copied from another of the same shape: its
+    /// value as kept.
+    fn padded_copy(&mut self, lhs: ExprId, rhs: ExprId) -> Option<(ObjId, Val)> {
+        let d = self.d();
+        let ExprKind::Object(a) = d.expr(lhs).kind else { return None };
+        let mut x = d.expr(rhs);
+        while matches!(x.kind, ExprKind::Convert) && tw(&d.types, x.ty) == tw(&d.types, d.expr(x.args[0]).ty) {
+            x = d.expr(x.args[0]);
+        }
+        let ExprKind::Object(b) = x.kind else { return None };
+        let pa = *self.lay().pads.get(&a)?;
+        (self.lay().pads.get(&b) == Some(&pa)).then(|| (a, self.read(b)))
+    }
+
+    /// Piece `j` of a padded array, from the state.
+    fn load_piece(&mut self, o: ObjId, j: usize) -> P {
+        let at = self.lay().objs[&o] + j as u64 * self.piece();
+        let (a, v) = (self.tmp(), self.tmp());
+        let base = self.base();
+        let _ = writeln!(self.out, "  %t{a} = getelementptr i8, ptr {base}, i64 {at}\n  %t{v} = load {V16}, ptr %t{a}, align 64");
+        P::V(v)
+    }
+
+    /// Stores `x` as piece `j` of a padded array in the lanes of `m` that
+    /// run this code; `old` is what is there.
+    fn store_piece_over(&mut self, o: ObjId, j: usize, x: P, m: M, old: Option<P>) {
+        let m = self.mand(m, self.path);
+        if m == M::K(false) || old == Some(x) {
+            return;
+        }
+        let x = match (m, old) {
+            (M::K(true), _) => x,
+            (m, Some(old)) => self.sel(m, x, old),
+            (m, None) => {
+                let old = self.load_piece(o, j);
+                self.sel(m, x, old)
+            }
+        };
+        let at = self.lay().objs[&o] + j as u64 * self.piece();
+        let a = self.tmp();
+        let base = self.base();
+        let _ = writeln!(self.out, "  %t{a} = getelementptr i8, ptr {base}, i64 {at}\n  store {V16} {}, ptr %t{a}, align 64", ps(x));
+    }
+
+    fn store_piece(&mut self, o: ObjId, j: usize, x: P, m: M) {
+        self.store_piece_over(o, j, x, m, None)
+    }
+
+    /// Where a select of a value kept in the state is there (see
+    /// [`Self::padded_off`]), if it is a constant or one of few elements.
+    fn kept_off(&self, o: ObjId, off: Off, w: u32) -> Option<Off> {
+        match (self.lay().pads.get(&o), off) {
+            (Some(&p), off) => self.padded_off(p, off, w),
+            (None, off @ (Off::K(_) | Off::Dec { .. })) => Some(off),
+            _ => None,
+        }
+    }
+
+    /// A value as its type has it, from how it is kept.
+    fn logical(&mut self, o: ObjId, v: &Val) -> Val {
+        match self.lay().pads.get(&o).copied() {
+            Some(p) => self.unpad(p, v),
+            None => v.clone(),
+        }
+    }
+
+    /// The `w` bits at `off` in `o`.
+    fn read_at(&mut self, o: ObjId, off: Off, w: u32) -> Val {
+        if !self.lay().kept.contains(&o) {
+            let v = self.read(o);
+            return self.extract_off(&v, off, w);
+        }
+        let n = self.width(o).div_ceil(32);
+        match self.kept_off(o, off, w) {
+            // The pieces the bits are in, of each element they may be in.
+            Some(Off::K(k)) => {
+                let (q, r) = ((k / 32) as usize, k % 32);
+                let span = (r + w).div_ceil(32) as usize;
+                let v = Val { w: 32 * span as u32, p: (0..span).map(|j| self.load_piece(o, q + j)).collect() };
+                self.extract(&v, r, w)
+            }
+            Some(Off::Dec { i, n: count, stride, add, ok }) if stride % 32 == 0 => {
+                let (q, r) = ((add / 32) as usize, add % 32);
+                let span = (r + w).div_ceil(32) as usize;
+                let mut acc = vec![P::K(0); span];
+                for k in 0..count {
+                    let at = (k * stride / 32) as usize + q;
+                    if at + span > n as usize {
+                        break;
+                    }
+                    let hit = self.icmp("eq", i, P::K(k));
+                    if hit == M::K(false) {
+                        continue;
+                    }
+                    for (j, a) in acc.iter_mut().enumerate() {
+                        let x = self.load_piece(o, at + j);
+                        *a = self.sel(hit, x, *a);
+                    }
+                }
+                let acc = Val { w: 32 * span as u32, p: acc };
+                let x = self.extract(&acc, r, w);
+                let z = Val::zero(w);
+                self.select(ok, &x, &z)
+            }
+            _ => {
+                let v = self.read(o);
+                let v = self.logical(o, &v);
+                self.extract_off(&v, off, w)
+            }
+        }
+    }
+
+    /// Sets the `w` bits at `off` in a value kept in the state to `x`.
+    fn write_kept(&mut self, o: ObjId, off: Off, w: u32, x: &Val) -> Result<(), String> {
+        let n = self.width(o).div_ceil(32) as usize;
+        // Each element's pieces that the bits are in, where `hit`.
+        let put = |f: &mut Self, at: usize, r: u32, hit: M| {
+            let span = (r + w).div_ceil(32) as usize;
+            let old: Vec<P> = (0..span).map(|j| f.load_piece(o, at + j)).collect();
+            let v = f.insert(&Val { w: 32 * span as u32, p: old.clone() }, r, w, x);
+            for j in 0..span {
+                f.store_piece_over(o, at + j, v.p[j], hit, Some(old[j]));
+            }
+        };
+        match self.kept_off(o, off, w) {
+            Some(Off::K(k)) => put(self, (k / 32) as usize, k % 32, M::K(true)),
+            Some(Off::Dec { i, n: count, stride, add, ok }) if stride % 32 == 0 => {
+                for k in 0..count {
+                    let at = ((k * stride + add) / 32) as usize;
+                    if at + (add % 32 + w).div_ceil(32) as usize > n {
+                        break;
+                    }
+                    let hit = self.icmp("eq", i, P::K(k));
+                    let hit = self.mand(hit, ok);
+                    if hit != M::K(false) {
+                        put(self, at, add % 32, hit);
+                    }
+                }
+            }
+            _ => {
+                let old = self.read(o);
+                let u = self.logical(o, &old);
+                let u = self.insert_off(&u, off, w, x)?;
+                let new = match self.lay().pads.get(&o).copied() {
+                    Some(p) => self.pad(p, &u),
+                    None => u,
+                };
+                for j in 0..new.p.len() {
+                    self.store_piece_over(o, j, new.p[j], M::K(true), Some(old.p[j]));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// `old`, the value of `o` as kept, with the `w` bits at `off` set to `v`.
+    fn write_at(&mut self, o: ObjId, old: &Val, off: Off, w: u32, v: &Val) -> Result<Val, String> {
+        match self.lay().pads.get(&o).copied() {
+            Some(p) => match self.padded_off(p, off, w) {
+                Some(off) => self.insert_off(old, off, w, v),
+                None => {
+                    let u = self.unpad(p, old);
+                    let u = self.insert_off(&u, off, w, v)?;
+                    Ok(self.pad(p, &u))
+                }
+            },
+            None => self.insert_off(old, off, w, v),
+        }
+    }
+
     fn set(&mut self, o: ObjId, v: Val) {
+        if self.lay().kept.contains(&o) {
+            for (j, &x) in v.p.iter().enumerate() {
+                self.store_piece(o, j, x, M::K(true));
+            }
+            return;
+        }
         if let Some(&e) = self.lay().elems.get(&o) {
             for i in 0..e.n {
                 let x = self.extract(&v, i * e.ew, e.ew);
@@ -3537,6 +4568,10 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             ExprKind::Object(o) => {
                 let w = tw(&d.types, d.object(*o).ty);
                 let v = self.resize(&v, w, false);
+                let v = match self.lay().pads.get(o).copied() {
+                    Some(p) => self.pad(p, &v),
+                    None => v,
+                };
                 self.set(*o, v);
                 Ok(())
             }
@@ -3555,8 +4590,13 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     return self.elem_write(o, lhs, v);
                 }
                 let (o, off, w) = self.place(lhs)?;
+                if self.lay().kept.contains(&o) {
+                    let v = self.resize(&v, w, false);
+                    return self.write_kept(o, off, w, &v);
+                }
                 if self.mem
                     && !self.lay().elems.contains_key(&o)
+                    && !self.lay().kept.contains(&o)
                     && self.lay().lane(o) == Lane::W32
                     && w <= 32
                     && self.lay().objs.contains_key(&o)
@@ -3566,15 +4606,11 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     return Ok(());
                 }
                 let old = if self.lay().fresh.contains(&o) && !self.env.vals.contains_key(&o) {
-                    Val::zero(tw(&d.types, d.object(o).ty))
+                    Val::zero(self.width(o))
                 } else {
                     self.read(o)
                 };
-                let new = match off {
-                    Off::K(k) => self.insert(&old, k, w, &v),
-                    Off::V(p, ok) => self.insert_var(&old, p, ok, w, &v),
-                    Off::Neg(_) => return Err("a part select partly out of range as a target".into()),
-                };
+                let new = self.write_at(o, &old, off, w, &v)?;
                 self.set(o, new);
                 Ok(())
             }
@@ -3595,15 +4631,176 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let off = match (base, off) {
             (Off::K(a), Off::K(b)) => Off::K(a + b),
             (Off::Neg(_), _) | (_, Off::Neg(_)) => return Err("a part select partly out of range as a target".into()),
+            (Off::K(k), Off::Dec { i, n, stride, add, ok }) | (Off::Dec { i, n, stride, add, ok }, Off::K(k)) => {
+                Off::Dec { i, n, stride, add: add + k, ok }
+            }
             (a, b) => {
-                let (pa, ma) = a.var();
-                let (pb, mb) = b.var();
+                let (pa, ma) = self.off_var(a);
+                let (pb, mb) = self.off_var(b);
                 let p = self.bin("add", pa, pb);
                 let m = self.mand(ma, mb);
                 Off::V(p, m)
             }
         };
         Ok((o, off, w))
+    }
+
+    /// A select's bit offset as a value a lane, and whether it is in range.
+    fn off_var(&mut self, off: Off) -> (P, M) {
+        match off {
+            Off::K(k) => (P::K(k), M::K(true)),
+            Off::Neg(_) => (P::K(0), M::K(false)),
+            Off::V(p, m) => (p, m),
+            Off::Dec { i, stride, add, ok, .. } => {
+                let p = if stride.is_power_of_two() { self.bin("shl", i, P::K(stride.trailing_zeros())) } else { self.bin("mul", i, P::K(stride)) };
+                (self.bin("add", p, P::K(add)), ok)
+            }
+        }
+    }
+
+    /// Whether choosing among `n` elements costs less than shifting a
+    /// value of `len` pieces, for `w` bits.
+    fn decodes(len: usize, n: u32, w: u32) -> bool {
+        n as usize * (3 * pieces(w) + 2) < 3 * len * len
+    }
+
+    /// The `w` bits of `v` at `off`.
+    fn extract_off(&mut self, v: &Val, off: Off, w: u32) -> Val {
+        match off {
+            Off::K(k) => self.extract(v, k, w),
+            Off::Neg(k) => {
+                let v = self.resize(v, v.w + k, false);
+                let v = self.shl_const(&v, k as u64);
+                self.extract(&v, 0, w)
+            }
+            // Elements at whole pieces: the pieces chosen, then one shift.
+            Off::Dec { i, n, stride, add, ok } if stride % 32 == 0 && Self::decodes(v.p.len(), n, w) => {
+                let (q, r) = ((add / 32) as usize, add % 32);
+                let span = (r + w).div_ceil(32) as usize;
+                let mut acc = vec![P::K(0); span];
+                for k in 0..n {
+                    let at = (k * stride / 32) as usize + q;
+                    if at >= v.p.len() {
+                        break;
+                    }
+                    let hit = self.icmp("eq", i, P::K(k));
+                    for (j, a) in acc.iter_mut().enumerate() {
+                        let x = v.p.get(at + j).copied().unwrap_or(P::K(0));
+                        *a = self.sel(hit, x, *a);
+                    }
+                }
+                let acc = Val { w: 32 * span as u32, p: acc };
+                let x = self.extract(&acc, r, w);
+                let z = Val::zero(w);
+                self.select(ok, &x, &z)
+            }
+            Off::Dec { i, n, stride, add, ok } if Self::decodes(v.p.len(), n, w) => {
+                let mut acc = Val::zero(w);
+                for k in 0..n {
+                    if k * stride + add >= v.w {
+                        break;
+                    }
+                    let hit = self.icmp("eq", i, P::K(k));
+                    let x = self.extract(v, k * stride + add, w);
+                    acc = self.select(hit, &x, &acc);
+                }
+                let z = Val::zero(w);
+                self.select(ok, &acc, &z)
+            }
+            _ => {
+                let (p, ok) = self.off_var(off);
+                let v = self.lshr_var(v, p, None);
+                let v = self.extract(&v, 0, w);
+                let z = Val::zero(w);
+                self.select(ok, &v, &z)
+            }
+        }
+    }
+
+    /// `v` with the `w` bits at `off` replaced by `x`.
+    fn insert_off(&mut self, v: &Val, off: Off, w: u32, x: &Val) -> Result<Val, String> {
+        Ok(match off {
+            Off::K(k) => self.insert(v, k, w, x),
+            Off::Neg(_) => return Err("a part select partly out of range as a target".into()),
+            // Elements at whole pieces: `x` shifted into place once, then
+            // each element's pieces chosen.
+            Off::Dec { i, n, stride, add, ok } if stride % 32 == 0 && Self::decodes(v.p.len(), n, w) => {
+                let (q, r) = ((add / 32) as usize, add % 32);
+                let span = (r + w).div_ceil(32) as usize;
+                let zero = Val::zero(32 * span as u32);
+                let xs = self.insert(&zero, r, w, x);
+                let ones = self.ones(w);
+                let m = self.insert(&zero, r, w, &ones);
+                let mut acc = v.clone();
+                for k in 0..n {
+                    let at = (k * stride / 32) as usize + q;
+                    if at >= v.p.len() {
+                        break;
+                    }
+                    let hit = self.icmp("eq", i, P::K(k));
+                    let hit = self.mand(hit, ok);
+                    for j in 0..span.min(v.p.len() - at) {
+                        let old = acc.p[at + j];
+                        let new = match m.p[j] {
+                            P::K(u32::MAX) => xs.p[j],
+                            mj => {
+                                let keep = self.bin("xor", mj, P::K(!0));
+                                let kept = self.bin("and", old, keep);
+                                self.bin("or", kept, xs.p[j])
+                            }
+                        };
+                        acc.p[at + j] = self.sel(hit, new, old);
+                    }
+                }
+                self.norm(acc)
+            }
+            Off::Dec { i, n, stride, add, ok } if Self::decodes(v.p.len(), n, w) => {
+                let mut acc = v.clone();
+                for k in 0..n {
+                    if k * stride + add >= v.w {
+                        break;
+                    }
+                    let hit = self.icmp("eq", i, P::K(k));
+                    let hit = self.mand(hit, ok);
+                    let new = self.insert(&acc, k * stride + add, w, x);
+                    acc = self.select(hit, &new, &acc);
+                }
+                acc
+            }
+            _ => {
+                let (p, ok) = self.off_var(off);
+                self.insert_var(v, p, ok, w, x)
+            }
+        })
+    }
+
+    /// The object, offset and width of a select of selects of an object,
+    /// if one is variable: read as one select, not each in turn.
+    fn read_place(&mut self, e: ExprId) -> Result<Option<(ObjId, Off, u32)>, String> {
+        let d = self.d();
+        let mut at = e;
+        let mut var = false;
+        loop {
+            let x = d.expr(at);
+            match x.kind {
+                ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_) => {
+                    if !matches!(x.kind, ExprKind::Member(_)) && self.l.const_select(at).is_none() {
+                        var = true;
+                    }
+                    at = x.args[0];
+                }
+                ExprKind::Object(o)
+                    if (var || self.lay().kept.contains(&o)) && matches!(d.object(o).kind, ObjKind::Variable | ObjKind::Net(_)) =>
+                {
+                    break;
+                }
+                _ => return Ok(None),
+            }
+        }
+        match self.place(e) {
+            Ok(p) => Ok(Some(p)),
+            Err(_) => Ok(None),
+        }
     }
 
     /// The bit offset of a select in its base, and its width.
@@ -3659,6 +4856,16 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         ok = self.mand(ok, a);
         ok = self.mand(ok, b);
         let elems = if l >= r { self.bin("sub", k, P::K(r as u32)) } else { self.bin("sub", P::K((r - n + 1) as u32), k) };
+        if matches!(x.kind, ExprKind::Index) {
+            let n = (max - min + 1) as u32;
+            // (A constant here, an unrolled loop's variable, is one element.)
+            if let (P::K(k), M::K(true)) = (elems, ok)
+                && k < n
+            {
+                return Ok((Off::K(k * ew), w));
+            }
+            return Ok((Off::Dec { i: elems, n, stride: ew, add: 0, ok }, w));
+        }
         let bits = if ew.is_power_of_two() { self.bin("shl", elems, P::K(ew.trailing_zeros())) } else { self.bin("mul", elems, P::K(ew)) };
         Ok((Off::V(bits, ok), w))
     }
@@ -3732,6 +4939,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 if self.mem
                     && self.lay().objs.contains_key(&o)
                     && !self.lay().elems.contains_key(&o)
+                    && !self.lay().kept.contains(&o)
                     && self.lay().lane(o) == Lane::W32 =>
             {
                 Some(o)
@@ -3741,10 +4949,11 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     }
 
     /// A select's offset if it is the same in every lane.
-    fn uniform_off(&self, off: Off) -> Option<(P, M)> {
+    fn uniform_off(&mut self, off: Off) -> Option<(P, M)> {
         match off {
             Off::K(k) => Some((P::K(k), M::K(true))),
             Off::V(p, ok) if self.is_uniform(p) => Some((p, ok)),
+            Off::Dec { i, .. } if self.is_uniform(i) => Some(self.off_var(off)),
             _ => None,
         }
     }
@@ -3772,8 +4981,8 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             let _ = writeln!(
                 self.out,
                 "  %t{a} = getelementptr i8, ptr {base}, i64 {}\n  %t{b} = getelementptr i8, ptr {base}, i64 {}",
-                start + q * PIECE,
-                start + q1 * PIECE
+                start + q * self.piece(),
+                start + q1 * self.piece()
             );
             return (format!("%t{a}"), format!("%t{b}"), r);
         }
@@ -3785,9 +4994,10 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             "  %t{0} = lshr i32 %t{t}, 5\n  %t{1} = call i32 @llvm.umin.i32(i32 %t{0}, i32 {last})\n  \
              %t{2} = add i32 %t{1}, 1\n  %t{3} = call i32 @llvm.umin.i32(i32 %t{2}, i32 {last})\n  \
              %t{4} = zext i32 %t{1} to i64\n  %t{5} = zext i32 %t{3} to i64\n  \
-             %t{6} = mul i64 %t{4}, {PIECE}\n  %t{7} = mul i64 %t{5}, {PIECE}\n  \
+             %t{6} = mul i64 %t{4}, {piece}\n  %t{7} = mul i64 %t{5}, {piece}\n  \
              %t{8} = getelementptr i8, ptr {base}, i64 {start}",
-            n[0], n[1], n[2], n[3], n[4], n[5], n[6], n[7], n[8]
+            n[0], n[1], n[2], n[3], n[4], n[5], n[6], n[7], n[8],
+            piece = self.piece()
         );
         let (a, b) = (self.tmp(), self.tmp());
         let _ = writeln!(
@@ -3959,7 +5169,11 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                         if ob.lifetime == Lifetime::Static && !self.lay().statics.contains(o) && !self.env.vals.contains_key(o) {
                             return Err(format!("{} is not in this module", d.name(ob.name)));
                         }
-                        Ok(self.read(*o))
+                        let v = self.read(*o);
+                        Ok(match self.lay().pads.get(o).copied() {
+                            Some(p) => self.unpad(p, &v),
+                            None => v,
+                        })
                     }
                     _ => {
                         if let Some(v) = self.env.vals.get(o) {
@@ -4041,22 +5255,12 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                         return Ok(self.mem_extract(o, p, ok, w2));
                     }
                 }
+                if let Some((o, off, w)) = self.read_place(e)? {
+                    return Ok(self.read_at(o, off, w));
+                }
                 let base = self.expr(x.args[0])?;
                 let (off, w) = self.offset(e)?;
-                Ok(match off {
-                    Off::K(k) => self.extract(&base, k, w),
-                    Off::Neg(k) => {
-                        let v = self.resize(&base, base.w + k, false);
-                        let v = self.shl_const(&v, k as u64);
-                        self.extract(&v, 0, w)
-                    }
-                    Off::V(p, ok) => {
-                        let v = self.lshr_var(&base, p, None);
-                        let v = self.extract(&v, 0, w);
-                        let z = Val::zero(w);
-                        self.select(ok, &v, &z)
-                    }
-                })
+                Ok(self.extract_off(&base, off, w))
             }
             ExprKind::SysCall(f) => match d.name(*f) {
                 // The same bits, read as signed or unsigned (11.7).
@@ -4502,6 +5706,13 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             }
             return b;
         }
+        // Only the pieces the bits are in.
+        let first = (lo / 32) as usize;
+        if first > 0 && first < v.p.len() {
+            let end = (((lo + w).min(v.w) as usize).div_ceil(32) + 1).min(v.p.len());
+            let part = Val { w: v.w.min(32 * end as u32) - 32 * first as u32, p: v.p[first..end].to_vec() };
+            return self.extract(&part, lo % 32, w);
+        }
         let s = self.lshr_const(v, lo as u64, None);
         self.resize(&s, w, false)
     }
@@ -4861,19 +6072,28 @@ enum Off {
     K(u32),
     Neg(u32),
     V(P, M),
+    /// Element `i` (from the least significant) of `n`, each `stride`
+    /// bits, then `add` bits up; in range where `ok`. A select of one of
+    /// few wide elements is then one select an element of the bits it
+    /// takes, not a shift of the whole value.
+    Dec { i: P, n: u32, stride: u32, add: u32, ok: M },
 }
 
 impl Off {
     fn with_sign(self, off: i64) -> Off {
         if off < 0 { Off::Neg((-off) as u32) } else { self }
     }
+}
 
-    fn var(self) -> (P, M) {
-        match self {
-            Off::K(k) => (P::K(k), M::K(true)),
-            Off::Neg(_) => (P::K(0), M::K(false)),
-            Off::V(p, m) => (p, m),
-        }
+/// Whether a statement holds a `break`, `continue` or `return`.
+fn stops(d: &Design, s: StmtId) -> bool {
+    match &d.stmt(s).kind {
+        StmtKind::Break | StmtKind::Continue | StmtKind::Return(_) => true,
+        StmtKind::Block { stmts, .. } => stmts.iter().any(|&s| stops(d, s)),
+        StmtKind::If { then, else_, .. } => stops(d, *then) || else_.is_some_and(|x| stops(d, x)),
+        StmtKind::Case { items, default, .. } => items.iter().any(|i| stops(d, i.1)) || default.is_some_and(|x| stops(d, x)),
+        StmtKind::For { body, .. } => stops(d, *body),
+        _ => false,
     }
 }
 
@@ -5090,6 +6310,7 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
                 Node::Proc(p) => self.stmt(d.processes[p.0 as usize].body)?,
                 Node::In(_) => {}
                 Node::Call(i) => self.call(i)?,
+                Node::Pre(_) | Node::Early(_) => return Err(Unproved),
             }
         }
         Ok(())

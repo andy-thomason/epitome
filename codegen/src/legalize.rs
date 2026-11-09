@@ -2073,6 +2073,11 @@ pub fn legalize_vectors(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
                     let src: Vec<Value> = match value {
                         Value::Local(x) if parts.contains_key(&x) => parts[&x].clone(),
                         v if len * fe == cx.vector_bits() => vec![v],
+                        // A constant of a split type: its parts.
+                        v @ Value::Const(_) if fe > 1 && len * fe > cx.vector_bits() && (len * fe) % cx.vector_bits() == 0 => {
+                            let pt = vec_ty(cx, cx.vector_bits() / fe, fe_ty);
+                            parts_of(cx, &parts, bld.f, v, (len * fe / cx.vector_bits()) as usize, pt)?
+                        }
                         // A legal vector cast to a scalarised one: its lanes.
                         v if res_split.is_some()
                             && fe > 1

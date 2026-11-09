@@ -729,6 +729,13 @@ group of 512 instances shares one set of registers, and `eval` for a
 specialisation runs a group at a time. The instance count is padded to a
 whole group; padding lanes are masked off.
 
+**A group fits a core's cache.** Each function is a loop over all of a
+group's state, so a group with more state than a core's second-level
+cache goes to the third level on every pass: CVA6's issue stage, 1.6 MB a
+group of 512, ran three times as slowly on a Zen 5 core (1 MB of L2) as
+with groups of 128. The netlist takes as many registers of lanes a group
+(up to 32) as keep its state within 512 KB.
+
 **Layout of a value.** Each object has one of two layouts, chosen at
 lowering from the operations that use it:
 
@@ -790,6 +797,26 @@ parent: where each parent has one instance of the child, child lane `n`
 belongs to parent lane `n`, and ports connect with no data movement. An
 array of instances, or a child used by several parents, needs a gather
 or scatter at the port, done once per `eval` of the child group.
+
+A parent's code may loop through a child without any value depending on
+itself: an output of the child feeds logic that feeds another of its
+inputs, on which that output does not depend (CVA6's scoreboard and its
+issue logic each read the other's outputs). Which outputs depend on which
+inputs is worked out statement by statement, and the child is called
+twice: first for the outputs that need none of the inputs the loop goes
+through, then for the rest. Its code is then two functions, the first
+holding only what those outputs need.
+
+**Indexed arrays.** A select by a value differs from lane to lane, so it
+is a choice among the elements, each the same constant select, where
+that costs less than shifting the whole value (it costs the value's
+pieces squared). An array of elements wider than a piece, indexed so, is
+laid out with each element starting a piece, so that the same bits of
+every element are the same shift, done once. Such arrays, and other wide
+values indexed by a value or registers no clocked process reads, stay in
+the state: a select loads the pieces it reads, an assignment stores those
+it changes in the lanes that run it, and the arms of an `if` need no
+multiplexers for them.
 
 **Specialisations with few instances.** The top module has one, and
 would use one lane in 512. The lanes can instead hold independent copies

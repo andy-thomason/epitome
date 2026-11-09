@@ -11,7 +11,7 @@ use std::process::Command;
 use epitome_codegen::object::SectionKind;
 use epitome_codegen::target::Target;
 use epitome_sv::design::Dir;
-use epitome_sv::netlist::{self, Field, GROUP, Lane, Netlist};
+use epitome_sv::netlist::{self, Field, Lane, Netlist};
 use epitome_sv::preprocess::{Options, preprocess_files};
 use epitome_sv::source::SourceMap;
 
@@ -48,7 +48,17 @@ pub fn netlist_options() -> netlist::Options {
     let recognise = std::env::var("NETLIST_RECOGNISE").map_or(true, |v| v != "0");
     // NETLIST_GUARD_MIN: the smallest arm guarded, 0 for none.
     let guard_min = std::env::var("NETLIST_GUARD_MIN").ok().and_then(|v| v.parse().ok()).unwrap_or(netlist::GUARD_MIN);
-    netlist::Options { bit_planes: !x86_without_masks, recognise, guard_min }
+    // NETLIST_PROFILE=1: each child's call timed (see `time_replay`).
+    // (On x86-64, a function of C linked in with the netlist: the
+    // object writer does not assemble the inline assembly rdtsc becomes.)
+    let profile = std::env::var("NETLIST_PROFILE").is_ok_and(|v| v == "1").then_some(if cfg!(target_arch = "x86_64") {
+        "sv_ticks"
+    } else {
+        "llvm.readcyclecounter"
+    });
+    // NETLIST_CHUNKS: registers of lanes in a group, if not as many as fit.
+    let chunks = std::env::var("NETLIST_CHUNKS").ok().and_then(|v| v.parse().ok());
+    netlist::Options { bit_planes: !x86_without_masks, recognise, guard_min, profile, chunks }
 }
 
 /// Elaborates `files` with `top` and compiles its netlist, on a thread with
@@ -80,6 +90,8 @@ pub struct Built {
     pub eval: unsafe extern "C" fn(*mut u8),
     /// Each function's name and size in bytes of machine code.
     pub sizes: Vec<(String, u64)>,
+    /// With `Options::profile`, its counters.
+    pub prof: *mut i64,
 }
 
 /// Optimises, compiles and links the netlist's IR, and loads it.
@@ -118,7 +130,14 @@ pub fn build(name: &str, net: Netlist, t: &Target, triple: &str, mattr: &[String
         name.to_string()
     };
     let lib = tmp.join(format!("lib{name}.so"));
-    let st = Command::new("cc").arg("-shared").arg("-o").arg(&lib).arg(&obj).status().unwrap();
+    let mut link = Command::new("cc");
+    link.arg("-shared").arg("-o").arg(&lib).arg(&obj);
+    if net.ir.contains("declare i64 @sv_ticks()") {
+        let c = tmp.join("sv_ticks.c");
+        std::fs::write(&c, "#include <x86intrin.h>\nlong sv_ticks(void) { return (long)__rdtsc(); }\n").unwrap();
+        link.arg("-O2").arg(&c);
+    }
+    let st = link.status().unwrap();
     assert!(st.success(), "linking {name}");
     let eval = unsafe {
         let path = CString::new(lib.to_str().unwrap()).unwrap();
@@ -127,9 +146,11 @@ pub fn build(name: &str, net: Netlist, t: &Target, triple: &str, mattr: &[String
         let sym = CString::new(net.entry.as_str()).unwrap();
         let f = dlsym(h, sym.as_ptr());
         assert!(!f.is_null(), "no {}", net.entry);
-        std::mem::transmute::<*mut c_void, unsafe extern "C" fn(*mut u8)>(f)
+        let prof = dlsym(h, c"sv_prof".as_ptr()) as *mut i64;
+        (std::mem::transmute::<*mut c_void, unsafe extern "C" fn(*mut u8)>(f), prof)
     };
-    Built { net, eval, sizes }
+    let (eval, prof) = eval;
+    Built { net, eval, sizes, prof }
 }
 
 /// A group's state, aligned for 512-bit loads.
@@ -410,7 +431,8 @@ impl Verilated {
 /// at a time, and checks each output word against Verilator's; `name`
 /// labels a mismatch, and `show` turns an instance's inputs into text.
 pub fn check_against(b: &Built, v: &Verilated, cycles: usize, n: usize, stim: &[u32], show: &dyn Fn(&[u32]) -> String) {
-    assert_eq!(n % GROUP, 0);
+    let group = b.net.group();
+    assert_eq!(n % group, 0);
     let want = v.run(cycles, n, stim);
     let net = &b.net;
     let field = |name: &str| net.port(name).unwrap_or_else(|| panic!("no port {name}")).clone();
@@ -419,11 +441,11 @@ pub fn check_against(b: &Built, v: &Verilated, cycles: usize, n: usize, stim: &[
     let clock = v.clock.as_deref().map(field);
     let (iw, ow) = (v.in_words(), v.out_words());
     let mut bad = 0;
-    for g in 0..n / GROUP {
+    for g in 0..n / group {
         let mut st = State::new(net.size);
         for c in 0..cycles {
-            for k in 0..GROUP {
-                let i = g * GROUP + k;
+            for k in 0..group {
+                let i = g * group + k;
                 let mut at = (c * n + i) * iw;
                 for f in &ins {
                     st.put_words(f, k, &stim[at..at + words(f.width)]);
@@ -433,7 +455,7 @@ pub fn check_against(b: &Built, v: &Verilated, cycles: usize, n: usize, stim: &[
             match &clock {
                 Some(clk) => {
                     for level in [0, 1] {
-                        for k in 0..GROUP {
+                        for k in 0..group {
                             unsafe { clk.put(st.ptr, k, level) };
                         }
                         unsafe { (b.eval)(st.ptr) };
@@ -441,8 +463,8 @@ pub fn check_against(b: &Built, v: &Verilated, cycles: usize, n: usize, stim: &[
                 }
                 None => unsafe { (b.eval)(st.ptr) },
             }
-            for k in 0..GROUP {
-                let i = g * GROUP + k;
+            for k in 0..group {
+                let i = g * group + k;
                 let mut got = Vec::with_capacity(ow);
                 for f in &outs {
                     st.get_words(f, k, &mut got);
@@ -567,16 +589,21 @@ pub fn rv_instruction(rng: &mut Rng) -> u32 {
 /// from a zeroed state, timing only the evaluations, as which arms run
 /// depends on the values.
 pub fn time_replay(b: &Built, v: &Verilated, cycles: usize, n: usize, stim: &[u32], reps: usize) -> f64 {
+    // NETLIST_REPS multiplies the repetitions, for a profiler to watch.
+    let reps = reps * std::env::var("NETLIST_REPS").ok().and_then(|r| r.parse().ok()).unwrap_or(1);
     let net = &b.net;
     let field = |name: &str| net.port(name).unwrap().clone();
     let ins: Vec<Field> = v.ins.iter().map(|p| field(&p.0)).collect();
     let clock = v.clock.as_deref().map(field);
     let iw = v.in_words();
+    let group = net.group();
     let mut spent = std::time::Duration::ZERO;
+    let counters = if b.prof.is_null() { &mut [][..] } else { unsafe { std::slice::from_raw_parts_mut(b.prof, 2 * net.profile.len()) } };
+    counters.fill(0);
     for _ in 0..reps {
         let mut st = State::new(net.size);
         for c in 0..cycles {
-            for k in 0..GROUP {
+            for k in 0..group {
                 let mut at = (c * n + k) * iw;
                 for f in &ins {
                     st.put_words(f, k, &stim[at..at + words(f.width)]);
@@ -586,7 +613,7 @@ pub fn time_replay(b: &Built, v: &Verilated, cycles: usize, n: usize, stim: &[u3
             match &clock {
                 Some(clk) => {
                     for level in [0, 1] {
-                        for k in 0..GROUP {
+                        for k in 0..group {
                             unsafe { clk.put(st.ptr, k, level) };
                         }
                         let t0 = std::time::Instant::now();
@@ -602,7 +629,16 @@ pub fn time_replay(b: &Built, v: &Verilated, cycles: usize, n: usize, stim: &[u3
             }
         }
     }
-    spent.as_secs_f64() * 1e9 / (reps * cycles * GROUP) as f64
+    // The counters, per instance a cycle, largest first, with the calls
+    // a group a cycle.
+    let per = (reps * cycles) as f64;
+    let mut rows: Vec<(f64, f64, &str)> =
+        counters.chunks(2).zip(&net.profile).map(|(c, n)| (c[0] as f64 / per / group as f64, c[1] as f64 / per, n.as_str())).collect();
+    rows.sort_by(|a, b| b.0.total_cmp(&a.0));
+    for (c, k, n) in rows {
+        eprintln!("profile: {c:10.1} ticks an instance a cycle, {k:5.2} calls a cycle  {n}");
+    }
+    spent.as_secs_f64() * 1e9 / (reps * cycles * group) as f64
 }
 
 /// A RISC-V instruction word as a program's mix has them: mostly integer

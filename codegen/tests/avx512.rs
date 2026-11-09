@@ -11,6 +11,8 @@
 //!   for avx512f without avx512vl, whose 256-bit masks stay in ymm).
 //! - On x86-64 Linux with AVX-512 and clang: built by us and by clang,
 //!   each linked with `main.c` and run, the two print the same.
+//! - Constants whose lanes are one value are broadcast operands
+//!   (`sym(%rip){1to16}`), read from read-only data.
 //! - Chains of bitwise logic (`ternlog` kernels) are each one `vpternlog`,
 //!   and each of the 256 tables of `llvm.epitome.bitfn3`, run on 0xf0,
 //!   0xcc and 0xaa, gives itself back.
@@ -25,10 +27,21 @@ fn kernels() -> String {
     std::fs::read_to_string(dir.join("kernels.ll")).unwrap()
 }
 
-/// Each function's assembly, by name.
+/// Each function's assembly, by name (labels in the text section; the
+/// constants broadcast operands read are in read-only data).
 fn functions(asm: &str) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = Vec::new();
+    let mut text = true;
     for line in asm.lines() {
+        let directive = line.trim_start();
+        if directive.starts_with(".text") {
+            text = true;
+        } else if directive.starts_with(".section") || directive.starts_with(".data") || directive.starts_with(".bss") {
+            text = directive.contains("text");
+        }
+        if !text {
+            continue;
+        }
         if let Some(name) = line.strip_suffix(':').filter(|n| !n.starts_with('.') && !n.contains(' ')) {
             out.push((name.to_string(), String::new()));
         } else if let Some((_, body)) = out.last_mut() {
@@ -55,6 +68,13 @@ fn avx512_kernels_stay_in_registers() {
             for op in ["vpand", "vpor", "vpxor"] {
                 assert!(!body.contains(op), "{name} still has {op}:\n{body}");
             }
+        }
+        // Each constant a broadcast operand from read-only data, none
+        // made in a register (but zero, by `vpxord`).
+        if name == "consts_v16i32" {
+            assert!(!body.contains("vpbroadcast"), "{name} makes a constant in a register:\n{body}");
+            assert_eq!(body.matches("(%rip){1to16}").count(), 20, "{name}:\n{body}");
+            assert!(body.contains("vpternlogd $-20, __epitome_pool32_f0f0f0f(%rip){1to16}"), "{name}:\n{body}");
         }
         if name == "ternlog_adder" {
             assert_eq!(body.matches("vpternlog").count(), 2, "the full adder:\n{body}");
@@ -181,4 +201,32 @@ fn bitfn3_tables() {
     assert!(st.success());
     let o = Command::new(&exe).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&o.stdout), "ok\n");
+}
+
+/// A loop of `n` operations, each with a constant of its own.
+fn loop_of_constants(n: usize) -> String {
+    let mut ll = String::from("target triple = \"x86_64-unknown-linux-gnu\"\n");
+    ll.push_str("define void @consts(ptr %p) #0 {\nentry:\n  br label %l\nl:\n");
+    ll.push_str("  %i = phi i64 [ 0, %entry ], [ %i.next, %l ]\n  %a = getelementptr <16 x i32>, ptr %p, i64 %i\n");
+    ll.push_str("  %v0 = load <16 x i32>, ptr %a\n");
+    for k in 0..n {
+        ll.push_str(&format!("  %v{} = add <16 x i32> %v{k}, splat (i32 {})\n", k + 1, 1000 + k));
+    }
+    ll.push_str(&format!("  store <16 x i32> %v{n}, ptr %a\n"));
+    ll.push_str("  %i.next = add i64 %i, 1\n  %done = icmp eq i64 %i.next, 32\n  br i1 %done, label %x, label %l\nx:\n  ret void\n}\n");
+    ll.push_str("attributes #0 = { nounwind \"target-features\"=\"+avx512f,+avx2,+avx\" }\n");
+    ll
+}
+
+/// A loop's constants are registers made before it while they are few,
+/// and broadcast operands once they would crowd out its own values.
+#[test]
+fn avx512_loop_constants_in_registers_or_memory() {
+    let t = Target::x86_64();
+    for (n, pooled) in [(8, false), (40, true)] {
+        let mut m = epitome_ir::parse_module(&loop_of_constants(n)).unwrap();
+        let asm = compile(&t, &mut m, &Options::default()).unwrap().asm;
+        assert_eq!(asm.matches("{1to16}").count(), if pooled { n } else { 0 }, "{n} constants:\n{asm}");
+        assert!(!asm.contains("%rsp"), "{n} constants spill:\n{asm}");
+    }
 }

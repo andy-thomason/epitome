@@ -16,6 +16,8 @@
 //!   Use counts are kept as trees are made, last first, so that an
 //!   operation two trees shared goes with the second (a full adder's
 //!   `a ^ b`).
+//! - A constant leaf is the last argument, which x86 can read from
+//!   memory (a broadcast from read-only data, `12-pool.ll`).
 //! - Each is an elective change (autochop).
 
 use std::collections::{HashMap, HashSet};
@@ -203,6 +205,16 @@ pub fn form(cx: &mut Ctx, f: &mut Function) {
             let dead = dying(f, &uses, &t);
             if dead.len() - free_nots(cx, f, &dead) < 2 {
                 continue;
+            }
+            // A constant leaf goes last, into the operand that may be
+            // memory (x86's broadcast from read-only data), the others
+            // before it: the first again for a missing one.
+            if let Some(c) = t.leaves.iter().position(|l| matches!(l, Value::Const(_))) {
+                let k = t.leaves.remove(c);
+                while t.leaves.len() < 2 {
+                    t.leaves.push(t.leaves[0]);
+                }
+                t.leaves.push(k);
             }
             let bits = table(cx, f, Value::Local(r), &t);
             if !epitome_ir::chop::allow(|| format!("bitfn3 {bits:#04x} of {} operations", t.ops.len())) {

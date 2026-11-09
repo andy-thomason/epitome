@@ -50,6 +50,11 @@ pub struct Operand {
     /// (`{zt1:+1}` in the template). No field holds it; allocation puts it
     /// there (`regalloc.rs`).
     pub list: Option<(usize, u8)>,
+    /// A symbol operand (`"sym" "pool"`) that matches a vector constant
+    /// whose lanes are all one value, rather than a global: selection
+    /// puts the lane in read-only data and names it (x86's broadcast
+    /// operand, `sym(%rip){1to16}`).
+    pub pool: bool,
 }
 
 /// An instruction's encoding, from its text: parsed as the description is
@@ -466,6 +471,8 @@ pub struct Emit {
 pub struct PParam {
     pub kind: Kind,
     pub bits: u32,
+    /// A symbol for a constant's lane put in read-only data (`Operand::pool`).
+    pub pool: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -599,6 +606,7 @@ pub const X86_64_FILES: &[(&str, &str)] = &[
     ("05-cond.ll", include_str!("../targets/x86_64/05-cond.ll")),
     ("10-integer.ll", include_str!("../targets/x86_64/10-integer.ll")),
     ("11-intrinsics.ll", include_str!("../targets/x86_64/11-intrinsics.ll")),
+    ("12-pool.ll", include_str!("../targets/x86_64/12-pool.ll")),
     ("15-frame.ll", include_str!("../targets/x86_64/15-frame.ll")),
     ("16-short.ll", include_str!("../targets/x86_64/16-short.ll")),
     ("65-runtime.ll", include_str!("../targets/x86_64/65-runtime.ll")),
@@ -1161,6 +1169,7 @@ impl Target {
                     writeback: false,
                     first: 0,
                     list: None,
+                    pool: false,
                 });
             }
             // A second register result, `d2`: the second field of the
@@ -1185,6 +1194,7 @@ impl Target {
                     writeback: false,
                     first: 0,
                     list: None,
+                    pool: false,
                 });
             }
             for p in &f.params {
@@ -1213,6 +1223,7 @@ impl Target {
                     writeback: attr(&p.attrs, "writeback").is_some(),
                     first: 0,
                     list: None,
+                    pool: kind == Kind::Sym && attr(&p.attrs, "pool").is_some(),
                 });
             }
             // Members of lists of registers: after the operand heading
@@ -1597,7 +1608,7 @@ impl Target {
         ins.operands
             .iter()
             .filter(|o| o.name != "d" || !ins.has_result)
-            .map(|o| PParam { kind: o.kind, bits: o.bits })
+            .map(|o| PParam { kind: o.kind, bits: o.bits, pool: o.pool })
             .collect()
     }
 
@@ -1747,7 +1758,7 @@ impl Target {
                     _ if attr(&p.attrs, "label").is_some() => Kind::Label,
                     _ => Kind::Imm,
                 };
-                params.push(PParam { kind, bits: type_bits(m, f.locals[p.local.index()].ty) });
+                params.push(PParam { kind, bits: type_bits(m, f.locals[p.local.index()].ty), pool: false });
             }
             let g = m
                 .global_order

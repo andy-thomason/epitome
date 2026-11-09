@@ -899,13 +899,137 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
     fn unsize(&mut self, o: Operand, to: Ty) -> R<Operand> {
         let tcx = self.cx.tcx;
         let (Some(src), Some(dst)) = (self.pointee(o.ty), self.pointee(to)) else { return Err("unsizing of something not a pointer".into()) };
-        if let TyKind::Dyn(_) = tcx.kind(dst) {
-            return Ok(self.trap_here(to, "`dyn` (unsizing)"));
+        if let TyKind::Dyn(dd) = tcx.kind(dst) {
+            let want = tcx.dyn_of(dd).traits.first().cloned();
+            if let TyKind::Dyn(sd) = tcx.kind(src) {
+                // `dyn A + Send` to `dyn A`: the same vtable. To a
+                // supertrait's (upcasting), not yet.
+                if want.map(|t| t.def) != tcx.dyn_of(sd).traits.first().map(|t| t.def) {
+                    return Ok(self.trap_here(to, "`dyn` (upcasting)"));
+                }
+                let p = self.deref(o)?;
+                let meta = p.meta.ok_or("a `dyn` pointer without a vtable")?;
+                return self.fat(to, p.addr, meta);
+            }
+            let tr = want.ok_or("`dyn` of no trait")?;
+            let vt = self.vtable(src, tr.def, tr.args)?;
+            let addr = self.imm(o)?;
+            return self.fat(to, addr, vt);
         }
         let n = self.unsized_len(src, dst).ok_or_else(|| format!("unsizing {} to {}", tcx.display(self.cx.r, o.ty), tcx.display(self.cx.r, to)))?;
         let addr = self.imm(o)?;
         let len = self.usize_const(n);
         self.fat(to, addr, len)
+    }
+
+    /// The address of the vtable of `t` for trait `tr` at `args` (after
+    /// `Self`), made the first time it is needed: its drop function (null:
+    /// drops are not done yet), size and alignment, then the address of
+    /// each method `vtable_methods` lists for `tr` (null for one with no
+    /// function).
+    pub fn vtable(&mut self, t: Ty, tr: DefId, args: List) -> R<Value> {
+        let cx = self.cx;
+        let tcx = cx.tcx;
+        let mut key = String::new();
+        cx.type_key(t, &mut key);
+        key.push_str(&format!("|{}", cx.r.def_path(tr)));
+        for a in tcx.tys(args) {
+            key.push('|');
+            cx.type_key(a, &mut key);
+        }
+        let name = format!("vtable.{:016x}", crate::hash::fnv(key.as_bytes()));
+        if let Some(g) = self.b.module().find_global(&name) {
+            return Ok(self.b.module().global_value(g));
+        }
+        let l = self.layout(t)?;
+        let entries = crate::mono::vtable_entries(cx.r, tcx, &cx.typeck.hidden, &mut self.solver, t, tr, &tcx.tys(args));
+        let mut fns = Vec::new();
+        for (method, a) in entries {
+            let g = match crate::mono::instance(cx.r, cx.crates, tcx, &mut self.solver, method, a) {
+                Resolved::Item(it) => cx.fns.get(&it).map(|d| d.g),
+                // A closure's `call` and `call_mut`: its own function,
+                // which `dyn_call` calls with the tuple's elements.
+                Resolved::Builtin => match tcx.kind(t) {
+                    TyKind::Closure(c, _, l) => {
+                        let owner = cx.typeck.closure_owners.get(&c).copied();
+                        owner.and_then(|o| cx.fns.get(&Item::Closure(c, o, l))).map(|d| d.g)
+                    }
+                    _ => None,
+                },
+                _ => None,
+            };
+            fns.push(g);
+        }
+        let ptr = self.ptr_t();
+        let isz = self.isize_t();
+        let ps = cx.lcx.target.ptr_size;
+        let m = self.b.module();
+        use epitome_ir::module::{ConstKind, Constant};
+        let null = m.consts.intern(Constant { ty: ptr, kind: ConstKind::Null });
+        let word = |m: &mut Module, v: u64| {
+            let c = Constant::int(&m.types, isz, v as i64);
+            m.consts.intern(c)
+        };
+        let mut fields = vec![null, word(m, l.size), word(m, l.align)];
+        for g in fns {
+            fields.push(match g.map(|g| m.global_value(g)) {
+                Some(Value::Const(c)) => c,
+                _ => null,
+            });
+        }
+        let mut tys = vec![ptr, isz, isz];
+        tys.resize(fields.len(), ptr);
+        let ty = m.types.struct_of(&tys);
+        let init = Value::Const(m.consts.intern(Constant { ty, kind: ConstKind::Struct(fields) }));
+        let g = epitome_ir::module::Global::builder(&name).init(init).constant().linkage(Linkage::Private).align(ps).build(m);
+        Ok(m.global_value(g))
+    }
+
+    /// A call of method `d` of a `dyn` (`targs[0]`) through its vtable:
+    /// the receiver's address (a reference or pointer to the `dyn`) for
+    /// `self`.
+    fn dyn_call(&mut self, d: DefId, targs: Vec<Ty>, mut args: Vec<Operand>) -> R<Pv> {
+        let tcx = self.cx.tcx;
+        let r = self.cx.r;
+        let TyKind::Dyn(dy) = tcx.kind(targs[0]) else { return Err("not a `dyn`".into()) };
+        let principal = tcx.dyn_of(dy).traits.first().map(|t| t.def).ok_or("`dyn` of no trait")?;
+        let slot = crate::mono::vtable_methods(r, tcx, principal)
+            .iter()
+            .position(|&m| m == d)
+            .ok_or_else(|| format!("`{}` is not in the vtable of `dyn {}`", r.def_path(d), r.def_path(principal)))?;
+        let recv = *args.first().ok_or("a `dyn` method without a receiver")?;
+        if !matches!(tcx.kind(recv.ty), TyKind::Ref(..) | TyKind::Ptr(..)) {
+            return Err(format!("a `dyn` method whose receiver is {}", tcx.display(r, recv.ty)));
+        }
+        let p = self.deref(recv)?;
+        let vt = p.meta.ok_or("a `dyn` receiver without a vtable")?;
+        let ps = self.cx.lcx.target.ptr_size;
+        let ptr = self.ptr_t();
+        let at = self.offset(vt, (3 + slot as u64) * ps);
+        let f = self.load_imm(ptr, at, ps);
+        // The method's own `self` is a thin pointer to the value.
+        let (mut inputs, output, _, variadic) = self.cx.signature(&mut self.solver, d, &targs)?;
+        let thin = tcx.mk(TyKind::Ptr(Mutbl::Not, tcx.mk(TyKind::Uint(UintTy::U8))));
+        inputs[0] = thin;
+        args[0] = Operand { ty: thin, v: Val::Imm(p.addr) };
+        // `Fn::call` and `FnMut::call_mut` (a closure's function, in the
+        // vtable): the arguments one by one, not as a tuple.
+        let fn_trait = crate::mono::trait_of(r, d).is_some_and(|tr| ["fn", "fn_mut", "fn_once"].iter().any(|l| tcx.lang.get(l) == Some(&tr)));
+        if fn_trait && args.len() == 2 {
+            let tuple = self.place_of(Pv::Val(args[1]))?;
+            let TyKind::Tuple(l) = tcx.kind(tuple.ty) else { return Err("`Fn` arguments not a tuple".into()) };
+            inputs.truncate(1);
+            args.truncate(1);
+            for (i, t) in tcx.tys(l).into_iter().enumerate() {
+                let fp = self.field(tuple, 0, i)?;
+                args.push(self.load(fp)?);
+                inputs.push(t);
+            }
+        }
+        let abi = self.cx.abi(self.b.module(), inputs, output, variadic)?;
+        let (ret, params) = Cx::ir_fn_type(self.b.module(), &abi);
+        let fty = self.b.module().types.function(ret, &params, abi.variadic);
+        self.emit_call(&abi, |b, a| b.call_indirect(fty, f, a), args)
     }
 
     /// The length a pointer gets when `src` is unsized to `dst`: an
@@ -1140,13 +1264,14 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             Kind::MacroCall => {
                 let name = ast.children(kids[0]).iter().rev().find(|&&s| ast.kind(s) == Kind::Segment).map_or("", |&s| ast.token(s).0);
                 match name {
-                    "panic" | "core_panic" | "std_panic" | "unreachable_2015" | "unreachable_2021" | "const_panic" => {
+                    "panic" | "core_panic" | "std_panic" | "unreachable_2015" | "unreachable_2021" | "const_panic" | "unreachable"
+                    | "todo" | "unimplemented" => {
                         self.trap();
                         Ok(Pv::Val(Operand { ty: tcx.mk(TyKind::Never), v: Val::Zst }))
                     }
                     "asm" => self.inline_asm(n, &kids),
-                    // `core::fmt` comes later: where formatting is
-                    // reached, the program traps.
+                    // Expansion makes `format_args!` code; one it leaves
+                    // (its string not a literal it can see) traps.
                     "format_args" | "const_format_args" | "format_args_nl" => {
                         let t = self.ty(n)?;
                         Ok(Pv::Val(self.trap_here(t, "`format_args!`")))
@@ -2369,6 +2494,25 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             place = self.deref(o)?;
         }
         match tcx.kind(place.ty) {
+            // A tuple struct's or variant's constructor (`map_break(ControlFlow::Break)`):
+            // the value built.
+            TyKind::FnDef(d, l) if matches!(self.cx.r.defs[d.0 as usize].kind, DefKind::Struct | DefKind::Variant) => {
+                // The struct, or the enum the variant is in, at the same
+                // arguments.
+                let r = self.cx.r;
+                let adt = match r.defs[d.0 as usize].kind {
+                    DefKind::Struct => d,
+                    _ => r.defs[d.0 as usize].parent.and_then(|m| r.modules[m.0 as usize].def).ok_or("a variant outside an enum")?,
+                };
+                let t = tcx.mk(TyKind::Adt(adt, l));
+                let v = match tcx.kind(t) {
+                    TyKind::Adt(e, _) if self.cx.r.defs[d.0 as usize].kind == DefKind::Variant => {
+                        tcx.adts.get(&e).and_then(|a| a.variants.iter().position(|x| x.def == Some(d))).ok_or("no such variant")? as u32
+                    }
+                    _ => 0,
+                };
+                self.construct(t, d, v, args)
+            }
             TyKind::FnDef(d, l) => self.call_def(d, tcx.tys(l), args, None),
             TyKind::FnPtr(_) => {
                 let c = self.load(place)?;
@@ -2382,6 +2526,32 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 all.extend(args);
                 let g = decl.g;
                 self.emit_call(&decl.abi, |b, a| b.call(g, a), all)
+            }
+            // `dyn Fn(A) -> B`: its method (`call`, `call_mut` or
+            // `call_once`) through the vtable, the arguments as a tuple.
+            TyKind::Dyn(dy) => {
+                let tr = tcx.dyn_of(dy).traits.first().cloned().ok_or("`dyn` of no trait")?;
+                let is = |l: &str| tcx.lang.get(l) == Some(&tr.def);
+                let name = if is("fn") {
+                    "call"
+                } else if is("fn_mut") {
+                    "call_mut"
+                } else if is("fn_once") {
+                    "call_once"
+                } else {
+                    return Err(format!("call of {}", tcx.display(self.cx.r, place.ty)));
+                };
+                let d = self.trait_method(tr.def, name).ok_or("`Fn` method not found")?;
+                let tuple_t = *tcx.tys(tr.args).first().ok_or("`Fn` without its arguments")?;
+                let tuple = self.temp(tuple_t)?;
+                for (i, o) in args.into_iter().enumerate() {
+                    let fp = self.field(tuple, 0, i)?;
+                    self.store(Operand { ty: fp.ty, v: o.v }, fp)?;
+                }
+                let rt = tcx.mk(TyKind::Ref(Mutbl::Mut, place.ty));
+                let recv = self.addr_of(place, rt)?;
+                let t = self.load(tuple)?;
+                self.dyn_call(d, vec![place.ty, tuple_t], vec![recv, t])
             }
             _ => Err(format!("call of {}", tcx.display(self.cx.r, place.ty))),
         }
@@ -2458,6 +2628,9 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         let tcx = self.cx.tcx;
         let name = self.cx.r.defs[d.0 as usize].name;
         let tr = crate::mono::trait_of(self.cx.r, d);
+        if targs.first().is_some_and(|&t| matches!(tcx.kind(t), TyKind::Dyn(_))) {
+            return self.dyn_call(d, targs, args);
+        }
         if tr.is_some() && tr == tcx.lang.get("clone").copied() && name == "clone" {
             // `*self`, copied.
             let p = self.deref(args[0])?;
@@ -2476,10 +2649,6 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 inner.push(self.load(fp)?);
             }
             return self.call_value(Pv::Val(args[0]), targs, inner);
-        }
-        if targs.first().is_some_and(|&t| matches!(tcx.kind(t), TyKind::Dyn(_))) {
-            let out = self.cx.signature(&mut self.solver, d, &targs)?.1;
-            return Ok(Pv::Val(self.trap_here(out, "`dyn` (a method)")));
         }
         Err(format!("built-in `{}` on {}", self.cx.r.def_path(d), targs.first().map(|&t| tcx.display(self.cx.r, t)).unwrap_or_default()))
     }

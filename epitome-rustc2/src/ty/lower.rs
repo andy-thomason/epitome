@@ -184,9 +184,32 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
                 _ => Const::Expr(self.k, self.file, e),
             },
             Kind::Block if ast.children(e).len() == 1 => return self.konst(ast.children(e)[0]),
+            // `size_of::<T>()` (`mem::size_of`, the intrinsic).
+            Kind::Call if let Some(t) = self.size_of_arg(e) => Const::SizeOf(t),
             _ => Const::Expr(self.k, self.file, e),
         };
         self.tcx.konst(c)
+    }
+
+    /// `T` of a call `size_of::<T>()` (of `core::mem`'s, or the
+    /// intrinsic), with no arguments.
+    fn size_of_arg(&mut self, call: NodeId) -> Option<Ty> {
+        let ast = self.ast();
+        let kids = ast.children(call);
+        let callee = *kids.first()?;
+        if ast.kind(callee) != Kind::PathExpr || kids.iter().skip(1).any(|&a| !ast.children(a).is_empty()) {
+            return None;
+        }
+        let path = *ast.children(callee).first()?;
+        let Some(Res::Def(d)) = self.res(path) else { return None };
+        let def = &self.env.r.defs[d.0 as usize];
+        if def.name != "size_of" || def.kind != DefKind::Fn {
+            return None;
+        }
+        let seg = ast.children(path).iter().rev().copied().find(|&s| ast.kind(s) == Kind::Segment)?;
+        let g = ast.child(seg, Kind::GenericArgs)?;
+        let [t] = ast.children(g) else { return None };
+        Some(self.ty(*t))
     }
 
     fn fn_ptr(&mut self, n: NodeId) -> Ty {

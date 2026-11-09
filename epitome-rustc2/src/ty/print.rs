@@ -196,6 +196,7 @@ impl TyCtxt<'_> {
             }
             Const::Param(p) => out.push_str(self.params[p.0 as usize].name),
             Const::Expr(..) => out.push_str("{expr}"),
+            Const::SizeOf(_) => out.push_str("{size_of}"),
             Const::Infer(v) => {
                 let _ = write!(out, "?{v}");
             }

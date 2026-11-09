@@ -127,6 +127,9 @@ pub enum Const {
     Param(ParamId),
     /// An expression not yet evaluated: crate, file and node.
     Expr(u32, u32, NodeId),
+    /// `size_of::<T>()` (`[u8; size_of::<Self>()]`): kept apart from
+    /// `Expr`, so that substitution reaches `T`.
+    SizeOf(Ty),
     /// While checking a body: the inference variable a const parameter's
     /// argument is (bound, when known, to a `ConstArg`).
     Infer(u32),

@@ -427,9 +427,36 @@ those expressions as any others, and lowering reads what each is from the
 call's tokens. A definition with
 `#[rustc_builtin_macro]` dispatches to these by name.
 
-Left as calls for type checking and lowering: `format_args!` (to a node
-the type checker knows), `asm!`, `global_asm!`, `include_str!`,
-`include_bytes!`, `offset_of!`, `assert!` and the like.
+`format_args!` (`expand/format.rs`) is expanded to code that builds
+`core::fmt::Arguments` as `core`'s own `fmt::write` reads it, so later
+stages compile it as any other code. The format string (a literal, or
+`concat!` and the like of literals) is parsed into literal pieces and
+placeholders, each with its argument (next, by position, by name, or a
+name it captures, `{x}`), its trait (`Display`, `Debug`, `LowerHex`...),
+fill, alignment, sign, `#`, `0`, debug hex, width and precision (either
+from an argument, `1$` and `.*`). These are encoded as the template
+`core` documents on `Arguments` (pieces with their lengths, placeholders
+as a byte of flags and the fields they say), and each placeholder (and
+each width or precision from an argument) gets an `rt::Argument`:
+
+```text
+match (&a, &b,) {
+    args => unsafe { ::core::fmt::Arguments::new(b"\xC0\x04 is \xC3...",
+        &[::core::fmt::rt::Argument::new_display(args.0), ...]) },
+}
+```
+
+The arguments are each evaluated once, by reference, as rustc does. A
+string with no placeholders is `Arguments::from_str`. `fmt::rt` is
+private to `core::fmt` (rustc reaches it through lang items): the
+expansion's own tokens (not the arguments') resolve as if written in
+`core::fmt`, the module of the `format_arguments` lang item, as a macro
+2.0's body resolves at its definition (`Session::format_texts`). A
+format string expansion cannot see is left as a call, which lowering
+makes a trap.
+
+Left as calls for type checking and lowering: `asm!`, `global_asm!`,
+`include_str!`, `include_bytes!`, `offset_of!` and the like.
 
 **Built-in derives** (`src/expand/derive.rs`, done): `Clone`, `Copy`,
 `Debug`, `Default`, `PartialEq`, `Eq`, `PartialOrd`, `Ord` and `Hash`.
@@ -653,7 +680,18 @@ from any thread: size, alignment, fields' offsets, the ABI (`Scalar`,
   `NonNull` and the `NonZero` integers are built) are `TyKind::Pat`, with
   their range; they narrow the scalar.
 - The constant evaluator covers array lengths, discriminants, integer
-  `const`s, `MIN`/`MAX`/`BITS`, `size_of`/`align_of`.
+  `const`s, `MIN`/`MAX`/`BITS`, `size_of`/`align_of`, other associated
+  constants of the primitive types (`char::MAX_LEN_UTF8`, from their
+  inherent impls), the integer methods `core`'s constants use
+  (`u32::MAX.ilog10()`, `ilog`, `pow`, `count_ones` and the rest, each
+  in its receiver's type, so `u128::MAX.ilog10()` is right), and `len`
+  of a string or byte string constant. `core::fmt` sizes its buffers
+  with these.
+- An array length written `size_of::<T>()` (`[u8; size_of::<Self>()]`,
+  the integers' `from_le_bytes`) is `Const::SizeOf(T)`, which
+  substitution reaches, rather than an expression evaluated without its
+  instance's types. A byte string literal's type has its length as a
+  value.
 - `--dump-layout` prints every non-generic type's layout;
   `tests/layout_vs_rustc.rs` checks 45 types' sizes and alignments
   against a program rustc builds.
@@ -679,7 +717,18 @@ adds a job.
   `where` clauses are checked deeper than in bodies, and where several
   impls match (specialisation), the one more specific than all the
   others is taken: the others match its header, its `where` clauses
-  assumed.
+  assumed. Where that leaves several (headers that match each other,
+  differing only in `Sized`: `impl<W: Write + ?Sized>` and `impl<W:
+  Write>`, as `Write::write_fmt`'s `SpecWriteFmt` has), the one that does
+  not relax `Sized` is taken, by the implicit `Sized` bounds the
+  predicates do not record.
+- A vtable of a type for a `dyn` trait (from unsizing to `dyn`) needs
+  each method of the trait and its supertraits, at the trait's arguments
+  (`dyn FnMut(&str) -> bool`), a supertrait's put in terms of the
+  trait's. `vtable_methods` fixes their order, which lowering's vtables
+  and calls through `dyn` both follow: each trait's own methods in the
+  order they are written, the trait first and then its supertraits.
+  Methods with generic parameters of their own are left out.
 - Calls the compiler implements need no item: a closure or function
   pointer called through `Fn` (a function item's own body runs), a `dyn`
   method, `Clone` of a tuple or a `Copy` type.
@@ -694,11 +743,9 @@ adds a job.
   could not be resolved (all of it with `EPITOME_MONO_ALL` set).
 
 From every non-generic function of `core` with a body (on mandelbrot):
-28,430 items from 54,045 uses, in 0.09 s. 62 uses (0.1%) are not resolved: mostly
-specialisation traits it cannot choose an impl of (`SpecAdvanceBy`, the
-sort's `UnstableSmallSortTypeImpl`, `SpecWriteFmt`), and a few calls whose
-arguments type checking left unknown (`array::try_from_fn` with a `dyn`
-in its result).
+28,688 items from 54,624 uses, in 0.1 s. 43 uses (0.1%) are not
+resolved: mostly calls whose arguments type checking left unknown
+(`array::try_from_fn` with a `dyn` in its result).
 
 ### 8.3 Lowering bodies (`src/lower/`)
 
@@ -823,10 +870,25 @@ any other; then each is defined.
   indices as const arguments. In `repr(Rust)` types (tuples among them)
   the offsets are this compiler's layout's, which may differ from
   rustc's: neither is promised.
+- **`dyn`.** A pointer to a `dyn Trait` is the value's address and its
+  vtable's. A vtable is a private constant made the first time it is
+  needed: the drop function (null, as drops are not done yet), size and
+  alignment, then each method's address in `vtable_methods`' order (a
+  closure's `call` and `call_mut`: its own function). Unsizing to `dyn`
+  takes the vtable of the concrete type; from `dyn A + Send` to `dyn A`
+  keeps it. A method of a `dyn` is called through its vtable entry, with
+  the value's thin address as `self`; `Fn::call` and `FnMut::call_mut`
+  (a call of a `&dyn Fn(A) -> B`) pass the arguments one by one, as the
+  closure's function takes them. `size_of_val` and `align_of_val` of a
+  `dyn`, and `vtable_size` and `vtable_align`, read the vtable.
+- **Formatting** is `core::fmt` itself, compiled as any other code from
+  the expansion of `format_args!` (section 6.5): `write!`, `Display` and
+  `Debug` of integers, floats, strings and derived types, `{:#?}`, and
+  user `Display` impls all run as rustc's build does.
 - **Panics** become a trap (`llvm.trap`), with no message: a call into
-  `core::panicking`, `panic!` and its relatives, an index out of bounds, a
-  division by zero, and a failed `assert!`. Arithmetic wraps, as in a
-  release build.
+  `core::panicking`, `panic!` and its relatives (`unreachable!`, `todo!`,
+  `unimplemented!`), an index out of bounds, a division by zero, and a
+  failed `assert!`. Arithmetic wraps, as in a release build.
 - **Symbols** are the item's path and arguments, made safe for an
   assembler, and a hash of where the item is written and of its
   arguments in full; `#[no_mangle]`, `#[export_name]` and foreign items
@@ -834,9 +896,10 @@ any other; then each is defined.
 
 A function whose body uses something not supported yet gets a body that
 traps, and `--lower-stats` lists each with why. Where what is not
-supported is only reached on the way to a panic (unsizing to `dyn`, a
-method of a `dyn`, `format_args!`), the function is lowered with a trap
-there instead, and `--lower-stats` lists those too. `--dump-ir` prints the
+supported is only reached on the way to a panic (upcasting a `dyn` to a
+supertrait's, a `format_args!` whose string expansion cannot see), the
+function is lowered with a trap there instead, and `--lower-stats` lists
+those too. `--dump-ir` prints the
 module, each function headed by the item it is and each statement's
 source quoted before its first instruction:
 
@@ -858,9 +921,9 @@ body:
 ```
 
 From every non-generic function of `core` with a body (on mandelbrot):
-22,310 functions in 3.6 s, of which 4,320 (19%) are not lowered, and 243
-more trap where they reach `dyn` or formatting. 4,002 of those not
-lowered are SIMD (`core::arch` and `core::simd`, 5,408 functions), which
+22,499 functions in 3.5 s, of which 4,047 (18%) are not lowered, and
+one more traps where it upcasts a `dyn` (243 trapped at `dyn` and
+formatting before they were done). 3,842 of those not lowered are SIMD (`core::arch` and `core::simd`, 5,408 functions), which
 is not attempted (its `asm!` with vector operands among them). Among
 them are about 1,000 that call an LLVM intrinsic of vectors or
 aggregates, `core::arch`'s by `link_name` (`llvm.x86.aesni.aesdec`):
@@ -868,11 +931,11 @@ Rust's ABI passes those in memory, where the intrinsic takes them as
 values, so such a call is not lowered (the intrinsic is not declared).
 They were lowered as calls passing pointers, which is wrong IR, until
 the code generator stopped at them. Of the 16,902 functions that are not
-SIMD, 318 (2%) are not lowered. The most
-common reasons: unsizing an array whose length is an expression the
-evaluator cannot work out (42), calls of instances monomorphisation did
-not find (20), and array lengths not known (17). The 14 intrinsics left
-are the compile-time and variadic ones.
+SIMD, 205 (1%) are not lowered (318 before `dyn` and formatting, and
+the fixes they needed). The most common reasons: intrinsics not done
+(19: the compile-time and variadic ones), `array::try_from_fn` with a
+type type checking left unknown (16), and array lengths the evaluator
+cannot work out (13 for `DecimalSeq`, 11 more elsewhere).
 
 With several threads the counts vary by a few functions from run to
 run: some results depend on the order in which bodies are checked and
@@ -891,18 +954,20 @@ deleted nearly all of `core` (the object was 319 KB).
 Timings for all of `core` as a library, on mandelbrot (64 cores): each
 stage is its own program, timed by `/usr/bin/time` (CPU time is user
 plus system; memory is the peak resident size). One run each; the first
-stage's wall time varied from 4.4 s to 4.9 s over four runs.
+stage's wall time varied from 4.4 s to 4.9 s over five runs.
 
 | Stage | Wall | CPU | Memory | Gives |
 |---|---|---|---|---|
-| `epitome-rustc2 --lib --dump-ir`: parsing to lowering | 4.4 s | 27 s (15 + 12) | 520 MB | 25 MB of IR |
-| `epitome-opt` | 11 s | 114 s | 355 MB | 14 MB of IR |
-| `epitome-llc --filetype=obj` on the optimised IR | 55 s | 414 s (402 + 13) | 2.1 GB | 3.9 MB object |
-| `epitome-llc --filetype=obj` on the IR not optimised | 78 s | 542 s (520 + 22) | 2.6 GB | 5.4 MB object |
+| `epitome-rustc2 --lib --dump-ir`: parsing to lowering | 4.7 s | 28 s (16 + 12) | 530 MB | 26 MB of IR |
+| `epitome-opt` | 11 s | 140 s | 380 MB | 17 MB of IR |
+| `epitome-llc --filetype=obj` on the optimised IR | 65 s | 459 s (441 + 18) | 2.1 GB | 4.2 MB object |
+| `epitome-llc --filetype=obj` on the IR not optimised | 84 s | 568 s (552 + 15) | 2.7 GB | 5.6 MB object |
 
-Both objects define the same 17,360 external functions. The code
-generator's time on the optimised IR, summed over functions
-(`--stats`): preparation 174 s, selection 23 s, register allocation
+(With `dyn` and formatting lowered, there is more code than when this
+was first measured: 3.9 MB and 5.4 MB objects, the code generator 55 s
+and 78 s.) The code generator's time on the optimised IR, summed over
+functions
+(`--stats`, as first measured): preparation 174 s, selection 23 s, register allocation
 61 s, frames 54 s and layout 24 s. It keeps only about seven of the 64
 cores busy (its wall time is an eighth of its CPU time); why (a part
 that runs alone, or a few large functions finishing last) is not looked
@@ -967,10 +1032,11 @@ not worked out; and in some bodies `.min()` is not found on an iterator
 whose item waits on an operator in a closure (`.map(|(a, b)| a * b)`).
 Lowering reports each of these rather than compiling something wrong.
 
-Not done yet (they come after this series): drops and drop glue, `dyn`
-(vtables), `core::fmt` (so panics have no message), unwinding, `Box` and
-allocation, closures made function pointers, string patterns, SIMD,
-`async`, and v0 symbol mangling.
+Not done yet: drops and drop glue (vtables' drop entries are null),
+upcasting a `dyn` to a supertrait's, function items and pointers as
+`dyn Fn` (closures are done), panics' messages (panics trap),
+unwinding, `Box` and allocation, closures made function pointers, string
+patterns, SIMD, `async`, and v0 symbol mangling.
 
 **Correct but slow or bloated**, to improve later:
 
@@ -1019,7 +1085,7 @@ The programs, which each print what rustc's build prints:
 |---|---|
 | `basics.rs` | Integers, structs, enums with data, references, slices, a generic function over a trait, `match`, `while`, `for` over a slice, `if let`. |
 | `generics.rs` | Generic structs and impls, derived `Clone`, `Copy` and `PartialEq`, trait default methods, associated types, const generics, methods taking `self` every way. |
-| `control.rs` | Labelled loops and blocks with values, `while let`, guards, ranges, or-patterns and `@` bindings, slice patterns, `let else`, `if let` chains, `?` on `Option` and `Result`, `assert!`. |
+| `control.rs` | Labelled loops and blocks with values, `while let`, guards, ranges, or-patterns and `@` bindings, slice patterns, `let else`, `if let` chains, `?` on `Option` and `Result`, `assert!`, associated constants as patterns (`Self::MASK`), and a variant's constructor passed as a function. |
 | `numbers.rs` | Signed and unsigned arithmetic, shifts, casts, `u128`, floats, `char`, constants, statics, associated constants, and integer methods of `core`. |
 | `iter.rs` | `for` over ranges, `rev`, `enumerate`, `zip`, `iter_mut`, user iterators, `count`, `sum`, `last`. |
 | `closures.rs` | Closures capturing by reference and by value, `FnMut` state, `impl Fn` arguments and results, function pointers, iterator adapters (`map`, `filter`, `fold`, `max`, `position`, `any`, `all`, `skip`, `take_while`), and `Option` and `Result` combinators. |
@@ -1027,6 +1093,8 @@ The programs, which each print what rustc's build prints:
 | `quad.rs` | `f128`: literals rounded exactly (checked by their bits: `0.1`, `PI`, `MAX`, `EPSILON`, the least normal, a subnormal), arithmetic beyond `f64`'s precision, comparisons with NaN, conversions to and from every float and integer width (`u128::MAX` included), saturating casts, and its methods in `core`. |
 | `asm.rs` | `asm!`: outputs, inputs, `inout` (with `=>` and `_`), named, numbered and implicit operands, modifiers, registers, `const` and `sym` operands, `clobber_abi`, AT&T syntax, options; and `core::arch::x86_64`'s `_bittest64` family, `_mm_stream_si32` and `__cpuid_count`, written with it. |
 | `atomics.rs` | `core::sync::atomic`: loads and stores, `fetch_add` and the other read-modify-writes, `compare_exchange` (and `_weak` in a loop), `fetch_update`, `AtomicBool`, `AtomicPtr`, fences, every ordering, and an atomic in a `static`. |
+| `dyn.rs` | Trait objects: `&dyn` and `&mut dyn` of several types, in slices and struct fields; default and supertraits' methods through `dyn`; a generic trait; large results; `size_of_val` and `align_of_val`; `dyn Tr + Send` to `dyn Tr`; `dyn Any` downcasts; closures as `dyn Fn` and `dyn FnMut`. |
+| `fmt.rs` | `core::fmt` through `write!` to a `fmt::Write`: integers in every base with widths, fill, alignment, signs, `#` and `0`; widths and precisions from arguments; strings, chars, bools; `Debug` of tuples, arrays, `Option` and derived types, `{:#?}` and `{:x?}`; a user `Display`; positional, named and captured arguments; nested `format_args!`; a `Write` that fails; and `f32` and `f64` every way. |
 
 ## 9. Crates and Cargo
 
@@ -1199,6 +1267,7 @@ Tests of parallel stages run on one thread and on several, and compare.
    and `std` type completely).
 6. Lowering of those to Epitome IR; first run tests pass (done for the
    programs in `tests/run/`).
-7. Drops, `dyn`, slices and strings, formatting through `core::fmt`.
+7. `dyn` and formatting through `core::fmt` (done); drops, slices and
+   strings.
 8. `core`, then `alloc` and `std` from `rust-src`; Cargo builds.
 9. Unwinding, `async`, and the long tail.

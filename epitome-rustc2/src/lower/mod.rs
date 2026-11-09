@@ -34,6 +34,7 @@
 
 mod asm;
 mod body;
+pub(crate) use body::parse_str;
 mod intrinsic;
 mod pat;
 mod quad;
@@ -321,6 +322,11 @@ impl<'a, 's> Cx<'a, 's> {
                 self.type_key(x, out);
                 out.push_str(&format!("; {:?}]", self.lcx.eval_const(c, &Default::default())));
             }
+            // A const argument by its value, however it is written.
+            TyKind::ConstArg(c) => match self.lcx.eval_const(c, &Default::default()) {
+                Some(v) => out.push_str(&format!("const {v}")),
+                None => out.push_str(&tcx.display(self.r, t)),
+            },
             _ => out.push_str(&tcx.display(self.r, t)),
         }
     }
@@ -444,6 +450,7 @@ impl Session {
             }
         }
         named.sort_by(|a, b| a.0.cmp(&b.0));
+        let all = named.clone();
         named.dedup_by(|a, b| a.0 == b.0);
         let mut static_inits = Vec::new();
         for (name, it) in &named {
@@ -512,6 +519,18 @@ impl Session {
                     Err(e) => failures.push(Failure { item: *it, name: name.clone(), why: e }),
                 },
                 _ => {}
+            }
+        }
+
+        // Items that are one instance by arguments written two ways
+        // (`[u8; 4]` and `[u8; size_of::<u32>()]`) have one name, and are
+        // each the function declared for it.
+        let by_name: FastMap<&str, Item> = named.iter().map(|(n, it)| (n.as_str(), *it)).collect();
+        for (n, it) in &all {
+            if !cx.fns.contains_key(it)
+                && let Some(d) = by_name.get(n.as_str()).and_then(|rep| cx.fns.get(rep)).cloned()
+            {
+                cx.fns.insert(*it, d);
             }
         }
 

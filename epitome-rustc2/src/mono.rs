@@ -48,8 +48,9 @@ pub enum Item {
     /// A `const` (or associated constant) at its arguments, computed where
     /// it is used.
     Const(DefId, List),
-    /// The vtable of a concrete type for a `dyn` trait.
-    VTable(Ty, DefId),
+    /// The vtable of a concrete type for a `dyn` trait, at the trait's
+    /// arguments (after `Self`).
+    VTable(Ty, DefId, List),
 }
 
 /// What monomorphisation found.
@@ -154,7 +155,7 @@ impl<'a, 's> Walk<'a, 's> {
                 let empty = self.tcx.list(Vec::new());
                 self.body(d, empty)
             }
-            Item::VTable(t, tr) => self.vtable(t, tr),
+            Item::VTable(t, tr, l) => self.vtable(t, tr, l),
             Item::Closure(..) | Item::Intrinsic(..) | Item::Foreign(_) => {}
         }
     }
@@ -358,7 +359,7 @@ impl<'a, 's> Walk<'a, 's> {
                         && !matches!(tcx.kind(src), TyKind::Dyn(_))
                         && let Some(tr) = tcx.dyn_of(dy).traits.first()
                     {
-                        self.found.push(Item::VTable(src, tr.def));
+                        self.found.push(Item::VTable(src, tr.def, tr.args));
                     }
                     cur = to;
                 }
@@ -375,51 +376,98 @@ impl<'a, 's> Walk<'a, 's> {
         }
     }
 
-    /// A vtable of `t` for trait `tr`: each method of `tr` and its
-    /// supertraits, for `t`.
-    fn vtable(&mut self, t: Ty, tr: DefId) {
-        let tcx = self.tcx;
-        let mut traits = vec![tr];
-        let mut i = 0;
-        while i < traits.len() {
-            if let Some(td) = tcx.traits.get(&traits[i]) {
-                for s in &td.supertraits {
-                    if !traits.contains(&s.def) {
-                        traits.push(s.def);
-                    }
-                }
-            }
-            i += 1;
-        }
-        for tr in traits {
-            let Some(m) = self.r.defs[tr.0 as usize].module else { continue };
-            let methods: Vec<DefId> = self.r.modules[m.0 as usize]
-                .names
-                .values()
-                .filter_map(|b| match b.res {
-                    Res::Def(d) if self.r.defs[d.0 as usize].kind == DefKind::AssocFn => Some(d),
-                    _ => None,
-                })
-                .collect();
-            for method in methods {
-                // Methods with their own generic parameters are not in a
-                // vtable (they cannot be called through `dyn`).
-                let n = tcx.all_params(method).len();
-                let ntrait = tcx.all_params(tr).len();
-                if n != ntrait {
-                    continue;
-                }
-                let mut args = vec![t];
-                // The trait's other arguments are not known here; traits
-                // with them are rare as `dyn`.
-                if ntrait > 1 {
-                    continue;
-                }
-                args.truncate(n);
-                self.call(method, args);
-            }
+    /// A vtable of `t` for trait `tr` at `args`: each method of `tr` and
+    /// its supertraits, for `t`.
+    fn vtable(&mut self, t: Ty, tr: DefId, args: List) {
+        let hidden = &self.typeck.hidden;
+        let entries = vtable_entries(self.r, self.tcx, hidden, &mut self.solver, t, tr, &self.tcx.tys(args));
+        for (method, args) in entries {
+            self.call(method, args);
         }
     }
+}
+
+/// The traits of a vtable of `tr`: `tr`, then its supertraits, those of
+/// each in turn (each once).
+fn vtable_traits(tcx: &TyCtxt, tr: DefId) -> Vec<DefId> {
+    let mut traits = vec![tr];
+    let mut i = 0;
+    while i < traits.len() {
+        if let Some(td) = tcx.traits.get(&traits[i]) {
+            for s in &td.supertraits {
+                if !traits.contains(&s.def) {
+                    traits.push(s.def);
+                }
+            }
+        }
+        i += 1;
+    }
+    traits
+}
+
+/// The methods of a vtable of trait `tr`, in the order of its entries
+/// after the drop function, size and alignment: those of each of
+/// `vtable_traits`, in the order they are written. Methods with generic
+/// parameters of their own are not in it (they cannot be called through
+/// `dyn`).
+pub(crate) fn vtable_methods(r: &Resolver, tcx: &TyCtxt, tr: DefId) -> Vec<DefId> {
+    let mut out = Vec::new();
+    for tr in vtable_traits(tcx, tr) {
+        let Some(m) = r.defs[tr.0 as usize].module else { continue };
+        let mut methods: Vec<DefId> = r.modules[m.0 as usize]
+            .names
+            .values()
+            .filter_map(|b| match b.res {
+                Res::Def(d) if r.defs[d.0 as usize].kind == DefKind::AssocFn => Some(d),
+                _ => None,
+            })
+            .filter(|&d| tcx.all_params(d).len() == tcx.all_params(tr).len())
+            .collect();
+        methods.sort();
+        methods.dedup();
+        out.extend(methods);
+    }
+    out
+}
+
+/// Each method of a vtable of `t` for trait `tr` at `args` (after
+/// `Self`), as `vtable_methods` orders them, with the arguments it is
+/// called at: `t`, then its trait's (a supertrait's put in terms of
+/// `tr`'s).
+pub(crate) fn vtable_entries(
+    r: &Resolver,
+    tcx: &TyCtxt,
+    hidden: &FastMap<crate::ty::OpaqueId, Ty>,
+    solver: &mut Solver,
+    t: Ty,
+    tr: DefId,
+    args: &[Ty],
+) -> Vec<(DefId, Vec<Ty>)> {
+    // Each trait's arguments, `Self` first.
+    let mut at: FastMap<DefId, Vec<Ty>> = FastMap::default();
+    let mut first = vec![t];
+    first.extend_from_slice(args);
+    at.insert(tr, first);
+    for d in vtable_traits(tcx, tr) {
+        let Some(own) = at.get(&d).cloned() else { continue };
+        let Some(td) = tcx.traits.get(&d) else { continue };
+        let params = tcx.all_params(d);
+        for s in &td.supertraits {
+            if at.contains_key(&s.def) {
+                continue;
+            }
+            let mut sa = vec![t];
+            sa.extend(tcx.tys(s.args).into_iter().map(|a| sub(tcx, hidden, solver, a, &params, &own)));
+            at.insert(s.def, sa);
+        }
+    }
+    vtable_methods(r, tcx, tr)
+        .into_iter()
+        .filter_map(|m| {
+            let a = at.get(&trait_of(r, m)?)?.clone();
+            Some((m, a))
+        })
+        .collect()
 }
 
 /// `t` at an instance: `args` put for `params`, `impl Trait` revealed,
@@ -614,7 +662,7 @@ impl MonoItems {
                 Item::Foreign(d) => format!("foreign {}", r.def_path(d)),
                 Item::Static(d) => format!("static {}", r.def_path(d)),
                 Item::Const(d, l) => format!("const {}{}", r.def_path(d), args(l)),
-                Item::VTable(t, tr) => format!("vtable {} as {}", tcx.display(r, t), r.def_path(tr)),
+                Item::VTable(t, tr, _) => format!("vtable {} as {}", tcx.display(r, t), r.def_path(tr)),
             })
             .collect();
         lines.sort();

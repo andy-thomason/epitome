@@ -3667,21 +3667,10 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     /// An array of children's input, each iteration's value in `vals`, to
     /// the child's slot at `at` (stored as `lane`, for the child's shape
     /// `csh`): iteration `t`'s in the lanes as wide as this function's
-    /// registers from `t` times that.
+    /// register (fewer than 16) from `t` times that.
     fn to_lanes(&mut self, at: u64, lane: Lane, w: u32, csh: Shape, vals: &[Option<Val>]) {
         let sh = self.sh;
-        if sh.n == 16 {
-            // Registers of 16 both sides: this pass's register of an
-            // iteration's lanes is one of the child's.
-            let stride = lane.piece_bytes(csh);
-            for (t, v) in vals.iter().enumerate() {
-                if let Some(v) = v {
-                    let blk = t as u64 * sh.chunks as u64 * lane.reg_bytes(csh);
-                    self.store_with(Base::State(at + blk), lane, v, stride);
-                }
-            }
-            return;
-        }
+        debug_assert!(sh.n < 16 && sh.chunks == 1, "arrays are called as one below parents of fewer than 16 lanes");
         // A lane at a time, a 32-bit word at a time, through memory: in
         // vector code, each piece stored to the scratch and its lanes
         // loaded from there.
@@ -3744,11 +3733,6 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     /// keeps the child's bit planes already loaded.
     fn from_lanes(&mut self, at: u64, lane: Lane, w: u32, csh: Shape, t: usize, regs: &mut HashMap<(usize, usize), String>) -> Val {
         let sh = self.sh;
-        if sh.n == 16 {
-            let stride = lane.piece_bytes(csh);
-            let blk = t as u64 * sh.chunks as u64 * lane.reg_bytes(csh);
-            return self.load_with(Base::State(at + blk), lane, w, stride);
-        }
         let (wp, scratch, n) = (sh.width() as usize, self.lay().scratch, 4 * sh.n as u64);
         let words = if lane == Lane::W32 { pieces(w) } else { 1 };
         // Each word of each lane, an i32.

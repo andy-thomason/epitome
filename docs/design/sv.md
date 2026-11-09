@@ -733,10 +733,10 @@ function, and how many lanes the function has decides the code it is:
   of many runs costs little more than one); `S` is a choice of the build,
   and one by default. The top has `S` lanes. A single instance of a child
   has its parent's lanes, and an array of `k` instances made by a
-  generate loop is one call of the child with `k` times as many: pmp's
-  eight `pmp_entry`s are one call with eight lanes for one simulation.
-  So a specialisation's lanes are the times it is instantiated in one
-  simulation, times `S`.
+  generate loop is one call of the child with `k` times as many, where
+  that widens it: pmp's eight `pmp_entry`s are one call with eight lanes
+  for one simulation. So for few simulations a specialisation's lanes
+  are the times it is instantiated in one, times `S`; for many, `S`.
 - **Shapes.** The lanes, rounded up, set the code's shape: one lane is
   **scalar code** (plain integers, below); up to 4, 8 or 16 are one
   register of 128-, 256- or 512-bit vectors of 32-bit lanes; more are a
@@ -826,15 +826,16 @@ its next value where the mask is set and keeps its old one elsewhere.
 parent. A single instance has its parent's lanes, child lane `n` its
 parent's lane `n`, and ports connected to a value whole connect with no
 data movement: the child reads and writes the parent's value where it
-is. An array of `k` instances in a parent of `w` lanes (its registers'
-width, padding included) gives iteration `i` the child's lanes
-`i * w` to `(i + 1) * w`, and the parent gathers each iteration's
-inputs into its block and scatters its outputs back, once a call: where
-both sides have registers of 16 lanes, an iteration's block is whole
-registers of the child's and each is one move; otherwise lane by lane.
-An array whose call would wait on itself (each iteration's input made
-from the last one's output, as a chain of adders is) is called an
-instance at a time instead.
+is. An array of `k` instances in a parent narrower than a register of
+16 lanes, `w` lanes wide (its register's width, padding included), is
+one call: iteration `i` has the child's lanes `i * w` to `(i + 1) * w`,
+and the parent gathers each iteration's inputs into its block and
+scatters its outputs back, a lane at a time, once a call. A parent of
+16 lanes or more gains no vector width from that and would lose ports
+that connect in place, so it calls each instance with its own lanes. An
+array whose call would wait on itself (each iteration's input made from
+the last one's output, as a chain of adders is) is called an instance
+at a time too.
 
 A parent's code may loop through a child without any value depending on
 itself: an output of the child feeds logic that feeds another of its

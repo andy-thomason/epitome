@@ -483,6 +483,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
             dropped: Cell::new(0),
             asserts: RefCell::default(),
             loops: Vec::new(),
+            revs: Vec::new(),
             sym_orders: RefCell::default(),
             sub_locals: RefCell::default(),
             loop_vars: RefCell::default(),
@@ -525,6 +526,9 @@ struct Layout {
     /// Where each child's state is, and what the child is lowered as.
     kids: HashMap<InstId, u64>,
     kid_keys: HashMap<InstId, Key>,
+    /// In vector code with arrays of children: room for a value's pieces,
+    /// through which they go a lane at a time to and from the children's.
+    scratch: u64,
     /// Its processes, drivers and children, in source order.
     code: Vec<Node>,
     /// What it is proved to compute, if that replaces its own logic.
@@ -649,6 +653,7 @@ impl Layout {
             elems: HashMap::new(),
             kids: HashMap::new(),
             kid_keys: HashMap::new(),
+            scratch: 0,
             code: Vec::new(),
             known: None,
             ff: Vec::new(),
@@ -764,7 +769,27 @@ enum Node {
     Early(InstId),
     /// A run of a generate loop's iterations, rolled back into a loop.
     Loop(usize),
+    /// A run of a generate loop's iterations that reverses the bits of a
+    /// field, one an iteration (`Lowering::revs`).
+    Rev(usize),
 }
+
+/// Iterations of a generate loop each assigning one bit of a value from one
+/// of another, the first value's bits going up as the other's go down: the
+/// reversal of an `n`-bit field of `s` from bit `s_lo`, to `d` from `d_lo`.
+#[derive(Clone, Debug)]
+struct Reversal {
+    /// The iterations' continuous assignments.
+    all: Vec<DriverId>,
+    d: ObjId,
+    d_lo: u32,
+    s: ObjId,
+    s_lo: u32,
+    n: u32,
+}
+
+/// Fewest bits of a reversal worth one (see [`Reversal`]).
+const REV_MIN: usize = 8;
 
 /// Iterations of a generate loop with the same code, which differ only in
 /// constants that step by the same amount each time (the genvar, and
@@ -832,6 +857,7 @@ struct Lowering<'d, 'a> {
     /// Immediate assertions left out.
     asserts: RefCell<HashSet<StmtId>>,
     loops: Vec<Rolled>,
+    revs: Vec<Reversal>,
     /// Specialisations' code in order, kept for proving what their
     /// parents compute after a layout of their own has dropped it.
     sym_orders: RefCell<HashMap<SpecId, Vec<Node>>>,
@@ -1149,6 +1175,17 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 lay.kids.insert(i, at);
             }
         }
+        // Room for the widest port of an array of children, in vector code
+        // of one register.
+        let widest = lay
+            .kid_keys
+            .iter()
+            .filter(|(i, _)| self.members(**i).len() > 1)
+            .flat_map(|(_, k)| d.spec(k.0).ports.iter().filter_map(|p| p.object).map(|o| pieces(tw(&d.types, d.object(o).ty))))
+            .max();
+        if let Some(words) = widest.filter(|_| !sh.scalar() && sh.chunks == 1) {
+            lay.scratch = lay.room(4 * sh.n as u64 * words as u64, 4 * sh.n as u64);
+        }
         self.layouts.insert(key, lay);
         Ok(())
     }
@@ -1260,7 +1297,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 if e.0 != Some(seg) {
                     e.0 = None;
                 }
-                e.1 &= matches!(node, Node::Driver(_));
+                e.1 &= matches!(node, Node::Driver(_) | Node::Rev(_));
             }
         }
         Ok(writers
@@ -1331,6 +1368,11 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 Node::Driver(dr) => exprs.extend([d.drivers[dr.0 as usize].lhs, d.drivers[dr.0 as usize].rhs]),
                 Node::Loop(l) => {
                     for &dr in &self.loops[l].all {
+                        exprs.extend([d.drivers[dr.0 as usize].lhs, d.drivers[dr.0 as usize].rhs]);
+                    }
+                }
+                Node::Rev(r) => {
+                    for &dr in &self.revs[r].all {
                         exprs.extend([d.drivers[dr.0 as usize].lhs, d.drivers[dr.0 as usize].rhs]);
                     }
                 }
@@ -1428,6 +1470,11 @@ impl<'d, 'a> Lowering<'d, 'a> {
                         self.expr_uses(drv.lhs, &mut uses);
                         self.expr_uses(drv.rhs, &mut uses);
                     }
+                }
+                // (Each whole: a field of it is read or written at once.)
+                Node::Rev(r) => {
+                    uses.insert(self.revs[r].d, None);
+                    uses.insert(self.revs[r].s, None);
                 }
                 Node::Proc(p) => self.stmt_uses(d.processes[p.0 as usize].body, &mut uses),
                 Node::In(i) | Node::Call(i) | Node::Pre(i) | Node::Early(i) => {
@@ -1615,6 +1662,14 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 let body: usize = drivers.iter().map(|dr| self.expr_size(d.drivers[dr.0 as usize].lhs) + self.expr_size(d.drivers[dr.0 as usize].rhs)).sum();
                 body * (end - at) > if body <= TINY_BODY { UNROLL_TINY_MAX } else { UNROLL_MAX }
             };
+            if end - at >= REV_MIN
+                && let Some(r) = self.reversal(&iters[at..end])
+            {
+                code.push(Node::Rev(self.revs.len()));
+                self.revs.push(r);
+                at = end;
+                continue;
+            }
             let rolled = if end - at >= ROLL_MIN && big() { self.roll(&iters[at..end]) } else { None };
             match rolled {
                 Some(r) => {
@@ -1630,6 +1685,46 @@ impl<'d, 'a> Lowering<'d, 'a> {
             at = end;
         }
         Ok(())
+    }
+
+    /// Iterations that reverse a field (see [`Reversal`]), if they do: each
+    /// one continuous assignment of a bit, its own bit of the same values.
+    fn reversal(&self, iters: &[ScopeId]) -> Option<Reversal> {
+        let d = self.d;
+        // The one bit of an object a select is, its indices constants.
+        let bit = |e: ExprId| -> Option<(ObjId, u32)> {
+            let mut x = e;
+            while matches!(d.expr(x).kind, ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_)) {
+                self.const_select(x)??;
+                x = d.expr(x).args[0];
+            }
+            matches!(d.expr(x).kind, ExprKind::Object(_)).then_some(())?;
+            let (o, lo, hi) = self.span(e)?;
+            (hi == lo + 1 && tw(&d.types, d.expr(e).ty) == 1).then_some((o, lo))
+        };
+        let mut all = Vec::new();
+        let mut bits = Vec::new();
+        for &i in iters {
+            let (mut drivers, mut params) = (Vec::new(), Vec::new());
+            self.gather(i, &mut drivers, &mut params);
+            let [dr] = drivers[..] else { return None };
+            let drv = &d.drivers[dr.0 as usize];
+            bits.push((bit(drv.lhs)?, bit(drv.rhs)?));
+            all.push(dr);
+        }
+        let ((d0, l0), (s0, r0)) = bits[0];
+        let (a, b) = (bits[1].0.1 as i64 - l0 as i64, bits[1].1.1 as i64 - r0 as i64);
+        if d0 == s0 || a.abs() != 1 || b != -a {
+            return None;
+        }
+        for (t, &((dt, lt), (st, rt))) in bits.iter().enumerate() {
+            if dt != d0 || st != s0 || lt as i64 != l0 as i64 + a * t as i64 || rt as i64 != r0 as i64 + b * t as i64 {
+                return None;
+            }
+        }
+        let n = bits.len() as u32;
+        let (d_lo, s_lo) = (bits.iter().map(|b| b.0.1).min()?, bits.iter().map(|b| b.1.1).min()?);
+        Some(Reversal { all, d: d0, d_lo, s: s0, s_lo, n })
     }
 
     /// The instances in an iteration of a generate loop, and in the generate
@@ -2145,6 +2240,11 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     self.writes(drv.lhs, &mut w, &mut r);
                 }
             }
+            Node::Rev(v) => {
+                let v = &self.revs[v];
+                r.push((v.s, v.s_lo, v.s_lo + v.n));
+                w.push((v.d, v.d_lo, v.d_lo + v.n));
+            }
             Node::In(i) | Node::Pre(i) => {
                 let pre = if let Node::Pre(_) = node { lay.splits.get(&i) } else { None };
                 for (p, e) in self.member_connections(i) {
@@ -2244,7 +2344,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     }
                 }
                 Node::In(_) | Node::Pre(_) | Node::Early(_) => {}
-                Node::Driver(_) | Node::Loop(_) => {
+                Node::Driver(_) | Node::Loop(_) | Node::Rev(_) => {
                     let (r, w) = self.access(key, node);
                     out.push(Dep { node: n, w, r });
                 }
@@ -3437,6 +3537,27 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let d = self.d();
         match n {
             Node::Loop(_) => unreachable!("rolled loops are loops of their own"),
+            Node::Rev(r) => {
+                let v = self.l.revs[r].clone();
+                let lay = self.lay();
+                let plain = |o: ObjId| !lay.elems.contains_key(&o) && !lay.pads.contains_key(&o) && !lay.kept.contains(&o);
+                if !plain(v.d) || !plain(v.s) {
+                    // (Kept another way: a bit at a time, as written.)
+                    for dr in v.all {
+                        let drv = &d.drivers[dr.0 as usize];
+                        let x = self.expr(drv.rhs)?;
+                        self.assign(drv.lhs, x)?;
+                    }
+                    return Ok(());
+                }
+                let x = self.read(v.s);
+                let x = self.extract(&x, v.s_lo, v.n);
+                let x = self.reverse(&x);
+                let old = if self.lay().fresh.contains(&v.d) && !self.env.vals.contains_key(&v.d) { self.zero(self.width(v.d)) } else { self.read(v.d) };
+                let new = self.insert(&old, v.d_lo, v.n, &x);
+                self.set(v.d, new);
+                Ok(())
+            }
             Node::Driver(dr) => {
                 let drv = &d.drivers[dr.0 as usize];
                 if let Some((o, v)) = self.padded_copy(drv.lhs, drv.rhs) {
@@ -3528,27 +3649,24 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         }
     }
 
-    /// 32-bit word `k` of lane `s` of `v`, an `i32` operand.
-    fn word_of(&mut self, v: &Val, k: usize, s: u32) -> String {
-        if self.sc() {
-            let p = v.p.get(k / 2).copied().unwrap_or(P::K(0));
-            let sh = 32 * (k % 2) as u32;
-            if let P::K(x) = p {
-                return format!("{}", (x >> sh) as u32 as i32);
-            }
-            let p = self.bin("lshr", p, P::K(sh as u64));
-            let t = self.tmp();
-            let _ = writeln!(self.out, "  %t{t} = trunc i64 {} to i32", self.ps(p));
-            return format!("%t{t}");
+    /// 32-bit word `k` of a value of scalar code, an `i32` operand.
+    fn word_of(&mut self, v: &Val, k: usize) -> String {
+        let p = v.p.get(k / 2).copied().unwrap_or(P::K(0));
+        let sh = 32 * (k % 2) as u32;
+        if let P::K(x) = p {
+            return format!("{}", (x >> sh) as u32 as i32);
         }
-        match v.p.get(k).copied().unwrap_or(P::K(0)) {
-            P::K(x) => format!("{}", x as u32 as i32),
-            P::V(n) => {
-                let t = self.tmp();
-                let _ = writeln!(self.out, "  %t{t} = extractelement {} %t{n}, i64 {s}", self.t.v);
-                format!("%t{t}")
-            }
-        }
+        let p = self.bin("lshr", p, P::K(sh as u64));
+        let t = self.tmp();
+        let _ = writeln!(self.out, "  %t{t} = trunc i64 {} to i32", self.ps(p));
+        format!("%t{t}")
+    }
+
+    /// An address in the state, `off` bytes in.
+    fn at(&mut self, off: u64) -> String {
+        let a = self.tmp();
+        let _ = writeln!(self.out, "  %t{a} = getelementptr i8, ptr %s, i64 {off}");
+        format!("%t{a}")
     }
 
     /// An array of children's input, each iteration's value in `vals`, to
@@ -3569,61 +3687,66 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             }
             return;
         }
-        // Lane by lane: each of the child's registers made from the lanes it
-        // holds, then stored as one.
-        let (wp, nc, ct) = (sh.width() as usize, csh.n as usize, tys(csh.n));
-        let lanes = vals.len() * wp;
+        // A lane at a time, a 32-bit word at a time, through memory: in
+        // vector code, each piece stored to the scratch and its lanes
+        // loaded from there.
+        let (wp, scratch, n) = (sh.width() as usize, self.lay().scratch, 4 * sh.n as u64);
         let words = if lane == Lane::W32 { pieces(w) } else { 1 };
-        for k in 0..words {
-            for r in 0..lanes.div_ceil(nc) {
-                let mut acc = String::from("zeroinitializer");
-                for j in 0..nc.min(lanes - r * nc) {
-                    let l = r * nc + j;
-                    let Some(v) = &vals[l / wp] else { continue };
-                    let word = self.word_of(v, k, (l % wp) as u32);
-                    let x = self.tmp();
-                    let _ = writeln!(self.out, "  %t{x} = insertelement {} {acc}, i32 {word}, i64 {j}", ct.w32);
-                    acc = format!("%t{x}");
+        let mut planes: Vec<Option<String>> = vec![None; (vals.len() * wp).div_ceil(16)];
+        for (t, v) in vals.iter().enumerate() {
+            let Some(v) = v else { continue };
+            if !self.sc() {
+                for (k, &p) in v.p.iter().enumerate() {
+                    let a = self.at(scratch + k as u64 * n);
+                    let _ = writeln!(self.out, "  store {} {}, ptr {a}, align {n}", self.t.v, self.ps(p));
                 }
-                let a = self.tmp();
-                match lane {
-                    Lane::W32 => {
-                        let off = at + k as u64 * lane.piece_bytes(csh) + r as u64 * lane.reg_bytes(csh);
-                        let _ = writeln!(self.out, "  %t{a} = getelementptr i8, ptr %s, i64 {off}\n  store {} {acc}, ptr %t{a}, align {}", ct.w32, 4 * nc);
+            }
+            for s in 0..wp {
+                let l = (t * wp + s) as u64;
+                for k in 0..words {
+                    let word = if self.sc() {
+                        self.word_of(v, k)
+                    } else {
+                        let (a, x) = (self.at(scratch + k as u64 * n + 4 * s as u64), self.tmp());
+                        let _ = writeln!(self.out, "  %t{x} = load i32, ptr {a}, align 4");
+                        format!("%t{x}")
+                    };
+                    match lane {
+                        Lane::W32 => {
+                            let a = self.at(at + k as u64 * lane.piece_bytes(csh) + 4 * l);
+                            let _ = writeln!(self.out, "  store i32 {word}, ptr {a}, align 4");
+                        }
+                        Lane::B8 | Lane::B16 => {
+                            let (ty, eb) = if lane == Lane::B8 { ("i8", 1) } else { ("i16", 2) };
+                            let (a, x) = (self.at(at + eb * l), self.tmp());
+                            let _ = writeln!(self.out, "  %t{x} = trunc i32 {word} to {ty}\n  store {ty} %t{x}, ptr {a}, align {eb}");
+                        }
+                        Lane::Bit => {
+                            let (b, x, y) = (self.tmp(), self.tmp(), self.tmp());
+                            let acc = planes[(l / 16) as usize].clone().unwrap_or_else(|| "0".into());
+                            let _ = writeln!(
+                                self.out,
+                                "  %t{b} = trunc i32 {word} to i16\n  %t{x} = shl i16 %t{b}, {}\n  %t{y} = or i16 {acc}, %t{x}",
+                                l % 16
+                            );
+                            planes[(l / 16) as usize] = Some(format!("%t{y}"));
+                        }
+                        Lane::W64 => unreachable!("an array's child is not scalar"),
                     }
-                    Lane::B8 | Lane::B16 => {
-                        let (ty, eb) = if lane == Lane::B8 { (ct.b8, 1) } else { (ct.b16, 2) };
-                        let x = self.tmp();
-                        let _ = writeln!(
-                            self.out,
-                            "  %t{a} = getelementptr i8, ptr %s, i64 {}\n  %t{x} = trunc {} {acc} to {ty}\n  store {ty} %t{x}, ptr %t{a}, align {}",
-                            at + r as u64 * lane.reg_bytes(csh),
-                            ct.w32,
-                            eb * nc
-                        );
-                    }
-                    Lane::Bit => {
-                        let (m, b) = (self.tmp(), self.tmp());
-                        let _ = writeln!(
-                            self.out,
-                            "  %t{a} = getelementptr i8, ptr %s, i64 {}\n  %t{m} = icmp ne {} {acc}, zeroinitializer\n  \
-                             %t{b} = bitcast {} %t{m} to {}\n  store {} %t{b}, ptr %t{a}, align 2",
-                            at + r as u64 * lane.reg_bytes(csh),
-                            ct.w32,
-                            ct.m,
-                            ct.bits,
-                            ct.bits
-                        );
-                    }
-                    Lane::W64 => unreachable!("an array's child is not scalar"),
                 }
+            }
+        }
+        for (r, bits) in planes.into_iter().enumerate() {
+            if let Some(bits) = bits {
+                let a = self.at(at + 2 * r as u64);
+                let _ = writeln!(self.out, "  store i16 {bits}, ptr {a}, align 2");
             }
         }
     }
 
     /// Iteration `t`'s value of an array of children's output, from the
     /// child's slot at `at` (as [`Func::to_lanes`] lays it out); `regs`
-    /// keeps the child's registers already loaded, by word and register.
+    /// keeps the child's bit planes already loaded.
     fn from_lanes(&mut self, at: u64, lane: Lane, w: u32, csh: Shape, t: usize, regs: &mut HashMap<(usize, usize), String>) -> Val {
         let sh = self.sh;
         if sh.n == 16 {
@@ -3631,61 +3754,41 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             let blk = t as u64 * sh.chunks as u64 * lane.reg_bytes(csh);
             return self.load_with(Base::State(at + blk), lane, w, stride);
         }
-        let (wp, nc, ct) = (sh.width() as usize, csh.n as usize, tys(csh.n));
+        let (wp, scratch, n) = (sh.width() as usize, self.lay().scratch, 4 * sh.n as u64);
         let words = if lane == Lane::W32 { pieces(w) } else { 1 };
         // Each word of each lane, an i32.
         let mut got: Vec<Vec<String>> = vec![Vec::new(); wp];
-        for k in 0..words {
-            for (s, got) in got.iter_mut().enumerate() {
-                let l = t * wp + s;
-                let (r, j) = (l / nc, l % nc);
-                let reg = match regs.get(&(k, r)) {
-                    Some(x) => x.clone(),
-                    None => {
-                        let a = self.tmp();
-                        let x = match lane {
-                            Lane::W32 => {
-                                let (v, off) = (self.tmp(), at + k as u64 * lane.piece_bytes(csh) + r as u64 * lane.reg_bytes(csh));
-                                let _ = writeln!(self.out, "  %t{a} = getelementptr i8, ptr %s, i64 {off}\n  %t{v} = load {}, ptr %t{a}, align {}", ct.w32, 4 * nc);
-                                v
-                            }
-                            Lane::B8 | Lane::B16 => {
-                                let (ty, eb) = if lane == Lane::B8 { (ct.b8, 1) } else { (ct.b16, 2) };
-                                let (v, z) = (self.tmp(), self.tmp());
-                                let _ = writeln!(
-                                    self.out,
-                                    "  %t{a} = getelementptr i8, ptr %s, i64 {}\n  %t{v} = load {ty}, ptr %t{a}, align {}\n  %t{z} = zext {ty} %t{v} to {}",
-                                    at + r as u64 * lane.reg_bytes(csh),
-                                    eb * nc,
-                                    ct.w32
-                                );
-                                z
-                            }
-                            Lane::Bit => {
-                                let (v, m, z) = (self.tmp(), self.tmp(), self.tmp());
-                                let _ = writeln!(
-                                    self.out,
-                                    "  %t{a} = getelementptr i8, ptr %s, i64 {}\n  %t{v} = load {}, ptr %t{a}, align 2\n  \
-                                     %t{m} = bitcast {} %t{v} to {}\n  %t{z} = zext {} %t{m} to {}",
-                                    at + r as u64 * lane.reg_bytes(csh),
-                                    ct.bits,
-                                    ct.bits,
-                                    ct.m,
-                                    ct.m,
-                                    ct.w32
-                                );
-                                z
-                            }
-                            Lane::W64 => unreachable!("an array's child is not scalar"),
-                        };
-                        let x = format!("%t{x}");
-                        regs.insert((k, r), x.clone());
-                        x
+        for (s, got) in got.iter_mut().enumerate() {
+            let l = (t * wp + s) as u64;
+            for k in 0..words {
+                let x = self.tmp();
+                match lane {
+                    Lane::W32 => {
+                        let a = self.at(at + k as u64 * lane.piece_bytes(csh) + 4 * l);
+                        let _ = writeln!(self.out, "  %t{x} = load i32, ptr {a}, align 4");
                     }
-                };
-                let e = self.tmp();
-                let _ = writeln!(self.out, "  %t{e} = extractelement {} {reg}, i64 {j}", ct.w32);
-                got.push(format!("%t{e}"));
+                    Lane::B8 | Lane::B16 => {
+                        let (ty, eb) = if lane == Lane::B8 { ("i8", 1) } else { ("i16", 2) };
+                        let (a, y) = (self.at(at + eb * l), self.tmp());
+                        let _ = writeln!(self.out, "  %t{y} = load {ty}, ptr {a}, align {eb}\n  %t{x} = zext {ty} %t{y} to i32");
+                    }
+                    Lane::Bit => {
+                        let r = (l / 16) as usize;
+                        let bits = match regs.get(&(0, r)) {
+                            Some(b) => b.clone(),
+                            None => {
+                                let (a, b) = (self.at(at + 2 * r as u64), self.tmp());
+                                let _ = writeln!(self.out, "  %t{b} = load i16, ptr {a}, align 2");
+                                regs.insert((0, r), format!("%t{b}"));
+                                format!("%t{b}")
+                            }
+                        };
+                        let (y, z) = (self.tmp(), self.tmp());
+                        let _ = writeln!(self.out, "  %t{y} = lshr i16 {bits}, {}\n  %t{z} = and i16 %t{y}, 1\n  %t{x} = zext i16 %t{z} to i32", l % 16);
+                    }
+                    Lane::W64 => unreachable!("an array's child is not scalar"),
+                }
+                got.push(format!("%t{x}"));
             }
         }
         if self.sc() {
@@ -3704,15 +3807,19 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             }
             return Val { w, p };
         }
+        // In vector code, the lanes' words to the scratch, then loaded as
+        // the value's pieces.
+        for (s, got) in got.iter().enumerate() {
+            for (k, word) in got.iter().enumerate() {
+                let a = self.at(scratch + k as u64 * n + 4 * s as u64);
+                let _ = writeln!(self.out, "  store i32 {word}, ptr {a}, align 4");
+            }
+        }
         let mut p = Vec::new();
         for k in 0..words {
-            let mut acc = String::from("zeroinitializer");
-            for (s, got) in got.iter().enumerate() {
-                let x = self.tmp();
-                let _ = writeln!(self.out, "  %t{x} = insertelement {} {acc}, i32 {}, i64 {s}", self.t.v, got[k]);
-                acc = format!("%t{x}");
-            }
-            p.push(P::V(acc[2..].parse().unwrap()));
+            let (a, x) = (self.at(scratch + k as u64 * n), self.tmp());
+            let _ = writeln!(self.out, "  %t{x} = load {}, ptr {a}, align {n}", self.t.v);
+            p.push(P::V(x));
         }
         Val { w, p }
     }
@@ -3745,19 +3852,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                         }
                     }
                 }
-                for &s in stmts {
-                    // After a `break` or `return` in some lanes, the rest
-                    // of the block is for the others.
-                    match self.stopped() {
-                        Some(M::K(true)) => break,
-                        Some(b @ M::V(_)) => {
-                            let go = self.mnot(b);
-                            self.branch(go, |f| f.stmt(s), |_| Ok(()))?;
-                        }
-                        _ => self.stmt(s)?,
-                    }
-                }
-                Ok(())
+                self.stmts(stmts)
             }
             StmtKind::Assign { kind: AssignKind::NonBlocking, lhs, rhs, timing: None } => {
                 if !self.ff {
@@ -3825,6 +3920,13 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 }
                 let n = self.trip_count(*cond, step)?;
                 let outer = self.env.brk.replace(M::K(false));
+                // Scalar code leaves the loop where it breaks: the rest of
+                // it behind a branch.
+                if self.sc() && stops(self.d(), *body) {
+                    let r = self.iterations(n, *cond, *body, step);
+                    self.env.brk = outer;
+                    return r;
+                }
                 for _ in 0..n {
                     // The lanes still looping: those that have not broken
                     // out, where the condition holds.
@@ -3884,6 +3986,76 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 Ok(())
             }
             k => Err(format!("statement {} is not supported yet", stmt_name(k))),
+        }
+    }
+
+    /// Statements in order. After a `break` or `return` in some lanes, the
+    /// rest are for the others: in vector code each statement with selects
+    /// of what it changes, in scalar code all of them behind a branch.
+    fn stmts(&mut self, stmts: &[StmtId]) -> Result<(), String> {
+        for (k, &s) in stmts.iter().enumerate() {
+            match self.stopped() {
+                Some(M::K(true)) => break,
+                Some(M::V(_)) if self.sc() => return self.unless_stopped(&stmts[k..], |f| f.stmts(&stmts[k..])),
+                Some(b @ M::V(_)) => {
+                    let go = self.mnot(b);
+                    self.branch(go, |f| f.stmt(s), |_| Ok(()))?;
+                }
+                _ => self.stmt(s)?,
+            }
+        }
+        Ok(())
+    }
+
+    /// Scalar code's `then` where no `break` or `return` has been taken:
+    /// behind a branch where one may have been, and in it none has.
+    fn unless_stopped(&mut self, arms: &[StmtId], then: impl FnOnce(&mut Self) -> Result<(), String>) -> Result<(), String> {
+        match self.stopped() {
+            None | Some(M::K(false)) => then(self),
+            Some(M::K(true)) => Ok(()),
+            Some(b) => {
+                let go = self.mnot(b);
+                self.diamond(
+                    go,
+                    arms,
+                    |f| {
+                        f.env.brk = f.env.brk.map(|_| M::K(false));
+                        f.env.ret = f.env.ret.map(|_| M::K(false));
+                        then(f)
+                    },
+                    None::<fn(&mut Self) -> Result<(), String>>,
+                )
+            }
+        }
+    }
+
+    /// Scalar code's `left` iterations of a loop that may break: each
+    /// behind a branch on its condition, and the rest of the loop behind one
+    /// on not having broken out, so that the loop's values stay constants
+    /// where they are.
+    fn iterations(&mut self, left: u32, cond: Option<ExprId>, body: StmtId, step: &[StmtId]) -> Result<(), String> {
+        if left == 0 {
+            return Ok(());
+        }
+        let go = match cond {
+            Some(c) => {
+                let v = self.expr(c)?;
+                self.truth(&v)
+            }
+            None => M::K(true),
+        };
+        let arms: Vec<StmtId> = std::iter::once(body).chain(step.iter().copied()).collect();
+        let iteration = |f: &mut Self| -> Result<(), String> {
+            f.stmt(body)?;
+            f.unless_stopped(&arms, |g| {
+                step.iter().try_for_each(|&s| g.stmt(s))?;
+                g.iterations(left - 1, cond, body, step)
+            })
+        };
+        match go {
+            M::K(false) => Ok(()),
+            M::K(true) => iteration(self),
+            M::V(_) => self.diamond(go, &arms, iteration, None::<fn(&mut Self) -> Result<(), String>>),
         }
     }
 
@@ -4809,18 +4981,8 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 Err(e) => result = Err(e),
             }
         }
-        for &st in &s.body {
-            if result.is_err() {
-                break;
-            }
-            result = match self.stopped() {
-                Some(M::K(true)) => break,
-                Some(m @ M::V(_)) => {
-                    let go = self.mnot(m);
-                    self.branch(go, |f| f.stmt(st), |_| Ok(()))
-                }
-                _ => self.stmt(st),
-            };
+        if result.is_ok() {
+            result = self.stmts(&s.body);
         }
         self.calls.pop();
         (self.env.brk, self.env.ret) = outer;
@@ -6409,6 +6571,33 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         self.norm(Val { w: a.w, p: out })
     }
 
+    /// `v`'s bits in reverse order: each piece's reversed by swapping
+    /// halves of ever wider fields, the pieces in reverse order, and the
+    /// whole moved down to the value's width.
+    fn reverse(&mut self, v: &Val) -> Val {
+        const MASKS: [u64; 6] = [0x5555_5555_5555_5555, 0x3333_3333_3333_3333, 0x0F0F_0F0F_0F0F_0F0F, 0x00FF_00FF_00FF_00FF, 0x0000_FFFF_0000_FFFF, 0x0000_0000_FFFF_FFFF];
+        let (pb, all) = (self.pb, self.ones_k());
+        let mut p = Vec::with_capacity(v.p.len());
+        for &x in v.p.iter().rev() {
+            let mut x = x;
+            for (k, &m) in MASKS.iter().enumerate() {
+                let s = 1u64 << k;
+                if s >= pb as u64 {
+                    break;
+                }
+                let hi = self.bin("lshr", x, P::K(s));
+                let hi = self.bin("and", hi, P::K(m & all));
+                let lo = self.bin("and", x, P::K(m & all));
+                let lo = self.bin("shl", lo, P::K(s));
+                x = self.bin("or", hi, lo);
+            }
+            p.push(x);
+        }
+        let full = Val { w: pb * v.p.len() as u32, p };
+        let x = self.lshr_const(&full, (full.w - v.w) as u64, None);
+        self.resize(&x, v.w, false)
+    }
+
     /// A mask as a `w`-bit 0 or 1.
     fn bit(&mut self, m: M, w: u32) -> Val {
         let p0 = match m {
@@ -6673,6 +6862,15 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         if let P::K(n) = s {
             return self.shl_const(v, n);
         }
+        // One piece: the shift, and zero where it is the width or more.
+        if v.p.len() == 1 {
+            let r = self.bin("and", s, P::K(self.pb as u64 - 1));
+            let x = self.bin("shl", v.p[0], r);
+            let x = self.norm(Val { w: v.w, p: vec![x] });
+            let big = self.icmp("uge", s, P::K(v.w as u64));
+            let z = self.zero(v.w);
+            return self.select(big, &z, &x);
+        }
         let len = v.p.len();
         let (q, r, ri, rz) = self.split_shift(s);
         let mut p = Vec::with_capacity(len);
@@ -6704,6 +6902,26 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             return self.lshr_const(v, n, fill);
         }
         let f = fill.unwrap_or(P::K(0));
+        // One piece: the shift, its sign bits too if signed (moved up to
+        // the top of the piece first), and the fill where it is the width
+        // or more.
+        if v.p.len() == 1 {
+            let pb = self.pb as u64;
+            let r = self.bin("and", s, P::K(pb - 1));
+            let x = match fill {
+                None => self.bin("lshr", v.p[0], r),
+                Some(_) => {
+                    let up = P::K(pb - v.w as u64);
+                    let t = self.bin("shl", v.p[0], up);
+                    let t = self.bin("ashr", t, up);
+                    self.bin("ashr", t, r)
+                }
+            };
+            let x = self.norm(Val { w: v.w, p: vec![x] });
+            let big = self.icmp("uge", s, P::K(v.w as u64));
+            let b = self.norm(Val { w: v.w, p: vec![f] });
+            return self.select(big, &b, &x);
+        }
         let len = v.p.len();
         let mut src = v.p.clone();
         if fill.is_some() {
@@ -7193,6 +7411,7 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
             match node {
                 Node::Driver(dr) => self.driver(dr)?,
                 Node::Loop(l) => self.l.loops[l].all.iter().try_for_each(|&dr| self.driver(dr))?,
+                Node::Rev(r) => self.l.revs[r].all.iter().try_for_each(|&dr| self.driver(dr))?,
                 Node::Proc(p) => self.stmt(d.processes[p.0 as usize].body)?,
                 Node::In(_) => {}
                 Node::Call(i) => self.l.members(i).into_iter().try_for_each(|m| self.call(m))?,

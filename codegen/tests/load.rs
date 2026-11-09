@@ -482,6 +482,9 @@ fn file_timing() {
     let c = compile(&t, &mut m.clone(), &opts(true)).unwrap();
     let text = best(&mut || drop(c.assembly(&t).unwrap()));
     let loading = best(&mut || drop(load::load(&t, &c, load::process_symbol).unwrap()));
+    let building = best(&mut || drop(c.object(&t).unwrap()));
+    let obj = c.object(&t).unwrap();
+    let placing = best(&mut || drop(load::load_object(&t, &obj, c.abi.syntax, load::process_symbol).unwrap()));
     let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("load");
     std::fs::create_dir_all(&tmp).unwrap();
     let mut n = 0;
@@ -496,8 +499,8 @@ fn file_timing() {
     });
     eprintln!(
         "{path}: {} functions; compiling {with:.1} ms with the assembly, {without:.1} ms without \
-         (the text alone {text:.1} ms); loading {loading:.2} ms, against {linking:.1} ms writing, \
-         linking and dlopening an object",
+         (the text alone {text:.1} ms); loading {loading:.2} ms (building the object {building:.2} ms, \
+         loading that {placing:.2} ms), against {linking:.1} ms writing, linking and dlopening an object",
         c.funcs.len()
     );
 }

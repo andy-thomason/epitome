@@ -3,7 +3,7 @@
 //! values worked out here, and CVA6's `pmp_entry` (when `CVA6_DIR` points
 //! at a CVA6 checkout) against a scalar model of it.
 //!
-//! On an AArch64 Mac or x86-64 Linux with `cc`; elsewhere the tests skip.
+//! On an AArch64 Mac or x86-64 Linux; elsewhere the tests skip.
 //! x86-64 uses AVX2 unless `NETLIST_MATTR` names other features.
 
 mod common;
@@ -75,7 +75,7 @@ endmodule
 #[test]
 fn operators_lane_by_lane() {
     let Some((t, triple, mattr)) = host() else {
-        eprintln!("needs cc on an AArch64 Mac or x86-64 Linux; skipping");
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
         return;
     };
     let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("netlist");
@@ -106,7 +106,7 @@ fn operators_lane_by_lane() {
             }
             ins.push((a, b, s, m, sa as i16, sb as i16));
         }
-        unsafe { (b.eval)(st.ptr) };
+        b.run(&mut st);
         for (n, &(a, b2, s, m, sa, sb)) in ins.iter().enumerate() {
             let mut each = 0;
             for i in 0..8 {
@@ -178,7 +178,7 @@ fn cva6_pmp_entry() {
         return;
     };
     let Some((t, triple, mattr)) = host() else {
-        eprintln!("needs cc on an AArch64 Mac or x86-64 Linux; skipping");
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
         return;
     };
     let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("netlist");
@@ -221,7 +221,7 @@ fn cva6_pmp_entry() {
         }
         ins.push((addr, conf, prev, mode));
     }
-    unsafe { (b.eval)(st.ptr) };
+    b.run(&mut st);
     let mut matches = 0;
     for (n, &(addr, conf, prev, mode)) in ins.iter().enumerate() {
         let want = pmp_reference(addr, conf, prev, mode);
@@ -275,7 +275,7 @@ fn cva6_pmp() {
         return;
     };
     let Some((t, triple, mattr)) = host() else {
-        eprintln!("needs cc on an AArch64 Mac or x86-64 Linux; skipping");
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
         return;
     };
     let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("netlist");
@@ -342,7 +342,7 @@ fn cva6_pmp() {
         st.put(net, "conf_i", n, conf.iter().enumerate().fold(0, |w, (i, &c)| w | c << (8 * i)));
         ins.push((addr, access, priv_lvl, conf_addr, conf));
     }
-    unsafe { (b.eval)(st.ptr) };
+    b.run(&mut st);
     let mut allowed = 0;
     for (n, (addr, access, priv_lvl, conf_addr, conf)) in ins.iter().enumerate() {
         let want = pmp_unit_reference(*addr, *access, *priv_lvl, conf_addr, conf);
@@ -372,7 +372,7 @@ fn lzc_recognised_matches_its_logic() {
         return;
     };
     let Some((t, triple, mattr)) = host() else {
-        eprintln!("needs cc on an AArch64 Mac or x86-64 Linux; skipping");
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
         return;
     };
     let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("netlist");
@@ -419,7 +419,7 @@ fn lzc_recognised_matches_its_logic() {
             for (n, &v) in ins.iter().enumerate() {
                 st.put(&b.net, "in_i", n, v);
             }
-            unsafe { (b.eval)(st.ptr) };
+            b.run(&mut st);
             outs.push((0..group).map(|n| (st.get(&b.net, "cnt_o", n), st.get(&b.net, "empty_o", n))).collect::<Vec<_>>());
         }
         for (n, &v) in ins.iter().enumerate() {

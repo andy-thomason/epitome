@@ -185,6 +185,59 @@ relocations; `.note.GNU-stack`; then `.symtab`, `.strtab` and `.shstrtab`.
 Local symbols come first, as ELF requires: section symbols, mapping
 symbols, then the object's own; then global ones, defined and undefined.
 
+## Loading code into the process
+
+`codegen/src/load.rs` runs compiled code in the compiler's own process, for
+clients that compile and run (epitome-sv's netlist tests): no assembly, no
+object file, no linker, no `dlopen`.
+
+```rust
+let opts = Options { no_asm: true, ..Default::default() };
+let c = epitome_codegen::compile(&t, &mut module, &opts)?;
+let code = load::load(&t, &c, load::process_symbol)?;
+let f: extern "C" fn(i64) -> i64 = unsafe { code.function("fib") }.unwrap();
+```
+
+`Options::no_asm` leaves `Compiled::asm` empty (`Compiled::assembly` writes
+it when it is wanted); `epitome-llc` sets it when writing an object.
+
+`load` takes the abstract object (`Compiled::object`, or the assembler's for
+inline assembly) and puts its code, read-only data and writable data on
+pages of their own. It fills in each relocation as a linker would: a
+pointer in data; a 32-bit distance in an instruction's own 32-bit field
+(x86); or, for a field the description encodes in pieces (AArch64's
+`adrp`, `add :lo12:`, `ldr :got_lo12:`, `bl`), by decoding the instruction
+(`Reloc::instr` says which), setting its symbol operand and encoding it
+again. The operand is found by inverting the relocation's `target`
+(`pc + v`, `(pc & -4096) + (v << 12)`), or for a relocation with no target,
+the address's low bits below the largest page any relocation measures in.
+References through the GOT use a table built next to the read-only data.
+Symbols the object does not define come from the caller's resolver
+(`process_symbol` is `dlsym` of `RTLD_DEFAULT`); calls to them go through
+16-byte stubs after the code (`ldr x16, #8; br x16` and `jmp *2(%rip)`),
+since the target may be out of a call's reach.
+
+On an AArch64 Mac the code pages are `MAP_JIT`, written with
+`pthread_jit_write_protect_np(0)` and then `sys_icache_invalidate`d; the
+data pages are ordinary memory mapped over the rest of the region. On
+x86-64 Linux the whole region is mapped writable and the code then
+`mprotect`ed to read and execute. Unwind and exception tables are not
+loaded, and thread-local variables cannot be.
+
+For CVA6's `id_stage` (9,000 lines of IR, 10 functions; the
+`file_timing` test in `codegen/tests/load.rs`, with `EPITOME_LOAD_IR`):
+
+| | M-series Mac | x86-64, AVX-512 (a shared, busy machine) |
+| --- | --- | --- |
+| Compiling, with the assembly | 230 ms | 169 ms |
+| The assembly alone (left out by `no_asm`) | 6 ms | 0.7 ms |
+| Building the object (encoding) | 4.9 ms | 7.5 ms |
+| Loading that | 0.04 ms | 0.4 ms |
+| Instead: writing it, `cc -shared`, `dlopen` | 250 ms | 52 ms |
+
+The text is written in parallel and is little of the time; what the
+loader saves is the file, the linker and `dlopen`.
+
 ## `epitome-as`
 
 ```sh

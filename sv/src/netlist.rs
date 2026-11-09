@@ -965,13 +965,21 @@ impl<'d, 'a> Lowering<'d, 'a> {
         // An array whose call would wait on itself (an iteration's input
         // made from another's output) is called an instance at a time.
         self.layouts.insert(key, lay);
-        let arrays: Vec<InstId> = self.layouts[&key]
-            .code
-            .iter()
-            .filter_map(|n| if let Node::In(i) = *n { Some(i) } else { None })
-            .filter(|i| self.arrays.contains_key(i))
-            .collect();
-        if !arrays.is_empty() && self.order(key).is_err() {
+        let arrays: Vec<InstId> = match self.order_of(key) {
+            Ok(_) => Vec::new(),
+            Err(stuck) => {
+                let code = &self.layouts[&key].code;
+                let mut v: Vec<InstId> = stuck
+                    .iter()
+                    .filter_map(|&n| if let Node::In(i) | Node::Call(i) = code[n] { Some(i) } else { None })
+                    .filter(|i| self.arrays.contains_key(i))
+                    .collect();
+                v.sort_unstable_by_key(|i| i.0);
+                v.dedup();
+                v
+            }
+        };
+        if !arrays.is_empty() {
             let split: HashMap<InstId, Vec<InstId>> = arrays.iter().map(|i| (*i, self.arrays.remove(i).unwrap())).collect();
             let entry = self.codes.get_mut(&spec).unwrap();
             entry.1 = entry
@@ -2089,7 +2097,18 @@ impl<'d, 'a> Lowering<'d, 'a> {
             }
         }
         if order.len() < nodes.len() {
-            return Err((0..nodes.len()).filter(|&n| preds[n] > 0).collect());
+            // Those left wait on a loop or are on one: the loops, with what
+            // only waits on them taken off, a node no other left waits on
+            // at a time.
+            let mut left: Vec<bool> = (0..nodes.len()).map(|n| preds[n] > 0).collect();
+            loop {
+                let sinks: Vec<usize> = (0..nodes.len()).filter(|&n| left[n] && !succ[n].iter().any(|&s| left[s])).collect();
+                if sinks.is_empty() {
+                    break;
+                }
+                sinks.into_iter().for_each(|n| left[n] = false);
+            }
+            return Err((0..nodes.len()).filter(|&n| left[n]).collect());
         }
         Ok(order)
     }
@@ -2175,12 +2194,18 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let mut r = lay.known.is_some();
         for &node in &lay.code {
             match node {
+                // An input the parent copies to a slot is read where it
+                // settles, whatever the child does with it; one the child
+                // reads where it is, as the child reads it.
                 Node::In(i) | Node::Pre(i) => {
                     let child = lay.kid_keys[&i];
+                    let args = lay.args.get(&i);
                     for (p, e) in self.member_connections(i) {
                         let mut rs = Vec::new();
                         self.reads(e, &mut rs);
-                        if p.dir == Dir::Input && rs.iter().any(|t| t.0 == o) && p.object.is_some_and(|q| self.comb_reads(child, q)) {
+                        let k = self.d.spec(child.0).ports.iter().position(|q| q.name == p.name);
+                        let copied = !matches!(args.zip(k).map(|(a, k)| a[k]), Some(Arg::Alias(_)));
+                        if p.dir == Dir::Input && rs.iter().any(|t| t.0 == o) && (copied || p.object.is_some_and(|q| self.comb_reads(child, q))) {
                             r = true;
                         }
                     }

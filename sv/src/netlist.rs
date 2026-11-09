@@ -549,6 +549,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
             loops: Vec::new(),
             revs: Vec::new(),
             sym_orders: RefCell::default(),
+            sym_kids: RefCell::default(),
             sub_locals: RefCell::default(),
             loop_vars: RefCell::default(),
             port_deps: RefCell::default(),
@@ -929,6 +930,8 @@ struct Lowering<'d, 'a> {
     /// Specialisations' code in order, kept for proving what their
     /// parents compute after a layout of their own has dropped it.
     sym_orders: RefCell<HashMap<Key, Vec<Node>>>,
+    /// And what their children are lowered as, and their arrays.
+    sym_kids: RefCell<HashMap<Key, (HashMap<InstId, Key>, HashMap<InstId, Vec<InstId>>)>>,
     sub_locals: RefCell<HashMap<SubId, Vec<ObjId>>>,
     /// The parameters that step in the loop being lowered: not constants
     /// there.
@@ -985,7 +988,20 @@ impl<'d, 'a> Lowering<'d, 'a> {
     /// The instances an instance node of `key`'s code stands for: an
     /// array's, or itself.
     fn members(&self, key: Key, i: InstId) -> Vec<InstId> {
-        self.layouts.get(&key).and_then(|l| l.groups.get(&i)).cloned().unwrap_or_else(|| vec![i])
+        if let Some(m) = self.layouts.get(&key).and_then(|l| l.groups.get(&i)) {
+            return m.clone();
+        }
+        // (A layout proved to count zeros keeps no code; what it had is
+        // kept for proving its parents.)
+        self.sym_kids.borrow().get(&key).and_then(|k| k.1.get(&i)).cloned().unwrap_or_else(|| vec![i])
+    }
+
+    /// What child `i` of `key`'s code is lowered as.
+    fn kid_key(&self, key: Key, i: InstId) -> Option<Key> {
+        match self.layouts.get(&key).and_then(|l| l.kid_keys.get(&i)) {
+            Some(&k) => Some(k),
+            None => self.sym_kids.borrow().get(&key).and_then(|k| k.0.get(&i)).copied(),
+        }
     }
 
     /// The instances an instance node may stand for: an array's, or itself.
@@ -7357,6 +7373,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         }
         let order = self.order(key).ok()?;
         self.sym_orders.borrow_mut().insert(key, order.clone());
+        self.sym_kids.borrow_mut().insert(key, (lay.kid_keys.clone(), lay.groups.clone()));
         let mut s = Sym { l: self, m: Manager::new(1 << 20), env: FxMap::default(), key };
         let x: Bits2 = (0..w).map(|i| s.m.var(i)).collect::<Result<_, _>>().ok()?;
         s.env.insert(input, x.clone());
@@ -7497,7 +7514,7 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
     fn call(&mut self, i: InstId) -> Sr<()> {
         let d = self.d();
         let inst = d.instance(i);
-        let key = *self.l.layouts.get(&self.key).and_then(|l| l.kid_keys.get(&i)).ok_or(Unproved)?;
+        let key = self.l.kid_key(self.key, i).ok_or(Unproved)?;
         let order = match self.l.sym_orders.borrow().get(&key) {
             Some(o) => o.clone(),
             None => self.l.order(key).map_err(|_| Unproved)?,

@@ -107,9 +107,10 @@ pub struct Built {
 pub fn build(name: &str, net: Netlist, t: &Target, triple: &str, mattr: &[String]) -> Built {
     let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("netlist");
     std::fs::create_dir_all(&tmp).unwrap();
-    let ir = format!("target triple = \"{triple}\"\n{}", net.ir);
-    std::fs::write(tmp.join(format!("{name}.ll")), &ir).unwrap();
-    let mut m = epitome_ir::parse_module(&ir).unwrap_or_else(|e| panic!("{name}.ll: {e:?}"));
+    let mut m = net.module.clone();
+    m.triple = Some(triple.as_bytes().to_vec());
+    // (The IR as text, for reading, and for NETLIST_CC_IR.)
+    std::fs::write(tmp.join(format!("{name}.ll")), m.to_string()).unwrap();
     // NETLIST_NO_OPT=1 leaves the IR as generated, for telling a bug in
     // the optimiser from one in code generation.
     if std::env::var("NETLIST_NO_OPT").map_or(true, |v| v != "1") {
@@ -141,7 +142,7 @@ pub fn build(name: &str, net: Netlist, t: &Target, triple: &str, mattr: &[String
     let lib = tmp.join(format!("lib{name}.so"));
     let mut link = Command::new("cc");
     link.arg("-shared").arg("-o").arg(&lib).arg(&obj);
-    if net.ir.contains("declare i64 @sv_ticks()") {
+    if net.module.find_global("sv_ticks").is_some() {
         let c = tmp.join("sv_ticks.c");
         std::fs::write(&c, "#include <x86intrin.h>\nlong sv_ticks(void) { return (long)__rdtsc(); }\n").unwrap();
         link.arg("-O2").arg(&c);

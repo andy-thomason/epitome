@@ -131,11 +131,16 @@ fn arrays_of_instances() {
             // The cells one call of five lanes, each row's leaves one of
             // four, the chain's links one lane each, six calls.
             for (what, lanes) in [("acc_cell", 5), ("leaf", 4), ("chain_link", 1)] {
-                assert!(net.ir.contains(&format!("; {what}, {lanes} lanes")), "{what} is not lowered for {lanes} lanes");
+                assert!(net.functions.iter().any(|f| f.spec == what && f.lanes == lanes), "{what} is not lowered for {lanes} lanes");
             }
-            let calls = |f: &str| net.ir.lines().filter(|l| l.contains("call void @sv_eval_") && l.contains(f)).count();
-            assert!(calls("_5(") >= 1, "the cells are not one call");
-            assert!(calls("_4(") >= 3, "each row's leaves are not one call");
+            let ir = net.ir();
+            let calls = |what: &str| {
+                let f = net.functions.iter().find(|f| f.spec == what).unwrap();
+                ir.matches(&format!("call void @{}(", f.name)).count()
+            };
+            assert_eq!(calls("acc_cell"), 1, "the cells are not one call");
+            assert_eq!(calls("leaf"), 3, "each row's leaves are not one call");
+            assert_eq!(calls("chain_link"), 6, "the chain's links are not a call each");
         }
         let b = build(&name, net, &t, triple, &mattr);
         report(&name, &b);
@@ -206,12 +211,10 @@ fn pmp_entries_as_lanes() {
             5..=8 => 8 * 8,
             s => s.next_multiple_of(16),
         };
-        assert!(net.ir.contains(&format!("; pmp_entry, {lanes} lanes\n")), "pmp_entry is not lowered for {lanes} lanes");
-        assert_eq!(net.ir.matches("; pmp_entry").count(), 1, "pmp_entry lowered more than once");
-        // (Its function's name, from the line after its comment.)
-        let head = &net.ir[net.ir.find(&format!("; pmp_entry, {lanes} lanes\n")).unwrap()..];
-        let name = head.lines().nth(1).and_then(|l| l.split('@').nth(1)).and_then(|l| l.split('(').next()).unwrap().to_string();
-        let calls = net.ir.matches(&format!("call void @{name}(")).count();
+        let entries: Vec<_> = net.functions.iter().filter(|f| f.spec == "pmp_entry").collect();
+        assert_eq!(entries.len(), 1, "pmp_entry lowered more than once");
+        assert_eq!(entries[0].lanes as usize, lanes, "pmp_entry's lanes");
+        let calls = net.ir().matches(&format!("call void @{}(", entries[0].name)).count();
         assert_eq!(calls, if sims <= 8 { 1 } else { 8 }, "pmp_entry's calls");
         let b = build(&name, net, &t, triple, &mattr);
         report(&name, &b);

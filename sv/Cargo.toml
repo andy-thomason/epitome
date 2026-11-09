@@ -6,6 +6,8 @@ repository = "https://github.com/andy-thomason/epitome"
 description = "A SystemVerilog (IEEE 1800-2023) compiler: lexer, preprocessor, parser, elaborator and simulator"
 
 [dependencies]
+# The netlist is built as Epitome IR.
+epitome-ir = { path = "../ir" }
 
 [[bin]]
 name = "epitome-sv"
@@ -13,6 +15,5 @@ path = "src/main.rs"
 
 [dev-dependencies]
 # The netlist tests build what `netlist` emits and run it.
-epitome-ir = { path = "../ir" }
 epitome-opt = { path = "../opt" }
 epitome-codegen = { path = "../codegen" }

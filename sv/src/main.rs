@@ -177,7 +177,7 @@ fn print_netlist(d: &epitome_sv::design::Design) -> ExitCode {
     for &top in &d.tops {
         match epitome_sv::netlist::compile(d, top) {
             Ok(n) => {
-                print!("{}", n.ir);
+                print!("{}", n.module);
                 eprintln!(
                     "epitome-sv: {} instances a group, {} bytes of state; entry {}; {} assertions left out",
                     n.group(),

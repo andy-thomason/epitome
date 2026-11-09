@@ -414,7 +414,7 @@ fn lzc_recognised_matches_its_logic() {
             let net = netlist_with(files.clone(), Vec::new(), &name, opts);
             let tag = if recognise { "known" } else { "logic" };
             if recognise {
-                assert!(net.ir.matches("@llvm.ctlz.").count() > 1, "{name} was not recognised");
+                assert!(net.ir().matches("@llvm.ctlz.").count() > 1, "{name} was not recognised");
             }
             built.push(build(&format!("{name}_{tag}"), net, &t, triple, &mattr));
         }

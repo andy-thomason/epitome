@@ -622,7 +622,8 @@ fn guarded_arms() {
     });
     check_against(&b, &v, cycles, n, &stim, &|w| format!("{w:x?}"));
     // (Scalar code puts costly arms behind branches of its own.)
-    let guards = b.net.ir.matches(", label %G").count() + b.net.ir.matches(", label %T").count();
+    let ir = b.net.ir();
+    let guards = ir.matches("label %guard").count() + ir.matches("label %then").count();
     assert!(guards >= 4, "the costly arms are not guarded");
     let ns = time_replay(&b, &v, cycles, n, &stim, 3);
     // The same without guards, every arm run and merged by selects.

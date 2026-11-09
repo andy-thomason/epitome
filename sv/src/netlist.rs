@@ -35,8 +35,11 @@
 //! Functions are written out where they are called. Fixed-size unpacked
 //! arrays are laid out as packed ones with the same bounds would be.
 //!
-//! The output is Epitome IR as text, for `epitome-opt` and
-//! `epitome-codegen`.
+//! The output is an Epitome IR `Module`, built with `epitome-ir`'s builder
+//! (no text in between), for `epitome-opt` and `epitome-codegen`; it prints
+//! as LLVM-syntax text for reading (`Netlist::ir`, `epitome-sv --netlist`).
+//! Code lowered on trial, to see its size, is taken back with the
+//! builder's checkpoints.
 //!
 //! Not yet: four-state values, tasks, hierarchical references, gates,
 //! latches, clocks made by the design's own registers (an edge is seen at
@@ -47,8 +50,13 @@
 //! Immediate assertions and `initial` blocks that only assert are dropped.
 
 use std::cell::{Cell, RefCell};
-use std::collections::{BTreeSet, BinaryHeap, HashMap, HashSet};
+use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::fmt::Write;
+
+use epitome_ir::Module;
+use epitome_ir::build::FunctionBuilder;
+use epitome_ir::module::{BinOp as IrBin, BlockId, Function as IrFunction, GlobalId, ICmpPred, Op, Value};
+use epitome_ir::types::TypeId as IrType;
 
 use crate::bdd::{Bdd, FALSE, Manager, TRUE, TooBig};
 use crate::design::types::{Type, TypeId, UDim};
@@ -169,10 +177,20 @@ impl Lane {
     }
 }
 
+/// A specialisation lowered for so many lanes, and its function's name.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Lowered {
+    pub spec: String,
+    pub lanes: u32,
+    pub name: String,
+}
+
 /// The compiled netlist of one top-level instance.
 pub struct Netlist {
-    /// The functions, as Epitome IR text.
-    pub ir: String,
+    /// The functions, as Epitome IR.
+    pub module: Module,
+    /// Each specialisation's functions, by the lanes they run with.
+    pub functions: Vec<Lowered>,
     /// The top specialisation's function.
     pub entry: String,
     /// Bytes of state.
@@ -263,6 +281,11 @@ impl Field {
 }
 
 impl Netlist {
+    /// The IR as text, for reading.
+    pub fn ir(&self) -> String {
+        self.module.to_string()
+    }
+
     /// Instances a state holds: its lanes.
     pub fn group(&self) -> usize {
         self.lanes
@@ -410,6 +433,34 @@ impl Phase {
 /// A specialisation, lowered for so many lanes.
 type Key = (SpecId, u32);
 
+/// `call`, written by `b`, timed into a counter for `what` where
+/// profiling: the cycles it took added to an `i64` of the global `sv_prof`,
+/// and one to the next.
+fn timed(l: &Lowering, b: &mut FunctionBuilder, what: String, call: impl FnOnce(&mut FunctionBuilder) -> Option<Value>) -> Option<Value> {
+    let (Some(counter), Some(prof)) = (l.opts.profile, l.prof.get()) else { return call(b) };
+    let k = {
+        let mut names = l.profile.borrow_mut();
+        names.push(what);
+        names.len() as i64 - 1
+    };
+    let (i8t, i64t) = (b.module().types.int(8), b.module().types.int(64));
+    let ctr = b.module().declare(counter, i64t, &[], false);
+    let t0 = b.call(ctr, &[]).unwrap();
+    let r = call(b);
+    let t1 = b.call(ctr, &[]).unwrap();
+    let dt = b.sub(t1, t0);
+    let one = b.const_int(i64t, 1);
+    let g = b.module().global_value(prof);
+    for (off, add) in [(16 * k, dt), (16 * k + 8, one)] {
+        let o = b.const_int(i64t, off);
+        let at = b.gep(i8t, g, &[o]);
+        let was = b.build_load(i64t, at).align(8).build();
+        let now = b.add(was, add);
+        b.build_store(now, at).align(8).build();
+    }
+    r
+}
+
 pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, String> {
     let spec = d.instance(top).spec;
     let mut sims = if opts.sims > 16 { opts.sims.next_multiple_of(16) } else { opts.sims.max(1) };
@@ -442,10 +493,13 @@ pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, 
         let lay = n.layouts.get_mut(&key).unwrap();
         n.settled = lay.room(1, 1);
     }
-    n.function(key)?;
-    for decl in n.decls.borrow().iter() {
-        let _ = writeln!(n.ir, "{decl}");
+    let mut module = Module::default();
+    // The profile's counters: their number is known at the end.
+    if opts.profile.is_some() {
+        let i64t = module.types.int(64);
+        n.prof.set(Some(module.add_global(epitome_ir::module::Global::variable("sv_prof", i64t, None, false))));
     }
+    n.function(&mut module, key)?;
     let lay = &n.layouts[&key];
     let mut ports = Vec::new();
     for p in &d.spec(spec).ports {
@@ -463,11 +517,21 @@ pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, 
     let entry = if lay.clocked { format!("{}_step", fn_name(key)) } else { fn_name(key) };
     let size = lay.size as usize;
     let profile = n.profile.take();
-    let mut ir = n.ir;
-    if let Some(counter) = opts.profile {
-        let _ = write!(ir, "\n@sv_prof = global [{} x i64] zeroinitializer\ndeclare i64 @{counter}()\n", 2 * profile.len().max(1));
+    if let Some(g) = n.prof.get() {
+        let i64t = module.types.int(64);
+        let ty = module.types.array(2 * profile.len().max(1) as u64, i64t);
+        let Value::Const(init) = module.const_zero(ty) else { unreachable!() };
+        if let epitome_ir::module::GlobalKind::Variable(v) = &mut module.globals[g.index()].kind {
+            (v.ty, v.init, v.align) = (ty, Some(init), Some(8));
+        }
     }
-    Ok(Netlist { ir, entry, size, lanes: sims, ports, dropped, profile })
+    let mut functions: Vec<Lowered> = n
+        .done
+        .iter()
+        .map(|&k| Lowered { spec: d.name(d.spec(k.0).name).to_string(), lanes: k.1, name: fn_name(k) })
+        .collect();
+    functions.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(Netlist { module, entry, size, lanes: sims, ports, dropped, profile, functions })
 }
 
 impl<'d, 'a> Lowering<'d, 'a> {
@@ -478,7 +542,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
             d,
             layouts: HashMap::new(),
             done: HashSet::new(),
-            ir: String::new(),
+            prof: Cell::new(None),
             folds: RefCell::default(),
             dropped: Cell::new(0),
             asserts: RefCell::default(),
@@ -495,7 +559,6 @@ impl<'d, 'a> Lowering<'d, 'a> {
             profile: RefCell::default(),
             codes: HashMap::new(),
             arrays: HashMap::new(),
-            decls: RefCell::default(),
         }
     }
 }
@@ -854,7 +917,8 @@ struct Lowering<'d, 'a> {
     d: &'d Design<'a>,
     layouts: HashMap<Key, Layout>,
     done: HashSet<Key>,
-    ir: String,
+    /// With `Options::profile`, the global `sv_prof` of the counters.
+    prof: Cell<Option<GlobalId>>,
     folds: RefCell<HashMap<ExprId, Option<Const>>>,
     /// `initial` blocks and kept syntax left out.
     dropped: Cell<usize>,
@@ -888,8 +952,6 @@ struct Lowering<'d, 'a> {
     /// first instance: called as one, with a lane block an iteration, by a
     /// parent narrower than registers of 16 lanes (`Layout::groups`).
     arrays: HashMap<InstId, Vec<InstId>>,
-    /// The intrinsics the functions call.
-    decls: RefCell<BTreeSet<String>>,
 }
 
 impl<'d, 'a> Lowering<'d, 'a> {
@@ -1998,7 +2060,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
     }
 
     /// The function for `key`, after its children's.
-    fn function(&mut self, key: Key) -> Result<(), String> {
+    fn function(&mut self, m: &mut Module, key: Key) -> Result<(), String> {
         if !self.done.insert(key) {
             return Ok(());
         }
@@ -2006,116 +2068,155 @@ impl<'d, 'a> Lowering<'d, 'a> {
         kids.sort_unstable_by_key(|k| (k.0.0, k.1));
         kids.dedup();
         for k in kids {
-            self.function(k)?;
+            self.function(m, k)?;
         }
-        let spec = key.0;
-        let mut f = Func::new(self, key);
-        let mut parts = String::new();
-        match &self.layouts[&key].known {
+        let name = fn_name(key);
+        let fail = |e: String| format!("@{name}: {e}");
+        let this = &*self;
+        match &this.layouts[&key].known {
             Some(k) => {
                 let k = k.clone();
+                let mut f = Func::new(this, m, key, &name, None);
                 f.run_loop_with(|f| f.known(&k))?;
+                f.finish().map_err(fail)?;
             }
-            None => match self.layouts[&key].part.clone() {
+            None => match this.layouts[&key].part.clone() {
                 None => {
-                    let order = self.order(key)?;
+                    let order = this.order(key)?;
+                    let mut f = Func::new(this, m, key, &name, None);
                     f.body(&order)?;
+                    f.finish().map_err(fail)?;
                 }
                 // The two parts, and the whole as one then the other.
                 Some((a, b)) => {
-                    let name = fn_name(key);
-                    let header = f.out.clone();
-                    let params = header[header.find('(').unwrap() + 1..header.find(')').unwrap()].to_string();
                     for (part, nodes) in [("_a", &a), ("_b", &b)] {
-                        let mut g = Func::new(self, key);
-                        g.out = g.out.replacen(&format!("@{name}("), &format!("@{name}{part}("), 1);
+                        let mut g = Func::new(this, m, key, &format!("{name}{part}"), None);
                         g.body(nodes)?;
-                        let text = g.finish();
-                        let _ = writeln!(parts, "{text}");
+                        g.finish().map_err(fail)?;
                     }
-                    let args = params.split(", ").collect::<Vec<_>>().join(", ");
-                    let _ = writeln!(f.out, "  call void @{name}_a({args})\n  call void @{name}_b({args})");
+                    let mut f = Func::new(this, m, key, &name, None);
+                    let n = f.b.function().params.len();
+                    let args: Vec<Value> = (0..n).map(|k| f.b.param(k)).collect();
+                    for part in ["_a", "_b"] {
+                        let g = f.callee(&format!("{name}{part}"), None, n);
+                        f.b.call(g, &args);
+                    }
+                    f.finish().map_err(fail)?;
                 }
             },
         }
-        let text = f.finish();
-        let _ = writeln!(self.ir, "; {}, {} lanes\n{parts}{text}", self.d.name(self.d.spec(spec).name), key.1);
-        if self.layouts[&key].clocked {
-            for phase in [Phase::Ff, Phase::Commit] {
-                let mut f = Func::new(self, key);
-                let any = f.phase(phase)?;
-                let text = if phase == Phase::Ff { f.finish_with(&any) } else { f.finish() };
-                let _ = writeln!(self.ir, "{text}");
+        if !this.layouts[&key].clocked {
+            return Ok(());
+        }
+        for phase in [Phase::Ff, Phase::Commit] {
+            let i1 = m.types.int(1);
+            let ret = (phase == Phase::Ff).then_some(i1);
+            let mut f = Func::new(this, m, key, &format!("{name}{}", phase.suffix()), ret);
+            let any = f.phase(phase)?;
+            match phase {
+                Phase::Ff => f.finish_with(any),
+                Phase::Commit => f.finish(),
             }
-            if self.top == Some(key) {
-                let n = fn_name(key);
-                let sh = self.layouts[&key].shape;
-                let t = tys(sh.n);
-                // The inputs compared with their copies, and copied: each a
-                // loop over its registers, as they lie one after another.
-                let mut cmp = String::new();
-                let mut changed = "false".to_string();
-                let mut from = "entry".to_string();
-                for (k, &(at, lane, w, copy)) in self.watch.iter().enumerate() {
-                    let ty = match (sh.scalar(), lane) {
-                        (_, Lane::Bit) => "i16",
-                        (true, Lane::B8) => "i8",
-                        (true, Lane::B16) => "i16",
-                        (true, Lane::W32) => "i32",
-                        (_, Lane::W64) => "i64",
-                        (false, Lane::B8) => t.b8,
-                        (false, Lane::B16) => t.b16,
-                        (false, Lane::W32) => t.w32,
-                    };
-                    let (unit, units) = (lane.reg_bytes(sh), lane.pieces(w) * sh.chunks as u64);
-                    let zero = if ty.starts_with('<') { "zeroinitializer" } else { "0" };
-                    let _ = write!(
-                        cmp,
-                        "  br label %W{k}\nW{k}:\n  %w{k} = phi i64 [ 0, %{from} ], [ %w{k}.next, %W{k} ]\n  \
-                         %w{k}.in = phi {ty} [ {zero}, %{from} ], [ %w{k}.acc, %W{k} ]\n  %w{k}.a = add i64 %w{k}, {at}\n  \
-                         %w{k}.p = getelementptr i8, ptr %s, i64 %w{k}.a\n  %w{k}.v = load {ty}, ptr %w{k}.p, align {unit}\n  \
-                         %w{k}.b = add i64 %w{k}, {copy}\n  %w{k}.q = getelementptr i8, ptr %s, i64 %w{k}.b\n  \
-                         %w{k}.u = load {ty}, ptr %w{k}.q, align {unit}\n  store {ty} %w{k}.v, ptr %w{k}.q, align {unit}\n  \
-                         %w{k}.x = xor {ty} %w{k}.v, %w{k}.u\n  %w{k}.acc = or {ty} %w{k}.in, %w{k}.x\n  \
-                         %w{k}.next = add i64 %w{k}, {unit}\n  %w{k}.end = icmp eq i64 %w{k}.next, {}\n  \
-                         br i1 %w{k}.end, label %X{k}, label %W{k}\nX{k}:\n",
-                        unit * units
-                    );
-                    // Whether any lane of it differs.
-                    if ty.starts_with('<') {
-                        let _ = write!(
-                            cmp,
-                            "  %w{k}.m = icmp ne {ty} %w{k}.acc, zeroinitializer\n  %w{k}.i = bitcast {} %w{k}.m to {}\n  \
-                             %w{k}.ne = icmp ne {} %w{k}.i, 0\n",
-                            t.m, t.bits, t.bits
-                        );
-                    } else {
-                        let _ = writeln!(cmp, "  %w{k}.ne = icmp ne {ty} %w{k}.acc, 0");
-                    }
-                    let _ = writeln!(cmp, "  %w{k}.any = or i1 {changed}, %w{k}.ne");
-                    changed = format!("%w{k}.any");
-                    from = format!("X{k}");
-                }
-                let settled = self.settled;
-                let settle = self.timed("step settle".into(), &format!("call void @{n}(ptr %s)"), "q0");
-                let ff = self.timed("step ff".into(), &format!("%fired = call i1 @{n}_ff(ptr %s)"), "q1");
-                let commit = self.timed("step commit".into(), &format!("call void @{n}_commit(ptr %s)"), "q2");
-                let again = self.timed("step settle again".into(), &format!("call void @{n}(ptr %s)"), "q3");
-                let _ = writeln!(
-                    self.ir,
-                    "; a step: settle, unless no input it reads has changed since it last did,\n\
-                     ; sample the registers, and where an edge came, commit them and settle again\n\
-                     define void @{n}_step(ptr %s) {{\nentry:\n{cmp}  %same = xor i1 {changed}, true\n  \
-                     %settled.p = getelementptr i8, ptr %s, i64 {settled}\n  %settled = load i8, ptr %settled.p, align 1\n  \
-                     %was = icmp ne i8 %settled, 0\n  %skip = and i1 %same, %was\n  br i1 %skip, label %sample, label %settle\n\
-                     settle:\n{settle}  store i8 1, ptr %settled.p, align 1\n  br label %sample\n\
-                     sample:\n{ff}  \
-                     br i1 %fired, label %commit, label %done\ncommit:\n{commit}{again}  \
-                     br label %done\ndone:\n  ret void\n}}\n"
-                );
-            }
+            .map_err(fail)?;
+        }
+        if this.top == Some(key) {
+            this.step(m, key).map_err(fail)?;
         }
         Ok(())
+    }
+
+    /// The top's step: settle, unless no input it reads has changed since
+    /// it last did; sample the registers, and where an edge came, commit
+    /// them and settle again.
+    fn step(&self, m: &mut Module, key: Key) -> Result<(), String> {
+        let n = fn_name(key);
+        let sh = self.layouts[&key].shape;
+        let t = tys(m, sh.n);
+        let settle = m.declare(&n, t.void, &[t.ptr], false);
+        let ff = m.declare(&format!("{n}_ff"), t.i1, &[t.ptr], false);
+        let commit = m.declare(&format!("{n}_commit"), t.void, &[t.ptr], false);
+        let mut b = IrFunction::builder(&format!("{n}_step")).returns(t.void).param("s", t.ptr).begin(m);
+        let mut from = b.block("entry");
+        let s = b.param(0);
+        // The inputs compared with their copies, and copied: each a loop
+        // over its registers, as they lie one after another.
+        let mut changed = b.const_int(t.i1, 0);
+        for &(at, lane, w, copy) in &self.watch {
+            let ty = match (sh.scalar(), lane) {
+                (_, Lane::Bit) => t.i16,
+                (true, Lane::B8) => t.i8,
+                (true, Lane::B16) => t.i16,
+                (true, Lane::W32) => t.i32,
+                (_, Lane::W64) => t.i64,
+                (false, Lane::B8) => t.b8,
+                (false, Lane::B16) => t.b16,
+                (false, Lane::W32) => t.w32,
+            };
+            let (unit, units) = (lane.reg_bytes(sh), lane.pieces(w) * sh.chunks as u64);
+            let zero = b.module().const_zero(ty);
+            let lp = b.new_block("watch");
+            b.br(lp);
+            b.at(lp);
+            let z64 = b.const_int(t.i64, 0);
+            let i = b.phi(t.i64, &[(z64, from)]);
+            let acc = b.phi(ty, &[(zero, from)]);
+            let k = b.const_int(t.i64, at as i64);
+            let a = b.add(i, k);
+            let p = b.gep(t.i8, s, &[a]);
+            let v = b.build_load(ty, p).align(unit).build();
+            let k = b.const_int(t.i64, copy as i64);
+            let c = b.add(i, k);
+            let q = b.gep(t.i8, s, &[c]);
+            let u = b.build_load(ty, q).align(unit).build();
+            b.build_store(v, q).align(unit).build();
+            let x = b.xor(v, u);
+            let acc2 = b.or(acc, x);
+            let k = b.const_int(t.i64, unit as i64);
+            let next = b.add(i, k);
+            let k = b.const_int(t.i64, (unit * units) as i64);
+            let end = b.icmp(ICmpPred::Eq, next, k);
+            b.add_incoming(i, next, lp);
+            b.add_incoming(acc, acc2, lp);
+            let out = b.new_block("watched");
+            b.cond_br(end, out, lp);
+            b.at(out);
+            // Whether any lane of it differs.
+            let ne = if !sh.scalar() && !matches!(lane, Lane::Bit | Lane::W64) {
+                let mk = b.icmp(ICmpPred::Ne, acc2, zero);
+                let bits = b.bitcast(mk, t.bits);
+                let z = b.const_int(t.bits, 0);
+                b.icmp(ICmpPred::Ne, bits, z)
+            } else {
+                b.icmp(ICmpPred::Ne, acc2, zero)
+            };
+            changed = b.or(changed, ne);
+            from = out;
+        }
+        let tr = b.const_int(t.i1, 1);
+        let same = b.xor(changed, tr);
+        let k = b.const_int(t.i64, self.settled as i64);
+        let sp = b.gep(t.i8, s, &[k]);
+        let was = b.build_load(t.i8, sp).align(1).build();
+        let z8 = b.const_int(t.i8, 0);
+        let was = b.icmp(ICmpPred::Ne, was, z8);
+        let skip = b.and(same, was);
+        let (settle_b, sample_b, commit_b, done_b) = (b.new_block("settle"), b.new_block("sample"), b.new_block("commit"), b.new_block("done"));
+        b.cond_br(skip, sample_b, settle_b);
+        b.at(settle_b);
+        timed(self, &mut b, "step settle".into(), |b| b.call(settle, &[s]));
+        let one = b.const_int(t.i8, 1);
+        b.build_store(one, sp).align(1).build();
+        b.br(sample_b);
+        b.at(sample_b);
+        let fired = timed(self, &mut b, "step ff".into(), |b| b.call(ff, &[s])).unwrap();
+        b.cond_br(fired, commit_b, done_b);
+        b.at(commit_b);
+        timed(self, &mut b, "step commit".into(), |b| b.call(commit, &[s]));
+        timed(self, &mut b, "step settle again".into(), |b| b.call(settle, &[s]));
+        b.br(done_b);
+        b.at(done_b);
+        b.ret_void();
+        b.finish().map(|_| ())
     }
 
     /// The specialisation's code in an order where everything is worked
@@ -2261,23 +2362,6 @@ impl<'d, 'a> Lowering<'d, 'a> {
         (r, w)
     }
 
-    /// `call`, a line of IR, timed into a counter for `what` where
-    /// profiling; `t` names its temporaries.
-    fn timed(&self, what: String, call: &str, t: &str) -> String {
-        let Some(counter) = self.opts.profile else { return format!("  {call}\n") };
-        let mut names = self.profile.borrow_mut();
-        let k = names.len();
-        names.push(what);
-        format!(
-            "  %{t}.t0 = call i64 @{counter}()\n  {call}\n  %{t}.t1 = call i64 @{counter}()\n  %{t}.dt = sub i64 %{t}.t1, %{t}.t0\n  \
-             %{t}.at = getelementptr i8, ptr @sv_prof, i64 {}\n  %{t}.was = load i64, ptr %{t}.at, align 8\n  \
-             %{t}.now = add i64 %{t}.was, %{t}.dt\n  store i64 %{t}.now, ptr %{t}.at, align 8\n  \
-             %{t}.nat = getelementptr i8, ptr @sv_prof, i64 {}\n  %{t}.n = load i64, ptr %{t}.nat, align 8\n  \
-             %{t}.n1 = add i64 %{t}.n, 1\n  store i64 %{t}.n1, ptr %{t}.nat, align 8\n",
-            16 * k,
-            16 * k + 8
-        )
-    }
 
     /// Whether a specialisation's settling code reads an input of its,
     /// itself or in a child, or only its clocked processes do (a clock).
@@ -3007,35 +3091,58 @@ struct Env {
     eloaded: HashMap<(ObjId, u32), Val>,
 }
 
-/// The IR types of a shape's values.
+/// The IR types of a shape's values, and those every function uses.
 #[derive(Clone, Copy)]
 struct Tys {
     /// A piece of a value in every lane.
-    v: &'static str,
+    v: IrType,
     /// A mask.
-    m: &'static str,
+    m: IrType,
     /// Lanes twice a piece's width, for products.
-    wide: &'static str,
+    wide: IrType,
     /// Stored values: bytes, halves, and 32-bit pieces.
-    b8: &'static str,
-    b16: &'static str,
-    w32: &'static str,
+    b8: IrType,
+    b16: IrType,
+    w32: IrType,
     /// An integer of a bit a lane.
-    bits: &'static str,
+    bits: IrType,
+    i1: IrType,
+    i8: IrType,
+    i16: IrType,
+    i32: IrType,
+    i64: IrType,
+    ptr: IrType,
+    void: IrType,
 }
 
-fn tys(n: u32) -> Tys {
-    match n {
-        1 => Tys { v: "i64", m: "i1", wide: "i128", b8: "i8", b16: "i16", w32: "i32", bits: "i1" },
-        4 => Tys { v: "<4 x i32>", m: "<4 x i1>", wide: "<4 x i64>", b8: "<4 x i8>", b16: "<4 x i16>", w32: "<4 x i32>", bits: "i4" },
-        8 => Tys { v: "<8 x i32>", m: "<8 x i1>", wide: "<8 x i64>", b8: "<8 x i8>", b16: "<8 x i16>", w32: "<8 x i32>", bits: "i8" },
-        16 => Tys { v: "<16 x i32>", m: "<16 x i1>", wide: "<16 x i64>", b8: "<16 x i8>", b16: "<16 x i16>", w32: "<16 x i32>", bits: "i16" },
-        _ => unreachable!("{n} lanes a register"),
-    }
+fn tys(m: &mut Module, n: u32) -> Tys {
+    let t = &mut m.types;
+    let (i1, i8, i16, i32, i64, i128) = (t.int(1), t.int(8), t.int(16), t.int(32), t.int(64), t.int(128));
+    let (ptr, void) = (t.ptr(0), t.void());
+    let (v, mk, wide, b8, b16, w32, bits) = match n {
+        1 => (i64, i1, i128, i8, i16, i32, i1),
+        _ => (t.vector(n, i32), t.vector(n, i1), t.vector(n, i64), t.vector(n, i8), t.vector(n, i16), t.vector(n, i32), t.int(n)),
+    };
+    Tys { v, m: mk, wide, b8, b16, w32, bits, i1, i8, i16, i32, i64, ptr, void }
+}
+
+/// The pointers to the part of the state a pass over registers is at: for
+/// each register of 32-bit pieces (`b`), bit planes (`h`), bytes (`q`) and
+/// halves (`w`), and the offsets from which they are (for ports).
+#[derive(Clone, Copy)]
+struct Regs {
+    b: Value,
+    h: Value,
+    q: Value,
+    w: Value,
+    off: Value,
+    half: Value,
+    b8: Value,
+    b16: Value,
 }
 
 /// One function being written.
-struct Func<'l, 'd, 'a> {
+struct Func<'l, 'd, 'a, 'm> {
     l: &'l Lowering<'d, 'a>,
     key: Key,
     /// Its shape, and what follows from it: the bits in a piece, and the
@@ -3043,14 +3150,14 @@ struct Func<'l, 'd, 'a> {
     sh: Shape,
     pb: u32,
     t: Tys,
-    out: String,
-    next: u32,
+    b: FunctionBuilder<'m>,
+    /// The values the temporaries `%tN` (`P::V(N)`, `M::V(N)`) stand for.
+    vals: Vec<Value>,
     env: Env,
-    /// The label of the block being written.
-    block: String,
-    loops: u32,
-    /// Rolled loops written so far.
-    rolled: u32,
+    /// The block being written.
+    block: BlockId,
+    /// In a loop over registers: where it is in the state.
+    regs: Option<Regs>,
     /// In a rolled loop: static values are read from and written to the
     /// state as they are used, not kept for the end of the outer loop.
     mem: bool,
@@ -3069,8 +3176,6 @@ struct Func<'l, 'd, 'a> {
     zeros: HashMap<u32, u64>,
     /// Temporaries that are 0 or 1 a lane, bit `j` of a piece.
     bit_of: HashMap<u32, (P, u32)>,
-    /// Blocks written for arms run only where some lane needs them.
-    guards: u32,
     /// Lowering an arm only to see its size: no arm within it is guarded.
     trial: bool,
     /// Running clocked processes: nonblocking assignments are allowed.
@@ -3080,46 +3185,42 @@ struct Func<'l, 'd, 'a> {
     path: M,
 }
 
-/// A piece as an operand: a constant, splat in vector code.
-fn ps(p: P, scalar: bool) -> String {
-    match p {
-        P::K(k) if scalar => format!("{}", k as i64),
-        P::K(k) => format!("splat (i32 {})", k as u32 as i32),
-        P::V(n) => format!("%t{n}"),
-    }
+/// A binary operator by its IR keyword.
+fn ir_bin(op: &str) -> IrBin {
+    IrBin::ALL.iter().find(|(k, _)| *k == op).unwrap_or_else(|| panic!("no operator {op}")).1
 }
 
-fn ms(m: M, scalar: bool) -> String {
-    match m {
-        M::K(b) if scalar => format!("{b}"),
-        M::K(b) => format!("splat (i1 {b})"),
-        M::V(n) => format!("%t{n}"),
-    }
+/// A comparison by its IR keyword.
+fn ir_pred(pred: &str) -> ICmpPred {
+    ICmpPred::ALL.iter().find(|(k, _)| *k == pred).unwrap_or_else(|| panic!("no comparison {pred}")).1
 }
 
-impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
-    fn new(l: &'l Lowering<'d, 'a>, key: Key) -> Self {
+impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
+    /// A function of `key`'s: `name`, returning `ret` (void if `None`),
+    /// with the state and, below the top, a pointer for each port.
+    fn new(l: &'l Lowering<'d, 'a>, m: &'m mut Module, key: Key, name: &str, ret: Option<IrType>) -> Self {
         let lay = &l.layouts[&key];
-        let mut params = String::from("ptr %s");
-        for k in 0..l.d.spec(key.0).ports.len() {
-            if !lay.port_ix.is_empty() {
-                let _ = write!(params, ", ptr %p{k}");
+        let sh = lay.shape;
+        let t = tys(m, sh.n);
+        let mut spec = IrFunction::builder(name).returns(ret.unwrap_or(t.void)).param("s", t.ptr);
+        if !lay.port_ix.is_empty() {
+            for k in 0..l.d.spec(key.0).ports.len() {
+                spec = spec.param(&format!("p{k}"), t.ptr);
             }
         }
-        let out = format!("define void @{}({params}) {{\nentry:\n", fn_name(key));
-        let sh = lay.shape;
+        let mut b = spec.begin(m);
+        let block = b.block("entry");
         Func {
             l,
             key,
             sh,
             pb: sh.pb(),
-            t: tys(sh.n),
-            out,
-            next: 0,
+            t,
+            b,
+            vals: Vec::new(),
             env: Env::default(),
-            block: "entry".into(),
-            loops: 0,
-            rolled: 0,
+            block,
+            regs: None,
             mem: false,
             uniform: HashSet::new(),
             mask_of: HashMap::new(),
@@ -3129,7 +3230,6 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             ff: false,
             zeros: HashMap::new(),
             bit_of: HashMap::new(),
-            guards: 0,
             trial: false,
             path: M::K(true),
         }
@@ -3139,12 +3239,87 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         self.sh.scalar()
     }
 
-    fn ps(&self, p: P) -> String {
-        ps(p, self.sc())
+    /// A value as a temporary.
+    fn reg(&mut self, v: Value) -> u32 {
+        self.vals.push(v);
+        self.vals.len() as u32 - 1
     }
 
-    fn ms(&self, m: M) -> String {
-        ms(m, self.sc())
+    /// A piece as an operand: a constant, splat in vector code.
+    fn pv(&mut self, p: P) -> Value {
+        match p {
+            P::K(k) if self.sc() => self.b.const_int(self.t.i64, k as i64),
+            P::K(k) => self.b.const_int(self.t.v, k as u32 as i32 as i64),
+            P::V(n) => self.vals[n as usize],
+        }
+    }
+
+    fn mv(&mut self, m: M) -> Value {
+        match m {
+            M::K(k) => self.b.const_int(self.t.m, k as i64),
+            M::V(n) => self.vals[n as usize],
+        }
+    }
+
+    /// An `i64` constant.
+    fn i64k(&mut self, k: i64) -> Value {
+        self.b.const_int(self.t.i64, k)
+    }
+
+    /// `p` moved on `off` bytes.
+    fn off(&mut self, p: Value, off: u64) -> Value {
+        if off == 0 {
+            return p;
+        }
+        let k = self.i64k(off as i64);
+        self.b.gep(self.t.i8, p, &[k])
+    }
+
+    /// `p` moved on `off` bytes, a value.
+    fn offv(&mut self, p: Value, off: Value) -> Value {
+        self.b.gep(self.t.i8, p, &[off])
+    }
+
+    /// The state, the function's first parameter.
+    fn state(&self) -> Value {
+        self.b.param(0)
+    }
+
+    /// Port `k`'s pointer.
+    fn port(&self, k: usize) -> Value {
+        self.b.param(1 + k)
+    }
+
+    fn ld(&mut self, ty: IrType, p: Value, align: u64) -> Value {
+        self.b.build_load(ty, p).align(align.max(1)).build()
+    }
+
+    fn st(&mut self, v: Value, p: Value, align: u64) {
+        self.b.build_store(v, p).align(align.max(1)).build()
+    }
+
+    /// A new block, not yet written to.
+    fn new_block(&mut self, name: &str) -> BlockId {
+        self.b.new_block(name)
+    }
+
+    /// Writes to block `b` from now on.
+    fn enter(&mut self, b: BlockId) {
+        self.b.at(b);
+        self.block = b;
+    }
+
+    /// A function of the module by name, declared if not yet there:
+    /// `ret` (void if `None`) of `params` pointers.
+    fn callee(&mut self, name: &str, ret: Option<IrType>, params: usize) -> GlobalId {
+        let (ptr, void) = (self.t.ptr, self.t.void);
+        let ps = vec![ptr; params];
+        self.b.module().declare(name, ret.unwrap_or(void), &ps, false)
+    }
+
+    /// Intrinsic `name`, `ret (params...)`.
+    fn intrinsic(&mut self, name: &str, ret: IrType, params: &[IrType]) -> GlobalId {
+        self.b.module().declare(name, ret, params, false)
     }
 
     /// Pieces in a `w`-bit value.
@@ -3184,20 +3359,15 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         Some(x)
     }
 
-    /// A call of an intrinsic, declared once.
-    fn intrinsic(&self, decl: String) {
-        self.l.decls.borrow_mut().insert(decl);
-    }
-
-    fn finish(mut self) -> String {
-        self.out.push_str("  ret void\n}\n");
-        self.out
+    fn finish(mut self) -> Result<(), String> {
+        self.b.ret_void();
+        self.b.finish().map(|_| ())
     }
 
     /// The function's end, returning `v`, an `i1`.
-    fn finish_with(mut self, v: &str) -> String {
-        let _ = write!(self.out, "  ret i1 {v}\n}}\n");
-        self.out
+    fn finish_with(mut self, v: Value) -> Result<(), String> {
+        self.b.ret(v);
+        self.b.finish().map(|_| ())
     }
 
     fn d(&self) -> &'d Design<'a> {
@@ -3206,11 +3376,6 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
 
     fn lay(&self) -> &'l Layout {
         &self.l.layouts[&self.key]
-    }
-
-    fn tmp(&mut self) -> u32 {
-        self.next += 1;
-        self.next
     }
 
     /// Splits the nodes into loops at the children's calls, and writes them.
@@ -3231,9 +3396,9 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                     _ => "_b",
                 };
                 let what = format!("{} {}{part}", self.d().name(self.d().spec(self.key.0).name), self.d().name(self.d().spec(child.0).name));
-                let t = self.tmp();
-                let text = self.l.timed(what, &format!("call void @{}{part}({args})", fn_name(child)), &format!("p{t}"));
-                self.out.push_str(&text);
+                let g = self.callee(&format!("{}{part}", fn_name(child)), None, args.len());
+                let l = self.l;
+                timed(l, &mut self.b, what, |b| b.call(g, &args));
                 seg = vec![n];
             } else {
                 seg.push(n);
@@ -3244,35 +3409,21 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
 
     /// The arguments of a call of child `i`'s functions: its state, and
     /// what it has for each port.
-    fn child_args(&mut self, i: InstId) -> String {
-        {
-            {
-                let off = self.lay().kids[&i];
-                let t = self.tmp();
-                let _ = writeln!(self.out, "  %t{t} = getelementptr i8, ptr %s, i64 {off}");
-                let mut args = format!("ptr %t{t}");
-                for a in self.lay().args[&i].clone() {
-                    let p = match a {
-                        Arg::Alias(o) => match self.slot(o) {
-                            Some(Base::Port(k)) => format!("%p{k}"),
-                            Some(Base::State(at)) => {
-                                let t = self.tmp();
-                                let _ = writeln!(self.out, "  %t{t} = getelementptr i8, ptr %s, i64 {at}");
-                                format!("%t{t}")
-                            }
-                            None => unreachable!("an aliased value has a slot"),
-                        },
-                        Arg::Slot(at) => {
-                            let t = self.tmp();
-                            let _ = writeln!(self.out, "  %t{t} = getelementptr i8, ptr %s, i64 {at}");
-                            format!("%t{t}")
-                        }
-                    };
-                    let _ = write!(args, ", ptr {p}");
-                }
-                args
-            }
+    fn child_args(&mut self, i: InstId) -> Vec<Value> {
+        let s = self.state();
+        let off = self.lay().kids[&i];
+        let mut args = vec![self.off(s, off)];
+        for a in self.lay().args[&i].clone() {
+            args.push(match a {
+                Arg::Alias(o) => match self.slot(o) {
+                    Some(Base::Port(k)) => self.port(k),
+                    Some(Base::State(at)) => self.off(s, at),
+                    None => unreachable!("an aliased value has a slot"),
+                },
+                Arg::Slot(at) => self.off(s, at),
+            });
         }
+        args
     }
 
     /// A loop over the group's registers running `nodes` in order.
@@ -3286,20 +3437,23 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     /// A pass over the registers of lanes whose body `body` writes: a loop
     /// over them where there are more than one.
     fn run_loop_with(&mut self, body: impl FnOnce(&mut Self) -> Result<(), String>) -> Result<(), String> {
-        let k = self.loops;
-        self.loops += 1;
         let looped = self.looped();
-        let mut prev = String::new();
+        let mut head = None;
         if looped {
-            prev = std::mem::replace(&mut self.block, format!("L{k}"));
-            let _ = writeln!(
-                self.out,
-                "  br label %L{k}\nL{k}:\n  %c{k} = phi i64 [ 0, %{prev} ], [ %c{k}.next, %L{k}.latch ]\n  %c{k}.off = shl i64 %c{k}, 6\n  \
-                 %b{k} = getelementptr i8, ptr %s, i64 %c{k}.off\n  %c{k}.half = shl i64 %c{k}, 1\n  \
-                 %h{k} = getelementptr i8, ptr %s, i64 %c{k}.half\n  %c{k}.b8 = shl i64 %c{k}, 4\n  \
-                 %q{k} = getelementptr i8, ptr %s, i64 %c{k}.b8\n  %c{k}.b16 = shl i64 %c{k}, 5\n  \
-                 %w{k} = getelementptr i8, ptr %s, i64 %c{k}.b16"
-            );
+            let (prev, lp) = (self.block, self.new_block("loop"));
+            self.b.br(lp);
+            self.enter(lp);
+            let zero = self.i64k(0);
+            let c = self.b.phi(self.t.i64, &[(zero, prev)]);
+            let s = self.state();
+            let at = |f: &mut Self, sh: i64| {
+                let k = f.i64k(sh);
+                let o = f.b.shl(c, k);
+                (o, f.offv(s, o))
+            };
+            let ((off, bp), (half, h), (b8, q), (b16, w)) = (at(self, 6), at(self, 1), at(self, 4), at(self, 5));
+            self.regs = Some(Regs { b: bp, h, q, w, off, half, b8, b16 });
+            head = Some((lp, c));
         }
         self.env = Env::default();
         let path = std::mem::replace(&mut self.path, M::K(true));
@@ -3314,17 +3468,17 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             self.store(base, lane, &v);
         }
         self.flush_elems(None);
-        if looped {
-            let _ = writeln!(
-                self.out,
-                "  %c{k}.next = add i64 %c{k}, 1\n  %c{k}.end = icmp eq i64 %c{k}.next, {}\n  \
-                 br i1 %c{k}.end, label %X{k}, label %L{k}\nX{k}:",
-                self.sh.chunks
-            );
+        if let Some((lp, c)) = head {
+            let one = self.i64k(1);
+            let next = self.b.add(c, one);
+            let n = self.i64k(self.sh.chunks as i64);
+            let end = self.b.icmp(ICmpPred::Eq, next, n);
             // The back edge leaves from the last block of the body.
-            self.out = self.out.replace(&format!("%L{k}.latch"), &format!("%{}", self.block));
-            self.block = format!("X{k}");
-            let _ = prev;
+            self.b.add_incoming(c, next, self.block);
+            let exit = self.new_block("loop.end");
+            self.b.cond_br(end, exit, lp);
+            self.enter(exit);
+            self.regs = None;
         }
         Ok(())
     }
@@ -3336,20 +3490,17 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
 
     /// Where this register's part of the state is, for values stored as
     /// `lane`.
-    fn reg_base(&self, lane: Lane) -> String {
-        if !self.looped() {
-            return "%s".into();
-        }
-        let k = self.loops - 1;
+    fn reg_base(&self, lane: Lane) -> Value {
+        let Some(r) = self.regs else { return self.state() };
         match lane {
-            Lane::Bit => format!("%h{k}"),
-            Lane::B8 => format!("%q{k}"),
-            Lane::B16 => format!("%w{k}"),
-            Lane::W32 | Lane::W64 => format!("%b{k}"),
+            Lane::Bit => r.h,
+            Lane::B8 => r.q,
+            Lane::B16 => r.w,
+            Lane::W32 | Lane::W64 => r.b,
         }
     }
 
-    fn base(&self) -> String {
+    fn base(&self) -> Value {
         self.reg_base(Lane::W32)
     }
 
@@ -3362,23 +3513,22 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         }
     }
 
-    /// For a value behind a pointer parameter, a pointer to this register's
-    /// part of it, as `off` would be from the state; `None` otherwise.
-    fn port_base(&mut self, base: Base, lane: Lane) -> Option<String> {
-        let Base::Port(p) = base else { return None };
-        if !self.looped() {
-            return Some(format!("%p{p}"));
+    /// Where a value's part in this register is: `(pointer, offset)`.
+    fn place_of(&mut self, base: Base, lane: Lane) -> (Value, u64) {
+        match base {
+            Base::State(at) => (self.reg_base(lane), at),
+            Base::Port(p) => {
+                let pp = self.port(p);
+                let Some(r) = self.regs else { return (pp, 0) };
+                let step = match lane {
+                    Lane::W32 | Lane::W64 => r.off,
+                    Lane::Bit => r.half,
+                    Lane::B8 => r.b8,
+                    Lane::B16 => r.b16,
+                };
+                (self.offv(pp, step), 0)
+            }
         }
-        let k = self.loops - 1;
-        let step = match lane {
-            Lane::W32 | Lane::W64 => "off",
-            Lane::Bit => "half",
-            Lane::B8 => "b8",
-            Lane::B16 => "b16",
-        };
-        let t = self.tmp();
-        let _ = writeln!(self.out, "  %t{t} = getelementptr i8, ptr %p{p}, i64 %c{k}.{step}");
-        Some(format!("%t{t}"))
     }
 
     fn load(&mut self, base: Base, lane: Lane, w: u32) -> Val {
@@ -3388,54 +3538,43 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
 
     /// A value from the state, its pieces `stride` bytes apart.
     fn load_with(&mut self, base: Base, lane: Lane, w: u32, stride: u64) -> Val {
-        let ptr = self.port_base(base, lane);
-        let off = match base {
-            Base::State(at) => at,
-            Base::Port(_) => 0,
-        };
-        let b = ptr.unwrap_or_else(|| self.reg_base(lane));
+        let (b, off) = self.place_of(base, lane);
         let (t, n, sc) = (self.t, self.sh.n as u64, self.sc());
         match lane {
             Lane::W32 | Lane::W64 => {
                 let (ty, align) = match lane {
-                    Lane::W64 => ("i64", 8),
+                    Lane::W64 => (t.i64, 8),
                     _ => (t.w32, 4 * n),
                 };
                 let mut p = Vec::new();
                 for i in 0..lane.pieces(w) {
-                    let (a, v) = (self.tmp(), self.tmp());
-                    let _ = writeln!(self.out, "  %t{a} = getelementptr i8, ptr {b}, i64 {}\n  %t{v} = load {ty}, ptr %t{a}, align {align}", off + i * stride);
+                    let a = self.off(b, off + i * stride);
+                    let v = self.ld(ty, a, align);
                     if sc && lane == Lane::W32 {
-                        let z = self.tmp();
-                        let _ = writeln!(self.out, "  %t{z} = zext i32 %t{v} to i64");
+                        let z = self.b.zext(v, t.i64);
+                        let z = self.reg(z);
                         self.zeros.insert(z, !0xffff_ffff);
                         p.push(P::V(z));
                     } else {
-                        p.push(P::V(v));
+                        p.push(P::V(self.reg(v)));
                     }
                 }
                 Val { w, p }
             }
             Lane::Bit => {
-                let (a, i, m) = (self.tmp(), self.tmp(), self.tmp());
-                let _ = writeln!(
-                    self.out,
-                    "  %t{a} = getelementptr i8, ptr {b}, i64 {off}\n  %t{i} = load i16, ptr %t{a}, align 2\n  \
-                     %t{m} = bitcast i16 %t{i} to {}",
-                    t.m
-                );
+                let a = self.off(b, off);
+                let i = self.ld(t.i16, a, 2);
+                let m = self.b.bitcast(i, t.m);
+                let (i, m) = (self.reg(i), self.reg(m));
                 self.bits_of.insert(m, i);
                 self.bit(M::V(m), w)
             }
             Lane::B8 | Lane::B16 => {
-                let (ty, align) = if lane == Lane::B8 { (t.b8, n) } else { (t.b16, 2 * n) };
-                let (a, v, z) = (self.tmp(), self.tmp(), self.tmp());
-                let _ = writeln!(
-                    self.out,
-                    "  %t{a} = getelementptr i8, ptr {b}, i64 {off}\n  %t{v} = load {ty}, ptr %t{a}, align {align}\n  \
-                     %t{z} = zext {ty} %t{v} to {}",
-                    t.v
-                );
+                let (ty, align) = if lane == Lane::B8 { (if sc { t.i8 } else { t.b8 }, n) } else { (if sc { t.i16 } else { t.b16 }, 2 * n) };
+                let a = self.off(b, off);
+                let v = self.ld(ty, a, align);
+                let z = self.b.zext(v, t.v);
+                let z = self.reg(z);
                 self.zeros.insert(z, if lane == Lane::B8 { !0xff } else { !0xffff });
                 Val { w, p: vec![P::V(z)] }
             }
@@ -3448,82 +3587,58 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     }
 
     /// The bits of mask `m` as an integer, a bit a lane (16 lanes).
-    fn mask_bits(&mut self, m: M) -> String {
+    fn mask_bits(&mut self, m: M) -> Value {
         match m {
-            M::K(b) => format!("{}", if b { -1 } else { 0 }),
+            M::K(b) => self.b.const_int(self.t.bits, if b { -1 } else { 0 }),
             M::V(n) => match self.bits_of.get(&n) {
-                Some(&i) => format!("%t{i}"),
+                Some(&i) => self.vals[i as usize],
                 None => {
-                    let t = self.tmp();
-                    let _ = writeln!(self.out, "  %t{t} = bitcast {} %t{n} to {}", self.t.m, self.t.bits);
-                    format!("%t{t}")
+                    let x = self.vals[n as usize];
+                    self.b.bitcast(x, self.t.bits)
                 }
             },
         }
     }
 
     /// Whether any lane of `m` is set, an `i1`.
-    fn any(&mut self, m: M) -> String {
+    fn any(&mut self, m: M) -> Value {
         match m {
-            M::K(b) => format!("{b}"),
-            M::V(n) if self.sc() => format!("%t{n}"),
+            M::K(b) => self.b.const_int(self.t.i1, b as i64),
+            M::V(n) if self.sc() => self.vals[n as usize],
             M::V(_) => {
                 let bits = self.mask_bits(m);
-                let t = self.tmp();
-                let _ = writeln!(self.out, "  %t{t} = icmp ne {} {bits}, 0", self.t.bits);
-                format!("%t{t}")
+                let z = self.b.const_int(self.t.bits, 0);
+                self.b.icmp(ICmpPred::Ne, bits, z)
             }
         }
     }
 
     /// A value to the state, its pieces `stride` bytes apart.
     fn store_with(&mut self, base: Base, lane: Lane, v: &Val, stride: u64) {
-        let ptr = self.port_base(base, lane);
-        let off = match base {
-            Base::State(at) => at,
-            Base::Port(_) => 0,
-        };
-        let b = ptr.unwrap_or_else(|| self.reg_base(lane));
+        let (b, off) = self.place_of(base, lane);
         let (t, n, sc) = (self.t, self.sh.n as u64, self.sc());
         match lane {
             Lane::W32 | Lane::W64 => {
-                let (ty, align) = match lane {
-                    Lane::W64 => ("i64", 8),
-                    _ => (t.w32, 4 * n),
-                };
+                let align = if lane == Lane::W64 { 8 } else { 4 * n };
                 for (i, &p) in v.p.iter().enumerate() {
-                    let x = if sc && lane == Lane::W32 {
-                        match p {
-                            P::K(k) => format!("{}", k as u32 as i32),
-                            P::V(_) => {
-                                let x = self.tmp();
-                                let _ = writeln!(self.out, "  %t{x} = trunc i64 {} to i32", self.ps(p));
-                                format!("%t{x}")
-                            }
-                        }
-                    } else {
-                        self.ps(p)
-                    };
-                    let a = self.tmp();
-                    let _ = writeln!(self.out, "  %t{a} = getelementptr i8, ptr {b}, i64 {}\n  store {ty} {x}, ptr %t{a}, align {align}", off + i as u64 * stride);
+                    let x = self.pv(p);
+                    let x = if sc && lane == Lane::W32 { self.b.trunc(x, t.i32) } else { x };
+                    let a = self.off(b, off + i as u64 * stride);
+                    self.st(x, a, align);
                 }
             }
             Lane::Bit => {
                 let m = self.truth(v);
                 let bits = self.mask_bits(m);
-                let a = self.tmp();
-                let _ = writeln!(self.out, "  %t{a} = getelementptr i8, ptr {b}, i64 {off}\n  store i16 {bits}, ptr %t{a}, align 2");
+                let a = self.off(b, off);
+                self.st(bits, a, 2);
             }
             Lane::B8 | Lane::B16 => {
-                let (ty, align) = if lane == Lane::B8 { (t.b8, n) } else { (t.b16, 2 * n) };
-                let (a, x) = (self.tmp(), self.tmp());
-                let _ = writeln!(
-                    self.out,
-                    "  %t{a} = getelementptr i8, ptr {b}, i64 {off}\n  %t{x} = trunc {} {} to {ty}\n  \
-                     store {ty} %t{x}, ptr %t{a}, align {align}",
-                    t.v,
-                    self.ps(v.p[0])
-                );
+                let (ty, align) = if lane == Lane::B8 { (if sc { t.i8 } else { t.b8 }, n) } else { (if sc { t.i16 } else { t.b16 }, 2 * n) };
+                let a = self.off(b, off);
+                let x = self.pv(v.p[0]);
+                let x = self.b.trunc(x, ty);
+                self.st(x, a, align);
             }
         }
     }
@@ -3644,24 +3759,22 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         }
     }
 
-    /// 32-bit word `k` of a value of scalar code, an `i32` operand.
-    fn word_of(&mut self, v: &Val, k: usize) -> String {
+    /// 32-bit word `k` of a value of scalar code, an `i32`.
+    fn word_of(&mut self, v: &Val, k: usize) -> Value {
         let p = v.p.get(k / 2).copied().unwrap_or(P::K(0));
         let sh = 32 * (k % 2) as u32;
         if let P::K(x) = p {
-            return format!("{}", (x >> sh) as u32 as i32);
+            return self.b.const_int(self.t.i32, (x >> sh) as u32 as i32 as i64);
         }
         let p = self.bin("lshr", p, P::K(sh as u64));
-        let t = self.tmp();
-        let _ = writeln!(self.out, "  %t{t} = trunc i64 {} to i32", self.ps(p));
-        format!("%t{t}")
+        let x = self.pv(p);
+        self.b.trunc(x, self.t.i32)
     }
 
     /// An address in the state, `off` bytes in.
-    fn at(&mut self, off: u64) -> String {
-        let a = self.tmp();
-        let _ = writeln!(self.out, "  %t{a} = getelementptr i8, ptr %s, i64 {off}");
-        format!("%t{a}")
+    fn at(&mut self, off: u64) -> Value {
+        let s = self.state();
+        self.off(s, off)
     }
 
     /// An array of children's input, each iteration's value in `vals`, to
@@ -3676,44 +3789,45 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         // loaded from there.
         let (wp, scratch, n) = (sh.width() as usize, self.lay().scratch, 4 * sh.n as u64);
         let words = if lane == Lane::W32 { pieces(w) } else { 1 };
-        let mut planes: Vec<Option<String>> = vec![None; (vals.len() * wp).div_ceil(16)];
-        for (t, v) in vals.iter().enumerate() {
+        let t = self.t;
+        let mut planes: Vec<Option<Value>> = vec![None; (vals.len() * wp).div_ceil(16)];
+        for (k_t, v) in vals.iter().enumerate() {
             let Some(v) = v else { continue };
             if !self.sc() {
                 for (k, &p) in v.p.iter().enumerate() {
-                    let a = self.at(scratch + k as u64 * n);
-                    let _ = writeln!(self.out, "  store {} {}, ptr {a}, align {n}", self.t.v, self.ps(p));
+                    let (a, x) = (self.at(scratch + k as u64 * n), self.pv(p));
+                    self.st(x, a, n);
                 }
             }
             for s in 0..wp {
-                let l = (t * wp + s) as u64;
+                let l = (k_t * wp + s) as u64;
                 for k in 0..words {
                     let word = if self.sc() {
                         self.word_of(v, k)
                     } else {
-                        let (a, x) = (self.at(scratch + k as u64 * n + 4 * s as u64), self.tmp());
-                        let _ = writeln!(self.out, "  %t{x} = load i32, ptr {a}, align 4");
-                        format!("%t{x}")
+                        let a = self.at(scratch + k as u64 * n + 4 * s as u64);
+                        self.ld(t.i32, a, 4)
                     };
                     match lane {
                         Lane::W32 => {
                             let a = self.at(at + k as u64 * lane.piece_bytes(csh) + 4 * l);
-                            let _ = writeln!(self.out, "  store i32 {word}, ptr {a}, align 4");
+                            self.st(word, a, 4);
                         }
                         Lane::B8 | Lane::B16 => {
-                            let (ty, eb) = if lane == Lane::B8 { ("i8", 1) } else { ("i16", 2) };
-                            let (a, x) = (self.at(at + eb * l), self.tmp());
-                            let _ = writeln!(self.out, "  %t{x} = trunc i32 {word} to {ty}\n  store {ty} %t{x}, ptr {a}, align {eb}");
+                            let (ty, eb) = if lane == Lane::B8 { (t.i8, 1) } else { (t.i16, 2) };
+                            let a = self.at(at + eb * l);
+                            let x = self.b.trunc(word, ty);
+                            self.st(x, a, eb);
                         }
                         Lane::Bit => {
-                            let (b, x, y) = (self.tmp(), self.tmp(), self.tmp());
-                            let acc = planes[(l / 16) as usize].clone().unwrap_or_else(|| "0".into());
-                            let _ = writeln!(
-                                self.out,
-                                "  %t{b} = trunc i32 {word} to i16\n  %t{x} = shl i16 %t{b}, {}\n  %t{y} = or i16 {acc}, %t{x}",
-                                l % 16
-                            );
-                            planes[(l / 16) as usize] = Some(format!("%t{y}"));
+                            let x = self.b.trunc(word, t.i16);
+                            let sh = self.b.const_int(t.i16, (l % 16) as i64);
+                            let x = self.b.shl(x, sh);
+                            let r = (l / 16) as usize;
+                            planes[r] = Some(match planes[r] {
+                                Some(acc) => self.b.or(acc, x),
+                                None => x,
+                            });
                         }
                         Lane::W64 => unreachable!("an array's child is not scalar"),
                     }
@@ -3723,7 +3837,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         for (r, bits) in planes.into_iter().enumerate() {
             if let Some(bits) = bits {
                 let a = self.at(at + 2 * r as u64);
-                let _ = writeln!(self.out, "  store i16 {bits}, ptr {a}, align 2");
+                self.st(bits, a, 2);
             }
         }
     }
@@ -3731,43 +3845,47 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     /// Iteration `t`'s value of an array of children's output, from the
     /// child's slot at `at` (as [`Func::to_lanes`] lays it out); `regs`
     /// keeps the child's bit planes already loaded.
-    fn from_lanes(&mut self, at: u64, lane: Lane, w: u32, csh: Shape, t: usize, regs: &mut HashMap<(usize, usize), String>) -> Val {
+    fn from_lanes(&mut self, at: u64, lane: Lane, w: u32, csh: Shape, k_t: usize, regs: &mut HashMap<usize, Value>) -> Val {
         let sh = self.sh;
         let (wp, scratch, n) = (sh.width() as usize, self.lay().scratch, 4 * sh.n as u64);
         let words = if lane == Lane::W32 { pieces(w) } else { 1 };
+        let t = self.t;
         // Each word of each lane, an i32.
-        let mut got: Vec<Vec<String>> = vec![Vec::new(); wp];
+        let mut got: Vec<Vec<Value>> = vec![Vec::new(); wp];
         for (s, got) in got.iter_mut().enumerate() {
-            let l = (t * wp + s) as u64;
+            let l = (k_t * wp + s) as u64;
             for k in 0..words {
-                let x = self.tmp();
-                match lane {
+                let x = match lane {
                     Lane::W32 => {
                         let a = self.at(at + k as u64 * lane.piece_bytes(csh) + 4 * l);
-                        let _ = writeln!(self.out, "  %t{x} = load i32, ptr {a}, align 4");
+                        self.ld(t.i32, a, 4)
                     }
                     Lane::B8 | Lane::B16 => {
-                        let (ty, eb) = if lane == Lane::B8 { ("i8", 1) } else { ("i16", 2) };
-                        let (a, y) = (self.at(at + eb * l), self.tmp());
-                        let _ = writeln!(self.out, "  %t{y} = load {ty}, ptr {a}, align {eb}\n  %t{x} = zext {ty} %t{y} to i32");
+                        let (ty, eb) = if lane == Lane::B8 { (t.i8, 1) } else { (t.i16, 2) };
+                        let a = self.at(at + eb * l);
+                        let y = self.ld(ty, a, eb);
+                        self.b.zext(y, t.i32)
                     }
                     Lane::Bit => {
                         let r = (l / 16) as usize;
-                        let bits = match regs.get(&(0, r)) {
-                            Some(b) => b.clone(),
+                        let bits = match regs.get(&r) {
+                            Some(&b) => b,
                             None => {
-                                let (a, b) = (self.at(at + 2 * r as u64), self.tmp());
-                                let _ = writeln!(self.out, "  %t{b} = load i16, ptr {a}, align 2");
-                                regs.insert((0, r), format!("%t{b}"));
-                                format!("%t{b}")
+                                let a = self.at(at + 2 * r as u64);
+                                let b = self.ld(t.i16, a, 2);
+                                regs.insert(r, b);
+                                b
                             }
                         };
-                        let (y, z) = (self.tmp(), self.tmp());
-                        let _ = writeln!(self.out, "  %t{y} = lshr i16 {bits}, {}\n  %t{z} = and i16 %t{y}, 1\n  %t{x} = zext i16 %t{z} to i32", l % 16);
+                        let sh = self.b.const_int(t.i16, (l % 16) as i64);
+                        let y = self.b.lshr(bits, sh);
+                        let one = self.b.const_int(t.i16, 1);
+                        let z = self.b.and(y, one);
+                        self.b.zext(z, t.i32)
                     }
                     Lane::W64 => unreachable!("an array's child is not scalar"),
-                }
-                got.push(format!("%t{x}"));
+                };
+                got.push(x);
             }
         }
         if self.sc() {
@@ -3775,9 +3893,9 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             for q in 0..self.np(w) {
                 let mut acc = P::K(0);
                 for half in 0..2 {
-                    let Some(word) = got[0].get(2 * q + half) else { break };
-                    let z = self.tmp();
-                    let _ = writeln!(self.out, "  %t{z} = zext i32 {word} to i64");
+                    let Some(&word) = got[0].get(2 * q + half) else { break };
+                    let z = self.b.zext(word, t.i64);
+                    let z = self.reg(z);
                     self.zeros.insert(z, !0xffff_ffff);
                     let x = self.bin("shl", P::V(z), P::K(32 * half as u64));
                     acc = self.bin("or", acc, x);
@@ -3789,16 +3907,16 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         // In vector code, the lanes' words to the scratch, then loaded as
         // the value's pieces.
         for (s, got) in got.iter().enumerate() {
-            for (k, word) in got.iter().enumerate() {
+            for (k, &word) in got.iter().enumerate() {
                 let a = self.at(scratch + k as u64 * n + 4 * s as u64);
-                let _ = writeln!(self.out, "  store i32 {word}, ptr {a}, align 4");
+                self.st(word, a, 4);
             }
         }
         let mut p = Vec::new();
         for k in 0..words {
-            let (a, x) = (self.at(scratch + k as u64 * n), self.tmp());
-            let _ = writeln!(self.out, "  %t{x} = load {}, ptr {a}, align {n}", self.t.v);
-            p.push(P::V(x));
+            let a = self.at(scratch + k as u64 * n);
+            let x = self.ld(t.v, a, n);
+            p.push(P::V(self.reg(x)));
         }
         Val { w, p }
     }
@@ -4067,13 +4185,13 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     /// Runs `run` as a trial: nothing it writes or learns stays. Its
     /// result, and whether it changed no value (it only read, and loaded).
     fn trial<T>(&mut self, run: impl FnOnce(&mut Self) -> Result<T, String>) -> Result<(T, bool), String> {
-        let saved = (self.env.clone(), self.out.len(), self.next, self.block.clone(), self.guards);
+        let saved = (self.env.clone(), self.b.checkpoint(), self.vals.len(), self.block, self.regs);
         let tables = (self.mask_of.clone(), self.bits_of.clone(), self.uniform.clone(), self.zeros.clone(), self.bit_of.clone());
         // (No arm within a trial is guarded: its blocks would outlive it.)
         let was = std::mem::replace(&mut self.trial, true);
         let r = run(self);
         self.trial = was;
-        (self.block, self.guards) = (saved.3.clone(), saved.4);
+        (self.block, self.regs) = (saved.3, saved.4);
         let (e, s) = (&self.env, &saved.0);
         let pure = e.vals == s.vals
             && e.elems == s.elems
@@ -4083,8 +4201,8 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             && e.brk == s.brk
             && e.ret == s.ret;
         self.env = saved.0;
-        self.out.truncate(saved.1);
-        self.next = saved.2;
+        self.b.rollback(saved.1);
+        self.vals.truncate(saved.2);
         (self.mask_of, self.bits_of, self.uniform, self.zeros, self.bit_of) = tables;
         r.map(|x| (x, pure))
     }
@@ -4185,14 +4303,15 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
 
     /// How many instructions `f` writes, written and then taken back.
     fn cost(&mut self, f: impl FnOnce(&mut Self) -> Result<(), String>) -> usize {
-        let saved = (self.env.clone(), self.out.len(), self.next, self.block.clone(), self.guards);
+        let saved = (self.env.clone(), self.b.checkpoint(), self.vals.len(), self.block, self.regs);
         let tables = (self.mask_of.clone(), self.bits_of.clone(), self.uniform.clone(), self.zeros.clone(), self.bit_of.clone());
         let was = std::mem::replace(&mut self.trial, true);
         let ok = f(self).is_ok();
-        let n = self.out[saved.1..].lines().filter(|l| l.starts_with("  %") || l.starts_with("  store") || l.starts_with("  call")).count();
+        let n = self.b.added_since(&saved.1);
         self.trial = was;
-        self.out.truncate(saved.1);
-        (self.env, _, self.next, self.block, self.guards) = saved;
+        self.b.rollback(saved.1);
+        self.vals.truncate(saved.2);
+        (self.env, self.block, self.regs) = (saved.0, saved.3, saved.4);
         (self.mask_of, self.bits_of, self.uniform, self.zeros, self.bit_of) = tables;
         // (Something it cannot lower fails again when lowered for real.)
         if ok { n } else { 0 }
@@ -4271,16 +4390,17 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         self.l.stmt_access(s, &mut r, &mut w, &mut Vec::new());
         self.preload(w);
         let any = self.any(M::V(n));
-        let k = self.guards;
-        self.guards += 1;
         let skip = self.env.clone();
-        let from = std::mem::replace(&mut self.block, format!("G{k}"));
-        let _ = writeln!(self.out, "  br i1 {any}, label %G{k}, label %J{k}\nG{k}:");
+        let from = self.block;
+        let (g, j) = (self.new_block("guard"), self.new_block("join"));
+        self.b.cond_br(any, g, j);
+        self.enter(g);
         body(self)?;
         let taken = std::mem::take(&mut self.env);
-        let at = std::mem::replace(&mut self.block, format!("J{k}"));
-        let _ = writeln!(self.out, "  br label %J{k}\nJ{k}:");
-        self.env = self.join(skip, &from, taken, &at)?;
+        let at = self.block;
+        self.b.br(j);
+        self.enter(j);
+        self.env = self.join(skip, from, taken, at)?;
         Ok(())
     }
 
@@ -4322,33 +4442,33 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         }
         self.preload(w);
         let before = self.env.clone();
-        let k = self.guards;
-        self.guards += 1;
-        let other = if else_.is_some() { format!("E{k}") } else { format!("J{k}") };
-        let from = std::mem::replace(&mut self.block, format!("T{k}"));
-        let _ = writeln!(self.out, "  br i1 %t{n}, label %T{k}, label %{other}\nT{k}:");
+        let from = self.block;
+        let (t, j) = (self.new_block("then"), self.new_block("join"));
+        let e = if else_.is_some() { self.new_block("else") } else { j };
+        let c = self.vals[n as usize];
+        self.b.cond_br(c, t, e);
+        self.enter(t);
         then(self)?;
         let a = std::mem::replace(&mut self.env, before.clone());
-        let at_a = std::mem::replace(&mut self.block, other.clone());
-        let _ = writeln!(self.out, "  br label %J{k}");
+        let at_a = self.block;
+        self.b.br(j);
         let (b, at_b) = match else_ {
-            Some(e) => {
-                let _ = writeln!(self.out, "{other}:");
-                e(self)?;
-                let _ = writeln!(self.out, "  br label %J{k}");
-                (std::mem::take(&mut self.env), std::mem::replace(&mut self.block, format!("J{k}")))
+            Some(arm) => {
+                self.enter(e);
+                arm(self)?;
+                self.b.br(j);
+                (std::mem::take(&mut self.env), self.block)
             }
             None => (before.clone(), from),
         };
-        let _ = writeln!(self.out, "J{k}:");
-        self.block = format!("J{k}");
-        self.env = self.join2(&before, a, &at_a, b, &at_b)?;
+        self.enter(j);
+        self.env = self.join2(&before, a, at_a, b, at_b)?;
         Ok(())
     }
 
     /// The values after two blocks, `a` from `at_a` and `b` from `at_b`,
     /// both from the values `before`: a phi of each either changed.
-    fn join2(&mut self, before: &Env, a: Env, at_a: &str, b: Env, at_b: &str) -> Result<Env, String> {
+    fn join2(&mut self, before: &Env, a: Env, at_a: BlockId, b: Env, at_b: BlockId) -> Result<Env, String> {
         let d = self.d();
         let mut out = before.clone();
         out.dirty.extend(a.dirty.iter().chain(&b.dirty).copied());
@@ -4409,7 +4529,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
 
     /// The values after a guarded block: those it changed are phis of their
     /// values from it (`at`) and from around it (`from`).
-    fn join(&mut self, skip: Env, from: &str, taken: Env, at: &str) -> Result<Env, String> {
+    fn join(&mut self, skip: Env, from: BlockId, taken: Env, at: BlockId) -> Result<Env, String> {
         let d = self.d();
         let mut out = skip.clone();
         out.dirty.extend(taken.dirty.iter().copied());
@@ -4454,7 +4574,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         Ok(out)
     }
 
-    fn phi(&mut self, a: &Val, at: &str, b: &Val, from: &str) -> Val {
+    fn phi(&mut self, a: &Val, at: BlockId, b: &Val, from: BlockId) -> Val {
         let p = a
             .p
             .iter()
@@ -4463,8 +4583,9 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 if x == y {
                     return x;
                 }
-                let t = self.tmp();
-                let _ = writeln!(self.out, "  %t{t} = phi {} [ {}, %{at} ], [ {}, %{from} ]", self.t.v, self.ps(x), self.ps(y));
+                let (vx, vy) = (self.pv(x), self.pv(y));
+                let ph = self.b.phi(self.t.v, &[(vx, at), (vy, from)]);
+                let t = self.reg(ph);
                 let z = self.kz(x) & self.kz(y);
                 if z != 0 {
                     self.zeros.insert(t, z);
@@ -4475,13 +4596,13 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         Val { w: a.w, p }
     }
 
-    fn mphi(&mut self, a: M, at: &str, b: M, from: &str) -> M {
+    fn mphi(&mut self, a: M, at: BlockId, b: M, from: BlockId) -> M {
         if a == b {
             return a;
         }
-        let t = self.tmp();
-        let _ = writeln!(self.out, "  %t{t} = phi {} [ {}, %{at} ], [ {}, %{from} ]", self.t.m, self.ms(a), self.ms(b));
-        M::V(t)
+        let (va, vb) = (self.mv(a), self.mv(b));
+        let ph = self.b.phi(self.t.m, &[(va, at), (vb, from)]);
+        M::V(self.reg(ph))
     }
 
     /// Whether a case item matches, with `casez` and `casex` don't-cares in
@@ -4721,18 +4842,13 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     /// Its `_ff` function returns whether an edge came in any lane, below
     /// it too (`i1`): without one, nothing changes, and the step need not
     /// commit or settle again.
-    fn phase(&mut self, phase: Phase) -> Result<String, String> {
+    fn phase(&mut self, phase: Phase) -> Result<Value, String> {
         let d = self.d();
-        let ret = if phase == Phase::Ff { "define i1 @" } else { "define void @" };
-        self.out = self.out.replacen(
-            &format!("define void @{}(", fn_name(self.key)),
-            &format!("{ret}{}{}(", fn_name(self.key), phase.suffix()),
-            1,
-        );
-        let mut any = String::from("false");
+        let mut any = self.b.const_int(self.t.i1, 0);
         let fired = self.lay().fired;
         if phase == Phase::Ff && !self.lay().ff.is_empty() {
-            let _ = writeln!(self.out, "  %fired = getelementptr i8, ptr %s, i64 {fired}\n  store i8 0, ptr %fired, align 1");
+            let (p, z) = (self.at(fired), self.b.const_int(self.t.i8, 0));
+            self.st(z, p, 1);
         }
         for n in self.lay().code.clone() {
             if let Node::Call(i) = n
@@ -4740,18 +4856,13 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             {
                 let args = self.child_args(i);
                 let ck = self.lay().kid_keys[&i];
-                let child = format!("@{}{}", fn_name(ck), phase.suffix());
                 let what = format!("{} {}{}", d.name(d.spec(self.key.0).name), d.name(d.spec(ck.0).name), phase.suffix());
-                if phase == Phase::Ff {
-                    let (t, o) = (self.tmp(), self.tmp());
-                    let text = self.l.timed(what, &format!("%t{t} = call i1 {child}({args})"), &format!("p{t}"));
-                    self.out.push_str(&text);
-                    let _ = writeln!(self.out, "  %t{o} = or i1 {any}, %t{t}");
-                    any = format!("%t{o}");
-                } else {
-                    let t = self.tmp();
-                    let text = self.l.timed(what, &format!("call void {child}({args})"), &format!("p{t}"));
-                    self.out.push_str(&text);
+                let ret = (phase == Phase::Ff).then_some(self.t.i1);
+                let g = self.callee(&format!("{}{}", fn_name(ck), phase.suffix()), ret, args.len());
+                let l = self.l;
+                let r = timed(l, &mut self.b, what, |b| b.call(g, &args));
+                if let Some(r) = r {
+                    any = self.b.or(any, r);
                 }
             }
         }
@@ -4762,25 +4873,25 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         match phase {
             Phase::Ff => {
                 self.run_loop_with(|f| f.ff_procs())?;
-                let (l, z, o) = (self.tmp(), self.tmp(), self.tmp());
-                let _ = writeln!(
-                    self.out,
-                    "  %t{l} = load i8, ptr %fired, align 1\n  %t{z} = icmp ne i8 %t{l}, 0\n  %t{o} = or i1 {any}, %t{z}"
-                );
-                Ok(format!("%t{o}"))
+                let p = self.at(fired);
+                let l = self.ld(self.t.i8, p, 1);
+                let z = self.b.const_int(self.t.i8, 0);
+                let z = self.b.icmp(ICmpPred::Ne, l, z);
+                Ok(self.b.or(any, z))
             }
             Phase::Commit if self.lay().shadow.is_empty() => Ok(any),
-            Phase::Commit => self.run_loop_with(|f| {
-                for o in f.lay().regs.clone() {
-                    let w = tw(&d.types, d.object(o).ty);
-                    let Some(&at) = f.lay().shadow.get(&o) else { continue };
-                    let lane = f.lay().lane(o);
-                    let v = f.load(Base::State(at), lane, w);
-                    f.set(o, v);
-                }
-                Ok(())
-            })
-            .map(|_| any),
+            Phase::Commit => self
+                .run_loop_with(|f| {
+                    for o in f.lay().regs.clone() {
+                        let w = tw(&d.types, d.object(o).ty);
+                        let Some(&at) = f.lay().shadow.get(&o) else { continue };
+                        let lane = f.lay().lane(o);
+                        let v = f.load(Base::State(at), lane, w);
+                        f.set(o, v);
+                    }
+                    Ok(())
+                })
+                .map(|_| any),
         }
     }
 
@@ -4843,16 +4954,17 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         for r in &runs {
             all = self.mor(all, r.0);
         }
+        let fired = self.lay().fired;
         if let M::V(_) = all {
             let nz = self.any(all);
-            let (z, l, o) = (self.tmp(), self.tmp(), self.tmp());
-            let _ = writeln!(
-                self.out,
-                "  %t{z} = zext i1 {nz} to i8\n  \
-                 %t{l} = load i8, ptr %fired, align 1\n  %t{o} = or i8 %t{l}, %t{z}\n  store i8 %t{o}, ptr %fired, align 1"
-            );
+            let z = self.b.zext(nz, self.t.i8);
+            let p = self.at(fired);
+            let l = self.ld(self.t.i8, p, 1);
+            let o = self.b.or(l, z);
+            self.st(o, p, 1);
         } else if all == M::K(true) {
-            let _ = writeln!(self.out, "  store i8 1, ptr %fired, align 1");
+            let (p, one) = (self.at(fired), self.b.const_int(self.t.i8, 1));
+            self.st(one, p, 1);
         }
         self.ff = true;
         for (fire, body) in runs {
@@ -4989,30 +5101,29 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
 
     /// The address of element `i` (a constant) of `o`, in this register's
     /// part of the state.
-    fn elem_addr(&mut self, o: ObjId, i: u32) -> String {
+    fn elem_addr(&mut self, o: ObjId, i: u32) -> Value {
         let e = self.lay().elems[&o];
         let base = self.reg_base(e.lane);
-        let a = self.tmp();
-        let _ = writeln!(self.out, "  %t{a} = getelementptr i8, ptr {base}, i64 {}", self.lay().objs[&o] + i as u64 * e.stride());
-        format!("%t{a}")
+        let off = self.lay().objs[&o] + i as u64 * e.stride();
+        self.off(base, off)
     }
 
-    /// Lane 0 of a piece, an `i64` operand (zero-extended from a lane).
-    fn lane0(&mut self, p: P) -> String {
+    /// Lane 0 of a piece, an `i64` (zero-extended from a lane).
+    fn lane0(&mut self, p: P) -> Value {
         match p {
-            P::K(k) => format!("{k}"),
-            P::V(n) if self.sc() => format!("%t{n}"),
+            P::K(k) => self.i64k(k as i64),
+            P::V(n) if self.sc() => self.vals[n as usize],
             P::V(n) => {
-                let (x, z) = (self.tmp(), self.tmp());
-                let _ = writeln!(self.out, "  %t{x} = extractelement {} %t{n}, i64 0\n  %t{z} = zext i32 %t{x} to i64", self.t.v);
-                format!("%t{z}")
+                let (v, zero) = (self.vals[n as usize], self.i64k(0));
+                let x = self.b.extract_element(v, zero);
+                self.b.zext(x, self.t.i64)
             }
         }
     }
 
     /// The address of element `i`, the same in every lane (held at the
     /// last element).
-    fn elem_addr_uniform(&mut self, o: ObjId, i: P, clamp: bool) -> String {
+    fn elem_addr_uniform(&mut self, o: ObjId, i: P, clamp: bool) -> Value {
         if let P::K(k) = i {
             let n = self.lay().elems[&o].n;
             return self.elem_addr(o, k.min(n as u64 - 1) as u32);
@@ -5021,78 +5132,66 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let base = self.reg_base(e.lane);
         let off = self.lay().objs[&o];
         let ix = self.lane0(i);
-        let t: Vec<u32> = (0..6).map(|_| self.tmp()).collect();
         // Held at the last element where the index may be out of range
         // (its value is then not used): a compare and select, which a
         // loop's invariants can be hoisted past, not a call.
         let ix = if clamp {
-            let _ = writeln!(self.out, "  %t{} = icmp ugt i64 {ix}, {}\n  %t{} = select i1 %t{}, i64 {}, i64 {ix}", t[0], e.n - 1, t[1], t[0], e.n - 1);
-            format!("%t{}", t[1])
+            let last = self.i64k(e.n as i64 - 1);
+            let big = self.b.icmp(ICmpPred::Ugt, ix, last);
+            self.b.select(big, last, ix)
         } else {
             ix
         };
-        let _ = writeln!(
-            self.out,
-            "  %t{} = mul i64 {ix}, {}\n  %t{} = getelementptr i8, ptr {base}, i64 {off}\n  %t{} = getelementptr i8, ptr %t{}, i64 %t{}",
-            t[2],
-            e.stride(),
-            t[3],
-            t[4],
-            t[3],
-            t[2]
-        );
-        format!("%t{}", t[4])
+        let stride = self.i64k(e.stride() as i64);
+        let x = self.b.mul(ix, stride);
+        let p = self.off(base, off);
+        self.offv(p, x)
     }
 
     /// The storage type of an element slot, and its alignment.
-    fn slot_ty(&self, e: Elems) -> (&'static str, u64) {
+    fn slot_ty(&self, e: Elems) -> (IrType, u64) {
+        let t = self.t;
         match e.lane {
-            Lane::Bit => ("i16", 2),
-            Lane::B8 => ("i8", 1),
-            Lane::B16 => ("i16", 2),
-            Lane::W32 if self.sc() => ("i32", 4),
-            Lane::W32 => (self.t.w32, 4 * self.sh.n as u64),
-            Lane::W64 => ("i64", 8),
+            Lane::Bit => (t.i16, 2),
+            Lane::B8 => (t.i8, 1),
+            Lane::B16 => (t.i16, 2),
+            Lane::W32 if self.sc() => (t.i32, 4),
+            Lane::W32 => (t.w32, 4 * self.sh.n as u64),
+            Lane::W64 => (t.i64, 8),
         }
     }
 
-    fn load_slot(&mut self, o: ObjId, addr: &str) -> Val {
+    fn load_slot(&mut self, o: ObjId, addr: Value) -> Val {
         let e = self.lay().elems[&o];
         let (ty, align) = self.slot_ty(e);
-        let t = self.tmp();
-        let _ = writeln!(self.out, "  %t{t} = load {ty}, ptr {addr}, align {align}");
+        let x = self.ld(ty, addr, align);
         if e.planes() {
-            let m = self.tmp();
-            let _ = writeln!(self.out, "  %t{m} = bitcast i16 %t{t} to {}", self.t.m);
-            self.bits_of.insert(m, t);
+            let m = self.b.bitcast(x, self.t.m);
+            let (i, m) = (self.reg(x), self.reg(m));
+            self.bits_of.insert(m, i);
             return self.bit(M::V(m), 1);
         }
         if ty != self.t.v {
-            let z = self.tmp();
-            let _ = writeln!(self.out, "  %t{z} = zext {ty} %t{t} to {}", self.t.v);
+            let z = self.b.zext(x, self.t.v);
+            let z = self.reg(z);
             self.zeros.insert(z, !self.top_mask(e.ew));
             return Val { w: e.ew, p: vec![P::V(z)] };
         }
-        Val { w: e.ew, p: vec![P::V(t)] }
+        Val { w: e.ew, p: vec![P::V(self.reg(x))] }
     }
 
-    fn store_slot(&mut self, o: ObjId, addr: &str, v: &Val) {
+    fn store_slot(&mut self, o: ObjId, addr: Value, v: &Val) {
         let e = self.lay().elems[&o];
         let (ty, align) = self.slot_ty(e);
         if e.planes() {
             let m = self.truth(v);
             let bits = self.mask_bits(m);
-            let _ = writeln!(self.out, "  store i16 {bits}, ptr {addr}, align 2");
+            self.st(bits, addr, 2);
         } else {
             let v = self.resize(v, e.ew, false);
-            let x = if ty != self.t.v {
-                let x = self.tmp();
-                let _ = writeln!(self.out, "  %t{x} = trunc {} {} to {ty}", self.t.v, self.ps(v.p[0]));
-                format!("%t{x}")
-            } else {
-                self.ps(v.p[0])
-            };
-            let _ = writeln!(self.out, "  store {ty} {x}, ptr {addr}, align {align}");
+            let x = self.pv(v.p[0]);
+            let x = if ty != self.t.v { self.b.trunc(x, ty) } else { x };
+            self.st(x, addr, align);
         }
     }
 
@@ -5102,7 +5201,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             return v.clone();
         }
         let a = self.elem_addr(o, i);
-        let v = self.load_slot(o, &a);
+        let v = self.load_slot(o, a);
         self.env.eloaded.insert((o, i), v.clone());
         v
     }
@@ -5112,7 +5211,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let v = self.resize(&v, ew, false);
         if self.mem {
             let a = self.elem_addr(o, i);
-            self.store_slot(o, &a, &v);
+            self.store_slot(o, a, &v);
         } else {
             self.env.edirty.insert((o, i));
         }
@@ -5127,7 +5226,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             self.env.edirty.remove(&k);
             let v = self.env.elems[&k].clone();
             let a = self.elem_addr(k.0, k.1);
-            self.store_slot(k.0, &a, &v);
+            self.store_slot(k.0, a, &v);
         }
     }
 
@@ -5173,7 +5272,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             P::K(_) => self.zero(el.ew),
             _ if self.is_uniform(i) => {
                 let a = self.elem_addr_uniform(o, i, ok != M::K(true));
-                self.load_slot(o, &a)
+                self.load_slot(o, a)
             }
             // A different element a lane: each, chosen by a select.
             _ => {
@@ -5219,11 +5318,11 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
                 let v = match ok {
                     M::K(true) => v,
                     _ => {
-                        let old = self.load_slot(o, &a);
+                        let old = self.load_slot(o, a);
                         self.select(ok, &v, &old)
                     }
                 };
-                self.store_slot(o, &a, &v);
+                self.store_slot(o, a, &v);
             }
             _ => {
                 for k in 0..el.n {
@@ -5342,10 +5441,10 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     fn load_piece(&mut self, o: ObjId, j: usize) -> P {
         let lane = self.piece_lane();
         let at = self.lay().objs[&o] + j as u64 * lane.piece_bytes(self.sh);
-        let (a, v) = (self.tmp(), self.tmp());
         let base = self.base();
-        let _ = writeln!(self.out, "  %t{a} = getelementptr i8, ptr {base}, i64 {at}\n  %t{v} = load {}, ptr %t{a}, align {}", self.t.v, lane.reg_bytes(self.sh));
-        P::V(v)
+        let a = self.off(base, at);
+        let v = self.ld(self.t.v, a, lane.reg_bytes(self.sh));
+        P::V(self.reg(v))
     }
 
     /// Stores `x` as piece `j` of a padded array in the lanes of `m` that
@@ -5365,9 +5464,10 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         };
         let lane = self.piece_lane();
         let at = self.lay().objs[&o] + j as u64 * lane.piece_bytes(self.sh);
-        let a = self.tmp();
         let base = self.base();
-        let _ = writeln!(self.out, "  %t{a} = getelementptr i8, ptr {base}, i64 {at}\n  store {} {}, ptr %t{a}, align {}", self.t.v, self.ps(x), lane.reg_bytes(self.sh));
+        let a = self.off(base, at);
+        let x = self.pv(x);
+        self.st(x, a, lane.reg_bytes(self.sh));
     }
 
     fn store_piece(&mut self, o: ObjId, j: usize, x: P, m: M) {
@@ -5845,29 +5945,37 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     fn rolled_loop(&mut self, l: usize) -> Result<(), String> {
         let d = self.d();
         let lp = &self.l.loops[l];
-        let k = self.rolled;
-        self.rolled += 1;
-        let prev = std::mem::replace(&mut self.block, format!("R{k}"));
-        let _ = writeln!(self.out, "  br label %R{k}\nR{k}:\n  %r{k} = phi i32 [ 0, %{prev} ], [ %r{k}.next, %R{k}.latch ]");
+        let t = self.t;
+        let (prev, head) = (self.block, self.new_block("rolled"));
+        self.b.br(head);
+        self.enter(head);
+        let zero = self.b.const_int(t.i32, 0);
+        let r = self.b.phi(t.i32, &[(zero, prev)]);
         let mut steps = Vec::new();
         for &(o, first, step) in &lp.steps {
-            let (a, b, c, t) = (self.tmp(), self.tmp(), self.tmp(), self.tmp());
-            let _ = writeln!(self.out, "  %t{a} = mul i32 %r{k}, {}\n  %t{b} = add i32 %t{a}, {}", step as i32, first as i32);
-            if self.sc() {
-                let _ = writeln!(self.out, "  %t{t} = sext i32 %t{b} to i64");
+            let k = self.b.const_int(t.i32, step as i32 as i64);
+            let a = self.b.mul(r, k);
+            let k = self.b.const_int(t.i32, first as i32 as i64);
+            let b = self.b.add(a, k);
+            let x = if self.sc() {
+                self.b.sext(b, t.i64)
             } else {
-                let v = self.t.v;
-                let _ = writeln!(
-                    self.out,
-                    "  %t{c} = insertelement {v} poison, i32 %t{b}, i64 0\n  %t{t} = shufflevector {v} %t{c}, {v} poison, {v} zeroinitializer"
-                );
-            }
-            self.uniform.insert(t);
+                // Splat: into lane 0, then shuffled to every lane.
+                let (poison, z64) = (self.b.module().poison(t.v), self.i64k(0));
+                let c = self.b.insert_element(poison, b, z64);
+                let mask = match self.b.module().const_zero(t.v) {
+                    Value::Const(m) => m,
+                    _ => unreachable!(),
+                };
+                self.b.push(Op::ShuffleVector { a: c, b: poison, mask }, Some(t.v)).unwrap()
+            };
+            let x = self.reg(x);
+            self.uniform.insert(x);
             let w = tw(&d.types, d.object(o).ty);
             let mut p = vec![P::K(0); self.np(w)];
-            p[0] = P::V(t);
+            p[0] = P::V(x);
             if self.np(w) > 1 {
-                let f = self.bin("ashr", P::V(t), P::K(self.pb as u64 - 1));
+                let f = self.bin("ashr", P::V(x), P::K(self.pb as u64 - 1));
                 for q in &mut p[1..] {
                     *q = f;
                 }
@@ -5890,14 +5998,14 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         self.mem = false;
         self.in_range.clear();
         result?;
-        let _ = writeln!(
-            self.out,
-            "  %r{k}.next = add i32 %r{k}, 1\n  %r{k}.end = icmp eq i32 %r{k}.next, {}\n  \
-             br i1 %r{k}.end, label %Y{k}, label %R{k}\nY{k}:",
-            lp.count
-        );
-        self.out = self.out.replace(&format!("%R{k}.latch"), &format!("%{}", self.block));
-        self.block = format!("Y{k}");
+        let one = self.b.const_int(t.i32, 1);
+        let next = self.b.add(r, one);
+        let n = self.b.const_int(t.i32, lp.count as i64);
+        let end = self.b.icmp(ICmpPred::Eq, next, n);
+        self.b.add_incoming(r, next, self.block);
+        let exit = self.new_block("rolled.end");
+        self.b.cond_br(end, exit, head);
+        self.enter(exit);
         Ok(())
     }
 
@@ -5943,7 +6051,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     /// The addresses of the two pieces holding bits `off..off + pb` of
     /// `o` (the second held at the last piece), and the shift within the
     /// first.
-    fn piece_addrs(&mut self, o: ObjId, off: P) -> (String, String, P) {
+    fn piece_addrs(&mut self, o: ObjId, off: P) -> (Value, Value, P) {
         let d = self.d();
         let base = self.base();
         let start = self.lay().objs[&o];
@@ -5955,48 +6063,26 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         if let P::K(k) = off {
             let q = (k / pb).min(last);
             let q1 = (q + 1).min(last);
-            let (a, b) = (self.tmp(), self.tmp());
-            let _ = writeln!(
-                self.out,
-                "  %t{a} = getelementptr i8, ptr {base}, i64 {}\n  %t{b} = getelementptr i8, ptr {base}, i64 {}",
-                start + q * stride,
-                start + q1 * stride
-            );
-            return (format!("%t{a}"), format!("%t{b}"), r);
+            let (a, b) = (self.off(base, start + q * stride), self.off(base, start + q1 * stride));
+            return (a, b, r);
         }
         let x = self.lane0(off);
-        let n: Vec<u32> = (0..10).map(|_| self.tmp()).collect();
-        let _ = writeln!(
-            self.out,
-            "  %t{0} = lshr i64 {x}, {lg}\n  %t{1} = icmp ugt i64 %t{0}, {last}\n  %t{2} = select i1 %t{1}, i64 {last}, i64 %t{0}\n  \
-             %t{3} = add i64 %t{2}, 1\n  %t{4} = icmp ugt i64 %t{3}, {last}\n  %t{5} = select i1 %t{4}, i64 {last}, i64 %t{3}\n  \
-             %t{6} = mul i64 %t{2}, {stride}\n  %t{7} = mul i64 %t{5}, {stride}\n  \
-             %t{8} = getelementptr i8, ptr {base}, i64 {start}",
-            n[0],
-            n[1],
-            n[2],
-            n[3],
-            n[4],
-            n[5],
-            n[6],
-            n[7],
-            n[8],
-            lg = self.pb.trailing_zeros()
-        );
-        let (a, b) = (self.tmp(), self.tmp());
-        let _ = writeln!(
-            self.out,
-            "  %t{a} = getelementptr i8, ptr %t{}, i64 %t{}\n  %t{b} = getelementptr i8, ptr %t{}, i64 %t{}",
-            n[8], n[6], n[8], n[7]
-        );
-        (format!("%t{a}"), format!("%t{b}"), r)
+        let (lg, lastk, one, stridek) = (self.i64k(self.pb.trailing_zeros() as i64), self.i64k(last as i64), self.i64k(1), self.i64k(stride as i64));
+        let q = self.b.lshr(x, lg);
+        let big = self.b.icmp(ICmpPred::Ugt, q, lastk);
+        let q = self.b.select(big, lastk, q);
+        let q1 = self.b.add(q, one);
+        let big = self.b.icmp(ICmpPred::Ugt, q1, lastk);
+        let q1 = self.b.select(big, lastk, q1);
+        let (o0, o1) = (self.b.mul(q, stridek), self.b.mul(q1, stridek));
+        let p = self.off(base, start);
+        let (a, b) = (self.offv(p, o0), self.offv(p, o1));
+        (a, b, r)
     }
 
-    fn load_at(&mut self, addr: &str) -> P {
-        let t = self.tmp();
-        let ty = if self.sc() { "i64" } else { self.t.v };
-        let _ = writeln!(self.out, "  %t{t} = load {ty}, ptr {addr}, align {}", self.piece_lane().reg_bytes(self.sh));
-        P::V(t)
+    fn load_at(&mut self, addr: Value) -> P {
+        let x = self.ld(self.t.v, addr, self.piece_lane().reg_bytes(self.sh));
+        P::V(self.reg(x))
     }
 
     /// Bits `off..off + w` (`w` at most a piece) of `o`, read from the
@@ -6004,7 +6090,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     fn mem_extract(&mut self, o: ObjId, off: P, ok: M, w: u32) -> Val {
         let pb = self.pb as u64;
         let (a0, a1, r) = self.piece_addrs(o, off);
-        let (v0, v1) = (self.load_at(&a0), self.load_at(&a1));
+        let (v0, v1) = (self.load_at(a0), self.load_at(a1));
         let lo = self.bin("lshr", v0, r);
         let ri = self.bin("sub", P::K(pb), r);
         let ri = self.bin("and", ri, P::K(pb - 1));
@@ -6022,7 +6108,7 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     fn mem_insert(&mut self, o: ObjId, off: P, ok: M, w: u32, x: &Val) {
         let pb = self.pb as u64;
         let (a0, a1, r) = self.piece_addrs(o, off);
-        let (v0, v1) = (self.load_at(&a0), self.load_at(&a1));
+        let (v0, v1) = (self.load_at(a0), self.load_at(a1));
         let x = self.resize(x, w, false).p[0];
         let m = P::K(self.top_mask(w));
         let ri = self.bin("sub", P::K(pb), r);
@@ -6045,9 +6131,10 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let n0 = put(self, v0, m0, x0);
         // The second piece first: where both are the last piece, the
         // first's write is the one that stays.
-        let (ty, align) = (if self.sc() { "i64" } else { self.t.v }, self.piece_lane().reg_bytes(self.sh));
+        let align = self.piece_lane().reg_bytes(self.sh);
         for (a, n) in [(a1, n1), (a0, n0)] {
-            let _ = writeln!(self.out, "  store {ty} {}, ptr {a}, align {align}", self.ps(n));
+            let x = self.pv(n);
+            self.st(x, a, align);
         }
         self.env.vals.remove(&o);
         self.env.loaded.remove(&o);
@@ -6138,12 +6225,12 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         if let P::K(k) = p {
             return P::K((k.leading_zeros() - (64 - self.pb)) as u64);
         }
-        let v = self.t.v;
+        let (v, i1) = (self.t.v, self.t.i1);
         let name = if self.sc() { "llvm.ctlz.i64".to_string() } else { format!("llvm.ctlz.v{}i32", self.sh.n) };
-        self.intrinsic(format!("declare {v} @{name}({v}, i1)"));
-        let t = self.tmp();
-        let _ = writeln!(self.out, "  %t{t} = call {v} @{name}({v} {}, i1 false)", self.ps(p));
-        P::V(t)
+        let g = self.intrinsic(&name, v, &[v, i1]);
+        let (x, no) = (self.pv(p), self.b.const_int(i1, 0));
+        let r = self.b.call(g, &[x, no]).unwrap();
+        P::V(self.reg(r))
     }
 
     // ---- expressions ----
@@ -6495,55 +6582,50 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
     /// column in those, and the carries passed up.
     fn mul_wide(&mut self, a: &Val, b: &Val) -> Val {
         let n = a.p.len();
-        let (v, wt, sc, pb) = (self.t.v, self.t.wide, self.sc(), self.pb);
-        let wide = |f: &mut Self, p: P| -> String {
+        let (v, wt, sc) = (self.t.v, self.t.wide, self.sc());
+        let wide = |f: &mut Self, p: P| -> Value {
             match p {
-                P::K(k) if sc => format!("{k}"),
-                P::K(k) => format!("splat (i64 {k})"),
+                P::K(k) if sc => f.b.const_int(wt, k as i64),
+                P::K(k) => f.b.const_int(wt, k as i64),
                 P::V(t) => {
-                    let x = f.tmp();
-                    let _ = writeln!(f.out, "  %t{x} = zext {v} %t{t} to {wt}");
-                    format!("%t{x}")
+                    let x = f.vals[t as usize];
+                    f.b.zext(x, wt)
                 }
             }
         };
-        let a64: Vec<Option<String>> = a.p.iter().map(|&p| (p != P::K(0)).then(|| wide(self, p))).collect();
-        let b64: Vec<Option<String>> = b.p.iter().map(|&p| (p != P::K(0)).then(|| wide(self, p))).collect();
-        let half = if sc { "64".to_string() } else { "splat (i64 32)".to_string() };
+        let a64: Vec<Option<Value>> = a.p.iter().map(|&p| (p != P::K(0)).then(|| wide(self, p))).collect();
+        let b64: Vec<Option<Value>> = b.p.iter().map(|&p| (p != P::K(0)).then(|| wide(self, p))).collect();
+        let half = self.b.const_int(wt, if sc { 64 } else { 32 });
         // The columns' sums: the low halves of the products of pieces i and
         // j in column i + j, their high halves in the next.
-        let mut cols: Vec<Vec<String>> = vec![Vec::new(); n];
+        let mut cols: Vec<Vec<Value>> = vec![Vec::new(); n];
         for i in 0..n {
             for j in 0..n - i {
-                let (Some(x), Some(y)) = (&a64[i], &b64[j]) else { continue };
-                let p = self.tmp();
-                let _ = writeln!(self.out, "  %t{p} = mul {wt} {x}, {y}");
-                let (t, lo, hi) = (self.tmp(), self.tmp(), self.tmp());
-                let _ = writeln!(self.out, "  %t{t} = trunc {wt} %t{p} to {v}\n  %t{lo} = zext {v} %t{t} to {wt}\n  %t{hi} = lshr {wt} %t{p}, {half}");
-                cols[i + j].push(format!("%t{lo}"));
+                let (Some(x), Some(y)) = (a64[i], b64[j]) else { continue };
+                let p = self.b.mul(x, y);
+                let t = self.b.trunc(p, v);
+                let lo = self.b.zext(t, wt);
+                let hi = self.b.lshr(p, half);
+                cols[i + j].push(lo);
                 if i + j + 1 < n {
-                    cols[i + j + 1].push(format!("%t{hi}"));
+                    cols[i + j + 1].push(hi);
                 }
             }
         }
-        let _ = pb;
-        let mut carry: Option<String> = None;
+        let mut carry: Option<Value> = None;
         let mut out = Vec::with_capacity(n);
         for col in cols.iter_mut().take(n) {
             col.extend(carry.take());
-            let mut sum = col.first().cloned();
-            for t in col.iter().skip(1) {
-                let s = self.tmp();
-                let _ = writeln!(self.out, "  %t{s} = add {wt} {}, {t}", sum.unwrap());
-                sum = Some(format!("%t{s}"));
+            let mut sum = col.first().copied();
+            for &t in col.iter().skip(1) {
+                sum = Some(self.b.add(sum.unwrap(), t));
             }
             match sum {
                 None => out.push(P::K(0)),
                 Some(s) => {
-                    let (lo, c) = (self.tmp(), self.tmp());
-                    let _ = writeln!(self.out, "  %t{lo} = trunc {wt} {s} to {v}\n  %t{c} = lshr {wt} {s}, {half}");
-                    out.push(P::V(lo));
-                    carry = Some(format!("%t{c}"));
+                    let lo = self.b.trunc(s, v);
+                    out.push(P::V(self.reg(lo)));
+                    carry = Some(self.b.lshr(s, half));
                 }
             }
         }
@@ -6582,8 +6664,9 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         let p0 = match m {
             M::K(b) => P::K(b as u64),
             M::V(n) => {
-                let t = self.tmp();
-                let _ = writeln!(self.out, "  %t{t} = zext {} %t{n} to {}", self.t.m, self.t.v);
+                let x = self.vals[n as usize];
+                let x = self.b.zext(x, self.t.v);
+                let t = self.reg(x);
                 self.mask_of.insert(t, m);
                 self.zeros.insert(t, !1);
                 if self.uniform.contains(&n) {
@@ -7015,8 +7098,9 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             ("xor", x, y) if x == y => return P::K(0),
             _ => {}
         }
-        let t = self.tmp();
-        let _ = writeln!(self.out, "  %t{t} = {op} {} {}, {}", self.t.v, self.ps(a), self.ps(b));
+        let (x, y) = (self.pv(a), self.pv(b));
+        let r = self.b.binary(ir_bin(op), x, y);
+        let t = self.reg(r);
         if self.is_uniform(a) && self.is_uniform(b) {
             self.uniform.insert(t);
         }
@@ -7070,8 +7154,9 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         if a == b {
             return M::K(matches!(pred, "eq" | "ule" | "uge" | "sle" | "sge"));
         }
-        let t = self.tmp();
-        let _ = writeln!(self.out, "  %t{t} = icmp {pred} {} {}, {}", self.t.v, self.ps(a), self.ps(b));
+        let (x, y) = (self.pv(a), self.pv(b));
+        let r = self.b.icmp(ir_pred(pred), x, y);
+        let t = self.reg(r);
         if self.is_uniform(a) && self.is_uniform(b) {
             self.uniform.insert(t);
         }
@@ -7084,8 +7169,9 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
             M::K(false) => b,
             M::V(_) if a == b => a,
             M::V(n) => {
-                let t = self.tmp();
-                let _ = writeln!(self.out, "  %t{t} = select {} %t{n}, {v} {}, {v} {}", self.t.m, self.ps(a), self.ps(b), v = self.t.v);
+                let (c, x, y) = (self.vals[n as usize], self.pv(a), self.pv(b));
+                let r = self.b.select(c, x, y);
+                let t = self.reg(r);
                 if self.uniform.contains(&n) && self.is_uniform(a) && self.is_uniform(b) {
                     self.uniform.insert(t);
                 }
@@ -7115,19 +7201,20 @@ impl<'l, 'd, 'a> Func<'l, 'd, 'a> {
         }
         // Masks from bit planes: the logic on their 16 bits, a scalar
         // instruction, and a mask of that only for what needs one.
-        let bits = |f: &Self, m: M| match m {
-            M::K(b) => Some(format!("{}", if b { -1 } else { 0 })),
-            M::V(n) => f.bits_of.get(&n).map(|i| format!("%t{i}")),
+        let bits = |f: &mut Self, m: M| match m {
+            M::K(b) => Some(f.b.const_int(f.t.i16, if b { -1 } else { 0 })),
+            M::V(n) => f.bits_of.get(&n).map(|&i| f.vals[i as usize]),
         };
         if let (Some(x), Some(y)) = (bits(self, a), bits(self, b)) {
-            let (i, t) = (self.tmp(), self.tmp());
-            let _ = writeln!(self.out, "  %t{i} = {op} i16 {x}, {y}\n  %t{t} = bitcast i16 %t{i} to {}", self.t.m);
+            let i = self.b.binary(ir_bin(op), x, y);
+            let m = self.b.bitcast(i, self.t.m);
+            let (i, t) = (self.reg(i), self.reg(m));
             self.bits_of.insert(t, i);
             return M::V(t);
         }
-        let t = self.tmp();
-        let _ = writeln!(self.out, "  %t{t} = {op} {} {}, {}", self.t.m, self.ms(a), self.ms(b));
-        M::V(t)
+        let (x, y) = (self.mv(a), self.mv(b));
+        let r = self.b.binary(ir_bin(op), x, y);
+        M::V(self.reg(r))
     }
 
     fn mand(&mut self, a: M, b: M) -> M {

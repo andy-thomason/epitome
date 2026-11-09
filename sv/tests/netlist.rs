@@ -3,237 +3,16 @@
 //! values worked out here, and CVA6's `pmp_entry` (when `CVA6_DIR` points
 //! at a CVA6 checkout) against a scalar model of it.
 //!
-//! The code is compiled and loaded in this process (`epitome_codegen::load`):
-//! no assembly, object file or linker. With `NETLIST_CC=1` it is also
-//! written as an object, linked by the system's `cc -shared` and `dlopen`ed,
-//! and each run of the loaded code checked against a run of that on the
-//! same state. `NETLIST_ASM=1` writes the assembly beside the IR.
-//!
-//! On an AArch64 Mac or x86-64 Linux; elsewhere the tests skip. x86-64 uses
-//! AVX2 unless `NETLIST_MATTR` names other features.
+//! On an AArch64 Mac or x86-64 Linux; elsewhere the tests skip.
+//! x86-64 uses AVX2 unless `NETLIST_MATTR` names other features.
 
-use std::ffi::{CString, c_char, c_int, c_void};
-use std::path::{Path, PathBuf};
-use std::process::Command;
+mod common;
+
+use std::path::PathBuf;
 use std::time::Instant;
 
-use epitome_codegen::load::{self, Loaded};
-use epitome_codegen::object::SectionKind;
-use epitome_codegen::target::Target;
-use epitome_sv::netlist::{self, GROUP, Netlist};
-use epitome_sv::preprocess::{Options, preprocess_files};
-use epitome_sv::source::SourceMap;
-
-unsafe extern "C" {
-    fn dlopen(path: *const c_char, flags: c_int) -> *mut c_void;
-    fn dlsym(handle: *mut c_void, name: *const c_char) -> *mut c_void;
-    fn dlerror() -> *const c_char;
-}
-
-const RTLD_NOW: c_int = 2;
-
-/// This machine's target, triple and features, if the tests can run here.
-fn host() -> Option<(Target, &'static str, Vec<String>)> {
-    if cfg!(all(target_arch = "x86_64", target_os = "linux")) {
-        // NETLIST_MATTR picks the features, as `+avx512f,+avx512bw`.
-        let mattr = std::env::var("NETLIST_MATTR").unwrap_or_else(|_| "+avx2".into());
-        Some((Target::x86_64(), "x86_64-unknown-linux-gnu", mattr.split(',').map(String::from).collect()))
-    } else if cfg!(all(target_arch = "aarch64", target_os = "macos")) {
-        Some((Target::aarch64(), "arm64-apple-macosx14.0.0", Vec::new()))
-    } else {
-        None
-    }
-}
-
-/// Bit planes where the target has mask registers: AArch64, and x86-64
-/// with AVX-512.
-fn netlist_options() -> netlist::Options {
-    let x86_without_masks =
-        cfg!(target_arch = "x86_64") && !std::env::var("NETLIST_MATTR").is_ok_and(|m| m.contains("avx512f"));
-    let recognise = std::env::var("NETLIST_RECOGNISE").map_or(true, |v| v != "0");
-    netlist::Options { bit_planes: !x86_without_masks, recognise }
-}
-
-/// Elaborates `files` with `top` and compiles its netlist, on a thread with
-/// room for the elaborator's recursion.
-fn netlist_of(files: Vec<PathBuf>, include_dirs: Vec<PathBuf>, top: &str) -> Netlist {
-    netlist_with(files, include_dirs, top, netlist_options())
-}
-
-fn netlist_with(files: Vec<PathBuf>, include_dirs: Vec<PathBuf>, top: &str, layout: netlist::Options) -> Netlist {
-    let top = top.to_string();
-    std::thread::Builder::new()
-        .stack_size(256 << 20)
-        .spawn(move || {
-            let map = SourceMap::new();
-            let opts = Options { include_dirs, ..Default::default() };
-            let out = preprocess_files(&map, &files, &opts).unwrap_or_else(|e| panic!("{e}"));
-            let ast = epitome_sv::parse::parse(&out).unwrap_or_else(|e| panic!("{}", map.render(&e)));
-            let d = epitome_sv::design::elab::elaborate_tops(&ast, &out, &[top])
-                .unwrap_or_else(|e| panic!("{}", map.render(&e)));
-            netlist::compile_with(&d, d.tops[0], &layout).unwrap_or_else(|e| panic!("{e}"))
-        })
-        .unwrap()
-        .join()
-        .unwrap()
-}
-
-/// A compiled and loaded netlist.
-struct Built {
-    net: Netlist,
-    eval: unsafe extern "C" fn(*mut u8),
-    /// The code `eval` is in.
-    _code: Loaded,
-    /// With `NETLIST_CC`: the same code linked by `cc` and `dlopen`ed.
-    cc_eval: Option<unsafe extern "C" fn(*mut u8)>,
-    /// Each function's name and size in bytes of machine code.
-    sizes: Vec<(String, u64)>,
-}
-
-impl Built {
-    /// Runs the entry on `st`; with `NETLIST_CC`, also the linked code on a
-    /// copy of it, and checks that the two leave the same state.
-    fn run(&self, st: &mut State) {
-        let Some(cc_eval) = self.cc_eval else {
-            unsafe { (self.eval)(st.ptr) };
-            return;
-        };
-        let theirs = State::new(self.net.size);
-        unsafe {
-            std::ptr::copy_nonoverlapping(st.ptr, theirs.ptr, self.net.size);
-            (self.eval)(st.ptr);
-            cc_eval(theirs.ptr);
-            let a = std::slice::from_raw_parts(st.ptr, self.net.size);
-            let b = std::slice::from_raw_parts(theirs.ptr, self.net.size);
-            if let Some(k) = (0..a.len()).find(|&k| a[k] != b[k]) {
-                panic!("the loaded code and cc's link of it differ, first at byte {k} of the state");
-            }
-        }
-    }
-}
-
-/// Optimises and compiles the netlist's IR, and loads it.
-fn build(name: &str, net: Netlist, t: &Target, triple: &str, mattr: &[String]) -> Built {
-    let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("netlist");
-    std::fs::create_dir_all(&tmp).unwrap();
-    let ir = format!("target triple = \"{triple}\"\n{}", net.ir);
-    std::fs::write(tmp.join(format!("{name}.ll")), &ir).unwrap();
-    let started = Instant::now();
-    let mut m = epitome_ir::parse_module(&ir).unwrap_or_else(|e| panic!("{name}.ll: {e:?}"));
-    epitome_opt::pipeline::run(&mut m, &Default::default());
-    let optimised = started.elapsed();
-    let opts = epitome_codegen::Options { mattr: mattr.to_vec(), no_asm: true, ..Default::default() };
-    let c = epitome_codegen::compile(t, &mut m, &opts).unwrap_or_else(|e| panic!("{name}: {e}"));
-    let compiled = started.elapsed();
-    let code = load::load(t, &c, load::process_symbol).unwrap_or_else(|e| panic!("{name}: loading: {e}"));
-    let loaded = started.elapsed();
-    eprintln!(
-        "{name}: parsed and optimised in {:.1} ms, compiled in {:.1} ms, loaded in {:.1} ms",
-        optimised.as_secs_f64() * 1e3,
-        (compiled - optimised).as_secs_f64() * 1e3,
-        (loaded - compiled).as_secs_f64() * 1e3
-    );
-    if std::env::var_os("NETLIST_ASM").is_some() {
-        std::fs::write(tmp.join(format!("{name}.s")), c.assembly(t).unwrap().as_bytes()).unwrap();
-    }
-    let object = c.object(t).unwrap();
-    let mut sizes: Vec<(String, u64)> = object
-        .symbols
-        .iter()
-        .filter(|s| {
-            s.name.contains("sv_eval_") && s.section.is_some_and(|i| object.sections[i].kind == SectionKind::Text)
-        })
-        .map(|s| (s.name.trim_start_matches('_').to_string(), s.size))
-        .collect();
-    sizes.sort();
-    let eval = unsafe { code.function(&net.entry) }.unwrap_or_else(|| panic!("no {}", net.entry));
-    let cc_eval = std::env::var_os("NETLIST_CC").is_some().then(|| linked(name, &c, t, &net.entry, &tmp));
-    Built { net, eval, _code: code, cc_eval, sizes }
-}
-
-/// The compiled code written as an object, linked by `cc -shared` and
-/// `dlopen`ed: function `entry`.
-fn linked(
-    name: &str,
-    c: &epitome_codegen::Compiled,
-    t: &Target,
-    entry: &str,
-    tmp: &Path,
-) -> unsafe extern "C" fn(*mut u8) {
-    let obj = tmp.join(format!("{name}.o"));
-    std::fs::write(&obj, c.object_file(t).unwrap()).unwrap();
-    let lib = tmp.join(format!("lib{name}.so"));
-    let st = Command::new("cc").arg("-shared").arg("-o").arg(&lib).arg(&obj).status().unwrap();
-    assert!(st.success(), "linking {name}");
-    unsafe {
-        let path = CString::new(lib.to_str().unwrap()).unwrap();
-        let h = dlopen(path.as_ptr(), RTLD_NOW);
-        assert!(!h.is_null(), "{:?}", std::ffi::CStr::from_ptr(dlerror()));
-        let sym = CString::new(entry).unwrap();
-        let f = dlsym(h, sym.as_ptr());
-        assert!(!f.is_null(), "no {entry}");
-        std::mem::transmute::<*mut c_void, unsafe extern "C" fn(*mut u8)>(f)
-    }
-}
-
-/// A group's state, aligned for 512-bit loads.
-struct State {
-    ptr: *mut u8,
-    layout: std::alloc::Layout,
-}
-
-impl State {
-    fn new(size: usize) -> State {
-        let layout = std::alloc::Layout::from_size_align(size.max(64), 64).unwrap();
-        State { ptr: unsafe { std::alloc::alloc_zeroed(layout) }, layout }
-    }
-
-    fn put(&mut self, net: &Netlist, port: &str, n: usize, v: u64) {
-        let f = net.port(port).unwrap_or_else(|| panic!("no port {port}"));
-        unsafe { f.put(self.ptr, n, v) };
-    }
-
-    /// A value wider than 64 bits, as 64-bit words, low first.
-    fn put_wide(&mut self, net: &Netlist, port: &str, n: usize, v: &[u64]) {
-        let f = net.port(port).unwrap_or_else(|| panic!("no port {port}"));
-        for k in 0..f.pieces() {
-            let word = v.get(k / 2).copied().unwrap_or(0);
-            let mut piece = (word >> (32 * (k % 2))) as u32;
-            let top = f.width as usize - 32 * k;
-            if top < 32 {
-                piece &= (1u32 << top) - 1;
-            }
-            unsafe { (self.ptr.add(f.at(k, n)) as *mut u32).write(piece) };
-        }
-    }
-
-    fn get(&self, net: &Netlist, port: &str, n: usize) -> u64 {
-        let f = net.port(port).unwrap_or_else(|| panic!("no port {port}"));
-        unsafe { f.get(self.ptr, n) }
-    }
-}
-
-impl Drop for State {
-    fn drop(&mut self) {
-        unsafe { std::alloc::dealloc(self.ptr, self.layout) };
-    }
-}
-
-struct Rng(u64);
-
-impl Rng {
-    fn next(&mut self) -> u64 {
-        self.0 ^= self.0 << 13;
-        self.0 ^= self.0 >> 7;
-        self.0 ^= self.0 << 17;
-        self.0
-    }
-}
-
-fn report(name: &str, b: &Built) {
-    let sizes: Vec<String> = b.sizes.iter().map(|(n, s)| format!("{n} {s} bytes")).collect();
-    eprintln!("{name}: {} bytes of state a group; {}", b.net.size, sizes.join(", "));
-}
+use common::*;
+use epitome_sv::netlist;
 
 const OPS: &str = r#"
 module ops (
@@ -256,8 +35,12 @@ module ops (
     output logic [7:0]  cat,
     output logic [5:0]  sel,
     output logic [55:0] mux,
-    output logic [55:0] each
+    output logic [55:0] each,
+    output logic [7:0]  pri
 );
+  function automatic logic odd(input logic [55:0] x);
+    return x[0];
+  endfunction
   assign sum = a + b;
   assign diff = a - b;
   assign bits = (a & b) | (~a ^ b);
@@ -279,6 +62,12 @@ module ops (
     endcase
     each = '0;
     for (int i = 0; i < 8; i++) each[i*7 +: 7] = a[i*7 +: 7] + 7'd1;
+    // A chain whose conditions are made after its arms, one of them a
+    // function's result.
+    pri = 8'd0;
+    if (a[3:0] == 4'd1) pri = 8'd1;
+    else if (odd(b)) pri = 8'd2;
+    else if (m == 2'd3) pri = {2'b0, s};
   end
 endmodule
 "#;
@@ -300,8 +89,8 @@ fn operators_lane_by_lane() {
     let mut rng = Rng(0x2545_F491_4F6C_DD1D);
     let mut st = State::new(net.size);
     for round in 0..4 {
-        let mut ins = Vec::with_capacity(GROUP);
-        for n in 0..GROUP {
+        let mut ins = Vec::with_capacity(net.group());
+        for n in 0..net.group() {
             let mut a = rng.next() & m56;
             let mut b = rng.next() & m56;
             match (round + n) % 5 {
@@ -338,6 +127,7 @@ fn operators_lane_by_lane() {
                 ("sel", (if s < 56 { (a >> s) & 1 } else { 0 }) << 5 | if s < 56 { (b2 >> s) & 0x1F } else { 0 }),
                 ("mux", [a, b2, a ^ b2, 0][m as usize]),
                 ("each", each),
+                ("pri", if a & 0xF == 1 { 1 } else if b2 & 1 == 1 { 2 } else if m == 3 { s } else { 0 }),
             ];
             for (port, w) in want {
                 let got = st.get(net, port, n);
@@ -413,8 +203,8 @@ fn cva6_pmp_entry() {
     let (m56, mcw) = ((1u64 << 56) - 1, (1u64 << 54) - 1);
     let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
     let mut st = State::new(net.size);
-    let mut ins = Vec::with_capacity(GROUP);
-    for n in 0..GROUP {
+    let mut ins = Vec::with_capacity(net.group());
+    for n in 0..net.group() {
         let mode = rng.next() % 4;
         let t = rng.next() % 55;
         let conf = if mode == 3 { (rng.next() << (t + 1) | ((1 << t) - 1)) & mcw } else { rng.next() & mcw };
@@ -426,8 +216,7 @@ fn cva6_pmp_entry() {
             _ if hi > lo => lo + rng.next() % (hi - lo),
             _ => rng.next() & m56,
         };
-        for (p, v) in [("addr_i", addr), ("conf_addr_i", conf), ("conf_addr_prev_i", prev), ("conf_addr_mode_i", mode)]
-        {
+        for (p, v) in [("addr_i", addr), ("conf_addr_i", conf), ("conf_addr_prev_i", prev), ("conf_addr_mode_i", mode)] {
             st.put(net, p, n, v);
         }
         ins.push((addr, conf, prev, mode));
@@ -436,11 +225,7 @@ fn cva6_pmp_entry() {
     let mut matches = 0;
     for (n, &(addr, conf, prev, mode)) in ins.iter().enumerate() {
         let want = pmp_reference(addr, conf, prev, mode);
-        assert_eq!(
-            st.get(net, "match_o", n) == 1,
-            want,
-            "instance {n}: addr {addr:x} conf {conf:x} prev {prev:x} mode {mode}"
-        );
+        assert_eq!(st.get(net, "match_o", n) == 1, want, "instance {n}: addr {addr:x} conf {conf:x} prev {prev:x} mode {mode}");
         matches += want as usize;
     }
     let iters = 2000;
@@ -448,8 +233,8 @@ fn cva6_pmp_entry() {
     for _ in 0..iters {
         unsafe { (b.eval)(std::hint::black_box(st.ptr)) };
     }
-    let ns = t0.elapsed().as_secs_f64() * 1e9 / (iters * GROUP) as f64;
-    eprintln!("pmp_entry: {GROUP} instances agree with the model ({matches} match); {ns:.2} ns an instance");
+    let ns = t0.elapsed().as_secs_f64() * 1e9 / (iters * net.group()) as f64;
+    eprintln!("pmp_entry: {} instances agree with the model ({matches} match); {ns:.2} ns an instance", net.group());
 }
 
 const PMP_UNIT_TOP: &str = r#"
@@ -516,8 +301,8 @@ fn cva6_pmp() {
     let (m56, mcw) = ((1u64 << 56) - 1, (1u64 << 54) - 1);
     let mut rng = Rng(0x0DDB_1A5E_5BAD_5EED);
     let mut st = State::new(net.size);
-    let mut ins = Vec::with_capacity(GROUP);
-    for n in 0..GROUP {
+    let mut ins = Vec::with_capacity(net.group());
+    for n in 0..net.group() {
         // Ascending TOR bounds and NAPOT regions, mixed, so that entries
         // match, overlap and miss.
         let mut conf_addr = [0u64; 8];
@@ -573,8 +358,8 @@ fn cva6_pmp() {
     for _ in 0..iters {
         unsafe { (b.eval)(std::hint::black_box(st.ptr)) };
     }
-    let ns = t0.elapsed().as_secs_f64() * 1e9 / (iters * GROUP) as f64;
-    eprintln!("pmp: {GROUP} instances agree with the model ({allowed} allowed); {ns:.2} ns an instance");
+    let ns = t0.elapsed().as_secs_f64() * 1e9 / (iters * net.group()) as f64;
+    eprintln!("pmp: {} instances agree with the model ({allowed} allowed); {ns:.2} ns an instance", net.group());
 }
 
 /// common_cells' lzc at several widths, both modes: recognised as a count
@@ -606,11 +391,8 @@ fn lzc_recognised_matches_its_logic() {
             ),
         )
         .unwrap();
-        let files = vec![
-            cva6.join("vendor/pulp-platform/common_cells/src/cf_math_pkg.sv"),
-            cva6.join("vendor/pulp-platform/common_cells/src/lzc.sv"),
-            src,
-        ];
+        let files =
+            vec![cva6.join("vendor/pulp-platform/common_cells/src/cf_math_pkg.sv"), cva6.join("vendor/pulp-platform/common_cells/src/lzc.sv"), src];
         let mut built = Vec::new();
         for recognise in [true, false] {
             let opts = netlist::Options { recognise, ..netlist_options() };
@@ -626,7 +408,8 @@ fn lzc_recognised_matches_its_logic() {
         let mut ins = vec![0u64, mask];
         ins.extend((0..w).map(|i| 1u64 << i));
         ins.extend((0..w).map(|i| mask << i & mask));
-        while ins.len() < GROUP {
+        let group = built.iter().map(|b| b.net.group()).min().unwrap();
+        while ins.len() < group {
             let r = rng.next();
             ins.push((r >> (rng.next() % 64)) & mask);
         }
@@ -637,25 +420,15 @@ fn lzc_recognised_matches_its_logic() {
                 st.put(&b.net, "in_i", n, v);
             }
             b.run(&mut st);
-            outs.push(
-                (0..GROUP).map(|n| (st.get(&b.net, "cnt_o", n), st.get(&b.net, "empty_o", n))).collect::<Vec<_>>(),
-            );
+            outs.push((0..group).map(|n| (st.get(&b.net, "cnt_o", n), st.get(&b.net, "empty_o", n))).collect::<Vec<_>>());
         }
         for (n, &v) in ins.iter().enumerate() {
-            assert_eq!(
-                outs[0][n], outs[1][n],
-                "{name}: in {v:x}: recognised gives {:?}, its logic {:?}",
-                outs[0][n], outs[1][n]
-            );
+            assert_eq!(outs[0][n], outs[1][n], "{name}: in {v:x}: recognised gives {:?}, its logic {:?}", outs[0][n], outs[1][n]);
             if v != 0 {
                 let want = if mode == 0 { v.trailing_zeros() } else { (v << (64 - w)).leading_zeros() } as u64;
                 assert_eq!(outs[0][n].0, want, "{name}: in {v:x}");
             }
         }
-        eprintln!(
-            "{name}: recognised and its logic agree on {GROUP} inputs; code {} bytes against {}",
-            built[0].sizes.iter().map(|s| s.1).sum::<u64>(),
-            built[1].sizes.iter().map(|s| s.1).sum::<u64>()
-        );
+        eprintln!("{name}: recognised and its logic agree on {group} inputs; code {} bytes against {}", built[0].sizes.iter().map(|s| s.1).sum::<u64>(), built[1].sizes.iter().map(|s| s.1).sum::<u64>());
     }
 }

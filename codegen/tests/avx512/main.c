@@ -14,7 +14,7 @@ TYPE(v8i64, uint8_t, int64_t)
 TYPE(v32i16, uint32_t, int16_t)
 TYPE(v64i8, uint64_t, int8_t)
 PLAIN(shifts_v16i32) PLAIN(shifts_v8i64) PLAIN(shifts_v32i16)
-PLAIN(bits_v16i32) PLAIN(bits_v8i64)
+PLAIN(bits_v16i32) PLAIN(bits_v8i64) PLAIN(consts_v16i32)
 uint16_t all_v16i32(const void *, const void *, void *, uint16_t);
 PLAIN(fsel_v16f32) PLAIN(mixed_v16i8_v16i32) PLAIN(fcompares_v16f32) PLAIN(fcompares_v8f64)
 PLAIN(compares_v32i8) void selects_v32i8(const void *, const void *, void *, uint64_t); void mask_memory_v32i8(const void *, const void *, void *, void *);
@@ -86,7 +86,7 @@ int main(void) {
         RUN(shifts_v16i32, 6 * 64) RUN(shifts_v8i64, 6 * 64) RUN(shifts_v32i16, 6 * 64)
         RUN(compares_v16i32, 20) RUN(compares_v8i64, 10) RUN(compares_v32i16, 40) RUN(compares_v64i8, 80)
         RUN(minmax_v16i32, 5 * 64) RUN(minmax_v8i64, 5 * 64) RUN(minmax_v32i16, 5 * 64) RUN(minmax_v64i8, 5 * 64)
-        RUN(bits_v16i32, 2 * 64) RUN(bits_v8i64, 2 * 64)
+        RUN(bits_v16i32, 2 * 64) RUN(bits_v8i64, 2 * 64) RUN(consts_v16i32, 10 * 64)
         RUN(mixed_v16i8_v16i32, 64)
         memset(out, 0, sizeof out);
         { uint16_t r = all_v16i32(a, b, out, (uint16_t)pattern); memcpy(out + 64, &r, 2); }

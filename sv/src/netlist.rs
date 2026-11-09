@@ -279,7 +279,7 @@ pub struct Options {
     /// For profiling: the intrinsic that reads a cycle counter
     /// (`llvm.x86.rdtsc`), and each call of a child's function and each
     /// part of the top's step adds the cycles it took to an `i64` of the
-    /// global `sv_prof`, named in [`Netlist::profile`].
+    /// global `sv_prof`, and one to the next, named in [`Netlist::profile`].
     pub profile: Option<&'static str>,
     /// Registers of lanes in a group, if not as many as fit [`STATE_MAX`].
     pub chunks: Option<usize>,
@@ -372,7 +372,7 @@ pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, 
     let profile = n.profile.take();
     let mut ir = n.ir;
     if let Some(counter) = opts.profile {
-        let _ = write!(ir, "\n@sv_prof = global [{} x i64] zeroinitializer\ndeclare i64 @{counter}()\n", profile.len().max(1));
+        let _ = write!(ir, "\n@sv_prof = global [{} x i64] zeroinitializer\ndeclare i64 @{counter}()\n", 2 * profile.len().max(1));
     }
     Ok(Netlist { ir, entry, size: lay.size as usize, ports, dropped, profile, chunks: n.chunks as usize })
 }
@@ -1875,8 +1875,11 @@ impl<'d, 'a> Lowering<'d, 'a> {
         format!(
             "  %{t}.t0 = call i64 @{counter}()\n  {call}\n  %{t}.t1 = call i64 @{counter}()\n  %{t}.dt = sub i64 %{t}.t1, %{t}.t0\n  \
              %{t}.at = getelementptr i8, ptr @sv_prof, i64 {}\n  %{t}.was = load i64, ptr %{t}.at, align 8\n  \
-             %{t}.now = add i64 %{t}.was, %{t}.dt\n  store i64 %{t}.now, ptr %{t}.at, align 8\n",
-            8 * k
+             %{t}.now = add i64 %{t}.was, %{t}.dt\n  store i64 %{t}.now, ptr %{t}.at, align 8\n  \
+             %{t}.nat = getelementptr i8, ptr @sv_prof, i64 {}\n  %{t}.n = load i64, ptr %{t}.nat, align 8\n  \
+             %{t}.n1 = add i64 %{t}.n, 1\n  store i64 %{t}.n1, ptr %{t}.nat, align 8\n",
+            16 * k,
+            16 * k + 8
         )
     }
 

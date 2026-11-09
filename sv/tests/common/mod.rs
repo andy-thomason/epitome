@@ -598,7 +598,7 @@ pub fn time_replay(b: &Built, v: &Verilated, cycles: usize, n: usize, stim: &[u3
     let iw = v.in_words();
     let group = net.group();
     let mut spent = std::time::Duration::ZERO;
-    let counters = if b.prof.is_null() { &mut [][..] } else { unsafe { std::slice::from_raw_parts_mut(b.prof, net.profile.len()) } };
+    let counters = if b.prof.is_null() { &mut [][..] } else { unsafe { std::slice::from_raw_parts_mut(b.prof, 2 * net.profile.len()) } };
     counters.fill(0);
     for _ in 0..reps {
         let mut st = State::new(net.size);
@@ -629,11 +629,14 @@ pub fn time_replay(b: &Built, v: &Verilated, cycles: usize, n: usize, stim: &[u3
             }
         }
     }
-    // The counters, per instance a cycle, largest first.
-    let mut rows: Vec<(f64, &str)> = counters.iter().zip(&net.profile).map(|(&c, n)| (c as f64 / (reps * cycles * group) as f64, n.as_str())).collect();
+    // The counters, per instance a cycle, largest first, with the calls
+    // a group a cycle.
+    let per = (reps * cycles) as f64;
+    let mut rows: Vec<(f64, f64, &str)> =
+        counters.chunks(2).zip(&net.profile).map(|(c, n)| (c[0] as f64 / per / group as f64, c[1] as f64 / per, n.as_str())).collect();
     rows.sort_by(|a, b| b.0.total_cmp(&a.0));
-    for (c, n) in rows {
-        eprintln!("profile: {c:10.1} ticks an instance a cycle  {n}");
+    for (c, k, n) in rows {
+        eprintln!("profile: {c:10.1} ticks an instance a cycle, {k:5.2} calls a cycle  {n}");
     }
     spent.as_secs_f64() * 1e9 / (reps * cycles * group) as f64
 }

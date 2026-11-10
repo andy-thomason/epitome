@@ -120,7 +120,7 @@ fn popcount_tree() {
         let net = netlist_of(files.clone(), Vec::new(), &name);
         // The tree is proved to count ones: at most the top and the count,
         // none of the instances below it.
-        assert!(net.ir.matches("\ndefine void @sv_eval_").count() <= 2, "{name}: the popcount tree is not recognised");
+        assert!(net.functions.len() <= 2, "{name}: the popcount tree is not recognised");
         let b = build(&name, net, &t, triple, &mattr);
         let mut rng = Rng(0x5EED ^ w as u64);
         let mask = if w == 64 { !0 } else { (1u64 << w) - 1 };
@@ -626,7 +626,10 @@ fn guarded_arms() {
     });
     check_against(&b, &v, cycles, n, &stim, &|w| format!("{w:x?}"));
     // (Scalar code puts costly arms behind branches of its own.)
-    let guards = b.net.ir.matches(", label %G").count() + b.net.ir.matches(", label %T").count();
+    let ir = b.net.ir();
+    let guards = ir.matches("label %guard").count() + ir.matches("label %then").count();
+    // (The IR as text parses back.)
+    epitome_ir::parse_module(&ir).unwrap_or_else(|e| panic!("the netlist's IR as text: {e:?}"));
     assert!(guards >= 4, "the costly arms are not guarded");
     let ns = time_replay(&b, &v, cycles, n, &stim, 3);
     // The same without guards, every arm run and merged by selects.

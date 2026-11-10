@@ -2,11 +2,12 @@
 //! loading it, a group's state, and Verilator's model of the same design,
 //! run as a program, as the reference to check it against.
 //!
-//! The code is compiled and loaded in this process (`epitome_codegen::load`):
-//! no assembly, object file or linker. With `NETLIST_CC=1` it is also
-//! written as an object, linked by the system's `cc -shared` and `dlopen`ed,
-//! and each run of the loaded code checked against a run of that on the
-//! same state. `NETLIST_ASM=1` writes the assembly beside the IR.
+//! The netlist's `Module` is optimised, compiled and loaded in this
+//! process (`epitome_codegen::load`): no IR text, assembly, object file or
+//! linker. With `NETLIST_CC=1` it is also written as an object, linked by
+//! the system's `cc -shared` and `dlopen`ed, and each run of the loaded code
+//! checked against a run of that on the same state. `NETLIST_IR=1` and
+//! `NETLIST_ASM=1` write the IR and the assembly as text, for reading.
 #![allow(dead_code)]
 
 use std::ffi::{CString, c_char, c_int, c_void};
@@ -151,10 +152,15 @@ fn resolve(name: &str) -> Option<*const u8> {
 pub fn build(name: &str, net: Netlist, t: &Target, triple: &str, mattr: &[String]) -> Built {
     let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("netlist");
     std::fs::create_dir_all(&tmp).unwrap();
-    let ir = format!("target triple = \"{triple}\"\n{}", net.ir);
-    std::fs::write(tmp.join(format!("{name}.ll")), &ir).unwrap();
     let started = std::time::Instant::now();
-    let mut m = epitome_ir::parse_module(&ir).unwrap_or_else(|e| panic!("{name}.ll: {e:?}"));
+    let mut m = net.module.clone();
+    m.triple = Some(triple.as_bytes().to_vec());
+    // The IR as text only to read (NETLIST_IR=1) or for the system's C
+    // compiler (NETLIST_CC_IR=1).
+    let cc_ir = std::env::var("NETLIST_CC_IR").is_ok_and(|v| v == "1");
+    if cc_ir || std::env::var("NETLIST_IR").is_ok_and(|v| v == "1") {
+        std::fs::write(tmp.join(format!("{name}.ll")), m.to_string()).unwrap();
+    }
     // NETLIST_NO_OPT=1 leaves the IR as generated, for telling a bug in
     // the optimiser from one in code generation.
     if std::env::var("NETLIST_NO_OPT").map_or(true, |v| v != "1") {
@@ -177,7 +183,7 @@ pub fn build(name: &str, net: Netlist, t: &Target, triple: &str, mattr: &[String
     sizes.sort();
     // NETLIST_CC_IR=1 has the system's C compiler build the IR instead, as
     // a check of Epitome's code generation.
-    if std::env::var("NETLIST_CC_IR").is_ok_and(|v| v == "1") {
+    if cc_ir {
         let obj = tmp.join(format!("{name}_cc.o"));
         let st = Command::new("cc").args(["-O1", "-c", "-o"]).arg(&obj).arg(tmp.join(format!("{name}.ll"))).status().unwrap();
         assert!(st.success(), "cc on {name}.ll");
@@ -209,7 +215,7 @@ fn linked(name: &str, obj: &Path, net: &Netlist, tmp: &Path) -> (unsafe extern "
     let lib = tmp.join(format!("lib{name}.so"));
     let mut link = Command::new("cc");
     link.arg("-shared").arg("-o").arg(&lib).arg(obj);
-    if net.ir.contains("declare i64 @sv_ticks()") {
+    if net.module.find_global("sv_ticks").is_some() {
         let c = tmp.join("sv_ticks.c");
         std::fs::write(&c, "#include <x86intrin.h>\nlong sv_ticks(void) { return (long)__rdtsc(); }\n").unwrap();
         link.arg("-O2").arg(&c);

@@ -1,6 +1,13 @@
 //! What the netlist tests share: building a netlist's IR with Epitome and
 //! loading it, a group's state, and Verilator's model of the same design,
 //! run as a program, as the reference to check it against.
+//!
+//! The netlist's `Module` is optimised, compiled and loaded in this
+//! process (`epitome_codegen::load`): no IR text, assembly, object file or
+//! linker. With `NETLIST_CC=1` it is also written as an object, linked by
+//! the system's `cc -shared` and `dlopen`ed, and each run of the loaded code
+//! checked against a run of that on the same state. `NETLIST_IR=1` and
+//! `NETLIST_ASM=1` write the IR and the assembly as text, for reading.
 #![allow(dead_code)]
 
 use std::ffi::{CString, c_char, c_int, c_void};
@@ -8,6 +15,7 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use epitome_codegen::load::{self, Loaded};
 use epitome_codegen::object::SectionKind;
 use epitome_codegen::target::Target;
 use epitome_sv::design::Dir;
@@ -25,10 +33,6 @@ const RTLD_NOW: c_int = 2;
 
 /// This machine's target, triple and features, if the tests can run here.
 pub fn host() -> Option<(Target, &'static str, Vec<String>)> {
-    let cc = Command::new("cc").arg("--version").output().is_ok_and(|o| o.status.success());
-    if !cc {
-        return None;
-    }
     if cfg!(all(target_arch = "x86_64", target_os = "linux")) {
         // NETLIST_MATTR picks the features, as `+avx512f,+avx512bw`.
         let mattr = std::env::var("NETLIST_MATTR").unwrap_or_else(|_| "+avx2".into());
@@ -50,8 +54,8 @@ pub fn netlist_options() -> netlist::Options {
     // NETLIST_GUARD_MIN: the smallest arm guarded, 0 for none.
     let guard_min = std::env::var("NETLIST_GUARD_MIN").ok().and_then(|v| v.parse().ok()).unwrap_or(netlist::GUARD_MIN);
     // NETLIST_PROFILE=1: each child's call timed (see `time_replay`).
-    // (On x86-64, a function of C linked in with the netlist: the
-    // object writer does not assemble the inline assembly rdtsc becomes.)
+    // (On x86-64, a function of the test's, `sv_ticks`: the object writer
+    // does not assemble the inline assembly rdtsc becomes.)
     let profile = std::env::var("NETLIST_PROFILE").is_ok_and(|v| v == "1").then_some(if cfg!(target_arch = "x86_64") {
         "sv_ticks"
     } else {
@@ -101,24 +105,74 @@ pub struct Built {
     pub sizes: Vec<(String, u64)>,
     /// With `Options::profile`, its counters.
     pub prof: *mut i64,
+    /// The code `eval` is in (none if `cc` built it, `NETLIST_CC_IR`).
+    _code: Option<Loaded>,
+    /// With `NETLIST_CC`: the same code linked by `cc` and `dlopen`ed.
+    cc_eval: Option<unsafe extern "C" fn(*mut u8)>,
 }
 
-/// Optimises, compiles and links the netlist's IR, and loads it.
+impl Built {
+    /// Runs the entry on `st`; with `NETLIST_CC`, also the linked code on a
+    /// copy of it, and checks that the two leave the same state.
+    pub fn run(&self, st: &mut State) {
+        let Some(cc_eval) = self.cc_eval else {
+            unsafe { (self.eval)(st.ptr) };
+            return;
+        };
+        let theirs = State::new(self.net.size);
+        unsafe {
+            std::ptr::copy_nonoverlapping(st.ptr, theirs.ptr, self.net.size);
+            (self.eval)(st.ptr);
+            cc_eval(theirs.ptr);
+            let a = std::slice::from_raw_parts(st.ptr, self.net.size);
+            let b = std::slice::from_raw_parts(theirs.ptr, self.net.size);
+            if let Some(k) = (0..a.len()).find(|&k| a[k] != b[k]) {
+                panic!("the loaded code and cc's link of it differ, first at byte {k} of the state");
+            }
+        }
+    }
+}
+
+/// The time stamp counter, for `NETLIST_PROFILE` on x86-64.
+#[cfg(target_arch = "x86_64")]
+extern "C" fn sv_ticks() -> i64 {
+    unsafe { std::arch::x86_64::_rdtsc() as i64 }
+}
+
+/// What the netlist's code calls that it does not define.
+fn resolve(name: &str) -> Option<*const u8> {
+    #[cfg(target_arch = "x86_64")]
+    if name == "sv_ticks" {
+        return Some(sv_ticks as *const u8);
+    }
+    load::process_symbol(name)
+}
+
+/// Optimises and compiles the netlist's IR, and loads it.
 pub fn build(name: &str, net: Netlist, t: &Target, triple: &str, mattr: &[String]) -> Built {
     let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("netlist");
     std::fs::create_dir_all(&tmp).unwrap();
+    let started = std::time::Instant::now();
     let mut m = net.module.clone();
     m.triple = Some(triple.as_bytes().to_vec());
-    // (The IR as text, for reading, and for NETLIST_CC_IR.)
-    std::fs::write(tmp.join(format!("{name}.ll")), m.to_string()).unwrap();
+    // The IR as text only to read (NETLIST_IR=1) or for the system's C
+    // compiler (NETLIST_CC_IR=1).
+    let cc_ir = std::env::var("NETLIST_CC_IR").is_ok_and(|v| v == "1");
+    if cc_ir || std::env::var("NETLIST_IR").is_ok_and(|v| v == "1") {
+        std::fs::write(tmp.join(format!("{name}.ll")), m.to_string()).unwrap();
+    }
     // NETLIST_NO_OPT=1 leaves the IR as generated, for telling a bug in
     // the optimiser from one in code generation.
     if std::env::var("NETLIST_NO_OPT").map_or(true, |v| v != "1") {
         epitome_opt::pipeline::run(&mut m, &Default::default());
     }
-    let opts = epitome_codegen::Options { mattr: mattr.to_vec(), ..Default::default() };
+    let optimised = started.elapsed();
+    let opts = epitome_codegen::Options { mattr: mattr.to_vec(), no_asm: true, ..Default::default() };
     let c = epitome_codegen::compile(t, &mut m, &opts).unwrap_or_else(|e| panic!("{name}: {e}"));
-    std::fs::write(tmp.join(format!("{name}.s")), &c.asm).unwrap();
+    let compiled = started.elapsed();
+    if std::env::var_os("NETLIST_ASM").is_some() {
+        std::fs::write(tmp.join(format!("{name}.s")), c.assembly(t).unwrap().as_bytes()).unwrap();
+    }
     let object = c.object(t).unwrap();
     let mut sizes: Vec<(String, u64)> = object
         .symbols
@@ -127,21 +181,40 @@ pub fn build(name: &str, net: Netlist, t: &Target, triple: &str, mattr: &[String
         .map(|s| (s.name.trim_start_matches('_').to_string(), s.size))
         .collect();
     sizes.sort();
-    let obj = tmp.join(format!("{name}.o"));
-    std::fs::write(&obj, c.object_file(t).unwrap()).unwrap();
     // NETLIST_CC_IR=1 has the system's C compiler build the IR instead, as
-    // a check of Epitome's code generation (a lib by another name, as a
-    // loaded library is not loaded again).
-    let name = &if std::env::var("NETLIST_CC_IR").is_ok_and(|v| v == "1") {
+    // a check of Epitome's code generation.
+    if cc_ir {
+        let obj = tmp.join(format!("{name}_cc.o"));
         let st = Command::new("cc").args(["-O1", "-c", "-o"]).arg(&obj).arg(tmp.join(format!("{name}.ll"))).status().unwrap();
         assert!(st.success(), "cc on {name}.ll");
-        format!("{name}_cc")
-    } else {
-        name.to_string()
-    };
+        let (eval, prof) = linked(&format!("{name}_cc"), &obj, &net, &tmp);
+        return Built { net, eval, sizes, prof, _code: None, cc_eval: None };
+    }
+    let code = load::load(t, &c, resolve).unwrap_or_else(|e| panic!("{name}: loading: {e}"));
+    let loaded = started.elapsed();
+    eprintln!(
+        "{name}: parsed and optimised in {:.1} ms, compiled in {:.1} ms, loaded in {:.1} ms",
+        optimised.as_secs_f64() * 1e3,
+        (compiled - optimised).as_secs_f64() * 1e3,
+        (loaded - compiled).as_secs_f64() * 1e3
+    );
+    let eval = unsafe { code.function(&net.entry) }.unwrap_or_else(|| panic!("no {}", net.entry));
+    let prof = code.address("sv_prof").map_or(std::ptr::null_mut(), |p| p as *mut i64);
+    let cc_eval = std::env::var_os("NETLIST_CC").is_some().then(|| {
+        let obj = tmp.join(format!("{name}.o"));
+        std::fs::write(&obj, c.object_file(t).unwrap()).unwrap();
+        linked(name, &obj, &net, &tmp).0
+    });
+    Built { net, eval, sizes, prof, _code: Some(code), cc_eval }
+}
+
+/// Object `obj` linked by `cc -shared` (with `sv_ticks`, if the netlist
+/// calls it) and `dlopen`ed: the netlist's entry, and its profile's
+/// counters if it has them.
+fn linked(name: &str, obj: &Path, net: &Netlist, tmp: &Path) -> (unsafe extern "C" fn(*mut u8), *mut i64) {
     let lib = tmp.join(format!("lib{name}.so"));
     let mut link = Command::new("cc");
-    link.arg("-shared").arg("-o").arg(&lib).arg(&obj);
+    link.arg("-shared").arg("-o").arg(&lib).arg(obj);
     if net.module.find_global("sv_ticks").is_some() {
         let c = tmp.join("sv_ticks.c");
         std::fs::write(&c, "#include <x86intrin.h>\nlong sv_ticks(void) { return (long)__rdtsc(); }\n").unwrap();
@@ -149,7 +222,7 @@ pub fn build(name: &str, net: Netlist, t: &Target, triple: &str, mattr: &[String
     }
     let st = link.status().unwrap();
     assert!(st.success(), "linking {name}");
-    let eval = unsafe {
+    unsafe {
         let path = CString::new(lib.to_str().unwrap()).unwrap();
         let h = dlopen(path.as_ptr(), RTLD_NOW);
         assert!(!h.is_null(), "{:?}", std::ffi::CStr::from_ptr(dlerror()));
@@ -158,9 +231,7 @@ pub fn build(name: &str, net: Netlist, t: &Target, triple: &str, mattr: &[String
         assert!(!f.is_null(), "no {}", net.entry);
         let prof = dlsym(h, c"sv_prof".as_ptr()) as *mut i64;
         (std::mem::transmute::<*mut c_void, unsafe extern "C" fn(*mut u8)>(f), prof)
-    };
-    let (eval, prof) = eval;
-    Built { net, eval, sizes, prof }
+    }
 }
 
 /// A netlist's state, aligned for 512-bit loads.
@@ -469,10 +540,10 @@ pub fn check_against(b: &Built, v: &Verilated, cycles: usize, n: usize, stim: &[
                         for k in 0..here {
                             unsafe { clk.put(st.ptr, k, level) };
                         }
-                        unsafe { (b.eval)(st.ptr) };
+                        b.run(&mut st);
                     }
                 }
-                None => unsafe { (b.eval)(st.ptr) },
+                None => b.run(&mut st),
             }
             for k in 0..here {
                 let i = g * group + k;

@@ -94,6 +94,9 @@ pub struct Reloc {
     pub kind: RelocKind,
     pub target: RelocTarget,
     pub addend: i64,
+    /// The instruction it is in (an index into the description), if it
+    /// is in one: what a loader re-encodes to fill it in (`load.rs`).
+    pub instr: Option<usize>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -505,7 +508,7 @@ pub fn resolve(t: &Target, obj: &mut Object, pending: Vec<Pending>, macho: bool)
             }
             _ => (RelocTarget::Symbol(sym), p.addend),
         };
-        obj.sections[p.section].relocs.push(Reloc { offset: p.offset, kind: p.kind, target, addend });
+        obj.sections[p.section].relocs.push(Reloc { offset: p.offset, kind: p.kind, target, addend, instr: p.instr });
     }
     Ok(())
 }

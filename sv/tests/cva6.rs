@@ -4,7 +4,7 @@
 //! for word against Verilator's model of the same source (when Verilator
 //! is on the path, or `VERILATOR` names it), which is also timed.
 //!
-//! On an AArch64 Mac or x86-64 Linux with `cc`; elsewhere the tests skip.
+//! On an AArch64 Mac or x86-64 Linux; elsewhere the tests skip.
 
 mod common;
 
@@ -20,7 +20,7 @@ fn setup() -> Option<(PathBuf, (epitome_codegen::target::Target, &'static str, V
         return None;
     };
     let Some(host) = host() else {
-        eprintln!("needs cc on an AArch64 Mac or x86-64 Linux; skipping");
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
         return None;
     };
     Some((cva6, host))

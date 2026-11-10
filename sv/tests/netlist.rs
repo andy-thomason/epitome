@@ -3,7 +3,7 @@
 //! values worked out here, and CVA6's `pmp_entry` (when `CVA6_DIR` points
 //! at a CVA6 checkout) against a scalar model of it.
 //!
-//! On an AArch64 Mac or x86-64 Linux with `cc`; elsewhere the tests skip.
+//! On an AArch64 Mac or x86-64 Linux; elsewhere the tests skip.
 //! x86-64 uses AVX2 unless `NETLIST_MATTR` names other features.
 
 mod common;
@@ -28,7 +28,7 @@ fn by_states<T>(
         st = State::new(b.net.size);
         let lanes = b.net.lanes.min(n - g * b.net.lanes);
         let ins: Vec<T> = (0..lanes).map(|k| put(&mut st, k, g * b.net.lanes + k)).collect();
-        unsafe { (b.eval)(st.ptr) };
+        b.run(&mut st);
         for (k, x) in ins.iter().enumerate() {
             check(&st, k, x);
         }
@@ -97,7 +97,7 @@ endmodule
 #[test]
 fn operators_lane_by_lane() {
     let Some((t, triple, mattr)) = host() else {
-        eprintln!("needs cc on an AArch64 Mac or x86-64 Linux; skipping");
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
         return;
     };
     let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("netlist");
@@ -129,7 +129,7 @@ fn operators_lane_by_lane() {
             }
             ins.push((a, b, s, m, sa as i16, sb as i16));
         }
-        unsafe { (b.eval)(st.ptr) };
+        b.run(&mut st);
         for (n, &(a, b2, s, m, sa, sb)) in ins.iter().enumerate() {
             let mut each = 0;
             for i in 0..8 {
@@ -201,7 +201,7 @@ fn cva6_pmp_entry() {
         return;
     };
     let Some((t, triple, mattr)) = host() else {
-        eprintln!("needs cc on an AArch64 Mac or x86-64 Linux; skipping");
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
         return;
     };
     let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("netlist");
@@ -294,7 +294,7 @@ fn cva6_pmp() {
         return;
     };
     let Some((t, triple, mattr)) = host() else {
-        eprintln!("needs cc on an AArch64 Mac or x86-64 Linux; skipping");
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
         return;
     };
     let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("netlist");
@@ -387,7 +387,7 @@ fn lzc_recognised_matches_its_logic() {
         return;
     };
     let Some((t, triple, mattr)) = host() else {
-        eprintln!("needs cc on an AArch64 Mac or x86-64 Linux; skipping");
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
         return;
     };
     let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("netlist");

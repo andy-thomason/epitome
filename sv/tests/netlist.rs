@@ -12,7 +12,29 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use common::*;
-use epitome_sv::netlist;
+use epitome_sv::netlist::{self, GROUP};
+
+/// Runs `n` instances a state's lanes at a time: `put` sets lane `k`'s
+/// inputs for instance `i` (and says what it is), the state is evaluated,
+/// and `check` looks at each lane's outputs.
+fn by_states<T>(
+    b: &Built,
+    n: usize,
+    mut put: impl FnMut(&mut State, usize, usize) -> T,
+    mut check: impl FnMut(&State, usize, &T),
+) -> State {
+    let mut st = State::new(b.net.size);
+    for g in 0..n.div_ceil(b.net.lanes) {
+        st = State::new(b.net.size);
+        let lanes = b.net.lanes.min(n - g * b.net.lanes);
+        let ins: Vec<T> = (0..lanes).map(|k| put(&mut st, k, g * b.net.lanes + k)).collect();
+        b.run(&mut st);
+        for (k, x) in ins.iter().enumerate() {
+            check(&st, k, x);
+        }
+    }
+    st
+}
 
 const OPS: &str = r#"
 module ops (
@@ -88,9 +110,10 @@ fn operators_lane_by_lane() {
     let m56 = (1u64 << 56) - 1;
     let mut rng = Rng(0x2545_F491_4F6C_DD1D);
     let mut st = State::new(net.size);
-    for round in 0..4 {
-        let mut ins = Vec::with_capacity(net.group());
-        for n in 0..net.group() {
+    // GROUP instances a round, a state's lanes at a time.
+    for round in 0..4 * GROUP.div_ceil(net.lanes) {
+        let mut ins = Vec::with_capacity(net.lanes);
+        for n in 0..net.lanes {
             let mut a = rng.next() & m56;
             let mut b = rng.next() & m56;
             match (round + n) % 5 {
@@ -202,9 +225,8 @@ fn cva6_pmp_entry() {
     // examples/soa_pmp_entry.rs.
     let (m56, mcw) = ((1u64 << 56) - 1, (1u64 << 54) - 1);
     let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
-    let mut st = State::new(net.size);
-    let mut ins = Vec::with_capacity(net.group());
-    for n in 0..net.group() {
+    let mut matches = 0;
+    let st = by_states(&b, GROUP, |st, n, _| {
         let mode = rng.next() % 4;
         let t = rng.next() % 55;
         let conf = if mode == 3 { (rng.next() << (t + 1) | ((1 << t) - 1)) & mcw } else { rng.next() & mcw };
@@ -219,22 +241,19 @@ fn cva6_pmp_entry() {
         for (p, v) in [("addr_i", addr), ("conf_addr_i", conf), ("conf_addr_prev_i", prev), ("conf_addr_mode_i", mode)] {
             st.put(net, p, n, v);
         }
-        ins.push((addr, conf, prev, mode));
-    }
-    b.run(&mut st);
-    let mut matches = 0;
-    for (n, &(addr, conf, prev, mode)) in ins.iter().enumerate() {
+        (addr, conf, prev, mode)
+    }, |st, n, &(addr, conf, prev, mode)| {
         let want = pmp_reference(addr, conf, prev, mode);
-        assert_eq!(st.get(net, "match_o", n) == 1, want, "instance {n}: addr {addr:x} conf {conf:x} prev {prev:x} mode {mode}");
+        assert_eq!(st.get(net, "match_o", n) == 1, want, "lane {n}: addr {addr:x} conf {conf:x} prev {prev:x} mode {mode}");
         matches += want as usize;
-    }
-    let iters = 2000;
+    });
+    let iters = 2000 * GROUP / net.lanes.max(16);
     let t0 = Instant::now();
     for _ in 0..iters {
         unsafe { (b.eval)(std::hint::black_box(st.ptr)) };
     }
-    let ns = t0.elapsed().as_secs_f64() * 1e9 / (iters * net.group()) as f64;
-    eprintln!("pmp_entry: {} instances agree with the model ({matches} match); {ns:.2} ns an instance", net.group());
+    let ns = t0.elapsed().as_secs_f64() * 1e9 / (iters * net.lanes) as f64;
+    eprintln!("pmp_entry: {GROUP} instances agree with the model ({matches} match); {ns:.2} ns an instance ({} lanes)", net.lanes);
 }
 
 const PMP_UNIT_TOP: &str = r#"
@@ -300,9 +319,8 @@ fn cva6_pmp() {
     let net = &b.net;
     let (m56, mcw) = ((1u64 << 56) - 1, (1u64 << 54) - 1);
     let mut rng = Rng(0x0DDB_1A5E_5BAD_5EED);
-    let mut st = State::new(net.size);
-    let mut ins = Vec::with_capacity(net.group());
-    for n in 0..net.group() {
+    let mut allowed = 0;
+    let st = by_states(&b, GROUP, |st, n, _| {
         // Ascending TOR bounds and NAPOT regions, mixed, so that entries
         // match, overlap and miss.
         let mut conf_addr = [0u64; 8];
@@ -340,26 +358,23 @@ fn cva6_pmp() {
         }
         st.put_wide(net, "conf_addr_i", n, &wide);
         st.put(net, "conf_i", n, conf.iter().enumerate().fold(0, |w, (i, &c)| w | c << (8 * i)));
-        ins.push((addr, access, priv_lvl, conf_addr, conf));
-    }
-    b.run(&mut st);
-    let mut allowed = 0;
-    for (n, (addr, access, priv_lvl, conf_addr, conf)) in ins.iter().enumerate() {
+        (addr, access, priv_lvl, conf_addr, conf)
+    }, |st, n, (addr, access, priv_lvl, conf_addr, conf)| {
         let want = pmp_unit_reference(*addr, *access, *priv_lvl, conf_addr, conf);
         assert_eq!(
             st.get(net, "allow_o", n) == 1,
             want,
-            "instance {n}: addr {addr:x} access {access} priv {priv_lvl} conf_addr {conf_addr:x?} conf {conf:x?}"
+            "lane {n}: addr {addr:x} access {access} priv {priv_lvl} conf_addr {conf_addr:x?} conf {conf:x?}"
         );
         allowed += want as usize;
-    }
-    let iters = 200;
+    });
+    let iters = 200 * GROUP / net.lanes.max(16);
     let t0 = Instant::now();
     for _ in 0..iters {
         unsafe { (b.eval)(std::hint::black_box(st.ptr)) };
     }
-    let ns = t0.elapsed().as_secs_f64() * 1e9 / (iters * net.group()) as f64;
-    eprintln!("pmp: {} instances agree with the model ({allowed} allowed); {ns:.2} ns an instance", net.group());
+    let ns = t0.elapsed().as_secs_f64() * 1e9 / (iters * net.lanes) as f64;
+    eprintln!("pmp: {GROUP} instances agree with the model ({allowed} allowed); {ns:.2} ns an instance ({} lanes)", net.lanes);
 }
 
 /// common_cells' lzc at several widths, both modes: recognised as a count
@@ -399,7 +414,7 @@ fn lzc_recognised_matches_its_logic() {
             let net = netlist_with(files.clone(), Vec::new(), &name, opts);
             let tag = if recognise { "known" } else { "logic" };
             if recognise {
-                assert!(net.ir.matches("@llvm.ctlz.v16i32(").count() > 1, "{name} was not recognised");
+                assert!(net.ir.matches("@llvm.ctlz.").count() > 1, "{name} was not recognised");
             }
             built.push(build(&format!("{name}_{tag}"), net, &t, triple, &mattr));
         }
@@ -408,19 +423,18 @@ fn lzc_recognised_matches_its_logic() {
         let mut ins = vec![0u64, mask];
         ins.extend((0..w).map(|i| 1u64 << i));
         ins.extend((0..w).map(|i| mask << i & mask));
-        let group = built.iter().map(|b| b.net.group()).min().unwrap();
-        while ins.len() < group {
+        while ins.len() < GROUP {
             let r = rng.next();
             ins.push((r >> (rng.next() % 64)) & mask);
         }
         let mut outs = Vec::new();
         for b in &built {
-            let mut st = State::new(b.net.size);
-            for (n, &v) in ins.iter().enumerate() {
-                st.put(&b.net, "in_i", n, v);
-            }
-            b.run(&mut st);
-            outs.push((0..group).map(|n| (st.get(&b.net, "cnt_o", n), st.get(&b.net, "empty_o", n))).collect::<Vec<_>>());
+            let mut got = vec![(0, 0); GROUP];
+            by_states(b, GROUP, |st, n, i| {
+                st.put(&b.net, "in_i", n, ins[i]);
+                i
+            }, |st, n, &i| got[i] = (st.get(&b.net, "cnt_o", n), st.get(&b.net, "empty_o", n)));
+            outs.push(got);
         }
         for (n, &v) in ins.iter().enumerate() {
             assert_eq!(outs[0][n], outs[1][n], "{name}: in {v:x}: recognised gives {:?}, its logic {:?}", outs[0][n], outs[1][n]);
@@ -429,6 +443,6 @@ fn lzc_recognised_matches_its_logic() {
                 assert_eq!(outs[0][n].0, want, "{name}: in {v:x}");
             }
         }
-        eprintln!("{name}: recognised and its logic agree on {group} inputs; code {} bytes against {}", built[0].sizes.iter().map(|s| s.1).sum::<u64>(), built[1].sizes.iter().map(|s| s.1).sum::<u64>());
+        eprintln!("{name}: recognised and its logic agree on {GROUP} inputs; code {} bytes against {}", built[0].sizes.iter().map(|s| s.1).sum::<u64>(), built[1].sizes.iter().map(|s| s.1).sum::<u64>());
     }
 }

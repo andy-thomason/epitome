@@ -117,7 +117,11 @@ fn popcount_tree() {
         )
         .unwrap();
         let files = vec![cva6.join("vendor/pulp-platform/common_cells/src/popcount.sv"), src];
-        let b = build(&name, netlist_of(files.clone(), Vec::new(), &name), &t, triple, &mattr);
+        let net = netlist_of(files.clone(), Vec::new(), &name);
+        // The tree is proved to count ones: at most the top and the count,
+        // none of the instances below it.
+        assert!(net.ir.matches("\ndefine void @sv_eval_").count() <= 2, "{name}: the popcount tree is not recognised");
+        let b = build(&name, net, &t, triple, &mattr);
         let mut rng = Rng(0x5EED ^ w as u64);
         let mask = if w == 64 { !0 } else { (1u64 << w) - 1 };
         let stim: Vec<u32> = (0..GROUP)
@@ -621,7 +625,9 @@ fn guarded_arms() {
         }
     });
     check_against(&b, &v, cycles, n, &stim, &|w| format!("{w:x?}"));
-    assert!(b.net.ir.matches("br i1 %g").count() >= 4, "the costly arms are not guarded");
+    // (Scalar code puts costly arms behind branches of its own.)
+    let guards = b.net.ir.matches(", label %G").count() + b.net.ir.matches(", label %T").count();
+    assert!(guards >= 4, "the costly arms are not guarded");
     let ns = time_replay(&b, &v, cycles, n, &stim, 3);
     // The same without guards, every arm run and merged by selects.
     let opts = epitome_sv::netlist::Options { guard_min: 0, ..netlist_options() };

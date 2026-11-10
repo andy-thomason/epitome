@@ -18,7 +18,7 @@ use epitome_codegen::load::{self, Loaded};
 use epitome_codegen::object::SectionKind;
 use epitome_codegen::target::Target;
 use epitome_sv::design::Dir;
-use epitome_sv::netlist::{self, Field, Lane, Netlist};
+use epitome_sv::netlist::{self, Field, GROUP, Lane, Netlist};
 use epitome_sv::preprocess::{Options, preprocess_files};
 use epitome_sv::source::SourceMap;
 
@@ -44,7 +44,8 @@ pub fn host() -> Option<(Target, &'static str, Vec<String>)> {
 }
 
 /// Bit planes where the target has mask registers: AArch64, and x86-64
-/// with AVX-512.
+/// with AVX-512; a group of simulations ([`GROUP`]) at once, or as many as
+/// `NETLIST_SIMS` says.
 pub fn netlist_options() -> netlist::Options {
     let x86_without_masks =
         cfg!(target_arch = "x86_64") && !std::env::var("NETLIST_MATTR").is_ok_and(|m| m.contains("avx512f"));
@@ -59,9 +60,17 @@ pub fn netlist_options() -> netlist::Options {
     } else {
         "llvm.readcyclecounter"
     });
-    // NETLIST_CHUNKS: registers of lanes in a group, if not as many as fit.
-    let chunks = std::env::var("NETLIST_CHUNKS").ok().and_then(|v| v.parse().ok());
-    netlist::Options { bit_planes: !x86_without_masks, recognise, guard_min, profile, chunks }
+    // NETLIST_BRANCH_MIN: the smallest arm of scalar code behind a branch.
+    let branch_min = std::env::var("NETLIST_BRANCH_MIN").ok().and_then(|v| v.parse().ok()).unwrap_or(netlist::BRANCH_MIN);
+    // NETLIST_SIMS: simulations at once, the lanes of a state (fewer where
+    // the state would not fit `netlist::STATE_MAX`).
+    let sims = std::env::var("NETLIST_SIMS").ok().and_then(|v| v.parse().ok()).unwrap_or(GROUP);
+    netlist::Options { bit_planes: !x86_without_masks, recognise, guard_min, branch_min, sims, profile }
+}
+
+/// [`netlist_options`] for `sims` simulations at once.
+pub fn options_for(sims: usize) -> netlist::Options {
+    netlist::Options { sims, ..netlist_options() }
 }
 
 /// Elaborates `files` with `top` and compiles its netlist, on a thread with
@@ -219,7 +228,7 @@ fn linked(name: &str, obj: &Path, net: &Netlist, tmp: &Path) -> (unsafe extern "
     }
 }
 
-/// A group's state, aligned for 512-bit loads.
+/// A netlist's state, aligned for 512-bit loads.
 pub struct State {
     pub ptr: *mut u8,
     layout: std::alloc::Layout,
@@ -260,7 +269,7 @@ impl State {
     /// Instance `n`'s value of `f`, as 32-bit words, low first.
     pub fn put_words(&mut self, f: &Field, n: usize, v: &[u32]) {
         match f.lane {
-            Lane::W32 => {
+            Lane::W32 | Lane::W64 => {
                 for k in 0..f.pieces() {
                     let mut piece = v[k];
                     let top = f.width as usize - 32 * k;
@@ -276,7 +285,7 @@ impl State {
 
     pub fn get_words(&self, f: &Field, n: usize, out: &mut Vec<u32>) {
         match f.lane {
-            Lane::W32 => {
+            Lane::W32 | Lane::W64 => {
                 for k in 0..f.pieces() {
                     out.push(unsafe { (self.ptr.add(f.at(k, n)) as *const u32).read() });
                 }
@@ -305,7 +314,7 @@ impl Rng {
 
 pub fn report(name: &str, b: &Built) {
     let sizes: Vec<String> = b.sizes.iter().map(|(n, s)| format!("{n} {s} bytes")).collect();
-    eprintln!("{name}: {} bytes of state a group; {}", b.net.size, sizes.join(", "));
+    eprintln!("{name}: {} bytes of state for {} lanes; {}", b.net.size, b.net.lanes, sizes.join(", "));
 }
 
 
@@ -493,12 +502,11 @@ impl Verilated {
     }
 }
 
-/// Runs the netlist on the same stimulus as [`Verilated::run`], one group
-/// at a time, and checks each output word against Verilator's; `name`
+/// Runs the netlist on the same stimulus as [`Verilated::run`], a state's
+/// lanes at a time, and checks each output word against Verilator's; `name`
 /// labels a mismatch, and `show` turns an instance's inputs into text.
 pub fn check_against(b: &Built, v: &Verilated, cycles: usize, n: usize, stim: &[u32], show: &dyn Fn(&[u32]) -> String) {
     let group = b.net.group();
-    assert_eq!(n % group, 0);
     let want = v.run(cycles, n, stim);
     let net = &b.net;
     let field = |name: &str| net.port(name).unwrap_or_else(|| panic!("no port {name}")).clone();
@@ -507,10 +515,12 @@ pub fn check_against(b: &Built, v: &Verilated, cycles: usize, n: usize, stim: &[
     let clock = v.clock.as_deref().map(field);
     let (iw, ow) = (v.in_words(), v.out_words());
     let mut bad = 0;
-    for g in 0..n / group {
+    for g in 0..n.div_ceil(group) {
+        // The last state's lanes past the instances run on zeros.
+        let here = group.min(n - g * group);
         let mut st = State::new(net.size);
         for c in 0..cycles {
-            for k in 0..group {
+            for k in 0..here {
                 let i = g * group + k;
                 let mut at = (c * n + i) * iw;
                 for f in &ins {
@@ -521,7 +531,7 @@ pub fn check_against(b: &Built, v: &Verilated, cycles: usize, n: usize, stim: &[
             match &clock {
                 Some(clk) => {
                     for level in [0, 1] {
-                        for k in 0..group {
+                        for k in 0..here {
                             unsafe { clk.put(st.ptr, k, level) };
                         }
                         b.run(&mut st);
@@ -529,7 +539,7 @@ pub fn check_against(b: &Built, v: &Verilated, cycles: usize, n: usize, stim: &[
                 }
                 None => b.run(&mut st),
             }
-            for k in 0..group {
+            for k in 0..here {
                 let i = g * group + k;
                 let mut got = Vec::with_capacity(ow);
                 for f in &outs {
@@ -651,9 +661,10 @@ pub fn rv_instruction(rng: &mut Rng) -> u32 {
 }
 
 /// The netlist's time an instance a cycle on the same stimulus as
-/// [`Verilated::bench`]: the first group's inputs replayed `reps` times
-/// from a zeroed state, timing only the evaluations, as which arms run
-/// depends on the values.
+/// [`Verilated::bench`]: the first instances' inputs (a state's worth, or
+/// for states of few lanes, as many states as make a group) replayed `reps`
+/// times from zeroed states, timing only the evaluations, as which arms
+/// run depends on the values.
 pub fn time_replay(b: &Built, v: &Verilated, cycles: usize, n: usize, stim: &[u32], reps: usize) -> f64 {
     // NETLIST_REPS multiplies the repetitions, for a profiler to watch.
     let reps = reps * std::env::var("NETLIST_REPS").ok().and_then(|r| r.parse().ok()).unwrap_or(1);
@@ -663,48 +674,51 @@ pub fn time_replay(b: &Built, v: &Verilated, cycles: usize, n: usize, stim: &[u3
     let clock = v.clock.as_deref().map(field);
     let iw = v.in_words();
     let group = net.group();
+    // States of few lanes each are timed a pass over many, as one call
+    // takes too little time to time on its own.
+    let states = (n / group).clamp(1, (GROUP / group).max(1));
     let mut spent = std::time::Duration::ZERO;
     let counters = if b.prof.is_null() { &mut [][..] } else { unsafe { std::slice::from_raw_parts_mut(b.prof, 2 * net.profile.len()) } };
     counters.fill(0);
     for _ in 0..reps {
-        let mut st = State::new(net.size);
+        let mut sts: Vec<State> = (0..states).map(|_| State::new(net.size)).collect();
         for c in 0..cycles {
-            for k in 0..group {
-                let mut at = (c * n + k) * iw;
-                for f in &ins {
-                    st.put_words(f, k, &stim[at..at + words(f.width)]);
-                    at += words(f.width);
+            for (g, st) in sts.iter_mut().enumerate() {
+                for k in 0..group.min(n) {
+                    let mut at = (c * n + g * group + k) * iw;
+                    for f in &ins {
+                        st.put_words(f, k, &stim[at..at + words(f.width)]);
+                        at += words(f.width);
+                    }
                 }
             }
-            match &clock {
-                Some(clk) => {
-                    for level in [0, 1] {
+            let levels: &[u64] = if clock.is_some() { &[0, 1] } else { &[0] };
+            for &level in levels {
+                if let Some(clk) = &clock {
+                    for st in &sts {
                         for k in 0..group {
                             unsafe { clk.put(st.ptr, k, level) };
                         }
-                        let t0 = std::time::Instant::now();
-                        unsafe { (b.eval)(std::hint::black_box(st.ptr)) };
-                        spent += t0.elapsed();
                     }
                 }
-                None => {
-                    let t0 = std::time::Instant::now();
+                let t0 = std::time::Instant::now();
+                for st in &sts {
                     unsafe { (b.eval)(std::hint::black_box(st.ptr)) };
-                    spent += t0.elapsed();
                 }
+                spent += t0.elapsed();
             }
         }
     }
     // The counters, per instance a cycle, largest first, with the calls
     // a group a cycle.
-    let per = (reps * cycles) as f64;
+    let per = (reps * cycles * states) as f64;
     let mut rows: Vec<(f64, f64, &str)> =
         counters.chunks(2).zip(&net.profile).map(|(c, n)| (c[0] as f64 / per / group as f64, c[1] as f64 / per, n.as_str())).collect();
     rows.sort_by(|a, b| b.0.total_cmp(&a.0));
     for (c, k, n) in rows {
         eprintln!("profile: {c:10.1} ticks an instance a cycle, {k:5.2} calls a cycle  {n}");
     }
-    spent.as_secs_f64() * 1e9 / (reps * cycles * group) as f64
+    spent.as_secs_f64() * 1e9 / (reps * cycles * states * group) as f64
 }
 
 /// A RISC-V instruction word as a program's mix has them: mostly integer

@@ -659,17 +659,19 @@ tools to check our netlists.
 
 [MLIR](mlir.md) section 7 flattens a design and builds one scalar `eval`.
 `epitome-sv` does not flatten: it builds one `eval` per specialisation
-that runs every instance of it at once, a vector lane per instance
-(section 8.3). The scalar path stays for designs from Chisel and for
-checking.
+that runs its instances at once, a lane per instance, scalar code where
+there is one and vector lanes where there are several (section 8.3). The
+scalar path of MLIR stays for designs from Chisel and for checking.
 
 **Code size is a goal.** The compiled code grows with the design's
 source, not with its instance count or hierarchy. Each specialisation
 becomes one function whose argument is a structure holding the state of
-one group of its instances (section 8.3). That function loops over the
-group's registers rather than being unrolled across them, so more
-instances means more calls, never more code; a large design must not
-become millions of lines of generated code. Choosing lanes over bit planes for
+its instances (section 8.3), or rarely a few, one for each number of
+instances it runs with. With more lanes than a register holds, that
+function loops over the registers rather than being unrolled across
+them, so more instances means more calls or more passes of the loop,
+never more code; a large design must not become millions of lines of
+generated code. Choosing lanes over bit planes for
 wide arithmetic (section 8.3) keeps the code small as well as fast. In
 the `pmp_entry` mock (`sv/examples/soa_pmp_entry.rs`), `eval` with its
 addresses in 32-bit lanes is 91 instructions with one loop; the same
@@ -723,18 +725,45 @@ generated design.
 ### 8.3 Instances as lanes
 
 The netlist's state is kept as a structure of arrays, indexed by
-instance. All instances of one specialisation are numbered, and each is
-a **lane**. With 512-bit vectors (AVX-512, and SME on the Apple M4) a
-group of 512 instances shares one set of registers, and `eval` for a
-specialisation runs a group at a time. The instance count is padded to a
-whole group; padding lanes are masked off.
+instance. Each instance of a specialisation is a **lane** of its
+function, and how many lanes the function has decides the code it is:
 
-**A group fits a core's cache.** Each function is a loop over all of a
-group's state, so a group with more state than a core's second-level
-cache goes to the third level on every pass: CVA6's issue stage, 1.6 MB a
-group of 512, ran three times as slowly on a Zen 5 core (1 MB of L2) as
-with groups of 128. The netlist takes as many registers of lanes a group
-(up to 32) as keep its state within 512 KB.
+- **Lanes.** A simulation can hold independent copies of the whole
+  design, `S` of them (with different seeds or stimulus, so a regression
+  of many runs costs little more than one); `S` is a choice of the build,
+  and one by default. The top has `S` lanes. A single instance of a child
+  has its parent's lanes, and an array of `k` instances made by a
+  generate loop is one call of the child with `k` times as many, where
+  that widens it: pmp's eight `pmp_entry`s are one call with eight lanes
+  for one simulation. So for few simulations a specialisation's lanes
+  are the times it is instantiated in one, times `S`; for many, `S`.
+- **Shapes.** The lanes, rounded up, set the code's shape: one lane is
+  **scalar code** (plain integers, below); up to 4, 8 or 16 are one
+  register of 128-, 256- or 512-bit vectors of 32-bit lanes; more are a
+  loop over registers of 16 lanes, padding lanes running on zeros. A
+  regression of 512 simulations runs every specialisation in full
+  registers, as many as a group of 512; one core running one program
+  runs scalar code for each module it has once, and vectors only where
+  it has several.
+- **Many simulations fit a core's cache.** Each function is a loop over
+  all of its state, so with more state than a core's second-level cache
+  every pass goes to the third level: CVA6's issue stage, 1.6 MB for 512
+  simulations, ran three times as slowly on a Zen 5 core (1 MB of L2) as
+  for 128. A netlist for many simulations holds as many of them (down to
+  16) as keep its state within 512 KB, and the caller runs several
+  states.
+
+**Scalar code.** A function of one lane works on plain integers: each
+value is one 64-bit piece up to 64 bits, and 64-bit pieces above. It
+shares its lowering with vector code (folding, layouts, rolled loops,
+recognised idioms) and differs where a branch beats a multiplexer: an arm
+of an `if` or a `case` big enough to be worth a jump (a handful of
+instructions) is behind a real branch, the values either arm changes
+joined after it, as a compiler for software would; smaller arms are
+both run and selected between. A `break` or `return` leaves: the rest of
+the loop, block or function is behind a branch on not having taken one,
+so a loop's variable stays a constant in each iteration. Values are
+stored as narrow as they fit (a byte, a half, a word, 64-bit pieces).
 
 **Layout of a value.** Each object has one of two layouts, chosen at
 lowering from the operations that use it:
@@ -787,16 +816,26 @@ Code generation does not use them yet. The plan, owned by the combiner
 because it helps all code, not only simulators, is in
 [combines](combine.md), "Three-input bit functions".
 
-**No branches.** `if` and `case` are already multiplexers in the netlist.
-Each lane's clock edge is a mask, so instances on different clocks, or
-with enables, share one `eval`: a register takes its next value where
-the mask is set and keeps its old one elsewhere.
+**No branches in vector code.** `if` and `case` are already
+multiplexers in the netlist (save costly arms, run only where some lane
+of a register takes them). Each lane's clock edge is a mask, so instances
+on different clocks, or with enables, share one `eval`: a register takes
+its next value where the mask is set and keeps its old one elsewhere.
 
 **Ports between specialisations.** A child's lanes are ordered by
-parent: where each parent has one instance of the child, child lane `n`
-belongs to parent lane `n`, and ports connect with no data movement. An
-array of instances, or a child used by several parents, needs a gather
-or scatter at the port, done once per `eval` of the child group.
+parent. A single instance has its parent's lanes, child lane `n` its
+parent's lane `n`, and ports connected to a value whole connect with no
+data movement: the child reads and writes the parent's value where it
+is. An array of `k` instances in a parent narrower than a register of
+16 lanes, `w` lanes wide (its register's width, padding included), is
+one call: iteration `i` has the child's lanes `i * w` to `(i + 1) * w`,
+and the parent gathers each iteration's inputs into its block and
+scatters its outputs back, a lane at a time, once a call. A parent of
+16 lanes or more gains no vector width from that and would lose ports
+that connect in place, so it calls each instance with its own lanes. An
+array whose call would wait on itself (each iteration's input made from
+the last one's output, as a chain of adders is) is called an instance
+at a time too.
 
 A parent's code may loop through a child without any value depending on
 itself: an output of the child feeds logic that feeds another of its
@@ -817,11 +856,6 @@ values indexed by a value or registers no clocked process reads, stay in
 the state: a select loads the pieces it reads, an assignment stores those
 it changes in the lanes that run it, and the arms of an `if` need no
 multiplexers for them.
-
-**Specialisations with few instances.** The top module has one, and
-would use one lane in 512. The lanes can instead hold independent copies
-of the whole simulation, with different seeds or stimulus, so a
-regression of many runs costs little more than one.
 
 **Two models.** The same netlist is lowered twice:
 

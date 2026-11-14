@@ -87,6 +87,8 @@ impl Verilator {
             .map(|s| s.to_string())
             .collect();
         cmd.extend(["-Wno-fatal", "-Wno-lint", "-Wno-style", "-CFLAGS", "-O3", "--top-module", top, "-o", "vmodel"].iter().map(|s| s.to_string()));
+        // No ccache, so that the build time is the compiler's.
+        cmd.extend(["-MAKEFLAGS", "OBJCACHE="].iter().map(|s| s.to_string()));
         cmd.push("-Mdir".into());
         cmd.push(dir.join("obj").display().to_string());
         cmd.extend(src.include_dirs.iter().map(|i| format!("-I{}", i.display())));

@@ -217,6 +217,8 @@ struct Row {
     ns: f64,
     vl_ns: Option<f64>,
     agree: Option<bool>,
+    /// Compiled for AVX2, as AVX-512 failed.
+    avx2: bool,
 }
 
 /// What was built of a unit.
@@ -298,6 +300,15 @@ fn lower(src: &Sources, top: &str, opts: &netlist::Options) -> Result<(Netlist, 
     Ok((net?, t1 - t0, t1.elapsed()))
 }
 
+/// `u` lowered for `sims` simulations and built for `host`: with the
+/// time elaboration, lowering, and the rest took.
+fn build(src: &Sources, u: &Unit, host: &Host, sims: usize) -> Result<(Model, Duration, Duration, Duration), String> {
+    let (net, elab, lowered) = lower(src, u.top, &host.options(sims))?;
+    let started = Instant::now();
+    let m = Model::build(net, host)?;
+    Ok((m, elab, lowered, started.elapsed()))
+}
+
 fn unit(a: &Args, host: &Host, cva6: &Path, u: &'static Unit, vl: Option<&Verilator>, rows: &mut Vec<Row>) -> Result<Built, String> {
     println!("\n{}: {}", u.name, u.about);
     let src = u.sources(cva6);
@@ -306,14 +317,25 @@ fn unit(a: &Args, host: &Host, cva6: &Path, u: &'static Unit, vl: Option<&Verila
     let mut first = None;
     let mut vmodel: Option<Verilated> = None;
     for sims in sims_list {
-        let (net, elab, lowered) = lower(&src, u.top, &host.options(sims))?;
-        let started = Instant::now();
-        let m = Model::build(net, host)?;
-        let build = elab + lowered + started.elapsed();
+        let mut fallback = false;
+        let (m, elab, lowered, built_in) = match build(&src, u, host, sims) {
+            Ok(x) => x,
+            // Where AVX-512's selection lacks an instruction the unit's code
+            // wants, AVX2's, said plainly.
+            Err(e) if host.mattr.iter().any(|m| m.starts_with("+avx512")) => {
+                println!("  {sims} simulation{}: not compiled for AVX-512: {}", if sims == 1 { "" } else { "s" }, first_line(&e));
+                let avx2 = Host::with_mattr("+avx2").unwrap();
+                fallback = true;
+                build(&src, u, &avx2, sims)?
+            }
+            Err(e) => return Err(e),
+        };
+        let build = elab + lowered + built_in;
         let t = m.times;
         println!(
-            "  {sims} simulation{}: elaborated in {}, lowered in {}, optimised in {}, compiled in {}, loaded in {}",
+            "  {sims} simulation{}{}: elaborated in {}, lowered in {}, optimised in {}, compiled in {}, loaded in {}",
             if sims == 1 { "" } else { "s" },
+            if fallback { " (AVX2)" } else { "" },
             ms(elab),
             ms(lowered),
             ms(t.optimise),
@@ -381,7 +403,7 @@ fn unit(a: &Args, host: &Host, cva6: &Path, u: &'static Unit, vl: Option<&Verila
                 );
             }
             println!("    {mix:?}: {cycles} cycles x {sims}: {ns:.2} ns an instance-cycle{tail}");
-            rows.push(Row { unit: u.name, sims, ns, vl_ns, agree });
+            rows.push(Row { unit: u.name, sims, ns, vl_ns, agree, avx2: fallback });
         }
         if first.is_none() {
             let vl = vmodel.as_ref().map(|v| (v.build_time, v.code_bytes, vl_state.unwrap_or(0)));
@@ -416,12 +438,16 @@ fn summary(rows: &[Row], built: &[Built], vl: bool) {
         for &s in &sims {
             let here: Vec<&Row> = rows.iter().filter(|r| r.unit == b.unit && r.sims == s).collect();
             let fmt = |xs: Vec<f64>| xs.iter().map(|x| format!("{x:.1}")).collect::<Vec<_>>().join(" / ");
-            line += &format!(" {:>16}", fmt(here.iter().map(|r| r.ns).collect()));
+            let mark = if here.iter().any(|r| r.avx2) { "*" } else { "" };
+            line += &format!(" {:>16}", fmt(here.iter().map(|r| r.ns).collect()) + mark);
             if vl {
                 line += &format!(" {:>16}", fmt(here.iter().filter_map(|r| r.vl_ns).collect()));
             }
         }
         println!("{line}");
+    }
+    if rows.iter().any(|r| r.avx2) {
+        println!("* compiled for AVX2: epitome-codegen's AVX-512 selection lacks an instruction this code wants");
     }
     println!("\nbuilt (one simulation)");
     println!(

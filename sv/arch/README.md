@@ -161,7 +161,7 @@ through the logic under test. The Mac sends 64 bytes at 115200 baud over the
 iCELink's serial port and looks at what comes back: an echo, silence, or
 other bytes.
 
-`record-board.txt` holds 38 experiments. Each one's bitstream hash is
+`record-board.txt` holds 34 experiments. Each one's bitstream hash is
 recorded, so `board_record_agrees` can check that the description still
 makes the same designs. All eight findings in the description's `board`
 section held:

@@ -26,7 +26,8 @@
 //! - **Memories** go into the RAM4K blocks ([`Ram`]), one copy for each
 //!   read port (a block has one), all copies written alike. A memory takes
 //!   the mode (256x16, 512x8, 1024x4 or 2048x2) that needs fewest blocks
-//!   side by side for its width; up to 2048 words.
+//!   side by side for its width. A memory deeper than 2048 words is first
+//!   split into banks ([`Netlist::split_mems`], [`bank_depth`]).
 
 use super::super::super::synth::{F, Lit, Netlist, Node, Port, T, inv, lit, node};
 use crate::hash::FxMap;
@@ -205,7 +206,27 @@ fn apply(k: &Node, t: &[u16]) -> u16 {
     }
 }
 
+/// The bank depth for a memory too deep for one block: the mode with the
+/// fewest blocks in all, then the fewest banks. A memory that fits one
+/// bank keeps its depth.
+pub fn bank_depth(width: u32, depth: u32) -> u32 {
+    if ram_mode(width, depth).is_some() {
+        return depth;
+    }
+    (0..4usize)
+        .map(|m| {
+            let b = 256u32 << m;
+            (depth.div_ceil(b) * width.div_ceil(16 >> m), depth.div_ceil(b), b)
+        })
+        .min()
+        .unwrap()
+        .2
+}
+
 pub fn map(n: &Netlist) -> Result<Mapped, String> {
+    if n.mems.iter().any(|m| ram_mode(m.width, m.depth).is_none()) {
+        return map(&n.split_mems(&bank_depth)?);
+    }
     let nn = n.nodes.len();
     let clock = n.clock()?.map(|(l, neg)| match n.nodes[node(l)] {
         Node::Input { port, .. } => (port, neg),
@@ -297,9 +318,6 @@ pub fn map(n: &Netlist) -> Result<Mapped, String> {
     let mut ram_of: FxMap<(u32, u32), u32> = FxMap::default();
     let mut ram_specs: Vec<(usize, usize)> = Vec::new();
     for (mi, m) in n.mems.iter().enumerate() {
-        if ram_mode(m.width, m.depth).is_none() {
-            return Err(format!("memory {} has {} words: up to 2048 fit a block RAM", m.name, m.depth));
-        }
         for p in 0..m.reads.len() {
             ram_of.insert((mi as u32, p as u32), ram_specs.len() as u32);
             ram_specs.push((mi, p));
@@ -369,7 +387,9 @@ pub fn map(n: &Netlist) -> Result<Mapped, String> {
                     } else {
                         Vec::new()
                     };
-                    v.push(trivial(j));
+                    // A constant input (a majority's) is no leaf: its
+                    // value goes into the table.
+                    v.push(if j == 0 { Cut { leaves: Vec::new(), tt: 0, depth: 0, flow: 0.0 } } else { trivial(j) });
                     if inv(l) {
                         for c in &mut v {
                             c.tt = !c.tt;

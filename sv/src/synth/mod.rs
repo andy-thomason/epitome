@@ -451,6 +451,98 @@ impl Netlist {
         Ok(clock)
     }
 
+    /// Splits each memory deeper than `bank(width, depth)` words into
+    /// banks of that many (a power of two), on its address's upper bits:
+    /// each bank written where they pick it, and each read port's result
+    /// the bank its upper bits, registered with the read, picked.
+    pub fn split_mems(&self, bank: &dyn Fn(u32, u32) -> u32) -> Result<Netlist, String> {
+        let mut n = self.clone();
+        let old = std::mem::take(&mut n.mems);
+        // Each old memory's read data nodes.
+        let mut outs: FxMap<(u32, u32, u32), usize> = FxMap::default();
+        for (i, k) in n.nodes.iter().enumerate() {
+            if let Node::MemOut { mem, port, bit } = *k {
+                outs.insert((mem, port, bit), i);
+            }
+        }
+        for (mi, m) in old.into_iter().enumerate() {
+            let b = bank(m.width, m.depth);
+            if b >= m.depth {
+                let to = n.mems.len() as u32;
+                for (&(mem, port, bit), &i) in &outs {
+                    if mem == mi as u32 {
+                        n.nodes[i] = Node::MemOut { mem: to, port, bit };
+                    }
+                }
+                n.mems.push(m);
+                continue;
+            }
+            if !b.is_power_of_two() {
+                return Err(format!("{}: banks of {b} words are not a power of two", m.name));
+            }
+            let k = b.trailing_zeros() as usize;
+            let width = m.width as usize;
+            let banks = m.depth.div_ceil(b) as usize;
+            let bits = |d: u32| (32 - (d.max(2) - 1).leading_zeros()) as usize;
+            // Whether the upper bits of `addr` are `i`.
+            let picks = |n: &mut Netlist, addr: &[Lit], i: usize| -> Lit {
+                let mut eq = T;
+                for (j, &a) in addr.iter().enumerate().skip(k) {
+                    let want = if (i >> (j - k)) & 1 != 0 { a } else { a ^ 1 };
+                    eq = n.and(eq, want);
+                }
+                eq
+            };
+            let first = n.mems.len() as u32;
+            for i in 0..banks {
+                let depth = (m.depth - i as u32 * b).min(b);
+                let ka = bits(depth).min(k);
+                let lo = i * b as usize * width;
+                let init = m.init[lo..lo + depth as usize * width].to_vec();
+                let write = match &m.write {
+                    Some(w) => {
+                        let en = picks(&mut n, &w.addr, i);
+                        let en = n.and(en, w.en);
+                        Some(MemWrite { addr: w.addr[..ka].to_vec(), data: w.data.clone(), en })
+                    }
+                    None => None,
+                };
+                let reads = m.reads.iter().map(|r| MemRead { addr: r.addr[..ka].to_vec(), en: r.en }).collect();
+                n.mems.push(Mem { name: format!("{} bank {i}", m.name), depth, init, write, reads, ..m.clone() });
+            }
+            for (p, r) in m.reads.iter().enumerate() {
+                // The upper bits, registered with the read.
+                let sel: Vec<Lit> = (k..r.addr.len())
+                    .map(|j| {
+                        n.ff(Ff {
+                            d: r.addr[j],
+                            en: r.en,
+                            arst: F,
+                            arst_value: false,
+                            init: false,
+                            clock: m.clock,
+                            negedge: m.negedge,
+                            name: format!("{} read {p} bank select[{}]", m.name, j - k),
+                        })
+                    })
+                    .collect();
+                for bit in 0..m.width {
+                    let mut v: Vec<Lit> = (0..1usize << sel.len())
+                        .map(|i| if i < banks { n.mem_out(first + i as u32, p as u32, bit) } else { F })
+                        .collect();
+                    for &s in &sel {
+                        v = v.chunks(2).map(|c| n.mux(s, c[1], c[0])).collect();
+                    }
+                    if let Some(&i) = outs.get(&(mi as u32, p as u32, bit)) {
+                        n.wires.push((format!("{} read {p}[{bit}]", m.name), Some(v[0])));
+                        n.nodes[i] = Node::Wire(n.wires.len() as u32 - 1);
+                    }
+                }
+            }
+        }
+        n.rebuild()
+    }
+
     /// Counts of each kind of node.
     pub fn stats(&self) -> String {
         let mut c = [0usize; 4];

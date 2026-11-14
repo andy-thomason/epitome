@@ -277,7 +277,8 @@ fn build_design(name: &str, defines: &[&str]) -> Built {
     }
     let n = synthesise(&s, name).unwrap_or_else(|e| panic!("{e}"));
     // Enough cycles for a RAM delay line to come round.
-    let st = random_stimulus(&n, if n.mems.is_empty() { 200 } else { 4200 }, 7).unwrap();
+    let depth = n.mems.iter().map(|m| m.depth as usize).max().unwrap_or(0);
+    let st = random_stimulus(&n, if depth == 0 { 200 } else { depth + 300 }, 7).unwrap();
     let want = reference(&s, name, &n, &st).unwrap();
     let m = map(&n).unwrap();
     compare(&want, &mapped_lines(&m, &st)).unwrap_or_else(|e| panic!("{name}: {e}"));
@@ -308,6 +309,12 @@ fn board_designs_build() {
     }
     let b = build_design("hello_ram", &[]);
     assert_eq!(b.mapped.rams.len(), 1);
+    // Deeper than a block: banks.
+    let b = build_design("ramdelay", &["WIDTH=1", "DEPTH=8192"]);
+    assert_eq!(b.mapped.rams[0].blocks, 1);
+    assert_eq!(b.mapped.rams.len(), 4);
+    let b = build_design("ramdelay", &["WIDTH=4", "DEPTH=16384"]);
+    assert_eq!(b.mapped.rams.iter().map(|r| r.blocks).sum::<u32>(), 16);
 }
 
 /// Programs the board with each design and watches the serial port; only
@@ -371,6 +378,12 @@ fn board_live() {
         let seen = run(&build_design("ramdelay", &[&format!("WIDTH={w}")]));
         eprintln!("(e) through a RAM {w} bits wide: {seen}");
         assert_eq!(seen, "echo", "(e) WIDTH={w}");
+    }
+    // (g) deeper than a block: banks, up to the whole chip's RAM.
+    for (w, depth) in [("1", "8192"), ("4", "16384")] {
+        let seen = run(&build_design("ramdelay", &[&format!("WIDTH={w}"), &format!("DEPTH={depth}")]));
+        eprintln!("(g) through {depth} words of {w} bits: {seen}");
+        assert_eq!(seen, "echo", "(g) WIDTH={w} DEPTH={depth}");
     }
     // (f) the string from a RAM's initial contents.
     let b = build_design("hello_ram", &[]);
@@ -473,4 +486,39 @@ fn board_try() {
     let mut ser = Serial::open(&Serial::find().unwrap()).unwrap();
     let probe: Vec<u8> = (0..64u8).map(|i| 0x20 + i).collect();
     eprintln!("TRY: {}", ser.echo(&probe).unwrap());
+}
+
+pub const DEEP: &str = r#"
+module deep(input logic clk, input logic we, input logic [3:0] a, input logic [3:0] b, input logic [3:0] d,
+            output logic [3:0] q, output logic [3:0] r);
+  // 5000 words: banks of 1024 (mode 1024x4), the last 904 deep. Addresses
+  // a[3:2] * 2048 + a[1:0] land in banks 0, 2 and 4, and past the end.
+  logic [3:0] mem [5000];
+  always_ff @(posedge clk) begin
+    if (we) mem[{a[3:2], 9'd0, a[1:0]}] <= d;
+    q <= mem[{b[3:2], 9'd0, b[1:0]}];
+  end
+  always_ff @(posedge clk) if (d[0]) r <= mem[{a[1:0], 9'd0, b[1:0]}];
+endmodule
+"#;
+
+#[test]
+fn deep_memories_split_into_banks() {
+    use epitome_sv::arch::ice40::map::bank_depth;
+    assert_eq!(bank_depth(4, 5000), 1024);
+    assert_eq!(bank_depth(8, 2048), 2048);
+    assert_eq!(bank_depth(4, 16384), 2048);
+    assert_eq!(bank_depth(1, 32768), 2048);
+    assert_eq!(bank_depth(16, 1024), 1024);
+    let n = check_netlist(DEEP, "deep", 600);
+    let split = n.split_mems(&bank_depth).unwrap();
+    eprintln!("split: {}", split.stats());
+    assert_eq!(split.mems.len(), 5);
+    let s = src(DEEP);
+    let st = random_stimulus(&n, 600, 0x1234_5678).unwrap();
+    let want = reference(&s, "deep", &n, &st).unwrap();
+    compare(&want, &netlist_lines(&split, &st)).unwrap_or_else(|e| panic!("split: {e}"));
+    let m = check_flow(DEEP, "deep", 600);
+    assert_eq!(m.rams.iter().map(|r| r.blocks).sum::<u32>(), 10);
+    build_tq144(DEEP, "deep");
 }

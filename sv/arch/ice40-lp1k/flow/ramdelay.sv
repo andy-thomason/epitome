@@ -1,16 +1,24 @@
-// Board test (e): rx through a block RAM. Each clock writes a word made
-// from rx into the next address and reads back the word written DEPTH - 1
-// clocks before, so tx is rx delayed by DEPTH clocks (at most 2048, 171
-// us: the Mac still sees its bytes echoed). The word alternates rx and
+// Board tests (e) and (g): rx through block RAM. Each clock writes a word
+// made from rx into the next address and reads back the word written
+// DEPTH - 1 clocks before, so tx is rx delayed by DEPTH clocks (16384 are
+// 1.4 ms: the Mac still sees its bytes echoed). The word alternates rx and
 // ~rx, and tx is its bit 0 only while every bit is as written (else 0), so
 // a wrong bit anywhere spoils the echo. WIDTH picks the RAM's mode: 16, 8,
 // 4 or 2 (256x16 to 2048x2), or 1 (2048 words, mode 2048x2 with one bit).
 `ifndef WIDTH
 `define WIDTH 8
 `endif
+// DEPTH, if given, overrides the depth: deeper than a block (2048 words at
+// most) the memory is split into banks, up to the whole chip's 16 blocks
+// (16384 words of 4 bits).
+`ifdef DEPTH
+`define RAM_DEPTH `DEPTH
+`else
+`define RAM_DEPTH (W >= 16 ? 256 : W == 8 ? 512 : W == 4 ? 1024 : 2048)
+`endif
 module ramdelay (input logic clk, input logic rx, output logic tx);
   localparam int W = `WIDTH;
-  localparam int DEPTH = W >= 16 ? 256 : W == 8 ? 512 : W == 4 ? 1024 : 2048;
+  localparam int DEPTH = `RAM_DEPTH;
   localparam int A = $clog2(DEPTH);
   logic [W-1:0] mem [DEPTH];
   logic [A-1:0] wa = 0;

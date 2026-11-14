@@ -133,7 +133,13 @@ The stages, each in memory, with no text between them until the `.asc`:
    on the cell's `cen` and `sr`. Each memory read port gets its own copy of
    the memory in RAM4K blocks, all copies written alike, since a block has
    one read port. A copy takes the mode (256x16, 512x8, 1024x4 or 2048x2)
-   that needs fewest blocks side by side, up to 2048 words. Word bits go on
+   that needs fewest blocks side by side. A memory deeper than 2048 words
+   is first split into banks on its address's upper bits
+   (`Netlist::split_mems`, a netlist-to-netlist pass, checked against the
+   interpreter like the rest). The banks are as deep as gives the fewest
+   blocks, then the fewest banks (`map::bank_depth`). A bank is written
+   only where the upper bits pick it. Each read port registers the upper
+   bits with the read and muxes the banks' outputs by them. Word bits go on
    the data pins the board found for the mode, and the contents are laid
    out by `board::ram_mode_bit`.
 3. **Placement** (`place.rs`). Pins come from the constraints. RAM blocks
@@ -189,6 +195,7 @@ programs each one and watches the iCELink's serial port at 115200 baud:
 | (c) counter | `blink.sv`: a 24-bit counter; `led = count[23]`, `tx = rx \| ~count[23]` | 27 (a 22-cell carry chain) | echoes on and off, changing every 0.697 s (2^23 / 12 MHz = 0.699 s) |
 | (d) UART | `hello.sv`: a transmitter sending `Hello from Epitome\r\n` | 53 (3 chains) | 262 whole strings in 0.5 s (10.5 kB/s) |
 | (e) block RAM | `ramdelay.sv`: each clock, a word made from rx written at the next address and the oldest read back; tx is its bit 0 while every bit is as written. Once for each `WIDTH`: 16, 8, 4, 2 and 1 (256x16, 512x8, 1024x4, 2048x2, and 2048 words of 1 bit in mode 2048x2) | 24 to 26, 1 RAM block | its bytes echoed, in every mode |
+| (g) deep RAM | `ramdelay.sv` with `DEPTH` given: 8192 words of 1 bit (4 banks), and 16384 words of 4 bits (8 banks of 2 blocks: all 16 of the chip's blocks) | 37 and 67; 4 and 16 RAM blocks | its bytes echoed, delayed by up to 1.4 ms |
 | (f) RAM contents | `hello_ram.sv`: `hello.sv` with its string as a RAM's initial contents, read into the RAM's output register | 37, 1 RAM block | 261 whole strings in 0.5 s |
 
 The counter was checked through B3: the Mac sends a byte every ~0.1 s for
@@ -199,13 +206,14 @@ string escapes have no `\r`, and the interpreter and the board agreed, so
 
 (e) delays rx by up to 2048 clocks (171 us), which the echo does not
 notice; a wrong bit anywhere in a word turns it off. As a control, moving
-mode 512x8's data pins up by one made it silent.
+mode 512x8's data pins up by one made it silent. For (g), swapping the
+bank select's mux inputs made the echo garbled.
 
 [`ice40-lp1k/flow/hello.svg`](ice40-lp1k/flow/hello.svg) and
 [`hello_ram.svg`](ice40-lp1k/flow/hello_ram.svg) are the two transmitters
 as placed and routed, laid over the die by `svg.rs`.
 
-Not yet: memories deeper than 2048 words (several blocks deep), byte
+Not yet: byte
 writes (the RAM's `MASK`), more than one write port, what a block reads
 when it writes the same address (the tests avoid it), more than one
 clock, latches, tasks and functions, timing, packing a flip-flop with a

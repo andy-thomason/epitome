@@ -1,0 +1,37 @@
+# What sv/src/arch/ice40/board.rs saw on the board: experiment, expected, observed,
+# and the bitstream's length and hash. Regenerate with the ice40_board example.
+board iCESugar-Nano w25q32
+exp lut-cell-0 echo echo 32216 2a3f8fc1b4cf411b
+exp lut-cell-1 echo echo 32216 13dc497f1fd930f9
+exp lut-cell-2 echo echo 32216 e2d3757dc02180ab
+exp lut-cell-3 echo echo 32216 6a611c5fab8ce79a
+exp lut-cell-4 echo echo 32216 a18c0097b1d9a190
+exp lut-cell-5 echo echo 32216 ee46883dc3cce803
+exp lut-cell-6 echo echo 32216 df679cf74f92edc4
+exp lut-cell-7 echo echo 32216 14ac64dea422677e
+exp lut-input-0-follows echo echo 32216 2a3f8fc1b4cf411b
+exp lut-input-0-single echo echo 32216 d47e58bdb0869feb
+exp lut-input-0-inverse no-echo other:64 32216 714ad7e813ed8f96
+exp lut-input-1-follows echo echo 32216 cc4654b97797a68f
+exp lut-input-1-single echo echo 32216 82b5294cc6116b63
+exp lut-input-1-inverse no-echo other:64 32216 46ab0a165fcc1dba
+exp lut-input-2-follows echo echo 32216 9fdd368101d941cd
+exp lut-input-2-single echo echo 32216 822dcd370605a63c
+exp lut-input-2-inverse no-echo other:64 32216 bdac58d667380fd0
+exp lut-input-3-follows echo echo 32216 5251452d25de75cd
+exp lut-input-3-single echo echo 32216 1a6c3c9df36a64c6
+exp lut-input-3-inverse no-echo other:64 32216 340a704852aaed00
+exp input-ie1-ren0 unknown silent 32216 2bd6dee09743b875
+exp input-ie0-ren1 unknown echo 32216 379b5529ede69c43
+exp input-ie1-ren1 unknown silent 32216 3ff357f38096245d
+exp dff-unclocked no-echo silent 32216 444539892c5558c7
+exp dff-posedge-no-colbuf unknown silent 32216 50d21cd04d5e0ddd
+exp dff-negclk-no-colbuf unknown silent 32216 47c955b9d3a597b6
+exp dff-async-sr-no-colbuf unknown silent 32216 e519058a15c11b9e
+exp dff-async-set-no-colbuf unknown silent 32216 3bd735399161caec
+exp dff-posedge unknown echo 32216 a8e48d52e42c9b07
+exp dff-negclk unknown echo 32216 c8cd51186b36ab00
+exp dff-async-sr unknown echo 32216 b53ac72d6ac3a7cc
+exp dff-async-set unknown echo 32216 6a710847fb2eb8d2
+exp carry-in-set-1 echo echo 32216 7a3dadc6890fd742
+exp carry-in-set-0 unknown silent 32216 2376f8e9a94afb60

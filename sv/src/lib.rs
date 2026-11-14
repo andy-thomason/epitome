@@ -1,6 +1,7 @@
 //! A SystemVerilog compiler, written from IEEE 1800-2023. See
 //! `docs/design/sv.md` for the plan.
 
+pub mod arch;
 pub mod ast;
 pub mod bdd;
 pub mod design;

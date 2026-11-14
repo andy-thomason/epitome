@@ -1,15 +1,15 @@
-//! The Lattice iCE40UP5K (as on the iCESugar board, package SG48),
-//! described from experiments with IceStorm's `icepack` run as a black
-//! box, and from Lattice's public datasheet. Nothing here comes from
+//! Lattice iCE40 parts ([`PARTS`]: the UP5K of the iCESugar board, and the
+//! LP1K of the iCESugar-nano), described from experiments with IceStorm's
+//! `icepack` run as a black box, and from Lattice's public datasheets. Nothing here comes from
 //! IceStorm's, nextpnr's or Yosys's sources, chip databases or
 //! documentation. `sv/arch/README.md` has the method and what is mapped.
 //!
 //! - [`experiment`] runs the experiments and records what they found, as
 //!   a [`Device`]; [`Device::to_record`] and [`Device::from_record`] keep
-//!   it in `sv/arch/ice40-up5k/record.txt`, so that the description can
-//!   be made again where `icepack` is not installed.
+//!   it in `sv/arch/<part>/record-icepack.txt`, so that the description
+//!   can be made again where `icepack` is not installed.
 //! - [`describe`] turns a [`Device`] into the machine-readable description,
-//!   `sv/arch/ice40-up5k/description.json`.
+//!   `sv/arch/<part>/description.json`.
 //! - [`bitstream`] packs and unpacks bitstreams with a [`Device`], in place
 //!   of `icepack`; the tests compare the two.
 
@@ -23,6 +23,60 @@ pub mod icepack;
 
 use bitstream::Cmd;
 use std::fmt::Write;
+
+/// A part the generator describes: its `.asc` device name, its package
+/// and board, where its description goes, the flag `icebox_chipdb` takes
+/// for it, and its datasheet's resources (what, how many, and what holds
+/// them, to count against).
+pub struct Part {
+    pub asc: &'static str,
+    pub name: &'static str,
+    pub package: &'static str,
+    pub board: &'static str,
+    pub dir: &'static str,
+    pub chipdb_flag: &'static str,
+    pub datasheet: &'static str,
+    pub resources: &'static [(&'static str, usize, &'static str)],
+}
+
+pub const PARTS: [Part; 2] = [
+    Part {
+        asc: "5k",
+        name: "iCE40UP5K",
+        package: "SG48",
+        board: "iCESugar",
+        dir: "ice40-up5k",
+        chipdb_flag: "-5",
+        datasheet: "Lattice iCE40 UltraPlus Family Data Sheet, FPGA-DS-02008, Table 1.1 and section 2",
+        resources: &[
+            ("LUT4 logic cells", 5280, "logic tiles x 8"),
+            ("EBR blocks (4 kbit sysMEM RAM)", 30, "ramb tiles"),
+            ("SPRAM blocks (256 kbit)", 4, "SPRAM cells"),
+            ("DSP blocks (MAC16)", 8, "MAC16 cells"),
+            ("PLL", 1, "PLL cells"),
+            ("I2C hard IP", 2, "I2C cells"),
+            ("SPI hard IP", 2, "SPI cells"),
+            ("HFOSC (48 MHz oscillator)", 1, "HFOSC cells"),
+            ("LFOSC (10 kHz oscillator)", 1, "LFOSC cells"),
+            ("RGB LED driver", 1, "RGBA_DRV cells"),
+            ("I/O on the 48-pin QFN (SG48)", 39, "sg48 pins"),
+        ],
+    },
+    Part {
+        asc: "1k",
+        name: "iCE40LP1K",
+        package: "CM36",
+        board: "iCESugar-nano",
+        dir: "ice40-lp1k",
+        chipdb_flag: "",
+        datasheet: "Lattice iCE40 LP/HX Family Data Sheet, FPGA-DS-02029, Table 1.1 and section 2",
+        resources: &[("LUT4 logic cells", 1280, "logic tiles x 8"), ("RAM4K blocks (4 kbit)", 16, "ramb tiles")],
+    },
+];
+
+pub fn part(asc: &str) -> Option<&'static Part> {
+    PARTS.iter().find(|p| p.asc == asc)
+}
 
 /// A kind of tile, as the `.asc` names it, and how many bits wide its
 /// tiles are (all are 16 rows).
@@ -46,8 +100,8 @@ pub struct TilePlace {
     pub layout: usize,
 }
 
-/// How the bits of a kind of tile are arranged in one bank. Every tile of
-/// the kind in the bank shares it (checked by experiment `cram`).
+/// How the bits of a kind of tile are arranged in one bank (experiment
+/// `cram`). Tiles of a kind share a few layouts.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Layout {
     pub kind: usize,
@@ -178,7 +232,7 @@ impl Device {
                 .unwrap();
         }
         for t in &self.tiles {
-            writeln!(s, "tile {} {} {} {} {} {}", self.kinds[t.kind].name, t.x, t.y, t.bank, t.line0, t.pos0).unwrap();
+            writeln!(s, "tile {} {} {} {} {} {} {}", self.kinds[t.kind].name, t.x, t.y, t.bank, t.line0, t.pos0, t.layout).unwrap();
         }
         writeln!(s, "ram_bits {}", list(&self.ram_bits)).unwrap();
         for r in &self.rams {
@@ -248,12 +302,10 @@ impl Device {
                 }
                 "tile" => {
                     let kind = d.kind(w[1]).ok_or_else(|| err("unknown kind"))?;
-                    let bank = num(4)?;
-                    let layout = d
-                        .layouts
-                        .iter()
-                        .position(|l| l.kind == kind && l.bank == bank)
-                        .ok_or_else(|| err("no layout for the tile"))?;
+                    let (bank, layout) = (num(4)?, num(7)?);
+                    if d.layouts.get(layout).is_none_or(|l| (l.kind, l.bank) != (kind, bank)) {
+                        return Err(err("the tile's layout is for another kind or bank"));
+                    }
                     d.tiles.push(TilePlace {
                         x: num(2)?,
                         y: num(3)?,

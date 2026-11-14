@@ -1,9 +1,12 @@
-//! IceStorm's chip database for the UP5K, `chipdb-5k.txt`: a data file
-//! that ships with the OSS CAD Suite (`share/icebox/`). The experiments
-//! with `icepack` find where bits are but not what they do, and Amy agreed
-//! (2026-11-14) to take that from this file. Only the data file is read:
-//! never IceStorm's source or documentation. Every fact taken from it is
-//! marked `"source": "chipdb"` in the description.
+//! IceStorm's chip database (`chipdb-5k.txt` for the UP5K, `chipdb-1k.txt`
+//! for the LP1K): a data file. The experiments with `icepack` find where
+//! bits are but not what they do, and Amy agreed (2026-11-14) to take that
+//! from this file. It is made by running `icebox_chipdb` from the pinned
+//! IceStorm checkout as a black box ([`super::icebox::Icebox::chipdb`]);
+//! for the UP5K its output is byte for byte the `chipdb-5k.txt` that ships
+//! with the OSS CAD Suite. Only the data is read: never IceStorm's source
+//! or documentation. Every fact taken from it is marked `"source":
+//! "chipdb"` in the description.
 //!
 //! The file is lines in sections, each section a line starting `.`:
 //! `.device NAME W H NETS`, `.KIND_tile X Y`, `.KIND_tile_bits W H` then
@@ -46,6 +49,9 @@ pub struct Cell {
     pub y: usize,
     pub z: Option<usize>,
     pub ports: Vec<(String, usize, usize, String)>,
+    /// Entries that name no tile (the LP1K PLL's `LOCKED`, a list of
+    /// packages), as the key and the rest of the line.
+    pub attrs: Vec<(String, String)>,
 }
 
 /// A switch in one tile: `dst` driven from one of `opts` by the setting of
@@ -131,7 +137,7 @@ impl Chipdb {
                     db.pins.push((w[1].to_string(), Vec::new()));
                 } else if head == ".extra_cell" {
                     let (z, kind) = if w.len() == 5 { (Some(num(3)?), w[4]) } else { (None, w[3]) };
-                    db.cells.push(Cell { kind: kind.to_string(), x: num(1)?, y: num(2)?, z, ports: Vec::new() });
+                    db.cells.push(Cell { kind: kind.to_string(), x: num(1)?, y: num(2)?, z, ports: Vec::new(), attrs: Vec::new() });
                 } else if head == ".net" {
                     if num(1)? != raw.nets.len() {
                         return Err(err("nets out of order"));
@@ -154,7 +160,13 @@ impl Chipdb {
                 Some(".iolatch") => db.iolatch.push((num(0)?, num(1)?)),
                 Some(".ieren") => db.ieren.push([num(0)?, num(1)?, num(2)?, num(3)?, num(4)?, num(5)?]),
                 Some(".colbuf") => db.colbuf.push([num(0)?, num(1)?, num(2)?, num(3)?]),
-                Some(".extra_cell") => db.cells.last_mut().unwrap().ports.push((w[0].to_string(), num(1)?, num(2)?, w[3].to_string())),
+                Some(".extra_cell") => {
+                    let cell = db.cells.last_mut().unwrap();
+                    match (w.len(), num(1), num(2)) {
+                        (4, Ok(x), Ok(y)) => cell.ports.push((w[0].to_string(), x, y, w[3].to_string())),
+                        _ => cell.attrs.push((w[0].to_string(), w[1..].join(" "))),
+                    }
+                }
                 Some(".extra_bits") => db.extra_bits.push((w[0].to_string(), num(1)?, num(2)?, num(3)?)),
                 Some(".net") => raw.nets.last_mut().unwrap().push((num(0)?, num(1)?, w[2].to_string())),
                 Some(".buffer") | Some(".routing") => raw.switches.last_mut().unwrap().5.push((w[0].to_string(), num(1)?)),
@@ -288,7 +300,7 @@ impl Chipdb {
     /// The facts in a compact text form of the record's kind.
     pub fn to_text(&self) -> String {
         let mut s = String::new();
-        s.push_str("# Facts taken from IceStorm's chipdb-5k.txt (a data file; see sv/src/arch/ice40/chipdb.rs),\n");
+        s.push_str("# Facts taken from IceStorm's chip database (a data file; see sv/src/arch/ice40/chipdb.rs),\n");
         s.push_str("# in a compact form. Regenerate with the ice40_arch example's --chipdb option.\n");
         writeln!(s, "device {} {}", self.width, self.height).unwrap();
         for (k, x, y) in &self.tiles {
@@ -325,6 +337,9 @@ impl Chipdb {
             writeln!(s, "cell {} {} {} {}", c.kind, c.x, c.y, z).unwrap();
             for (k, x, y, n) in &c.ports {
                 writeln!(s, "port {k} {x} {y} {n}").unwrap();
+            }
+            for (k, v) in &c.attrs {
+                writeln!(s, "attr {k} {v}").unwrap();
             }
         }
         for (f, b, p, l) in &self.extra_bits {
@@ -373,8 +388,10 @@ impl Chipdb {
                     y: num(3)?,
                     z: if w[4] == "-" { None } else { Some(num(4)?) },
                     ports: Vec::new(),
+                    attrs: Vec::new(),
                 }),
                 "port" => db.cells.last_mut().ok_or_else(|| err("a port before any cell"))?.ports.push((w[1].to_string(), num(2)?, num(3)?, w[4].to_string())),
+                "attr" => db.cells.last_mut().ok_or_else(|| err("an attr before any cell"))?.attrs.push((w[1].to_string(), w[2..].join(" "))),
                 "extra_bit" => db.extra_bits.push((w[1].to_string(), num(2)?, num(3)?, num(4)?)),
                 "box" => db.routing.boxes.push(Vec::new()),
                 "sw" => {

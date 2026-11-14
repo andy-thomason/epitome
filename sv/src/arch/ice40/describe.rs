@@ -9,34 +9,17 @@
 //! - `"icebox"`: [`super::icebox`], `icebox_vlog` and `icebox_explain` as
 //!   black boxes.
 //! - `"chipdb"`: [`super::chipdb`], IceStorm's `chipdb-5k.txt` data file.
-//! - `"datasheet"`: Lattice, *iCE40 UltraPlus Family Data Sheet*
-//!   (FPGA-DS-02008), Table 1.1 (the family's resources) and section 2
-//!   (architecture: PLBs of eight logic cells, each a LUT4, a D flip-flop
-//!   and carry logic; sysMEM EBR of 4 kbits; SPRAM; DSP blocks; global
-//!   buffers).
+//! - `"datasheet"`: Lattice's datasheet for the part ([`super::Part`]),
+//!   Table 1.1 (the family's resources) and section 2 (architecture: PLBs
+//!   of eight logic cells, each a LUT4, a D flip-flop and carry logic; 4
+//!   kbit block RAMs; and the UP5K's SPRAM and DSP blocks).
 
-use super::Device;
+use super::{Device, Part};
 use super::chipdb::{Bit, Chipdb};
 use super::experiment::free_positions;
 use super::icebox::Semantics;
 use crate::hash::FxSet;
 use std::fmt::Write;
-
-/// The UP5K's resources from the datasheet (Table 1.1), with the tile
-/// kind or chip database cell that holds each, to count against.
-pub const DATASHEET: &[(&str, usize, &str)] = &[
-    ("LUT4 logic cells", 5280, "logic tiles x 8"),
-    ("EBR blocks (4 kbit sysMEM RAM)", 30, "ramb tiles"),
-    ("SPRAM blocks (256 kbit)", 4, "SPRAM cells"),
-    ("DSP blocks (MAC16)", 8, "MAC16 cells"),
-    ("PLL", 1, "PLL cells"),
-    ("I2C hard IP", 2, "I2C cells"),
-    ("SPI hard IP", 2, "SPI cells"),
-    ("HFOSC (48 MHz oscillator)", 1, "HFOSC cells"),
-    ("LFOSC (10 kHz oscillator)", 1, "LFOSC cells"),
-    ("RGB LED driver", 1, "RGBA_DRV cells"),
-    ("I/O on the 48-pin QFN (SG48)", 39, "sg48 pins"),
-];
 
 /// What each tile kind is, by the datasheet's architecture section, with
 /// the count from the grid to check it.
@@ -81,13 +64,14 @@ fn bits(v: &[Bit]) -> String {
 /// The checks of one source against another: `(what, passed, detail)`.
 pub fn checks(d: &Device, db: Option<&Chipdb>, sem: Option<&Semantics>) -> Vec<(String, bool, String)> {
     let mut out = Vec::new();
+    let part = super::part(&d.asc_device).map_or(&[][..], |p| p.resources);
     let count = |k: &str| d.tiles.iter().filter(|t| d.kinds[t.kind].name == k).count();
     let cells = |k: &str| db.map(|db| db.cells.iter().filter(|c| c.kind == k).count());
-    for &(what, n, holder) in DATASHEET {
+    for &(what, n, holder) in part {
         let found = match holder {
             "logic tiles x 8" => Some(count("logic") * 8),
             "ramb tiles" => Some(count("ramb")),
-            "sg48 pins" => db.and_then(|db| db.pins.iter().find(|(p, _)| p == "sg48")).map(|(_, p)| p.len()),
+            h if h.ends_with(" pins") => db.and_then(|db| db.pins.iter().find(|(p, _)| p == h.trim_end_matches(" pins"))).map(|(_, p)| p.len()),
             h => cells(h.trim_end_matches(" cells")),
         };
         if let Some(found) = found {
@@ -95,13 +79,13 @@ pub fn checks(d: &Device, db: Option<&Chipdb>, sem: Option<&Semantics>) -> Vec<(
         }
     }
     out.push((
-        "EBR: a ramb tile, the ramt above it, and a .ram_data block, at each".into(),
+        "block RAM: a ramb tile, the ramt above it, and a .ram_data block, at each".into(),
         d.rams.len() == count("ramb")
             && d.rams.iter().all(|r| d.tile_at(r.x, r.y).is_some_and(|t| d.kinds[t.kind].name == "ramb") && d.tile_at(r.x, r.y + 1).is_some_and(|t| d.kinds[t.kind].name == "ramt")),
         String::new(),
     ));
     out.push((
-        "EBR: 256 words of 16 bits each, 4096 bits, as the datasheet's 4 kbit".into(),
+        "block RAM: 256 words of 16 bits each, 4096 bits, as the datasheet's 4 kbit".into(),
         d.ram_bits.len() * 256 == 4096,
         String::new(),
     ));
@@ -151,19 +135,20 @@ pub fn checks(d: &Device, db: Option<&Chipdb>, sem: Option<&Semantics>) -> Vec<(
 }
 
 pub fn to_json(d: &Device, db: Option<&Chipdb>, sem: Option<&Semantics>) -> String {
+    let part: &Part = super::part(&d.asc_device).expect("a known part");
     let f = &d.format;
     let mut s = String::new();
     let count = |k: usize| d.tiles.iter().filter(|t| t.kind == k).count();
     s.push_str("{\n");
-    writeln!(s, "\"device\": {{\"part\": \"iCE40UP5K\", \"package\": \"SG48\", \"board\": \"iCESugar\", \"asc_device\": {}, \"width\": {}, \"height\": {}}},", q(&d.asc_device), d.width, d.height).unwrap();
+    writeln!(s, "\"device\": {{\"part\": {}, \"package\": {}, \"board\": {}, \"asc_device\": {}, \"width\": {}, \"height\": {}}},", q(part.name), q(part.package), q(part.board), q(&d.asc_device), d.width, d.height).unwrap();
     s.push_str("\"sources\": {\n");
     writeln!(s, "  \"experiment\": {},", q(&format!("icepack (IceStorm {}) run as a black box: sv/src/arch/ice40/experiment.rs", d.icepack))).unwrap();
     s.push_str("  \"icebox\": \"icebox_vlog and icebox_explain (pinned IceStorm commit) run as black boxes: sv/src/arch/ice40/icebox.rs\",\n");
-    s.push_str("  \"chipdb\": \"IceStorm's chipdb-5k.txt data file (OSS CAD Suite 2026-11-01): sv/src/arch/ice40/chipdb.rs\",\n");
-    s.push_str("  \"datasheet\": \"Lattice iCE40 UltraPlus Family Data Sheet, FPGA-DS-02008, Table 1.1 and section 2\"\n},\n");
+    s.push_str("  \"chipdb\": \"IceStorm's chip database, a data file made by icebox_chipdb (pinned IceStorm commit) run as a black box: sv/src/arch/ice40/chipdb.rs\",\n");
+    writeln!(s, "  \"datasheet\": {}\n}},", q(part.datasheet)).unwrap();
 
     s.push_str("\"resources\": [\n");
-    let res: Vec<String> = DATASHEET.iter().map(|(w, n, h)| format!("  {{\"what\": {}, \"count\": {n}, \"held_by\": {}, \"source\": \"datasheet\"}}", q(w), q(h))).collect();
+    let res: Vec<String> = part.resources.iter().map(|(w, n, h)| format!("  {{\"what\": {}, \"count\": {n}, \"held_by\": {}, \"source\": \"datasheet\"}}", q(w), q(h))).collect();
     s.push_str(&res.join(",\n"));
     s.push_str("\n],\n");
 
@@ -299,7 +284,8 @@ pub fn to_json(d: &Device, db: Option<&Chipdb>, sem: Option<&Semantics>) -> Stri
             .iter()
             .map(|c| {
                 let ps: Vec<String> = c.ports.iter().map(|(k, x, y, n)| format!("{}: [{x},{y},{}]", q(k), q(n))).collect();
-                format!("  {{\"kind\": {}, \"x\": {}, \"y\": {}, \"z\": {}, \"ports\": {{{}}}}}", q(&c.kind), c.x, c.y, c.z.map_or("null".into(), |z| z.to_string()), ps.join(", "))
+                let at: Vec<String> = c.attrs.iter().map(|(k, v)| format!("{}: {}", q(k), q(v))).collect();
+                format!("  {{\"kind\": {}, \"x\": {}, \"y\": {}, \"z\": {}, \"ports\": {{{}}}, \"attrs\": {{{}}}}}", q(&c.kind), c.x, c.y, c.z.map_or("null".into(), |z| z.to_string()), ps.join(", "), at.join(", "))
             })
             .collect();
         s.push_str(&cs.join(",\n"));
@@ -412,12 +398,12 @@ pub fn coverage(d: &Device, db: Option<&Chipdb>, sem: Option<&Semantics>) -> Vec
 /// the flip-flop for each setting of its options. `ci`, `clk`, `cen` and
 /// `sr` are the tile's carry in and shared clock, enable and set/reset as
 /// routed; what an unrouted enable or set/reset reads is not established.
-pub fn logic_cell_sv(sem: &Semantics) -> String {
+pub fn logic_cell_sv(part: &Part, sem: &Semantics) -> String {
     let mut s = String::new();
-    s.push_str("// The iCE40UP5K logic cell, generated by sv/examples/ice40_arch.rs from\n");
-    s.push_str("// sv/arch/ice40-up5k/record-icebox.txt: the carry and flip-flop statements are\n");
+    writeln!(s, "// The {} logic cell, generated by sv/examples/ice40_arch.rs from", part.name).unwrap();
+    writeln!(s, "// sv/arch/{}/record-icebox.txt: the carry and flip-flop statements are", part.dir).unwrap();
     s.push_str("// icebox_vlog's own (run as a black box), with its nets named by role.\n");
-    s.push_str("module ice40up5k_logic_cell #(\n");
+    s.push_str("module ice40_logic_cell #(\n");
     s.push_str("  parameter logic [15:0] LUT_INIT = 16'h0000,\n");
     s.push_str("  parameter bit DFF_ENABLE = 1'b0,\n  parameter bit SET_NORESET = 1'b0,\n");
     s.push_str("  parameter bit ASYNC_SR = 1'b0,\n  parameter bit NEG_CLK = 1'b0\n");

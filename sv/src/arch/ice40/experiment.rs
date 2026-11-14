@@ -21,8 +21,8 @@
 //!   from the pairs; one set in neither holds no tile bit. Then: every
 //!   tile bit lands on exactly one CRAM bit, each tile's bits lie in one
 //!   bank, its rows each on one line and its columns each at one position
-//!   (so a tile is a `rows` x `cols` layout at an origin), and every tile
-//!   of a kind in a bank has the same layout.
+//!   (so a tile is a `rows` x `cols` layout at an origin); the layouts are
+//!   counted.
 //! - `bram`: the same for `.ram_data` bits and the block RAM data.
 //! - `extra`: `.extra_bit BANK POS LINE` sets CRAM bit (bank, line, pos),
 //!   tried in and outside tiles, and `icepack -u` gives the ones outside
@@ -62,11 +62,11 @@ fn no_args() -> Vec<String> {
 }
 
 /// Runs every experiment, and `fingerprints` random configurations.
-pub fn run(ip: &Icepack, fingerprints: u64, log: &mut dyn FnMut(&str)) -> Result<Device, String> {
-    let mut d = Device { icepack: ip.commit.clone(), asc_device: "5k".into(), ..Device::default() };
+pub fn run(ip: &Icepack, device: &str, fingerprints: u64, log: &mut dyn FnMut(&str)) -> Result<Device, String> {
+    let mut d = Device { icepack: ip.commit.clone(), asc_device: device.into(), ..Device::default() };
 
     // grid
-    let minimal = ".device 5k\n.logic_tile 1 1\n".to_string();
+    let minimal = format!(".device {device}\n.logic_tile 1 1\n");
     let base = ip.pack(&minimal, &no_args())?;
     let grid = Asc::parse(&ip.unpack(&base)?)?;
     for t in &grid.tiles {
@@ -215,7 +215,7 @@ pub fn run(ip: &Icepack, fingerprints: u64, log: &mut dyn FnMut(&str)) -> Result
 /// The full-die configuration with tile bit i set when `sel(i)`.
 fn tiles_text(grid: &Asc, sel: impl Fn(usize) -> bool) -> String {
     let mut s = String::with_capacity(800_000);
-    s.push_str(".device 5k\n");
+    s.push_str(&format!(".device {}\n", grid.device));
     let mut i = 0;
     for t in &grid.tiles {
         s.push_str(&format!(".{}_tile {} {}\n", t.kind, t.x, t.y));
@@ -305,9 +305,10 @@ fn cram(ip: &Icepack, d: &mut Device, grid: &Asc, log: &mut dyn FnMut(&str)) -> 
             }
         }
         let kind = d.kind(&t.kind).unwrap();
-        let layout = match d.layouts.iter().position(|l| l.kind == kind && l.bank == bank) {
-            Some(l) if d.layouts[l].rows == rows && d.layouts[l].cols == cols => l,
-            Some(_) => return Err(format!("cram: {} tiles in bank {bank} with different layouts", t.kind)),
+        // On the LP1K, io tiles on the bottom and side edges share a bank
+        // with different layouts.
+        let layout = match d.layouts.iter().position(|l| l.kind == kind && l.bank == bank && l.rows == rows && l.cols == cols) {
+            Some(l) => l,
             None => {
                 d.layouts.push(Layout { kind, bank, rows, cols });
                 d.layouts.len() - 1
@@ -328,7 +329,7 @@ fn bram(ip: &Icepack, d: &mut Device, grid: &Asc, log: &mut dyn FnMut(&str)) -> 
     let total = grid.ram.len() * 4096;
     let nbits = usize::BITS - total.leading_zeros();
     let text = |sel: &dyn Fn(usize) -> bool| {
-        let mut a = Asc::new("5k");
+        let mut a = Asc::new(&d.asc_device);
         a.tiles.push(AscTile { kind: "logic".into(), x: 1, y: 1, width: d.kinds[d.kind("logic").unwrap()].width, rows: [0; 16] });
         for (n, r) in grid.ram.iter().enumerate() {
             let words = (0..256)
@@ -400,7 +401,7 @@ fn extra(ip: &Icepack, d: &Device, log: &mut dyn FnMut(&str)) -> Result<(), Stri
         tried.push(((t.bank, t.line0 + l.rows[r], t.pos0 + l.cols[c]), false));
     }
     for ((bank, line, pos), outside) in tried {
-        let text = format!(".device 5k\n.logic_tile 1 1\n.extra_bit {bank} {pos} {line}\n");
+        let text = format!(".device {}\n.logic_tile 1 1\n.extra_bit {bank} {pos} {line}\n", d.asc_device);
         let b = ip.pack(&text, &no_args())?;
         let p = bitstream::parse(&b)?;
         let set: Vec<_> = p

@@ -1,4 +1,4 @@
-# Facts taken from IceStorm's chipdb-5k.txt (a data file; see sv/src/arch/ice40/chipdb.rs),
+# Facts taken from IceStorm's chip database (a data file; see sv/src/arch/ice40/chipdb.rs),
 # in a compact form. Regenerate with the ice40_arch example's --chipdb option.
 device 26 32
 tile io 1 0

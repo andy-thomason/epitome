@@ -62,6 +62,12 @@ impl Icebox {
         dir.join("icebox_vlog.py").is_file().then_some(Icebox { dir })
     }
 
+    /// The chip database for a part, from `icebox_chipdb`.
+    pub fn chipdb(&self, part: &super::Part) -> Result<String, String> {
+        let args: Vec<&str> = [part.chipdb_flag].into_iter().filter(|f| !f.is_empty()).collect();
+        self.run("icebox_chipdb", &args, "")
+    }
+
     /// Runs `tool` on `.asc` text, and returns what it prints (not its
     /// errors: a traceback would show its source).
     pub fn run(&self, tool: &str, args: &[&str], asc: &str) -> Result<String, String> {

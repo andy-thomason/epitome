@@ -45,8 +45,9 @@ description has four sources, and each part of it is marked with one:
   discarded. See `icebox.rs`.
 - **chipdb**: `share/icebox/chipdb-5k.txt` from YosysHQ's OSS CAD Suite
   2026-11-01. Only that data file is read: no source, no documentation. See
-  `chipdb.rs`. The suite's binaries (yosys, nextpnr) were not run: Claude
-  Code's permission classifier blocked running them.
+  `chipdb.rs`. Its copy is kept at `~/.cache/epitome/chipdb/chipdb-5k.txt`
+  (or set `$CHIPDB`). The rest of the suite was deleted without running any
+  of it.
 - **datasheet**: Lattice's *iCE40 UltraPlus Family Data Sheet*
   (FPGA-DS-02008), Table 1.1 and section 2. It gives the resource counts
   and what each kind of block is.

@@ -39,15 +39,11 @@ fn skip(what: &str) -> bool {
     true
 }
 
+/// `$CHIPDB`, or `~/.cache/epitome/chipdb/chipdb-5k.txt`.
 fn chipdb_path() -> Option<PathBuf> {
     std::env::var_os("CHIPDB").map(PathBuf::from).or_else(|| {
-        let home = PathBuf::from(std::env::var_os("HOME")?);
-        let base = home.join(".cache/epitome");
-        std::fs::read_dir(&base)
-            .ok()?
-            .filter_map(|e| e.ok())
-            .map(|e| e.path().join("oss-cad-suite/share/icebox/chipdb-5k.txt"))
-            .find(|p| p.is_file())
+        let p = PathBuf::from(std::env::var_os("HOME")?).join(".cache/epitome/chipdb/chipdb-5k.txt");
+        p.is_file().then_some(p)
     })
 }
 

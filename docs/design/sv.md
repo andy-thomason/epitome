@@ -660,8 +660,9 @@ tools to check our netlists.
 [MLIR](mlir.md) section 7 flattens a design and builds one scalar `eval`.
 `epitome-sv` does not flatten: it builds one `eval` per specialisation
 that runs its instances at once, a lane per instance, scalar code where
-there is one and vector lanes where there are several (section 8.3). The
-scalar path of MLIR stays for designs from Chisel and for checking.
+there is one and lanes side by side in an integer register where there
+are several (section 8.3). The scalar path of MLIR stays for designs
+from Chisel and for checking.
 
 **Code size is a goal.** The compiled code grows with the design's
 source, not with its instance count or hierarchy. Each specialisation
@@ -738,13 +739,14 @@ function, and how many lanes the function has decides the code it is:
   for one simulation. So for few simulations a specialisation's lanes
   are the times it is instantiated in one, times `S`; for many, `S`.
 - **Shapes.** The lanes, rounded up, set the code's shape: one lane is
-  **scalar code** (plain integers, below); up to 4, 8 or 16 are one
-  register of 128-, 256- or 512-bit vectors of 32-bit lanes; more are a
-  loop over registers of 16 lanes, padding lanes running on zeros. A
-  regression of 512 simulations runs every specialisation in full
-  registers, as many as a group of 512; one core running one program
-  runs scalar code for each module it has once, and vectors only where
-  it has several.
+  **scalar code** (plain integers, below); 2, 4 or 8 lanes are **SWAR
+  code**, the lanes side by side in one `i64` (below); more are a loop
+  over registers of 8 lanes, padding lanes running on zeros. One core
+  running one program runs scalar code for each module it has once, and
+  SWAR code only where it has several, as for the eight `pmp_entry`s of
+  a `pmp`. (Vectors of 32-bit lanes, 4, 8 or 16 to a 128-, 256- or
+  512-bit register, are kept behind an option, `Options::vectors`, to
+  come back to; they paid off only for many simulations.)
 - **Many simulations fit a core's cache.** Each function is a loop over
   all of its state, so with more state than a core's second-level cache
   every pass goes to the third level: CVA6's issue stage, 1.6 MB for 512
@@ -764,6 +766,29 @@ both run and selected between. A `break` or `return` leaves: the rest of
 the loop, block or function is behind a branch on not having taken one,
 so a loop's variable stays a constant in each iteration. Values are
 stored as narrow as they fit (a byte, a half, a word, 64-bit pieces).
+
+**SWAR code.** A register of `n` lanes is an `i64` cut into `n` fields
+of `64 / n` bits, 32, 16 or 8, and a value is computed on in pieces of
+that many bits: a 56-bit address for eight lanes is seven `i64`s, each
+holding a byte of each lane's. A constant is its piece repeated in every
+field, and a mask (a comparison's result, an `if`'s condition) is all
+ones or all zeros a field, so a multiplexer is `y ^ ((x ^ y) & m)`.
+Logic is one instruction. A sum keeps its carries in their fields by
+adding below the fields' top bits and putting those back with an
+exclusive or; a difference does the same with the top bits set in the
+minuend, and the borrow out of a field's top bit is an unsigned
+comparison, which with the top bits flipped is a signed one. Shifts by
+a constant are a shift and a mask, by a value the same in every lane a
+mask worked out from it, and by one a lane a shift by each power of two
+chosen by that bit of the amount. What has no such form (products,
+counts of leading zeros) is done a field at a time. Every value is in
+general-purpose registers, and no vector instructions are needed.
+
+Values are stored as they are in registers, an `i64` a piece, except
+one-bit values, which are bit planes: a bit a lane, so eight lanes'
+enable is one byte. Loaded, a plane is spread to the lowest bit of each
+field (three shifts, ors and masks for eight lanes), and stored, gathered
+back.
 
 **Layout of a value.** Each object has one of two layouts, chosen at
 lowering from the operations that use it:
@@ -826,16 +851,18 @@ its next value where the mask is set and keeps its old one elsewhere.
 parent. A single instance has its parent's lanes, child lane `n` its
 parent's lane `n`, and ports connected to a value whole connect with no
 data movement: the child reads and writes the parent's value where it
-is. An array of `k` instances in a parent narrower than a register of
-16 lanes, `w` lanes wide (its register's width, padding included), is
-one call: iteration `i` has the child's lanes `i * w` to `(i + 1) * w`,
-and the parent gathers each iteration's inputs into its block and
-scatters its outputs back, a lane at a time, once a call. A parent of
-16 lanes or more gains no vector width from that and would lose ports
-that connect in place, so it calls each instance with its own lanes. An
-array whose call would wait on itself (each iteration's input made from
-the last one's output, as a chain of adders is) is called an instance
-at a time too.
+is. An array of `k` instances in a parent of one register, `w` lanes
+wide (its register's width, padding included), is one call: iteration
+`i` has the child's lanes `i * w` to `(i + 1) * w`, and the parent
+gathers each iteration's inputs into its block and scatters its outputs
+back, a lane at a time, once a call. In SWAR code each lane's value is
+taken apart into 32-bit digits and put together again as the other
+side's pieces, in registers, and each of the child's registers stored
+whole. A parent of more than one register gains no width from that and
+would lose ports that connect in place, so it calls each instance with
+its own lanes. An array whose call would wait on itself (each
+iteration's input made from the last one's output, as a chain of adders
+is) is called an instance at a time too.
 
 A parent's code may loop through a child without any value depending on
 itself: an output of the child feeds logic that feeds another of its

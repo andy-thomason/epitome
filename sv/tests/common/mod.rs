@@ -19,7 +19,7 @@ use epitome_codegen::load::{self, Loaded};
 use epitome_codegen::object::SectionKind;
 use epitome_codegen::target::Target;
 use epitome_sv::design::Dir;
-use epitome_sv::netlist::{self, Field, GROUP, Lane, Netlist};
+use epitome_sv::netlist::{self, Field, GROUP, Netlist};
 use epitome_sv::preprocess::{Options, preprocess_files};
 use epitome_sv::source::SourceMap;
 
@@ -66,7 +66,18 @@ pub fn netlist_options() -> netlist::Options {
     // NETLIST_SIMS: simulations at once, the lanes of a state (fewer where
     // the state would not fit `netlist::STATE_MAX`).
     let sims = std::env::var("NETLIST_SIMS").ok().and_then(|v| v.parse().ok()).unwrap_or(GROUP);
-    netlist::Options { bit_planes: !x86_without_masks, recognise, guard_min, branch_min, sims, profile }
+    // NETLIST_VECTORS=1: lanes in vector registers, not side by side in an
+    // i64 (SWAR), where bit planes want mask registers.
+    let vectors = std::env::var("NETLIST_VECTORS").is_ok_and(|v| v == "1");
+    netlist::Options {
+        bit_planes: !(vectors && x86_without_masks),
+        recognise,
+        guard_min,
+        branch_min,
+        sims,
+        profile,
+        vectors,
+    }
 }
 
 /// [`netlist_options`] for `sims` simulations at once.
@@ -254,15 +265,9 @@ impl State {
     /// A value wider than 64 bits, as 64-bit words, low first.
     pub fn put_wide(&mut self, net: &Netlist, port: &str, n: usize, v: &[u64]) {
         let f = net.port(port).unwrap_or_else(|| panic!("no port {port}"));
-        for k in 0..f.pieces() {
-            let word = v.get(k / 2).copied().unwrap_or(0);
-            let mut piece = (word >> (32 * (k % 2))) as u32;
-            let top = f.width as usize - 32 * k;
-            if top < 32 {
-                piece &= (1u32 << top) - 1;
-            }
-            unsafe { (self.ptr.add(f.at(k, n)) as *mut u32).write(piece) };
-        }
+        let words: Vec<u32> =
+            (0..f.pieces()).map(|k| (v.get(k / 2).copied().unwrap_or(0) >> (32 * (k % 2))) as u32).collect();
+        unsafe { f.put_words(self.ptr, n, &words) }
     }
 
     pub fn get(&self, net: &Netlist, port: &str, n: usize) -> u64 {
@@ -274,30 +279,11 @@ impl State {
 impl State {
     /// Instance `n`'s value of `f`, as 32-bit words, low first.
     pub fn put_words(&mut self, f: &Field, n: usize, v: &[u32]) {
-        match f.lane {
-            Lane::W32 | Lane::W64 => {
-                for k in 0..f.pieces() {
-                    let mut piece = v[k];
-                    let top = f.width as usize - 32 * k;
-                    if top < 32 {
-                        piece &= (1u32 << top) - 1;
-                    }
-                    unsafe { (self.ptr.add(f.at(k, n)) as *mut u32).write(piece) };
-                }
-            }
-            _ => unsafe { f.put(self.ptr, n, v[0] as u64) },
-        }
+        unsafe { f.put_words(self.ptr, n, v) }
     }
 
     pub fn get_words(&self, f: &Field, n: usize, out: &mut Vec<u32>) {
-        match f.lane {
-            Lane::W32 | Lane::W64 => {
-                for k in 0..f.pieces() {
-                    out.push(unsafe { (self.ptr.add(f.at(k, n)) as *const u32).read() });
-                }
-            }
-            _ => out.push(unsafe { f.get(self.ptr, n) } as u32),
-        }
+        unsafe { f.get_words(self.ptr, n, out) }
     }
 }
 

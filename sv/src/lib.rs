@@ -15,4 +15,5 @@ pub mod preprocess;
 pub mod sim;
 pub mod source;
 pub mod stimulus;
+pub mod synth;
 pub mod verilator;

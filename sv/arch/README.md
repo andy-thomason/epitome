@@ -256,9 +256,14 @@ notice; a wrong bit anywhere in a word turns it off. As a control, moving
 mode 512x8's data pins up by one made it silent. For (g), swapping the
 bank select's mux inputs made the echo garbled.
 
-[`ice40-lp1k/flow/hello.svg`](ice40-lp1k/flow/hello.svg) and
-[`hello_ram.svg`](ice40-lp1k/flow/hello_ram.svg) are the two transmitters
-as placed and routed, laid over the die by `svg.rs`.
+Pictures of designs as placed and routed, laid over the die by `svg.rs`,
+are kept beside their sources in `ice40-lp1k/flow/`:
+[`hello.svg`](ice40-lp1k/flow/hello.svg) and
+[`hello_ram.svg`](ice40-lp1k/flow/hello_ram.svg), the two transmitters;
+[`hello_div.svg`](ice40-lp1k/flow/hello_div.svg), the transmitter on a
+divided clock (on global network 4); and
+[`echo_ram.svg`](ice40-lp1k/flow/echo_ram.svg), the line echo through
+block RAM.
 
 ### Timing
 

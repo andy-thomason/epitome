@@ -1012,6 +1012,102 @@ it (one atomic add); a lane group of a few hundred operations is. Small
 specialisations are batched together; large ones are cut at registers,
 which break combinational dependence.
 
+### 8.6 Example: CVA6 through the library
+
+`sv/examples/cva6.rs` builds the CVA6 RISC-V core's units with
+epitome-sv called as a library (`epitome_sv::model`), and with
+Verilator beside it to compare:
+
+```bash
+cargo run --release -p epitome-sv --example cva6 -- --verilator --sims 512
+```
+
+- **Fetch.** CVA6 is fetched with `git` at the commit the tests use,
+  `742dc82` (2026-10-23), into `target/cva6-example` (or `--cva6 DIR` /
+  `CVA6_DIR` names a checkout). It is pinned because the wrappers repeat
+  `cva6.sv`'s types and the stimulus knows its structs' layout and its
+  enums' values. Nothing of CVA6 is committed to Epitome.
+- **Build.** Each unit the netlist compiles today, in the
+  cv64a6_imafdc_sv39 configuration, is built in memory, from source to
+  loaded code: `pmp_entry`, `pmp`, the ALU, the ALU with the branch unit,
+  the compressed decoder, the decoder, `id_stage`, the issue stage, `mult`
+  and `serdiv`. Each is preprocessed, parsed, elaborated, lowered with the
+  IR builder, optimised, compiled and loaded into the process. Nothing is
+  written as text and no file is made.
+  - The units, their wrappers and their stimulus are in `sv/tests/cva6/`,
+    shared with the tests.
+  - The example prints each step's time, the code and state sizes, and
+    the lanes each function was given.
+- **Run.** Each unit runs on random stimulus, and on a typical mix where
+  the tests have one. It runs as one simulation, and with `--sims N` also
+  as N at once.
+- **The whole core.** `cva6` is elaborated from CVA6's own file list,
+  read at run time. Its FPU submodules are fetched at the commits CVA6
+  names. Each specialisation is then tried as a netlist of its own. The
+  netlist does not compile the whole core yet: 96 of its 152
+  specialisations lower. The rest are stopped by:
+  - `initial` and plain `always` processes;
+  - combinational loops across processes;
+  - some assignment patterns, `**` on variables, and a streaming
+    concatenation.
+- **Verilator** (`--verilator`; `$VERILATOR`, `$VERILATOR_ROOT/bin` or the
+  path). Each unit is also built as a Verilator model, a program with a
+  C++ driver written for its ports (`epitome_sv::verilator`). It runs on
+  the same stimulus, and its outputs are checked word for word against
+  epitome-sv's. A missing or too old Verilator is reported, and the run
+  goes on without it.
+  - The numbers here are Verilator 5.053's.
+  - Debian's 5.020 is much slower on CVA6, because of `UNOPTFLAT`
+    fallbacks.
+
+**AVX-512.** On x86-64 the example compiles for the processor's features:
+AVX-512 where it has it. Where epitome-codegen's AVX-512 selection lacks
+an instruction a unit needs, the example says so and compiles that unit
+for AVX2. Today these are `<16 x i16>` and `<8 x i32>` loads and stores.
+
+**Numbers.** mandelbrot (AMD EPYC 9B45, AVX-512), 2026-11-14. Times are
+ns per instance-cycle; where two are given, they are random / typical
+stimulus. `*` marks AVX2, as above. Every run agreed with Verilator word
+for word.
+
+| unit | ours, 1 sim | Verilator, 1 | ours, 512 sims | Verilator, 512 | code bytes, ours / Verilator | state bytes per instance, ours (1 sim) / Verilator |
+|---|---|---|---|---|---|---|
+| pmp_entry | 25.6 | 29.6 | 0.9 | 29.9 | 1,083 / 5,675 | 128 / 128 |
+| pmp | 180.5* | 96.7 | 15.9 | 93.5 | 13,754 / 26,033 | 576 / 320 |
+| alu | 89.8 | 106.0 | 8.9 | 106.7 | 7,910 / 30,721 | 256 / 192 |
+| alu + branch unit | 101.1 | 133.0 | 10.5 | 136.5 | 9,401 / 32,735 | 512 / 384 |
+| compressed decoder | 26.8 | 32.8 | 1.8 | 33.1 | 4,127 / 6,204 | 64 / 64 |
+| decoder | 69.8 / 69.9 | 143.3 / 128.3 | 46.4 / 34.8* | 148.2 / 131.0 | 15,672 / 35,658 | 256 / 576 |
+| id_stage | 218.6 / 216.7* | 152.5 / 155.3 | 241.4 / 144.5* | 223.5 / 207.7 | 27,763 / 46,907 | 905 / 768 |
+| issue_stage | 1,836 / 1,852* | 916 / 962 | 1,222 / 785* | 1,100 / 1,067 | 98,854 / 97,002 | 3,972 / 3,136 |
+| mult | 252.3 / 244.9 | 152.9 / 150.9 | 28.3 / 21.8 | 302.1 / 265.8 | 11,187 / 23,601 | 539 / 320 |
+| serdiv | 96.4 / 93.5 | 105.9 / 105.6 | 5.8 / 4.7 | 123.5 / 115.1 | 4,571 / 16,341 | 221 / 256 |
+
+**How the columns are measured.**
+- **Code bytes:** ours is the machine code of the netlist's functions for
+  one simulation (AVX2's for the starred units). Verilator's is the code
+  and read-only data of the model's archive, as `size` counts it,
+  without its runtime.
+- **Build time:** each unit takes 40–290 ms with epitome-sv, from source
+  to loaded code. Verilator takes about 4.2 s, with ccache off (most of
+  that is compiling its runtime).
+- **The whole example** takes about 2 minutes on this machine, Verilator
+  builds included.
+
+**Reading the numbers.**
+- **Many simulations:** with 512, each unit's code runs once for a whole
+  register of instances. Most units are then 7–33× faster than
+  Verilator, which runs its models one after another.
+- **One simulation:** the code is scalar. It is slower than Verilator on
+  the clocked units that carry a lot of state (mult, id_stage,
+  issue_stage).
+
+On an Apple M4 Pro (AArch64), every unit compiles. For one / 512
+simulations:
+- alu: 45 / 32 ns, against Verilator's 56 / 58;
+- decoder: 39 / 38 ns, against 84 / 87;
+- serdiv: 44 / 55 ns, against 71 / 79.
+
 ## 9. Clean-room rules
 
 `epitome-sv` is a clean-room build from IEEE 1800-2023 alone. The

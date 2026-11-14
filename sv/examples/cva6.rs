@@ -49,8 +49,11 @@
 //! - `unit...`: only these units (`pmp_entry pmp alu exec cdec decoder
 //!   id_stage issue_stage mult serdiv`).
 //!
+//! On x86-64, a unit whose code epitome-codegen cannot yet select for
+//! AVX-512 is compiled for AVX2 instead, and the output says so.
 //! Elaboration errors are shown by their first line only (the position and
-//! message), not the source line under it.
+//! message), not the source line under it. `docs/design/sv.md` section 8.6
+//! has the numbers on one machine.
 
 #[path = "../tests/cva6/units.rs"]
 mod units;

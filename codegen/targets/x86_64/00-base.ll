@@ -268,6 +268,46 @@
 ; in "target-features", with those they imply).
 !1150 = !{!"x86-64", !"sse", !"sse2"}
 
+; Features that bring others with them, as clang's -m options do (and LLVM's
+; -mattr): a feature, then those it implies. `+avx512f` alone is AVX2's
+; 256-bit vectors as well as 512-bit ones.
+!target.implies = !{!1300, !1301, !1302, !1303, !1304, !1305, !1306, !1307, !1308, !1309, !1310, !1311, !1312, !1313, !1314, !1315, !1316, !1317, !1318, !1319, !1320, !1321, !1322, !1323, !1324, !1325, !1326, !1327, !1328, !1329, !1330, !1331, !1332, !1333, !1334}
+!1300 = !{!"sse2", !"sse"}
+!1301 = !{!"sse3", !"sse2"}
+!1302 = !{!"ssse3", !"sse3"}
+!1303 = !{!"sse4.1", !"ssse3"}
+!1304 = !{!"sse4.2", !"sse4.1", !"crc32"}
+!1305 = !{!"avx", !"sse4.2", !"xsave"}
+!1306 = !{!"avx2", !"avx"}
+!1307 = !{!"fma", !"avx"}
+!1308 = !{!"f16c", !"avx"}
+!1309 = !{!"avx512f", !"avx2", !"fma", !"f16c"}
+!1310 = !{!"avx512bw", !"avx512f"}
+!1311 = !{!"avx512cd", !"avx512f"}
+!1312 = !{!"avx512dq", !"avx512f"}
+!1313 = !{!"avx512vl", !"avx512f"}
+!1314 = !{!"avx512ifma", !"avx512f"}
+!1315 = !{!"avx512vpopcntdq", !"avx512f"}
+!1316 = !{!"avx512vnni", !"avx512f"}
+!1317 = !{!"avx512vbmi", !"avx512bw"}
+!1318 = !{!"avx512vbmi2", !"avx512bw"}
+!1319 = !{!"avx512bf16", !"avx512bw"}
+!1320 = !{!"avx512fp16", !"avx512bw"}
+!1321 = !{!"aes", !"sse2"}
+!1322 = !{!"pclmul", !"sse2"}
+!1323 = !{!"gfni", !"sse2"}
+!1324 = !{!"sha", !"sse2"}
+!1325 = !{!"vaes", !"aes", !"avx2"}
+!1326 = !{!"vpclmulqdq", !"avx", !"pclmul"}
+!1327 = !{!"sha512", !"avx2"}
+!1328 = !{!"sm3", !"avx"}
+!1329 = !{!"avxvnni", !"avx2"}
+!1330 = !{!"avxifma", !"avx2"}
+!1331 = !{!"avxneconvert", !"avx2"}
+!1332 = !{!"xsaveopt", !"xsave"}
+!1333 = !{!"xsavec", !"xsave"}
+!1334 = !{!"xsaves", !"xsave"}
+
 ; No-ops to pad code with, by length, as llvm-mc pads: nop, and nopw and nopl
 ; of a memory operand with prefixes.
 !target.nops = !{!1160}

@@ -263,8 +263,9 @@ endmodule
 fn guarded_arms() {
     let Some((_, host)) = setup() else { return };
     let src = text("guarded_top.sv", GUARDED);
-    // (Guarded as by default, whatever NETLIST_GUARD_MIN says.)
-    let opts = epitome_sv::netlist::Options { guard_min: epitome_sv::netlist::GUARD_MIN, ..netlist_options() };
+    // (Guarded as by default, whatever NETLIST_GUARD_MIN says; in 32-bit
+    // lanes, where the arms' 64-bit products are costly enough to guard.)
+    let opts = epitome_sv::netlist::Options { guard_min: epitome_sv::netlist::GUARD_MIN, lane_bits: Some(32), ..netlist_options() };
     let b = build("guarded", netlist_with(&src, "guarded_top", opts), &host);
     report("guarded", &b);
     let io = Io::new(&b.net, Some("clk_i")).unwrap();
@@ -297,7 +298,7 @@ fn guarded_arms() {
     assert!(guards >= 4, "the costly arms are not guarded");
     let ns = time_replay(&b, &io, cycles, n, &stim, 3);
     // The same without guards, every arm run and merged by selects.
-    let opts = epitome_sv::netlist::Options { guard_min: 0, ..netlist_options() };
+    let opts = epitome_sv::netlist::Options { guard_min: 0, lane_bits: Some(32), ..netlist_options() };
     let flat = build("guarded_flat", netlist_with(&src, "guarded_top", opts), &host);
     let flat_io = Io::new(&flat.net, Some("clk_i")).unwrap();
     check_against(&flat, &flat_io, &v, cycles, n, &stim, &|w| format!("{w:x?}"));

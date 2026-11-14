@@ -40,7 +40,7 @@ use epitome_codegen::object::SectionKind;
 use epitome_codegen::target::Target;
 
 use crate::design::{Design, Dir};
-use crate::netlist::{self, Field, Lane, Netlist};
+use crate::netlist::{self, Field, Netlist};
 use crate::preprocess::{Options as PpOptions, preprocess};
 use crate::source::{Source as Text, SourceMap};
 
@@ -581,31 +581,12 @@ impl State {
 
     /// Lane `n`'s value of `f`, as 32-bit words, low first.
     pub fn put_words(&mut self, f: &Field, n: usize, v: &[u32]) {
-        match f.lane {
-            Lane::W32 | Lane::W64 => {
-                for k in 0..f.pieces() {
-                    let mut piece = v[k];
-                    let top = f.width as usize - 32 * k;
-                    if top < 32 {
-                        piece &= (1u32 << top) - 1;
-                    }
-                    unsafe { (self.ptr.add(f.at(k, n)) as *mut u32).write(piece) };
-                }
-            }
-            _ => unsafe { f.put(self.ptr, n, v[0] as u64) },
-        }
+        unsafe { f.put_words(self.ptr, n, v) }
     }
 
     /// Appends lane `n`'s value of `f`, as 32-bit words, low first.
     pub fn get_words(&self, f: &Field, n: usize, out: &mut Vec<u32>) {
-        match f.lane {
-            Lane::W32 | Lane::W64 => {
-                for k in 0..f.pieces() {
-                    out.push(unsafe { (self.ptr.add(f.at(k, n)) as *const u32).read() });
-                }
-            }
-            _ => out.push(unsafe { f.get(self.ptr, n) } as u32),
-        }
+        unsafe { f.get_words(self.ptr, n, out) }
     }
 
     /// Lane `n`'s values of `fields`, from their words one after another.
@@ -688,13 +669,14 @@ pub(crate) fn fingerprint(src: &Sources) -> String {
     out
 }
 
-/// How a function runs its lanes, in words: `scalar`, or the lanes of a
-/// register and their bits (`16 x 32-bit`), with the registers if more
-/// than one.
+/// How a function runs its lanes, in words: `scalar`; SIMD, the lanes of
+/// a register and their bits (`16 x 32-bit`); or SWAR, lanes side by side
+/// in an `i64` (`SWAR 8 x 8-bit`); with the registers if more than one.
 pub fn describe_shape(sh: netlist::Shape) -> String {
     if sh.scalar() {
         return "scalar".into();
     }
     let regs = if sh.chunks > 1 { format!(", {} registers", sh.chunks) } else { String::new() };
-    format!("{} x 32-bit{regs}", sh.n)
+    let swar = if sh.swar { "SWAR " } else { "" };
+    format!("{swar}{} x {}-bit{regs}", sh.n, sh.pb())
 }

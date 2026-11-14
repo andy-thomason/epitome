@@ -112,25 +112,26 @@ impl Verilator {
             let s = std::fs::read_to_string(dir.join("build_time")).ok()?;
             Some(Duration::from_secs_f64(s.trim().parse().ok()?))
         });
-        let model_object = dir.join("obj").join(format!("V{top}__ALL.o"));
+        let model_code = dir.join("obj").join(format!("V{top}__ALL.a"));
         Ok(Verilated {
             bin,
             in_words: io.in_words(),
             out_words: io.out_words(),
             built: built.is_some(),
             build_time,
-            code_bytes: text_bytes(&model_object),
+            code_bytes: text_bytes(&model_code),
         })
     }
 }
 
-/// Bytes of code and read-only data in an object file, as the system's
-/// `size` program counts them (its first column: Berkeley `text`, or
-/// Mach-O `__TEXT`).
+/// Bytes of code and read-only data in an object file or an archive of
+/// them, as the system's `size` program counts them (its first column,
+/// summed over an archive's members: Berkeley `text`, or Mach-O `__TEXT`).
 pub fn text_bytes(object: &Path) -> Option<u64> {
     let out = Command::new("size").arg(object).output().ok().filter(|o| o.status.success())?;
     let text = String::from_utf8_lossy(&out.stdout);
-    text.lines().nth(1)?.split_whitespace().next()?.parse().ok()
+    let sizes: Vec<u64> = text.lines().skip(1).filter_map(|l| l.split_whitespace().next()?.parse().ok()).collect();
+    (!sizes.is_empty()).then(|| sizes.iter().sum())
 }
 
 /// The C++ driver of `top`'s model for the ports of `io`.
@@ -225,7 +226,7 @@ pub struct Verilated {
     pub built: bool,
     /// How long Verilator and the C++ compiler took, when it was built.
     pub build_time: Option<Duration>,
-    /// Bytes of the model's code (`V<top>__ALL.o`, its runtime aside), if
+    /// Bytes of the model's code (`V<top>__ALL.a`, its runtime aside), if
     /// `size` can say.
     pub code_bytes: Option<u64>,
 }

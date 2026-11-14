@@ -180,21 +180,18 @@ fn pmp_entries_as_lanes() {
     for sims in [1, 3, 16, GROUP] {
         let name = format!("pmp_lanes_{sims}");
         let net = netlist_with(&src, u.top, options_for(sims));
-        // Below a unit narrower than registers of 16 lanes, pmp_entry for
-        // eight lanes for each of the unit's (its registers' width of them,
-        // padding included), one call; below a wider one, eight calls with
-        // the unit's lanes.
-        let lanes = match sims {
-            1 => 8,
-            2..=4 => 8 * 4,
-            5..=8 => 8 * 8,
-            s => s.next_multiple_of(16),
-        };
+        // Below a unit of one register, pmp_entry for eight lanes for each
+        // of the unit's (its register's width of them, padding included),
+        // one call; below a wider one, eight calls with the unit's lanes.
+        let unit = net.functions.iter().find(|f| f.spec == "pmp").expect("pmp is lowered");
+        let sh = unit.shape;
+        let grouped = sh.chunks == 1 && sh.n < 16;
+        let lanes = if grouped { 8 * sh.width() as usize } else { net.lanes };
         let entries: Vec<_> = net.functions.iter().filter(|f| f.spec == "pmp_entry").collect();
         assert_eq!(entries.len(), 1, "pmp_entry lowered more than once");
         assert_eq!(entries[0].lanes as usize, lanes, "pmp_entry's lanes");
         let calls = net.ir().matches(&format!("call void @{}(", entries[0].name)).count();
-        assert_eq!(calls, if sims <= 8 { 1 } else { 8 }, "pmp_entry's calls");
+        assert_eq!(calls, if grouped { 1 } else { 8 }, "pmp_entry's calls");
         let b = build(&name, net, &host);
         report(&name, &b);
         let io = Io::new(&b.net, None).unwrap();

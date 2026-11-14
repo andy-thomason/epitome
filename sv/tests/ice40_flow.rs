@@ -304,6 +304,12 @@ fn board_designs_build() {
     }
     let b = build_design("hello_ram", &[]);
     assert_eq!(b.mapped.rams.len(), 1);
+    // The delay line's read never meets its write: no delayed write.
+    let b = build_design("ramdelay", &["WIDTH=8"]);
+    assert!(!b.mapped.lcs.iter().any(|l| l.name.contains("bypass")), "{}", b.mapped.stats());
+    // Here they always meet.
+    let b = build_design("rdw", &[]);
+    assert!(b.mapped.lcs.iter().any(|l| l.name.contains("bypass")), "{}", b.mapped.stats());
     // Deeper than a block: banks.
     let b = build_design("ramdelay", &["WIDTH=1", "DEPTH=8192"]);
     assert_eq!(b.mapped.rams[0].blocks, 1);
@@ -379,6 +385,13 @@ fn board_live() {
         let seen = run(&build_design("ramdelay", &[&format!("WIDTH={w}"), &format!("DEPTH={depth}")]));
         eprintln!("(g) through {depth} words of {w} bits: {seen}");
         assert_eq!(seen, "echo", "(g) WIDTH={w} DEPTH={depth}");
+    }
+    // (h) a read of the word being written on the same edge sees the old
+    // word, as SystemVerilog says, in each mode.
+    for w in ["16", "8", "4", "2"] {
+        let seen = run(&build_design("rdw", &[&format!("W={w}")]));
+        eprintln!("(h) read while writing, {w} bits wide: {seen}");
+        assert_eq!(seen, "echo", "(h) W={w}");
     }
     // (f) the string from a RAM's initial contents.
     let b = build_design("hello_ram", &[]);
@@ -481,6 +494,11 @@ fn board_try() {
     let mut ser = Serial::open(&Serial::find().unwrap()).unwrap();
     let probe: Vec<u8> = (0..64u8).map(|i| 0x20 + i).collect();
     eprintln!("TRY: {}", ser.echo(&probe).unwrap());
+    ser.read_quiet(200);
+    ser.send(&probe).unwrap();
+    let back = ser.read_quiet(400);
+    let diff = back.iter().zip(&probe).filter(|(a, b)| a != b).count();
+    eprintln!("TRY bytes: {} back, {diff} differ: {:02x?}", back.len(), &back[..back.len().min(24)]);
 }
 
 pub const DEEP: &str = r#"

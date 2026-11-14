@@ -589,6 +589,86 @@ impl Netlist {
         n.rebuild()
     }
 
+    /// The same netlist with no read of a memory on the clock edge that
+    /// writes the same word, for a target whose block RAM is unreliable
+    /// then (the iCE40's, the board showed). Where a BDD cannot prove a
+    /// memory's reads and write never meet, its write is delayed a clock
+    /// through registers, and each read port takes the delayed write's
+    /// data, registered with the read, where its address matches: what a
+    /// read first, write second memory gives, with no access to one word
+    /// from both ports at once.
+    pub fn delay_writes(&self) -> Result<Netlist, String> {
+        let mut n = self.clone();
+        let mut outs: FxMap<(u32, u32, u32), usize> = FxMap::default();
+        for (i, k) in n.nodes.iter().enumerate() {
+            if let Node::MemOut { mem, port, bit } = *k {
+                outs.insert((mem, port, bit), i);
+            }
+        }
+        let mut changed = false;
+        for mi in 0..n.mems.len() {
+            let m = n.mems[mi].clone();
+            let Some(w) = m.write.clone() else { continue };
+            let any = w.en.iter().fold(F, |a, &e| n.or(a, e));
+            let mut risky = false;
+            for r in &m.reads {
+                let mut eq = T;
+                for (&a, &b) in w.addr.iter().zip(&r.addr) {
+                    let x = n.xor(a, b);
+                    eq = n.and(eq, x ^ 1);
+                }
+                let both = n.and(any, r.en);
+                risky |= !n.exclusive(both, eq);
+            }
+            if !risky {
+                continue;
+            }
+            changed = true;
+            let reg = |n: &mut Netlist, d: Lit, en: Lit, name: String| {
+                n.ff(Ff { d, en, arst: F, arst_value: false, init: false, clock: m.clock, negedge: m.negedge, name })
+            };
+            let addr: Vec<Lit> = w.addr.iter().enumerate().map(|(i, &a)| reg(&mut n, a, T, format!("{} write address[{i}]", m.name))).collect();
+            let data: Vec<Lit> = w.data.iter().enumerate().map(|(i, &a)| reg(&mut n, a, T, format!("{} write data[{i}]", m.name))).collect();
+            // One register for each distinct enable, so that lanes stay
+            // lanes.
+            let mut en_reg: FxMap<Lit, Lit> = FxMap::default();
+            let mut en: Vec<Lit> = Vec::new();
+            for &a in &w.en {
+                let k = en_reg.len();
+                let r = match en_reg.get(&a) {
+                    Some(&r) => r,
+                    None => {
+                        let r = reg(&mut n, a, T, format!("{} write enable {k}", m.name));
+                        en_reg.insert(a, r);
+                        r
+                    }
+                };
+                en.push(r);
+            }
+            n.mems[mi].write = Some(MemWrite { addr: addr.clone(), data: data.clone(), en: en.clone() });
+            for (p, r) in m.reads.iter().enumerate() {
+                let mut hit = T;
+                for (&a, &b) in addr.iter().zip(&r.addr) {
+                    let x = n.xor(a, b);
+                    hit = n.and(hit, x ^ 1);
+                }
+                for b in 0..m.width {
+                    let Some(&i) = outs.get(&(mi as u32, p as u32, b)) else { continue };
+                    let take = n.and(hit, en[b as usize]);
+                    let sel = reg(&mut n, take, r.en, format!("{} read {p} bypass[{b}]", m.name));
+                    let val = reg(&mut n, data[b as usize], r.en, format!("{} read {p} bypass data[{b}]", m.name));
+                    let ram = n.mem_out(mi as u32, p as u32, b);
+                    // The node just made is the RAM's output from now on;
+                    // the old one becomes the mux.
+                    let v = n.mux(sel, val, ram);
+                    n.wires.push((format!("{} read {p}[{b}]", m.name), Some(v)));
+                    n.nodes[i] = Node::Wire(n.wires.len() as u32 - 1);
+                }
+            }
+        }
+        if changed { n.rebuild() } else { Ok(n) }
+    }
+
     /// The same netlist with every flip-flop starting at 0: one that
     /// starts at 1 holds its complement instead (its input, reset value
     /// and readers inverted), for a target whose flip-flops all start at

@@ -223,15 +223,20 @@ pub fn bank_depth(width: u32, depth: u32) -> u32 {
         .2
 }
 
+/// Maps `n`, after making it fit the iCE40: no block RAM read of the
+/// word written on the same edge (the board showed it unreliable:
+/// [`Netlist::delay_writes`]), flip-flops starting at 0
+/// ([`Netlist::zero_inits`]), and memories split into lanes and banks
+/// that blocks hold ([`Netlist::split_mems`]).
 pub fn map(n: &Netlist) -> Result<Mapped, String> {
-    if n.ffs.iter().any(|f| f.init) {
-        // iCE40 flip-flops start at 0.
-        return map(&n.zero_inits()?);
-    }
+    let n = n.delay_writes()?.zero_inits()?;
     let lanes = |m: &crate::synth::Mem| m.write.as_ref().is_some_and(|w| w.en.iter().any(|&e| e != w.en[0]));
-    if n.mems.iter().any(|m| ram_mode(m.width, m.depth).is_none() || lanes(m)) {
-        return map(&n.split_mems(&bank_depth)?);
-    }
+    let n = if n.mems.iter().any(|m| ram_mode(m.width, m.depth).is_none() || lanes(m)) { n.split_mems(&bank_depth)? } else { n };
+    map_cells(&n)
+}
+
+/// Maps a netlist already fitted ([`map`]).
+fn map_cells(n: &Netlist) -> Result<Mapped, String> {
     let nn = n.nodes.len();
     let clock = n.clock()?.map(|(l, neg)| match n.nodes[node(l)] {
         Node::Input { port, .. } => (port, neg),

@@ -1,0 +1,100 @@
+# What the ice40_board example's --ram-modes found on the iCESugar-nano (board::ram_probe,
+# ram_locate, ram_locate_in_word): "bit MODE ADDR PIN STORED-BIT" (the stored bit is word*16 + bit;
+# "none" if the pin gave none), and "pin MODE PIN data|none" (the RAM all ones: whether the pin gives a 1).
+# Mode 0 is 256x16, 1 512x8, 2 1024x4, 3 2048x2. Points on pins that carry no data in the mode show
+# the stages of the multiplexer tree; board::ram_mode_bit predicts the data pins.
+bit 0 1 5 21
+pin 1 0 data
+pin 1 1 data
+pin 1 2 data
+pin 1 3 data
+pin 1 4 data
+pin 1 5 data
+pin 1 6 data
+pin 1 7 data
+pin 1 8 data
+pin 1 9 data
+pin 1 10 data
+pin 1 11 data
+pin 1 12 data
+pin 1 13 data
+pin 1 14 data
+pin 1 15 data
+bit 1 0 0 0
+bit 1 0 1 1
+bit 1 0 2 2
+bit 1 0 3 3
+bit 1 0 4 4
+bit 1 0 5 5
+bit 1 0 6 6
+bit 0 256 0 0
+bit 1 256 0 1
+bit 1 1 0 16
+bit 1 256 1 1
+bit 1 256 2 3
+bit 1 256 3 3
+bit 1 256 15 15
+bit 1 257 0 17
+bit 2 0 0 0
+bit 2 256 0 1
+bit 2 512 0 0
+bit 2 768 0 1
+bit 2 0 1 0
+bit 2 256 1 1
+bit 2 0 5 4
+bit 2 512 5 6
+bit 3 0 0 0
+bit 3 256 0 1
+bit 3 512 0 0
+bit 3 1024 0 0
+bit 3 0 1 1
+bit 3 1024 1 1
+bit 3 0 3 0
+bit 1 90 0 1440
+bit 1 346 0 1441
+bit 1 90 2 1442
+bit 1 346 2 1443
+bit 1 90 4 1444
+bit 1 346 4 1445
+bit 1 90 6 1446
+bit 1 346 6 1447
+bit 1 90 8 1448
+bit 1 346 8 1449
+bit 1 90 10 1450
+bit 1 346 10 1451
+bit 1 90 12 1452
+bit 1 346 12 1453
+bit 1 90 14 1454
+bit 1 346 14 1455
+bit 2 165 1 2640
+bit 2 421 1 2641
+bit 2 677 1 2642
+bit 2 933 1 2643
+bit 2 165 5 2644
+bit 2 421 5 2645
+bit 2 677 5 2646
+bit 2 933 5 2647
+bit 2 165 9 2648
+bit 2 421 9 2649
+bit 2 677 9 2650
+bit 2 933 9 2651
+bit 2 165 13 2652
+bit 2 421 13 2653
+bit 2 677 13 2654
+bit 2 933 13 2655
+bit 3 60 3 960
+bit 3 316 3 961
+bit 3 572 3 962
+bit 3 828 3 963
+bit 3 1084 3 964
+bit 3 1340 3 965
+bit 3 1596 3 966
+bit 3 1852 3 967
+bit 3 60 11 968
+bit 3 316 11 969
+bit 3 572 11 970
+bit 3 828 11 971
+bit 3 1084 11 972
+bit 3 1340 11 973
+bit 3 1596 11 974
+bit 3 1852 11 975

@@ -386,6 +386,16 @@ pub fn experiments(d: &Device, db: &Chipdb, sem: &Semantics) -> Result<Vec<Exper
         // co = (in_1 & in_2) | ((in_1 | in_2) & ci), in_2 unrouted.
         push(format!("carry-in-set-{}", set as u8), if set { "echo" } else { "unknown" }, des)?;
     }
+    // The RAM's other modes, predicted by `ram_mode_bit`: reading, the
+    // predicted bit alone echoes and every other bit does not; writing, A3
+    // lands on the predicted bit and not on its neighbour.
+    for (mode, addr, pin) in [(1, 0x33 | 1 << 8, 6), (2, 0x66 | 2 << 8, 9), (3, 0x99 | 5 << 8, 11)] {
+        let p = ram_mode_bit(mode, addr, pin).ok_or("not a data pin")?;
+        out.push(Experiment { name: format!("ram-mode{mode}-read"), expect: "echo", bits: ram_probe(d, db, sem, &g, mode, addr, pin, &ram_words(|q| q == p))? });
+        out.push(Experiment { name: format!("ram-mode{mode}-read-others"), expect: "no-echo", bits: ram_probe(d, db, sem, &g, mode, addr, pin, &ram_words(|q| q != p))? });
+        out.push(Experiment { name: format!("ram-mode{mode}-write"), expect: "echo", bits: ram_write_probe(d, db, sem, &g, mode, addr, pin, p)? });
+        out.push(Experiment { name: format!("ram-mode{mode}-write-next"), expect: "no-echo", bits: ram_write_probe(d, db, sem, &g, mode, addr, pin, p ^ 1)? });
+    }
     Ok(out)
 }
 
@@ -496,9 +506,218 @@ pub fn findings(r: &Results) -> Vec<(String, bool, Vec<String>)> {
             (seen("ram-write") == Some("echo") && seen("ram-write-masked") == Some("silent"), pair("ram-write", "ram-write-masked")),
         );
     }
+    let modes: Vec<_> = r.iter().filter(|x| x.0.starts_with("ram-mode")).collect();
+    if !modes.is_empty() {
+        let reads: Vec<_> = modes.iter().copied().filter(|x| x.0.contains("-read")).collect();
+        let writes: Vec<_> = modes.iter().copied().filter(|x| x.0.contains("-write")).collect();
+        let held = |v: &[&(String, String, String, usize, u64)]| v.iter().all(|x| (x.2 == "echo") == (x.1 == "echo"));
+        add(
+            "in 512x8, 1024x4 and 2048x2 a data pin reads the bit board::ram_mode_bit gives, and no other",
+            (held(&reads), names(&reads)),
+        );
+        add(
+            "in the same write modes, a data pin writes the bit board::ram_mode_bit gives, and not its neighbour",
+            (held(&writes), names(&writes)),
+        );
+    }
     add(
         "the carry is (in_1 & in_2) | ((in_1 | in_2) & ci): with CarryInSet ci is 1 and the carry follows in_1; without it the first cell's ci is 0",
         (seen("carry-in-set-1") == Some("echo") && seen("carry-in-set-0") == Some("silent"), pair("carry-in-set-1", "carry-in-set-0")),
     );
     out
+}
+
+/// Clocks `to` from D1: its global network (the chip database's gbufpin),
+/// the pad's padin bit, and the column buffers that feed `to`'s tile.
+fn clock_from_d1(des: &mut Design, to: (usize, usize, &str)) -> Result<(), String> {
+    let (cx, cy, cz) = des.pin("cm36", "D1")?;
+    let glb = des.db.gbufpin.iter().find(|g| (g.0, g.1, g.2) == (cx, cy, cz)).ok_or("D1 drives no global network")?.3;
+    let bit = format!("padin_glb_netwk.{glb}");
+    let e = des.db.extra_bits.iter().find(|x| x.0 == bit).map(|x| (x.1, x.2, x.3)).ok_or("no padin bit")?;
+    if !des.extra.contains(&e) {
+        des.extra.push(e);
+    }
+    des.route((to.0, to.1, &format!("glb_netwk_{glb}")), to)?;
+    let cbs: Vec<[usize; 4]> = des.db.colbuf.iter().filter(|c| (c[2], c[3]) == (to.0, to.1)).copied().collect();
+    for c in cbs {
+        des.func(c[0], c[1], &format!("ColBufCtrl.glb_netwk_{glb}"))?;
+    }
+    Ok(())
+}
+
+/// The cells that give constant ones: the cells of [`ONES`] and the tile
+/// below it, each a LUT of all ones.
+const ONE_CELLS: [(usize, usize, usize); 16] = {
+    let mut v = [(0, 0, 0); 16];
+    let mut i = 0;
+    while i < 16 {
+        v[i] = (ONES.0, ONES.1 - i / 8, i % 8);
+        i += 1;
+    }
+    v
+};
+
+/// A probe of the RAM's read port in read mode `mode` (RamConfig.CBIT_2 is
+/// its low bit, CBIT_3 its high, as icebox_vlog shows): read address `addr`
+/// fixed (its ones from cells of ones, its zeros unrouted), RE from a cell
+/// of ones, and B3 = A3 AND RDATA[pin], so the board echoes when the RAM
+/// gives 1 there. `words` are the contents, as `.ram_data` holds them.
+pub fn ram_probe(d: &Device, db: &Chipdb, sem: &Semantics, g: &Graph, mode: usize, addr: usize, pin: usize, words: &[u16]) -> Result<Vec<u8>, String> {
+    let mut des = Design::new(d, db, sem, g);
+    let (rx, ry) = RAM;
+    let (tx, ty) = TILE;
+    let (ax, ay, az) = des.pin("cm36", "A3")?;
+    let (bx, by, bz) = des.pin("cm36", "B3")?;
+    des.func(ax, ay, &format!("IOB_{az}.PINTYPE_0"))?;
+    des.func(bx, by, &format!("IOB_{bz}.PINTYPE_3"))?;
+    des.func(bx, by, &format!("IOB_{bz}.PINTYPE_4"))?;
+    des.ram.push(super::asc::AscRam { x: rx, y: ry, words: words.to_vec() });
+    for (bit, f) in [(1, "RamConfig.CBIT_2"), (2, "RamConfig.CBIT_3")] {
+        if mode & bit != 0 {
+            des.func(rx, ry + 1, f)?;
+        }
+    }
+    let mut ones = ONE_CELLS.iter();
+    let mut one = |des: &mut Design, port: &str| -> Result<(), String> {
+        let &(x, y, lc) = ones.next().ok_or("out of cells of ones")?;
+        let p = des.ram_port(rx, ry, port)?;
+        des.lut(x, y, lc, 0xffff);
+        des.route((x, y, &format!("lutff_{lc}/out")), (p.0, p.1, &p.2))
+    };
+    one(&mut des, "RE")?;
+    for k in 0..11 {
+        if addr >> k & 1 != 0 {
+            one(&mut des, &format!("RADDR[{k}]"))?;
+        }
+    }
+    let c = des.ram_port(rx, ry, "RCLK")?;
+    clock_from_d1(&mut des, (c.0, c.1, &c.2))?;
+    let r = des.ram_port(rx, ry, &format!("RDATA[{pin}]"))?;
+    des.route((ax, ay, &format!("io_{az}/D_IN_0")), (tx, ty, "lutff_0/in_0"))?;
+    des.route((r.0, r.1, &r.2), (tx, ty, "lutff_0/in_1"))?;
+    des.lut(tx, ty, 0, 0x8888);
+    des.route((tx, ty, "lutff_0/out"), (bx, by, &format!("io_{bz}/D_OUT_0")))?;
+    des.bitstream()
+}
+
+/// Contents with the bits numbered `p` (word p / 16, bit p % 16) set where
+/// `set(p)`.
+pub fn ram_words(set: impl Fn(usize) -> bool) -> Vec<u16> {
+    (0..256).map(|w| (0..16).fold(0u16, |v, k| v | (set(w * 16 + k) as u16) << k)).collect()
+}
+
+/// Finds which stored bit the RAM gives at `addr` on RDATA[pin] in read
+/// mode `mode`: twelve probes, with the bits whose number has bit t set,
+/// read off the number; then a probe with that bit alone, which must echo,
+/// and one with every other bit, which must not. `None` if the pin gives
+/// no stored bit there.
+pub fn ram_locate(probe: &mut dyn FnMut(&[u16]) -> Result<bool, String>) -> Result<Option<usize>, String> {
+    let mut p = 0;
+    for t in 0..12 {
+        if probe(&ram_words(|q| q >> t & 1 != 0))? {
+            p |= 1 << t;
+        }
+    }
+    let alone = probe(&ram_words(|q| q == p))?;
+    let others = probe(&ram_words(|q| q != p))?;
+    Ok((alone && !others).then_some(p))
+}
+
+/// A probe of the RAM's write port in write mode `mode` (RamConfig.CBIT_0
+/// its low bit, CBIT_1 its high): A3 written each clock at `waddr` on
+/// WDATA[wpin], the contents all zeros, and the stored bit `p` (word p /
+/// 16, bit p % 16) read back in 256x16 onto B3. The board echoes when that
+/// write lands on `p`.
+pub fn ram_write_probe(d: &Device, db: &Chipdb, sem: &Semantics, g: &Graph, mode: usize, waddr: usize, wpin: usize, p: usize) -> Result<Vec<u8>, String> {
+    let mut des = Design::new(d, db, sem, g);
+    let (rx, ry) = RAM;
+    let (ax, ay, az) = des.pin("cm36", "A3")?;
+    let (bx, by, bz) = des.pin("cm36", "B3")?;
+    des.func(ax, ay, &format!("IOB_{az}.PINTYPE_0"))?;
+    des.func(bx, by, &format!("IOB_{bz}.PINTYPE_3"))?;
+    des.func(bx, by, &format!("IOB_{bz}.PINTYPE_4"))?;
+    des.ram.push(super::asc::AscRam { x: rx, y: ry, words: vec![0; 256] });
+    for (bit, f) in [(1, "RamConfig.CBIT_0"), (2, "RamConfig.CBIT_1")] {
+        if mode & bit != 0 {
+            des.func(rx, ry + 1, f)?;
+        }
+    }
+    let mut ones = ONE_CELLS.iter().cycle();
+    let mut one = |des: &mut Design, port: &str| -> Result<(), String> {
+        let &(x, y, lc) = ones.next().unwrap();
+        let q = des.ram_port(rx, ry, port)?;
+        des.lut(x, y, lc, 0xffff);
+        des.route((x, y, &format!("lutff_{lc}/out")), (q.0, q.1, &q.2))
+    };
+    one(&mut des, "RE")?;
+    one(&mut des, "WE")?;
+    for k in 0..11 {
+        if waddr >> k & 1 != 0 {
+            one(&mut des, &format!("WADDR[{k}]"))?;
+        }
+    }
+    for k in 0..8 {
+        if (p / 16) >> k & 1 != 0 {
+            one(&mut des, &format!("RADDR[{k}]"))?;
+        }
+    }
+    for port in ["RCLK", "WCLK"] {
+        let c = des.ram_port(rx, ry, port)?;
+        clock_from_d1(&mut des, (c.0, c.1, &c.2))?;
+    }
+    let w = des.ram_port(rx, ry, &format!("WDATA[{wpin}]"))?;
+    des.route((ax, ay, &format!("io_{az}/D_IN_0")), (w.0, w.1, &w.2))?;
+    let r = des.ram_port(rx, ry, &format!("RDATA[{}]", p % 16))?;
+    des.route((r.0, r.1, &r.2), (bx, by, &format!("io_{bz}/D_OUT_0")))?;
+    des.bitstream()
+}
+
+/// [`ram_locate`] within word `w`: four probes with the word's bits whose
+/// number has bit t set, then the same two checks (the found bit alone
+/// echoes, every other stored bit does not).
+pub fn ram_locate_in_word(w: usize, probe: &mut dyn FnMut(&[u16]) -> Result<bool, String>) -> Result<Option<usize>, String> {
+    let mut k = 0;
+    for t in 0..4 {
+        if probe(&ram_words(|q| q / 16 == w && (q % 16) >> t & 1 != 0))? {
+            k |= 1 << t;
+        }
+    }
+    let p = w * 16 + k;
+    let alone = probe(&ram_words(|q| q == p))?;
+    let others = probe(&ram_words(|q| q != p))?;
+    Ok((alone && !others).then_some(p))
+}
+
+/// The stored bit (word p / 16, bit p % 16) a block RAM's data pin `pin`
+/// reads at `addr` in read mode `mode` (0 256x16, 1 512x8, 2 1024x4, 3
+/// 2048x2), as the board showed (`record-ram-modes.txt`): the word is the
+/// address's low eight bits; in mode m > 0 the data pins are those with
+/// pin % 2^m = 2^(m-1) - 1 (the even pins, then 1, 5, 9, 13, then 3, 11),
+/// each reading bit (pin with its low m bits clear) + (addr >> 8). `None`
+/// for a pin that carries no data in the mode. The write modes are taken to
+/// be the same, which the `ram-mode*-write` experiments check.
+pub fn ram_mode_bit(mode: usize, addr: usize, pin: usize) -> Option<usize> {
+    let word = addr & 255;
+    if mode == 0 {
+        return Some(word * 16 + pin);
+    }
+    let n = 1 << mode;
+    (pin % n == n / 2 - 1).then(|| word * 16 + (pin & !(n - 1)) + ((addr >> 8) & (n - 1)))
+}
+
+/// A mapped point of a block RAM read mode: `(mode, addr, pin, stored bit)`.
+pub type RamPoint = (usize, usize, usize, Option<usize>);
+
+/// The `bit` lines of `record-ram-modes.txt` (the ice40_board example's
+/// `--ram-modes`); `pin` lines (the screen with every bit one) are left out.
+pub fn ram_points_from_text(text: &str) -> Vec<RamPoint> {
+    text.lines()
+        .filter_map(|l| {
+            let w: Vec<&str> = l.split_whitespace().collect();
+            if w.first() != Some(&"bit") || w.len() != 5 {
+                return None;
+            }
+            Some((w[1].parse().ok()?, w[2].parse().ok()?, w[3].parse().ok()?, w[4].parse().ok()))
+        })
+        .collect()
 }

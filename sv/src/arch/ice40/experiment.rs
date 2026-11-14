@@ -115,14 +115,11 @@ pub fn run(ip: &Icepack, fingerprints: u64, log: &mut dyn FnMut(&str)) -> Result
     };
     let (code, old, new) = one_change(&variant(&["-s"])?, "-s")?;
     (f.nosleep_code, f.nosleep_mask) = (code, old ^ new);
-    for m in 0..3u32 {
-        let (code, _, new) = one_change(&variant(&[&format!("-m{}", (m + 1) % 3), &format!("-m{m}")])?, "-m")
-            .or_else(|_| {
-                // -m of the default changes nothing: compare with -m1 instead.
-                let other = variant(&["-m1"])?;
-                let (code, _, _) = one_change(&other, "-m1")?;
-                Ok::<_, String>((code, 0, m))
-            })?;
+    if variant(&["-m0"])? != commands {
+        return Err("header: -m0 is not the default".into());
+    }
+    for m in 1..3u32 {
+        let (code, _, new) = one_change(&variant(&[&format!("-m{m}")])?, "-m")?;
         if f.freq_code != 0 && f.freq_code != code || new != m {
             return Err(format!("header: -m{m} sets command {code}'s argument to {new}"));
         }

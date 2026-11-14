@@ -31,6 +31,10 @@ pub struct Options {
     /// Port bit (`name` or `name[i]`) to package pin.
     pub pins: Vec<(String, String)>,
     pub seed: u64,
+    /// Route a clock with no global buffer pin through the fabric to its
+    /// tiles, rather than onto a free global network through a global
+    /// buffer input (`gbufin`).
+    pub fabric_clocks: bool,
 }
 
 /// Everything the flow made.
@@ -247,17 +251,51 @@ pub fn build_mapped(
     }
 
     // ---- clocks ----
+    // A clock from a global buffer pin goes on its pin's global network
+    // (the pad's `padin` bit). Any other goes on a free global network
+    // through that network's global buffer input: routed as a signal to
+    // the `fabout` of the I/O tile `gbufin` names, the pad bit left clear
+    // (the board showed it so). Failing a free network, or with
+    // `fabric_clocks`, it is routed through the fabric to each sink.
     let mut requests: Vec<Request> = Vec::new();
     let mut clock_glb = Vec::new();
-    // Clocks from no global buffer pin are routed as signals, below.
     let mut fabric_clocks: Vec<(Src, Vec<(usize, usize, String)>)> = Vec::new();
+    let mut fabouts: Vec<(Src, usize)> = Vec::new();
+    let mut taken: Vec<usize> = clocks.iter().filter_map(|(c, _)| glb_of(*c)).collect();
+    let src_at = |s: Src| -> (usize, usize) {
+        match s {
+            Src::Lc(c) => (at[c as usize].0, at[c as usize].1),
+            Src::Pin { port, bit } => {
+                let p = &placement.inputs[&(port, bit)];
+                (p.0, p.1)
+            }
+            Src::Ram { ram, bit } => placement.rams[ram as usize][m.rams[ram as usize].pin_of(bit).0 as usize],
+        }
+    };
     for (c, sinks) in &clocks {
-        let Some(glb) = glb_of(*c) else {
-            fabric_clocks.push((*c, sinks.clone()));
-            continue;
+        let glb = match glb_of(*c) {
+            Some(glb) => {
+                des.extra_bit(&format!("padin_glb_netwk.{glb}"))?;
+                glb
+            }
+            None => {
+                let (sx, sy) = src_at(*c);
+                let free = db
+                    .gbufin
+                    .iter()
+                    .filter(|g| !taken.contains(&g.2) && !opts.fabric_clocks)
+                    .min_by_key(|g| g.0.abs_diff(sx) + g.1.abs_diff(sy))
+                    .copied();
+                let Some((gx, gy, glb)) = free else {
+                    fabric_clocks.push((*c, sinks.clone()));
+                    continue;
+                };
+                taken.push(glb);
+                fabouts.push((*c, net(gx, gy, "fabout")?));
+                glb
+            }
         };
         clock_glb.push(glb);
-        des.extra_bit(&format!("padin_glb_netwk.{glb}"))?;
         for (x, y, name) in sinks {
             des.route((*x, *y, &format!("glb_netwk_{glb}")), (*x, *y, name))?;
             let cbs: Vec<[usize; 4]> = db.colbuf.iter().filter(|c| (c[2], c[3]) == (*x, *y)).copied().collect();
@@ -327,6 +365,9 @@ pub fn build_mapped(
         for (x, y, name) in clock_sinks {
             add(*c, Sink::Net(net(*x, *y, name)?), &mut sinks);
         }
+    }
+    for &(c, n) in &fabouts {
+        add(c, Sink::Net(n), &mut sinks);
     }
     // RAM ports: each block gets the addresses and enables, and its data
     // bits.

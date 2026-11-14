@@ -263,6 +263,12 @@ fn records() -> (Device, Chipdb, Semantics) {
 /// Builds `flow/NAME.sv` for the board, checking the mapped cells against
 /// the interpreter first.
 fn build_design(name: &str, defines: &[&str]) -> Built {
+    build_design_with(name, defines, false)
+}
+
+/// [`build_design`], with a clock the design makes routed through the
+/// fabric if `fabric_clocks`.
+fn build_design_with(name: &str, defines: &[&str], fabric_clocks: bool) -> Built {
     let (d, db, sem) = records();
     let mut s = Sources::default();
     s.file(arch().join(format!("flow/{name}.sv")));
@@ -280,7 +286,7 @@ fn build_design(name: &str, defines: &[&str]) -> Built {
     let pins = parse_pins(&std::fs::read_to_string(arch().join("flow/nano.pins")).unwrap()).unwrap();
     let ports: Vec<&str> = n.inputs.iter().chain(&n.outputs).map(|p| p.name.as_str()).collect();
     let pins = pins.into_iter().filter(|(p, _)| ports.contains(&p.as_str())).collect();
-    let b = build(&d, &db, &sem, n, &Options { package: "cm36".into(), pins, seed: 1 })
+    let b = build(&d, &db, &sem, n, &Options { package: "cm36".into(), pins, seed: 1, fabric_clocks })
         .unwrap_or_else(|e| panic!("{name}: {e}"));
     eprintln!("{name}:\n{}", b.report());
     b
@@ -304,7 +310,12 @@ fn board_designs_build() {
     }
     let b = build_design("hello_ram", &[]);
     assert_eq!(b.mapped.rams.len(), 1);
-    build_design("hello_div", &[]);
+    // A clock the design makes: on a global network of its own (through a
+    // global buffer input), or through the fabric.
+    let b = build_design("hello_div", &[]);
+    assert_eq!(b.clock_glb.len(), 2, "{:?}", b.clock_glb);
+    let b = build_design_with("hello_div", &[], true);
+    assert_eq!(b.clock_glb, vec![1]);
     // The delay line's read never meets its write: no delayed write.
     let b = build_design("ramdelay", &["WIDTH=8"]);
     assert!(!b.mapped.lcs.iter().any(|l| l.name.contains("bypass")), "{}", b.mapped.stats());
@@ -394,15 +405,18 @@ fn board_live() {
         eprintln!("(h) read while writing, {w} bits wide: {seen}");
         assert_eq!(seen, "echo", "(h) W={w}");
     }
-    // (i) a clock the design makes, routed through the fabric.
-    let b = build_design("hello_div", &[]);
-    ip.program(&b.bitstream).unwrap();
-    let mut s = Serial::open(&port).unwrap();
-    s.read_for(100);
-    let got = s.read_for(500);
-    let whole = String::from_utf8_lossy(&got).matches("Hello from Epitome\r\n").count();
-    eprintln!("(i) on a divided clock: {} bytes, {whole} whole strings", got.len());
-    assert!(whole >= 100, "(i) {whole} strings in 0.5 s");
+    // (i) a clock the design makes, on a global network of its own; and
+    // (j) routed through the fabric instead.
+    for (test, fabric) in [("(i)", false), ("(j)", true)] {
+        let b = build_design_with("hello_div", &[], fabric);
+        ip.program(&b.bitstream).unwrap();
+        let mut s = Serial::open(&port).unwrap();
+        s.read_for(100);
+        let got = s.read_for(500);
+        let whole = String::from_utf8_lossy(&got).matches("Hello from Epitome\r\n").count();
+        eprintln!("{test} on a divided clock ({:?}): {} bytes, {whole} whole strings", b.clock_glb, got.len());
+        assert!(whole >= 100, "{test} {whole} strings in 0.5 s");
+    }
     // (f) the string from a RAM's initial contents.
     let b = build_design("hello_ram", &[]);
     ip.program(&b.bitstream).unwrap();
@@ -444,8 +458,8 @@ fn build_tq144(text: &str, top: &str) -> Built {
             pins.push((epitome_sv::arch::ice40::place::bit_name(&p.name, p.width, b), free.next().unwrap()));
         }
     }
-    let b =
-        build(&d, &db, &sem, n, &Options { package: "tq144".into(), pins, seed: 3 }).unwrap_or_else(|e| panic!("{e}"));
+    let b = build(&d, &db, &sem, n, &Options { package: "tq144".into(), pins, seed: 3, fabric_clocks: false })
+        .unwrap_or_else(|e| panic!("{e}"));
     eprintln!("{top}:\n{}", b.report());
     b
 }
@@ -495,7 +509,7 @@ fn board_try() {
     let pins = parse_pins(&std::fs::read_to_string(arch().join("flow/nano.pins")).unwrap()).unwrap();
     let ports: Vec<&str> = n.inputs.iter().chain(&n.outputs).map(|p| p.name.as_str()).collect();
     let pins = pins.into_iter().filter(|(p, _)| ports.contains(&p.as_str())).collect();
-    let b = build(&d, &db, &sem, n, &Options { package: "cm36".into(), pins, seed: 1 }).unwrap();
+    let b = build(&d, &db, &sem, n, &Options { package: "cm36".into(), pins, seed: 1, fabric_clocks: false }).unwrap();
     eprintln!("{}", b.report());
     for (i, r) in b.mapped.rams.iter().enumerate() {
         eprintln!("ram {} mode {} at {:?}", r.name, r.mode, b.placement.rams[i]);
@@ -686,7 +700,7 @@ fn build_experiment(kind: Kind, n: usize) -> (Built, usize) {
         &sem,
         epitome_sv::synth::Netlist::new(),
         m,
-        &Options { package: "cm36".into(), pins, seed: 1 },
+        &Options { package: "cm36".into(), pins, seed: 1, fabric_clocks: false },
     )
     .unwrap_or_else(|e| panic!("{kind:?} {n}: {e}"));
     (b, carries)

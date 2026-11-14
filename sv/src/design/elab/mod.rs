@@ -1350,6 +1350,9 @@ impl<'a, 'x> Elab<'a, 'x> {
                 && self.obj(p).node != dcl
             {
                 self.complete_port(p, t, ObjKind::Net(kind_sym), name)?;
+                if let Some(i) = init {
+                    self.defer(Work::NetInit(p, i, strength));
+                }
                 continue;
             }
             let o = self.new_object(Object {

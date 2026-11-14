@@ -373,42 +373,64 @@ fn cell_line(v: &str, what: &str, lc: usize) -> Option<String> {
     })
 }
 
+fn func(bits: &[(String, Vec<Bit>)], name: &str) -> Result<Vec<Bit>, String> {
+    bits.iter().find(|(f, _)| f == name).map(|(_, b)| b.clone()).ok_or_else(|| format!("chipdb: no tile function {name}"))
+}
+
+fn kind_bits<'a>(db: &'a Chipdb, kind: &str) -> Result<&'a [(String, Vec<Bit>)], String> {
+    Ok(&db.tile_bits.iter().find(|(k, _)| k == kind).ok_or_else(|| format!("chipdb: no {kind} tile bits"))?.1)
+}
+
+/// The bits that wire logic cell `lc` of [`TILE`] to the pins: inputs and
+/// output, and with `ctrl` the tile's clock, enable and set/reset.
+pub fn wire_cell(g: &Graph, db: &Chipdb, lc: usize, ctrl: bool) -> Result<FxSet<(usize, usize, Bit)>, String> {
+    let (tx, ty) = TILE;
+    let mut used = FxSet::default();
+    let mut bits = FxSet::default();
+    let pin = |p: (usize, usize, usize), port: &str| g.net(p.0, p.1, &format!("io_{}/{port}", p.2));
+    bits.extend(g.route(g.net(tx, ty, &format!("lutff_{lc}/out"))?, pin(OUT_PIN, "D_OUT_0")?, &mut used)?);
+    for (j, p) in IN_PINS.iter().enumerate() {
+        bits.extend(g.route(pin(*p, "D_IN_0")?, g.net(tx, ty, &format!("lutff_{lc}/in_{j}"))?, &mut used)?);
+    }
+    if ctrl {
+        for (x, y, z, name) in CTRL_PINS {
+            bits.extend(g.route(pin((x, y, z), "D_IN_0")?, g.net(tx, ty, name)?, &mut used)?);
+        }
+    }
+    for k in 0..6 {
+        for b in func(kind_bits(db, "io")?, &format!("IOB_{}.PINTYPE_{k}", OUT_PIN.2))? {
+            bits.insert((OUT_PIN.0, OUT_PIN.1, b));
+        }
+    }
+    Ok(bits)
+}
+
+/// The truth table of cell `lc`'s LUT in `icebox_vlog`'s output (bit i
+/// the output for inputs i), or `None` if it prints no LUT for the cell.
+pub fn lut_table(v: &str, lc: usize) -> Result<Option<u16>, String> {
+    let r = roles(v, lc);
+    let Some(expr) = cell_line(v, "LUT", lc) else { return Ok(None) };
+    let rhs = expr.split_once('=').map(|(_, e)| e.trim().trim_end_matches(';')).ok_or("lut: no assignment")?;
+    let mut table = 0u16;
+    for i in 0..16usize {
+        let val = |n: &str| match r.get(n).map(|s| s.as_str()) {
+            Some(role) if role.starts_with("in_") => Some(i >> (role.as_bytes()[3] - b'0') & 1 != 0),
+            _ => None,
+        };
+        if eval(rhs, &val)? {
+            table |= 1 << i;
+        }
+    }
+    Ok(Some(table))
+}
+
 /// Runs the experiments.
 pub fn run(ib: &Icebox, d: &Device, db: &Chipdb, raw: &Raw, log: &mut dyn FnMut(&str)) -> Result<Semantics, String> {
     let g = Graph::new(raw);
-    let logic_bits = &db.tile_bits.iter().find(|(k, _)| k == "logic").ok_or("chipdb: no logic tile bits")?.1;
-    let io_bits = &db.tile_bits.iter().find(|(k, _)| k == "io").ok_or("chipdb: no io tile bits")?.1;
-    let func = |bits: &[(String, Vec<Bit>)], name: &str| -> Result<Vec<Bit>, String> {
-        bits.iter().find(|(f, _)| f == name).map(|(_, b)| b.clone()).ok_or_else(|| format!("chipdb: no tile function {name}"))
-    };
+    let logic_bits = kind_bits(db, "logic")?;
     let (tx, ty) = TILE;
     let mut sem = Semantics::default();
-
-    // The wiring for cell `lc`: its bits set, and the nets used.
-    let wiring = |lc: usize, ctrl: bool| -> Result<FxSet<(usize, usize, Bit)>, String> {
-        let mut used = FxSet::default();
-        let mut bits = FxSet::default();
-        let pin = |p: (usize, usize, usize), port: &str| g.net(p.0, p.1, &format!("io_{}/{port}", p.2));
-        let mut add = |from: usize, to: usize, used: &mut FxSet<usize>| -> Result<(), String> {
-            bits.extend(g.route(from, to, used)?);
-            Ok(())
-        };
-        add(g.net(tx, ty, &format!("lutff_{lc}/out"))?, pin(OUT_PIN, "D_OUT_0")?, &mut used)?;
-        for (j, p) in IN_PINS.iter().enumerate() {
-            add(pin(*p, "D_IN_0")?, g.net(tx, ty, &format!("lutff_{lc}/in_{j}"))?, &mut used)?;
-        }
-        if ctrl {
-            for (x, y, z, name) in CTRL_PINS {
-                add(pin((x, y, z), "D_IN_0")?, g.net(tx, ty, name)?, &mut used)?;
-            }
-        }
-        for k in 0..6 {
-            for b in func(io_bits, &format!("IOB_{}.PINTYPE_{k}", OUT_PIN.2))? {
-                bits.insert((OUT_PIN.0, OUT_PIN.1, b));
-            }
-        }
-        Ok(bits)
-    };
+    let wiring = |lc: usize, ctrl: bool| wire_cell(&g, db, lc, ctrl);
 
     // lut and options
     let mut jobs: Vec<(usize, Bit, String)> = Vec::new();
@@ -425,26 +447,10 @@ pub fn run(ib: &Icebox, d: &Device, db: &Chipdb, raw: &Raw, log: &mut dyn FnMut(
     let mut lut: Vec<[Option<Bit>; 16]> = vec![[None; 16]; 8];
     let mut others: Vec<Vec<Bit>> = vec![Vec::new(); 8];
     for ((lc, b, _), v) in jobs.iter().zip(&outs) {
-        let r = roles(v, *lc);
-        let Some(expr) = cell_line(v, "LUT", *lc) else {
-            others[*lc].push(*b);
-            continue;
-        };
-        let rhs = expr.split_once('=').map(|(_, e)| e.trim().trim_end_matches(';')).ok_or("lut: no assignment")?;
-        let mut hits = Vec::new();
-        for i in 0..16usize {
-            let val = |n: &str| match r.get(n).map(|s| s.as_str()) {
-                Some(role) if role.starts_with("in_") => Some(i >> (role.as_bytes()[3] - b'0') & 1 != 0),
-                _ => None,
-            };
-            if eval(rhs, &val)? {
-                hits.push(i);
-            }
-        }
-        match hits[..] {
-            [] => others[*lc].push(*b),
-            [i] if lut[*lc][i].is_none() => lut[*lc][i] = Some(*b),
-            _ => return Err(format!("lut: cell {lc} bit {b:?} gives LUT {rhs}")),
+        match lut_table(v, *lc)? {
+            None | Some(0) => others[*lc].push(*b),
+            Some(t) if t.count_ones() == 1 && lut[*lc][t.trailing_zeros() as usize].is_none() => lut[*lc][t.trailing_zeros() as usize] = Some(*b),
+            Some(t) => return Err(format!("lut: cell {lc} bit {b:?} gives truth table {t:#06x}")),
         }
     }
     for lc in 0..8 {

@@ -183,6 +183,7 @@ pub struct Lowered {
     pub spec: String,
     pub lanes: u32,
     pub name: String,
+    pub shape: Shape,
 }
 
 /// The compiled netlist of one top-level instance.
@@ -528,7 +529,7 @@ pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, 
     let mut functions: Vec<Lowered> = n
         .done
         .iter()
-        .map(|&k| Lowered { spec: d.name(d.spec(k.0).name).to_string(), lanes: k.1, name: fn_name(k) })
+        .map(|&k| Lowered { spec: d.name(d.spec(k.0).name).to_string(), lanes: k.1, name: fn_name(k), shape: n.layouts[&k].shape })
         .collect();
     functions.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(Netlist { module, entry, size, lanes: sims, ports, dropped, profile, functions })

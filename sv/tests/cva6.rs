@@ -600,8 +600,9 @@ fn guarded_arms() {
     let src = tmp_dir().join("guarded_top.sv");
     std::fs::write(&src, GUARDED).unwrap();
     let files = vec![src];
-    // (Guarded as by default, whatever NETLIST_GUARD_MIN says.)
-    let opts = epitome_sv::netlist::Options { guard_min: epitome_sv::netlist::GUARD_MIN, ..netlist_options() };
+    // (Guarded as by default, whatever NETLIST_GUARD_MIN says; in 32-bit
+    // lanes, where the arms' 64-bit products are costly enough to guard.)
+    let opts = epitome_sv::netlist::Options { guard_min: epitome_sv::netlist::GUARD_MIN, lane_bits: Some(32), ..netlist_options() };
     let b = build("guarded", netlist_with(files.clone(), Vec::new(), "guarded_top", opts), &t, triple, &mattr);
     report("guarded", &b);
     let Some(v) = verilate("guarded", &files, &[], "guarded_top", &b.net.ports, Some("clk_i")) else { return };
@@ -633,7 +634,7 @@ fn guarded_arms() {
     assert!(guards >= 4, "the costly arms are not guarded");
     let ns = time_replay(&b, &v, cycles, n, &stim, 3);
     // The same without guards, every arm run and merged by selects.
-    let opts = epitome_sv::netlist::Options { guard_min: 0, ..netlist_options() };
+    let opts = epitome_sv::netlist::Options { guard_min: 0, lane_bits: Some(32), ..netlist_options() };
     let flat = build("guarded_flat", netlist_with(files.clone(), Vec::new(), "guarded_top", opts), &t, triple, &mattr);
     check_against(&flat, &v, cycles, n, &stim, &|w| format!("{w:x?}"));
     let flat_ns = time_replay(&flat, &v, cycles, n, &stim, 3);

@@ -66,18 +66,13 @@ pub fn netlist_options() -> netlist::Options {
     // NETLIST_SIMS: simulations at once, the lanes of a state (fewer where
     // the state would not fit `netlist::STATE_MAX`).
     let sims = std::env::var("NETLIST_SIMS").ok().and_then(|v| v.parse().ok()).unwrap_or(GROUP);
-    // NETLIST_VECTORS=1: lanes in vector registers, not side by side in an
-    // i64 (SWAR), where bit planes want mask registers.
-    let vectors = std::env::var("NETLIST_VECTORS").is_ok_and(|v| v == "1");
-    netlist::Options {
-        bit_planes: !(vectors && x86_without_masks),
-        recognise,
-        guard_min,
-        branch_min,
-        sims,
-        profile,
-        vectors,
-    }
+    // NETLIST_SWAR=1: every function's lanes side by side in an i64 (SWAR),
+    // not SIMD where that is faster; NETLIST_LANE_BITS=32 or 64: the SIMD
+    // lanes' width, not chosen for each function. (Bit planes in SIMD want
+    // mask registers.)
+    let vectors = std::env::var("NETLIST_SWAR").map_or(true, |v| v != "1");
+    let lane_bits = std::env::var("NETLIST_LANE_BITS").ok().and_then(|v| v.parse().ok());
+    netlist::Options { bit_planes: !(vectors && x86_without_masks), recognise, guard_min, branch_min, sims, profile, vectors, lane_bits }
 }
 
 /// [`netlist_options`] for `sims` simulations at once.

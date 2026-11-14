@@ -29,8 +29,10 @@
 //! parent's lanes, and its ports are where its parent keeps the values they
 //! are connected to; an array of `k` children is one call with `k` times
 //! the parent's lanes, iteration `i` in lanes `i * w..(i + 1) * w` for a
-//! parent `w` lanes wide, and the parent copies each iteration's inputs to
-//! its lanes and its outputs back.
+//! parent `w` lanes wide. Where the iterations' connections are an array's
+//! elements kept as the child's lanes are, the child reads and writes
+//! them there; otherwise the parent copies each iteration's inputs to its
+//! lanes and its outputs back.
 //!
 //! A specialisation with registers below it also has `_ff`, which runs its
 //! clocked processes where an edge came (each lane's edge a mask) and
@@ -270,9 +272,26 @@ pub struct Field {
     pub lane: Lane,
     /// The shape of the function whose state it is in.
     pub shape: Shape,
+    /// For a value kept an element to a slot: the elements' width, and
+    /// the bytes from one's slot to the next. Each is then stored as `lane`
+    /// says, as a value of its own.
+    pub elems: Option<(u32, usize)>,
 }
 
 impl Field {
+    /// A `width`-bit value at `offset`, stored as `lane` in a function of
+    /// shape `shape`.
+    fn slot(offset: usize, width: u32, lane: Lane, shape: Shape) -> Field {
+        Field { name: String::new(), dir: Dir::Input, offset, width, lane, shape, elems: None }
+    }
+
+    /// Element `j` of a value kept an element to a slot, as a value of its
+    /// own.
+    fn elem(&self, j: usize) -> Field {
+        let (ew, stride) = self.elems.expect("kept an element to a slot");
+        Field::slot(self.offset + j * stride, ew, self.lane, self.shape)
+    }
+
     /// The byte offset of 32-bit word `k` (bits `32 * k` up) of lane `n`,
     /// for a value in 32- or 64-bit pieces.
     pub fn at(&self, k: usize, n: usize) -> usize {
@@ -317,6 +336,13 @@ impl Field {
     /// # Safety
     /// `state` is a state for this netlist.
     pub unsafe fn put_words(&self, state: *mut u8, n: usize, v: &[u32]) {
+        if let Some((ew, _)) = self.elems {
+            for j in 0..(self.width / ew) as usize {
+                let e = bits_of_words(v, j as u32 * ew, ew);
+                unsafe { self.elem(j).put_words(state, n, &e) };
+            }
+            return;
+        }
         unsafe {
             match self.lane {
                 Lane::W32 | Lane::W64 => {
@@ -346,6 +372,20 @@ impl Field {
     /// # Safety
     /// `state` is a state for this netlist.
     pub unsafe fn get_words(&self, state: *const u8, n: usize, out: &mut Vec<u32>) {
+        if let Some((ew, _)) = self.elems {
+            let at = out.len();
+            out.resize(at + self.pieces(), 0);
+            for j in 0..(self.width / ew) as usize {
+                let mut e = Vec::new();
+                unsafe { self.elem(j).get_words(state, n, &mut e) };
+                for i in 0..ew {
+                    let bit = e[i as usize / 32] >> (i % 32) & 1;
+                    let b = j as u32 * ew + i;
+                    out[at + b as usize / 32] |= bit << (b % 32);
+                }
+            }
+            return;
+        }
         unsafe {
             match self.lane {
                 Lane::W32 | Lane::W64 => {
@@ -398,6 +438,18 @@ impl Netlist {
     pub fn port(&self, name: &str) -> Option<&Field> {
         self.ports.iter().find(|p| p.name == name)
     }
+}
+
+/// Bits `lo..lo + w` of a value given as 32-bit words, low first, as
+/// words.
+fn bits_of_words(v: &[u32], lo: u32, w: u32) -> Vec<u32> {
+    let mut out = vec![0u32; (w as usize).div_ceil(32).max(1)];
+    for i in 0..w {
+        let b = lo + i;
+        let bit = v.get(b as usize / 32).map_or(0, |x| x >> (b % 32) & 1);
+        out[i as usize / 32] |= bit << (i % 32);
+    }
+    out
 }
 
 /// A type's width in the netlist: an integral type's, or a fixed-size
@@ -621,9 +673,16 @@ pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, 
                 continue;
             }
             let lay = n.layouts.get_mut(&key).unwrap();
-            let (lane, w) = (lay.lane(o), tw(&d.types, d.object(o).ty));
-            let copy = lay.room_for(w, lane);
-            n.watch.push((lay.objs[&o], lane, w, copy));
+            // (Kept an element to a slot: each element as a value.)
+            let (at, lane, w) = (lay.objs[&o], lay.lane(o), tw(&d.types, d.object(o).ty));
+            let (ats, lane, w) = match lay.elems.get(&o) {
+                Some(e) => ((0..e.n as u64).map(|j| at + j * e.stride()).collect(), e.lane, e.ew),
+                None => (vec![at], lane, w),
+            };
+            for at in ats {
+                let copy = lay.room_for(w, lane);
+                n.watch.push((at, lane, w, copy));
+            }
         }
         let lay = n.layouts.get_mut(&key).unwrap();
         n.settled = lay.room(1, 1);
@@ -639,13 +698,15 @@ pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, 
     let mut ports = Vec::new();
     for p in &d.spec(spec).ports {
         let o = p.object.ok_or_else(|| format!("interface port {} is not supported yet", d.name(p.name)))?;
+        let e = lay.elems.get(&o);
         ports.push(Field {
             name: d.name(p.name).to_string(),
             dir: p.dir,
             offset: lay.objs[&o] as usize,
             width: tw(&d.types, d.object(o).ty),
-            lane: lay.lane(o),
+            lane: e.map_or(lay.lane(o), |e| e.lane),
             shape: lay.shape,
+            elems: e.map(|e| (e.ew, e.stride() as usize)),
         });
     }
     let dropped = n.dropped.get() + n.asserts.borrow().len();
@@ -697,6 +758,14 @@ impl<'d, 'a> Lowering<'d, 'a> {
             codes: HashMap::new(),
             arrays: HashMap::new(),
         }
+    }
+}
+
+/// Notes a use of `o` (see `Lowering::expr_uses`).
+fn note_use(uses: &mut HashMap<ObjId, Option<u32>>, o: ObjId, u: Option<u32>) {
+    let slot = uses.entry(o).or_insert(u);
+    if *slot != u {
+        *slot = None;
     }
 }
 
@@ -833,6 +902,11 @@ enum Arg {
     /// child's values are, that the parent fills before the call (an input)
     /// or reads after it (an output).
     Slot(u64),
+    /// For an array of children: the parent's value kept an element to a
+    /// slot, from this many bytes in, where each iteration's element (one
+    /// after another) is already as the child keeps that iteration's
+    /// lanes. The child reads and writes them there.
+    Elems(ObjId, u64),
 }
 
 /// Where a value is: at an offset in the function's state, or behind one
@@ -937,7 +1011,7 @@ enum Out {
 /// bits) in a register of 32-bit lanes each; in scalar code, each element
 /// as narrow as it fits (up to 64 bits). Selecting an element is then
 /// choosing an address, with no shifts.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Elems {
     /// The element's width.
     ew: u32,
@@ -1352,20 +1426,6 @@ impl<'d, 'a> Lowering<'d, 'a> {
         }
         lay.regs.sort_unstable_by_key(|o| o.0);
         let ff_reads: HashSet<ObjId> = ff_reads.into_iter().map(|t| t.0).collect();
-        lay.elems = self.element_only(&objs, &code, sh);
-        lay.elems.retain(|o, _| !lay.regs.contains(o) && !ff_reads.contains(o));
-        let indexed = self.indexed(&code, &lay.ff);
-        lay.pads = self.padded(&objs, &indexed, sh);
-        lay.pads.retain(|o, _| !lay.elems.contains_key(o));
-        lay.kept = lay.pads.keys().copied().collect();
-        for &o in &objs {
-            let ob = d.object(o);
-            let reg = lay.regs.contains(&o) && !ff_reads.contains(&o);
-            if ob.dir.is_none() && !lay.elems.contains_key(&o) && tw(&d.types, ob.ty) as usize >= 32 * KEPT_MIN && (reg || indexed.contains(&o)) {
-                lay.kept.insert(o);
-            }
-        }
-        lay.in_place = lay.kept.iter().copied().filter(|o| lay.regs.contains(o) && !ff_reads.contains(o)).collect();
         // Arrays of children are called as one by a parent narrower than
         // registers of 16 lanes, a block of the child's lanes an iteration;
         // in wider ones each instance has as many lanes as its parent, and
@@ -1401,7 +1461,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
             if lay.groups.keys().any(|i| looped.contains(i)) {
                 lay.groups.retain(|i, _| !looped.contains(i));
                 let groups = lay.groups.clone();
-                expand(lay, code, &groups);
+                expand(lay, code.clone(), &groups);
             }
         }
         let mut lay = self.layouts.remove(&key).unwrap();
@@ -1418,6 +1478,47 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 lay.kid_keys.insert(i, ck);
             }
         }
+        // Values kept an element to a slot, once the children's are known:
+        // a value connected whole to a single child's input kept so is too.
+        let mut kid_elems = HashMap::new();
+        for node in &lay.code {
+            let Node::In(i) = *node else { continue };
+            if lay.groups.contains_key(&i) {
+                continue;
+            }
+            let child = &self.layouts[&lay.kid_keys[&i]];
+            for p in &d.spec(d.instance(i).spec).ports {
+                if let Some(e) = p.object.and_then(|po| child.elems.get(&po))
+                    && let Some(c) = d.instance(i).connections.iter().find(|c| c.port == p.name).and_then(|c| c.expr)
+                {
+                    kid_elems.insert(c, e.ew);
+                }
+            }
+        }
+        lay.elems = self.element_only(&objs, &code, sh, &kid_elems);
+        lay.elems.retain(|o, _| !lay.regs.contains(o) && !ff_reads.contains(o));
+        // An input only where a child then reads it in place: its whole
+        // value, which a select by a value a lane needs, is otherwise one
+        // load, not one for each element.
+        let mut shared: HashSet<ObjId> = kid_elems.keys().filter_map(|&e| self.whole_object(e)).collect();
+        for (i, members) in &lay.groups {
+            for p in &d.spec(d.instance(*i).spec).ports {
+                shared.extend(self.in_lanes(&lay, members, p, lay.kid_keys[i]).map(|t| t.0));
+            }
+        }
+        lay.elems.retain(|o, _| d.object(*o).dir.is_none() || shared.contains(o));
+        let indexed = self.indexed(&code, &lay.ff);
+        lay.pads = self.padded(&objs, &indexed, sh);
+        lay.pads.retain(|o, _| !lay.elems.contains_key(o));
+        lay.kept = lay.pads.keys().copied().collect();
+        for &o in &objs {
+            let ob = d.object(o);
+            let reg = lay.regs.contains(&o) && !ff_reads.contains(&o);
+            if ob.dir.is_none() && !lay.elems.contains_key(&o) && tw(&d.types, ob.ty) as usize >= 32 * KEPT_MIN && (reg || indexed.contains(&o)) {
+                lay.kept.insert(o);
+            }
+        }
+        lay.in_place = lay.kept.iter().copied().filter(|o| lay.regs.contains(o) && !ff_reads.contains(o)).collect();
         lay.clocked = !lay.ff.is_empty() || lay.kid_keys.values().any(|k| self.layouts[k].clocked);
         self.layouts.insert(key, lay);
         self.split_calls(key)?;
@@ -1461,26 +1562,37 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let mut lay = self.layouts.remove(&key).unwrap();
         port_lanes(&mut lay);
         // What each child's ports are connected to: the parent's own values
-        // where a single child's are connected whole.
-        let mut args: Vec<(InstId, Vec<Option<ObjId>>)> = Vec::new();
+        // where a single child's are connected whole, and where an array's
+        // are its elements laid out as the child's lanes (else a slot).
+        let mut args: Vec<(InstId, Vec<Option<Arg>>)> = Vec::new();
         for node in &lay.code {
             if let Node::In(i) = *node {
                 let inst = d.instance(i);
-                let single = !lay.groups.contains_key(&i);
+                let ck = lay.kid_keys[&i];
                 let row = d
                     .spec(inst.spec)
                     .ports
                     .iter()
-                    .map(|p| {
-                        let po = p.object?;
-                        let e = inst.connections.iter().find(|c| c.port == p.name)?.expr?;
-                        if single { self.alias_target(&lay, e, po) } else { None }
+                    .map(|p| match lay.groups.get(&i) {
+                        Some(members) => self.in_lanes(&lay, members, p, ck).map(|(o, off)| Arg::Elems(o, off)),
+                        None => {
+                            let po = p.object?;
+                            let e = inst.connections.iter().find(|c| c.port == p.name)?.expr?;
+                            self.alias_target(&lay, e, po, self.layouts[&ck].elems.get(&po).copied()).map(Arg::Alias)
+                        }
                     })
                     .collect();
                 args.push((i, row));
             }
         }
-        let aliased: HashSet<ObjId> = args.iter().flat_map(|a| a.1.iter().flatten().copied()).collect();
+        let aliased: HashSet<ObjId> = args
+            .iter()
+            .flat_map(|a| a.1.iter().flatten())
+            .map(|a| match *a {
+                Arg::Alias(o) | Arg::Elems(o, _) => o,
+                Arg::Slot(_) => unreachable!(),
+            })
+            .collect();
         self.layouts.insert(key, lay);
         let mut local = self.loop_locals(key)?;
         local.retain(|o| !ff_reads.contains(o) && !self.layouts[&key].kept.contains(o));
@@ -1493,8 +1605,13 @@ impl<'d, 'a> Lowering<'d, 'a> {
             }
             let w = tw(&d.types, d.object(o).ty);
             match (lay.elems.get(&o), lay.pads.get(&o)) {
+                // (Where a child may read it in place, at the alignment of
+                // any register: a port, which may be its child's, or what is
+                // passed to one.)
                 (Some(&e), _) => {
-                    let at = lay.room(e.n as u64 * e.stride(), e.lane.reg_bytes(sh));
+                    let shared = d.object(o).dir.is_some() || aliased.contains(&o);
+                    let align = if shared { 64 } else { e.lane.reg_bytes(sh) };
+                    let at = lay.room(e.n as u64 * e.stride(), align);
                     lay.objs.insert(o, at);
                 }
                 (None, Some(p)) => lay.place(o, p.width(), piece),
@@ -1529,20 +1646,24 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 }
             }
         }
-        // Slots for the ports not connected to a value whole, laid out as
-        // the child's values are.
+        // Slots for the rest, laid out as the child's values are (those kept
+        // an element to a slot, as aligned as such values of its own).
         for (i, row) in args {
             let ck = lay.kid_keys[&i];
-            let csh = self.layouts[&ck].shape;
+            let child = &self.layouts[&ck];
+            let csh = child.shape;
             let mut out = Vec::new();
-            for (p, alias) in d.spec(ck.0).ports.iter().zip(row) {
-                out.push(match alias {
-                    Some(o) => Arg::Alias(o),
+            for (p, arg) in d.spec(ck.0).ports.iter().zip(row) {
+                out.push(match arg {
+                    Some(a) => a,
                     None => {
                         let po = p.object.ok_or("interface ports are not supported yet")?;
                         let w = tw(&d.types, d.object(po).ty);
                         let lane = Lane::of(w, csh, planes);
-                        Arg::Slot(lay.room(lane.bytes(w, csh), lane.reg_bytes(csh)))
+                        Arg::Slot(match child.elems.get(&po) {
+                            Some(e) => lay.room(e.n as u64 * e.stride(), 64),
+                            None => lay.room(lane.bytes(w, csh), lane.reg_bytes(csh)),
+                        })
                     }
                 });
             }
@@ -1573,25 +1694,84 @@ impl<'d, 'a> Lowering<'d, 'a> {
 
     /// The parent's value a port connection is, whole, if the child can
     /// use it where it is: a variable, net or port of the same width (any
-    /// conversion between them changing no bits), not kept an element to
-    /// a slot.
-    fn alias_target(&self, lay: &Layout, e: ExprId, port: ObjId) -> Option<ObjId> {
+    /// conversion between them changing no bits), kept an element to a
+    /// slot as the child keeps the port (`kept`), or neither.
+    fn alias_target(&self, lay: &Layout, e: ExprId, port: ObjId, kept: Option<Elems>) -> Option<ObjId> {
+        let d = self.d;
+        let o = self.whole_object(e)?;
+        (matches!(d.object(o).kind, ObjKind::Variable | ObjKind::Net(_))
+            && lay.statics.contains(&o)
+            && lay.elems.get(&o).copied() == kept
+            && !lay.pads.contains_key(&o)
+            && tw(&d.types, d.object(o).ty) == tw(&d.types, d.object(port).ty))
+            .then_some(o)
+    }
+
+    /// Where an array of children's port already is in the parent, laid
+    /// out as the child's lanes (see [`Arg::Elems`]): each iteration's
+    /// connection an element of a value kept an element to a slot, the
+    /// next one for the next iteration, stored as the child stores the
+    /// port's one piece, and the elements' lanes, a register of the
+    /// parent's for each, filling the child's registers. The value, and
+    /// the offset of the first iteration's element.
+    fn in_lanes(&self, lay: &Layout, members: &[InstId], port: &crate::design::Port, ck: Key) -> Option<(ObjId, u64)> {
+        let d = self.d;
+        let child = &self.layouts[&ck];
+        let po = port.object?;
+        let (sh, csh) = (lay.shape, child.shape);
+        let w = tw(&d.types, d.object(po).ty);
+        let lane = Lane::of(w, csh, self.opts.bit_planes);
+        if child.elems.contains_key(&po)
+            || !matches!(port.dir, Dir::Input | Dir::Output)
+            || csh.swar
+            || !matches!(lane, Lane::B8 | Lane::B16 | Lane::W32 | Lane::W64)
+            || lane.pieces(w, csh) != 1
+            || members.len() as u32 * sh.width() != csh.width()
+        {
+            return None;
+        }
+        // (A lane's bytes, as the child stores it.)
+        let lb = lane.reg_bytes(csh) / csh.n as u64;
+        let mut first = None;
+        for (t, &m) in members.iter().enumerate() {
+            let e = d.instance(m).connections.iter().find(|c| c.port == port.name)?.expr?;
+            let mut x = e;
+            while matches!(d.expr(x).kind, ExprKind::Convert) && tw(&d.types, d.expr(x).ty) == w {
+                x = d.expr(x).args[0];
+            }
+            if !matches!(d.expr(x).kind, ExprKind::Index) || tw(&d.types, d.expr(x).ty) != w {
+                return None;
+            }
+            let ExprKind::Object(o) = d.expr(d.expr(x).args[0]).kind else { return None };
+            let el = lay.elems.get(&o)?;
+            let (off, ew) = self.const_select(x)??;
+            if el.ew != w || ew != w || el.lane != lane || el.stride() != sh.width() as u64 * lb || off < 0 {
+                return None;
+            }
+            let at = (off as u64 / w as u64) * el.stride();
+            match first {
+                None if at % lane.reg_bytes(csh) == 0 => first = Some((o, at)),
+                Some((o0, at0)) if o0 == o && at == at0 + t as u64 * el.stride() => {}
+                _ => return None,
+            }
+        }
+        first
+    }
+
+    /// The object an expression is, whole, through conversions that
+    /// change no bits.
+    fn whole_object(&self, e: ExprId) -> Option<ObjId> {
         let d = self.d;
         let mut x = d.expr(e);
-        let w = tw(&d.types, d.object(port).ty);
-        while matches!(x.kind, ExprKind::Convert) && tw(&d.types, x.ty) == w && d.types.is_integral(d.expr(x.args[0]).ty) {
-            x = d.expr(x.args[0]);
+        while matches!(x.kind, ExprKind::Convert) {
+            let a = d.expr(x.args[0]);
+            if tw(&d.types, x.ty) != tw(&d.types, a.ty) || !d.types.is_integral(a.ty) {
+                break;
+            }
+            x = a;
         }
         match x.kind {
-            ExprKind::Object(o)
-                if matches!(d.object(o).kind, ObjKind::Variable | ObjKind::Net(_))
-                    && lay.statics.contains(&o)
-                    && !lay.elems.contains_key(&o)
-                    && !lay.pads.contains_key(&o)
-                    && tw(&d.types, d.object(o).ty) == w =>
-            {
-                Some(o)
-            }
+            ExprKind::Object(o) => Some(o),
             _ => None,
         }
     }
@@ -1833,9 +2013,18 @@ impl<'d, 'a> Lowering<'d, 'a> {
     }
 
     /// The objects that every use selects one element of, with the same
-    /// element width: these are kept an element to a slot. Ports are not,
-    /// so that a parent and a child meet in one layout.
-    fn element_only(&self, objs: &[ObjId], code: &[Node], sh: Shape) -> HashMap<ObjId, Elems> {
+    /// element width: these are kept an element to a slot. A connection
+    /// whole to a single child's input kept so (`kid_elems`, its element
+    /// width by the connection) counts as such a use, so that the two meet
+    /// in one layout. Inputs may be kept so (`layout` keeps those a child
+    /// then reads in place), not outputs.
+    fn element_only(
+        &self,
+        objs: &[ObjId],
+        code: &[Node],
+        sh: Shape,
+        kid_elems: &HashMap<ExprId, u32>,
+    ) -> HashMap<ObjId, Elems> {
         let d = self.d;
         let mut uses: HashMap<ObjId, Option<u32>> = HashMap::new();
         for node in code {
@@ -1861,8 +2050,10 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 Node::In(i) | Node::Call(i) | Node::Pre(i) | Node::Early(i) => {
                     for m in self.candidates(i) {
                         for c in &d.instance(m).connections {
-                            if let Some(e) = c.expr {
-                                self.expr_uses(e, &mut uses);
+                            let Some(e) = c.expr else { continue };
+                            match (kid_elems.get(&e), self.whole_object(e)) {
+                                (Some(&ew), Some(o)) => note_use(&mut uses, o, Some(ew)),
+                                _ => self.expr_uses(e, &mut uses),
                             }
                         }
                     }
@@ -1873,7 +2064,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         for &o in objs {
             let ob = d.object(o);
             let w = tw(&d.types, ob.ty);
-            if let (None, Some(Some(ew))) = (ob.dir, uses.get(&o))
+            if let (None | Some(Dir::Input), Some(Some(ew))) = (ob.dir, uses.get(&o))
                 && *ew <= sh.pb()
                 && w % ew == 0
                 && w / ew >= 2
@@ -1894,12 +2085,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
     fn expr_uses(&self, e: ExprId, uses: &mut HashMap<ObjId, Option<u32>>) {
         let d = self.d;
         let x = d.expr(e);
-        let mut note = |o: ObjId, u: Option<u32>| {
-            let slot = uses.entry(o).or_insert(u);
-            if *slot != u {
-                *slot = None;
-            }
-        };
+        let mut note = |o: ObjId, u: Option<u32>| note_use(uses, o, u);
         match &x.kind {
             ExprKind::Object(o) => note(*o, None),
             ExprKind::Index if matches!(d.expr(x.args[0]).kind, ExprKind::Object(_)) => {
@@ -3758,11 +3944,17 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
         let mut args = vec![self.off(s, off)];
         for a in self.lay().args[&i].clone() {
             args.push(match a {
-                Arg::Alias(o) => match self.slot(o) {
-                    Some(Base::Port(k)) => self.port(k),
-                    Some(Base::State(at)) => self.off(s, at),
-                    None => unreachable!("an aliased value has a slot"),
-                },
+                Arg::Alias(o) | Arg::Elems(o, _) => {
+                    let off = if let Arg::Elems(_, off) = a { off } else { 0 };
+                    match self.slot(o) {
+                        Some(Base::Port(k)) => {
+                            let p = self.port(k);
+                            self.off(p, off)
+                        }
+                        Some(Base::State(at)) => self.off(s, at + off),
+                        None => unreachable!("an aliased value has a slot"),
+                    }
+                }
                 Arg::Slot(at) => self.off(s, at),
             });
         }
@@ -4092,13 +4284,27 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
                             None => None,
                         });
                     }
-                    match &vals[..] {
-                        [v] => {
-                            if let Some(v) = v {
-                                self.store(Base::State(at), child.lane(o), v);
+                    // (A port the child keeps an element to a slot: each
+                    // element as a value of its own.)
+                    let parts: Vec<(u64, Lane, u32, Vec<Option<Val>>)> = match child.elems.get(&o) {
+                        Some(e) => (0..e.n)
+                            .map(|j| {
+                                let vs =
+                                    vals.iter().map(|v| v.as_ref().map(|v| self.extract(v, j * e.ew, e.ew))).collect();
+                                (at + j as u64 * e.stride(), e.lane, e.ew, vs)
+                            })
+                            .collect(),
+                        None => vec![(at, child.lane(o), w, vals)],
+                    };
+                    for (at, lane, w, vals) in parts {
+                        match &vals[..] {
+                            [v] => {
+                                if let Some(v) = v {
+                                    self.store(Base::State(at), lane, v);
+                                }
                             }
+                            _ => self.to_lanes(at, lane, w, child.shape, &vals),
                         }
-                        _ => self.to_lanes(at, child.lane(o), w, child.shape, &vals),
                     }
                 }
                 Ok(())
@@ -4233,6 +4439,9 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
     /// registers and stored whole, each word in vector code stored where it
     /// goes.
     fn to_lanes(&mut self, at: u64, lane: Lane, w: u32, csh: Shape, vals: &[Option<Val>]) {
+        if self.sc() && !csh.swar && self.to_lanes_scalar(at, lane, w, csh, vals) {
+            return;
+        }
         let (wp, cn) = (self.sh.width(), csh.n);
         let t = self.t;
         // In SWAR code each register's pieces, and in vector code each
@@ -4269,7 +4478,7 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
                         self.st(x, a, eb);
                     }
                     Lane::W32 | Lane::W64 => {
-                        let f = Field { name: String::new(), dir: Dir::Input, offset: at as usize, width: w, lane, shape: csh };
+                        let f = Field::slot(at as usize, w, lane, csh);
                         for (k, &x) in words.iter().enumerate() {
                             let a = self.at(f.at(k, l as usize) as u64);
                             let x = self.b.trunc(x, t.i32);
@@ -4297,10 +4506,154 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
         }
     }
 
+    /// [`Func::to_lanes`] from scalar code, where iteration `t` is lane
+    /// `t`, so that the child loads each register as it was stored or
+    /// from stores of whole lanes: a value the same in every iteration
+    /// splat to each register, bytes and halves gathered into an `i64`
+    /// (or as much of one as a register holds), and 64-bit pieces stored a
+    /// lane at a time. False for the rest (32-bit pieces, bit planes),
+    /// which go as words.
+    fn to_lanes_scalar(&mut self, at: u64, lane: Lane, w: u32, csh: Shape, vals: &[Option<Val>]) -> bool {
+        let lb = match lane {
+            Lane::B8 => 8,
+            Lane::B16 => 16,
+            Lane::W32 => 32,
+            Lane::W64 => 64,
+            Lane::Bit | Lane::Swar => return false,
+        };
+        let (rb, pnb) = (lane.reg_bytes(csh), lane.piece_bytes(csh));
+        let t = self.t;
+        // The same value in every iteration: each piece splat.
+        if let Some(Some(v0)) = vals.first()
+            && vals.iter().all(|v| v.as_ref() == Some(v0))
+        {
+            let v0 = v0.clone();
+            let et = self.b.module().types.int(lb);
+            let vt = self.b.module().types.vector(csh.n, et);
+            for k in 0..lane.pieces(w, csh) as usize {
+                // (A 32-bit piece is half of a 64-bit one.)
+                let p = v0.p[if lb == 32 { k / 2 } else { k }];
+                let s = match p {
+                    P::K(c) => {
+                        let c = if lb == 32 { c >> (32 * (k % 2)) } else { c };
+                        self.b.const_int(vt, (c & ones_of(lb)) as i64)
+                    }
+                    P::V(_) => {
+                        let mut x = self.pv(p);
+                        if lb == 32 && k % 2 == 1 {
+                            let s = self.c64(32);
+                            x = self.b.lshr(x, s);
+                        }
+                        let x = if lb < 64 { self.b.trunc(x, et) } else { x };
+                        let (poison, z64) = (self.b.module().poison(vt), self.i64k(0));
+                        let c = self.b.insert_element(poison, x, z64);
+                        let mt = self.b.module().types.vector(csh.n, t.i32);
+                        let mask = match self.b.module().const_zero(mt) {
+                            Value::Const(m) => m,
+                            _ => unreachable!(),
+                        };
+                        self.b.push(Op::ShuffleVector { a: c, b: poison, mask }, Some(vt)).unwrap()
+                    }
+                };
+                for r in 0..csh.chunks as u64 {
+                    let a = self.at(at + k as u64 * pnb + r * rb);
+                    self.st(s, a, rb);
+                }
+            }
+            return true;
+        }
+        match lane {
+            Lane::B8 | Lane::B16 => {
+                // Each `unit` bytes of lanes put together in an `i64`.
+                let (eb, unit) = ((lb / 8) as u64, rb.min(8));
+                let mut acc: Vec<Option<Value>> = vec![None; (pnb / unit) as usize];
+                for (l, v) in vals.iter().enumerate() {
+                    let Some(v) = v else { continue };
+                    let byte = l as u64 * eb;
+                    let (g, i) = ((byte / unit) as usize, ((byte % unit) / eb) as u32);
+                    let x = self.pv(v.p[0]);
+                    acc[g] = self.put_lane(acc[g], x, lb, i);
+                }
+                let ut = self.b.module().types.int(8 * unit as u32);
+                for (g, x) in acc.into_iter().enumerate() {
+                    let x = x.unwrap_or_else(|| self.c64(0));
+                    let x = if unit < 8 { self.b.trunc(x, ut) } else { x };
+                    let a = self.at(at + g as u64 * unit);
+                    self.st(x, a, unit);
+                }
+            }
+            Lane::W64 => {
+                let f = Field::slot(at as usize, w, lane, csh);
+                for (l, v) in vals.iter().enumerate() {
+                    let Some(v) = v else { continue };
+                    for (k, &p) in v.p.iter().enumerate() {
+                        let (a, x) = (self.at(f.at(2 * k, l) as u64), self.pv(p));
+                        self.st(x, a, 8);
+                    }
+                }
+            }
+            _ => return false,
+        }
+        true
+    }
+
+    /// [`Func::from_lanes`] into scalar code: bytes and halves from an
+    /// `i64` loaded once for several lanes, 64-bit pieces a lane at a
+    /// time. None for the rest.
+    fn from_lanes_scalar(
+        &mut self,
+        at: u64,
+        lane: Lane,
+        w: u32,
+        csh: Shape,
+        l: usize,
+        regs: &mut HashMap<(usize, usize), Value>,
+    ) -> Option<Val> {
+        match lane {
+            Lane::B8 | Lane::B16 => {
+                let lb = if lane == Lane::B8 { 8 } else { 16 };
+                let (eb, unit) = ((lb / 8) as u64, lane.reg_bytes(csh).min(8));
+                let byte = l as u64 * eb;
+                let (g, i) = ((byte / unit) as usize, ((byte % unit) / eb) as u32);
+                let x = match regs.get(&(g, 0)) {
+                    Some(&x) => x,
+                    None => {
+                        let a = self.at(at + g as u64 * unit);
+                        let ut = self.b.module().types.int(8 * unit as u32);
+                        let x = self.ld(ut, a, unit);
+                        let x = if unit < 8 { self.b.zext(x, self.t.i64) } else { x };
+                        regs.insert((g, 0), x);
+                        x
+                    }
+                };
+                let y = self.lane_bits(x, lb, i);
+                Some(Val { w, p: vec![P::V(self.reg(y))] })
+            }
+            Lane::W64 => {
+                let f = Field::slot(at as usize, w, lane, csh);
+                let p = (0..lane.pieces(w, csh) as usize)
+                    .map(|k| {
+                        let a = self.at(f.at(2 * k, l) as u64);
+                        let x = self.ld(self.t.i64, a, 8);
+                        P::V(self.reg(x))
+                    })
+                    .collect();
+                Some(self.norm(Val { w, p }))
+            }
+            _ => None,
+        }
+    }
+
     /// Iteration `t`'s value of an array of children's output, from the
     /// child's slot at `at` (as [`Func::to_lanes`] lays it out); `regs`
     /// keeps the child's registers already loaded, by piece and register.
     fn from_lanes(&mut self, at: u64, lane: Lane, w: u32, csh: Shape, k_t: usize, regs: &mut HashMap<(usize, usize), Value>) -> Val {
+        if self.sc()
+            && !csh.swar
+            && let Some(v) = self.from_lanes_scalar(at, lane, w, csh, k_t, regs)
+        {
+            return v;
+        }
         let (wp, cn) = (self.sh.width(), csh.n);
         let t = self.t;
         let mut lanes = Vec::with_capacity(wp as usize);
@@ -4343,7 +4696,7 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
                     vec![self.b.zext(y, t.i64)]
                 }
                 Lane::W32 | Lane::W64 => {
-                    let f = Field { name: String::new(), dir: Dir::Input, offset: at as usize, width: w, lane, shape: csh };
+                    let f = Field::slot(at as usize, w, lane, csh);
                     (0..pieces(w))
                         .map(|k| {
                             let a = self.at(f.at(k, l as usize) as u64);
@@ -5540,9 +5893,8 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
     /// part of the state.
     fn elem_addr(&mut self, o: ObjId, i: u32) -> Value {
         let e = self.lay().elems[&o];
-        let base = self.reg_base(e.lane);
-        let off = self.lay().objs[&o] + i as u64 * e.stride();
-        self.off(base, off)
+        let (base, off) = self.place_of(self.slot(o).expect("an element's object has a slot"), e.lane);
+        self.off(base, off + i as u64 * e.stride())
     }
 
     /// Lane 0 of a piece, an `i64` (zero-extended from a lane).
@@ -5570,8 +5922,7 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
             return self.elem_addr(o, k.min(n as u64 - 1) as u32);
         }
         let e = self.lay().elems[&o];
-        let base = self.reg_base(e.lane);
-        let off = self.lay().objs[&o];
+        let (base, off) = self.place_of(self.slot(o).expect("an element's object has a slot"), e.lane);
         let ix = self.lane0(i);
         // Held at the last element where the index may be out of range
         // (its value is then not used): a compare and select, which a

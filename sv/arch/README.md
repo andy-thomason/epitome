@@ -106,8 +106,22 @@ The stages, each in memory, with no text between them until the `.asc`:
    loops with constant bounds are unrolled. Operators covered: bitwise,
    reductions, shifts (constant or not), `+ - *`, comparisons, and selects
    and part selects (constant or not). Errors point at the source: latches,
-   memories, more than one clock, function calls, division of non-constants,
-   gates, combinational loops, and nets with two drivers.
+   more than one clock, function calls, division of non-constants, gates,
+   combinational loops, nets with two drivers, and memories used in ways
+   block RAM cannot do (below).
+
+   A **memory** (an unpacked array of integral words) is kept whole, for
+   block RAM. `mem[a] <= d` in a clocked process is its write port. Writes
+   in different arms of an `if` or `case` share it, but a memory has one
+   write port. A register that takes a read whole (`q <= mem[a]`, under any
+   conditions, no reset) becomes a read port, and the register is the
+   RAM's own output register. Any number of read ports may be used. Since
+   block RAM reads only on a clock, a memory that is written is an error
+   anywhere else it is read. A memory only `initial` writes is a table: read
+   anywhere else, it is logic (a decision tree on the address). Its
+   contents come from `initial` blocks (constant writes, or
+   `$readmemh`/`$readmemb` with the file found from the current directory)
+   or from a declaration's assignment pattern.
 2. **Mapping** (`map.rs`). Majorities that follow one another become carry
    chains, with the carry in from a constant, or from a signal through a
    feeder cell. The other gates are covered by 4-input cuts: up to 10 cuts
@@ -116,8 +130,14 @@ The stages, each in memory, with no text between them until the `.asc`:
    that cell's LUT, reading the carry on `in_3`. A carry read any other way
    comes out through the next cell's LUT. Flip-flops share their LUT's cell
    when nothing else reads the LUT. An enable and an asynchronous reset go
-   on the cell's `cen` and `sr`.
-3. **Placement** (`place.rs`). Pins come from the constraints. Carry chains
+   on the cell's `cen` and `sr`. Each memory read port gets its own copy of
+   the memory in RAM4K blocks, all copies written alike, since a block has
+   one read port. A copy takes the mode (256x16, 512x8, 1024x4 or 2048x2)
+   that needs fewest blocks side by side, up to 2048 words. Word bits go on
+   the data pins the board found for the mode, and the contents are laid
+   out by `board::ram_mode_bit`.
+3. **Placement** (`place.rs`). Pins come from the constraints. RAM blocks
+   go to the RAM sites nearest the middle and stay there. Carry chains
    take places 0 upwards in consecutive tiles of a column. Cells are placed
    greedily, then annealed on wirelength (half-perimeter of each net's
    tiles) with moves and swaps of cells and moves of chains. A tile's
@@ -130,9 +150,11 @@ The stages, each in memory, with no text between them until the `.asc`:
    none is. A LUT input may land on any free pin of its cell; the table is
    permuted to match. The clock goes on a global network when its pin has a
    global buffer (D1's is network 1), with the column buffers its tiles
-   need. Otherwise it is routed like any signal.
-5. **Bitstream**. Cells, routes and I/O types (`PINTYPE_0` for an input, 3
-   and 4 for an output, as the board experiments found) go into a
+   (and RAMs' `RCLK` and `WCLK`) need. Otherwise it is routed like any
+   signal.
+5. **Bitstream**. Cells, routes, I/O types (`PINTYPE_0` for an input, 3
+   and 4 for an output, as the board experiments found), and the RAM
+   blocks' modes (`RamConfig.CBIT_0` to `3`) and contents go into a
    `design::Design`, then the `.asc` and the bitstream come from Epitome's
    own packer.
 
@@ -166,6 +188,8 @@ programs each one and watches the iCELink's serial port at 115200 baud:
 | (b) registered | `delay.sv`: `rx` through 4 flip-flops on D1's 12 MHz clock | 4 | its bytes echoed |
 | (c) counter | `blink.sv`: a 24-bit counter; `led = count[23]`, `tx = rx \| ~count[23]` | 27 (a 22-cell carry chain) | echoes on and off, changing every 0.697 s (2^23 / 12 MHz = 0.699 s) |
 | (d) UART | `hello.sv`: a transmitter sending `Hello from Epitome\r\n` | 53 (3 chains) | 262 whole strings in 0.5 s (10.5 kB/s) |
+| (e) block RAM | `ramdelay.sv`: each clock, a word made from rx written at the next address and the oldest read back; tx is its bit 0 while every bit is as written. Once for each `WIDTH`: 16, 8, 4, 2 and 1 (256x16, 512x8, 1024x4, 2048x2, and 2048 words of 1 bit in mode 2048x2) | 24 to 26, 1 RAM block | its bytes echoed, in every mode |
+| (f) RAM contents | `hello_ram.sv`: `hello.sv` with its string as a RAM's initial contents, read into the RAM's output register | 37, 1 RAM block | 261 whole strings in 0.5 s |
 
 The counter was checked through B3: the Mac sends a byte every ~0.1 s for
 5 s and notes which come back. The LED (B6) blinks as well, but nothing
@@ -173,13 +197,21 @@ here watches it. Before (d) sent `\r`, it sent an `r`. SystemVerilog's
 string escapes have no `\r`, and the interpreter and the board agreed, so
 `hello.sv` writes the carriage return as `8'h0d`.
 
-[`ice40-lp1k/flow/hello.svg`](ice40-lp1k/flow/hello.svg) is the transmitter
+(e) delays rx by up to 2048 clocks (171 us), which the echo does not
+notice; a wrong bit anywhere in a word turns it off. As a control, moving
+mode 512x8's data pins up by one made it silent.
+
+[`ice40-lp1k/flow/hello.svg`](ice40-lp1k/flow/hello.svg) and
+[`hello_ram.svg`](ice40-lp1k/flow/hello_ram.svg) are the two transmitters
 as placed and routed, laid over the die by `svg.rs`.
 
-Not yet: memories (the block RAMs), more than one clock, latches, tasks
-and functions, timing, packing a flip-flop with a LUT that has other
-readers, and checking resource counts against Yosys and nextpnr. Running
-those was blocked here, and their source is not to be read.
+Not yet: memories deeper than 2048 words (several blocks deep), byte
+writes (the RAM's `MASK`), more than one write port, what a block reads
+when it writes the same address (the tests avoid it), more than one
+clock, latches, tasks and functions, timing, packing a flip-flop with a
+LUT that has other readers, and checking resource counts against Yosys
+and nextpnr. Running those was blocked here, and their source is not to
+be read.
 
 ## Sources, and how each fact was found
 

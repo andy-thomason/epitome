@@ -8,8 +8,9 @@
 //! 3. [`super::place`]: cells onto tiles, port bits onto pins.
 //! 4. [`super::route`]: signals through the chip database's switches; the
 //!    clock through a global network when its pin has one.
-//! 5. The cells' and switches' bits into a [`Design`], then the `.asc`
-//!    and the bitstream by Epitome's packer.
+//! 5. The cells' and switches' bits into a [`Design`], with the RAM
+//!    blocks' modes and contents, then the `.asc` and the bitstream by
+//!    Epitome's packer.
 //!
 //! [`check_routes`] reads the routes back from the bits: every sink must
 //! be driven, through the switches set, by its signal's source.
@@ -123,6 +124,13 @@ pub fn build(d: &Device, db: &Chipdb, sem: &Semantics, netlist: Netlist, opts: &
             }
         }
     }
+    for r in &m.rams {
+        for s in r.raddr.iter().chain(&r.waddr).chain(&r.wdata).chain([&r.re, &r.we]).flatten() {
+            if let Src::Pin { port, bit } = *s {
+                data_inputs.insert((port, bit));
+            }
+        }
+    }
     for (&(port, bit), p) in &placement.inputs {
         let via_glb = clock_glb.is_some() && clock.is_some_and(|c| c.0 == port);
         if !via_glb || data_inputs.contains(&(port, bit)) {
@@ -174,25 +182,57 @@ pub fn build(d: &Device, db: &Chipdb, sem: &Semantics, netlist: Netlist, opts: &
         }
     }
 
+    // ---- RAM blocks: modes and contents ----
+    for (ri, r) in m.rams.iter().enumerate() {
+        for (b, &(x, y)) in placement.rams[ri].iter().enumerate() {
+            des.ram.push(super::asc::AscRam { x, y, words: r.block_words(b as u32) });
+            // icebox_vlog: CBIT_2 and 3 are the read mode's bits, CBIT_0
+            // and 1 the write mode's, in the upper tile.
+            for (bit, rf, wf) in
+                [(1, "RamConfig.CBIT_2", "RamConfig.CBIT_0"), (2, "RamConfig.CBIT_3", "RamConfig.CBIT_1")]
+            {
+                if r.mode & bit != 0 {
+                    des.func(x, y + 1, rf)?;
+                    if r.write {
+                        des.func(x, y + 1, wf)?;
+                    }
+                }
+            }
+            if r.negedge {
+                des.func(x, y, "NegClk")?;
+                des.func(x, y + 1, "NegClk")?;
+            }
+        }
+    }
+
     // ---- the clock ----
     let mut ff_tiles: Vec<(usize, usize)> =
         m.lcs.iter().enumerate().filter(|(_, l)| l.ff.is_some()).map(|(i, _)| (at[i].0, at[i].1)).collect();
     ff_tiles.sort();
     ff_tiles.dedup();
+    let mut clock_sinks: Vec<(usize, usize, String)> =
+        ff_tiles.iter().map(|&(x, y)| (x, y, "lutff_global/clk".to_string())).collect();
+    for (ri, r) in m.rams.iter().enumerate() {
+        for &(x, y) in &placement.rams[ri] {
+            clock_sinks.push(des.ram_port(x, y, "RCLK")?);
+            if r.write {
+                clock_sinks.push(des.ram_port(x, y, "WCLK")?);
+            }
+        }
+    }
     let mut requests: Vec<Request> = Vec::new();
     if let (Some(glb), Some(_)) = (clock_glb, clock) {
         des.extra_bit(&format!("padin_glb_netwk.{glb}"))?;
-        for &(x, y) in &ff_tiles {
-            des.route((x, y, &format!("glb_netwk_{glb}")), (x, y, "lutff_global/clk"))?;
-            let cbs: Vec<[usize; 4]> = db.colbuf.iter().filter(|c| (c[2], c[3]) == (x, y)).copied().collect();
+        for (x, y, name) in &clock_sinks {
+            des.route((*x, *y, &format!("glb_netwk_{glb}")), (*x, *y, name))?;
+            let cbs: Vec<[usize; 4]> = db.colbuf.iter().filter(|c| (c[2], c[3]) == (*x, *y)).copied().collect();
             for c in cbs {
                 des.func(c[0], c[1], &format!("ColBufCtrl.glb_netwk_{glb}"))?;
             }
         }
-    } else if let (Some(p), false) = (&clock_pin, ff_tiles.is_empty()) {
+    } else if let (Some(p), false) = (&clock_pin, clock_sinks.is_empty()) {
         let src = net(p.0, p.1, &format!("io_{}/D_IN_0", p.2))?;
-        let sinks =
-            ff_tiles.iter().map(|&(x, y)| net(x, y, "lutff_global/clk").map(Sink::Net)).collect::<Result<_, _>>()?;
+        let sinks = clock_sinks.iter().map(|(x, y, n)| net(*x, *y, n).map(Sink::Net)).collect::<Result<_, _>>()?;
         requests.push(Request { name: "clock".into(), src, sinks });
     }
 
@@ -206,6 +246,12 @@ pub fn build(d: &Device, db: &Chipdb, sem: &Semantics, netlist: Netlist, opts: &
             Src::Lc(c) => {
                 let (x, y, z) = at[c as usize];
                 net(x, y, &format!("lutff_{z}/out"))
+            }
+            Src::Ram { ram, bit } => {
+                let (b, pin) = m.rams[ram as usize].pin_of(bit);
+                let (x, y) = placement.rams[ram as usize][b as usize];
+                let p = des.ram_port(x, y, &format!("RDATA[{pin}]"))?;
+                net(p.0, p.1, &p.2)
             }
         }
     };
@@ -246,12 +292,40 @@ pub fn build(d: &Device, db: &Chipdb, sem: &Semantics, netlist: Netlist, opts: &
             add(s, Sink::Net(net(p.0, p.1, &format!("io_{}/D_OUT_0", p.2))?), &mut sinks);
         }
     }
+    // RAM ports: each block gets the addresses and enables, and its data
+    // bits.
+    for (ri, r) in m.rams.iter().enumerate() {
+        for (b, &(x, y)) in placement.rams[ri].iter().enumerate() {
+            let mut ports: Vec<(Src, String)> = Vec::new();
+            for (k, s) in r.raddr.iter().enumerate() {
+                ports.extend(s.map(|s| (s, format!("RADDR[{k}]"))));
+            }
+            ports.extend(r.re.map(|s| (s, "RE".to_string())));
+            if r.write {
+                for (k, s) in r.waddr.iter().enumerate() {
+                    ports.extend(s.map(|s| (s, format!("WADDR[{k}]"))));
+                }
+                ports.extend(r.we.map(|s| (s, "WE".to_string())));
+                for (bit, s) in r.wdata.iter().enumerate() {
+                    let (blk, pin) = r.pin_of(bit as u32);
+                    if blk == b as u32 {
+                        ports.extend(s.map(|s| (s, format!("WDATA[{pin}]"))));
+                    }
+                }
+            }
+            for (s, port) in ports {
+                let p = des.ram_port(x, y, &port)?;
+                add(s, Sink::Net(net(p.0, p.1, &p.2)?), &mut sinks);
+            }
+        }
+    }
     for s in order {
         let name = match s {
             Src::Pin { port, bit } => {
                 super::place::bit_name(&m.inputs[port as usize].name, m.inputs[port as usize].width, bit)
             }
             Src::Lc(c) => m.lcs[c as usize].name.clone(),
+            Src::Ram { ram, bit } => format!("{}[{bit}]", m.rams[ram as usize].name),
         };
         requests.push(Request { name, src: src_net(s)?, sinks: sinks.remove(&s).unwrap() });
     }

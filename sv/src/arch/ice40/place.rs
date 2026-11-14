@@ -7,7 +7,9 @@
 //! chain takes places 0 upwards in consecutive tiles of a column, its
 //! carry passing from one tile's cell 7 to the next tile's cell 0.
 //!
-//! Cells are placed greedily, each where it adds least wirelength (the
+//! RAM blocks go first, to the RAM sites nearest the middle of the die,
+//! and stay there. Cells are placed greedily, each where it adds least
+//! wirelength (the
 //! half-perimeter of each net's tiles' bounding box), and then improved by
 //! simulated annealing: moves and swaps of cells, and moves of chains,
 //! within a window that shrinks as the temperature falls.
@@ -25,6 +27,8 @@ pub struct Placement {
     pub inputs: FxMap<(u32, u32), (usize, usize, usize, String)>,
     /// Each output port bit's.
     pub outputs: FxMap<(u32, u32), (usize, usize, usize, String)>,
+    /// Each RAM's blocks: their `ramb` tiles.
+    pub rams: Vec<Vec<(usize, usize)>>,
     /// The wirelength at the end.
     pub cost: f64,
 }
@@ -189,6 +193,20 @@ pub fn place(
     if n > tiles.len() * 8 {
         return Err(format!("{n} logic cells; the device has {}", tiles.len() * 8));
     }
+    // RAM blocks, to the sites nearest the middle.
+    let mut sites: Vec<(usize, usize)> = db.tiles.iter().filter(|t| t.0 == "ramb").map(|t| (t.1, t.2)).collect();
+    let (mx, my) = (db.width / 2, db.height / 2);
+    sites.sort_by_key(|&(x, y)| (x.abs_diff(mx) * 2 + y.abs_diff(my), x, y));
+    let mut free_sites = sites.into_iter();
+    let mut rams: Vec<Vec<(usize, usize)>> = Vec::new();
+    for r in &m.rams {
+        let mut v = Vec::new();
+        for _ in 0..r.blocks {
+            v.push(free_sites.next().ok_or("more RAM blocks than the device has")?);
+        }
+        rams.push(v);
+    }
+    let rams_at = rams.clone();
     // Nets: each signal's driver and readers.
     let mut net_ix: FxMap<Src, usize> = FxMap::default();
     let mut nets: Vec<(Vec<u32>, Vec<(usize, usize)>)> = Vec::new();
@@ -200,6 +218,10 @@ pub fn place(
                     Src::Lc(c) => nets.last_mut().unwrap().0.push(c),
                     Src::Pin { port, bit } => {
                         nets.last_mut().unwrap().1.push((inputs[&(port, bit)].0, inputs[&(port, bit)].1))
+                    }
+                    Src::Ram { ram, bit } => {
+                        let b = m.rams[ram as usize].pin_of(bit).0;
+                        nets.last_mut().unwrap().1.push(rams_at[ram as usize][b as usize])
                     }
                 }
                 nets.len() - 1
@@ -221,6 +243,17 @@ pub fn place(
         for (b, &s) in bits.iter().enumerate() {
             let o = &outputs[&(i as u32, b as u32)];
             term(s, None, Some((o.0, o.1)), &mut nets);
+        }
+    }
+    for (ri, r) in m.rams.iter().enumerate() {
+        for (b, &site) in rams[ri].iter().enumerate() {
+            let data =
+                r.wdata.iter().enumerate().filter(|&(bit, _)| r.pin_of(bit as u32).0 == b as u32).map(|(_, s)| s);
+            for s in r.raddr.iter().chain(&r.waddr).chain([&r.re, &r.we]).chain(data).flatten() {
+                if !matches!(s, Src::Pin { port, .. } if Some(*port) == clock_port) {
+                    term(*s, None, Some(site), &mut nets);
+                }
+            }
         }
     }
     for net in &mut nets {
@@ -485,7 +518,7 @@ pub fn place(
             at[c as usize] = (x, y, z);
         }
     }
-    let p = Placement { at, inputs, outputs, cost: total(&st) };
+    let p = Placement { at, inputs, outputs, rams, cost: total(&st) };
     check(db, m, &p)?;
     Ok(p)
 }

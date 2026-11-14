@@ -16,8 +16,13 @@
 //! and an enable (the paths where it is not assigned keep it), and an
 //! asynchronous reset to a constant.
 //!
-//! Not yet: memories, latches, more than one clock, functions and tasks,
-//! division, loops whose bounds are not constant, gates and UDPs.
+//! A memory (an unpacked array) is kept whole ([`Mem`]): its write port,
+//! its read ports (each read into a register on the memory's clock, the
+//! register its own), and its initial contents, for a target with block
+//! RAM.
+//!
+//! Not yet: latches, more than one clock, functions and tasks, division,
+//! loops whose bounds are not constant, gates and UDPs.
 
 pub mod check;
 pub mod lower;
@@ -56,6 +61,13 @@ pub enum Node {
     Maj(Lit, Lit, Lit),
     /// Flip-flop `i`'s output.
     Ff(u32),
+    /// Bit `bit` of read port `port` of memory `mem`: what it read at the
+    /// last clock edge.
+    MemOut {
+        mem: u32,
+        port: u32,
+        bit: u32,
+    },
     /// A net whose driver is not known yet ([`Netlist::drive`]), there
     /// only while the netlist is being made.
     Wire(u32),
@@ -76,6 +88,38 @@ pub struct Ff {
     pub name: String,
 }
 
+/// A memory: `depth` words of `width` bits, on one clock.
+#[derive(Clone, Debug)]
+pub struct Mem {
+    pub name: String,
+    pub width: u32,
+    pub depth: u32,
+    /// Word `w`'s bit `b` at `w * width + b`.
+    pub init: Vec<bool>,
+    pub write: Option<MemWrite>,
+    pub reads: Vec<MemRead>,
+    pub clock: Lit,
+    pub negedge: bool,
+    /// Every port's clock, which must be the same.
+    pub clocks: Vec<(Lit, bool)>,
+}
+
+/// On the clock's edge, if `en`, word `addr` takes `data`.
+#[derive(Clone, Debug)]
+pub struct MemWrite {
+    pub addr: Vec<Lit>,
+    pub data: Vec<Lit>,
+    pub en: Lit,
+}
+
+/// On the clock's edge, if `en`, the port's output takes word `addr` (as
+/// it was before the edge's write).
+#[derive(Clone, Debug)]
+pub struct MemRead {
+    pub addr: Vec<Lit>,
+    pub en: Lit,
+}
+
 #[derive(Clone, Debug)]
 pub struct Port {
     pub name: String,
@@ -90,6 +134,7 @@ pub struct Netlist {
     pub inputs: Vec<Port>,
     pub outputs: Vec<Port>,
     pub ffs: Vec<Ff>,
+    pub mems: Vec<Mem>,
     /// For each [`Node::Wire`]: its name and its driver.
     pub wires: Vec<(String, Option<Lit>)>,
     hash: FxMap<Node, u32>,
@@ -137,6 +182,10 @@ impl Netlist {
     pub fn ff(&mut self, ff: Ff) -> Lit {
         self.ffs.push(ff);
         self.add(Node::Ff(self.ffs.len() as u32 - 1))
+    }
+
+    pub fn mem_out(&mut self, mem: u32, port: u32, bit: u32) -> Lit {
+        self.add(Node::MemOut { mem, port, bit })
     }
 
     pub fn and(&mut self, a: Lit, b: Lit) -> Lit {
@@ -229,6 +278,8 @@ impl Netlist {
         let mut ff_map: FxMap<u32, u32> = FxMap::default();
         // Flip-flops reached, to have their inputs mapped afterwards.
         let mut ff_todo: Vec<u32> = Vec::new();
+        // Memories likewise, by the flip-flop map's keys plus this.
+        const MEM: u32 = 1 << 31;
         let mut on_stack = vec![false; self.nodes.len()];
         let map_lit = |l: Lit, map: &Vec<Option<Lit>>| map[node(l)].map(|m| m ^ (l & 1));
         let mut visit = |root: Lit,
@@ -291,6 +342,21 @@ impl Netlist {
                         ff_todo.push(i);
                         l
                     }
+                    Node::MemOut { mem, port, bit } => {
+                        if !ff_map.contains_key(&(mem | MEM)) {
+                            let m = &self.mems[mem as usize];
+                            ff_map.insert(mem | MEM, out.mems.len() as u32);
+                            out.mems.push(Mem {
+                                write: None,
+                                reads: Vec::new(),
+                                clock: F,
+                                clocks: Vec::new(),
+                                ..m.clone()
+                            });
+                            ff_todo.push(mem | MEM);
+                        }
+                        out.mem_out(ff_map[&(mem | MEM)], port, bit)
+                    }
                 });
             }
             Ok(map_lit(root, map).unwrap())
@@ -304,6 +370,46 @@ impl Netlist {
             out.outputs.push(Port { bits, ..p.clone() });
         }
         while let Some(i) = ff_todo.pop() {
+            if i & MEM != 0 {
+                let m = &self.mems[(i & !MEM) as usize];
+                let mut v =
+                    |l: Lit,
+                     out: &mut Netlist,
+                     map: &mut Vec<Option<Lit>>,
+                     ff_todo: &mut Vec<u32>,
+                     ff_map: &mut FxMap<u32, u32>| visit(l, out, map, ff_todo, ff_map);
+                let mut lits = |ls: &[Lit],
+                                out: &mut Netlist,
+                                map: &mut Vec<Option<Lit>>,
+                                ff_todo: &mut Vec<u32>,
+                                ff_map: &mut FxMap<u32, u32>|
+                 -> Result<Vec<Lit>, String> {
+                    ls.iter().map(|&l| v(l, out, map, ff_todo, ff_map)).collect()
+                };
+                let write = match &m.write {
+                    Some(w) => Some(MemWrite {
+                        addr: lits(&w.addr, &mut out, &mut map, &mut ff_todo, &mut ff_map)?,
+                        data: lits(&w.data, &mut out, &mut map, &mut ff_todo, &mut ff_map)?,
+                        en: lits(&[w.en], &mut out, &mut map, &mut ff_todo, &mut ff_map)?[0],
+                    }),
+                    None => None,
+                };
+                let mut reads = Vec::new();
+                for r in &m.reads {
+                    reads.push(MemRead {
+                        addr: lits(&r.addr, &mut out, &mut map, &mut ff_todo, &mut ff_map)?,
+                        en: lits(&[r.en], &mut out, &mut map, &mut ff_todo, &mut ff_map)?[0],
+                    });
+                }
+                let clock = lits(&[m.clock], &mut out, &mut map, &mut ff_todo, &mut ff_map)?[0];
+                let mut clocks = Vec::new();
+                for &(c, neg) in &m.clocks {
+                    clocks.push((lits(&[c], &mut out, &mut map, &mut ff_todo, &mut ff_map)?[0], neg));
+                }
+                let g = &mut out.mems[ff_map[&i] as usize];
+                (g.write, g.reads, g.clock, g.clocks) = (write, reads, clock, clocks);
+                continue;
+            }
             let f = &self.ffs[i as usize];
             let d = visit(f.d, &mut out, &mut map, &mut ff_todo, &mut ff_map)?;
             let en = visit(f.en, &mut out, &mut map, &mut ff_todo, &mut ff_map)?;
@@ -319,7 +425,14 @@ impl Netlist {
     /// whether on the falling edge. Errors if they do not share one.
     pub fn clock(&self) -> Result<Option<(Lit, bool)>, String> {
         let mut clock = None;
-        for f in &self.ffs {
+        let clocked = self
+            .ffs
+            .iter()
+            .map(|f| (&f.name, f.clock, f.negedge))
+            .chain(self.mems.iter().flat_map(|m| m.clocks.iter().map(move |&(c, n)| (&m.name, c, n))));
+        for (name, fclock, negedge) in clocked {
+            let f =
+                Ff { name: name.clone(), clock: fclock, negedge, d: F, en: F, arst: F, arst_value: false, init: false };
             if !matches!(self.nodes[node(f.clock)], Node::Input { .. }) {
                 return Err(format!("{}'s clock is not an input of the top module", f.name));
             }
@@ -350,7 +463,13 @@ impl Netlist {
                 _ => {}
             }
         }
-        format!("{} and, {} xor, {} maj, {} input bits, {} flip-flops", c[0], c[1], c[2], c[3], self.ffs.len())
+        let mem_bits: u64 = self.mems.iter().map(|m| m.width as u64 * m.depth as u64).sum();
+        let mems = if self.mems.is_empty() {
+            String::new()
+        } else {
+            format!(", {} memories ({mem_bits} bits)", self.mems.len())
+        };
+        format!("{} and, {} xor, {} maj, {} input bits, {} flip-flops{mems}", c[0], c[1], c[2], c[3], self.ffs.len())
     }
 }
 
@@ -364,13 +483,66 @@ pub struct Sim<'n> {
     pub state: Vec<u64>,
     /// Each input port's bits.
     pub inputs: Vec<Vec<u64>>,
+    /// Each memory's contents (word `w`'s bit `b` at `w * width + b`), and
+    /// each read port's output.
+    pub mem: Vec<Vec<u64>>,
+    pub mem_out: Vec<Vec<Vec<u64>>>,
+}
+
+/// The address each of 64 simulations gives, from its bits' values.
+pub fn lane_addrs(bits: &[u64]) -> [usize; 64] {
+    let mut a = [0usize; 64];
+    for (k, &b) in bits.iter().enumerate().take(usize::BITS as usize - 1) {
+        for (l, x) in a.iter_mut().enumerate() {
+            *x |= ((b >> l) & 1) as usize * (1 << k);
+        }
+    }
+    a
+}
+
+/// A memory's clock edge for 64 simulations: each read port whose enable
+/// is set reads (before the write), then the write. Words past `depth`
+/// read 0 and are not written.
+pub fn mem_edge(
+    width: usize,
+    depth: usize,
+    contents: &mut [u64],
+    reads: &[(Vec<u64>, u64)],
+    outs: &mut [Vec<u64>],
+    write: Option<(Vec<u64>, Vec<u64>, u64)>,
+) {
+    for (p, (addr, en)) in reads.iter().enumerate() {
+        let a = lane_addrs(addr);
+        for (b, o) in outs[p].iter_mut().enumerate() {
+            let mut v = *o & !en;
+            for l in 0..64 {
+                if en >> l & 1 != 0 && a[l] < depth {
+                    v |= contents[a[l] * width + b] & 1 << l;
+                }
+            }
+            *o = v;
+        }
+    }
+    if let Some((addr, data, en)) = write {
+        let a = lane_addrs(&addr);
+        for l in 0..64 {
+            if en >> l & 1 != 0 && a[l] < depth {
+                for (b, d) in data.iter().enumerate() {
+                    let c = &mut contents[a[l] * width + b];
+                    *c = *c & !(1 << l) | d & 1 << l;
+                }
+            }
+        }
+    }
 }
 
 impl<'n> Sim<'n> {
     pub fn new(n: &'n Netlist) -> Sim<'n> {
         let state = n.ffs.iter().map(|f| if f.init { !0 } else { 0 }).collect();
         let inputs = n.inputs.iter().map(|p| vec![0; p.width as usize]).collect();
-        Sim { n, vals: vec![0; n.nodes.len()], state, inputs }
+        let mem = n.mems.iter().map(|m| m.init.iter().map(|&b| if b { !0 } else { 0 }).collect()).collect();
+        let mem_out = n.mems.iter().map(|m| vec![vec![0; m.width as usize]; m.reads.len()]).collect();
+        Sim { n, vals: vec![0; n.nodes.len()], state, inputs, mem, mem_out }
     }
 
     pub fn get(&self, l: Lit) -> u64 {
@@ -389,6 +561,7 @@ impl<'n> Sim<'n> {
                     a & b | (a | b) & c
                 }
                 Node::Ff(f) => self.state[f as usize],
+                Node::MemOut { mem, port, bit } => self.mem_out[mem as usize][port as usize][bit as usize],
                 Node::Wire(_) => panic!("a wire in a built netlist"),
             };
         }
@@ -427,6 +600,18 @@ impl<'n> Sim<'n> {
             })
             .collect();
         self.state = next;
+        for (i, m) in self.n.mems.iter().enumerate() {
+            let reads: Vec<(Vec<u64>, u64)> =
+                m.reads.iter().map(|r| (r.addr.iter().map(|&a| self.get(a)).collect(), self.get(r.en))).collect();
+            let write = m.write.as_ref().map(|w| {
+                (
+                    w.addr.iter().map(|&a| self.get(a)).collect(),
+                    w.data.iter().map(|&a| self.get(a)).collect(),
+                    self.get(w.en),
+                )
+            });
+            mem_edge(m.width as usize, m.depth as usize, &mut self.mem[i], &reads, &mut self.mem_out[i], write);
+        }
         self.eval();
     }
 

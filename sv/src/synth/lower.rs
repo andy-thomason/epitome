@@ -11,6 +11,18 @@
 //! At the end of an `always_comb` every bit it assigns must have been
 //! assigned on every path (else it would be a latch); in an
 //! `always_ff` the enable is the flip-flop's.
+//!
+//! A memory (an unpacked array of integral words) is a [`super::Mem`].
+//! A write `mem[a] <= d` in a clocked process is its write port, enabled
+//! where the process reaches it; one write site a memory. A read in a
+//! clocked process gives placeholder wires; where a register takes
+//! exactly those bits (`q <= mem[a]`, under any conditions), the register
+//! becomes a read port, its enable the register's. A memory nothing but
+//! `initial` writes is a table: read anywhere else, it is logic (a
+//! decision tree on the address), and a placeholder not taken by a
+//! register is driven by that logic. Initial contents come from `initial`
+//! blocks (constant writes, `$readmemh` and `$readmemb`) or a declaration's
+//! assignment pattern.
 
 use super::{F, Ff, Lit, Netlist, Node, Port, T, node};
 use crate::ast::{Ast, NodeId};
@@ -35,6 +47,43 @@ struct Slot {
 struct Env {
     blk: FxMap<Key, Slot>,
     nba: FxMap<Key, Slot>,
+    /// Memory writes reached so far, each enabled where it is reached.
+    mw: Vec<MemW>,
+}
+
+#[derive(Clone)]
+struct MemW {
+    id: u32,
+    mem: usize,
+    addr: Vec<Lit>,
+    data: Vec<Lit>,
+    en: Lit,
+    at: NodeId,
+}
+
+/// A memory: its netlist index, its lowest index, and whether it is a
+/// table (written only by `initial`).
+#[derive(Clone, Copy)]
+struct MemInfo {
+    index: usize,
+    lo: i64,
+    rom: bool,
+}
+
+/// A read in a clocked process: its placeholder wires, until a register
+/// takes them or the end.
+struct Pending {
+    mem: usize,
+    addr: Vec<Lit>,
+    wires: Vec<Lit>,
+    taken: bool,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Mode {
+    Comb,
+    Clocked,
+    Initial,
 }
 
 struct Inst {
@@ -48,12 +97,35 @@ pub struct Lower<'d, 'a> {
     insts: Vec<Inst>,
     wires: FxMap<Key, Vec<Lit>>,
     inits: FxMap<Key, Vec<Lit>>,
+    mems: FxMap<Key, MemInfo>,
+    /// Objects some process other than `initial` writes.
+    written: crate::hash::FxSet<ObjId>,
+    pending: Vec<Pending>,
+    mode: Mode,
+    next_write: u32,
 }
 
 /// Lowers the design under top-level instance `top`.
 pub fn lower<'a>(d: &Design<'a>, ast: &Ast<'a>, top: InstId) -> Result<Netlist, Error<'a>> {
-    let mut l =
-        Lower { d, ast, n: Netlist::new(), insts: Vec::new(), wires: FxMap::default(), inits: FxMap::default() };
+    let written = d
+        .processes
+        .iter()
+        .filter(|p| !matches!(p.kind, ProcKind::Initial | ProcKind::Final))
+        .flat_map(|p| p.writes.iter().copied())
+        .collect();
+    let mut l = Lower {
+        d,
+        ast,
+        n: Netlist::new(),
+        insts: Vec::new(),
+        wires: FxMap::default(),
+        inits: FxMap::default(),
+        mems: FxMap::default(),
+        written,
+        pending: Vec::new(),
+        mode: Mode::Comb,
+        next_write: 0,
+    };
     let i = d.instance(top);
     let spec = d.spec(i.spec);
     l.insts.push(Inst { path: d.name(i.name).to_string() });
@@ -75,6 +147,21 @@ pub fn lower<'a>(d: &Design<'a>, ast: &Ast<'a>, top: InstId) -> Result<Netlist, 
         }
     }
     l.scope(0, spec.scope)?;
+    // Reads no register took: a table's are its logic; a written
+    // memory's stay undriven, an error if anything needs them.
+    for i in 0..l.pending.len() {
+        if l.pending[i].taken {
+            continue;
+        }
+        let m = l.pending[i].mem;
+        if l.mems.values().any(|x| x.index == m && x.rom) {
+            let addr = l.pending[i].addr.clone();
+            let v = l.table(m, &addr);
+            for (w, b) in l.pending[i].wires.clone().into_iter().zip(v) {
+                l.n.drive(w, b);
+            }
+        }
+    }
     for (name, o, w) in outs {
         let bits = l.obj_bits(0, o);
         l.n.outputs.push(Port { name: d.name(name).to_string(), width: w, bits });
@@ -148,6 +235,12 @@ impl<'d, 'a> Lower<'d, 'a> {
         let items = self.d.scope(sc).items.clone();
         for it in items {
             match it {
+                Item::Object(o) if self.tys().is_unpacked_array(self.d.object(o).ty) => {
+                    let m = self.mem_of(inst, o, self.d.object(o).node)?;
+                    if let Some(init) = self.d.object(o).init {
+                        self.pattern_init(inst, m, init)?;
+                    }
+                }
                 Item::Object(o) => {
                     let obj = self.d.object(o);
                     if let Some(init) = obj.init {
@@ -271,7 +364,24 @@ impl<'d, 'a> Lower<'d, 'a> {
 
     fn initial(&mut self, inst: u32, s: StmtId, at: NodeId) -> R<'a, ()> {
         let mut env = Env::default();
-        self.stmt(inst, s, &mut env)?;
+        self.mode = Mode::Initial;
+        let r = self.stmt(inst, s, &mut env);
+        self.mode = Mode::Comb;
+        r?;
+        for w in std::mem::take(&mut env.mw) {
+            let (Some(a), true) = (konst(&w.addr), w.en == T && w.data.iter().all(|&b| b == F || b == T)) else {
+                return Err(
+                    self.err(w.at, "an initial block may only write constants to constant addresses of a memory")
+                );
+            };
+            let m = &mut self.n.mems[w.mem];
+            let width = m.width as usize;
+            if (a as usize) < m.depth as usize {
+                for (b, &d) in w.data.iter().enumerate() {
+                    m.init[a as usize * width + b] = d == T;
+                }
+            }
+        }
         for (key, slot) in env.blk.into_iter().chain(env.nba) {
             if slot.val.iter().chain(&slot.en).any(|&b| b != F && b != T) {
                 return Err(self.err(at, "an initial block may only set variables to constants"));
@@ -294,6 +404,9 @@ impl<'d, 'a> Lower<'d, 'a> {
     fn comb(&mut self, inst: u32, s: StmtId, at: NodeId) -> R<'a, ()> {
         let mut env = Env::default();
         self.stmt(inst, s, &mut env)?;
+        if let Some(w) = env.mw.first() {
+            return Err(self.err(w.at, "a memory is written only on a clock edge"));
+        }
         if !env.nba.is_empty() {
             return Err(self.err(at, "a nonblocking assignment in combinational logic is not synthesised"));
         }
@@ -365,14 +478,26 @@ impl<'d, 'a> Lower<'d, 'a> {
         };
         let mut env = Env::default();
         let mut rst = FxMap::default();
+        self.mode = Mode::Clocked;
+        let first_read = self.pending.len();
         let arst = match reset {
             None => {
-                self.stmt(inst, s, &mut env)?;
+                let r = self.stmt(inst, s, &mut env);
+                self.mode = Mode::Comb;
+                r?;
                 F
             }
             Some((c, then, else_)) => {
                 let mut renv = Env::default();
-                self.stmt(inst, then, &mut renv)?;
+                let r = self.stmt(inst, then, &mut renv);
+                if r.is_err() {
+                    self.mode = Mode::Comb;
+                }
+                r?;
+                if let Some(w) = renv.mw.first() {
+                    self.mode = Mode::Comb;
+                    return Err(self.err(w.at, "a memory cannot be written by an asynchronous reset"));
+                }
                 for (key, slot) in renv.nba {
                     if slot.val.iter().chain(&slot.en).any(|&b| b != F && b != T) {
                         return Err(self.err(self.d.stmt(then).node, "an asynchronous reset must set constants"));
@@ -380,11 +505,36 @@ impl<'d, 'a> Lower<'d, 'a> {
                     rst.insert(key, slot);
                 }
                 if let Some(e) = else_ {
-                    self.stmt(inst, e, &mut env)?;
+                    let r = self.stmt(inst, e, &mut env);
+                    self.mode = Mode::Comb;
+                    r?;
                 }
+                self.mode = Mode::Comb;
                 c
             }
         };
+        // The memories' write ports.
+        let mut writes = std::mem::take(&mut env.mw);
+        writes.sort_by_key(|w| (w.mem, w.id));
+        for (k, w) in writes.iter().enumerate() {
+            if k > 0 && writes[k - 1].mem == w.mem {
+                return Err(self.err(
+                    w.at,
+                    format!(
+                        "{} is written in two places: one write port a memory is supported",
+                        self.n.mems[w.mem].name
+                    ),
+                ));
+            }
+            self.mem_clock(w.mem, clock, negedge, w.at)?;
+            if self.n.mems[w.mem].write.is_some() {
+                let name = self.n.mems[w.mem].name.clone();
+                return Err(
+                    self.err(w.at, format!("{name} is written by two processes: one write port a memory is supported"))
+                );
+            }
+            self.n.mems[w.mem].write = Some(super::MemWrite { addr: w.addr.clone(), data: w.data.clone(), en: w.en });
+        }
         let mut keys: Vec<Key> = env.nba.keys().chain(rst.keys()).copied().collect();
         keys.sort();
         keys.dedup();
@@ -398,6 +548,26 @@ impl<'d, 'a> Lower<'d, 'a> {
             let slot = env.nba.get(&key).unwrap_or(&none).clone();
             let r = rst.get(&key).unwrap_or(&none).clone();
             let init = self.inits.get(&key).cloned();
+            // A register that takes a memory read whole is its read port.
+            if r.en.iter().all(|&e| e == F) && slot.en.iter().all(|&e| e == slot.en[0]) && slot.en[0] != F {
+                let found = (first_read..self.pending.len()).find(|&p| self.pending[p].wires == slot.val);
+                if let Some(p) = found {
+                    let m = self.pending[p].mem;
+                    self.mem_clock(m, clock, negedge, at)?;
+                    self.pending[p].taken = true;
+                    let port = self.n.mems[m].reads.len() as u32;
+                    self.n.mems[m].reads.push(super::MemRead { addr: self.pending[p].addr.clone(), en: slot.en[0] });
+                    for (b, &wire) in wires.iter().enumerate() {
+                        let q = self.n.mem_out(m as u32, port, b as u32);
+                        if !self.n.drive(wire, q) {
+                            return Err(
+                                self.err(at, format!("{} has more than one driver", self.obj_name(key.0, key.1)))
+                            );
+                        }
+                    }
+                    continue;
+                }
+            }
             for b in 0..w {
                 if slot.en[b] == F && r.en[b] == F {
                     continue;
@@ -604,6 +774,49 @@ impl<'d, 'a> Lower<'d, 'a> {
         envs.push(other);
         let leaf: Vec<usize> = arm_of.iter().map(|a| a.unwrap_or(items.len())).collect();
         let mut out = Env::default();
+        // Memory writes: those from before the case as they were; each
+        // arm's own enabled where its arm is chosen.
+        let base: crate::hash::FxSet<u32> = env.mw.iter().map(|w| w.id).collect();
+        out.mw = env.mw.clone();
+        let mut own: Vec<MemW> =
+            envs.iter().flat_map(|e| e.mw.iter().filter(|w| !base.contains(&w.id)).cloned()).collect();
+        own.sort_by_key(|w| w.id);
+        own.dedup_by_key(|w| w.id);
+        let mut mems: Vec<usize> = own.iter().map(|w| w.mem).collect();
+        mems.sort();
+        mems.dedup();
+        for m in mems {
+            // Written at most once by each arm: one write, its address
+            // and data chosen by the tree as its enable is.
+            let per_arm: Vec<Vec<&MemW>> =
+                envs.iter().map(|e| e.mw.iter().filter(|w| w.mem == m && !base.contains(&w.id)).collect()).collect();
+            if per_arm.iter().all(|a| a.len() <= 1) {
+                let first = own.iter().find(|w| w.mem == m).unwrap().clone();
+                let pick = |f: &dyn Fn(&MemW) -> Lit| -> Vec<(Lit, Lit)> {
+                    per_arm.iter().map(|a| a.first().map_or((F, F), |w| (f(w), w.en))).collect()
+                };
+                let mut addr = Vec::new();
+                for b in 0..first.addr.len() {
+                    let leaves = pick(&|w: &MemW| w.addr[b]);
+                    addr.push(self.tree(v, v.len(), 0, &leaf, &leaves).0);
+                }
+                let mut data = Vec::new();
+                for b in 0..first.data.len() {
+                    let leaves = pick(&|w: &MemW| w.data[b]);
+                    data.push(self.tree(v, v.len(), 0, &leaf, &leaves).0);
+                }
+                let leaves = pick(&|_| F);
+                let en = self.tree(v, v.len(), 0, &leaf, &leaves).1;
+                out.mw.push(MemW { addr, data, en, ..first });
+            } else {
+                for mut w in own.iter().filter(|w| w.mem == m).cloned() {
+                    let leaves: Vec<(Lit, Lit)> =
+                        envs.iter().map(|e| (F, e.mw.iter().find(|x| x.id == w.id).map_or(F, |x| x.en))).collect();
+                    w.en = self.tree(v, v.len(), 0, &leaf, &leaves).1;
+                    out.mw.push(w);
+                }
+            }
+        }
         for nba in [false, true] {
             let mut keys: Vec<Key> =
                 envs.iter().flat_map(|e| if nba { e.nba.keys() } else { e.blk.keys() }).copied().collect();
@@ -653,6 +866,195 @@ impl<'d, 'a> Lower<'d, 'a> {
         (val, en)
     }
 
+    /// The memory `e` names, if it is one.
+    fn mem_object(&self, e: Option<ExprId>) -> Option<ObjId> {
+        let e = e?;
+        match self.d.expr(e).kind {
+            ExprKind::Object(o) if self.tys().is_unpacked_array(self.d.object(o).ty) => Some(o),
+            _ => None,
+        }
+    }
+
+    fn mem_info(&mut self, inst: u32, o: ObjId, at: NodeId) -> R<'a, MemInfo> {
+        self.mem_of(inst, o, at)?;
+        Ok(self.mems[&(inst, o)])
+    }
+
+    /// Memory `o` of instance `inst`, made when first seen.
+    fn mem_of(&mut self, inst: u32, o: ObjId, at: NodeId) -> R<'a, MemInfo> {
+        if let Some(&m) = self.mems.get(&(inst, o)) {
+            return Ok(m);
+        }
+        let ty = self.d.object(o).ty;
+        let Type::Unpacked { elem, dim: types::UDim::Range(l, r) } = self.tys().get(ty).clone() else {
+            return Err(self.err(at, "only fixed-size unpacked arrays are synthesised"));
+        };
+        if !self.tys().is_integral(elem) {
+            return Err(self.err(at, "a memory's words must be integral (one unpacked dimension)"));
+        }
+        let (width, depth) = (self.tys().width(elem), (l - r).unsigned_abs() as u32 + 1);
+        let index = self.n.mems.len();
+        self.n.mems.push(super::Mem {
+            name: self.obj_name(inst, o),
+            width,
+            depth,
+            init: vec![false; (width * depth) as usize],
+            write: None,
+            reads: Vec::new(),
+            clock: F,
+            negedge: false,
+            clocks: Vec::new(),
+        });
+        let info = MemInfo { index, lo: l.min(r), rom: !self.written.contains(&o) };
+        self.mems.insert((inst, o), info);
+        Ok(info)
+    }
+
+    /// Ties memory `m` to the clock of one of its ports.
+    fn mem_clock(&mut self, m: usize, clock: Lit, negedge: bool, at: NodeId) -> R<'a, ()> {
+        // Each port's clock is kept; `Netlist::clock` checks they agree
+        // once wires are resolved.
+        let _ = at;
+        let mem = &mut self.n.mems[m];
+        if mem.clock == F {
+            (mem.clock, mem.negedge) = (clock, negedge);
+        }
+        mem.clocks.push((clock, negedge));
+        Ok(())
+    }
+
+    /// An index into a memory as its address (enough bits for its depth),
+    /// and whether it is in range.
+    fn address(&mut self, info: MemInfo, idx: Vec<Lit>, signed: bool) -> (Vec<Lit>, Lit) {
+        let depth = self.n.mems[info.index].depth as u64;
+        let bits = (64 - (depth - 1).leading_zeros()).max(1) as usize;
+        let wi = idx.len().max(bits) + 1;
+        let mut a = self.fit(idx, wi as u32, signed);
+        if info.lo != 0 {
+            let lo: Vec<Lit> = (0..wi).map(|b| if (info.lo as u64 >> b.min(63)) & 1 != 0 { T } else { F }).collect();
+            let nl: Vec<Lit> = lo.iter().map(|&x| x ^ 1).collect();
+            a = self.add(&a, &nl, T).0;
+        }
+        let d: Vec<Lit> = (0..wi).map(|b| if b < 64 && (depth >> b) & 1 != 0 { T } else { F }).collect();
+        let in_range = self.less(&a, &d, signed);
+        a.truncate(bits);
+        (a, in_range)
+    }
+
+    /// Reading table `m` at `addr`: a decision tree on the address.
+    fn table(&mut self, m: usize, addr: &[Lit]) -> Vec<Lit> {
+        let (width, depth) = (self.n.mems[m].width as usize, self.n.mems[m].depth as usize);
+        let words: Vec<Vec<Lit>> = (0..1usize << addr.len())
+            .map(|w| (0..width).map(|b| if w < depth && self.n.mems[m].init[w * width + b] { T } else { F }).collect())
+            .collect();
+        let leaf: Vec<usize> = (0..words.len()).collect();
+        (0..width)
+            .map(|b| {
+                let leaves: Vec<(Lit, Lit)> = words.iter().map(|w| (w[b], T)).collect();
+                self.tree(addr, addr.len(), 0, &leaf, &leaves).0
+            })
+            .collect()
+    }
+
+    /// A declaration's assignment pattern as a memory's contents.
+    fn pattern_init(&mut self, inst: u32, info: MemInfo, init: ExprId) -> R<'a, ()> {
+        let e = self.d.expr(init).clone();
+        let (width, depth) = (self.n.mems[info.index].width, self.n.mems[info.index].depth as usize);
+        if !matches!(e.kind, ExprKind::Pattern) || e.args.len() != depth {
+            return Err(self.err(e.node, "a memory's initial value must be a pattern with a word for each element"));
+        }
+        let ty = self.d.expr(init).ty;
+        let ascending = matches!(self.tys().get(ty), Type::Unpacked { dim: types::UDim::Range(l, r), .. } if l <= r);
+        for (k, &a) in e.args.iter().enumerate() {
+            let v = self.eval(inst, a, &Env::default())?;
+            let v = self.fit(v, width, self.signed(a));
+            if v.iter().any(|&b| b != F && b != T) {
+                return Err(self.err(self.d.expr(a).node, "a memory's initial words must be constants"));
+            }
+            let w = if ascending { k } else { depth - 1 - k };
+            for (b, &x) in v.iter().enumerate() {
+                self.n.mems[info.index].init[w * width as usize + b] = x == T;
+            }
+        }
+        Ok(())
+    }
+
+    /// `$readmemh("file", mem)` / `$readmemb`: words in hex or binary,
+    /// separated by white space, `//` and `/* */` comments, `@addr` to move
+    /// (21.4); the file found from the current directory.
+    fn readmem(&mut self, inst: u32, ex: &Expr, hex: bool) -> R<'a, ()> {
+        if self.mode != Mode::Initial || ex.args.len() != 2 {
+            return Err(self.err(
+                ex.node,
+                "$readmemh and $readmemb are synthesised in an initial block, with a file and a memory alone",
+            ));
+        }
+        let name = match &self.d.expr(ex.args[0]).kind {
+            ExprKind::Const(c) => match self.d.konst(*c) {
+                Const::Str(s) => String::from_utf8_lossy(s).into_owned(),
+                Const::Bits(b) => {
+                    let w = b.width();
+                    let bytes: Vec<u8> = (0..w / 8)
+                        .rev()
+                        .map(|k| (0..8).fold(0u8, |a, i| a | ((b.bit(k * 8 + i) == Logic::One) as u8) << i))
+                        .collect();
+                    String::from_utf8_lossy(&bytes).trim_start_matches('\0').to_string()
+                }
+                _ => String::new(),
+            },
+            _ => String::new(),
+        };
+        let Some(o) = self.mem_object(Some(ex.args[1])) else {
+            return Err(self.err(ex.node, "the second argument must be a memory"));
+        };
+        let info = self.mem_info(inst, o, ex.node)?;
+        let text = std::fs::read_to_string(&name).map_err(|e| self.err(ex.node, format!("{name}: {e}")))?;
+        let mut clean = String::new();
+        let mut rest = text.as_str();
+        while !rest.is_empty() {
+            if let Some(r) = rest.strip_prefix("//") {
+                rest = r.find('\n').map_or("", |i| &r[i..]);
+            } else if let Some(r) = rest.strip_prefix("/*") {
+                rest = r.find("*/").map_or("", |i| &r[i + 2..]);
+            } else {
+                let c = rest.chars().next().unwrap();
+                clean.push(c);
+                rest = &rest[c.len_utf8()..];
+            }
+        }
+        let (width, depth) = (self.n.mems[info.index].width as usize, self.n.mems[info.index].depth as i64);
+        let mut addr = info.lo;
+        for tok in clean.split_whitespace() {
+            if let Some(a) = tok.strip_prefix('@') {
+                addr =
+                    i64::from_str_radix(a, 16).map_err(|_| self.err(ex.node, format!("{name}: bad address {tok}")))?;
+                continue;
+            }
+            let digits: String = tok.chars().filter(|&c| c != '_').collect();
+            let radix = if hex { 16 } else { 2 };
+            let bits_per = if hex { 4 } else { 1 };
+            let mut v = vec![false; width];
+            for (k, c) in digits.chars().rev().enumerate() {
+                let d = c.to_digit(radix).ok_or_else(|| {
+                    self.err(ex.node, format!("{name}: bad word {tok} (x and z are not synthesised)"))
+                })?;
+                for i in 0..bits_per {
+                    if k * bits_per as usize + i < width {
+                        v[k * bits_per as usize + i] = d >> i & 1 != 0;
+                    }
+                }
+            }
+            let w = addr - info.lo;
+            if w >= 0 && w < depth {
+                for (b, &x) in v.iter().enumerate() {
+                    self.n.mems[info.index].init[w as usize * width + b] = x;
+                }
+            }
+            addr += 1;
+        }
+        Ok(())
+    }
+
     /// A block's or loop's own variables, set to their initial values.
     fn locals(&mut self, inst: u32, sc: ScopeId, env: &mut Env) -> R<'a, ()> {
         for it in self.d.scope(sc).items.clone() {
@@ -689,6 +1091,9 @@ impl<'d, 'a> Lower<'d, 'a> {
                 self.assign(inst, ex.args[0], v, false, env)
             }
             // $display and the like do nothing in hardware.
+            ExprKind::SysCall(f) if matches!(self.d.name(f), "$readmemh" | "$readmemb") => {
+                self.readmem(inst, &ex, self.d.name(f) == "$readmemh")
+            }
             ExprKind::SysCall(_) => Ok(()),
             _ => Err(self.err(ex.node, "this expression statement is not synthesised")),
         }
@@ -758,6 +1163,38 @@ impl<'d, 'a> Lower<'d, 'a> {
     /// Merges the two arms of `if (c)`.
     fn merge(&mut self, c: Lit, mut t: Env, mut e: Env) -> Env {
         let mut out = Env::default();
+        // Writes from before the `if` are in both; each arm's own are
+        // enabled only where the arm runs.
+        let te: crate::hash::FxSet<u32> = t.mw.iter().map(|w| w.id).collect();
+        let ee: crate::hash::FxSet<u32> = e.mw.iter().map(|w| w.id).collect();
+        // A memory written once in each arm is written once: the arms'
+        // addresses, data and enables muxed.
+        let mut mw: Vec<MemW> = t.mw.iter().filter(|w| ee.contains(&w.id)).cloned().collect();
+        let t_own: Vec<MemW> = t.mw.iter().filter(|w| !ee.contains(&w.id)).cloned().collect();
+        let e_own: Vec<MemW> = e.mw.iter().filter(|w| !te.contains(&w.id)).cloned().collect();
+        let once = |v: &[MemW], m: usize| v.iter().filter(|w| w.mem == m).count() == 1;
+        for w in &t_own {
+            if once(&t_own, w.mem) && once(&e_own, w.mem) {
+                let x = e_own.iter().find(|x| x.mem == w.mem).unwrap();
+                let addr = w.addr.iter().zip(&x.addr).map(|(&a, &b)| self.n.mux(c, a, b)).collect();
+                let data = w.data.iter().zip(&x.data).map(|(&a, &b)| self.n.mux(c, a, b)).collect();
+                let en = self.n.mux(c, w.en, x.en);
+                mw.push(MemW { id: w.id.min(x.id), mem: w.mem, addr, data, en, at: w.at });
+            } else {
+                let en = self.n.and(c, w.en);
+                mw.push(MemW { en, ..w.clone() });
+            }
+        }
+        for w in &e_own {
+            if !(once(&t_own, w.mem) && once(&e_own, w.mem)) {
+                let en = self.n.and(c ^ 1, w.en);
+                mw.push(MemW { en, ..w.clone() });
+            }
+        }
+        t.mw.clear();
+        e.mw.clear();
+        mw.sort_by_key(|w| w.id);
+        out.mw = mw;
         for nba in [false, true] {
             let (tm, em) = if nba {
                 (std::mem::take(&mut t.nba), std::mem::take(&mut e.nba))
@@ -794,6 +1231,23 @@ impl<'d, 'a> Lower<'d, 'a> {
 
     /// Assigns `v` to the target `lhs` in a procedure.
     fn assign(&mut self, inst: u32, lhs: ExprId, v: Vec<Lit>, nba: bool, env: &mut Env) -> R<'a, ()> {
+        let le = self.d.expr(lhs).clone();
+        if let (ExprKind::Index, Some(o)) = (&le.kind, self.mem_object(le.args.first().copied())) {
+            let at = le.node;
+            match self.mode {
+                Mode::Comb => return Err(self.err(at, "a memory is written only on a clock edge")),
+                Mode::Clocked if !nba => return Err(self.err(at, "write a memory with a nonblocking assignment")),
+                _ => {}
+            }
+            let info = self.mem_info(inst, o, at)?;
+            let idx = self.eval(inst, le.args[1], env)?;
+            let (addr, in_range) = self.address(info, idx, self.signed(le.args[1]));
+            let width = self.n.mems[info.index].width;
+            let data = self.fit(v, width, false);
+            env.mw.push(MemW { id: self.next_write, mem: info.index, addr, data, en: in_range, at });
+            self.next_write += 1;
+            return Ok(());
+        }
         let targets = self.lvalue(inst, lhs, env)?;
         let v = self.fit(v, targets.len() as u32, false);
         for (t, b) in targets.into_iter().zip(v) {
@@ -864,7 +1318,8 @@ impl<'d, 'a> Lower<'d, 'a> {
     fn select(&mut self, inst: u32, ex: &Expr, env: &Env) -> R<'a, Vec<(i64, Lit)>> {
         let bt = self.d.expr(ex.args[0]).ty;
         if self.tys().is_unpacked_array(bt) {
-            return Err(self.err(ex.node, "memories (unpacked arrays) are not synthesised yet"));
+            return Err(self
+                .err(ex.node, "a memory is read and written a whole word at a time, by a constant or variable index"));
         }
         let ew = self.tys().elem_width(bt) as i64;
         let (l, r) = self.tys().packed_range(bt).unwrap_or((self.tys().width(bt) as i64 - 1, 0));
@@ -1139,6 +1594,35 @@ impl<'d, 'a> Lower<'d, 'a> {
             ExprKind::Replicate(n) => {
                 let one = self.eval(inst, ex.args[0], env)?;
                 (0..n).flat_map(|_| one.iter().copied()).collect()
+            }
+            ExprKind::Index if self.mem_object(ex.args.first().copied()).is_some() => {
+                let o = self.mem_object(ex.args.first().copied()).unwrap();
+                let info = self.mem_info(inst, o, at)?;
+                let idx = self.eval(inst, ex.args[1], env)?;
+                let (addr, _) = self.address(info, idx, self.signed(ex.args[1]));
+                let v = match self.mode {
+                    Mode::Clocked => {
+                        let name = format!(
+                            "a read of memory {} that is not a register on its clock (block RAM is read synchronously)",
+                            self.n.mems[info.index].name
+                        );
+                        let width = self.n.mems[info.index].width;
+                        let wires: Vec<Lit> = (0..width).map(|_| self.n.wire(name.clone())).collect();
+                        self.pending.push(Pending { mem: info.index, addr, wires: wires.clone(), taken: false });
+                        wires
+                    }
+                    _ if info.rom => self.table(info.index, &addr),
+                    _ => {
+                        return Err(self.err(
+                            at,
+                            format!(
+                                "memory {} is written, so it is read only into a register on its clock (block RAM is read synchronously)",
+                                self.n.mems[info.index].name
+                            ),
+                        ));
+                    }
+                };
+                self.fit(v, w, false)
             }
             ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_) => {
                 let base = self.eval(inst, ex.args[0], env)?;

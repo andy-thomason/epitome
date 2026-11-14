@@ -1130,8 +1130,10 @@ simulations:
 The same elaborated design also goes to hardware. `sv/src/synth/` flattens
 it and bit-blasts `assign`, `always_comb` and single-clock `always_ff` into
 a hashed graph of ANDs, XORs, majorities (adders' carries) and flip-flops
-with enables and asynchronous resets. `sv/src/arch/ice40/` then maps it
-onto iCE40 logic cells (carry chains, then 4-input cuts), places them
+with enables and asynchronous resets. Memories stay whole, with a write
+port and synchronous read ports, and their initial contents.
+`sv/src/arch/ice40/` then maps it onto iCE40 logic cells (carry chains,
+then 4-input cuts) and RAM4K blocks, places them
 (greedy, then annealing) and routes them by PathFinder over the chip
 database's switches. Epitome's own packer makes the bitstream, which runs
 on the iCESugar-nano. Every stage is checked against the interpreter

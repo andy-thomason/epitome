@@ -74,6 +74,65 @@ module alu(input logic clk, input logic [1:0] op, input logic [7:0] a, input log
 endmodule
 "#;
 
+pub const RAMS: &str = r#"
+module rams(input logic clk, input logic we, input logic re, input logic [3:0] wa, input logic [3:0] ra,
+            input logic [15:0] wd, output logic [15:0] q, output logic [7:0] q2, output logic [5:0] q3);
+  logic [15:0] mem [0:15];
+  always_ff @(posedge clk) begin
+    if (we) mem[wa] <= wd;
+    if (re) q <= mem[ra];
+  end
+  // A second read port, unconditional.
+  logic [15:0] m2;
+  always_ff @(posedge clk) m2 <= mem[wa ^ ra];
+  assign q2 = m2[7:0] ^ m2[15:8];
+  // Indexed from 16, written under a case.
+  logic [5:0] hi [16:31];
+  always_ff @(posedge clk) begin
+    case (wd[1:0])
+      2'd0: hi[{1'b1, wa}] <= wd[7:2];
+      2'd1: if (we) hi[{1'b1, ra}] <= ~wd[7:2];
+      default: ;
+    endcase
+    q3 <= hi[{1'b1, ra}];
+  end
+endmodule
+"#;
+
+pub const TABLES: &str = r#"
+module tables(input logic clk, input logic [3:0] a, output logic [7:0] y, output logic [7:0] z, output logic [3:0] p);
+  logic [7:0] t [16];
+  initial for (int i = 0; i < 16; i++) t[i] = i * 7 + 3;
+  assign y = t[a];
+  always_ff @(posedge clk) z <= t[~a];
+  logic [3:0] pat [0:3] = '{4'h1, 4'h2, 4'h4, 4'h8};
+  assign p = pat[a[1:0]] ^ pat[a[3:2]];
+endmodule
+"#;
+
+/// Synthesises `text` and checks the netlist alone against the
+/// interpreter.
+fn check_netlist(text: &str, top: &str, cycles: usize) -> epitome_sv::synth::Netlist {
+    let s = src(text);
+    let n = synthesise(&s, top).unwrap_or_else(|e| panic!("{e}"));
+    eprintln!("{top}: {}", n.stats());
+    let st = random_stimulus(&n, cycles, 0x1234_5678).unwrap();
+    let want = reference(&s, top, &n, &st).unwrap();
+    compare(&want, &netlist_lines(&n, &st)).unwrap_or_else(|e| panic!("netlist: {e}"));
+    n
+}
+
+#[test]
+fn memories_match_interpreter() {
+    let n = check_netlist(RAMS, "rams", 400);
+    assert_eq!(n.mems.len(), 2);
+    assert_eq!(n.mems[0].reads.len(), 2);
+    let n = check_netlist(TABLES, "tables", 200);
+    // t read by a register is a block RAM read port; read by `assign`, and
+    // pat, logic.
+    assert_eq!(n.mems.len(), 1);
+}
+
 /// Synthesises `text`, checks the netlist and its mapping against the
 /// interpreter on `cycles` cycles of random stimulus.
 fn check_flow(text: &str, top: &str, cycles: usize) -> epitome_sv::arch::ice40::map::Mapped {
@@ -114,8 +173,18 @@ fn synth_rejects() {
             0,
         ),
         (
-            "module t(input logic [1:0] a, input logic d, output logic y);\n logic m [4];\n always_comb y = m[a];\nendmodule\n",
-            "memories",
+            "module t(input logic clk, input logic [1:0] a, input logic d, output logic y);\n logic m [4];\n always_ff @(posedge clk) m[a] <= d;\n assign y = m[a];\nendmodule\n",
+            "read only into a register",
+            4,
+        ),
+        (
+            "module t(input logic clk, input logic [1:0] a, input logic d, output logic y);\n logic m [4];\n always_ff @(posedge clk) begin m[a] <= d; y <= m[a] ^ d; end\nendmodule\n",
+            "read synchronously",
+            0,
+        ),
+        (
+            "module t(input logic clk, input logic [1:0] a, b, input logic d, output logic y);\n logic m [4];\n always_ff @(posedge clk) begin m[a] <= d; m[b] <= ~d; end\nendmodule\n",
+            "one write port",
             3,
         ),
         (
@@ -158,22 +227,7 @@ module t(input logic clk, input logic [3:0] en, input logic [11:0] d, output log
 endmodule
 "#;
     check_flow(text, "t", 200);
-    let (d, db, sem) = records();
-    let n = synthesise(&src(text), "t").unwrap();
-    // The CM36 has too few pins: the same die in its TQ144 package, the
-    // clock on a pin with a global buffer.
-    let pkg = &db.pins.iter().find(|p| p.0 == "tq144").unwrap().1;
-    let gb = db.gbufpin.iter().find_map(|g| pkg.iter().find(|p| (p.1, p.2, p.3) == (g.0, g.1, g.2))).unwrap();
-    let mut free = pkg.iter().filter(|p| p.0 != gb.0).map(|p| p.0.clone());
-    let mut pins = vec![("clk".to_string(), gb.0.clone())];
-    for p in n.inputs.iter().chain(&n.outputs).filter(|p| p.name != "clk") {
-        for b in 0..p.width {
-            pins.push((epitome_sv::arch::ice40::place::bit_name(&p.name, p.width, b), free.next().unwrap()));
-        }
-    }
-    let b =
-        build(&d, &db, &sem, n, &Options { package: "tq144".into(), pins, seed: 3 }).unwrap_or_else(|e| panic!("{e}"));
-    eprintln!("{}", b.report());
+    let b = build_tq144(text, "t");
     // Four enables: at least four tiles of flip-flops besides the chain's.
     let mut tiles: Vec<(usize, usize)> = b
         .mapped
@@ -187,7 +241,7 @@ endmodule
     tiles.dedup();
     assert!(tiles.len() >= 4, "{tiles:?}");
     assert!(b.mapped.chains.iter().any(|c| c.lcs.len() > 8));
-    epitome_sv::arch::ice40::place::check(&db, &b.mapped, &b.placement).unwrap();
+    epitome_sv::arch::ice40::place::check(&records().1, &b.mapped, &b.placement).unwrap();
 }
 
 // ---- the flow on the board's designs ----
@@ -218,10 +272,12 @@ fn build_design(name: &str, defines: &[&str]) -> Built {
     let mut s = Sources::default();
     s.file(arch().join(format!("flow/{name}.sv")));
     for &k in defines {
-        s.define(k, "1");
+        let (k, v) = k.split_once('=').unwrap_or((k, "1"));
+        s.define(k, v);
     }
     let n = synthesise(&s, name).unwrap_or_else(|e| panic!("{e}"));
-    let st = random_stimulus(&n, 200, 7).unwrap();
+    // Enough cycles for a RAM delay line to come round.
+    let st = random_stimulus(&n, if n.mems.is_empty() { 200 } else { 4200 }, 7).unwrap();
     let want = reference(&s, name, &n, &st).unwrap();
     let m = map(&n).unwrap();
     compare(&want, &mapped_lines(&m, &st)).unwrap_or_else(|e| panic!("{name}: {e}"));
@@ -246,6 +302,12 @@ fn board_designs_build() {
     let blink = build_design("blink", &[]);
     assert_eq!(blink.mapped.chains.len(), 1);
     build_design("hello", &[]);
+    for w in ["16", "8", "4", "2", "1"] {
+        let b = build_design("ramdelay", &[&format!("WIDTH={w}")]);
+        assert_eq!(b.mapped.rams.len(), 1);
+    }
+    let b = build_design("hello_ram", &[]);
+    assert_eq!(b.mapped.rams.len(), 1);
 }
 
 /// Programs the board with each design and watches the serial port; only
@@ -304,6 +366,22 @@ fn board_live() {
     let whole = text.matches("Hello from Epitome\r\n").count();
     eprintln!("(d) {} bytes, {whole} whole strings: {:?}...", got.len(), &text[..text.len().min(60)]);
     assert!(whole >= 100, "(d) {whole} strings in 0.5 s");
+    // (e) rx through a block RAM in each of its modes.
+    for w in ["16", "8", "4", "2", "1"] {
+        let seen = run(&build_design("ramdelay", &[&format!("WIDTH={w}")]));
+        eprintln!("(e) through a RAM {w} bits wide: {seen}");
+        assert_eq!(seen, "echo", "(e) WIDTH={w}");
+    }
+    // (f) the string from a RAM's initial contents.
+    let b = build_design("hello_ram", &[]);
+    ip.program(&b.bitstream).unwrap();
+    let mut s = Serial::open(&port).unwrap();
+    s.read_for(100);
+    let got = s.read_for(500);
+    let text = String::from_utf8_lossy(&got);
+    let whole = text.matches("Hello from Epitome\r\n").count();
+    eprintln!("(f) {} bytes, {whole} whole strings: {:?}...", got.len(), &text[..text.len().min(60)]);
+    assert!(whole >= 100, "(f) {whole} strings in 0.5 s");
 }
 
 /// A `case` table becomes a decision tree, and few LUTs: hello's 20
@@ -318,4 +396,81 @@ fn case_table_is_small() {
     let m = map(&n).unwrap();
     eprintln!("{}\n{}", n.stats(), m.stats());
     assert!(m.lcs.len() <= 20, "{}", m.stats());
+}
+
+/// Builds `top` on the LP1K in its TQ144 package (the CM36 has too few
+/// pins for most test designs), the clock on a pin with a global buffer,
+/// the other ports on pins in order.
+fn build_tq144(text: &str, top: &str) -> Built {
+    let (d, db, sem) = records();
+    let n = synthesise(&src(text), top).unwrap();
+    let pkg = &db.pins.iter().find(|p| p.0 == "tq144").unwrap().1;
+    let gb = db.gbufpin.iter().find_map(|g| pkg.iter().find(|p| (p.1, p.2, p.3) == (g.0, g.1, g.2))).unwrap();
+    let mut free = pkg.iter().filter(|p| p.0 != gb.0).map(|p| p.0.clone());
+    let mut pins = vec![("clk".to_string(), gb.0.clone())];
+    for p in n.inputs.iter().chain(&n.outputs).filter(|p| p.name != "clk") {
+        for b in 0..p.width {
+            pins.push((epitome_sv::arch::ice40::place::bit_name(&p.name, p.width, b), free.next().unwrap()));
+        }
+    }
+    let b =
+        build(&d, &db, &sem, n, &Options { package: "tq144".into(), pins, seed: 3 }).unwrap_or_else(|e| panic!("{e}"));
+    eprintln!("{top}:\n{}", b.report());
+    b
+}
+
+#[test]
+fn memories_map_place_route() {
+    let m = check_flow(RAMS, "rams", 400);
+    // mem has two read ports: two copies; hi one.
+    assert_eq!(m.rams.len(), 3);
+    let b = build_tq144(RAMS, "rams");
+    assert_eq!(b.placement.rams.iter().flatten().count(), 3);
+    let m = check_flow(TABLES, "tables", 200);
+    assert_eq!(m.rams.len(), 1);
+    build_tq144(TABLES, "tables");
+}
+
+#[test]
+fn ram_modes() {
+    use epitome_sv::arch::ice40::map::ram_mode;
+    assert_eq!(ram_mode(16, 256), Some((0, 1)));
+    assert_eq!(ram_mode(8, 512), Some((1, 1)));
+    assert_eq!(ram_mode(8, 20), Some((0, 1)));
+    assert_eq!(ram_mode(1, 2048), Some((3, 1)));
+    assert_eq!(ram_mode(32, 256), Some((0, 2)));
+    assert_eq!(ram_mode(32, 300), Some((1, 4)));
+    assert_eq!(ram_mode(1, 4096), None);
+}
+
+/// Programs `$TRY_SV` (top: the file's name; `$TRY_D` macros, comma
+/// separated) and says what the serial port sees: for trying designs on
+/// the board by hand.
+#[test]
+#[ignore]
+fn board_try() {
+    use epitome_sv::arch::ice40::board::{Icesprog, Serial};
+    let Some(path) = std::env::var_os("TRY_SV") else { return };
+    let path = PathBuf::from(path);
+    let top = path.file_stem().unwrap().to_string_lossy().into_owned();
+    let (d, db, sem) = records();
+    let mut s = Sources::default();
+    s.file(&path);
+    for k in std::env::var("TRY_D").unwrap_or_default().split(',').filter(|k| !k.is_empty()) {
+        let (k, v) = k.split_once('=').unwrap_or((k, "1"));
+        s.define(k, v);
+    }
+    let n = synthesise(&s, &top).unwrap_or_else(|e| panic!("{e}"));
+    let pins = parse_pins(&std::fs::read_to_string(arch().join("flow/nano.pins")).unwrap()).unwrap();
+    let ports: Vec<&str> = n.inputs.iter().chain(&n.outputs).map(|p| p.name.as_str()).collect();
+    let pins = pins.into_iter().filter(|(p, _)| ports.contains(&p.as_str())).collect();
+    let b = build(&d, &db, &sem, n, &Options { package: "cm36".into(), pins, seed: 1 }).unwrap();
+    eprintln!("{}", b.report());
+    for (i, r) in b.mapped.rams.iter().enumerate() {
+        eprintln!("ram {} mode {} at {:?}", r.name, r.mode, b.placement.rams[i]);
+    }
+    Icesprog::find().unwrap().program(&b.bitstream).unwrap();
+    let mut ser = Serial::open(&Serial::find().unwrap()).unwrap();
+    let probe: Vec<u8> = (0..64u8).map(|i| 0x20 + i).collect();
+    eprintln!("TRY: {}", ser.echo(&probe).unwrap());
 }

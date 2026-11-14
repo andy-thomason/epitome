@@ -23,6 +23,10 @@
 //!   passes the input through. An enable and an asynchronous reset are
 //!   the cell's `cen` and `sr`, which a tile's eight cells share (see
 //!   [`super::place`]).
+//! - **Memories** go into the RAM4K blocks ([`Ram`]), one copy for each
+//!   read port (a block has one), all copies written alike. A memory takes
+//!   the mode (256x16, 512x8, 1024x4 or 2048x2) that needs fewest blocks
+//!   side by side for its width; up to 2048 words.
 
 use super::super::super::synth::{F, Lit, Netlist, Node, Port, T, inv, lit, node};
 use crate::hash::FxMap;
@@ -33,8 +37,74 @@ pub const CUTS: usize = 10;
 /// Where a signal comes from: an input pin, or a cell's output.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
 pub enum Src {
-    Pin { port: u32, bit: u32 },
+    Pin {
+        port: u32,
+        bit: u32,
+    },
     Lc(u32),
+    /// Bit `bit` of a RAM's read data.
+    Ram {
+        ram: u32,
+        bit: u32,
+    },
+}
+
+/// A memory's copy in RAM4K blocks: its mode (read and write alike), and
+/// what drives each port, `None` for unrouted (0).
+#[derive(Clone, Debug)]
+pub struct Ram {
+    pub name: String,
+    /// 0 to 3: 256x16, 512x8, 1024x4, 2048x2.
+    pub mode: usize,
+    pub width: u32,
+    pub depth: u32,
+    pub blocks: u32,
+    pub raddr: Vec<Option<Src>>,
+    pub re: Option<Src>,
+    pub waddr: Vec<Option<Src>>,
+    pub wdata: Vec<Option<Src>>,
+    pub we: Option<Src>,
+    pub write: bool,
+    pub init: Vec<bool>,
+    pub negedge: bool,
+}
+
+impl Ram {
+    /// Data bits a block holds.
+    pub fn per_block(&self) -> u32 {
+        16 >> self.mode
+    }
+
+    /// Where word bit `bit` is: its block, and its data pin there (the
+    /// pins of mode m are those whose number is 2^(m-1) - 1 mod 2^m, as
+    /// the board showed).
+    pub fn pin_of(&self, bit: u32) -> (u32, usize) {
+        let k = self.per_block();
+        let j = (bit % k) as usize;
+        let n = 1usize << self.mode;
+        (bit / k, if self.mode == 0 { j } else { j * n + n / 2 - 1 })
+    }
+
+    /// Block `b`'s contents, as `.ram_data`'s 256 words of 16 bits.
+    pub fn block_words(&self, b: u32) -> Vec<u16> {
+        let mut words = vec![0u16; 256];
+        for a in 0..self.depth as usize {
+            for bit in 0..self.width {
+                let (blk, pin) = self.pin_of(bit);
+                if blk == b && self.init[a * self.width as usize + bit as usize] {
+                    let p = super::board::ram_mode_bit(self.mode, a, pin).unwrap();
+                    words[p / 16] |= 1 << (p % 16);
+                }
+            }
+        }
+        words
+    }
+}
+
+/// The mode for a memory, and its blocks: the fewest blocks, then the
+/// narrowest mode.
+pub fn ram_mode(width: u32, depth: u32) -> Option<(usize, u32)> {
+    (0..4usize).filter(|&m| depth <= 256 << m).map(|m| (m, width.div_ceil(16 >> m))).min_by_key(|&(m, b)| (b, m))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -79,6 +149,7 @@ pub struct Chain {
 pub struct Mapped {
     pub lcs: Vec<Lc>,
     pub chains: Vec<Chain>,
+    pub rams: Vec<Ram>,
     pub inputs: Vec<Port>,
     /// Each output port's name, width and drivers.
     pub outputs: Vec<(String, Vec<Src>)>,
@@ -213,7 +284,27 @@ pub fn map(n: &Netlist) -> Result<Mapped, String> {
     for (_, s) in &chain_ci {
         roots.extend(s.iter().copied());
     }
+    for m in &n.mems {
+        for r in &m.reads {
+            roots.extend(r.addr.iter().copied().chain([r.en]));
+        }
+        if let Some(w) = &m.write {
+            roots.extend(w.addr.iter().chain(&w.data).copied().chain([w.en]));
+        }
+    }
     roots.retain(|&l| l != T && l != F);
+    // A RAM for each memory read port.
+    let mut ram_of: FxMap<(u32, u32), u32> = FxMap::default();
+    let mut ram_specs: Vec<(usize, usize)> = Vec::new();
+    for (mi, m) in n.mems.iter().enumerate() {
+        if ram_mode(m.width, m.depth).is_none() {
+            return Err(format!("memory {} has {} words: up to 2048 fit a block RAM", m.name, m.depth));
+        }
+        for p in 0..m.reads.len() {
+            ram_of.insert((mi as u32, p as u32), ram_specs.len() as u32);
+            ram_specs.push((mi, p));
+        }
+    }
 
     // ---- cuts ----
     let mut refs = vec![0f32; nn];
@@ -375,7 +466,7 @@ pub fn map(n: &Netlist) -> Result<Mapped, String> {
     want.dedup();
     for &r in &want {
         let x = node(r);
-        let native = matches!(n.nodes[x], Node::Input { .. } | Node::Ff(_)) && !inv(r);
+        let native = matches!(n.nodes[x], Node::Input { .. } | Node::Ff(_) | Node::MemOut { .. }) && !inv(r);
         if native || sig_lut.contains_key(&r) {
             continue;
         }
@@ -531,6 +622,7 @@ pub fn map(n: &Netlist) -> Result<Mapped, String> {
             Node::Input { port, bit } if !inv(l) => Some(Src::Pin { port, bit }),
             Node::Ff(f) if !inv(l) => Some(Src::Lc(ff_lc[f as usize])),
             Node::Maj(..) if !inv(l) && exposed.contains(&(x as u32)) => Some(Src::Lc(host_lc[&(x as u32)])),
+            Node::MemOut { mem, port, bit } if !inv(l) => Some(Src::Ram { ram: ram_of[&(mem, port)], bit }),
             _ => sig_lut.get(&l).map(|&j| Src::Lc(lut_lc[j].unwrap())),
         }
     };
@@ -636,6 +728,43 @@ pub fn map(n: &Netlist) -> Result<Mapped, String> {
         cfg.en = en;
         cfg.sr = sr;
     }
+    let mut rams = Vec::new();
+    for &(mi, p) in &ram_specs {
+        let m = &n.mems[mi];
+        let (mode, blocks) = ram_mode(m.width, m.depth).unwrap();
+        let mut port = |l: Lit, lcs: &mut Vec<Lc>| -> Result<Option<Src>, String> {
+            Ok(match l {
+                F => None,
+                T => Some(constant(true, lcs)),
+                _ => Some(exact(l)?),
+            })
+        };
+        let r = &m.reads[p];
+        let raddr = r.addr.iter().map(|&a| port(a, &mut lcs)).collect::<Result<_, _>>()?;
+        let re = port(r.en, &mut lcs)?;
+        let (mut waddr, mut wdata, mut we) = (Vec::new(), Vec::new(), None);
+        if let Some(w) = &m.write {
+            waddr = w.addr.iter().map(|&a| port(a, &mut lcs)).collect::<Result<_, _>>()?;
+            wdata = w.data.iter().map(|&a| port(a, &mut lcs)).collect::<Result<_, _>>()?;
+            we = port(w.en, &mut lcs)?;
+        }
+        let name = if m.reads.len() > 1 { format!("{} (read port {p})", m.name) } else { m.name.clone() };
+        rams.push(Ram {
+            name,
+            mode,
+            width: m.width,
+            depth: m.depth,
+            blocks,
+            raddr,
+            re,
+            waddr,
+            wdata,
+            we,
+            write: m.write.is_some(),
+            init: m.init.clone(),
+            negedge: m.negedge,
+        });
+    }
     let mut outputs = Vec::new();
     for p in &n.outputs {
         let mut v = Vec::new();
@@ -647,7 +776,7 @@ pub fn map(n: &Netlist) -> Result<Mapped, String> {
         }
         outputs.push((p.name.clone(), v));
     }
-    Ok(Mapped { lcs, chains: out_chains, inputs: n.inputs.clone(), outputs, clock })
+    Ok(Mapped { lcs, chains: out_chains, rams, inputs: n.inputs.clone(), outputs, clock })
 }
 
 impl Mapped {
@@ -655,8 +784,10 @@ impl Mapped {
         let luts = self.lcs.iter().filter(|l| l.ins.iter().any(|i| i.is_some()) || l.carry_in3 || l.lut != 0).count();
         let carry = self.lcs.iter().filter(|l| l.carry).count();
         let ffs = self.lcs.iter().filter(|l| l.ff.is_some()).count();
+        let blocks: u32 = self.rams.iter().map(|r| r.blocks).sum();
+        let rams = if self.rams.is_empty() { String::new() } else { format!(", {blocks} RAM blocks") };
         format!(
-            "{} logic cells: {luts} LUTs, {carry} carries in {} chains, {ffs} flip-flops",
+            "{} logic cells: {luts} LUTs, {carry} carries in {} chains, {ffs} flip-flops{rams}",
             self.lcs.len(),
             self.chains.len()
         )
@@ -686,6 +817,9 @@ pub struct LcSim<'m> {
     /// cell's carry in.
     below: Vec<Option<u32>>,
     ci: Vec<u64>,
+    /// Each RAM's contents and read data.
+    pub ram: Vec<Vec<u64>>,
+    pub ram_out: Vec<Vec<u64>>,
 }
 
 impl<'m> LcSim<'m> {
@@ -710,6 +844,8 @@ impl<'m> LcSim<'m> {
             inputs: m.inputs.iter().map(|p| vec![0; p.width as usize]).collect(),
             below,
             ci,
+            ram: m.rams.iter().map(|r| r.init.iter().map(|&b| if b { !0 } else { 0 }).collect()).collect(),
+            ram_out: m.rams.iter().map(|r| vec![0; r.width as usize]).collect(),
         }
     }
 
@@ -717,7 +853,12 @@ impl<'m> LcSim<'m> {
         match s {
             Src::Pin { port, bit } => self.inputs[port as usize][bit as usize],
             Src::Lc(i) => self.out[i as usize],
+            Src::Ram { ram, bit } => self.ram_out[ram as usize][bit as usize],
         }
+    }
+
+    fn opt(&self, s: Option<Src>) -> u64 {
+        s.map_or(0, |s| self.get(s))
     }
 
     fn lut(&self, i: usize) -> (u64, u64) {
@@ -788,6 +929,21 @@ impl<'m> LcSim<'m> {
                 }
             })
             .collect();
+        // The RAMs, on the values before the edge.
+        for (i, r) in self.m.rams.iter().enumerate() {
+            let raddr: Vec<u64> = r.raddr.iter().map(|&a| self.opt(a)).collect();
+            let reads = [(raddr, self.opt(r.re))];
+            let write = r.write.then(|| {
+                (
+                    r.waddr.iter().map(|&a| self.opt(a)).collect(),
+                    r.wdata.iter().map(|&a| self.opt(a)).collect(),
+                    self.opt(r.we),
+                )
+            });
+            let mut outs = [std::mem::take(&mut self.ram_out[i])];
+            crate::synth::mem_edge(r.width as usize, r.depth as usize, &mut self.ram[i], &reads, &mut outs, write);
+            self.ram_out[i] = std::mem::take(&mut outs[0]);
+        }
         self.state = next;
         self.eval();
     }

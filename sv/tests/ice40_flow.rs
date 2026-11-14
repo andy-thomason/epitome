@@ -522,3 +522,47 @@ fn deep_memories_split_into_banks() {
     assert_eq!(m.rams.iter().map(|r| r.blocks).sum::<u32>(), 10);
     build_tq144(DEEP, "deep");
 }
+
+pub const CALLS: &str = r#"
+module calls(input logic clk, input logic [7:0] a, input logic [7:0] b, output logic [7:0] y, output logic [7:0] z,
+             output logic [3:0] first, output logic [7:0] acc);
+  function automatic logic [7:0] rev(input logic [7:0] x);
+    for (int i = 0; i < 8; i++) rev[i] = x[7-i];
+  endfunction
+  function logic [7:0] sat(input logic [7:0] x, input logic [7:0] lim);
+    if (x > lim) return lim;
+    return x;
+  endfunction
+  // The first set bit, by an early return from a loop.
+  function automatic logic [3:0] lowest(input logic [7:0] x);
+    for (int i = 0; i < 8; i++)
+      if (x[i]) return i[3:0];
+    return 4'd15;
+  endfunction
+  task automatic swap(input logic [7:0] p, output logic [7:0] q);
+    q = {p[3:0], p[7:4]};
+  endtask
+  always_comb begin
+    y = sat(rev(a), b);
+    swap(a ^ b, z);
+    first = lowest(a & b);
+  end
+  // break and continue: add the bytes of b's set bits up to the first
+  // clear bit past bit 1.
+  always_ff @(posedge clk) begin
+    logic [7:0] s;
+    s = 0;
+    for (int i = 0; i < 8; i++) begin
+      if (i < 2) continue;
+      if (!b[i]) break;
+      s = s + a;
+    end
+    acc <= s;
+  end
+endmodule
+"#;
+
+#[test]
+fn calls_match_interpreter() {
+    check_flow(CALLS, "calls", 300);
+}

@@ -103,6 +103,14 @@ pub struct Lower<'d, 'a> {
     pending: Vec<Pending>,
     mode: Mode,
     next_write: u32,
+    /// Flags that stop the statements after them where set: the current
+    /// function's `return`, and the innermost loop's `break` and
+    /// `continue` (pseudo keys, instance `u32::MAX`).
+    flags: Vec<Key>,
+    /// For each function being run: its result's key and width, and its
+    /// return flag.
+    calls: Vec<(Key, u32, Key)>,
+    next_flag: u32,
 }
 
 /// Lowers the design under top-level instance `top`.
@@ -125,6 +133,9 @@ pub fn lower<'a>(d: &Design<'a>, ast: &Ast<'a>, top: InstId) -> Result<Netlist, 
         pending: Vec::new(),
         mode: Mode::Comb,
         next_write: 0,
+        flags: Vec::new(),
+        calls: Vec::new(),
+        next_flag: 0,
     };
     let i = d.instance(top);
     let spec = d.spec(i.spec);
@@ -615,7 +626,7 @@ impl<'d, 'a> Lower<'d, 'a> {
                     self.locals(inst, sc, env)?;
                 }
                 for x in stmts {
-                    self.stmt(inst, x, env)?;
+                    self.guarded(inst, x, env)?;
                 }
                 Ok(())
             }
@@ -689,32 +700,76 @@ impl<'d, 'a> Lower<'d, 'a> {
                 for x in init {
                     self.stmt(inst, x, env)?;
                 }
+                let (brk, cont) = self.enter_loop(env);
+                let mut out = Err(self.err(at, "a loop of more than 4096 iterations is not unrolled"));
                 for _ in 0..=4096 {
                     if let Some(c) = cond {
                         let v = self.eval(inst, c, env)?;
                         match self.truth(v) {
-                            F => return Ok(()),
+                            F => {
+                                out = Ok(());
+                                break;
+                            }
                             T => {}
                             _ => {
-                                return Err(
+                                out = Err(
                                     self.err(self.d.expr(c).node, "a loop's condition must be constant when unrolled")
                                 );
+                                break;
                             }
                         }
                     }
-                    self.stmt(inst, body, env)?;
+                    if self.flag(env, brk) == T || self.calls.last().is_some_and(|c| self.flag(env, c.2) == T) {
+                        out = Ok(());
+                        break;
+                    }
+                    self.set_flag(env, cont, F);
+                    self.guarded(inst, body, env)?;
+                    // The steps run whatever the body did: a loop's
+                    // variable stays constant.
                     for &x in &step {
                         self.stmt(inst, x, env)?;
                     }
                 }
-                Err(self.err(at, "a loop of more than 4096 iterations is not unrolled"))
+                self.leave_loop(env, brk, cont);
+                out
             }
             StmtKind::Repeat(n, body) => {
                 let v = self.eval(inst, n, env)?;
                 let Some(k) = konst(&v) else { return Err(self.err(at, "a repeat count must be constant")) };
+                let (brk, cont) = self.enter_loop(env);
                 for _ in 0..k.clamp(0, 4096) {
-                    self.stmt(inst, body, env)?;
+                    if self.flag(env, brk) == T {
+                        break;
+                    }
+                    self.set_flag(env, cont, F);
+                    self.guarded(inst, body, env)?;
                 }
+                self.leave_loop(env, brk, cont);
+                Ok(())
+            }
+            StmtKind::Break | StmtKind::Continue => {
+                let k = if matches!(self.d.stmt(s).kind, StmtKind::Break) { self.flags.len().checked_sub(2) } else { self.flags.len().checked_sub(1) };
+                let in_loop = self.flags.len() >= 2 && self.flags.last().unwrap().1.0 & 1 == 1;
+                match (k, in_loop) {
+                    (Some(k), true) => {
+                        let key = self.flags[k];
+                        self.set_flag(env, key, T);
+                        Ok(())
+                    }
+                    _ => Err(self.err(at, "break or continue outside a loop")),
+                }
+            }
+            StmtKind::Return(x) => {
+                let Some(&(ret, width, flag)) = self.calls.last() else {
+                    return Err(self.err(at, "return outside a function"));
+                };
+                if let Some(x) = x {
+                    let v = self.eval(inst, x, env)?;
+                    let v = self.fit(v, width, self.signed(x));
+                    env.blk.insert(ret, Slot { val: v, en: vec![T; width as usize] });
+                }
+                self.set_flag(env, flag, T);
                 Ok(())
             }
             StmtKind::Assert { .. } => Ok(()),
@@ -1055,6 +1110,146 @@ impl<'d, 'a> Lower<'d, 'a> {
         Ok(())
     }
 
+    // ---- functions, tasks, return, break and continue ----
+
+    /// A new flag (pseudo key), set to false. Loop flags have odd numbers.
+    fn new_flag(&mut self, env: &mut Env, loop_flag: bool) -> Key {
+        let k = (u32::MAX, ObjId(self.next_flag * 2 + loop_flag as u32));
+        self.next_flag += 1;
+        env.blk.insert(k, Slot { val: vec![F], en: vec![T] });
+        k
+    }
+
+    fn flag(&self, env: &Env, k: Key) -> Lit {
+        env.blk.get(&k).map_or(F, |s| if s.en[0] == F { F } else { s.val[0] })
+    }
+
+    fn set_flag(&mut self, env: &mut Env, k: Key, v: Lit) {
+        env.blk.insert(k, Slot { val: vec![v], en: vec![T] });
+    }
+
+    fn enter_loop(&mut self, env: &mut Env) -> (Key, Key) {
+        let brk = self.new_flag(env, true);
+        let cont = self.new_flag(env, true);
+        self.flags.push(brk);
+        self.flags.push(cont);
+        (brk, cont)
+    }
+
+    fn leave_loop(&mut self, env: &mut Env, brk: Key, cont: Key) {
+        self.flags.retain(|&k| k != brk && k != cont);
+        env.blk.remove(&brk);
+        env.blk.remove(&cont);
+    }
+
+    /// Runs `s` where no flag stops it: on the paths where one does, the
+    /// environment stays as it was.
+    fn guarded(&mut self, inst: u32, s: StmtId, env: &mut Env) -> R<'a, ()> {
+        let flags = self.flags.clone();
+        let mut stop = F;
+        for &k in &flags {
+            let f = self.flag(env, k);
+            stop = self.n.or(stop, f);
+        }
+        if stop == F {
+            return self.stmt(inst, s, env);
+        }
+        if stop == T {
+            return Ok(());
+        }
+        let skip = env.clone();
+        // On the paths that run it, no flag is set.
+        for &k in &flags {
+            self.set_flag(env, k, F);
+        }
+        self.stmt(inst, s, env)?;
+        *env = self.merge(stop, skip, std::mem::take(env));
+        Ok(())
+    }
+
+    /// Whether scope `s` is `outer` or inside it.
+    fn within(&self, mut s: ScopeId, outer: ScopeId) -> bool {
+        loop {
+            if s == outer {
+                return true;
+            }
+            match self.d.scope(s).parent {
+                Some(p) => s = p,
+                None => return false,
+            }
+        }
+    }
+
+    /// Runs subroutine `sub` on `args` (the formals' order) from `env`:
+    /// its result, and the environment after (its own variables gone, its
+    /// outputs copied to their actual arguments).
+    fn call(&mut self, inst: u32, sub: SubId, args: &[ExprId], env: &Env, at: NodeId) -> R<'a, (Vec<Lit>, Env)> {
+        if self.calls.len() > 32 {
+            return Err(self.err(at, "calls nest more than 32 deep (recursion is not synthesised)"));
+        }
+        let sb = self.d.sub(sub);
+        let (scope, formals, body, ret_ty, name) = (sb.scope, sb.args.clone(), sb.body.clone(), sb.ret, sb.name);
+        let mut e = env.clone();
+        // Its variables, then the formals bound to the arguments.
+        self.locals(inst, scope, &mut e)?;
+        let mut outs = Vec::new();
+        for (k, &f) in formals.iter().enumerate() {
+            let w = self.tys().width(self.d.object(f).ty);
+            match self.d.object(f).dir {
+                Some(Dir::Output) | Some(Dir::Inout) | Some(Dir::Ref) => {
+                    if let Some(&a) = args.get(k) {
+                        outs.push((f, a));
+                    }
+                    if self.d.object(f).dir == Some(Dir::Output) {
+                        continue;
+                    }
+                }
+                _ => {}
+            }
+            let Some(&a) = args.get(k) else { continue };
+            let v = self.eval(inst, a, env)?;
+            let v = self.fit(v, w, self.signed(a));
+            e.blk.insert((inst, f), Slot { val: v, en: vec![T; w as usize] });
+        }
+        // The result: the variable named after the function, if there is
+        // one, else a pseudo key.
+        let width = if self.tys().is_unknown(ret_ty) { 0 } else { self.tys().width(ret_ty) };
+        let ret = match self.d.scope(scope).names.get(&name) {
+            Some(Binding::Object(o)) => (inst, *o),
+            _ => {
+                let k = (u32::MAX, ObjId(self.next_flag * 2));
+                self.next_flag += 1;
+                k
+            }
+        };
+        e.blk.insert(ret, Slot { val: vec![F; width as usize], en: vec![F; width as usize] });
+        let flag = self.new_flag(&mut e, false);
+        let saved = std::mem::take(&mut self.flags);
+        self.flags.push(flag);
+        self.calls.push((ret, width, flag));
+        let mut r = Ok(());
+        for &st in &body {
+            r = self.guarded(inst, st, &mut e);
+            if r.is_err() {
+                break;
+            }
+        }
+        self.calls.pop();
+        self.flags = saved;
+        r?;
+        let result = e.blk.get(&ret).map_or(vec![F; width as usize], |s| s.val.clone());
+        let out_vals: Vec<(ExprId, Vec<Lit>)> = outs.iter().map(|&(f, a)| (a, self.read(inst, f, &e))).collect();
+        // Its own variables and flags go.
+        let gone: Vec<Key> = e.blk.keys().copied().filter(|k| k.0 == u32::MAX || k.0 == inst && self.within(self.d.object(k.1).scope, scope)).collect();
+        for k in gone {
+            e.blk.remove(&k);
+        }
+        for (a, v) in out_vals {
+            self.assign(inst, a, v, false, &mut e)?;
+        }
+        Ok((result, e))
+    }
+
     /// A block's or loop's own variables, set to their initial values.
     fn locals(&mut self, inst: u32, sc: ScopeId, env: &mut Env) -> R<'a, ()> {
         for it in self.d.scope(sc).items.clone() {
@@ -1095,6 +1290,11 @@ impl<'d, 'a> Lower<'d, 'a> {
                 self.readmem(inst, &ex, self.d.name(f) == "$readmemh")
             }
             ExprKind::SysCall(_) => Ok(()),
+            ExprKind::Call(sub) => {
+                let (_, after) = self.call(inst, sub, &ex.args, env, ex.node)?;
+                *env = after;
+                Ok(())
+            }
             _ => Err(self.err(ex.node, "this expression statement is not synthesised")),
         }
     }
@@ -1655,7 +1855,10 @@ impl<'d, 'a> Lower<'d, 'a> {
                 let a = self.eval(inst, ex.args[0], env)?;
                 self.fit(a, w, self.signed(ex.args[0]))
             }
-            ExprKind::Call(_) => return Err(self.err(at, "function calls are not synthesised yet")),
+            ExprKind::Call(sub) => {
+                let (v, _) = self.call(inst, sub, &ex.args, env, at)?;
+                self.fit(v, w, false)
+            }
             _ => return Err(self.err(at, "this expression is not synthesised")),
         })
     }

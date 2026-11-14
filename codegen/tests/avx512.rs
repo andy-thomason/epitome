@@ -230,3 +230,27 @@ fn avx512_loop_constants_in_registers_or_memory() {
         assert!(!asm.contains("%rsp"), "{n} constants spill:\n{asm}");
     }
 }
+
+/// `tests/avx512/implied.ll`: AVX-512 features imply AVX2, so 256-bit
+/// vectors are ymm loads and stores under `+avx512f` without `+avx2`; and
+/// `-avx2` takes AVX-512 off with it.
+#[test]
+fn avx512_implies_avx2() {
+    let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/avx512");
+    let ll = std::fs::read_to_string(dir.join("implied.ll")).unwrap();
+    let t = Target::x86_64();
+    for mattr in ["+avx512f", "+avx512f,+avx512bw", "+avx512f,+avx512bw,+avx512cd,+avx512dq,+avx512vl"] {
+        let mut m = epitome_ir::parse_module(&ll).unwrap();
+        let opts = Options { mattr: mattr.split(',').map(String::from).collect(), ..Default::default() };
+        let asm = compile(&t, &mut m, &opts).unwrap_or_else(|e| panic!("{mattr}: {e}")).asm;
+        for (name, body) in functions(&asm) {
+            assert!(!body.contains("%rsp"), "{mattr}: {name} uses the stack:\n{body}");
+            assert!(body.contains("%ymm"), "{mattr}: {name} has no ymm registers:\n{body}");
+        }
+    }
+    let mut m = epitome_ir::parse_module(&ll).unwrap();
+    let opts = Options { mattr: vec!["+avx512f".into(), "-avx2".into()], ..Default::default() };
+    if let Ok(c) = compile(&t, &mut m, &opts) {
+        assert!(!c.asm.contains("%zmm") && !c.asm.contains("%ymm"), "AVX-512 without AVX2:\n{}", c.asm);
+    }
+}

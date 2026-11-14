@@ -11,7 +11,7 @@ mod common;
 use std::path::PathBuf;
 
 use common::*;
-use epitome_sv::netlist::{GROUP, Shape};
+use epitome_sv::netlist::GROUP;
 
 /// Arrays of instances of every kind the netlist meets: one of clocked
 /// cells with ports stored every way (a bit, a byte, a half, pieces), one
@@ -204,8 +204,8 @@ fn pmp_entries_as_lanes() {
         // Below a unit of one register, pmp_entry for eight lanes for each
         // of the unit's (its register's width of them, padding included),
         // one call; below a wider one, eight calls with the unit's lanes.
-        let opts = options_for(sims);
-        let sh = if opts.vectors { Shape::vector(net.lanes as u32) } else { Shape::of(net.lanes as u32) };
+        let unit = net.functions.iter().find(|f| f.spec == "pmp").expect("pmp is lowered");
+        let sh = unit.shape;
         let grouped = sh.chunks == 1 && sh.n < 16;
         let lanes = if grouped { 8 * sh.width() as usize } else { net.lanes };
         let entries: Vec<_> = net.functions.iter().filter(|f| f.spec == "pmp_entry").collect();

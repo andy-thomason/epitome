@@ -11,11 +11,13 @@
 //! - one lane is scalar code: plain integers, each value in 64-bit pieces
 //!   (one for up to 64 bits), and costly arms of an `if` or `case` behind
 //!   real branches (see [`Options::branch_min`]);
-//! - 2, 4 or 8 lanes are SWAR code: the lanes side by side in an `i64`,
-//!   32, 16 or 8 bits each, each value in pieces of that many bits, with
-//!   `if` and `case` as selects (with [`Options::vectors`], vectors of 4, 8
-//!   or 16 32-bit lanes instead);
-//! - more lanes are a loop over registers of 8, so the code grows with the
+//! - several lanes are SIMD: a register of 4, 8 or 16 lanes of 32 or 64
+//!   bits (64 where the code's arithmetic is on values wider than 32 bits;
+//!   see `Lowering::shape_for`), each value in pieces of a lane's width,
+//!   with `if` and `case` as selects; or, for code of logic alone on
+//!   values narrower than a byte, SWAR: the lanes side by side in an
+//!   `i64`, 2, 4 or 8 of them;
+//! - more lanes are a loop over full registers, so the code grows with the
 //!   specialisation's source, not with the number of instances.
 //!
 //! For each variable or net, the state holds its pieces (low piece first),
@@ -92,6 +94,9 @@ pub struct Shape {
     pub n: u32,
     pub chunks: u32,
     pub swar: bool,
+    /// In vector code, each lane's bits: 32, or 64 for code whose values
+    /// are mostly wider than 32 bits.
+    pub lw: u32,
 }
 
 impl Shape {
@@ -100,10 +105,10 @@ impl Shape {
     /// of 8 beyond that.
     pub fn of(lanes: u32) -> Shape {
         match lanes {
-            0 | 1 => Shape { n: 1, chunks: 1, swar: false },
-            2 => Shape { n: 2, chunks: 1, swar: true },
-            3..=4 => Shape { n: 4, chunks: 1, swar: true },
-            _ => Shape { n: 8, chunks: lanes.div_ceil(8), swar: true },
+            0 | 1 => Shape { n: 1, chunks: 1, swar: false, lw: 64 },
+            2 => Shape { n: 2, chunks: 1, swar: true, lw: 32 },
+            3..=4 => Shape { n: 4, chunks: 1, swar: true, lw: 16 },
+            _ => Shape { n: 8, chunks: lanes.div_ceil(8), swar: true, lw: 8 },
         }
     }
 
@@ -111,11 +116,19 @@ impl Shape {
     /// 256- or 512-bit registers of 32-bit lanes for up to 4, 8 or 16, and
     /// more registers of 16 beyond that.
     pub fn vector(lanes: u32) -> Shape {
+        Shape::vector_of(lanes, 32)
+    }
+
+    /// The shape for `lanes` lanes in vector code of `lw`-bit lanes (32 or
+    /// 64): registers of up to 512 bits, 16 or 8 lanes, and more of those
+    /// beyond.
+    pub fn vector_of(lanes: u32, lw: u32) -> Shape {
+        let full = 512 / lw;
         match lanes {
-            0 | 1 => Shape { n: 1, chunks: 1, swar: false },
-            2..=4 => Shape { n: 4, chunks: 1, swar: false },
-            5..=8 => Shape { n: 8, chunks: 1, swar: false },
-            _ => Shape { n: 16, chunks: lanes.div_ceil(16), swar: false },
+            0 | 1 => Shape { n: 1, chunks: 1, swar: false, lw: 64 },
+            2..=4 => Shape { n: 4, chunks: 1, swar: false, lw },
+            _ if lanes <= full && lanes <= 8 => Shape { n: 8, chunks: 1, swar: false, lw },
+            _ => Shape { n: full, chunks: lanes.div_ceil(full), swar: false, lw },
         }
     }
 
@@ -134,14 +147,14 @@ impl Shape {
         match self {
             _ if self.scalar() => 64,
             Shape { swar: true, n, .. } => 64 / n,
-            _ => 32,
+            _ => self.lw,
         }
     }
 
     /// How values in whole pieces are stored.
     fn piece_lane(self) -> Lane {
         match self {
-            _ if self.scalar() => Lane::W64,
+            _ if self.scalar() || self.lw == 64 => Lane::W64,
             Shape { swar: true, .. } => Lane::Swar,
             _ => Lane::W32,
         }
@@ -162,7 +175,8 @@ pub enum Lane {
     /// 32-bit pieces, as many as the width needs (in scalar code, values of
     /// 17 to 32 bits).
     W32,
-    /// 64-bit pieces: scalar code's values wider than 32 bits.
+    /// 64-bit pieces: values wider than 32 bits in scalar code and in
+    /// vector code of 64-bit lanes.
     W64,
     /// SWAR code's pieces as they are in registers: an `i64` a piece of a
     /// register's lanes, each lane's bits `pb` at a time.
@@ -179,7 +193,7 @@ impl Lane {
             0..=8 => Lane::B8,
             9..=16 => Lane::B16,
             17..=32 => Lane::W32,
-            _ if sh.scalar() => Lane::W64,
+            _ if sh.scalar() || sh.lw == 64 => Lane::W64,
             _ => Lane::W32,
         }
     }
@@ -223,6 +237,7 @@ pub struct Lowered {
     pub spec: String,
     pub lanes: u32,
     pub name: String,
+    pub shape: Shape,
 }
 
 /// The compiled netlist of one top-level instance.
@@ -263,10 +278,7 @@ impl Field {
     pub fn at(&self, k: usize, n: usize) -> usize {
         match self.lane {
             Lane::W32 => self.offset + k * Lane::W32.piece_bytes(self.shape) as usize + n * 4,
-            Lane::W64 => {
-                assert_eq!(n, 0, "64-bit pieces are scalar code's");
-                self.offset + k * 4
-            }
+            Lane::W64 => self.offset + k / 2 * Lane::W64.piece_bytes(self.shape) as usize + n * 8 + k % 2 * 4,
             l => panic!("{l:?} is not in pieces"),
         }
     }
@@ -490,21 +502,25 @@ pub struct Options {
     /// part of the top's step adds the cycles it took to an `i64` of the
     /// global `sv_prof`, and one to the next, named in [`Netlist::profile`].
     pub profile: Option<&'static str>,
-    /// Lanes as vectors of 32-bit lanes ([`Shape::vector`]), not side by
-    /// side in an `i64` ([`Shape::of`]).
+    /// Lanes as vectors ([`Shape::vector_of`]), not side by side in an
+    /// `i64` ([`Shape::of`]).
     pub vectors: bool,
+    /// In vector code, the lanes' width for every specialisation, 32 or
+    /// 64; `None` to choose for each number of lanes from the code (see
+    /// `Lowering::lane_bits`).
+    pub lane_bits: Option<u32>,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { bit_planes: true, recognise: true, guard_min: GUARD_MIN, branch_min: BRANCH_MIN, sims: 1, profile: None, vectors: false }
+        Options { bit_planes: true, recognise: true, guard_min: GUARD_MIN, branch_min: BRANCH_MIN, sims: 1, profile: None, vectors: true, lane_bits: None }
     }
 }
 
 impl Options {
-    /// The shape of a function for `lanes` lanes.
-    fn shape(&self, lanes: u32) -> Shape {
-        if self.vectors { Shape::vector(lanes) } else { Shape::of(lanes) }
+    /// Lanes in a full register.
+    fn full(&self) -> usize {
+        if self.vectors { 16 } else { 8 }
     }
 }
 
@@ -535,6 +551,20 @@ impl Phase {
 
 /// A specialisation, lowered for so many lanes.
 type Key = (SpecId, u32);
+
+/// What a specialisation and those below it do, for choosing between SWAR
+/// and SIMD and the SIMD lanes' width (`Lowering::shape_for`).
+#[derive(Default)]
+struct Ops {
+    /// Arithmetic, shifts and comparisons on values of 33 to 64 bits.
+    wide: usize,
+    /// On narrower values, or wider than 64 bits.
+    narrow: usize,
+    /// `?:`, `if` and `case`: selects in lanes.
+    selects: usize,
+    /// The widest value.
+    widest: u32,
+}
 
 /// `call`, written by `b`, timed into a counter for `what` where
 /// profiling: the cycles it took added to an `i64` of the global `sv_prof`,
@@ -567,7 +597,7 @@ fn timed(l: &Lowering, b: &mut FunctionBuilder, what: String, call: impl FnOnce(
 pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, String> {
     let spec = d.instance(top).spec;
     // Lanes in a full register.
-    let full = opts.shape(u32::MAX).n as usize;
+    let full = opts.full();
     let mut sims = if opts.sims > full { opts.sims.next_multiple_of(full) } else { opts.sims.max(1) };
     // For many simulations, as many registers of them as keep the state
     // within STATE_MAX.
@@ -633,7 +663,7 @@ pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, 
     let mut functions: Vec<Lowered> = n
         .done
         .iter()
-        .map(|&k| Lowered { spec: d.name(d.spec(k.0).name).to_string(), lanes: k.1, name: fn_name(k) })
+        .map(|&k| Lowered { spec: d.name(d.spec(k.0).name).to_string(), lanes: k.1, name: fn_name(k), shape: n.layouts[&k].shape })
         .collect();
     functions.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(Netlist { module, entry, size, lanes: sims, ports, dropped, profile, functions })
@@ -647,6 +677,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
             d,
             layouts: HashMap::new(),
             done: HashSet::new(),
+            lane_widths: HashMap::new(),
             prof: Cell::new(None),
             folds: RefCell::default(),
             dropped: Cell::new(0),
@@ -1023,6 +1054,9 @@ struct Lowering<'d, 'a> {
     d: &'d Design<'a>,
     layouts: HashMap<Key, Layout>,
     done: HashSet<Key>,
+    /// In vector code, the lanes' width for each number of lanes, chosen
+    /// where that number first comes (see [`Lowering::shape_for`]).
+    lane_widths: HashMap<u32, u32>,
     /// With `Options::profile`, the global `sv_prof` of the counters.
     prof: Cell<Option<GlobalId>>,
     folds: RefCell<HashMap<ExprId, Option<Const>>>,
@@ -1114,13 +1148,181 @@ impl<'d, 'a> Lowering<'d, 'a> {
         self.arrays.get(&i).cloned().unwrap_or_else(|| vec![i])
     }
 
+    /// The shape of `spec`'s function for `lanes` lanes: SIMD, except
+    /// where SWAR is as fast. SWAR does logic in one instruction as SIMD
+    /// does, but a sum, comparison, shift or select in several, so it is
+    /// used only for code of logic alone (no arithmetic, comparisons,
+    /// shifts, `?:`, `if` or `case`) on values narrower than a byte, in the
+    /// specialisation and those below it. SIMD lanes are 64 bits wide where
+    /// there is arithmetic, a shift or a comparison on values of 33 to 64
+    /// bits and at most 8 lanes, or more lanes and mostly such operations;
+    /// else 32. The choice is made once for each number of
+    /// lanes, where it first comes (the top's, or an array's call), so that
+    /// a single child, which has its parent's lanes, has its layout too and
+    /// its ports are where its parent keeps them. ([`Options::vectors`]
+    /// false makes every shape SWAR, and [`Options::lane_bits`] fixes the
+    /// SIMD lanes' width.)
+    fn shape_for(&mut self, spec: SpecId, lanes: u32) -> Result<Shape, String> {
+        if !self.opts.vectors {
+            return Ok(Shape::of(lanes));
+        }
+        if lanes <= 1 {
+            return Ok(Shape::vector(lanes));
+        }
+        let lw = match self.lane_widths.get(&lanes) {
+            Some(&lw) => lw,
+            None => {
+                let mut ops = Ops::default();
+                self.count_ops(spec, &mut HashSet::new(), &mut ops)?;
+                let lw = match self.opts.lane_bits {
+                    _ if ops.wide + ops.narrow + ops.selects == 0 && ops.widest < 8 => 0,
+                    Some(lw) => lw,
+                    // Up to 8 lanes, 64-bit lanes fill a 512-bit register as
+                    // 32-bit ones fill half of one: as many instructions for
+                    // narrow values, fewer for wide ones. Beyond, they take
+                    // twice the registers.
+                    None if ops.wide > 0 && (lanes <= 8 || ops.wide > ops.narrow) => 64,
+                    None => 32,
+                };
+                self.lane_widths.insert(lanes, lw);
+                lw
+            }
+        };
+        Ok(if lw == 0 { Shape::of(lanes) } else { Shape::vector_of(lanes, lw) })
+    }
+
+    /// Counts the operations of `spec` and the specialisations below it
+    /// that decide between SWAR and SIMD (see [`Ops`]).
+    fn count_ops(&mut self, spec: SpecId, seen: &mut HashSet<SpecId>, ops: &mut Ops) -> Result<(), String> {
+        if !seen.insert(spec) {
+            return Ok(());
+        }
+        let d = self.d;
+        let (objs, code) = self.code_of(spec)?;
+        for o in objs {
+            ops.widest = ops.widest.max(tw(&d.types, d.object(o).ty));
+        }
+        let mut exprs = Vec::new();
+        let mut kids = Vec::new();
+        for node in &code {
+            match *node {
+                Node::Driver(dr) => exprs.extend([d.drivers[dr.0 as usize].lhs, d.drivers[dr.0 as usize].rhs]),
+                Node::Loop(l) => {
+                    for &dr in &self.loops[l].all {
+                        exprs.extend([d.drivers[dr.0 as usize].lhs, d.drivers[dr.0 as usize].rhs]);
+                    }
+                }
+                Node::Proc(p) => {
+                    let body = d.processes[p.0 as usize].body;
+                    self.live_exprs(body, &mut exprs);
+                    ops.selects += self.branches(body);
+                }
+                Node::In(i) | Node::Call(i) | Node::Pre(i) | Node::Early(i) => kids.push(d.instance(i).spec),
+                Node::Rev(_) => {}
+            }
+        }
+        // (Not what folds to a constant: a generate loop's index arithmetic.)
+        let mut stack = exprs;
+        while let Some(e) = stack.pop() {
+            if self.fold(e).is_some() {
+                continue;
+            }
+            let x = d.expr(e);
+            stack.extend(x.args.iter().copied());
+            if let ExprKind::Cond = x.kind {
+                ops.selects += 1;
+            }
+            if let ExprKind::Binary(op) = x.kind
+                && matches!(
+                    op,
+                    BinOp::Add
+                        | BinOp::Sub
+                        | BinOp::Mul
+                        | BinOp::Shl
+                        | BinOp::Shr
+                        | BinOp::AShl
+                        | BinOp::AShr
+                        | BinOp::Eq
+                        | BinOp::Ne
+                        | BinOp::Lt
+                        | BinOp::Le
+                        | BinOp::Gt
+                        | BinOp::Ge
+                )
+                && let Some(&a) = x.args.first()
+            {
+                match tw(&d.types, d.expr(a).ty) {
+                    33..=64 => ops.wide += 1,
+                    _ => ops.narrow += 1,
+                }
+            }
+        }
+        for k in kids {
+            self.count_ops(k, seen, ops)?;
+        }
+        Ok(())
+    }
+
+    /// The expressions a statement holds, at their tops, but for those of
+    /// statements that only assert (which are left out).
+    fn live_exprs(&self, s: StmtId, out: &mut Vec<ExprId>) {
+        let d = self.d;
+        if self.only_asserts(s) {
+            return;
+        }
+        match &d.stmt(s).kind {
+            StmtKind::Block { stmts, .. } => stmts.iter().for_each(|&s| self.live_exprs(s, out)),
+            StmtKind::If { cond, then, else_, .. } => {
+                out.push(*cond);
+                self.live_exprs(*then, out);
+                if let Some(e) = else_ {
+                    self.live_exprs(*e, out);
+                }
+            }
+            StmtKind::Case { expr, items, default, .. } => {
+                out.push(*expr);
+                for (labels, body) in items {
+                    out.extend(labels.iter().copied());
+                    self.live_exprs(*body, out);
+                }
+                if let Some(s) = default {
+                    self.live_exprs(*s, out);
+                }
+            }
+            StmtKind::For { init, cond, step, body, .. } => {
+                init.iter().chain(step).for_each(|&s| self.live_exprs(s, out));
+                out.extend(cond.iter().copied());
+                self.live_exprs(*body, out);
+            }
+            _ => self.stmt_exprs(s, out),
+        }
+    }
+
+    /// The `if`s and `case`s in a statement, but for those that only
+    /// assert.
+    fn branches(&self, s: StmtId) -> usize {
+        let d = self.d;
+        if self.only_asserts(s) {
+            return 0;
+        }
+        match &d.stmt(s).kind {
+            StmtKind::Block { stmts, .. } => stmts.iter().map(|&s| self.branches(s)).sum(),
+            StmtKind::If { then, else_, .. } => 1 + self.branches(*then) + else_.map_or(0, |e| self.branches(e)),
+            StmtKind::Case { items, default, .. } => {
+                1 + items.iter().map(|(_, b)| self.branches(*b)).sum::<usize>() + default.map_or(0, |s| self.branches(s))
+            }
+            StmtKind::For { body, .. } => self.branches(*body),
+            _ => 0,
+        }
+    }
+
     fn layout(&mut self, key: Key) -> Result<(), String> {
         if self.layouts.contains_key(&key) {
             return Ok(());
         }
         let d = self.d;
         let (spec, lanes) = key;
-        let sh = self.opts.shape(lanes);
+        let sh = self.shape_for(spec, lanes)?;
         let planes = self.opts.bit_planes;
         let (objs, code) = self.code_of(spec)?;
         let mut lay = Layout::new(sh);
@@ -1331,7 +1533,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         // the child's values are.
         for (i, row) in args {
             let ck = lay.kid_keys[&i];
-            let csh = self.opts.shape(ck.1);
+            let csh = self.layouts[&ck].shape;
             let mut out = Vec::new();
             for (p, alias) in d.spec(ck.0).ports.iter().zip(row) {
                 out.push(match alias {
@@ -1362,7 +1564,8 @@ impl<'d, 'a> Lowering<'d, 'a> {
             .flat_map(|(_, k)| d.spec(k.0).ports.iter().filter_map(|p| p.object).map(|o| pieces(tw(&d.types, d.object(o).ty))))
             .max();
         if let Some(words) = widest.filter(|_| !sh.scalar() && !sh.swar && sh.chunks == 1) {
-            lay.scratch = lay.room(4 * sh.n as u64 * words as u64, 4 * sh.n as u64);
+            // (Each word in a piece of up to 64 bits a lane.)
+            lay.scratch = lay.room(8 * sh.n as u64 * words as u64, 8 * sh.n as u64);
         }
         self.layouts.insert(key, lay);
         Ok(())
@@ -2267,6 +2470,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 (_, Lane::Bit) if sh.swar => t.i8,
                 (_, Lane::Bit) => t.i16,
                 (_, Lane::Swar) => t.i64,
+                (false, Lane::W64) => t.v,
                 (true, Lane::B8) => t.i8,
                 (true, Lane::B16) => t.i16,
                 (true, Lane::W32) => t.i32,
@@ -2304,7 +2508,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
             b.cond_br(end, out, lp);
             b.at(out);
             // Whether any lane of it differs.
-            let ne = if !sh.scalar() && !sh.swar && !matches!(lane, Lane::Bit | Lane::W64) {
+            let ne = if !sh.scalar() && !sh.swar && lane != Lane::Bit {
                 let mk = b.icmp(ICmpPred::Ne, acc2, zero);
                 let bits = b.bitcast(mk, t.bits);
                 let z = b.const_int(t.bits, 0);
@@ -3247,7 +3451,10 @@ fn tys(m: &mut Module, sh: Shape) -> Tys {
         _ if sh.scalar() => (i64, i1, i128, i8, i16, i32, i1),
         // A mask is all ones or all zeros a lane; a bit plane a byte.
         Shape { swar: true, .. } => (i64, i64, i128, i8, i16, i32, i8),
-        _ => (t.vector(n, i32), t.vector(n, i1), t.vector(n, i64), t.vector(n, i8), t.vector(n, i16), t.vector(n, i32), t.int(n)),
+        _ => {
+            let (l, l2) = (t.int(sh.lw), t.int(2 * sh.lw));
+            (t.vector(n, l), t.vector(n, i1), t.vector(n, l2), t.vector(n, i8), t.vector(n, i16), t.vector(n, i32), t.int(n))
+        }
     };
     Tys { v, m: mk, wide, b8, b16, w32, bits, i1, i8, i16, i32, i64, ptr, void }
 }
@@ -3265,6 +3472,10 @@ struct Regs {
     half: Value,
     b8: Value,
     b16: Value,
+    /// For 32-bit pieces where those are not the shape's pieces (in vector
+    /// code of 64-bit lanes).
+    d: Value,
+    d32: Value,
 }
 
 /// One function being written.
@@ -3376,6 +3587,7 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
         match p {
             P::K(k) if self.sc() => self.b.const_int(self.t.i64, k as i64),
             P::K(k) if self.sh.swar => self.b.const_int(self.t.i64, self.rep(k) as i64),
+            P::K(k) if self.pb == 64 => self.b.const_int(self.t.v, k as i64),
             P::K(k) => self.b.const_int(self.t.v, k as u32 as i32 as i64),
             P::V(n) => self.vals[n as usize],
         }
@@ -3591,7 +3803,8 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
                 at(self, lg(Lane::B8)),
                 at(self, lg(Lane::B16)),
             );
-            self.regs = Some(Regs { b: bp, h, q, w, off, half, b8, b16 });
+            let (d32, d) = at(self, lg(Lane::W32));
+            self.regs = Some(Regs { b: bp, h, q, w, off, half, b8, b16, d, d32 });
             head = Some((lp, c));
         }
         self.env = Env::default();
@@ -3635,12 +3848,15 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
             Lane::Bit => r.h,
             Lane::B8 => r.q,
             Lane::B16 => r.w,
-            Lane::W32 | Lane::W64 | Lane::Swar => r.b,
+            Lane::W32 => r.d,
+            Lane::W64 | Lane::Swar => r.b,
         }
     }
 
+    /// Where this register's part of the state is, for values in whole
+    /// pieces.
     fn base(&self) -> Value {
-        self.reg_base(Lane::W32)
+        self.reg_base(self.piece_lane())
     }
 
     /// Where a value of this function is, if it has a place.
@@ -3660,7 +3876,8 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
                 let pp = self.port(p);
                 let Some(r) = self.regs else { return (pp, 0) };
                 let step = match lane {
-                    Lane::W32 | Lane::W64 | Lane::Swar => r.off,
+                    Lane::W32 => r.d32,
+                    Lane::W64 | Lane::Swar => r.off,
                     Lane::Bit => r.half,
                     Lane::B8 => r.b8,
                     Lane::B16 => r.b16,
@@ -3682,6 +3899,7 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
         match lane {
             Lane::W32 | Lane::W64 | Lane::Swar => {
                 let (ty, align) = match lane {
+                    Lane::W64 if !sc => (t.v, 8 * n),
                     Lane::W64 | Lane::Swar => (t.i64, 8),
                     _ => (t.w32, 4 * n),
                 };
@@ -3689,8 +3907,8 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
                 for i in 0..lane.pieces(w, self.sh) {
                     let a = self.off(b, off + i * stride);
                     let v = self.ld(ty, a, align);
-                    if sc && lane == Lane::W32 {
-                        let z = self.b.zext(v, t.i64);
+                    if self.pb == 64 && lane == Lane::W32 {
+                        let z = self.b.zext(v, t.v);
                         let z = self.reg(z);
                         self.zeros.insert(z, !0xffff_ffff);
                         p.push(P::V(z));
@@ -3779,10 +3997,10 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
         let (t, n, sc) = (self.t, self.sh.n as u64, self.sc());
         match lane {
             Lane::W32 | Lane::W64 | Lane::Swar => {
-                let align = if lane == Lane::W32 { 4 * n } else { 8 };
+                let align = if lane == Lane::Swar { 8 } else { lane.reg_bytes(self.sh) };
                 for (i, &p) in v.p.iter().enumerate() {
                     let x = self.pv(p);
-                    let x = if sc && lane == Lane::W32 { self.b.trunc(x, t.i32) } else { x };
+                    let x = if self.pb == 64 && lane == Lane::W32 { self.b.trunc(x, t.w32) } else { x };
                     let a = self.off(b, off + i as u64 * stride);
                     self.st(x, a, align);
                 }
@@ -3924,262 +4142,220 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
         }
     }
 
-    /// 32-bit word `k` of a value of scalar code, an `i32`.
-    fn word_of(&mut self, v: &Val, k: usize) -> Value {
-        let p = v.p.get(k / 2).copied().unwrap_or(P::K(0));
-        let sh = 32 * (k % 2) as u32;
-        if let P::K(x) = p {
-            return self.b.const_int(self.t.i32, (x >> sh) as u32 as i32 as i64);
-        }
-        let p = self.bin("lshr", p, P::K(sh as u64));
-        let x = self.pv(p);
-        self.b.trunc(x, self.t.i32)
-    }
-
     /// An address in the state, `off` bytes in.
     fn at(&mut self, off: u64) -> Value {
         let s = self.state();
         self.off(s, off)
     }
 
+    /// The scratch's offset of 32-bit word `k` of lane `s`, for a value of
+    /// vector code stored there a piece a register.
+    fn scratch_word(&self, k: u32, s: u32) -> u64 {
+        let (lw, n) = (self.pb, self.sh.n);
+        let j = k * 32 / lw;
+        self.lay().scratch + (j * lw / 8 * n) as u64 + (s * lw / 8) as u64 + ((k * 32 % lw) / 8) as u64
+    }
+
+    /// Bytes from one piece of a register to the next in the scratch.
+    fn scratch_piece(&self) -> u64 {
+        (self.pb / 8 * self.sh.n) as u64
+    }
+
+    /// A value's 32-bit words in lane `s` of this function, each the low
+    /// half of an `i64`: in vector code from the scratch, which holds its
+    /// pieces ([`Self::to_scratch`]).
+    fn lane_words(&mut self, v: &Val, s: u32) -> Vec<Value> {
+        let pb = self.pb;
+        if self.sc() || self.sh.swar {
+            let xs: Vec<Value> = v.p.iter().map(|&p| self.pv(p)).collect();
+            let bits: Vec<Value> = xs.iter().map(|&x| self.lane_bits(x, pb, s)).collect();
+            return self.digits_of(&bits, pb, v.w);
+        }
+        (0..v.w.div_ceil(32).max(1))
+            .map(|k| {
+                let a = self.at(self.scratch_word(k, s));
+                let x = self.ld(self.t.i32, a, 4);
+                self.b.zext(x, self.t.i64)
+            })
+            .collect()
+    }
+
+    fn to_scratch(&mut self, v: &Val) {
+        let (scratch, pnb) = (self.lay().scratch, self.scratch_piece());
+        for (j, &p) in v.p.iter().enumerate() {
+            let (a, x) = (self.at(scratch + j as u64 * pnb), self.pv(p));
+            self.st(x, a, pnb);
+        }
+    }
+
+    /// A `w`-bit value of this function from each lane's 32-bit words (as
+    /// [`Self::lane_words`] gives them).
+    fn from_words(&mut self, w: u32, lanes: &[Vec<Value>]) -> Val {
+        let pb = self.pb;
+        if self.sc() || self.sh.swar {
+            let mut out: Vec<Option<Value>> = vec![None; self.np(w)];
+            for (s, words) in lanes.iter().enumerate() {
+                for (k, x) in self.digit_pieces(words, pb, w).into_iter().enumerate() {
+                    out[k] = if self.sc() { Some(x) } else { self.put_lane(out[k], x, pb, s as u32) };
+                }
+            }
+            let p = out.into_iter().map(|x| P::V(self.reg(x.unwrap()))).collect();
+            return self.norm(Val { w, p });
+        }
+        // In vector code, the words to the scratch (zero to the end of each
+        // lane's last piece), then loaded as the pieces.
+        let (scratch, pnb, np) = (self.lay().scratch, self.scratch_piece(), self.np(w));
+        for (s, words) in lanes.iter().enumerate() {
+            for k in 0..np as u32 * pb / 32 {
+                let x = match words.get(k as usize) {
+                    Some(&x) => self.b.trunc(x, self.t.i32),
+                    None => self.b.const_int(self.t.i32, 0),
+                };
+                let a = self.at(self.scratch_word(k, s as u32));
+                self.st(x, a, 4);
+            }
+        }
+        let p = (0..np)
+            .map(|j| {
+                let a = self.at(scratch + j as u64 * pnb);
+                let x = self.ld(self.t.v, a, pnb);
+                P::V(self.reg(x))
+            })
+            .collect();
+        Val { w, p }
+    }
+
     /// An array of children's input, each iteration's value in `vals`, to
     /// the child's slot at `at` (stored as `lane`, for the child's shape
     /// `csh`): iteration `t`'s in the lanes as wide as this function's
-    /// register (fewer than 16) from `t` times that.
+    /// register from `t` times that. A lane at a time, as 32-bit words:
+    /// each of the child's registers in SWAR code put together in
+    /// registers and stored whole, each word in vector code stored where it
+    /// goes.
     fn to_lanes(&mut self, at: u64, lane: Lane, w: u32, csh: Shape, vals: &[Option<Val>]) {
-        if csh.swar {
-            return self.to_lanes_swar(at, lane, w, csh, vals);
-        }
-        let sh = self.sh;
-        debug_assert!(sh.n < 16 && sh.chunks == 1, "arrays are called as one below parents of fewer than 16 lanes");
-        // A lane at a time, a 32-bit word at a time, through memory: in
-        // vector code, each piece stored to the scratch and its lanes
-        // loaded from there.
-        let (wp, scratch, n) = (sh.width() as usize, self.lay().scratch, 4 * sh.n as u64);
-        let words = if lane == Lane::W32 { pieces(w) } else { 1 };
+        let (wp, cn) = (self.sh.width(), csh.n);
         let t = self.t;
-        let mut planes: Vec<Option<Value>> = vec![None; (vals.len() * wp).div_ceil(16)];
+        // In SWAR code each register's pieces, and in vector code each
+        // register's bit planes, by (piece, register).
+        let mut acc: HashMap<(usize, u32), Value> = HashMap::new();
         for (k_t, v) in vals.iter().enumerate() {
             let Some(v) = v else { continue };
-            if !self.sc() {
-                for (k, &p) in v.p.iter().enumerate() {
-                    let (a, x) = (self.at(scratch + k as u64 * n), self.pv(p));
-                    self.st(x, a, n);
-                }
+            if !self.sc() && !self.sh.swar {
+                self.to_scratch(v);
             }
             for s in 0..wp {
-                let l = (k_t * wp + s) as u64;
-                for k in 0..words {
-                    let word = if self.sc() {
-                        self.word_of(v, k)
-                    } else {
-                        let a = self.at(scratch + k as u64 * n + 4 * s as u64);
-                        self.ld(t.i32, a, 4)
-                    };
-                    match lane {
-                        Lane::W32 => {
-                            let a = self.at(at + k as u64 * lane.piece_bytes(csh) + 4 * l);
-                            self.st(word, a, 4);
+                let l = k_t as u32 * wp + s;
+                let (r, li) = (l / cn, l % cn);
+                let words = self.lane_words(v, s);
+                match lane {
+                    Lane::Bit => {
+                        let one = self.c64(1);
+                        let x = self.b.and(words[0], one);
+                        let was = acc.get(&(0, r)).copied();
+                        let now = self.put_lane(was, x, 1, li).unwrap();
+                        acc.insert((0, r), now);
+                    }
+                    Lane::Swar => {
+                        for (k, x) in self.digit_pieces(&words, csh.pb(), w).into_iter().enumerate() {
+                            let was = acc.get(&(k, r)).copied();
+                            let now = self.put_lane(was, x, csh.pb(), li).unwrap();
+                            acc.insert((k, r), now);
                         }
-                        Lane::B8 | Lane::B16 => {
-                            let (ty, eb) = if lane == Lane::B8 { (t.i8, 1) } else { (t.i16, 2) };
-                            let a = self.at(at + eb * l);
-                            let x = self.b.trunc(word, ty);
-                            self.st(x, a, eb);
+                    }
+                    Lane::B8 | Lane::B16 => {
+                        let (ty, eb) = if lane == Lane::B8 { (t.i8, 1) } else { (t.i16, 2) };
+                        let a = self.at(at + eb * l as u64);
+                        let x = self.b.trunc(words[0], ty);
+                        self.st(x, a, eb);
+                    }
+                    Lane::W32 | Lane::W64 => {
+                        let f = Field { name: String::new(), dir: Dir::Input, offset: at as usize, width: w, lane, shape: csh };
+                        for (k, &x) in words.iter().enumerate() {
+                            let a = self.at(f.at(k, l as usize) as u64);
+                            let x = self.b.trunc(x, t.i32);
+                            self.st(x, a, 4);
                         }
-                        Lane::Bit => {
-                            let x = self.b.trunc(word, t.i16);
-                            let sh = self.b.const_int(t.i16, (l % 16) as i64);
-                            let x = self.b.shl(x, sh);
-                            let r = (l / 16) as usize;
-                            planes[r] = Some(match planes[r] {
-                                Some(acc) => self.b.or(acc, x),
-                                None => x,
-                            });
-                        }
-                        Lane::W64 | Lane::Swar => unreachable!("an array's child is not scalar, nor in SWAR code here"),
                     }
                 }
             }
         }
-        for (r, bits) in planes.into_iter().enumerate() {
-            if let Some(bits) = bits {
-                let a = self.at(at + 2 * r as u64);
-                self.st(bits, a, 2);
+        let mut regs: Vec<((usize, u32), Value)> = acc.into_iter().collect();
+        regs.sort_unstable_by_key(|w| w.0);
+        for ((k, r), x) in regs {
+            let a = self.at(at + k as u64 * lane.piece_bytes(csh) + r as u64 * lane.reg_bytes(csh));
+            match (lane, Lane::Bit.reg_bytes(csh)) {
+                (Lane::Bit, 1) => {
+                    let x = self.b.trunc(x, t.i8);
+                    self.st(x, a, 1);
+                }
+                (Lane::Bit, _) => {
+                    let x = self.b.trunc(x, t.i16);
+                    self.st(x, a, 2);
+                }
+                _ => self.st(x, a, 8),
             }
         }
     }
 
     /// Iteration `t`'s value of an array of children's output, from the
     /// child's slot at `at` (as [`Func::to_lanes`] lays it out); `regs`
-    /// keeps the child's bit planes already loaded.
+    /// keeps the child's registers already loaded, by piece and register.
     fn from_lanes(&mut self, at: u64, lane: Lane, w: u32, csh: Shape, k_t: usize, regs: &mut HashMap<(usize, usize), Value>) -> Val {
-        if csh.swar {
-            return self.from_lanes_swar(at, lane, w, csh, k_t, regs);
-        }
-        let sh = self.sh;
-        let (wp, scratch, n) = (sh.width() as usize, self.lay().scratch, 4 * sh.n as u64);
-        let words = if lane == Lane::W32 { pieces(w) } else { 1 };
+        let (wp, cn) = (self.sh.width(), csh.n);
         let t = self.t;
-        // Each word of each lane, an i32.
-        let mut got: Vec<Vec<Value>> = vec![Vec::new(); wp];
-        for (s, got) in got.iter_mut().enumerate() {
-            let l = (k_t * wp + s) as u64;
-            for k in 0..words {
-                let x = match lane {
-                    Lane::W32 => {
-                        let a = self.at(at + k as u64 * lane.piece_bytes(csh) + 4 * l);
-                        self.ld(t.i32, a, 4)
-                    }
-                    Lane::B8 | Lane::B16 => {
-                        let (ty, eb) = if lane == Lane::B8 { (t.i8, 1) } else { (t.i16, 2) };
-                        let a = self.at(at + eb * l);
-                        let y = self.ld(ty, a, eb);
-                        self.b.zext(y, t.i32)
-                    }
-                    Lane::Bit => {
-                        let r = (l / 16) as usize;
-                        let bits = match regs.get(&(r, 0)) {
-                            Some(&b) => b,
-                            None => {
-                                let a = self.at(at + 2 * r as u64);
-                                let b = self.ld(t.i16, a, 2);
-                                regs.insert((r, 0), b);
-                                b
-                            }
-                        };
-                        let sh = self.b.const_int(t.i16, (l % 16) as i64);
-                        let y = self.b.lshr(bits, sh);
-                        let one = self.b.const_int(t.i16, 1);
-                        let z = self.b.and(y, one);
-                        self.b.zext(z, t.i32)
-                    }
-                    Lane::W64 | Lane::Swar => unreachable!("an array's child is not scalar, nor in SWAR code here"),
-                };
-                got.push(x);
-            }
-        }
-        if self.sc() {
-            let mut p = Vec::new();
-            for q in 0..self.np(w) {
-                let mut acc = P::K(0);
-                for half in 0..2 {
-                    let Some(&word) = got[0].get(2 * q + half) else { break };
-                    let z = self.b.zext(word, t.i64);
-                    let z = self.reg(z);
-                    self.zeros.insert(z, !0xffff_ffff);
-                    let x = self.bin("shl", P::V(z), P::K(32 * half as u64));
-                    acc = self.bin("or", acc, x);
-                }
-                p.push(acc);
-            }
-            return Val { w, p };
-        }
-        // In vector code, the lanes' words to the scratch, then loaded as
-        // the value's pieces.
-        for (s, got) in got.iter().enumerate() {
-            for (k, &word) in got.iter().enumerate() {
-                let a = self.at(scratch + k as u64 * n + 4 * s as u64);
-                self.st(word, a, 4);
-            }
-        }
-        let mut p = Vec::new();
-        for k in 0..words {
-            let a = self.at(scratch + k as u64 * n);
-            let x = self.ld(t.v, a, n);
-            p.push(P::V(self.reg(x)));
-        }
-        Val { w, p }
-    }
-
-    /// [`Self::to_lanes`] for a child in SWAR code: each lane's value
-    /// taken apart into 32-bit digits, put together again as the child's
-    /// pieces, and each of the child's registers stored whole.
-    fn to_lanes_swar(&mut self, at: u64, lane: Lane, w: u32, csh: Shape, vals: &[Option<Val>]) {
-        let (wp, pb, cpb, cn) = (self.sh.width(), self.pb, csh.pb(), csh.n);
-        let mut acc: HashMap<(usize, u32), Value> = HashMap::new();
-        for (k_t, v) in vals.iter().enumerate() {
-            let Some(v) = v else { continue };
-            let xs: Vec<Value> = v.p.iter().map(|&p| self.pv(p)).collect();
-            for s in 0..wp {
-                let l = k_t as u32 * wp + s;
-                let (r, li) = (l / cn, l % cn);
-                let bits: Vec<Value> = xs.iter().map(|&x| self.lane_bits(x, pb, s)).collect();
-                let digits = self.digits_of(&bits, pb, w);
-                let (pieces, lb) = match lane {
-                    Lane::Bit => {
-                        let one = self.c64(1);
-                        (vec![self.b.and(digits[0], one)], 1)
-                    }
-                    _ => (self.digit_pieces(&digits, cpb, w), cpb),
-                };
-                for (k, x) in pieces.into_iter().enumerate() {
-                    let was = acc.get(&(k, r)).copied();
-                    let now = self.put_lane(was, x, lb, li).unwrap();
-                    acc.insert((k, r), now);
-                }
-            }
-        }
-        let mut words: Vec<((usize, u32), Value)> = acc.into_iter().collect();
-        words.sort_unstable_by_key(|w| w.0);
-        for ((k, r), x) in words {
-            match lane {
-                Lane::Bit => {
-                    let a = self.at(at + r as u64 * Lane::Bit.reg_bytes(csh));
-                    let x = self.b.trunc(x, self.t.i8);
-                    self.st(x, a, 1);
-                }
-                _ => {
-                    let a = self.at(at + k as u64 * lane.piece_bytes(csh) + 8 * r as u64);
-                    self.st(x, a, 8);
-                }
-            }
-        }
-    }
-
-    /// [`Self::from_lanes`] for a child in SWAR code; `regs` keeps the
-    /// child's registers already loaded, by piece and register.
-    fn from_lanes_swar(
-        &mut self,
-        at: u64,
-        lane: Lane,
-        w: u32,
-        csh: Shape,
-        k_t: usize,
-        regs: &mut HashMap<(usize, usize), Value>,
-    ) -> Val {
-        let (wp, pb, cpb, cn) = (self.sh.width(), self.pb, csh.pb(), csh.n);
-        let mut out: Vec<Option<Value>> = vec![None; self.np(w)];
+        let mut lanes = Vec::with_capacity(wp as usize);
         for s in 0..wp {
             let l = k_t as u32 * wp + s;
             let (r, li) = (l / cn, l % cn);
-            let n = if lane == Lane::Bit { 1 } else { lane.pieces(w, csh) as usize };
-            let mut bits = Vec::with_capacity(n);
-            for k in 0..n {
-                let x = match regs.get(&(k, r as usize)) {
-                    Some(&x) => x,
-                    None => {
-                        let x = if lane == Lane::Bit {
-                            let a = self.at(at + r as u64 * Lane::Bit.reg_bytes(csh));
-                            let y = self.ld(self.t.i8, a, 1);
-                            self.b.zext(y, self.t.i64)
-                        } else {
-                            let a = self.at(at + k as u64 * lane.piece_bytes(csh) + 8 * r as u64);
-                            self.ld(self.t.i64, a, 8)
-                        };
-                        regs.insert((k, r as usize), x);
-                        x
-                    }
+            let mut reg = |f: &mut Self, k: usize| -> Value {
+                if let Some(&x) = regs.get(&(k, r as usize)) {
+                    return x;
+                }
+                let a = f.at(at + k as u64 * lane.piece_bytes(csh) + r as u64 * lane.reg_bytes(csh));
+                let x = match (lane, Lane::Bit.reg_bytes(csh)) {
+                    (Lane::Bit, 1) => f.ld(t.i8, a, 1),
+                    (Lane::Bit, _) => f.ld(t.i16, a, 2),
+                    _ => f.ld(t.i64, a, 8),
                 };
-                bits.push(if lane == Lane::Bit { self.lane_bits(x, 1, li) } else { self.lane_bits(x, cpb, li) });
-            }
-            let digits = self.digits_of(&bits, if lane == Lane::Bit { 32 } else { cpb }, w);
-            for (k, x) in self.digit_pieces(&digits, pb, w).into_iter().enumerate() {
-                out[k] = if self.sc() { Some(x) } else { self.put_lane(out[k], x, pb, s) };
-            }
+                let x = if lane == Lane::Bit { f.b.zext(x, t.i64) } else { x };
+                regs.insert((k, r as usize), x);
+                x
+            };
+            let words = match lane {
+                Lane::Bit => {
+                    let x = reg(self, 0);
+                    vec![self.lane_bits(x, 1, li)]
+                }
+                Lane::Swar => {
+                    let cpb = csh.pb();
+                    let bits: Vec<Value> = (0..lane.pieces(w, csh) as usize)
+                        .map(|k| {
+                            let x = reg(self, k);
+                            self.lane_bits(x, cpb, li)
+                        })
+                        .collect();
+                    self.digits_of(&bits, cpb, w)
+                }
+                Lane::B8 | Lane::B16 => {
+                    let (ty, eb) = if lane == Lane::B8 { (t.i8, 1) } else { (t.i16, 2) };
+                    let a = self.at(at + eb * l as u64);
+                    let y = self.ld(ty, a, eb);
+                    vec![self.b.zext(y, t.i64)]
+                }
+                Lane::W32 | Lane::W64 => {
+                    let f = Field { name: String::new(), dir: Dir::Input, offset: at as usize, width: w, lane, shape: csh };
+                    (0..pieces(w))
+                        .map(|k| {
+                            let a = self.at(f.at(k, l as usize) as u64);
+                            let y = self.ld(t.i32, a, 4);
+                            self.b.zext(y, t.i64)
+                        })
+                        .collect()
+                }
+            };
+            lanes.push(words);
         }
-        let p = out.into_iter().map(|x| P::V(self.reg(x.unwrap()))).collect();
-        self.norm(Val { w, p })
+        self.from_words(w, &lanes)
     }
 
     // ---- statements ----
@@ -5381,7 +5557,7 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
             P::V(n) => {
                 let (v, zero) = (self.vals[n as usize], self.i64k(0));
                 let x = self.b.extract_element(v, zero);
-                self.b.zext(x, self.t.i64)
+                if self.pb == 64 { x } else { self.b.zext(x, self.t.i64) }
             }
         }
     }
@@ -5424,7 +5600,8 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
             Lane::B16 => (t.i16, 2),
             Lane::W32 if self.sc() => (t.i32, 4),
             Lane::W32 => (t.w32, 4 * self.sh.n as u64),
-            Lane::W64 => (t.i64, 8),
+            Lane::W64 if self.sc() => (t.i64, 8),
+            Lane::W64 => (t.v, 8 * self.sh.n as u64),
         }
     }
 
@@ -6255,6 +6432,7 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
                 self.b.sext(b, t.i64)
             } else {
                 // Splat: into lane 0, then shuffled to every lane.
+                let b = if self.pb == 64 { self.b.sext(b, t.i64) } else { b };
                 let (poison, z64) = (self.b.module().poison(t.v), self.i64k(0));
                 let c = self.b.insert_element(poison, b, z64);
                 let mask = match self.b.module().const_zero(t.v) {
@@ -6548,7 +6726,7 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
             });
             return P::V(self.reg(r));
         }
-        let name = if self.sc() { "llvm.ctlz.i64".to_string() } else { format!("llvm.ctlz.v{}i32", self.sh.n) };
+        let name = if self.sc() { "llvm.ctlz.i64".to_string() } else { format!("llvm.ctlz.v{}i{}", self.sh.n, self.pb) };
         let g = self.intrinsic(&name, v, &[v, i1]);
         let (x, no) = (self.pv(p), self.b.const_int(i1, 0));
         let r = self.b.call(g, &[x, no]).unwrap();
@@ -6906,6 +7084,9 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
         if self.sh.swar {
             return self.swar_mul_wide(a, b);
         }
+        if !self.sc() && self.pb == 64 {
+            return self.mul_wide64(a, b);
+        }
         let n = a.p.len();
         let (v, wt, sc) = (self.t.v, self.t.wide, self.sc());
         let wide = |f: &mut Self, p: P| -> Value {
@@ -6955,6 +7136,50 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
             }
         }
         self.norm(Val { w: a.w, p: out })
+    }
+
+    /// [`Self::mul_wide`] in vector code of 64-bit lanes, which have no
+    /// wider lanes for products: in 32-bit digits, each product of two in
+    /// a lane, their halves added by column and the carries passed up.
+    fn mul_wide64(&mut self, a: &Val, b: &Val) -> Val {
+        let lo = P::K(0xffff_ffff);
+        let digits = |f: &mut Self, v: &Val| -> Vec<P> {
+            let mut d = Vec::with_capacity(2 * v.p.len());
+            for &p in &v.p {
+                d.push(f.bin("and", p, lo));
+                d.push(f.bin("lshr", p, P::K(32)));
+            }
+            d
+        };
+        let (da, db) = (digits(self, a), digits(self, b));
+        let nd = da.len();
+        let mut cols: Vec<Vec<P>> = vec![Vec::new(); nd];
+        for i in 0..nd {
+            for j in 0..nd - i {
+                let p = self.bin("mul", da[i], db[j]);
+                cols[i + j].push(self.bin("and", p, lo));
+                if i + j + 1 < nd {
+                    cols[i + j + 1].push(self.bin("lshr", p, P::K(32)));
+                }
+            }
+        }
+        let mut carry = P::K(0);
+        let mut out = Vec::with_capacity(nd);
+        for col in cols {
+            let mut s = carry;
+            for x in col {
+                s = self.bin("add", s, x);
+            }
+            out.push(self.bin("and", s, lo));
+            carry = self.bin("lshr", s, P::K(32));
+        }
+        let p = (0..a.p.len())
+            .map(|k| {
+                let hi = self.bin("shl", out[2 * k + 1], P::K(32));
+                self.bin("or", out[2 * k], hi)
+            })
+            .collect();
+        self.norm(Val { w: a.w, p })
     }
 
     /// [`Self::mul_wide`] in SWAR code: a lane at a time, in 32-bit digits

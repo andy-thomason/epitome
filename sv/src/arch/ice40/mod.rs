@@ -15,8 +15,10 @@
 
 pub mod asc;
 pub mod bitstream;
+pub mod board;
 pub mod chipdb;
 pub mod describe;
+pub mod design;
 pub mod experiment;
 pub mod icebox;
 pub mod icepack;

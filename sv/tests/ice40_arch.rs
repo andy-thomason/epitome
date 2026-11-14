@@ -50,7 +50,9 @@ fn description_is_up_to_date() {
     for part in &PARTS {
         let (d, db, sem) = records(part);
         let why = format!("{}: rerun the ice40_arch example with --replay", part.name);
-        assert!(describe::to_json(&d, Some(&db), Some(&sem)) == read(part, "description.json"), "{why}");
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("arch").join(part.dir).join("record-board.txt");
+        let board = std::fs::read_to_string(path).ok().map(|t| epitome_sv::arch::ice40::board::results_from_text(&t).unwrap());
+        assert!(describe::to_json(&d, Some(&db), Some(&sem), board.as_ref()) == read(part, "description.json"), "{why}");
         assert!(describe::logic_cell_sv(part, &sem) == read(part, "logic_cell.sv"), "{why}");
     }
 }
@@ -226,5 +228,49 @@ fn luts_predict_icebox() {
             let v = ib.run("icebox_vlog", &[], &icebox::full_asc(&d, &bits)).unwrap();
             assert_eq!(icebox::lut_table(&v, lc).unwrap(), Some(table), "{} cell {lc}", part.name);
         }
+    }
+}
+
+/// The recorded board experiments (iCESugar-nano) are the bitstreams the
+/// description makes now, and the board did what the description says
+/// wherever it says anything.
+#[test]
+fn board_record_agrees() {
+    use epitome_sv::arch::ice40::board;
+    let part = epitome_sv::arch::ice40::part("1k").unwrap();
+    let (d, db, sem) = records(part);
+    let exps = board::experiments(&d, &db, &sem).unwrap();
+    let res = board::results_from_text(&read(part, "record-board.txt")).unwrap();
+    assert_eq!(res.len(), exps.len());
+    for (e, (name, expect, seen, len, hash)) in exps.iter().zip(&res) {
+        assert_eq!(&e.name, name);
+        assert_eq!(e.expect, expect, "{name}");
+        assert_eq!((e.bits.len(), fnv64(&e.bits)), (*len, *hash), "{name}: the design's bitstream has changed; rerun the ice40_board example");
+        match e.expect {
+            "echo" => assert_eq!(seen, "echo", "{name}"),
+            "no-echo" => assert_ne!(seen, "echo", "{name}"),
+            _ => {}
+        }
+    }
+}
+
+/// Reruns the board experiments; only with `ICE40_BOARD=1`, since it
+/// reprograms the board.
+#[test]
+fn board_live() {
+    use epitome_sv::arch::ice40::board::{self, Icesprog, Serial};
+    if std::env::var_os("ICE40_BOARD").is_none() {
+        eprintln!("skipped: set ICE40_BOARD=1 to reprogram an iCESugar-nano");
+        return;
+    }
+    let part = epitome_sv::arch::ice40::part("1k").unwrap();
+    let (d, db, sem) = records(part);
+    let ip = Icesprog::find().expect("icesprog");
+    assert_eq!(ip.probe().unwrap().0, "iCESugar-Nano");
+    let exps = board::experiments(&d, &db, &sem).unwrap();
+    let res = board::run(&ip, &Serial::find().expect("serial port"), &exps, &mut |_| ()).unwrap();
+    let recorded = board::results_from_text(&read(part, "record-board.txt")).unwrap();
+    for (now, then) in res.iter().zip(&recorded) {
+        assert_eq!(now.2, then.2, "{}", now.0);
     }
 }

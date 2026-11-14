@@ -19,6 +19,7 @@
 //! and `logic_cell.sv`, a model of the logic cell, from the last. `--part
 //! ice40-lp1k` (say) does one part.
 
+use epitome_sv::arch::ice40::board;
 use epitome_sv::arch::ice40::chipdb::Chipdb;
 use epitome_sv::arch::ice40::icebox::{self, Icebox, Semantics};
 use epitome_sv::arch::ice40::{Device, PARTS, Part, describe, experiment, icepack::Icepack};
@@ -67,7 +68,9 @@ fn generate(part: &Part, replay: bool) -> Result<(), String> {
     for (what, _, detail) in &failed {
         eprintln!("check failed: {what} {detail}");
     }
-    write("description.json", &describe::to_json(&d, Some(&db), Some(&sem)))?;
+    // The board experiments, where a board was tried (ice40_board).
+    let board = read("record-board.txt").ok().map(|t| board::results_from_text(&t)).transpose()?;
+    write("description.json", &describe::to_json(&d, Some(&db), Some(&sem), board.as_ref()))?;
     write("logic_cell.sv", &describe::logic_cell_sv(part, &sem))?;
     if failed.is_empty() { Ok(()) } else { Err(format!("{}: {} checks failed", part.name, failed.len())) }
 }

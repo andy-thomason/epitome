@@ -27,6 +27,7 @@ Each part's directory holds:
 | `record-icebox.txt` | what the `icebox_vlog` and `icebox_explain` experiments found |
 | `description.json` | the description: every fact, marked with its source, plus the cross-checks and coverage |
 | `logic_cell.sv` | a SystemVerilog model of a logic cell, built from the icebox statements |
+| `record-board.txt` | (LP1K only) what the iCESugar-nano did in each board experiment |
 
 The tests are in `sv/tests/ice40_arch.rs`:
 
@@ -34,7 +35,9 @@ The tests are in `sv/tests/ice40_arch.rs`:
 cargo test --release -p epitome-sv --test ice40_arch
 ```
 
-The tests that need a tool skip it when it is missing. Set `ICE40_REQUIRE_TOOLS=1` to make a missing tool a failure.
+The tests that need a tool skip it when it is missing. Set
+`ICE40_REQUIRE_TOOLS=1` to make a missing tool a failure. The test that
+reprograms the board runs only with `ICE40_BOARD=1`.
 
 ## Sources, and how each fact was found
 
@@ -130,6 +133,52 @@ read what `icebox_vlog` prints.
 - **Carry**: `co = (in_1 & in_2) | ((in_1 | in_2) & ci)`. `CarryInSet`
   makes the first cell's carry in 1.
 
+### What the board showed
+
+The board is an iCESugar-nano on Amy's desk. `icesprog -p` reports
+"iCESugar-Nano" with a W25Q32 flash. The experiments are in `board.rs` and
+are run with:
+
+```bash
+cargo run --release -p epitome-sv --example ice40_board
+```
+
+**Method.** Each experiment is a design made from this description, packed
+by Epitome's own packer, and written to the flash with MuseLab's
+`icesprog`. `icesprog` is built from source (`Icesprog::install`) and run
+only as a black box, over the iCELink's USB HID interface. Copying to the
+iCELink's USB drive hung macOS's FAT driver twice, so the drive is not
+used.
+
+**Wiring.** The board's schematic and pin file give the wiring:
+- the iCELink's UART transmit drives A3;
+- B3 goes to the iCELink's UART receive;
+- D1 carries the iCELink's 12 MHz clock;
+- B6 drives the LED.
+
+So the FPGA only ever drives B3. Each design makes B3 a function of A3,
+through the logic under test. The Mac sends 64 bytes at 115200 baud over the
+iCELink's serial port and looks at what comes back: an echo, silence, or
+other bytes.
+
+`record-board.txt` holds 38 experiments. Each one's bitstream hash is
+recorded, so `board_record_agrees` can check that the description still
+makes the same designs. All eight findings in the description's `board`
+section held:
+- Each of the 8 logic cells' LUTs, and each of their 4 inputs, is where the
+  description says.
+- An unrouted LUT input reads 0.
+- Setting `IoCtrl.IE` turns a pin's input off; `REN` does not stop a driven
+  input.
+- A global network reaches a tile only through its column buffer, which
+  needs `ColBufCtrl` set in the tile the chipdb's `colbuf` names. Without
+  it, a flip-flop never clocks.
+- The flip-flop clocks from D1 through global network 1, with
+  `padin_glb_netwk.1` set, on either edge.
+- An unrouted clock enable reads 1, and an unrouted set/reset reads 0.
+- The carry formula holds: with `CarryInSet` the first cell's carry in
+  is 1, and without it, 0.
+
 ## Coverage
 
 The JSON's `coverage` and `checks` sections hold the exact numbers for each
@@ -190,7 +239,6 @@ checks pass, for both parts:
 - The routing has not been checked against the device. The only
   black-box evidence for it is that the routes the icebox experiments
   built read back as intended.
-- What an unrouted `cen` or `sr` reads.
-- The iCESugar board's own pins (clock, LEDs, buttons). They need the
-  board's documentation, or the board itself.
+- The full-size iCESugar (UP5K) has not been tried on a board. Only the
+  iCESugar-nano's LP1K has.
 - Timing.

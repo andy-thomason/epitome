@@ -456,5 +456,39 @@ pub fn place(d: &Device, db: &Chipdb, m: &Mapped, package: &str, pins: &[(String
             at[c as usize] = (x, y, z);
         }
     }
-    Ok(Placement { at, inputs, outputs, cost: total(&st) })
+    let p = Placement { at, inputs, outputs, cost: total(&st) };
+    check(db, m, &p)?;
+    Ok(p)
+}
+
+/// Whether a placement is legal: every cell in a logic tile, alone in its
+/// place; the flip-flops of a tile on one enable and set/reset; each
+/// chain's cells consecutive from place 0 of its first tile, upwards.
+pub fn check(db: &Chipdb, m: &Mapped, p: &Placement) -> Result<(), String> {
+    let logic: Vec<(usize, usize)> = db.tiles.iter().filter(|t| t.0 == "logic").map(|t| (t.1, t.2)).collect();
+    let mut seen: FxMap<(usize, usize, usize), u32> = FxMap::default();
+    let mut ctrl: FxMap<(usize, usize), (Option<Src>, Option<Src>)> = FxMap::default();
+    for (i, &(x, y, z)) in p.at.iter().enumerate() {
+        if !logic.contains(&(x, y)) || z > 7 {
+            return Err(format!("{} is at {x} {y} {z}, not a logic cell", m.lcs[i].name));
+        }
+        if let Some(o) = seen.insert((x, y, z), i as u32) {
+            return Err(format!("{} and {} are both at {x} {y} {z}", m.lcs[o as usize].name, m.lcs[i].name));
+        }
+        if let Some(f) = &m.lcs[i].ff {
+            let k = (f.en, f.sr);
+            if *ctrl.entry((x, y)).or_insert(k) != k {
+                return Err(format!("tile {x} {y} has flip-flops on two enables or set/resets"));
+            }
+        }
+    }
+    for ch in &m.chains {
+        let (x0, y0, _) = p.at[ch.lcs[0] as usize];
+        for (k, &l) in ch.lcs.iter().enumerate() {
+            if p.at[l as usize] != (x0, y0 + k / 8, k % 8) {
+                return Err(format!("{} is out of its chain's order", m.lcs[l as usize].name));
+            }
+        }
+    }
+    Ok(())
 }

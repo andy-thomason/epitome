@@ -103,10 +103,67 @@ fn counter_on_the_carry_chain() {
     assert!(m.lcs.len() <= 26, "{}", m.stats());
 }
 
+/// What synthesis does not do yet is an error at the source.
 #[test]
-fn synth_rejects_latch() {
-    let e = synthesise(&src("module t(input logic a, b, output logic y);\n always_comb if (a) y = b;\nendmodule\n"), "t").unwrap_err();
-    assert!(e.contains("latch") && e.contains("design.sv:2"), "{e}");
+fn synth_rejects() {
+    let cases = [
+        ("module t(input logic a, b, output logic y);\n always_comb if (a) y = b;\nendmodule\n", "latch", 2),
+        (
+            "module t(input logic c1, c2, d, output logic y, z);\n always_ff @(posedge c1) y <= d;\n always_ff @(posedge c2) z <= d;\nendmodule\n",
+            "one clock",
+            0,
+        ),
+        ("module t(input logic [1:0] a, input logic d, output logic y);\n logic m [4];\n always_comb y = m[a];\nendmodule\n", "memories", 3),
+        ("module t(input logic a, output wire y);\n assign y = a;\n assign y = ~a;\nendmodule\n", "more than one driver", 3),
+        ("module t(input logic a, output logic y);\n logic p, q;\n assign p = q ^ a;\n assign q = p;\n assign y = q;\nendmodule\n", "combinational loop", 0),
+        ("module t(input logic [7:0] a, b, output logic [7:0] y);\n assign y = a / b;\nendmodule\n", "not synthesised", 2),
+    ];
+    for (text, what, line) in cases {
+        let e = synthesise(&src(text), "t").unwrap_err();
+        assert!(e.contains(what), "{e}");
+        if line > 0 {
+            assert!(e.contains(&format!("design.sv:{line}:")), "{e}");
+        }
+    }
+}
+
+/// Flip-flops on different enables go to different tiles; a chain longer
+/// than a tile carries on in the tile above.
+#[test]
+fn placement_is_legal() {
+    let text = r#"
+module t(input logic clk, input logic [3:0] en, input logic [11:0] d, output logic [11:0] q, output logic [19:0] n);
+  always_ff @(posedge clk)
+    for (int i = 0; i < 12; i++)
+      if (en[i % 4]) q[i] <= d[i];
+  logic [19:0] c = 0;
+  always_ff @(posedge clk) if (en == 4'hf) c <= c + d[3:0];
+  assign n = c;
+endmodule
+"#;
+    check_flow(text, "t", 200);
+    let (d, db, sem) = records();
+    let n = synthesise(&src(text), "t").unwrap();
+    // The CM36 has too few pins: the same die in its TQ144 package, the
+    // clock on a pin with a global buffer.
+    let pkg = &db.pins.iter().find(|p| p.0 == "tq144").unwrap().1;
+    let gb = db.gbufpin.iter().find_map(|g| pkg.iter().find(|p| (p.1, p.2, p.3) == (g.0, g.1, g.2))).unwrap();
+    let mut free = pkg.iter().filter(|p| p.0 != gb.0).map(|p| p.0.clone());
+    let mut pins = vec![("clk".to_string(), gb.0.clone())];
+    for p in n.inputs.iter().chain(&n.outputs).filter(|p| p.name != "clk") {
+        for b in 0..p.width {
+            pins.push((epitome_sv::arch::ice40::place::bit_name(&p.name, p.width, b), free.next().unwrap()));
+        }
+    }
+    let b = build(&d, &db, &sem, n, &Options { package: "tq144".into(), pins, seed: 3 }).unwrap_or_else(|e| panic!("{e}"));
+    eprintln!("{}", b.report());
+    // Four enables: at least four tiles of flip-flops besides the chain's.
+    let mut tiles: Vec<(usize, usize)> = b.mapped.lcs.iter().enumerate().filter(|(_, l)| l.ff.is_some()).map(|(i, _)| (b.placement.at[i].0, b.placement.at[i].1)).collect();
+    tiles.sort();
+    tiles.dedup();
+    assert!(tiles.len() >= 4, "{tiles:?}");
+    assert!(b.mapped.chains.iter().any(|c| c.lcs.len() > 8));
+    epitome_sv::arch::ice40::place::check(&db, &b.mapped, &b.placement).unwrap();
 }
 
 // ---- the flow on the board's designs ----
@@ -222,4 +279,29 @@ fn board_live() {
     let whole = text.matches("Hello from Epitome\r\n").count();
     eprintln!("(d) {} bytes, {whole} whole strings: {:?}...", got.len(), &text[..text.len().min(60)]);
     assert!(whole >= 100, "(d) {whole} strings in 0.5 s");
+}
+
+#[test]
+#[ignore]
+fn census() {
+    let b = build_design("hello", &[]);
+    let mut kinds: std::collections::BTreeMap<String, usize> = Default::default();
+    for l in &b.mapped.lcs {
+        let k = l.name.split_whitespace().next().unwrap_or("").to_string();
+        let k = if l.ff.is_some() { format!("ff+{}", l.ins.iter().filter(|i| i.is_some()).count()) } else { format!("{k}:{}", l.ins.iter().filter(|i| i.is_some()).count()) };
+        *kinds.entry(k).or_default() += 1;
+    }
+    eprintln!("{kinds:?}");
+}
+
+#[test]
+#[ignore]
+fn census_rom() {
+    let text = std::fs::read_to_string(arch().join("flow/hello.sv")).unwrap();
+    let a = text.find("  always_comb").unwrap();
+    let b = text.find("endcase").unwrap() + 8;
+    let rom = format!("module rom(input logic [4:0] idx, output logic [7:0] ch);\n{}\nendmodule\n", &text[a..b]);
+    let n = synthesise(&src(&rom), "rom").unwrap();
+    eprintln!("{}", n.stats());
+    eprintln!("{}", map(&n).unwrap().stats());
 }

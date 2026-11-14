@@ -15,7 +15,7 @@
 use super::{F, Ff, Lit, Netlist, Node, Port, T, node};
 use crate::ast::{Ast, NodeId};
 use crate::design::types::Type;
-use crate::design::value::Logic;
+use crate::design::value::{Bits, Logic};
 use crate::design::*;
 use crate::hash::FxMap;
 use crate::source::Error;
@@ -82,7 +82,7 @@ pub fn lower<'a>(d: &Design<'a>, ast: &Ast<'a>, top: InstId) -> Result<Netlist, 
 fn bits_of(c: &Const, w: u32) -> Option<Vec<Lit>> {
     let b = match c {
         Const::Bits(b) => b.clone(),
-        Const::Str(s) => crate::design::value::Bits::from_str_bytes(s),
+        Const::Str(s) => Bits::from_str_bytes(s),
         _ => return None,
     };
     let b = b.resize(w, b.signed());
@@ -453,6 +453,10 @@ impl<'d, 'a> Lower<'d, 'a> {
             }
             StmtKind::Case { kind, expr, items, default, .. } => {
                 let v = self.eval(inst, expr, env)?;
+                if let Some(e) = self.case_tree(inst, kind, &v, &items, default, env)? {
+                    *env = e;
+                    return Ok(());
+                }
                 let mut arms = Vec::new();
                 for (labels, body) in &items {
                     let mut c = F;
@@ -513,6 +517,91 @@ impl<'d, 'a> Lower<'d, 'a> {
             StmtKind::Assert { .. } => Ok(()),
             _ => Err(self.err(at, "this statement is not synthesised")),
         }
+    }
+
+    /// A `case` on a narrow value whose labels are all constants, as a
+    /// decision tree on the value's bits: for each value, the arm that
+    /// runs, the arms' results chosen by muxes from the most significant
+    /// bit down (equal subtrees are one by hashing). `None` where the case
+    /// is not of that kind.
+    fn case_tree(&mut self, inst: u32, kind: CaseKind, v: &[Lit], items: &[(Vec<ExprId>, StmtId)], default: Option<StmtId>, env: &Env) -> R<'a, Option<Env>> {
+        let w = v.len();
+        if kind != CaseKind::Case || w > 8 {
+            return Ok(None);
+        }
+        let mut arm_of: Vec<Option<usize>> = vec![None; 1 << w];
+        for (a, (labels, _)) in items.iter().enumerate() {
+            for &l in labels {
+                if matches!(self.d.expr(l).kind, ExprKind::Range) {
+                    return Ok(None);
+                }
+                let lv = self.eval(inst, l, env)?;
+                let Some(k) = konst(&lv) else { return Ok(None) };
+                if k < 0 || k >= 1 << w || self.signed(l) && lv.last() == Some(&T) {
+                    // Never matches (or a sign this does not model).
+                    if self.signed(l) {
+                        return Ok(None);
+                    }
+                    continue;
+                }
+                let slot = &mut arm_of[k as usize];
+                if slot.is_none() {
+                    *slot = Some(a);
+                }
+            }
+        }
+        let mut envs: Vec<Env> = Vec::new();
+        for (_, body) in items {
+            let mut e = env.clone();
+            self.stmt(inst, *body, &mut e)?;
+            envs.push(e);
+        }
+        let mut other = env.clone();
+        if let Some(d) = default {
+            self.stmt(inst, d, &mut other)?;
+        }
+        envs.push(other);
+        let leaf: Vec<usize> = arm_of.iter().map(|a| a.unwrap_or(items.len())).collect();
+        let mut out = Env::default();
+        for nba in [false, true] {
+            let mut keys: Vec<Key> = envs.iter().flat_map(|e| if nba { e.nba.keys() } else { e.blk.keys() }).copied().collect();
+            keys.sort();
+            keys.dedup();
+            for k in keys {
+                let width = envs.iter().find_map(|e| if nba { e.nba.get(&k) } else { e.blk.get(&k) }).unwrap().val.len();
+                let mut slot = Slot { val: Vec::with_capacity(width), en: Vec::with_capacity(width) };
+                for b in 0..width {
+                    let leaves: Vec<(Lit, Lit)> = envs
+                        .iter()
+                        .map(|e| (if nba { e.nba.get(&k) } else { e.blk.get(&k) }).map_or((F, F), |s| (s.val[b], s.en[b])))
+                        .collect();
+                    let (val, en) = self.tree(v, w, 0, &leaf, &leaves);
+                    slot.val.push(val);
+                    slot.en.push(en);
+                }
+                if nba { out.nba.insert(k, slot) } else { out.blk.insert(k, slot) };
+            }
+        }
+        Ok(Some(out))
+    }
+
+    /// The value and enable for selector values `base..base + 2^bits`.
+    fn tree(&mut self, v: &[Lit], bits: usize, base: usize, leaf: &[usize], leaves: &[(Lit, Lit)]) -> (Lit, Lit) {
+        if bits == 0 {
+            return leaves[leaf[base]];
+        }
+        let s = v[bits - 1];
+        let (lv, le) = self.tree(v, bits - 1, base, leaf, leaves);
+        let (hv, he) = self.tree(v, bits - 1, base + (1 << (bits - 1)), leaf, leaves);
+        let en = self.n.mux(s, he, le);
+        let val = if he == F {
+            lv
+        } else if le == F {
+            hv
+        } else {
+            self.n.mux(s, hv, lv)
+        };
+        (val, en)
     }
 
     /// A block's or loop's own variables, set to their initial values.
@@ -856,6 +945,18 @@ impl<'d, 'a> Lower<'d, 'a> {
                 let fill = if signed { a.last().copied().unwrap_or(F) } else { F };
                 self.shift(&a, &b, false, fill)
             }
+            Div | Mod | Pow if w <= 64 && konst(&a).is_some() && konst(&b).is_some() => {
+                // Both constant (a loop's index, say): worked out here.
+                let word = |v: &[Lit]| v.iter().enumerate().fold(0u64, |x, (i, &l)| x | ((l == T) as u64) << i);
+                let x = Bits::from_u64(w as u32, signed, word(&a));
+                let y = Bits::from_u64(b.len() as u32, signed, word(&b));
+                let r = match op {
+                    Div => x.div(&y),
+                    Mod => x.rem(&y),
+                    _ => x.pow(&y),
+                };
+                bits_of(&Const::Bits(r), w as u32).unwrap()
+            }
             _ => return Err(self.err(at, format!("operator {} is not synthesised", op.text()))),
         })
     }
@@ -1015,7 +1116,9 @@ impl<'d, 'a> Lower<'d, 'a> {
 /// Preprocesses, parses and elaborates `src` with top-level module `top`,
 /// and lowers it; errors rendered with their positions.
 pub fn synthesise(src: &crate::model::Sources, top: &str) -> Result<Netlist, String> {
-    crate::model::elaborate_with_ast(src, &[top], |d, ast| lower(d, ast, d.tops[0]))?.rebuild()
+    let n = crate::model::elaborate_with_ast(src, &[top], |d, ast| lower(d, ast, d.tops[0]))?.rebuild()?;
+    n.clock()?;
+    Ok(n)
 }
 
 impl Netlist {

@@ -423,34 +423,43 @@ impl Netlist {
         Ok(out)
     }
 
-    /// The clock all flip-flops share: an input bit's literal, and
-    /// whether on the falling edge. Errors if they do not share one.
-    pub fn clock(&self) -> Result<Option<(Lit, bool)>, String> {
-        let mut clock = None;
-        let clocked = self
-            .ffs
-            .iter()
-            .map(|f| (&f.name, f.clock, f.negedge))
-            .chain(self.mems.iter().flat_map(|m| m.clocks.iter().map(move |&(c, n)| (&m.name, c, n))));
-        for (name, fclock, negedge) in clocked {
-            let f =
-                Ff { name: name.clone(), clock: fclock, negedge, d: F, en: F, arst: F, arst_value: false, init: false };
-            if !matches!(self.nodes[node(f.clock)], Node::Input { .. }) {
-                return Err(format!("{}'s clock is not an input of the top module", f.name));
+    /// The clocks: each distinct signal flip-flops and memories take an
+    /// edge of (a literal, never inverted), with the edges taken of it.
+    /// A clock may be an input or a signal the design makes (a divided
+    /// clock); a memory's ports must share one.
+    pub fn clocks(&self) -> Result<Vec<(Lit, Vec<bool>)>, String> {
+        let mut out: Vec<(Lit, Vec<bool>)> = Vec::new();
+        let mut add = |l: Lit, neg: bool| {
+            let (c, e) = (l & !1, neg ^ inv(l));
+            match out.iter_mut().find(|x| x.0 == c) {
+                Some(x) if !x.1.contains(&e) => x.1.push(e),
+                Some(_) => {}
+                None => out.push((c, vec![e])),
             }
-            let c = (f.clock & !1, f.negedge ^ inv(f.clock));
-            match clock {
-                None => clock = Some(c),
-                Some(k) if k == c => {}
-                Some(_) => {
-                    return Err(format!(
-                        "{} is on another clock or edge than the flip-flops before it: one clock is supported",
-                        f.name
-                    ));
-                }
-            }
+        };
+        for f in &self.ffs {
+            add(f.clock, f.negedge);
         }
-        Ok(clock)
+        for m in &self.mems {
+            if m.clocks.iter().any(|&(c, n)| (c & !1, n ^ inv(c)) != (m.clock & !1, m.negedge ^ inv(m.clock))) {
+                return Err(format!("memory {} is used on two clocks or edges", m.name));
+            }
+            add(m.clock, m.negedge);
+        }
+        Ok(out)
+    }
+
+    /// The input ports used as clocks, and the level each idles at: 1 if
+    /// only falling edges are taken of it, else 0.
+    pub fn clock_inputs(&self) -> Result<Vec<(usize, bool)>, String> {
+        Ok(self
+            .clocks()?
+            .into_iter()
+            .filter_map(|(l, edges)| match self.nodes[node(l)] {
+                Node::Input { port, .. } => Some((port as usize, edges.iter().all(|&e| e))),
+                _ => None,
+            })
+            .collect())
     }
 
     /// Splits each memory deeper than `bank(width, depth)` words into
@@ -779,6 +788,10 @@ pub struct Sim<'n> {
     /// each read port's output.
     pub mem: Vec<Vec<u64>>,
     pub mem_out: Vec<Vec<Vec<u64>>>,
+    /// Each flip-flop's and memory's clock as last seen, to find edges.
+    ff_clk: Vec<u64>,
+    mem_clk: Vec<u64>,
+    primed: bool,
 }
 
 /// The address each of 64 simulations gives, from its bits' values.
@@ -836,7 +849,17 @@ impl<'n> Sim<'n> {
         let inputs = n.inputs.iter().map(|p| vec![0; p.width as usize]).collect();
         let mem = n.mems.iter().map(|m| m.init.iter().map(|&b| if b { !0 } else { 0 }).collect()).collect();
         let mem_out = n.mems.iter().map(|m| vec![vec![0; m.width as usize]; m.reads.len()]).collect();
-        Sim { n, vals: vec![0; n.nodes.len()], state, inputs, mem, mem_out }
+        Sim {
+            n,
+            vals: vec![0; n.nodes.len()],
+            state,
+            inputs,
+            mem,
+            mem_out,
+            ff_clk: vec![0; n.ffs.len()],
+            mem_clk: vec![0; n.mems.len()],
+            primed: false,
+        }
     }
 
     pub fn get(&self, l: Lit) -> u64 {
@@ -879,34 +902,65 @@ impl<'n> Sim<'n> {
         }
     }
 
-    /// A clock edge, after [`Sim::eval`]: each flip-flop takes its input
-    /// where enabled and not reset. Then settles again.
-    pub fn clock(&mut self) {
-        let next: Vec<u64> = self
-            .n
-            .ffs
-            .iter()
-            .enumerate()
-            .map(|(i, f)| {
-                let (en, r) = (self.get(f.en), self.get(f.arst));
-                let v = self.state[i] & !en | self.get(f.d) & en;
-                v & !r | if f.arst_value { r } else { 0 }
-            })
-            .collect();
-        self.state = next;
-        for (i, m) in self.n.mems.iter().enumerate() {
-            let reads: Vec<(Vec<u64>, u64)> =
-                m.reads.iter().map(|r| (r.addr.iter().map(|&a| self.get(a)).collect(), self.get(r.en))).collect();
-            let write = m.write.as_ref().map(|w| {
-                (
-                    w.addr.iter().map(|&a| self.get(a)).collect(),
-                    w.data.iter().map(|&a| self.get(a)).collect(),
-                    w.en.iter().map(|&a| self.get(a)).collect(),
-                )
-            });
-            mem_edge(m.width as usize, m.depth as usize, &mut self.mem[i], &reads, &mut self.mem_out[i], write);
+    /// Settles after the inputs change: the logic settles, then every
+    /// flip-flop and memory whose clock had its edge takes its input, all
+    /// at once, and so on while edges come (a clock the design makes ticks
+    /// after the one that makes it, as in SystemVerilog's deltas). The
+    /// first settle only notes the clocks' levels.
+    pub fn settle(&mut self) {
+        for _ in 0..1000 {
+            self.eval();
+            let edge = |prev: u64, now: u64, neg: bool| if neg { prev & !now } else { !prev & now };
+            let ff_edges: Vec<u64> = self
+                .n
+                .ffs
+                .iter()
+                .enumerate()
+                .map(|(i, f)| if self.primed { edge(self.ff_clk[i], self.get(f.clock), f.negedge) } else { 0 })
+                .collect();
+            let mem_edges: Vec<u64> = self
+                .n
+                .mems
+                .iter()
+                .enumerate()
+                .map(|(i, m)| if self.primed { edge(self.mem_clk[i], self.get(m.clock), m.negedge) } else { 0 })
+                .collect();
+            self.ff_clk = self.n.ffs.iter().map(|f| self.get(f.clock)).collect();
+            self.mem_clk = self.n.mems.iter().map(|m| self.get(m.clock)).collect();
+            self.primed = true;
+            if ff_edges.iter().chain(&mem_edges).all(|&e| e == 0) {
+                return;
+            }
+            let next: Vec<u64> = self
+                .n
+                .ffs
+                .iter()
+                .enumerate()
+                .map(|(i, f)| {
+                    let (en, r) = (self.get(f.en) & ff_edges[i], self.get(f.arst));
+                    let v = self.state[i] & !en | self.get(f.d) & en;
+                    v & !r | if f.arst_value { r } else { 0 }
+                })
+                .collect();
+            for (i, m) in self.n.mems.iter().enumerate() {
+                let e = mem_edges[i];
+                if e == 0 {
+                    continue;
+                }
+                let reads: Vec<(Vec<u64>, u64)> =
+                    m.reads.iter().map(|r| (r.addr.iter().map(|&a| self.get(a)).collect(), self.get(r.en) & e)).collect();
+                let write = m.write.as_ref().map(|w| {
+                    (
+                        w.addr.iter().map(|&a| self.get(a)).collect(),
+                        w.data.iter().map(|&a| self.get(a)).collect(),
+                        w.en.iter().map(|&a| self.get(a) & e).collect(),
+                    )
+                });
+                mem_edge(m.width as usize, m.depth as usize, &mut self.mem[i], &reads, &mut self.mem_out[i], write);
+            }
+            self.state = next;
         }
-        self.eval();
+        panic!("clocks keep ticking: a clock loop");
     }
 
     pub fn output(&self, port: usize) -> Vec<u64> {

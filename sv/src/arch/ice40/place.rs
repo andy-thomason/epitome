@@ -60,8 +60,9 @@ impl Rng {
     }
 }
 
-/// What a cell asks of its tile: its flip-flop's enable and set/reset.
-type Ctrl = Option<(Option<Src>, Option<Src>)>;
+/// What a cell asks of its tile: its flip-flop's clock and edge, enable
+/// and set/reset.
+type Ctrl = Option<(Src, bool, Option<Src>, Option<Src>)>;
 
 struct State<'m> {
     m: &'m Mapped,
@@ -229,13 +230,9 @@ pub fn place(
             nets[k].0.extend(cell);
             nets[k].1.extend(fixed);
         };
-    let clock_port = m.clock.map(|c| c.0);
     for (i, lc) in m.lcs.iter().enumerate() {
         let ff = lc.ff.iter().flat_map(|f| [f.en, f.sr]).flatten();
         for s in lc.ins.iter().flatten().copied().chain(ff) {
-            if matches!(s, Src::Pin { port, .. } if Some(port) == clock_port) {
-                continue;
-            }
             term(s, Some(i as u32), None, &mut nets);
         }
     }
@@ -250,9 +247,7 @@ pub fn place(
             let data =
                 r.wdata.iter().enumerate().filter(|&(bit, _)| r.pin_of(bit as u32).0 == b as u32).map(|(_, s)| s);
             for s in r.raddr.iter().chain(&r.waddr).chain([&r.re, &r.we]).chain(data).flatten() {
-                if !matches!(s, Src::Pin { port, .. } if Some(*port) == clock_port) {
-                    term(*s, None, Some(site), &mut nets);
-                }
+                term(*s, None, Some(site), &mut nets);
             }
         }
     }
@@ -267,7 +262,7 @@ pub fn place(
         }
     }
     let chain_of = m.chain_of();
-    let ctrl: Vec<Ctrl> = m.lcs.iter().map(|l| l.ff.as_ref().map(|f| (f.en, f.sr))).collect();
+    let ctrl: Vec<Ctrl> = m.lcs.iter().map(|l| l.ff.as_ref().map(|f| (f.clk, f.neg, f.en, f.sr))).collect();
     let mut st = State {
         m,
         tile_at,
@@ -529,7 +524,7 @@ pub fn place(
 pub fn check(db: &Chipdb, m: &Mapped, p: &Placement) -> Result<(), String> {
     let logic: Vec<(usize, usize)> = db.tiles.iter().filter(|t| t.0 == "logic").map(|t| (t.1, t.2)).collect();
     let mut seen: FxMap<(usize, usize, usize), u32> = FxMap::default();
-    let mut ctrl: FxMap<(usize, usize), (Option<Src>, Option<Src>)> = FxMap::default();
+    let mut ctrl: FxMap<(usize, usize), (Src, bool, Option<Src>, Option<Src>)> = FxMap::default();
     for (i, &(x, y, z)) in p.at.iter().enumerate() {
         if !logic.contains(&(x, y)) || z > 7 {
             return Err(format!("{} is at {x} {y} {z}, not a logic cell", m.lcs[i].name));
@@ -538,9 +533,9 @@ pub fn check(db: &Chipdb, m: &Mapped, p: &Placement) -> Result<(), String> {
             return Err(format!("{} and {} are both at {x} {y} {z}", m.lcs[o as usize].name, m.lcs[i].name));
         }
         if let Some(f) = &m.lcs[i].ff {
-            let k = (f.en, f.sr);
+            let k = (f.clk, f.neg, f.en, f.sr);
             if *ctrl.entry((x, y)).or_insert(k) != k {
-                return Err(format!("tile {x} {y} has flip-flops on two enables or set/resets"));
+                return Err(format!("tile {x} {y} has flip-flops on two clocks, enables or set/resets"));
             }
         }
     }

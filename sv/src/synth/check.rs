@@ -5,15 +5,16 @@
 //! (an `x` there, as a register before its reset, matches anything).
 //!
 //! A cycle sets the inputs, lets the logic settle, records the outputs,
-//! then gives the clock one edge.
+//! then pulses each input clock in turn (clocks the design makes tick as
+//! they follow).
 
 use super::{Netlist, Sim};
 use crate::model::Sources;
 
 pub struct Stimulus {
-    /// The clock's input port, and whether the flip-flops take its
-    /// falling edge.
-    pub clock: Option<(usize, bool)>,
+    /// The input ports that are clocks, and the level each idles at: each
+    /// cycle pulses each in turn.
+    pub clocks: Vec<(usize, bool)>,
     /// For each cycle, each input port's value (ports of up to 64 bits).
     pub cycles: Vec<Vec<u64>>,
 }
@@ -29,10 +30,7 @@ fn reset_like(name: &str) -> Option<bool> {
 /// `cycles` cycles of random inputs (an xorshift of `seed`). Inputs that
 /// look like resets are active one cycle in sixteen, and in the first.
 pub fn random_stimulus(n: &Netlist, cycles: usize, seed: u64) -> Result<Stimulus, String> {
-    let clock = n.clock()?.map(|(l, neg)| match n.nodes[super::node(l)] {
-        super::Node::Input { port, .. } => (port as usize, neg),
-        _ => unreachable!(),
-    });
+    let clocks = n.clock_inputs()?;
     let mut s = seed | 1;
     let mut next = move || {
         s ^= s << 13;
@@ -48,8 +46,8 @@ pub fn random_stimulus(n: &Netlist, cycles: usize, seed: u64) -> Result<Stimulus
                 return Err(format!("input {} is wider than 64 bits", p.name));
             }
             let mask = if p.width == 64 { !0 } else { (1u64 << p.width) - 1 };
-            let v = if clock.is_some_and(|k| k.0 == i) {
-                0
+            let v = if let Some(&(_, idle)) = clocks.iter().find(|k| k.0 == i) {
+                idle as u64
             } else if let Some(low) = reset_like(&p.name).filter(|_| p.width == 1) {
                 let active = c == 0 || next() % 16 == 0;
                 (active ^ low) as u64
@@ -60,7 +58,7 @@ pub fn random_stimulus(n: &Netlist, cycles: usize, seed: u64) -> Result<Stimulus
         }
         out.push(row);
     }
-    Ok(Stimulus { clock, cycles: out })
+    Ok(Stimulus { clocks, cycles: out })
 }
 
 /// The testbench: module `__epitome_tb` around `top`, printing the outputs
@@ -75,14 +73,10 @@ pub fn testbench(n: &Netlist, top: &str, st: &Stimulus) -> String {
     }
     let conns: Vec<String> = n.inputs.iter().chain(&n.outputs).map(|p| format!(".{0}({0})", p.name)).collect();
     s += &format!("  {top} dut({});\n  initial begin\n", conns.join(", "));
-    let idle = |neg: bool| if neg { 1 } else { 0 };
     // Every input starts at a known value a step before the first cycle,
     // so that the first cycle's are edges the processes see.
     for (i, p) in n.inputs.iter().enumerate() {
-        let v = match st.clock {
-            Some((c, neg)) if c == i => idle(neg),
-            _ => 0,
-        };
+        let v = st.clocks.iter().find(|k| k.0 == i).map_or(0, |k| k.1 as u8);
         s += &format!("    {} = {v};\n", p.name);
     }
     s += "    #1;\n";
@@ -90,15 +84,15 @@ pub fn testbench(n: &Netlist, top: &str, st: &Stimulus) -> String {
     let outs: Vec<&str> = n.outputs.iter().map(|p| p.name.as_str()).collect();
     for row in &st.cycles {
         for (i, p) in n.inputs.iter().enumerate() {
-            if st.clock.is_some_and(|k| k.0 == i) {
+            if st.clocks.iter().any(|k| k.0 == i) {
                 continue;
             }
             s += &format!("    {} = {}'h{:x};\n", p.name, p.width, row[i]);
         }
         s += &format!("    #1 $display(\"{}\", {});\n", fmt.join(" "), outs.join(", "));
-        if let Some((c, neg)) = st.clock {
+        for &(c, idle) in &st.clocks {
             let name = &n.inputs[c].name;
-            s += &format!("    {name} = {}; #1 {name} = {};\n", 1 - idle(neg), idle(neg));
+            s += &format!("    {name} = {}; #1 {name} = {};\n", !idle as u8, idle as u8);
         }
     }
     s += "    $finish;\n  end\nendmodule\n";
@@ -129,21 +123,27 @@ pub fn binary(bits: impl DoubleEndedIterator<Item = bool>) -> String {
 pub fn netlist_lines(n: &Netlist, st: &Stimulus) -> Vec<String> {
     let mut sim = Sim::new(n);
     let mut out = Vec::new();
+    for &(c, idle) in &st.clocks {
+        sim.inputs[c][0] = if idle { !0 } else { 0 };
+    }
     for row in &st.cycles {
         for (i, p) in n.inputs.iter().enumerate() {
-            if st.clock.is_some_and(|k| k.0 == i) {
+            if st.clocks.iter().any(|k| k.0 == i) {
                 continue;
             }
             for b in 0..p.width as usize {
                 sim.inputs[i][b] = if row[i] >> b & 1 != 0 { !0 } else { 0 };
             }
         }
-        sim.eval();
+        sim.settle();
         let line: Vec<String> =
             (0..n.outputs.len()).map(|o| binary(sim.output(o).into_iter().map(|v| v & 1 != 0))).collect();
         out.push(line.join(" "));
-        if st.clock.is_some() {
-            sim.clock();
+        for &(c, idle) in &st.clocks {
+            sim.inputs[c][0] = if idle { 0 } else { !0 };
+            sim.settle();
+            sim.inputs[c][0] = if idle { !0 } else { 0 };
+            sim.settle();
         }
     }
     out

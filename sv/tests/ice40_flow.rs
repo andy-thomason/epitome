@@ -168,8 +168,8 @@ fn synth_rejects() {
     let cases = [
         ("module t(input logic a, b, output logic y);\n always_comb if (a) y = b;\nendmodule\n", "latch", 2),
         (
-            "module t(input logic c1, c2, d, output logic y, z);\n always_ff @(posedge c1) y <= d;\n always_ff @(posedge c2) z <= d;\nendmodule\n",
-            "one clock",
+            "module t(input logic c1, c2, d, output logic y);\n logic m [4];\n always_ff @(posedge c1) m[d] <= d;\n always_ff @(posedge c2) y <= m[d];\nendmodule\n",
+            "two clocks",
             0,
         ),
         (
@@ -294,7 +294,7 @@ fn board_designs_build() {
     assert_eq!(inv.mapped.lcs.len(), 1);
     let delay = build_design("delay", &[]);
     assert_eq!(delay.mapped.lcs.iter().filter(|l| l.ff.is_some()).count(), 4);
-    assert_eq!(delay.clock_glb, Some(1));
+    assert_eq!(delay.clock_glb, vec![1]);
     let blink = build_design("blink", &[]);
     assert_eq!(blink.mapped.chains.len(), 1);
     build_design("hello", &[]);
@@ -304,6 +304,7 @@ fn board_designs_build() {
     }
     let b = build_design("hello_ram", &[]);
     assert_eq!(b.mapped.rams.len(), 1);
+    build_design("hello_div", &[]);
     // The delay line's read never meets its write: no delayed write.
     let b = build_design("ramdelay", &["WIDTH=8"]);
     assert!(!b.mapped.lcs.iter().any(|l| l.name.contains("bypass")), "{}", b.mapped.stats());
@@ -393,6 +394,15 @@ fn board_live() {
         eprintln!("(h) read while writing, {w} bits wide: {seen}");
         assert_eq!(seen, "echo", "(h) W={w}");
     }
+    // (i) a clock the design makes, routed through the fabric.
+    let b = build_design("hello_div", &[]);
+    ip.program(&b.bitstream).unwrap();
+    let mut s = Serial::open(&port).unwrap();
+    s.read_for(100);
+    let got = s.read_for(500);
+    let whole = String::from_utf8_lossy(&got).matches("Hello from Epitome\r\n").count();
+    eprintln!("(i) on a divided clock: {} bytes, {whole} whole strings", got.len());
+    assert!(whole >= 100, "(i) {whole} strings in 0.5 s");
     // (f) the string from a RAM's initial contents.
     let b = build_design("hello_ram", &[]);
     ip.program(&b.bitstream).unwrap();
@@ -625,4 +635,32 @@ fn memory_writes_and_flip_flop_memories() {
         "t",
         200,
     );
+}
+
+pub const CLOCKS: &str = r#"
+module clocks(input logic c1, input logic c2, input logic rst, input logic [3:0] d,
+              output logic [3:0] a, output logic [3:0] b, output logic [3:0] s, output logic [3:0] n);
+  always_ff @(posedge c1) a <= d;
+  always_ff @(posedge c2) b <= a + d;
+  // A clock the design makes: c1 divided by two.
+  logic div = 0;
+  always_ff @(posedge c1) div <= ~div;
+  always_ff @(posedge div or posedge rst)
+    if (rst) s <= 0;
+    else s <= s + 1;
+  logic [3:0] nn = 0;
+  always_ff @(negedge c1) nn <= nn ^ d;
+  assign n = nn;
+endmodule
+"#;
+
+#[test]
+fn several_clocks() {
+    let m = check_flow(CLOCKS, "clocks", 300);
+    let mut clocks: Vec<_> = m.lcs.iter().filter_map(|l| l.ff.as_ref().map(|f| (f.clk, f.neg))).collect();
+    clocks.sort();
+    clocks.dedup();
+    // c1 both edges, c2, and div.
+    assert_eq!(clocks.len(), 4, "{clocks:?}");
+    build_tq144(CLOCKS, "clocks");
 }

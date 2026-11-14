@@ -2117,7 +2117,7 @@ impl<'d, 'a> Lower<'d, 'a> {
 /// and lowers it; errors rendered with their positions.
 pub fn synthesise(src: &crate::model::Sources, top: &str) -> Result<Netlist, String> {
     let n = crate::model::elaborate_with_ast(src, &[top], |d, ast| lower(d, ast, d.tops[0]))?.rebuild()?;
-    n.clock()?;
+    n.clocks()?;
     Ok(n)
 }
 

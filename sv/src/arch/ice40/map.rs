@@ -67,6 +67,7 @@ pub struct Ram {
     pub we: Option<Src>,
     pub write: bool,
     pub init: Vec<bool>,
+    pub clk: Src,
     pub negedge: bool,
 }
 
@@ -110,6 +111,9 @@ pub fn ram_mode(width: u32, depth: u32) -> Option<(usize, u32)> {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FfCfg {
+    /// The clock, and whether the falling edge (the tile's `NegClk`).
+    pub clk: Src,
+    pub neg: bool,
     pub en: Option<Src>,
     pub sr: Option<Src>,
     /// `AsyncSetReset`: `sr` acts at once, not on the clock.
@@ -154,8 +158,7 @@ pub struct Mapped {
     pub inputs: Vec<Port>,
     /// Each output port's name, width and drivers.
     pub outputs: Vec<(String, Vec<Src>)>,
-    /// The clock input, and whether flip-flops take its falling edge.
-    pub clock: Option<(u32, bool)>,
+
 }
 
 const VAR: [u16; 4] = [0xaaaa, 0xcccc, 0xf0f0, 0xff00];
@@ -238,10 +241,7 @@ pub fn map(n: &Netlist) -> Result<Mapped, String> {
 /// Maps a netlist already fitted ([`map`]).
 fn map_cells(n: &Netlist) -> Result<Mapped, String> {
     let nn = n.nodes.len();
-    let clock = n.clock()?.map(|(l, neg)| match n.nodes[node(l)] {
-        Node::Input { port, .. } => (port, neg),
-        _ => unreachable!(),
-    });
+    n.clocks()?;
 
     // ---- carry chains ----
     let is_maj = |i: usize| matches!(n.nodes[i], Node::Maj(..));
@@ -319,6 +319,13 @@ fn map_cells(n: &Netlist) -> Result<Mapped, String> {
         if let Some(w) = &m.write {
             roots.extend(w.addr.iter().chain(&w.data).chain(&w.en).copied());
         }
+    }
+    // Clocks: signals too (an input, or one the design makes).
+    for f in &n.ffs {
+        roots.push(f.clock & !1);
+    }
+    for m in &n.mems {
+        roots.push(m.clock & !1);
     }
     roots.retain(|&l| l != T && l != F);
     // A RAM for each memory read port.
@@ -638,7 +645,15 @@ fn map_cells(n: &Netlist) -> Result<Mapped, String> {
             }
         };
         lcs[at as usize].name = f.name.clone();
-        lcs[at as usize].ff = Some(FfCfg { en: None, sr: None, async_sr: f.arst != F, set: f.arst_value });
+        let placeholder = Src::Lc(0);
+        lcs[at as usize].ff = Some(FfCfg {
+            clk: placeholder,
+            neg: f.negedge ^ inv(f.clock),
+            en: None,
+            sr: None,
+            async_sr: f.arst != F,
+            set: f.arst_value,
+        });
         ff_lc.push(at);
     }
 
@@ -751,9 +766,11 @@ fn map_cells(n: &Netlist) -> Result<Mapped, String> {
             Some(exact(f.en)?)
         };
         let sr = if f.arst == F { None } else { Some(exact(f.arst)?) };
+        let clk = exact(f.clock & !1)?;
         let cfg = lcs[at].ff.as_mut().unwrap();
         cfg.en = en;
         cfg.sr = sr;
+        cfg.clk = clk;
     }
     let mut rams = Vec::new();
     for &(mi, p) in &ram_specs {
@@ -790,7 +807,8 @@ fn map_cells(n: &Netlist) -> Result<Mapped, String> {
             we,
             write: m.write.is_some(),
             init: m.init.clone(),
-            negedge: m.negedge,
+            clk: exact(m.clock & !1)?,
+            negedge: m.negedge ^ inv(m.clock),
         });
     }
     let mut outputs = Vec::new();
@@ -804,7 +822,7 @@ fn map_cells(n: &Netlist) -> Result<Mapped, String> {
         }
         outputs.push((p.name.clone(), v));
     }
-    Ok(Mapped { lcs, chains: out_chains, rams, inputs: n.inputs.clone(), outputs, clock })
+    Ok(Mapped { lcs, chains: out_chains, rams, inputs: n.inputs.clone(), outputs })
 }
 
 impl Mapped {
@@ -848,6 +866,10 @@ pub struct LcSim<'m> {
     /// Each RAM's contents and read data.
     pub ram: Vec<Vec<u64>>,
     pub ram_out: Vec<Vec<u64>>,
+    /// Each cell's and RAM's clock as last seen, to find edges.
+    ff_clk: Vec<u64>,
+    ram_clk: Vec<u64>,
+    primed: bool,
 }
 
 impl<'m> LcSim<'m> {
@@ -874,6 +896,9 @@ impl<'m> LcSim<'m> {
             ci,
             ram: m.rams.iter().map(|r| r.init.iter().map(|&b| if b { !0 } else { 0 }).collect()).collect(),
             ram_out: m.rams.iter().map(|r| vec![0; r.width as usize]).collect(),
+            ff_clk: vec![0; n],
+            ram_clk: vec![0; m.rams.len()],
+            primed: false,
         }
     }
 
@@ -942,38 +967,63 @@ impl<'m> LcSim<'m> {
         }
     }
 
-    pub fn clock(&mut self) {
-        let next: Vec<u64> = (0..self.m.lcs.len())
-            .map(|i| match &self.m.lcs[i].ff {
-                None => 0,
-                Some(f) => {
-                    let d = self.lut(i).0;
-                    let en = f.en.map_or(!0, |s| self.get(s));
-                    let r = f.sr.map_or(0, |s| self.get(s));
-                    let set = if f.set { !0 } else { 0 };
-                    let v = if f.async_sr { d } else { d & !r | set & r };
-                    let v = self.state[i] & !en | v & en;
-                    if f.async_sr { v & !r | set & r } else { v }
+    /// Settles after the inputs change, clock edges and all, as
+    /// [`crate::synth::Sim::settle`] does.
+    pub fn settle(&mut self) {
+        for _ in 0..1000 {
+            self.eval();
+            let edge = |prev: u64, now: u64, neg: bool| if neg { prev & !now } else { !prev & now };
+            let ff_now: Vec<u64> = self.m.lcs.iter().map(|l| l.ff.as_ref().map_or(0, |f| self.get(f.clk))).collect();
+            let ram_now: Vec<u64> = self.m.rams.iter().map(|r| self.get(r.clk)).collect();
+            let ff_edges: Vec<u64> = (0..self.m.lcs.len())
+                .map(|i| match &self.m.lcs[i].ff {
+                    Some(f) if self.primed => edge(self.ff_clk[i], ff_now[i], f.neg),
+                    _ => 0,
+                })
+                .collect();
+            let ram_edges: Vec<u64> = (0..self.m.rams.len())
+                .map(|i| if self.primed { edge(self.ram_clk[i], ram_now[i], self.m.rams[i].negedge) } else { 0 })
+                .collect();
+            (self.ff_clk, self.ram_clk, self.primed) = (ff_now, ram_now, true);
+            if ff_edges.iter().chain(&ram_edges).all(|&e| e == 0) {
+                return;
+            }
+            let next: Vec<u64> = (0..self.m.lcs.len())
+                .map(|i| match &self.m.lcs[i].ff {
+                    None => 0,
+                    Some(f) => {
+                        let d = self.lut(i).0;
+                        let en = f.en.map_or(!0, |s| self.get(s)) & ff_edges[i];
+                        let r = f.sr.map_or(0, |s| self.get(s));
+                        let set = if f.set { !0 } else { 0 };
+                        let v = if f.async_sr { d } else { d & !r | set & r };
+                        let v = self.state[i] & !en | v & en;
+                        if f.async_sr { v & !r | set & r } else { v }
+                    }
+                })
+                .collect();
+            // The RAMs, on the values before the edge.
+            for (i, r) in self.m.rams.iter().enumerate() {
+                let e = ram_edges[i];
+                if e == 0 {
+                    continue;
                 }
-            })
-            .collect();
-        // The RAMs, on the values before the edge.
-        for (i, r) in self.m.rams.iter().enumerate() {
-            let raddr: Vec<u64> = r.raddr.iter().map(|&a| self.opt(a)).collect();
-            let reads = [(raddr, self.opt(r.re))];
-            let write = r.write.then(|| {
-                (
-                    r.waddr.iter().map(|&a| self.opt(a)).collect(),
-                    r.wdata.iter().map(|&a| self.opt(a)).collect(),
-                    vec![self.opt(r.we); r.width as usize],
-                )
-            });
-            let mut outs = [std::mem::take(&mut self.ram_out[i])];
-            crate::synth::mem_edge(r.width as usize, r.depth as usize, &mut self.ram[i], &reads, &mut outs, write);
-            self.ram_out[i] = std::mem::take(&mut outs[0]);
+                let raddr: Vec<u64> = r.raddr.iter().map(|&a| self.opt(a)).collect();
+                let reads = [(raddr, self.opt(r.re) & e)];
+                let write = r.write.then(|| {
+                    (
+                        r.waddr.iter().map(|&a| self.opt(a)).collect(),
+                        r.wdata.iter().map(|&a| self.opt(a)).collect(),
+                        vec![self.opt(r.we) & e; r.width as usize],
+                    )
+                });
+                let mut outs = [std::mem::take(&mut self.ram_out[i])];
+                crate::synth::mem_edge(r.width as usize, r.depth as usize, &mut self.ram[i], &reads, &mut outs, write);
+                self.ram_out[i] = std::mem::take(&mut outs[0]);
+            }
+            self.state = next;
         }
-        self.state = next;
-        self.eval();
+        panic!("clocks keep ticking: a clock loop");
     }
 }
 
@@ -982,24 +1032,30 @@ impl<'m> LcSim<'m> {
 pub fn mapped_lines(m: &Mapped, st: &crate::synth::check::Stimulus) -> Vec<String> {
     let mut sim = LcSim::new(m);
     let mut out = Vec::new();
+    for &(c, idle) in &st.clocks {
+        sim.inputs[c][0] = if idle { !0 } else { 0 };
+    }
     for row in &st.cycles {
         for (i, p) in m.inputs.iter().enumerate() {
-            if st.clock.is_some_and(|k| k.0 == i) {
+            if st.clocks.iter().any(|k| k.0 == i) {
                 continue;
             }
             for b in 0..p.width as usize {
                 sim.inputs[i][b] = if row[i] >> b & 1 != 0 { !0 } else { 0 };
             }
         }
-        sim.eval();
+        sim.settle();
         let line: Vec<String> = m
             .outputs
             .iter()
             .map(|(_, bits)| crate::synth::check::binary(bits.iter().map(|&s| sim.get(s) & 1 != 0)))
             .collect();
         out.push(line.join(" "));
-        if st.clock.is_some() {
-            sim.clock();
+        for &(c, idle) in &st.clocks {
+            sim.inputs[c][0] = if idle { 0 } else { !0 };
+            sim.settle();
+            sim.inputs[c][0] = if idle { !0 } else { 0 };
+            sim.settle();
         }
     }
     out

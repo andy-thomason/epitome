@@ -41,8 +41,8 @@ pub struct Built {
     pub routed: Routed,
     pub requests: Vec<Request>,
     pub bits: Vec<(usize, usize, Bit)>,
-    /// The global network the clock is on, if any.
-    pub clock_glb: Option<usize>,
+    /// The global networks clocks are on.
+    pub clock_glb: Vec<usize>,
     pub asc: Asc,
     pub bitstream: Vec<u8>,
 }
@@ -57,7 +57,7 @@ impl Built {
             self.requests.len(),
             self.routed.nets_used(),
             self.routed.passes,
-            self.clock_glb.map_or(String::new(), |g| format!("; clock on global network {g}")),
+            self.clock_glb.iter().map(|g| format!("; a clock on global network {g}")).collect::<String>(),
             self.bitstream.len()
         )
     }
@@ -105,10 +105,35 @@ pub fn build(d: &Device, db: &Chipdb, sem: &Semantics, netlist: Netlist, opts: &
     let net = |x: usize, y: usize, name: &str| g.net(x, y, name);
 
     // ---- I/O ----
-    let clock = m.clock;
-    let clock_pin = clock.map(|(p, _)| placement.inputs[&(p, 0)].clone());
-    let clock_glb =
-        clock_pin.as_ref().and_then(|c| db.gbufpin.iter().find(|g| (g.0, g.1, g.2) == (c.0, c.1, c.2)).map(|g| g.3));
+    // Each clock's sinks: the clock input of every tile with its
+    // flip-flops, and its RAMs' RCLK and WCLK.
+    let mut clocks: Vec<(Src, Vec<(usize, usize, String)>)> = Vec::new();
+    let mut clock_sink = |c: Src, sink: (usize, usize, String), clocks: &mut Vec<(Src, Vec<(usize, usize, String)>)>| {
+        match clocks.iter_mut().find(|x| x.0 == c) {
+            Some(x) if !x.1.contains(&sink) => x.1.push(sink),
+            Some(_) => {}
+            None => clocks.push((c, vec![sink])),
+        }
+    };
+    for (i, lc) in m.lcs.iter().enumerate() {
+        if let Some(f) = &lc.ff {
+            clock_sink(f.clk, (at[i].0, at[i].1, "lutff_global/clk".to_string()), &mut clocks);
+        }
+    }
+    for (ri, r) in m.rams.iter().enumerate() {
+        for &(x, y) in &placement.rams[ri] {
+            clock_sink(r.clk, des.ram_port(x, y, "RCLK")?, &mut clocks);
+            if r.write {
+                clock_sink(r.clk, des.ram_port(x, y, "WCLK")?, &mut clocks);
+            }
+        }
+    }
+    // A clock from a pin with a global buffer goes on its global network.
+    let glb_of = |s: Src| -> Option<usize> {
+        let Src::Pin { port, bit } = s else { return None };
+        let p = &placement.inputs[&(port, bit)];
+        db.gbufpin.iter().find(|g| (g.0, g.1, g.2) == (p.0, p.1, p.2)).map(|g| g.3)
+    };
     let mut data_inputs: FxSet<(u32, u32)> = FxSet::default();
     for lc in &m.lcs {
         for s in lc.ins.iter().flatten().chain(lc.ff.iter().flat_map(|f| f.en.iter().chain(&f.sr))) {
@@ -132,7 +157,8 @@ pub fn build(d: &Device, db: &Chipdb, sem: &Semantics, netlist: Netlist, opts: &
         }
     }
     for (&(port, bit), p) in &placement.inputs {
-        let via_glb = clock_glb.is_some() && clock.is_some_and(|c| c.0 == port);
+        let src = Src::Pin { port, bit };
+        let via_glb = glb_of(src).is_some() && clocks.iter().any(|c| c.0 == src);
         if !via_glb || data_inputs.contains(&(port, bit)) {
             des.func(p.0, p.1, &format!("IOB_{}.PINTYPE_0", p.2))?;
         }
@@ -159,7 +185,7 @@ pub fn build(d: &Device, db: &Chipdb, sem: &Semantics, netlist: Netlist, opts: &
                     des.option(x, y, z, "Set_NoReset")?;
                 }
             }
-            if clock.is_some_and(|c| c.1) {
+            if f.neg {
                 des.func(x, y, "NegClk")?;
             }
         }
@@ -205,35 +231,25 @@ pub fn build(d: &Device, db: &Chipdb, sem: &Semantics, netlist: Netlist, opts: &
         }
     }
 
-    // ---- the clock ----
-    let mut ff_tiles: Vec<(usize, usize)> =
-        m.lcs.iter().enumerate().filter(|(_, l)| l.ff.is_some()).map(|(i, _)| (at[i].0, at[i].1)).collect();
-    ff_tiles.sort();
-    ff_tiles.dedup();
-    let mut clock_sinks: Vec<(usize, usize, String)> =
-        ff_tiles.iter().map(|&(x, y)| (x, y, "lutff_global/clk".to_string())).collect();
-    for (ri, r) in m.rams.iter().enumerate() {
-        for &(x, y) in &placement.rams[ri] {
-            clock_sinks.push(des.ram_port(x, y, "RCLK")?);
-            if r.write {
-                clock_sinks.push(des.ram_port(x, y, "WCLK")?);
-            }
-        }
-    }
+    // ---- clocks ----
     let mut requests: Vec<Request> = Vec::new();
-    if let (Some(glb), Some(_)) = (clock_glb, clock) {
+    let mut clock_glb = Vec::new();
+    // Clocks from no global buffer pin are routed as signals, below.
+    let mut fabric_clocks: Vec<(Src, Vec<(usize, usize, String)>)> = Vec::new();
+    for (c, sinks) in &clocks {
+        let Some(glb) = glb_of(*c) else {
+            fabric_clocks.push((*c, sinks.clone()));
+            continue;
+        };
+        clock_glb.push(glb);
         des.extra_bit(&format!("padin_glb_netwk.{glb}"))?;
-        for (x, y, name) in &clock_sinks {
+        for (x, y, name) in sinks {
             des.route((*x, *y, &format!("glb_netwk_{glb}")), (*x, *y, name))?;
             let cbs: Vec<[usize; 4]> = db.colbuf.iter().filter(|c| (c[2], c[3]) == (*x, *y)).copied().collect();
             for c in cbs {
                 des.func(c[0], c[1], &format!("ColBufCtrl.glb_netwk_{glb}"))?;
             }
         }
-    } else if let (Some(p), false) = (&clock_pin, clock_sinks.is_empty()) {
-        let src = net(p.0, p.1, &format!("io_{}/D_IN_0", p.2))?;
-        let sinks = clock_sinks.iter().map(|(x, y, n)| net(*x, *y, n).map(Sink::Net)).collect::<Result<_, _>>()?;
-        requests.push(Request { name: "clock".into(), src, sinks });
     }
 
     // ---- signals ----
@@ -290,6 +306,11 @@ pub fn build(d: &Device, db: &Chipdb, sem: &Semantics, netlist: Netlist, opts: &
         for (b, &s) in bits.iter().enumerate() {
             let p = &placement.outputs[&(i as u32, b as u32)];
             add(s, Sink::Net(net(p.0, p.1, &format!("io_{}/D_OUT_0", p.2))?), &mut sinks);
+        }
+    }
+    for (c, clock_sinks) in &fabric_clocks {
+        for (x, y, name) in clock_sinks {
+            add(*c, Sink::Net(net(*x, *y, name)?), &mut sinks);
         }
     }
     // RAM ports: each block gets the addresses and enables, and its data

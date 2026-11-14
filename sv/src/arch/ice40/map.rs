@@ -273,7 +273,11 @@ pub fn map(n: &Netlist) -> Result<Mapped, String> {
                 .iter()
                 .map(|&l| {
                     let j = node(l);
-                    let mut v: Vec<Cut> = if is_gate(j) { cuts[j].iter().filter(|c| c.leaves != [j as u32]).cloned().collect() } else { Vec::new() };
+                    let mut v: Vec<Cut> = if is_gate(j) {
+                        cuts[j].iter().filter(|c| c.leaves != [j as u32]).cloned().collect()
+                    } else {
+                        Vec::new()
+                    };
                     v.push(trivial(j));
                     if inv(l) {
                         for c in &mut v {
@@ -312,11 +316,15 @@ pub fn map(n: &Netlist) -> Result<Mapped, String> {
                 break;
             }
             if pass == 0 || required[i] == u32::MAX {
-                found.sort_by(|a, b| (a.depth, a.flow, a.leaves.len()).partial_cmp(&(b.depth, b.flow, b.leaves.len())).unwrap());
+                found.sort_by(|a, b| {
+                    (a.depth, a.flow, a.leaves.len()).partial_cmp(&(b.depth, b.flow, b.leaves.len())).unwrap()
+                });
             } else {
                 let r = required[i];
                 found.sort_by(|a, b| {
-                    ((a.depth > r), a.flow, a.depth, a.leaves.len()).partial_cmp(&((b.depth > r), b.flow, b.depth, b.leaves.len())).unwrap()
+                    ((a.depth > r), a.flow, a.depth, a.leaves.len())
+                        .partial_cmp(&((b.depth > r), b.flow, b.depth, b.leaves.len()))
+                        .unwrap()
                 });
             }
             found.truncate(CUTS);
@@ -390,7 +398,8 @@ pub fn map(n: &Netlist) -> Result<Mapped, String> {
 
     // ---- carries read as LUT inputs ----
     // The cell a carry comes into: the next in its chain, or one added.
-    let chain_leaves = |l: &Lut| -> Vec<u32> { l.leaves.iter().copied().filter(|&x| in_chain[x as usize].is_some()).collect() };
+    let chain_leaves =
+        |l: &Lut| -> Vec<u32> { l.leaves.iter().copied().filter(|&x| in_chain[x as usize].is_some()).collect() };
     let mut readers: FxMap<u32, Vec<usize>> = FxMap::default();
     for (i, l) in luts.iter().enumerate() {
         for c in chain_leaves(l) {
@@ -422,7 +431,7 @@ pub fn map(n: &Netlist) -> Result<Mapped, String> {
                         continue;
                     }
                 }
-                pins[free.pop()? ] = Some(x);
+                pins[free.pop()?] = Some(x);
             }
             Some(pins)
         };
@@ -498,7 +507,9 @@ pub fn map(n: &Netlist) -> Result<Mapped, String> {
         let x = node(f.d);
         let packable = sig_lut.get(&f.d).copied().filter(|&j| {
             let users = leaf_users[x] + pos_roots[x] + neg_roots[x];
-            users == 1 && lcs[lut_lc[j].unwrap() as usize].ff.is_none() && !exposed.iter().any(|&p| host_lc.get(&p) == lut_lc[j].as_ref())
+            users == 1
+                && lcs[lut_lc[j].unwrap() as usize].ff.is_none()
+                && !exposed.iter().any(|&p| host_lc.get(&p) == lut_lc[j].as_ref())
         });
         let at = match packable {
             Some(j) => lut_lc[j].unwrap(),
@@ -526,7 +537,10 @@ pub fn map(n: &Netlist) -> Result<Mapped, String> {
     // A leaf's signal in either polarity: the source and whether inverted.
     let leaf = |x: u32| -> Result<(Src, bool), String> {
         let p = lit(x as usize, false);
-        signal(p).map(|s| (s, false)).or_else(|| signal(p ^ 1).map(|s| (s, true))).ok_or_else(|| format!("no signal for node {x}"))
+        signal(p)
+            .map(|s| (s, false))
+            .or_else(|| signal(p ^ 1).map(|s| (s, true)))
+            .ok_or_else(|| format!("no signal for node {x}"))
     };
     let exact = |l: Lit| -> Result<Src, String> { signal(l).ok_or_else(|| format!("no signal for literal {l}")) };
 
@@ -589,7 +603,8 @@ pub fn map(n: &Netlist) -> Result<Mapped, String> {
         let at = lut_lc[i].unwrap() as usize;
         match absorbed.get(&i) {
             Some(&(p, pins)) => {
-                let pin_of: Vec<usize> = l.leaves.iter().map(|x| pins.iter().position(|q| *q == Some(*x)).unwrap()).collect();
+                let pin_of: Vec<usize> =
+                    l.leaves.iter().map(|x| pins.iter().position(|q| *q == Some(*x)).unwrap()).collect();
                 fill(&mut lcs[at], l.tt, &l.leaves, &pin_of, Some(p))?;
             }
             None => {
@@ -609,7 +624,13 @@ pub fn map(n: &Netlist) -> Result<Mapped, String> {
     }
     for (fi, f) in n.ffs.iter().enumerate() {
         let at = ff_lc[fi] as usize;
-        let en = if f.en == T { None } else if f.en == F { Some(constant(false, &mut lcs)) } else { Some(exact(f.en)?) };
+        let en = if f.en == T {
+            None
+        } else if f.en == F {
+            Some(constant(false, &mut lcs))
+        } else {
+            Some(exact(f.en)?)
+        };
         let sr = if f.arst == F { None } else { Some(exact(f.arst)?) };
         let cfg = lcs[at].ff.as_mut().unwrap();
         cfg.en = en;
@@ -634,7 +655,11 @@ impl Mapped {
         let luts = self.lcs.iter().filter(|l| l.ins.iter().any(|i| i.is_some()) || l.carry_in3 || l.lut != 0).count();
         let carry = self.lcs.iter().filter(|l| l.carry).count();
         let ffs = self.lcs.iter().filter(|l| l.ff.is_some()).count();
-        format!("{} logic cells: {luts} LUTs, {carry} carries in {} chains, {ffs} flip-flops", self.lcs.len(), self.chains.len())
+        format!(
+            "{} logic cells: {luts} LUTs, {carry} carries in {} chains, {ffs} flip-flops",
+            self.lcs.len(),
+            self.chains.len()
+        )
     }
 
     /// The chain a cell is in, and its place there.
@@ -677,7 +702,15 @@ impl<'m> LcSim<'m> {
             }
         }
         let n = m.lcs.len();
-        LcSim { m, out: vec![0; n], cout: vec![0; n], state: vec![0; n], inputs: m.inputs.iter().map(|p| vec![0; p.width as usize]).collect(), below, ci }
+        LcSim {
+            m,
+            out: vec![0; n],
+            cout: vec![0; n],
+            state: vec![0; n],
+            inputs: m.inputs.iter().map(|p| vec![0; p.width as usize]).collect(),
+            below,
+            ci,
+        }
     }
 
     pub fn get(&self, s: Src) -> u64 {
@@ -693,7 +726,8 @@ impl<'m> LcSim<'m> {
             Some(b) => self.cout[b as usize],
             None => self.ci[i],
         };
-        let v: Vec<u64> = (0..4).map(|k| if k == 3 && lc.carry_in3 { cin } else { lc.ins[k].map_or(0, |s| self.get(s)) }).collect();
+        let v: Vec<u64> =
+            (0..4).map(|k| if k == 3 && lc.carry_in3 { cin } else { lc.ins[k].map_or(0, |s| self.get(s)) }).collect();
         let mut o = 0u64;
         for m in 0..16 {
             if lc.lut >> m & 1 != 0 {
@@ -774,7 +808,11 @@ pub fn mapped_lines(m: &Mapped, st: &crate::synth::check::Stimulus) -> Vec<Strin
             }
         }
         sim.eval();
-        let line: Vec<String> = m.outputs.iter().map(|(_, bits)| crate::synth::check::binary(bits.iter().map(|&s| sim.get(s) & 1 != 0))).collect();
+        let line: Vec<String> = m
+            .outputs
+            .iter()
+            .map(|(_, bits)| crate::synth::check::binary(bits.iter().map(|&s| sim.get(s) & 1 != 0)))
+            .collect();
         out.push(line.join(" "));
         if st.clock.is_some() {
             sim.clock();

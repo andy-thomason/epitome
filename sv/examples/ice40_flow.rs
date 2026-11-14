@@ -13,13 +13,13 @@
 //! mapped cells on random stimulus, which must agree. `--program` writes
 //! the bitstream to the board with `icesprog`.
 
+use epitome_sv::arch::ice40::Device;
 use epitome_sv::arch::ice40::board::Icesprog;
 use epitome_sv::arch::ice40::chipdb::Chipdb;
 use epitome_sv::arch::ice40::flow::{Options, build, parse_pins};
 use epitome_sv::arch::ice40::icebox::Semantics;
 use epitome_sv::arch::ice40::map::mapped_lines;
 use epitome_sv::arch::ice40::svg::{SvgOptions, render_svg};
-use epitome_sv::arch::ice40::Device;
 use epitome_sv::model::Sources;
 use epitome_sv::synth::check::{compare, random_stimulus, reference};
 use std::path::PathBuf;
@@ -42,7 +42,9 @@ fn run() -> Result<(), String> {
     let arch = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("arch/ice40-lp1k");
     let pins_file = arg("--pins").map(PathBuf::from).unwrap_or_else(|| arch.join("flow/nano.pins"));
     let top = arg("--top").unwrap_or_else(|| PathBuf::from(file).file_stem().unwrap().to_string_lossy().into_owned());
-    let out = arg("--out").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../target/ice40_flow"));
+    let out = arg("--out")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../target/ice40_flow"));
     let mut src = Sources::default();
     src.file(file);
     for (i, a) in args.iter().enumerate() {
@@ -65,7 +67,8 @@ fn run() -> Result<(), String> {
         let st = random_stimulus(&netlist, cycles, 0x5eed)?;
         let want = reference(&src, &top, &netlist, &st)?;
         let m = epitome_sv::arch::ice40::map::map(&netlist)?;
-        compare(&want, &mapped_lines(&m, &st)).map_err(|e| format!("the mapped cells differ from the interpreter: {e}"))?;
+        compare(&want, &mapped_lines(&m, &st))
+            .map_err(|e| format!("the mapped cells differ from the interpreter: {e}"))?;
         eprintln!("check: the mapped cells agree with the interpreter for {cycles} cycles");
     }
     // Only the ports the design has need pins.
@@ -87,7 +90,16 @@ fn run() -> Result<(), String> {
     };
     write(format!("{top}.asc"), b.asc.to_text().as_bytes())?;
     let bin = write(format!("{top}.bin"), &b.bitstream)?;
-    let svg = render_svg(&d, &db, &sem, &SvgOptions { overlay: Some(&b.asc), board: None, caption: Some(format!("{top}, placed and routed by Epitome")) });
+    let svg = render_svg(
+        &d,
+        &db,
+        &sem,
+        &SvgOptions {
+            overlay: Some(&b.asc),
+            board: None,
+            caption: Some(format!("{top}, placed and routed by Epitome")),
+        },
+    );
     let svg_path = write(format!("{top}.svg"), svg.as_bytes())?;
     eprintln!("wrote {} and {}", bin.display(), svg_path.display());
     if args.iter().any(|a| a == "--program") {

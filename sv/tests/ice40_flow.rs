@@ -113,10 +113,26 @@ fn synth_rejects() {
             "one clock",
             0,
         ),
-        ("module t(input logic [1:0] a, input logic d, output logic y);\n logic m [4];\n always_comb y = m[a];\nendmodule\n", "memories", 3),
-        ("module t(input logic a, output wire y);\n assign y = a;\n assign y = ~a;\nendmodule\n", "more than one driver", 3),
-        ("module t(input logic a, output logic y);\n logic p, q;\n assign p = q ^ a;\n assign q = p;\n assign y = q;\nendmodule\n", "combinational loop", 0),
-        ("module t(input logic [7:0] a, b, output logic [7:0] y);\n assign y = a / b;\nendmodule\n", "not synthesised", 2),
+        (
+            "module t(input logic [1:0] a, input logic d, output logic y);\n logic m [4];\n always_comb y = m[a];\nendmodule\n",
+            "memories",
+            3,
+        ),
+        (
+            "module t(input logic a, output wire y);\n assign y = a;\n assign y = ~a;\nendmodule\n",
+            "more than one driver",
+            3,
+        ),
+        (
+            "module t(input logic a, output logic y);\n logic p, q;\n assign p = q ^ a;\n assign q = p;\n assign y = q;\nendmodule\n",
+            "combinational loop",
+            0,
+        ),
+        (
+            "module t(input logic [7:0] a, b, output logic [7:0] y);\n assign y = a / b;\nendmodule\n",
+            "not synthesised",
+            2,
+        ),
     ];
     for (text, what, line) in cases {
         let e = synthesise(&src(text), "t").unwrap_err();
@@ -155,10 +171,18 @@ endmodule
             pins.push((epitome_sv::arch::ice40::place::bit_name(&p.name, p.width, b), free.next().unwrap()));
         }
     }
-    let b = build(&d, &db, &sem, n, &Options { package: "tq144".into(), pins, seed: 3 }).unwrap_or_else(|e| panic!("{e}"));
+    let b =
+        build(&d, &db, &sem, n, &Options { package: "tq144".into(), pins, seed: 3 }).unwrap_or_else(|e| panic!("{e}"));
     eprintln!("{}", b.report());
     // Four enables: at least four tiles of flip-flops besides the chain's.
-    let mut tiles: Vec<(usize, usize)> = b.mapped.lcs.iter().enumerate().filter(|(_, l)| l.ff.is_some()).map(|(i, _)| (b.placement.at[i].0, b.placement.at[i].1)).collect();
+    let mut tiles: Vec<(usize, usize)> = b
+        .mapped
+        .lcs
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| l.ff.is_some())
+        .map(|(i, _)| (b.placement.at[i].0, b.placement.at[i].1))
+        .collect();
     tiles.sort();
     tiles.dedup();
     assert!(tiles.len() >= 4, "{tiles:?}");
@@ -204,7 +228,8 @@ fn build_design(name: &str, defines: &[&str]) -> Built {
     let pins = parse_pins(&std::fs::read_to_string(arch().join("flow/nano.pins")).unwrap()).unwrap();
     let ports: Vec<&str> = n.inputs.iter().chain(&n.outputs).map(|p| p.name.as_str()).collect();
     let pins = pins.into_iter().filter(|(p, _)| ports.contains(&p.as_str())).collect();
-    let b = build(&d, &db, &sem, n, &Options { package: "cm36".into(), pins, seed: 1 }).unwrap_or_else(|e| panic!("{name}: {e}"));
+    let b = build(&d, &db, &sem, n, &Options { package: "cm36".into(), pins, seed: 1 })
+        .unwrap_or_else(|e| panic!("{name}: {e}"));
     eprintln!("{name}:\n{}", b.report());
     b
 }
@@ -281,27 +306,16 @@ fn board_live() {
     assert!(whole >= 100, "(d) {whole} strings in 0.5 s");
 }
 
+/// A `case` table becomes a decision tree, and few LUTs: hello's 20
+/// characters of 7 bits.
 #[test]
-#[ignore]
-fn census() {
-    let b = build_design("hello", &[]);
-    let mut kinds: std::collections::BTreeMap<String, usize> = Default::default();
-    for l in &b.mapped.lcs {
-        let k = l.name.split_whitespace().next().unwrap_or("").to_string();
-        let k = if l.ff.is_some() { format!("ff+{}", l.ins.iter().filter(|i| i.is_some()).count()) } else { format!("{k}:{}", l.ins.iter().filter(|i| i.is_some()).count()) };
-        *kinds.entry(k).or_default() += 1;
-    }
-    eprintln!("{kinds:?}");
-}
-
-#[test]
-#[ignore]
-fn census_rom() {
+fn case_table_is_small() {
     let text = std::fs::read_to_string(arch().join("flow/hello.sv")).unwrap();
     let a = text.find("  always_comb").unwrap();
     let b = text.find("endcase").unwrap() + 8;
     let rom = format!("module rom(input logic [4:0] idx, output logic [7:0] ch);\n{}\nendmodule\n", &text[a..b]);
     let n = synthesise(&src(&rom), "rom").unwrap();
-    eprintln!("{}", n.stats());
-    eprintln!("{}", map(&n).unwrap().stats());
+    let m = map(&n).unwrap();
+    eprintln!("{}\n{}", n.stats(), m.stats());
+    assert!(m.lcs.len() <= 20, "{}", m.stats());
 }

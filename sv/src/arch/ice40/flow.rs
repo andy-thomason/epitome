@@ -81,7 +81,14 @@ pub fn parse_pins(text: &str) -> Result<Vec<(String, String)>, String> {
 }
 
 /// Synthesises `top` from `src` and builds it.
-pub fn build_source(d: &Device, db: &Chipdb, sem: &Semantics, src: &Sources, top: &str, opts: &Options) -> Result<Built, String> {
+pub fn build_source(
+    d: &Device,
+    db: &Chipdb,
+    sem: &Semantics,
+    src: &Sources,
+    top: &str,
+    opts: &Options,
+) -> Result<Built, String> {
     let n = crate::synth::lower::synthesise(src, top)?;
     build(d, db, sem, n, opts)
 }
@@ -99,7 +106,8 @@ pub fn build(d: &Device, db: &Chipdb, sem: &Semantics, netlist: Netlist, opts: &
     // ---- I/O ----
     let clock = m.clock;
     let clock_pin = clock.map(|(p, _)| placement.inputs[&(p, 0)].clone());
-    let clock_glb = clock_pin.as_ref().and_then(|c| db.gbufpin.iter().find(|g| (g.0, g.1, g.2) == (c.0, c.1, c.2)).map(|g| g.3));
+    let clock_glb =
+        clock_pin.as_ref().and_then(|c| db.gbufpin.iter().find(|g| (g.0, g.1, g.2) == (c.0, c.1, c.2)).map(|g| g.3));
     let mut data_inputs: FxSet<(u32, u32)> = FxSet::default();
     for lc in &m.lcs {
         for s in lc.ins.iter().flatten().chain(lc.ff.iter().flat_map(|f| f.en.iter().chain(&f.sr))) {
@@ -167,7 +175,8 @@ pub fn build(d: &Device, db: &Chipdb, sem: &Semantics, netlist: Netlist, opts: &
     }
 
     // ---- the clock ----
-    let mut ff_tiles: Vec<(usize, usize)> = m.lcs.iter().enumerate().filter(|(_, l)| l.ff.is_some()).map(|(i, _)| (at[i].0, at[i].1)).collect();
+    let mut ff_tiles: Vec<(usize, usize)> =
+        m.lcs.iter().enumerate().filter(|(_, l)| l.ff.is_some()).map(|(i, _)| (at[i].0, at[i].1)).collect();
     ff_tiles.sort();
     ff_tiles.dedup();
     let mut requests: Vec<Request> = Vec::new();
@@ -182,7 +191,8 @@ pub fn build(d: &Device, db: &Chipdb, sem: &Semantics, netlist: Netlist, opts: &
         }
     } else if let (Some(p), false) = (&clock_pin, ff_tiles.is_empty()) {
         let src = net(p.0, p.1, &format!("io_{}/D_IN_0", p.2))?;
-        let sinks = ff_tiles.iter().map(|&(x, y)| net(x, y, "lutff_global/clk").map(Sink::Net)).collect::<Result<_, _>>()?;
+        let sinks =
+            ff_tiles.iter().map(|&(x, y)| net(x, y, "lutff_global/clk").map(Sink::Net)).collect::<Result<_, _>>()?;
         requests.push(Request { name: "clock".into(), src, sinks });
     }
 
@@ -238,7 +248,9 @@ pub fn build(d: &Device, db: &Chipdb, sem: &Semantics, netlist: Netlist, opts: &
     }
     for s in order {
         let name = match s {
-            Src::Pin { port, bit } => super::place::bit_name(&m.inputs[port as usize].name, m.inputs[port as usize].width, bit),
+            Src::Pin { port, bit } => {
+                super::place::bit_name(&m.inputs[port as usize].name, m.inputs[port as usize].width, bit)
+            }
             Src::Lc(c) => m.lcs[c as usize].name.clone(),
         };
         requests.push(Request { name, src: src_net(s)?, sinks: sinks.remove(&s).unwrap() });
@@ -269,7 +281,9 @@ pub fn build(d: &Device, db: &Chipdb, sem: &Semantics, netlist: Netlist, opts: &
         }
         let mut t = 0u16;
         for mp in 0..16 {
-            let mo = (0..4).filter(|&k| lc.ins[k].is_some() || !swappable(lc)).fold(0, |a, k| a | ((mp >> pin_of[k]) & 1) << k);
+            let mo = (0..4)
+                .filter(|&k| lc.ins[k].is_some() || !swappable(lc))
+                .fold(0, |a, k| a | ((mp >> pin_of[k]) & 1) << k);
             if lc.lut >> mo & 1 != 0 {
                 t |= 1 << mp;
             }
@@ -297,7 +311,10 @@ pub fn check_routes(g: &Graph, b: &Built) -> Result<(), String> {
             };
             let got = source_of(&drv, n);
             if got != r.src {
-                return Err(format!("signal {} (request {ri}): sink net {n} is driven from net {got}, not {}", r.name, r.src));
+                return Err(format!(
+                    "signal {} (request {ri}): sink net {n} is driven from net {got}, not {}",
+                    r.name, r.src
+                ));
             }
         }
     }

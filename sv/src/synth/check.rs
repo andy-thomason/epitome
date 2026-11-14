@@ -22,7 +22,8 @@ pub struct Stimulus {
 /// active low.
 fn reset_like(name: &str) -> Option<bool> {
     let n = name.to_ascii_lowercase();
-    (n.contains("rst") || n.contains("reset")).then(|| n.ends_with("_n") || n.ends_with("rstn") || n.ends_with("resetn"))
+    (n.contains("rst") || n.contains("reset"))
+        .then(|| n.ends_with("_n") || n.ends_with("rstn") || n.ends_with("resetn"))
 }
 
 /// `cycles` cycles of random inputs (an xorshift of `seed`). Inputs that
@@ -138,7 +139,8 @@ pub fn netlist_lines(n: &Netlist, st: &Stimulus) -> Vec<String> {
             }
         }
         sim.eval();
-        let line: Vec<String> = (0..n.outputs.len()).map(|o| binary(sim.output(o).into_iter().map(|v| v & 1 != 0))).collect();
+        let line: Vec<String> =
+            (0..n.outputs.len()).map(|o| binary(sim.output(o).into_iter().map(|v| v & 1 != 0))).collect();
         out.push(line.join(" "));
         if st.clock.is_some() {
             sim.clock();

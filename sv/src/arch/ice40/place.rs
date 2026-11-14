@@ -118,7 +118,9 @@ impl<'m> State<'m> {
         if self.chained[t] == 0 {
             return Vec::new();
         }
-        (0..self.m.lcs.len() as u32).filter(|&c| self.chain_of[c as usize].is_some() && self.tile_of[c as usize] == t).collect()
+        (0..self.m.lcs.len() as u32)
+            .filter(|&c| self.chain_of[c as usize].is_some() && self.tile_of[c as usize] == t)
+            .collect()
     }
 
     /// The tiles chain `c` would take from tile `t`, if it fits there.
@@ -143,12 +145,18 @@ impl<'m> State<'m> {
         }
         self.chain_at[c] = t;
     }
-
 }
 
 /// Places `m` on the device: `pins` maps port bits ([`bit_name`]) to
 /// package pins.
-pub fn place(d: &Device, db: &Chipdb, m: &Mapped, package: &str, pins: &[(String, String)], seed: u64) -> Result<Placement, String> {
+pub fn place(
+    d: &Device,
+    db: &Chipdb,
+    m: &Mapped,
+    package: &str,
+    pins: &[(String, String)],
+    seed: u64,
+) -> Result<Placement, String> {
     let _ = d;
     let pkg = &db.pins.iter().find(|(p, _)| p == package).ok_or_else(|| format!("no package {package}"))?.1;
     let pin = |name: &str| -> Result<(usize, usize, usize, String), String> {
@@ -184,18 +192,21 @@ pub fn place(d: &Device, db: &Chipdb, m: &Mapped, package: &str, pins: &[(String
     // Nets: each signal's driver and readers.
     let mut net_ix: FxMap<Src, usize> = FxMap::default();
     let mut nets: Vec<(Vec<u32>, Vec<(usize, usize)>)> = Vec::new();
-    let mut term = |s: Src, cell: Option<u32>, fixed: Option<(usize, usize)>, nets: &mut Vec<(Vec<u32>, Vec<(usize, usize)>)>| {
-        let k = *net_ix.entry(s).or_insert_with(|| {
-            nets.push((Vec::new(), Vec::new()));
-            match s {
-                Src::Lc(c) => nets.last_mut().unwrap().0.push(c),
-                Src::Pin { port, bit } => nets.last_mut().unwrap().1.push((inputs[&(port, bit)].0, inputs[&(port, bit)].1)),
-            }
-            nets.len() - 1
-        });
-        nets[k].0.extend(cell);
-        nets[k].1.extend(fixed);
-    };
+    let mut term =
+        |s: Src, cell: Option<u32>, fixed: Option<(usize, usize)>, nets: &mut Vec<(Vec<u32>, Vec<(usize, usize)>)>| {
+            let k = *net_ix.entry(s).or_insert_with(|| {
+                nets.push((Vec::new(), Vec::new()));
+                match s {
+                    Src::Lc(c) => nets.last_mut().unwrap().0.push(c),
+                    Src::Pin { port, bit } => {
+                        nets.last_mut().unwrap().1.push((inputs[&(port, bit)].0, inputs[&(port, bit)].1))
+                    }
+                }
+                nets.len() - 1
+            });
+            nets[k].0.extend(cell);
+            nets[k].1.extend(fixed);
+        };
     let clock_port = m.clock.map(|c| c.0);
     for (i, lc) in m.lcs.iter().enumerate() {
         let ff = lc.ff.iter().flat_map(|f| [f.en, f.sr]).flatten();
@@ -246,7 +257,10 @@ pub fn place(d: &Device, db: &Chipdb, m: &Mapped, package: &str, pins: &[(String
     let (cx, cy) = {
         let xs: Vec<usize> = st.tiles.iter().map(|t| t.0).collect();
         let ys: Vec<usize> = st.tiles.iter().map(|t| t.1).collect();
-        ((xs.iter().min().unwrap() + xs.iter().max().unwrap()) / 2, (ys.iter().min().unwrap() + ys.iter().max().unwrap()) / 2)
+        (
+            (xs.iter().min().unwrap() + xs.iter().max().unwrap()) / 2,
+            (ys.iter().min().unwrap() + ys.iter().max().unwrap()) / 2,
+        )
     };
     for c in order {
         let mut cands: Vec<usize> = (0..st.tiles.len()).collect();
@@ -281,7 +295,12 @@ pub fn place(d: &Device, db: &Chipdb, m: &Mapped, package: &str, pins: &[(String
             if placed[i] {
                 continue;
             }
-            let links = st.nets_of[i].iter().map(|&k| st.nets[k].0.iter().filter(|&&c| placed[c as usize]).count() as i64 + st.nets[k].1.len() as i64).sum::<i64>();
+            let links = st.nets_of[i]
+                .iter()
+                .map(|&k| {
+                    st.nets[k].0.iter().filter(|&&c| placed[c as usize]).count() as i64 + st.nets[k].1.len() as i64
+                })
+                .sum::<i64>();
             if links > best_links {
                 best_links = links;
                 pick = Some(i);
@@ -300,8 +319,12 @@ pub fn place(d: &Device, db: &Chipdb, m: &Mapped, package: &str, pins: &[(String
                 let mut c = 0.0;
                 for &k in &st.nets_of[i] {
                     let (cells, fixed) = &st.nets[k];
-                    let pts: Vec<(usize, usize)> =
-                        cells.iter().filter(|&&x| placed[x as usize] || x as usize == i).map(|&x| st.pos(x)).chain(fixed.iter().copied()).collect();
+                    let pts: Vec<(usize, usize)> = cells
+                        .iter()
+                        .filter(|&&x| placed[x as usize] || x as usize == i)
+                        .map(|&x| st.pos(x))
+                        .chain(fixed.iter().copied())
+                        .collect();
                     let (x0, x1) = (pts.iter().map(|p| p.0).min().unwrap(), pts.iter().map(|p| p.0).max().unwrap());
                     let (y0, y1) = (pts.iter().map(|p| p.1).min().unwrap(), pts.iter().map(|p| p.1).max().unwrap());
                     c += (x1 - x0 + y1 - y0) as f64;
@@ -423,7 +446,13 @@ pub fn place(d: &Device, db: &Chipdb, m: &Mapped, package: &str, pins: &[(String
             }
             let rate = accepted as f64 / moves as f64;
             window = (window * (1.0 - 0.44 + rate)).clamp(1.0, w.max(h) as f64);
-            temp *= if rate > 0.8 { 0.6 } else if rate > 0.15 { 0.9 } else { 0.7 };
+            temp *= if rate > 0.8 {
+                0.6
+            } else if rate > 0.15 {
+                0.9
+            } else {
+                0.7
+            };
             if temp < 0.005 * total(&st).max(1.0) / st.nets.len() as f64 {
                 break;
             }

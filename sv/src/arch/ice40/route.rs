@@ -21,7 +21,11 @@ pub enum Sink {
     Net(usize),
     /// Input `input` of a LUT, on any of the nets `pins` (`in_0` to
     /// `in_3`) that is free; `lut` names the LUT.
-    Lut { lut: u32, input: usize, pins: [usize; 4] },
+    Lut {
+        lut: u32,
+        input: usize,
+        pins: [usize; 4],
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -77,7 +81,9 @@ pub fn pathfinder(g: &Graph, reqs: &[Request], blocked: &FxSet<usize>, max_passe
             for sink in &r.sinks {
                 let targets: Vec<usize> = match sink {
                     Sink::Net(n) => vec![*n],
-                    Sink::Lut { pins, .. } => pins.iter().copied().filter(|p| !claims.contains_key(p) && !in_tree.contains(p)).collect(),
+                    Sink::Lut { pins, .. } => {
+                        pins.iter().copied().filter(|p| !claims.contains_key(p) && !in_tree.contains(p)).collect()
+                    }
                 };
                 if let Sink::Net(n) = sink {
                     if in_tree.contains(n) {

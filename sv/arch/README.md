@@ -71,6 +71,116 @@ the cells, flip-flops, RAMs and pads it uses. For example,
 `ice40-lp1k/device-ram-write.svg` shows the `ram-write` experiment placed
 on the LP1K.
 
+## The flow: SystemVerilog to the board
+
+`sv/src/synth/` and `sv/src/arch/ice40/{map,place,route,flow}.rs` take a
+SystemVerilog design to an LP1K bitstream, every stage Epitome's own, and
+the `ice40_flow` example runs them:
+
+```bash
+cargo run --release -p epitome-sv --example ice40_flow -- sv/arch/ice40-lp1k/flow/hello.sv --check 3000 --program
+```
+
+That synthesises the module named after the file (`--top` names another),
+checks the mapped cells against the interpreter for 3000 cycles, places,
+routes, writes `hello.asc`, `hello.bin` and `hello.svg` to
+`target/ice40_flow` (`--out` for elsewhere), and programs the board.
+`--pins FILE` gives the pin constraints, lines of `port pin` or
+`port[i] pin`; the default is the board's,
+[`ice40-lp1k/flow/nano.pins`](ice40-lp1k/flow/nano.pins). `-D NAME=VALUE`
+defines a macro.
+
+The stages, each in memory, with no text between them until the `.asc`:
+
+1. **Synthesis** (`synth/lower.rs`). The elaborated design (`Design`) is
+   flattened through its instances and bit-blasted into a graph of
+   two-input ANDs and XORs, three-input majorities (adders' carries, kept
+   for the carry chain), inputs and flip-flops. Gates are hashed and
+   constants folded as they are made. `assign`, `always_comb`, and
+   `always_ff` (or `always`) on one clock edge are synthesised, with an
+   asynchronous reset to constants. Procedures are run symbolically: an
+   `if` runs both arms and merges what each assigned under its condition,
+   so a flip-flop's enable is where it was assigned. A `case` on a value of
+   up to 8 bits with constant labels becomes a decision tree on its bits,
+   so a table maps to few LUTs. Others become a priority chain, and `for`
+   loops with constant bounds are unrolled. Operators covered: bitwise,
+   reductions, shifts (constant or not), `+ - *`, comparisons, and selects
+   and part selects (constant or not). Errors point at the source: latches,
+   memories, more than one clock, function calls, division of non-constants,
+   gates, combinational loops, and nets with two drivers.
+2. **Mapping** (`map.rs`). Majorities that follow one another become carry
+   chains, with the carry in from a constant, or from a signal through a
+   feeder cell. The other gates are covered by 4-input cuts: up to 10 cuts
+   a node, chosen for depth and then for area flow at that depth. A LUT whose
+   only carry input is the carry into a chain cell (an adder's sum) goes in
+   that cell's LUT, reading the carry on `in_3`. A carry read any other way
+   comes out through the next cell's LUT. Flip-flops share their LUT's cell
+   when nothing else reads the LUT. An enable and an asynchronous reset go
+   on the cell's `cen` and `sr`.
+3. **Placement** (`place.rs`). Pins come from the constraints. Carry chains
+   take places 0 upwards in consecutive tiles of a column. Cells are placed
+   greedily, then annealed on wirelength (half-perimeter of each net's
+   tiles) with moves and swaps of cells and moves of chains. A tile's
+   flip-flops must share enable and set/reset; `place::check` checks the
+   result.
+4. **Routing** (`route.rs`). PathFinder over the chip database's switches:
+   each signal is a tree grown from its source by cheapest paths
+   (`Graph::search`, the Dijkstra search the board experiments' breadth-first
+   `route` is now a case of), and nets used twice get dearer each pass until
+   none is. A LUT input may land on any free pin of its cell; the table is
+   permuted to match. The clock goes on a global network when its pin has a
+   global buffer (D1's is network 1), with the column buffers its tiles
+   need. Otherwise it is routed like any signal.
+5. **Bitstream**. Cells, routes and I/O types (`PINTYPE_0` for an input, 3
+   and 4 for an output, as the board experiments found) go into a
+   `design::Design`, then the `.asc` and the bitstream come from Epitome's
+   own packer.
+
+What checks what:
+- `synth::check` makes a testbench around the top module and runs the same
+  random stimulus through Epitome's interpreter, through the gate netlist
+  (`synth::Sim`) and through the mapped cells (`map::LcSim`, the logic cell
+  as `logic_cell.sv` has it). Each cycle's outputs must agree wherever the
+  interpreter's are known.
+- `flow::check_routes` reads the routes back from the configured bits. For
+  every sink it follows the switches set back to a net nothing drives,
+  which must be its signal's source.
+- The board, below.
+
+The tests are in `sv/tests/ice40_flow.rs`:
+
+```bash
+cargo test --release -p epitome-sv --test ice40_flow
+ICE40_BOARD=1 cargo test --release -p epitome-sv --test ice40_flow board_live
+```
+
+### On the board
+
+The designs are in [`ice40-lp1k/flow/`](ice40-lp1k/flow/). `board_live`
+programs each one and watches the iCELink's serial port at 115200 baud:
+
+| Test | Design | Cells | What the Mac saw |
+|---|---|---|---|
+| (a) combinational | `echo.sv`: `tx = rx & 1'b1` (a route alone, no cell) | 0 | its bytes echoed |
+| (a) combinational | `echo.sv` with `INVERT`: `tx = ~rx`, a LUT | 1 | no echo |
+| (b) registered | `delay.sv`: `rx` through 4 flip-flops on D1's 12 MHz clock | 4 | its bytes echoed |
+| (c) counter | `blink.sv`: a 24-bit counter; `led = count[23]`, `tx = rx \| ~count[23]` | 27 (a 22-cell carry chain) | echoes on and off, changing every 0.697 s (2^23 / 12 MHz = 0.699 s) |
+| (d) UART | `hello.sv`: a transmitter sending `Hello from Epitome\r\n` | 53 (3 chains) | 262 whole strings in 0.5 s (10.5 kB/s) |
+
+The counter was checked through B3: the Mac sends a byte every ~0.1 s for
+5 s and notes which come back. The LED (B6) blinks as well, but nothing
+here watches it. Before (d) sent `\r`, it sent an `r`. SystemVerilog's
+string escapes have no `\r`, and the interpreter and the board agreed, so
+`hello.sv` writes the carriage return as `8'h0d`.
+
+[`ice40-lp1k/flow/hello.svg`](ice40-lp1k/flow/hello.svg) is the transmitter
+as placed and routed, laid over the die by `svg.rs`.
+
+Not yet: memories (the block RAMs), more than one clock, latches, tasks
+and functions, timing, packing a flip-flop with a LUT that has other
+readers, and checking resource counts against Yosys and nextpnr. Running
+those was blocked here, and their source is not to be read.
+
 ## Sources, and how each fact was found
 
 The work started as a clean room: IceStorm's, nextpnr's and Yosys's source,
@@ -344,9 +454,9 @@ checks pass, for both parts:
   `LOCKED` packages.
 - What the RAM cascade bits connect. On the board, `CBIT_6` stops a RAM's
   own read, and nothing tried made two RAMs work together.
-- The routing has not been checked against the device. The only
-  black-box evidence for it is that the routes the icebox experiments
-  built read back as intended.
+- The routing has been checked against the device only through the
+  designs the flow put on the board (see the flow above), and through
+  the icebox experiments' routes reading back as intended.
 - The full-size iCESugar (UP5K) has not been tried on a board. Only the
   iCESugar-nano's LP1K has.
 - Timing.

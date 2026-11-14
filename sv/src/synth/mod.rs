@@ -46,7 +46,10 @@ pub enum Node {
     /// Node 0: false.
     Zero,
     /// Bit `bit` of input port `port`.
-    Input { port: u32, bit: u32 },
+    Input {
+        port: u32,
+        bit: u32,
+    },
     And(Lit, Lit),
     Xor(Lit, Lit),
     /// The carry of `a + b + c`: true if two or more are.
@@ -293,7 +296,11 @@ impl Netlist {
             Ok(map_lit(root, map).unwrap())
         };
         for p in &self.outputs {
-            let bits = p.bits.iter().map(|&b| visit(b, &mut out, &mut map, &mut ff_todo, &mut ff_map)).collect::<Result<Vec<_>, _>>()?;
+            let bits = p
+                .bits
+                .iter()
+                .map(|&b| visit(b, &mut out, &mut map, &mut ff_todo, &mut ff_map))
+                .collect::<Result<Vec<_>, _>>()?;
             out.outputs.push(Port { bits, ..p.clone() });
         }
         while let Some(i) = ff_todo.pop() {
@@ -320,7 +327,12 @@ impl Netlist {
             match clock {
                 None => clock = Some(c),
                 Some(k) if k == c => {}
-                Some(_) => return Err(format!("{} is on another clock or edge than the flip-flops before it: one clock is supported", f.name)),
+                Some(_) => {
+                    return Err(format!(
+                        "{} is on another clock or edge than the flip-flops before it: one clock is supported",
+                        f.name
+                    ));
+                }
             }
         }
         Ok(clock)

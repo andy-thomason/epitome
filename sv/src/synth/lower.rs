@@ -52,13 +52,16 @@ pub struct Lower<'d, 'a> {
 
 /// Lowers the design under top-level instance `top`.
 pub fn lower<'a>(d: &Design<'a>, ast: &Ast<'a>, top: InstId) -> Result<Netlist, Error<'a>> {
-    let mut l = Lower { d, ast, n: Netlist::new(), insts: Vec::new(), wires: FxMap::default(), inits: FxMap::default() };
+    let mut l =
+        Lower { d, ast, n: Netlist::new(), insts: Vec::new(), wires: FxMap::default(), inits: FxMap::default() };
     let i = d.instance(top);
     let spec = d.spec(i.spec);
     l.insts.push(Inst { path: d.name(i.name).to_string() });
     let mut outs = Vec::new();
     for p in &spec.ports {
-        let Some(o) = p.object else { return Err(l.err(p.node, "an interface port on the top module is not synthesised")) };
+        let Some(o) = p.object else {
+            return Err(l.err(p.node, "an interface port on the top module is not synthesised"));
+        };
         let w = d.types.width(d.object(o).ty);
         match p.dir {
             Dir::Input => {
@@ -135,7 +138,8 @@ impl<'d, 'a> Lower<'d, 'a> {
         }
         let w = self.tys().width(self.d.object(o).ty);
         let name = self.obj_name(inst, o);
-        let v: Vec<Lit> = (0..w).map(|b| self.n.wire(if w == 1 { name.clone() } else { format!("{name}[{b}]") })).collect();
+        let v: Vec<Lit> =
+            (0..w).map(|b| self.n.wire(if w == 1 { name.clone() } else { format!("{name}[{b}]") })).collect();
         self.wires.insert((inst, o), v.clone());
         v
     }
@@ -171,7 +175,9 @@ impl<'d, 'a> Lower<'d, 'a> {
                 Item::Instance(i) => self.instance(inst, i)?,
                 Item::Scope(s) if self.d.scope(s).kind == ScopeKind::Generate => self.scope(inst, s)?,
                 Item::Scope(_) => {}
-                Item::Cell(c) => return Err(self.err(self.d.cells[c.0 as usize].node, "gates and UDPs are not synthesised yet")),
+                Item::Cell(c) => {
+                    return Err(self.err(self.d.cells[c.0 as usize].node, "gates and UDPs are not synthesised yet"));
+                }
                 Item::Typedef(..) | Item::Subroutine(_) | Item::Import(..) | Item::Class(_) | Item::Opaque(_) => {}
             }
         }
@@ -221,14 +227,19 @@ impl<'d, 'a> Lower<'d, 'a> {
         let v = self.fit(v, targets.len() as u32, false);
         for (t, b) in targets.into_iter().zip(v) {
             let [(key, bit, cond)] = t.as_slice() else {
-                return Err(self.err(self.d.expr(lhs).node, "a continuous assignment to a select whose index is not constant"));
+                return Err(
+                    self.err(self.d.expr(lhs).node, "a continuous assignment to a select whose index is not constant")
+                );
             };
             if *cond != T {
-                return Err(self.err(self.d.expr(lhs).node, "a continuous assignment to a select whose index is not constant"));
+                return Err(
+                    self.err(self.d.expr(lhs).node, "a continuous assignment to a select whose index is not constant")
+                );
             }
             let w = self.obj_bits(key.0, key.1)[*bit as usize];
             if !self.n.drive(w, b) {
-                return Err(self.err(self.d.expr(lhs).node, format!("{} has more than one driver", self.obj_name(key.0, key.1))));
+                return Err(self
+                    .err(self.d.expr(lhs).node, format!("{} has more than one driver", self.obj_name(key.0, key.1))));
             }
         }
         Ok(())
@@ -245,9 +256,15 @@ impl<'d, 'a> Lower<'d, 'a> {
             (ProcKind::Final, _) => Ok(()),
             (ProcKind::Initial, _) => self.initial(inst, stmt, pnode),
             (ProcKind::AlwaysLatch, _) => Err(self.err(pnode, "latches are not synthesised")),
-            (ProcKind::AlwaysComb, None) | (ProcKind::Always, Some(Timing::Implicit(_))) => self.comb(inst, stmt, pnode),
-            (ProcKind::Always, Some(Timing::Event(terms))) if terms.iter().all(|t| t.edge == Edge::Any) => self.comb(inst, stmt, pnode),
-            (ProcKind::AlwaysFf | ProcKind::Always, Some(Timing::Event(terms))) => self.seq(inst, terms.clone(), stmt, pnode),
+            (ProcKind::AlwaysComb, None) | (ProcKind::Always, Some(Timing::Implicit(_))) => {
+                self.comb(inst, stmt, pnode)
+            }
+            (ProcKind::Always, Some(Timing::Event(terms))) if terms.iter().all(|t| t.edge == Edge::Any) => {
+                self.comb(inst, stmt, pnode)
+            }
+            (ProcKind::AlwaysFf | ProcKind::Always, Some(Timing::Event(terms))) => {
+                self.seq(inst, terms.clone(), stmt, pnode)
+            }
             _ => Err(self.err(pnode, "this kind of process is not synthesised")),
         }
     }
@@ -293,7 +310,10 @@ impl<'d, 'a> Lower<'d, 'a> {
                     continue;
                 }
                 if e != T {
-                    return Err(self.err(at, format!("{} is not assigned on every path: it would be a latch", self.obj_name(key.0, key.1))));
+                    return Err(self.err(
+                        at,
+                        format!("{} is not assigned on every path: it would be a latch", self.obj_name(key.0, key.1)),
+                    ));
                 }
                 if !self.n.drive(wires[b], v) {
                     return Err(self.err(at, format!("{} has more than one driver", self.obj_name(key.0, key.1))));
@@ -332,7 +352,12 @@ impl<'d, 'a> Lower<'d, 'a> {
                 let c = self.eval(inst, cond, &none)?;
                 let c = self.truth(c);
                 let r = (0..2).find(|&k| c == if terms[k].edge == Edge::Pos { sig[k] } else { sig[k] ^ 1 });
-                let Some(r) = r else { return Err(self.err(self.d.expr(cond).node, "this condition is not the reset event's signal at its active level")) };
+                let Some(r) = r else {
+                    return Err(self.err(
+                        self.d.expr(cond).node,
+                        "this condition is not the reset event's signal at its active level",
+                    ));
+                };
                 let k = 1 - r;
                 (sig[k], terms[k].edge == Edge::Neg, Some((c, then, else_)))
             }
@@ -378,9 +403,13 @@ impl<'d, 'a> Lower<'d, 'a> {
                     continue;
                 }
                 if arst != F && r.en[b] != T {
-                    return Err(self.err(at, format!("{} is assigned by the clock but not by the reset", self.obj_name(key.0, key.1))));
+                    return Err(self.err(
+                        at,
+                        format!("{} is assigned by the clock but not by the reset", self.obj_name(key.0, key.1)),
+                    ));
                 }
-                let name = if w == 1 { self.obj_name(key.0, key.1) } else { format!("{}[{b}]", self.obj_name(key.0, key.1)) };
+                let name =
+                    if w == 1 { self.obj_name(key.0, key.1) } else { format!("{}[{b}]", self.obj_name(key.0, key.1)) };
                 let q = self.n.ff(Ff {
                     d: slot.val[b],
                     en: slot.en[b],
@@ -496,7 +525,11 @@ impl<'d, 'a> Lower<'d, 'a> {
                         match self.truth(v) {
                             F => return Ok(()),
                             T => {}
-                            _ => return Err(self.err(self.d.expr(c).node, "a loop's condition must be constant when unrolled")),
+                            _ => {
+                                return Err(
+                                    self.err(self.d.expr(c).node, "a loop's condition must be constant when unrolled")
+                                );
+                            }
                         }
                     }
                     self.stmt(inst, body, env)?;
@@ -524,7 +557,15 @@ impl<'d, 'a> Lower<'d, 'a> {
     /// runs, the arms' results chosen by muxes from the most significant
     /// bit down (equal subtrees are one by hashing). `None` where the case
     /// is not of that kind.
-    fn case_tree(&mut self, inst: u32, kind: CaseKind, v: &[Lit], items: &[(Vec<ExprId>, StmtId)], default: Option<StmtId>, env: &Env) -> R<'a, Option<Env>> {
+    fn case_tree(
+        &mut self,
+        inst: u32,
+        kind: CaseKind,
+        v: &[Lit],
+        items: &[(Vec<ExprId>, StmtId)],
+        default: Option<StmtId>,
+        env: &Env,
+    ) -> R<'a, Option<Env>> {
         let w = v.len();
         if kind != CaseKind::Case || w > 8 {
             return Ok(None);
@@ -564,22 +605,30 @@ impl<'d, 'a> Lower<'d, 'a> {
         let leaf: Vec<usize> = arm_of.iter().map(|a| a.unwrap_or(items.len())).collect();
         let mut out = Env::default();
         for nba in [false, true] {
-            let mut keys: Vec<Key> = envs.iter().flat_map(|e| if nba { e.nba.keys() } else { e.blk.keys() }).copied().collect();
+            let mut keys: Vec<Key> =
+                envs.iter().flat_map(|e| if nba { e.nba.keys() } else { e.blk.keys() }).copied().collect();
             keys.sort();
             keys.dedup();
             for k in keys {
-                let width = envs.iter().find_map(|e| if nba { e.nba.get(&k) } else { e.blk.get(&k) }).unwrap().val.len();
+                let width =
+                    envs.iter().find_map(|e| if nba { e.nba.get(&k) } else { e.blk.get(&k) }).unwrap().val.len();
                 let mut slot = Slot { val: Vec::with_capacity(width), en: Vec::with_capacity(width) };
                 for b in 0..width {
                     let leaves: Vec<(Lit, Lit)> = envs
                         .iter()
-                        .map(|e| (if nba { e.nba.get(&k) } else { e.blk.get(&k) }).map_or((F, F), |s| (s.val[b], s.en[b])))
+                        .map(|e| {
+                            (if nba { e.nba.get(&k) } else { e.blk.get(&k) }).map_or((F, F), |s| (s.val[b], s.en[b]))
+                        })
                         .collect();
                     let (val, en) = self.tree(v, w, 0, &leaf, &leaves);
                     slot.val.push(val);
                     slot.en.push(en);
                 }
-                if nba { out.nba.insert(k, slot) } else { out.blk.insert(k, slot) };
+                if nba {
+                    out.nba.insert(k, slot)
+                } else {
+                    out.blk.insert(k, slot)
+                };
             }
         }
         Ok(Some(out))
@@ -645,7 +694,15 @@ impl<'d, 'a> Lower<'d, 'a> {
         }
     }
 
-    fn case_match(&mut self, inst: u32, kind: CaseKind, v: &[Lit], expr: ExprId, label: ExprId, env: &Env) -> R<'a, Lit> {
+    fn case_match(
+        &mut self,
+        inst: u32,
+        kind: CaseKind,
+        v: &[Lit],
+        expr: ExprId,
+        label: ExprId,
+        env: &Env,
+    ) -> R<'a, Lit> {
         let le = self.d.expr(label);
         if kind == CaseKind::Inside || matches!(le.kind, ExprKind::Range) {
             return self.inside(inst, v, self.signed(expr), label, env);
@@ -658,7 +715,11 @@ impl<'d, 'a> Lower<'d, 'a> {
                 if let Some(b) = self.d.konst(c).as_bits() {
                     let w = v.len() as u32;
                     let b = b.resize(w, b.signed());
-                    care = Some((0..w).map(|i| !(b.bit(i) == Logic::Z || kind == CaseKind::CaseX && b.bit(i) == Logic::X)).collect());
+                    care = Some(
+                        (0..w)
+                            .map(|i| !(b.bit(i) == Logic::Z || kind == CaseKind::CaseX && b.bit(i) == Logic::X))
+                            .collect(),
+                    );
                 }
             }
         }
@@ -698,7 +759,11 @@ impl<'d, 'a> Lower<'d, 'a> {
     fn merge(&mut self, c: Lit, mut t: Env, mut e: Env) -> Env {
         let mut out = Env::default();
         for nba in [false, true] {
-            let (tm, em) = if nba { (std::mem::take(&mut t.nba), std::mem::take(&mut e.nba)) } else { (std::mem::take(&mut t.blk), std::mem::take(&mut e.blk)) };
+            let (tm, em) = if nba {
+                (std::mem::take(&mut t.nba), std::mem::take(&mut e.nba))
+            } else {
+                (std::mem::take(&mut t.blk), std::mem::take(&mut e.blk))
+            };
             let mut keys: Vec<Key> = tm.keys().chain(em.keys()).copied().collect();
             keys.sort();
             keys.dedup();
@@ -717,7 +782,11 @@ impl<'d, 'a> Lower<'d, 'a> {
                         self.n.mux(c, a.val[i], b.val[i])
                     });
                 }
-                if nba { out.nba.insert(k, s) } else { out.blk.insert(k, s) };
+                if nba {
+                    out.nba.insert(k, s)
+                } else {
+                    out.blk.insert(k, s)
+                };
             }
         }
         out
@@ -814,7 +883,9 @@ impl<'d, 'a> Lower<'d, 'a> {
             ExprKind::Part { kind: PartKind::Range, .. } => {
                 let i = self.eval(inst, ex.args[1], env)?;
                 let j = self.eval(inst, ex.args[2], env)?;
-                let (Some(i), Some(j)) = (konst(&i), konst(&j)) else { return Err(self.err(ex.node, "a part select's bounds must be constant")) };
+                let (Some(i), Some(j)) = (konst(&i), konst(&j)) else {
+                    return Err(self.err(ex.node, "a part select's bounds must be constant"));
+                };
                 let (off, _) = ops::select_span(self.tys(), bt, i, j);
                 Ok(vec![(off * ew, T)])
             }
@@ -900,7 +971,15 @@ impl<'d, 'a> Lower<'d, 'a> {
         let w = v.len();
         let by = |v: &[Lit], k: usize| -> Vec<Lit> {
             (0..w)
-                .map(|i| if left { if i >= k { v[i - k] } else { F } } else if i + k < w { v[i + k] } else { fill })
+                .map(|i| {
+                    if left {
+                        if i >= k { v[i - k] } else { F }
+                    } else if i + k < w {
+                        v[i + k]
+                    } else {
+                        fill
+                    }
+                })
                 .collect()
         };
         if let Some(k) = konst(n) {
@@ -966,7 +1045,9 @@ impl<'d, 'a> Lower<'d, 'a> {
         let w = self.width(e);
         let at = ex.node;
         Ok(match ex.kind {
-            ExprKind::Const(c) => bits_of(self.d.konst(c), w).ok_or_else(|| self.err(at, "a constant that is not a number"))?,
+            ExprKind::Const(c) => {
+                bits_of(self.d.konst(c), w).ok_or_else(|| self.err(at, "a constant that is not a number"))?
+            }
             ExprKind::Object(o) => {
                 let obj = self.d.object(o);
                 match obj.kind {

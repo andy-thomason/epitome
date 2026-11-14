@@ -70,7 +70,8 @@ fn generate(part: &Part, replay: bool) -> Result<(), String> {
     }
     // The board experiments, where a board was tried (ice40_board).
     let board = read("record-board.txt").ok().map(|t| board::results_from_text(&t)).transpose()?;
-    write("description.json", &describe::to_json(&d, Some(&db), Some(&sem), board.as_ref()))?;
+    let points = read("record-ram-modes.txt").map(|t| board::ram_points_from_text(&t)).unwrap_or_default();
+    write("description.json", &describe::to_json(&d, Some(&db), Some(&sem), board.as_ref().map(|b| (b, &points[..]))))?;
     write("logic_cell.sv", &describe::logic_cell_sv(part, &sem))?;
     if failed.is_empty() { Ok(()) } else { Err(format!("{}: {} checks failed", part.name, failed.len())) }
 }

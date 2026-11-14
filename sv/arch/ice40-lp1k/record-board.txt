@@ -48,3 +48,15 @@ exp ram-write echo echo 32216 fde5eb201efeb352
 exp ram-write-masked unknown silent 32216 ae239929bf9d6621
 exp carry-in-set-1 echo echo 32216 7a3dadc6890fd742
 exp carry-in-set-0 unknown silent 32216 2376f8e9a94afb60
+exp ram-mode1-read echo echo 32216 2546ac0d8420a03f
+exp ram-mode1-read-others no-echo silent 32216 644e9d1ef14fcd7b
+exp ram-mode1-write echo echo 32216 bf90708c72019609
+exp ram-mode1-write-next no-echo silent 32216 9747c3b2e10b347e
+exp ram-mode2-read echo echo 32216 0aed6c4798fde455
+exp ram-mode2-read-others no-echo silent 32216 3b52780488d73d1d
+exp ram-mode2-write echo echo 32216 327e2ba5009b4469
+exp ram-mode2-write-next no-echo silent 32216 db14ed2061ff48b6
+exp ram-mode3-read echo echo 32216 2de915602667c84f
+exp ram-mode3-read-others no-echo silent 32216 c3f3cb87266c013f
+exp ram-mode3-write echo echo 32216 228409bcea721802
+exp ram-mode3-write-next no-echo silent 32216 b3a87affbe44a69a

@@ -134,7 +134,7 @@ pub fn checks(d: &Device, db: Option<&Chipdb>, sem: Option<&Semantics>) -> Vec<(
     out
 }
 
-pub fn to_json(d: &Device, db: Option<&Chipdb>, sem: Option<&Semantics>, board: Option<&super::board::Results>) -> String {
+pub fn to_json(d: &Device, db: Option<&Chipdb>, sem: Option<&Semantics>, board: Option<(&super::board::Results, &[super::board::RamPoint])>) -> String {
     let part: &Part = super::part(&d.asc_device).expect("a known part");
     let f = &d.format;
     let mut s = String::new();
@@ -350,14 +350,24 @@ pub fn to_json(d: &Device, db: Option<&Chipdb>, sem: Option<&Semantics>, board: 
         s.push_str("\n  ]\n},\n");
     }
 
-    if let Some(r) = board {
+    if let Some((r, points)) = board {
         s.push_str("\"board\": {\"source\": \"board\", \"board\": \"iCESugar-nano (iCELink firmware v1.1a)\", \"method\": \"designs made from this description and packed by Epitome, programmed with icesprog, A3 (from the iCELink's UART) passed to B3 (to its UART) through the logic under test; the Mac sends 64 bytes at 115200 baud and sees them come back (echo), nothing (silent) or something else (other:N)\",\n  \"experiments\": [\n");
         let ex: Vec<String> = r.iter().map(|(n, e, o, len, h)| format!("    {{\"name\": {}, \"expect\": {}, \"observed\": {}, \"bitstream\": {{\"bytes\": {len}, \"fnv64\": \"{h:016x}\"}}}}", q(n), q(e), q(o))).collect();
         s.push_str(&ex.join(",\n"));
         s.push_str("\n  ],\n  \"findings\": [\n");
         let fs: Vec<String> = super::board::findings(r).iter().map(|(w, ok, names)| format!("    {{\"finding\": {}, \"held\": {ok}, \"experiments\": [{}]}}", q(w), names.iter().map(|n| q(n)).collect::<Vec<_>>().join(", "))).collect();
         s.push_str(&fs.join(",\n"));
-        s.push_str("\n  ]\n},\n");
+        s.push_str("\n  ],\n");
+        s.push_str("  \"ram_modes\": {\"note\": \"the stored bit (word*16 + bit) a data pin reads at an address in read modes 1 to 3 (512x8, 1024x4, 2048x2), each found on the board by binary search: B3 = A3 AND RDATA[pin] echoes when the RAM gives 1. The word is the address's low eight bits; the data pins are those with pin % 2^m = 2^(m-1) - 1, each reading bit (pin with its low m bits clear) + (address >> 8) (board::ram_mode_bit); predicted is that formula's bit\",\n    \"points\": [\n");
+        let ps: Vec<String> = points
+            .iter()
+            .map(|&(m, a, j, p)| {
+                let pred = super::board::ram_mode_bit(m, a, j);
+                format!("      {{\"mode\": {m}, \"addr\": {a}, \"pin\": {j}, \"bit\": {}, \"predicted\": {}}}", p.map_or("null".into(), |p| p.to_string()), pred.map_or("null".into(), |p| p.to_string()))
+            })
+            .collect();
+        s.push_str(&ps.join(",\n"));
+        s.push_str("\n    ]\n  }\n},\n");
     }
     s.push_str("\"checks\": [\n");
     let cs: Vec<String> = checks(d, db, sem).iter().map(|(w, ok, det)| format!("  {{\"check\": {}, \"passed\": {ok}, \"detail\": {}}}", q(w), q(det))).collect();

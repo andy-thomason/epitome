@@ -181,9 +181,9 @@ through the logic under test. The Mac sends 64 bytes at 115200 baud over the
 iCELink's serial port and looks at what comes back: an echo, silence, or
 other bytes.
 
-`record-board.txt` holds 47 experiments. Each one's bitstream hash is
+`record-board.txt` holds 59 experiments. Each one's bitstream hash is
 recorded, so `board_record_agrees` can check that the description still
-makes the same designs. All twelve findings in the description's `board`
+makes the same designs. All fourteen findings in the description's `board`
 section held:
 - Each of the 8 logic cells' LUTs, and each of their 4 inputs, is where the
   description says.
@@ -205,6 +205,32 @@ section held:
   icebox_vlog says.
 - The write port works: A3 is written into word 0 every clock and read
   back. `MASK[0]` set stops that bit being written; unrouted, it reads 0.
+
+**The RAM's other modes.** These were mapped on the board with the
+`--ram-modes` option of `ice40_board`; the points are in
+`record-ram-modes.txt`.
+- **Method.** B3 = A3 AND RDATA[pin], with the read address held constant,
+  echoes exactly when the RAM gives a 1 on that pin. Twelve contents
+  patterns, one per bit of the stored bit's number, read off which of the
+  4096 stored bits it is. Two more probes check the answer: that bit alone
+  echoes, and every other bit does not. Within a known word, four patterns
+  are enough.
+- **Self-check.** The method was first checked on 256x16, where it found
+  word 1 bit 5 as it should.
+- **Result.** For read modes 1 to 3 (512x8, 1024x4, 2048x2, from
+  `CBIT_3:CBIT_2`):
+  - the word is the address's low eight bits;
+  - the data pins are those with `pin % 2^m = 2^(m-1) - 1`: the even pins,
+    then 1, 5, 9 and 13, then 3 and 11;
+  - each data pin reads bit `(pin with its low m bits clear) + (address >> 8)`
+    (`board::ram_mode_bit`);
+  - the other pins show the stages of a multiplexer tree on the high
+    address bits.
+- **Checks.** Every mapped point, in all three modes and across the high
+  address bits, gives the formula's bit; `ram_modes_follow_the_formula`
+  checks this. The `ram-mode*` experiments in the main suite predict from
+  the formula: each mode's read, and its write (`CBIT_1:CBIT_0`), which
+  lands where the read finds it and not on the neighbouring bit.
 
 ## Coverage
 
@@ -262,8 +288,8 @@ checks pass, for both parts:
   JSON lists each kind.
 - The DSP (UP5K only) and PLL settings, which are only named. The LP1K's
   PLL is not in its CM36 package; the chipdb lists CM36 under the PLL's
-  `LOCKED` packages. The RAM modes other than 256x16, and the RAM cascade
-  bits, are recorded from icebox but not tried on the board.
+  `LOCKED` packages. The RAM cascade bits are recorded from icebox but not
+  tried on the board.
 - The routing has not been checked against the device. The only
   black-box evidence for it is that the routes the icebox experiments
   built read back as intended.

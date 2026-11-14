@@ -51,8 +51,9 @@ fn description_is_up_to_date() {
         let (d, db, sem) = records(part);
         let why = format!("{}: rerun the ice40_arch example with --replay", part.name);
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("arch").join(part.dir).join("record-board.txt");
-        let board = std::fs::read_to_string(path).ok().map(|t| epitome_sv::arch::ice40::board::results_from_text(&t).unwrap());
-        assert!(describe::to_json(&d, Some(&db), Some(&sem), board.as_ref()) == read(part, "description.json"), "{why}");
+        let board = std::fs::read_to_string(&path).ok().map(|t| epitome_sv::arch::ice40::board::results_from_text(&t).unwrap());
+        let points = std::fs::read_to_string(path.with_file_name("record-ram-modes.txt")).map(|t| epitome_sv::arch::ice40::board::ram_points_from_text(&t)).unwrap_or_default();
+        assert!(describe::to_json(&d, Some(&db), Some(&sem), board.as_ref().map(|b| (b, &points[..]))) == read(part, "description.json"), "{why}");
         assert!(describe::logic_cell_sv(part, &sem) == read(part, "logic_cell.sv"), "{why}");
     }
 }
@@ -272,5 +273,19 @@ fn board_live() {
     let recorded = board::results_from_text(&read(part, "record-board.txt")).unwrap();
     for (now, then) in res.iter().zip(&recorded) {
         assert_eq!(now.2, then.2, "{}", now.0);
+    }
+}
+
+/// Every point of the block RAM's read modes mapped on the board, on a pin
+/// that carries data in the mode, is the bit `board::ram_mode_bit` gives.
+#[test]
+fn ram_modes_follow_the_formula() {
+    use epitome_sv::arch::ice40::board;
+    let part = epitome_sv::arch::ice40::part("1k").unwrap();
+    let points = board::ram_points_from_text(&read(part, "record-ram-modes.txt"));
+    let data: Vec<_> = points.iter().filter_map(|&(m, a, j, p)| board::ram_mode_bit(m, a, j).map(|q| (m, a, j, p, q))).collect();
+    assert!(data.len() >= 48);
+    for (m, a, j, p, q) in data {
+        assert_eq!(p, Some(q), "mode {m} address {a} pin {j}");
     }
 }

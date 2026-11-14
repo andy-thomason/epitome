@@ -242,6 +242,30 @@ pub fn to_json(d: &Device, db: Option<&Chipdb>, sem: Option<&Semantics>, board: 
         writeln!(s, "  \"carry\": {{\"CarryEnable\": {}, \"with CarryInSet\": {}}},", q(&sem.carry), q(&sem.carry_in_set)).unwrap();
         s.push_str("  \"names\": \"in_0..in_3 the cell's inputs, lout the LUT's output, out the cell's output, co carry out, ci the tile's carry_in_mux (the first cell's carry in), clk/cen/sr the tile's shared clock, enable and set/reset, x a net with none of these names\",\n");
         writeln!(s, "  \"runs\": {}\n}},", sem.runs).unwrap();
+        if !sem.ram_funcs.is_empty() {
+            s.push_str("\"block_ram\": {\"source\": \"icebox (functions: chipdb's RamConfig and RamCascade; parameters: Lattice's SB_RAM40_4K, whose READ_MODE and WRITE_MODE 0 to 3 are 256x16, 512x8, 1024x4 and 2048x2)\",\n");
+            s.push_str("  \"functions\": \"the SB_RAM40_4K parameters icebox_vlog gives with each function alone set (on a base where that is needed), or omitted if it shows no RAM\",\n");
+            let fs: Vec<String> = sem.ram_funcs.iter().map(|(f, p)| format!("{}: {}", q(f), q(p))).collect();
+            writeln!(s, "  \"settings\": {{{}}},", fs.join(", ")).unwrap();
+            let ds: Vec<String> = sem.ram_defaults.iter().map(|(p, v)| format!("{}: {}", q(p), q(v))).collect();
+            writeln!(s, "  \"unrouted\": {{{}}},", ds.join(", ")).unwrap();
+            s.push_str("  \"ports\": \"each port bit: the RAM's tile (0 the ramb, 1 the ramt above it) and the net there\",\n");
+            let ps: Vec<String> = sem.ram_ports.iter().map(|(p, dy, n)| format!("{}: [{dy},{}]", q(p), q(n))).collect();
+            writeln!(s, "  \"port_nets\": {{{}}}\n}},", ps.join(", ")).unwrap();
+        }
+        if !sem.io_types.is_empty() {
+            s.push_str("\"io_cell\": {\"source\": \"icebox (bits: chipdb's IOB_z.PINTYPE_k)\",\n");
+            s.push_str("  \"type\": \"six characters, PINTYPE_0 first: 1 where the bit is set\",\n");
+            s.push_str("  \"names\": \"pad the pin; d_in_0, d_in_1, d_out_0, d_out_1, out_enb the cell's ports; clk_en, in_clk, out_clk, latch the I/O tile's shared ones; r0, r1... its registers; x a net with none of these names. Where the verilog says nothing about the pad, icebox_vlog drives nothing\",\n");
+            s.push_str("  \"types\": [\n");
+            let ts: Vec<String> = sem
+                .io_types
+                .iter()
+                .map(|(t, st)| format!("    {{\"type\": \"{}\", \"verilog\": {}}}", (0..6).map(|k| if t >> k & 1 != 0 { '1' } else { '0' }).collect::<String>(), q(st)))
+                .collect();
+            s.push_str(&ts.join(",\n"));
+            s.push_str("\n  ]\n},\n");
+        }
     }
 
     if let Some(db) = db {
@@ -398,6 +422,7 @@ pub fn coverage(d: &Device, db: Option<&Chipdb>, sem: Option<&Semantics>) -> Vec
     if let Some(sem) = sem {
         out.push(("logic cell bits whose function was found by experiment (icebox)".into(), sem.lut.len() * 16 + sem.options.iter().map(|o| o.len()).sum::<usize>()));
         out.push(("flip-flop configurations observed (icebox)".into(), sem.ff.len() + 1));
+        out.push(("I/O cell pin types observed (icebox)".into(), sem.io_types.len()));
     }
     out
 }

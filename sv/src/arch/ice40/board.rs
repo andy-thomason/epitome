@@ -189,6 +189,10 @@ pub struct Experiment {
 
 /// The logic tile the experiments use: next to A3 and B3's I/O tiles.
 pub const TILE: (usize, usize) = (7, 16);
+/// The block RAM the RAM experiments use (its `ramb` tile), and a logic
+/// tile whose cells give constant ones.
+pub const RAM: (usize, usize) = (3, 15);
+pub const ONES: (usize, usize) = (4, 15);
 
 /// The experiments, with their bitstreams.
 pub fn experiments(d: &Device, db: &Chipdb, sem: &Semantics) -> Result<Vec<Experiment>, String> {
@@ -213,6 +217,21 @@ pub fn experiments(d: &Device, db: &Chipdb, sem: &Semantics) -> Result<Vec<Exper
     };
     // The table whose output is input j, whatever the others.
     let follows = |j: usize| (0..16).filter(|i| i >> j & 1 != 0).fold(0u16, |t, i| t | 1 << i);
+    // Clocks `to` from D1: its global network (gbufpin), the pad's
+    // padin bit, and the column buffers that feed `to`'s tile.
+    let clock = |des: &mut Design, to: (usize, usize, &str)| -> Result<(), String> {
+        let (cx, cy, cz) = des.pin("cm36", "D1")?;
+        let glb = db.gbufpin.iter().find(|g| (g.0, g.1, g.2) == (cx, cy, cz)).ok_or("D1 drives no global network")?.3;
+        let bit = format!("padin_glb_netwk.{glb}");
+        if !des.extra.iter().any(|e| db.extra_bits.iter().any(|x| x.0 == bit && (x.1, x.2, x.3) == *e)) {
+            des.extra_bit(&bit)?;
+        }
+        des.route((to.0, to.1, &format!("glb_netwk_{glb}")), to)?;
+        for c in db.colbuf.iter().filter(|c| (c[2], c[3]) == (to.0, to.1)) {
+            des.func(c[0], c[1], &format!("ColBufCtrl.glb_netwk_{glb}"))?;
+        }
+        Ok(())
+    };
     let mut push = |name: String, expect: &'static str, des: Design| -> Result<(), String> {
         out.push(Experiment { name, expect, bits: des.bitstream()? });
         Ok(())
@@ -281,6 +300,78 @@ pub fn experiments(d: &Device, db: &Chipdb, sem: &Semantics) -> Result<Vec<Exper
         push(format!("dff-negclk{tag}"), "unknown", clocked(&[], true, true, colbuf)?)?;
         push(format!("dff-async-sr{tag}"), "unknown", clocked(&["AsyncSetReset"], false, true, colbuf)?)?;
         push(format!("dff-async-set{tag}"), "unknown", clocked(&["AsyncSetReset", "Set_NoReset"], false, true, colbuf)?)?;
+    }
+    // The block RAM nearest B3 ([`RAM`]), clocked by D1 through global
+    // network 1 and its column buffer. Words 0 and 1 hold `init`; `re`
+    // drives RE from a cell whose LUT is all ones (unrouted, icebox_vlog
+    // says it reads 0); `powerup` sets RamConfig.PowerUp (icebox_vlog then
+    // shows no RAM).
+    let ram_base = |init: [u16; 2], data_bit: usize, re: bool, powerup: bool| -> Result<Design, String> {
+        let mut des = Design::new(d, db, sem, &g);
+        let (rx, ry) = RAM;
+        let (ax, ay, az) = des.pin("cm36", "A3")?;
+        let (bx, by, bz) = des.pin("cm36", "B3")?;
+        des.func(ax, ay, &format!("IOB_{az}.PINTYPE_0"))?;
+        des.func(bx, by, &format!("IOB_{bz}.PINTYPE_3"))?;
+        des.func(bx, by, &format!("IOB_{bz}.PINTYPE_4"))?;
+        let mut words = vec![0u16; 256];
+        words[0] = init[0];
+        words[1] = init[1];
+        des.ram.push(super::asc::AscRam { x: rx, y: ry, words });
+        let raddr = des.ram_port(rx, ry, "RADDR[0]")?;
+        des.route((ax, ay, &format!("io_{az}/D_IN_0")), (raddr.0, raddr.1, &raddr.2))?;
+        let rdata = des.ram_port(rx, ry, &format!("RDATA[{data_bit}]"))?;
+        des.route((rdata.0, rdata.1, &rdata.2), (bx, by, &format!("io_{bz}/D_OUT_0")))?;
+        if re {
+            let p = des.ram_port(rx, ry, "RE")?;
+            des.lut(ONES.0, ONES.1, 7, 0xffff);
+            des.route((ONES.0, ONES.1, "lutff_7/out"), (p.0, p.1, &p.2))?;
+        }
+        let clk = des.ram_port(rx, ry, "RCLK")?;
+        clock(&mut des, (clk.0, clk.1, &clk.2))?;
+        if powerup {
+            des.func(rx, ry, "RamConfig.PowerUp")?;
+        }
+        Ok(des)
+    };
+    push("ram-read".into(), "echo", ram_base([0, 0xffff], 0, true, false)?)?;
+    push("ram-read-powerup".into(), "no-echo", ram_base([0, 0xffff], 0, true, true)?)?;
+    push("ram-read-re-unrouted".into(), "no-echo", ram_base([0, 0xffff], 0, false, false)?)?;
+    for k in [0, 5, 10, 15] {
+        push(format!("ram-read-bit-{k}"), "echo", ram_base([0, 1 << k], k, true, false)?)?;
+        push(format!("ram-read-bit-{k}-other"), "no-echo", ram_base([0, 1 << ((k + 1) % 16)], k, true, false)?)?;
+    }
+    // Write A3 into word 0 bit 0 every clock, and read it back: WE from a
+    // cell of ones, the write address 0 (unrouted), and MASK[0] unrouted
+    // or, with `masked`, from the cell of ones.
+    for masked in [false, true] {
+        let mut des = Design::new(d, db, sem, &g);
+        let (rx, ry) = RAM;
+        des.ram.push(super::asc::AscRam { x: rx, y: ry, words: vec![0; 256] });
+        let (ax, ay, az) = des.pin("cm36", "A3")?;
+        let (bx, by, bz) = des.pin("cm36", "B3")?;
+        des.func(ax, ay, &format!("IOB_{az}.PINTYPE_0"))?;
+        des.func(bx, by, &format!("IOB_{bz}.PINTYPE_3"))?;
+        des.func(bx, by, &format!("IOB_{bz}.PINTYPE_4"))?;
+        let wdata = des.ram_port(rx, ry, "WDATA[0]")?;
+        des.route((ax, ay, &format!("io_{az}/D_IN_0")), (wdata.0, wdata.1, &wdata.2))?;
+        let rdata = des.ram_port(rx, ry, "RDATA[0]")?;
+        des.route((rdata.0, rdata.1, &rdata.2), (bx, by, &format!("io_{bz}/D_OUT_0")))?;
+        let mut ones = vec!["RE", "WE"];
+        if masked {
+            ones.push("MASK[0]");
+        }
+        for (i, port) in ones.iter().enumerate() {
+            let p = des.ram_port(rx, ry, port)?;
+            let lc = 7 - i;
+            des.lut(ONES.0, ONES.1, lc, 0xffff);
+            des.route((ONES.0, ONES.1, &format!("lutff_{lc}/out")), (p.0, p.1, &p.2))?;
+        }
+        for port in ["RCLK", "WCLK"] {
+            let c = des.ram_port(rx, ry, port)?;
+            clock(&mut des, (c.0, c.1, &c.2))?;
+        }
+        push(format!("ram-write{}", if masked { "-masked" } else { "" }), if masked { "unknown" } else { "echo" }, des)?;
     }
     // The carry: cell 0's carry out is A3 (on in_1) and its carry in;
     // cell 1 passes its in_3, the carry, to B3.
@@ -386,6 +477,25 @@ pub fn findings(r: &Results) -> Vec<(String, bool, Vec<String>)> {
         "an unrouted flip-flop enable reads 1 and an unrouted set/reset 0, synchronous or not, set or reset",
         (["dff-posedge", "dff-async-sr", "dff-async-set"].iter().all(|n| seen(n) == Some("echo")), vec!["dff-posedge".into(), "dff-async-sr".into(), "dff-async-set".into()]),
     );
+    if seen("ram-read").is_some() {
+        let bits: Vec<_> = r.iter().filter(|x| x.0.starts_with("ram-read-bit-")).collect();
+        add(
+            "a block RAM reads its .ram_data contents: word 1 at RADDR[0] = A3, clocked from D1, RE driven to 1",
+            (seen("ram-read") == Some("echo"), vec!["ram-read".into()]),
+        );
+        add(
+            "each RDATA bit is the word's bit of the same number, as .ram_data and the port map say",
+            (!bits.is_empty() && bits.iter().all(|x| (x.2 == "echo") != x.0.ends_with("-other")), bits.iter().map(|x| x.0.clone()).collect()),
+        );
+        add(
+            "RamConfig.PowerUp set turns the LP1K's block RAM off, and an unrouted RE reads 0 (as icebox_vlog says)",
+            (seen("ram-read-powerup") == Some("silent") && seen("ram-read-re-unrouted") == Some("silent"), pair("ram-read-powerup", "ram-read-re-unrouted")),
+        );
+        add(
+            "the write port writes: WDATA[0] = A3 into word 0 each clock, read back; MASK[0] set stops the bit being written, and unrouted it reads 0",
+            (seen("ram-write") == Some("echo") && seen("ram-write-masked") == Some("silent"), pair("ram-write", "ram-write-masked")),
+        );
+    }
     add(
         "the carry is (in_1 & in_2) | ((in_1 | in_2) & ci): with CarryInSet ci is 1 and the carry follows in_1; without it the first cell's ci is 0",
         (seen("carry-in-set-1") == Some("echo") && seen("carry-in-set-0") == Some("silent"), pair("carry-in-set-1", "carry-in-set-0")),

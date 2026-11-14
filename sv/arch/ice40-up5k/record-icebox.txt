@@ -1,5 +1,5 @@
 # What sv/src/arch/ice40/icebox.rs found by running icebox_vlog and icebox_explain as black boxes.
-runs 203
+runs 280
 lut 0 0 0 40
 lut 0 1 1 40
 lut 0 2 1 41
@@ -171,3 +171,213 @@ ff 1 1 1 always @(negedge clk, posedge sr) if (sr) x <= 1'b1; else if (cen) x <=
 ff_off assign out = lout;
 carry assign co = (in_1 & in_2) | ((in_1 | in_2) & ci);
 carry_in_set assign co = (in_1 & in_2) | ((in_1 | in_2) & ci); assign ci = 1;
+ram_func none omitted
+ram_func RamConfig.PowerUp READ_MODE=0 WRITE_MODE=0
+ram_func RamConfig.PowerUp+RamCascade.CBIT_4 READ_MODE=0 WRITE_MODE=0
+ram_func RamConfig.PowerUp+RamCascade.CBIT_5 READ_MODE=0 WRITE_MODE=0
+ram_func RamConfig.PowerUp+RamCascade.CBIT_6 READ_MODE=0 WRITE_MODE=0
+ram_func RamConfig.PowerUp+RamCascade.CBIT_7 READ_MODE=0 WRITE_MODE=0
+ram_func RamConfig.PowerUp+RamConfig.CBIT_0 READ_MODE=0 WRITE_MODE=1
+ram_func RamConfig.PowerUp+RamConfig.CBIT_1 READ_MODE=0 WRITE_MODE=2
+ram_func RamConfig.PowerUp+RamConfig.CBIT_2 READ_MODE=1 WRITE_MODE=0
+ram_func RamConfig.PowerUp+RamConfig.CBIT_3 READ_MODE=2 WRITE_MODE=0
+ram_default MASK[0] 1'b0
+ram_default MASK[10] 1'b0
+ram_default MASK[11] 1'b0
+ram_default MASK[12] 1'b0
+ram_default MASK[13] 1'b0
+ram_default MASK[14] 1'b0
+ram_default MASK[15] 1'b0
+ram_default MASK[1] 1'b0
+ram_default MASK[2] 1'b0
+ram_default MASK[3] 1'b0
+ram_default MASK[4] 1'b0
+ram_default MASK[5] 1'b0
+ram_default MASK[6] 1'b0
+ram_default MASK[7] 1'b0
+ram_default MASK[8] 1'b0
+ram_default MASK[9] 1'b0
+ram_default RADDR[0] 1'b0
+ram_default RADDR[10] 1'b0
+ram_default RADDR[1] 1'b0
+ram_default RADDR[2] 1'b0
+ram_default RADDR[3] 1'b0
+ram_default RADDR[4] 1'b0
+ram_default RADDR[5] 1'b0
+ram_default RADDR[6] 1'b0
+ram_default RADDR[7] 1'b0
+ram_default RADDR[8] 1'b0
+ram_default RADDR[9] 1'b0
+ram_default RCLK 1'b0
+ram_default RCLKE 1'b1
+ram_default RE 1'b0
+ram_default WADDR[0] 1'b0
+ram_default WADDR[10] 1'b0
+ram_default WADDR[1] 1'b0
+ram_default WADDR[2] 1'b0
+ram_default WADDR[3] 1'b0
+ram_default WADDR[4] 1'b0
+ram_default WADDR[5] 1'b0
+ram_default WADDR[6] 1'b0
+ram_default WADDR[7] 1'b0
+ram_default WADDR[8] 1'b0
+ram_default WADDR[9] 1'b0
+ram_default WCLK 1'b0
+ram_default WCLKE 1'b1
+ram_default WDATA[0] 1'b0
+ram_default WDATA[10] 1'b0
+ram_default WDATA[11] 1'b0
+ram_default WDATA[12] 1'b0
+ram_default WDATA[13] 1'b0
+ram_default WDATA[14] 1'b0
+ram_default WDATA[15] 1'b0
+ram_default WDATA[1] 1'b0
+ram_default WDATA[2] 1'b0
+ram_default WDATA[3] 1'b0
+ram_default WDATA[4] 1'b0
+ram_default WDATA[5] 1'b0
+ram_default WDATA[6] 1'b0
+ram_default WDATA[7] 1'b0
+ram_default WDATA[8] 1'b0
+ram_default WDATA[9] 1'b0
+ram_default WE 1'b0
+ram_port MASK[0] 1 ram/MASK_0
+ram_port MASK[10] 0 ram/MASK_10
+ram_port MASK[11] 0 ram/MASK_11
+ram_port MASK[12] 0 ram/MASK_12
+ram_port MASK[13] 0 ram/MASK_13
+ram_port MASK[14] 0 ram/MASK_14
+ram_port MASK[15] 0 ram/MASK_15
+ram_port MASK[1] 1 ram/MASK_1
+ram_port MASK[2] 1 ram/MASK_2
+ram_port MASK[3] 1 ram/MASK_3
+ram_port MASK[4] 1 ram/MASK_4
+ram_port MASK[5] 1 ram/MASK_5
+ram_port MASK[6] 1 ram/MASK_6
+ram_port MASK[7] 1 ram/MASK_7
+ram_port MASK[8] 0 ram/MASK_8
+ram_port MASK[9] 0 ram/MASK_9
+ram_port RADDR[0] 0 ram/RADDR_0
+ram_port RADDR[10] 0 ram/RADDR_10
+ram_port RADDR[1] 0 ram/RADDR_1
+ram_port RADDR[2] 0 ram/RADDR_2
+ram_port RADDR[3] 0 ram/RADDR_3
+ram_port RADDR[4] 0 ram/RADDR_4
+ram_port RADDR[5] 0 ram/RADDR_5
+ram_port RADDR[6] 0 ram/RADDR_6
+ram_port RADDR[7] 0 ram/RADDR_7
+ram_port RADDR[8] 0 ram/RADDR_8
+ram_port RADDR[9] 0 ram/RADDR_9
+ram_port RCLK 0 ram/RCLK
+ram_port RCLKE 0 ram/RCLKE
+ram_port RDATA[0] 1 ram/RDATA_0
+ram_port RDATA[10] 0 ram/RDATA_10
+ram_port RDATA[11] 0 ram/RDATA_11
+ram_port RDATA[12] 0 ram/RDATA_12
+ram_port RDATA[13] 0 ram/RDATA_13
+ram_port RDATA[14] 0 ram/RDATA_14
+ram_port RDATA[15] 0 ram/RDATA_15
+ram_port RDATA[1] 1 ram/RDATA_1
+ram_port RDATA[2] 1 ram/RDATA_2
+ram_port RDATA[3] 1 ram/RDATA_3
+ram_port RDATA[4] 1 ram/RDATA_4
+ram_port RDATA[5] 1 ram/RDATA_5
+ram_port RDATA[6] 1 ram/RDATA_6
+ram_port RDATA[7] 1 ram/RDATA_7
+ram_port RDATA[8] 0 ram/RDATA_8
+ram_port RDATA[9] 0 ram/RDATA_9
+ram_port RE 0 ram/RE
+ram_port WADDR[0] 1 ram/WADDR_0
+ram_port WADDR[10] 1 ram/WADDR_10
+ram_port WADDR[1] 1 ram/WADDR_1
+ram_port WADDR[2] 1 ram/WADDR_2
+ram_port WADDR[3] 1 ram/WADDR_3
+ram_port WADDR[4] 1 ram/WADDR_4
+ram_port WADDR[5] 1 ram/WADDR_5
+ram_port WADDR[6] 1 ram/WADDR_6
+ram_port WADDR[7] 1 ram/WADDR_7
+ram_port WADDR[8] 1 ram/WADDR_8
+ram_port WADDR[9] 1 ram/WADDR_9
+ram_port WCLK 1 ram/WCLK
+ram_port WCLKE 1 ram/WCLKE
+ram_port WDATA[0] 1 ram/WDATA_0
+ram_port WDATA[10] 0 ram/WDATA_10
+ram_port WDATA[11] 0 ram/WDATA_11
+ram_port WDATA[12] 0 ram/WDATA_12
+ram_port WDATA[13] 0 ram/WDATA_13
+ram_port WDATA[14] 0 ram/WDATA_14
+ram_port WDATA[15] 0 ram/WDATA_15
+ram_port WDATA[1] 1 ram/WDATA_1
+ram_port WDATA[2] 1 ram/WDATA_2
+ram_port WDATA[3] 1 ram/WDATA_3
+ram_port WDATA[4] 1 ram/WDATA_4
+ram_port WDATA[5] 1 ram/WDATA_5
+ram_port WDATA[6] 1 ram/WDATA_6
+ram_port WDATA[7] 1 ram/WDATA_7
+ram_port WDATA[8] 0 ram/WDATA_8
+ram_port WDATA[9] 0 ram/WDATA_9
+ram_port WE 1 ram/WE
+io_type 000000 always @(posedge in_clk) if (clk_en) r0 <= pad; assign d_in_0 = r0; always @(negedge in_clk) if (clk_en) r1 <= pad; assign d_in_1 = r1;
+io_type 100000 assign d_in_0 = pad; always @(negedge in_clk) if (clk_en) r0 <= pad; assign d_in_1 = r0;
+io_type 010000 always @(posedge in_clk) if (clk_en) r0 <= pad; always @* if (!latch) r1 = r0; assign d_in_0 = r1; always @(negedge in_clk) if (clk_en) r2 <= pad; assign d_in_1 = r2;
+io_type 110000 always @* if (!latch) r0 = pad; assign d_in_0 = r0; always @(negedge in_clk) if (clk_en) r1 <= pad; assign d_in_1 = r1;
+io_type 001000 always @(posedge in_clk) if (clk_en) r0 <= pad; assign d_in_0 = r0; always @(negedge in_clk) if (clk_en) r1 <= pad; assign d_in_1 = r1;
+io_type 101000 assign d_in_0 = pad; always @(negedge in_clk) if (clk_en) r0 <= pad; assign d_in_1 = r0;
+io_type 011000 always @(posedge in_clk) if (clk_en) r0 <= pad; always @* if (!latch) r1 = r0; assign d_in_0 = r1; always @(negedge in_clk) if (clk_en) r2 <= pad; assign d_in_1 = r2;
+io_type 111000 always @* if (!latch) r0 = pad; assign d_in_0 = r0; always @(negedge in_clk) if (clk_en) r1 <= pad; assign d_in_1 = r1;
+io_type 000100 always @(posedge in_clk) if (clk_en) r0 <= pad; assign d_in_0 = r0; always @(negedge in_clk) if (clk_en) r1 <= pad; assign d_in_1 = r1;
+io_type 100100 assign d_in_0 = pad; always @(negedge in_clk) if (clk_en) r0 <= pad; assign d_in_1 = r0;
+io_type 010100 always @(posedge in_clk) if (clk_en) r0 <= pad; always @* if (!latch) r1 = r0; assign d_in_0 = r1; always @(negedge in_clk) if (clk_en) r2 <= pad; assign d_in_1 = r2;
+io_type 110100 always @* if (!latch) r0 = pad; assign d_in_0 = r0; always @(negedge in_clk) if (clk_en) r1 <= pad; assign d_in_1 = r1;
+io_type 001100 always @(posedge in_clk) if (clk_en) r0 <= pad; assign d_in_0 = r0; always @(negedge in_clk) if (clk_en) r1 <= pad; assign d_in_1 = r1;
+io_type 101100 assign d_in_0 = pad; always @(negedge in_clk) if (clk_en) r0 <= pad; assign d_in_1 = r0;
+io_type 011100 always @(posedge in_clk) if (clk_en) r0 <= pad; always @* if (!latch) r1 = r0; assign d_in_0 = r1; always @(negedge in_clk) if (clk_en) r2 <= pad; assign d_in_1 = r2;
+io_type 111100 always @* if (!latch) r0 = pad; assign d_in_0 = r0; always @(negedge in_clk) if (clk_en) r1 <= pad; assign d_in_1 = r1;
+io_type 000010 always @(posedge in_clk) if (clk_en) r0 <= pad; assign d_in_0 = r0; always @(negedge in_clk) if (clk_en) r1 <= pad; assign d_in_1 = r1; always @(posedge out_clk) if (clk_en) r2 <= d_out_0; always @(negedge out_clk) if (clk_en) r3 <= d_out_1; wire x; assign x = out_clk ? r2 : r3; assign pad = x;
+io_type 100010 assign d_in_0 = pad; always @(negedge in_clk) if (clk_en) r0 <= pad; assign d_in_1 = r0; always @(posedge out_clk) if (clk_en) r1 <= d_out_0; always @(negedge out_clk) if (clk_en) r2 <= d_out_1; wire x; assign x = out_clk ? r1 : r2; assign pad = x;
+io_type 010010 always @(posedge in_clk) if (clk_en) r0 <= pad; always @* if (!latch) r1 = r0; assign d_in_0 = r1; always @(negedge in_clk) if (clk_en) r2 <= pad; assign d_in_1 = r2; always @(posedge out_clk) if (clk_en) r3 <= d_out_0; always @(negedge out_clk) if (clk_en) r4 <= d_out_1; wire x; assign x = out_clk ? r3 : r4; assign pad = x;
+io_type 110010 always @* if (!latch) r0 = pad; assign d_in_0 = r0; always @(negedge in_clk) if (clk_en) r1 <= pad; assign d_in_1 = r1; always @(posedge out_clk) if (clk_en) r2 <= d_out_0; always @(negedge out_clk) if (clk_en) r3 <= d_out_1; wire x; assign x = out_clk ? r2 : r3; assign pad = x;
+io_type 001010 always @(posedge in_clk) if (clk_en) r0 <= pad; assign d_in_0 = r0; always @(negedge in_clk) if (clk_en) r1 <= pad; assign d_in_1 = r1; always @(posedge out_clk) if (clk_en) r2 <= d_out_0; assign pad = r2;
+io_type 101010 assign d_in_0 = pad; always @(negedge in_clk) if (clk_en) r0 <= pad; assign d_in_1 = r0; always @(posedge out_clk) if (clk_en) r1 <= d_out_0; assign pad = r1;
+io_type 011010 always @(posedge in_clk) if (clk_en) r0 <= pad; always @* if (!latch) r1 = r0; assign d_in_0 = r1; always @(negedge in_clk) if (clk_en) r2 <= pad; assign d_in_1 = r2; always @(posedge out_clk) if (clk_en) r3 <= d_out_0; assign pad = r3;
+io_type 111010 always @* if (!latch) r0 = pad; assign d_in_0 = r0; always @(negedge in_clk) if (clk_en) r1 <= pad; assign d_in_1 = r1; always @(posedge out_clk) if (clk_en) r2 <= d_out_0; assign pad = r2;
+io_type 000110 always @(posedge in_clk) if (clk_en) r0 <= pad; assign d_in_0 = r0; always @(negedge in_clk) if (clk_en) r1 <= pad; assign d_in_1 = r1; assign pad = d_out_0;
+io_type 100110 assign d_in_0 = pad; always @(negedge in_clk) if (clk_en) r0 <= pad; assign d_in_1 = r0; assign pad = d_out_0;
+io_type 010110 always @(posedge in_clk) if (clk_en) r0 <= pad; always @* if (!latch) r1 = r0; assign d_in_0 = r1; always @(negedge in_clk) if (clk_en) r2 <= pad; assign d_in_1 = r2; assign pad = d_out_0;
+io_type 110110 always @* if (!latch) r0 = pad; assign d_in_0 = r0; always @(negedge in_clk) if (clk_en) r1 <= pad; assign d_in_1 = r1; assign pad = d_out_0;
+io_type 001110 always @(posedge in_clk) if (clk_en) r0 <= pad; assign d_in_0 = r0; always @(negedge in_clk) if (clk_en) r1 <= pad; assign d_in_1 = r1; always @(posedge out_clk) if (clk_en) r2 <= !d_out_0; assign pad = r2;
+io_type 101110 assign d_in_0 = pad; always @(negedge in_clk) if (clk_en) r0 <= pad; assign d_in_1 = r0; always @(posedge out_clk) if (clk_en) r1 <= !d_out_0; assign pad = r1;
+io_type 011110 always @(posedge in_clk) if (clk_en) r0 <= pad; always @* if (!latch) r1 = r0; assign d_in_0 = r1; always @(negedge in_clk) if (clk_en) r2 <= pad; assign d_in_1 = r2; always @(posedge out_clk) if (clk_en) r3 <= !d_out_0; assign pad = r3;
+io_type 111110 always @* if (!latch) r0 = pad; assign d_in_0 = r0; always @(negedge in_clk) if (clk_en) r1 <= pad; assign d_in_1 = r1; always @(posedge out_clk) if (clk_en) r2 <= !d_out_0; assign pad = r2;
+io_type 000001 always @(posedge in_clk) if (clk_en) r0 <= pad; assign d_in_0 = r0; always @(negedge in_clk) if (clk_en) r1 <= pad; assign d_in_1 = r1; always @(posedge out_clk) if (clk_en) r2 <= d_out_0; always @(negedge out_clk) if (clk_en) r3 <= d_out_1; wire x; assign x = out_clk ? r2 : r3; assign pad = out_enb ? x : 1'bz;
+io_type 100001 assign d_in_0 = pad; always @(negedge in_clk) if (clk_en) r0 <= pad; assign d_in_1 = r0; always @(posedge out_clk) if (clk_en) r1 <= d_out_0; always @(negedge out_clk) if (clk_en) r2 <= d_out_1; wire x; assign x = out_clk ? r1 : r2; assign pad = out_enb ? x : 1'bz;
+io_type 010001 always @(posedge in_clk) if (clk_en) r0 <= pad; always @* if (!latch) r1 = r0; assign d_in_0 = r1; always @(negedge in_clk) if (clk_en) r2 <= pad; assign d_in_1 = r2; always @(posedge out_clk) if (clk_en) r3 <= d_out_0; always @(negedge out_clk) if (clk_en) r4 <= d_out_1; wire x; assign x = out_clk ? r3 : r4; assign pad = out_enb ? x : 1'bz;
+io_type 110001 always @* if (!latch) r0 = pad; assign d_in_0 = r0; always @(negedge in_clk) if (clk_en) r1 <= pad; assign d_in_1 = r1; always @(posedge out_clk) if (clk_en) r2 <= d_out_0; always @(negedge out_clk) if (clk_en) r3 <= d_out_1; wire x; assign x = out_clk ? r2 : r3; assign pad = out_enb ? x : 1'bz;
+io_type 001001 always @(posedge in_clk) if (clk_en) r0 <= pad; assign d_in_0 = r0; always @(negedge in_clk) if (clk_en) r1 <= pad; assign d_in_1 = r1; always @(posedge out_clk) if (clk_en) r2 <= d_out_0; assign pad = out_enb ? r2 : 1'bz;
+io_type 101001 assign d_in_0 = pad; always @(negedge in_clk) if (clk_en) r0 <= pad; assign d_in_1 = r0; always @(posedge out_clk) if (clk_en) r1 <= d_out_0; assign pad = out_enb ? r1 : 1'bz;
+io_type 011001 always @(posedge in_clk) if (clk_en) r0 <= pad; always @* if (!latch) r1 = r0; assign d_in_0 = r1; always @(negedge in_clk) if (clk_en) r2 <= pad; assign d_in_1 = r2; always @(posedge out_clk) if (clk_en) r3 <= d_out_0; assign pad = out_enb ? r3 : 1'bz;
+io_type 111001 always @* if (!latch) r0 = pad; assign d_in_0 = r0; always @(negedge in_clk) if (clk_en) r1 <= pad; assign d_in_1 = r1; always @(posedge out_clk) if (clk_en) r2 <= d_out_0; assign pad = out_enb ? r2 : 1'bz;
+io_type 000101 always @(posedge in_clk) if (clk_en) r0 <= pad; assign d_in_0 = r0; always @(negedge in_clk) if (clk_en) r1 <= pad; assign d_in_1 = r1; assign pad = out_enb ? d_out_0 : 1'bz;
+io_type 100101 assign d_in_0 = pad; always @(negedge in_clk) if (clk_en) r0 <= pad; assign d_in_1 = r0; assign pad = out_enb ? d_out_0 : 1'bz;
+io_type 010101 always @(posedge in_clk) if (clk_en) r0 <= pad; always @* if (!latch) r1 = r0; assign d_in_0 = r1; always @(negedge in_clk) if (clk_en) r2 <= pad; assign d_in_1 = r2; assign pad = out_enb ? d_out_0 : 1'bz;
+io_type 110101 always @* if (!latch) r0 = pad; assign d_in_0 = r0; always @(negedge in_clk) if (clk_en) r1 <= pad; assign d_in_1 = r1; assign pad = out_enb ? d_out_0 : 1'bz;
+io_type 001101 always @(posedge in_clk) if (clk_en) r0 <= pad; assign d_in_0 = r0; always @(negedge in_clk) if (clk_en) r1 <= pad; assign d_in_1 = r1; always @(posedge out_clk) if (clk_en) r2 <= !d_out_0; assign pad = out_enb ? r2 : 1'bz;
+io_type 101101 assign d_in_0 = pad; always @(negedge in_clk) if (clk_en) r0 <= pad; assign d_in_1 = r0; always @(posedge out_clk) if (clk_en) r1 <= !d_out_0; assign pad = out_enb ? r1 : 1'bz;
+io_type 011101 always @(posedge in_clk) if (clk_en) r0 <= pad; always @* if (!latch) r1 = r0; assign d_in_0 = r1; always @(negedge in_clk) if (clk_en) r2 <= pad; assign d_in_1 = r2; always @(posedge out_clk) if (clk_en) r3 <= !d_out_0; assign pad = out_enb ? r3 : 1'bz;
+io_type 111101 always @* if (!latch) r0 = pad; assign d_in_0 = r0; always @(negedge in_clk) if (clk_en) r1 <= pad; assign d_in_1 = r1; always @(posedge out_clk) if (clk_en) r2 <= !d_out_0; assign pad = out_enb ? r2 : 1'bz;
+io_type 000011 always @(posedge in_clk) if (clk_en) r0 <= pad; assign d_in_0 = r0; always @(negedge in_clk) if (clk_en) r1 <= pad; assign d_in_1 = r1; always @(posedge out_clk) if (clk_en) r2 <= out_enb; always @(posedge out_clk) if (clk_en) r3 <= d_out_0; always @(negedge out_clk) if (clk_en) r4 <= d_out_1; wire x; assign x = out_clk ? r3 : r4; assign pad = r2 ? x : 1'bz;
+io_type 100011 assign d_in_0 = pad; always @(negedge in_clk) if (clk_en) r0 <= pad; assign d_in_1 = r0; always @(posedge out_clk) if (clk_en) r1 <= out_enb; always @(posedge out_clk) if (clk_en) r2 <= d_out_0; always @(negedge out_clk) if (clk_en) r3 <= d_out_1; wire x; assign x = out_clk ? r2 : r3; assign pad = r1 ? x : 1'bz;
+io_type 010011 always @(posedge in_clk) if (clk_en) r0 <= pad; always @* if (!latch) r1 = r0; assign d_in_0 = r1; always @(negedge in_clk) if (clk_en) r2 <= pad; assign d_in_1 = r2; always @(posedge out_clk) if (clk_en) r3 <= out_enb; always @(posedge out_clk) if (clk_en) r4 <= d_out_0; always @(negedge out_clk) if (clk_en) r5 <= d_out_1; wire x; assign x = out_clk ? r4 : r5; assign pad = r3 ? x : 1'bz;
+io_type 110011 always @* if (!latch) r0 = pad; assign d_in_0 = r0; always @(negedge in_clk) if (clk_en) r1 <= pad; assign d_in_1 = r1; always @(posedge out_clk) if (clk_en) r2 <= out_enb; always @(posedge out_clk) if (clk_en) r3 <= d_out_0; always @(negedge out_clk) if (clk_en) r4 <= d_out_1; wire x; assign x = out_clk ? r3 : r4; assign pad = r2 ? x : 1'bz;
+io_type 001011 always @(posedge in_clk) if (clk_en) r0 <= pad; assign d_in_0 = r0; always @(negedge in_clk) if (clk_en) r1 <= pad; assign d_in_1 = r1; always @(posedge out_clk) if (clk_en) r2 <= out_enb; always @(posedge out_clk) if (clk_en) r3 <= d_out_0; assign pad = r2 ? r3 : 1'bz;
+io_type 101011 assign d_in_0 = pad; always @(negedge in_clk) if (clk_en) r0 <= pad; assign d_in_1 = r0; always @(posedge out_clk) if (clk_en) r1 <= out_enb; always @(posedge out_clk) if (clk_en) r2 <= d_out_0; assign pad = r1 ? r2 : 1'bz;
+io_type 011011 always @(posedge in_clk) if (clk_en) r0 <= pad; always @* if (!latch) r1 = r0; assign d_in_0 = r1; always @(negedge in_clk) if (clk_en) r2 <= pad; assign d_in_1 = r2; always @(posedge out_clk) if (clk_en) r3 <= out_enb; always @(posedge out_clk) if (clk_en) r4 <= d_out_0; assign pad = r3 ? r4 : 1'bz;
+io_type 111011 always @* if (!latch) r0 = pad; assign d_in_0 = r0; always @(negedge in_clk) if (clk_en) r1 <= pad; assign d_in_1 = r1; always @(posedge out_clk) if (clk_en) r2 <= out_enb; always @(posedge out_clk) if (clk_en) r3 <= d_out_0; assign pad = r2 ? r3 : 1'bz;
+io_type 000111 always @(posedge in_clk) if (clk_en) r0 <= pad; assign d_in_0 = r0; always @(negedge in_clk) if (clk_en) r1 <= pad; assign d_in_1 = r1; always @(posedge out_clk) if (clk_en) r2 <= out_enb; assign pad = r2 ? d_out_0 : 1'bz;
+io_type 100111 assign d_in_0 = pad; always @(negedge in_clk) if (clk_en) r0 <= pad; assign d_in_1 = r0; always @(posedge out_clk) if (clk_en) r1 <= out_enb; assign pad = r1 ? d_out_0 : 1'bz;
+io_type 010111 always @(posedge in_clk) if (clk_en) r0 <= pad; always @* if (!latch) r1 = r0; assign d_in_0 = r1; always @(negedge in_clk) if (clk_en) r2 <= pad; assign d_in_1 = r2; always @(posedge out_clk) if (clk_en) r3 <= out_enb; assign pad = r3 ? d_out_0 : 1'bz;
+io_type 110111 always @* if (!latch) r0 = pad; assign d_in_0 = r0; always @(negedge in_clk) if (clk_en) r1 <= pad; assign d_in_1 = r1; always @(posedge out_clk) if (clk_en) r2 <= out_enb; assign pad = r2 ? d_out_0 : 1'bz;
+io_type 001111 always @(posedge in_clk) if (clk_en) r0 <= pad; assign d_in_0 = r0; always @(negedge in_clk) if (clk_en) r1 <= pad; assign d_in_1 = r1; always @(posedge out_clk) if (clk_en) r2 <= out_enb; always @(posedge out_clk) if (clk_en) r3 <= !d_out_0; assign pad = r2 ? r3 : 1'bz;
+io_type 101111 assign d_in_0 = pad; always @(negedge in_clk) if (clk_en) r0 <= pad; assign d_in_1 = r0; always @(posedge out_clk) if (clk_en) r1 <= out_enb; always @(posedge out_clk) if (clk_en) r2 <= !d_out_0; assign pad = r1 ? r2 : 1'bz;
+io_type 011111 always @(posedge in_clk) if (clk_en) r0 <= pad; always @* if (!latch) r1 = r0; assign d_in_0 = r1; always @(negedge in_clk) if (clk_en) r2 <= pad; assign d_in_1 = r2; always @(posedge out_clk) if (clk_en) r3 <= out_enb; always @(posedge out_clk) if (clk_en) r4 <= !d_out_0; assign pad = r3 ? r4 : 1'bz;
+io_type 111111 always @* if (!latch) r0 = pad; assign d_in_0 = r0; always @(negedge in_clk) if (clk_en) r1 <= pad; assign d_in_1 = r1; always @(posedge out_clk) if (clk_en) r2 <= out_enb; always @(posedge out_clk) if (clk_en) r3 <= !d_out_0; assign pad = r2 ? r3 : 1'bz;

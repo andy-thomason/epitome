@@ -3,7 +3,7 @@
 //! the logic cell's bit order, and the result packed by Epitome's own
 //! packer. The board experiments ([`super::board`]) are built with it.
 
-use super::asc::{Asc, AscTile};
+use super::asc::{Asc, AscRam, AscTile};
 use super::bitstream::PackOptions;
 use super::chipdb::{Bit, Chipdb, Raw};
 use super::icebox::{Graph, Semantics};
@@ -41,11 +41,13 @@ pub struct Design<'a> {
     used: FxSet<usize>,
     pub bits: BTreeSet<(usize, usize, Bit)>,
     pub extra: Vec<(usize, usize, usize)>,
+    /// Block RAM contents, by the RAM's `ramb` tile.
+    pub ram: Vec<AscRam>,
 }
 
 impl<'a> Design<'a> {
     pub fn new(d: &'a Device, db: &'a Chipdb, sem: &'a Semantics, g: &'a Graph) -> Design<'a> {
-        Design { d, db, sem, g, used: FxSet::default(), bits: BTreeSet::new(), extra: Vec::new() }
+        Design { d, db, sem, g, used: FxSet::default(), bits: BTreeSet::new(), extra: Vec::new(), ram: Vec::new() }
     }
 
     /// Sets the bits of tile function `name` (the chip database's name) in
@@ -91,6 +93,13 @@ impl<'a> Design<'a> {
         Ok(())
     }
 
+    /// The net of a block RAM's port bit (`RADDR[0]`, `RE`...), by the
+    /// RAM's `ramb` tile, from the icebox experiments' port map.
+    pub fn ram_port(&self, x: usize, y: usize, port: &str) -> Result<(usize, usize, String), String> {
+        let (_, dy, name) = self.sem.ram_ports.iter().find(|p| p.0 == port).ok_or_else(|| format!("no RAM port {port}"))?;
+        Ok((x, y + dy, name.clone()))
+    }
+
     /// A package pin's I/O tile and PIO.
     pub fn pin(&self, package: &str, pin: &str) -> Result<(usize, usize, usize), String> {
         let pins = &self.db.pins.iter().find(|(p, _)| p == package).ok_or_else(|| format!("no package {package}"))?.1;
@@ -109,6 +118,7 @@ impl<'a> Design<'a> {
             asc.tiles.push(tile);
         }
         asc.extra = self.extra.clone();
+        asc.ram = self.ram.clone();
         asc
     }
 

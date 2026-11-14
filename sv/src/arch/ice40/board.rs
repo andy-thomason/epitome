@@ -164,6 +164,10 @@ impl Serial {
         out
     }
 
+    pub fn send(&mut self, data: &[u8]) -> Result<(), String> {
+        self.file.write_all(data).map_err(|e| e.to_string())
+    }
+
     /// Sends `data` and says what came back: `echo`, `silent` or `other`.
     pub fn echo(&mut self, data: &[u8]) -> Result<String, String> {
         self.read_quiet(200);

@@ -20,8 +20,12 @@ pub mod chipdb;
 pub mod describe;
 pub mod design;
 pub mod experiment;
+pub mod flow;
 pub mod icebox;
 pub mod icepack;
+pub mod map;
+pub mod place;
+pub mod route;
 pub mod svg;
 
 use bitstream::Cmd;

@@ -132,6 +132,26 @@ read what `icebox_vlog` prints.
   clocks on the falling edge.
 - **Carry**: `co = (in_1 & in_2) | ((in_1 | in_2) & ci)`. `CarryInSet`
   makes the first cell's carry in 1.
+- **I/O cell**: one I/O cell on the top edge has every port wired. For each
+  of the 64 settings of its `PINTYPE_0..5` bits, `icebox_vlog`'s statements
+  for it are recorded, with its nets named by port. The table is the same
+  for both parts. It covers plain, registered and latched inputs, the DDR
+  input, and plain, registered, DDR, inverted and tristate outputs (the
+  output enable plain or registered). `PINTYPE_0` alone is a plain input;
+  `PINTYPE_3` and `PINTYPE_4` make a plain output.
+- **Block RAM**: one RAM has its ports wired, in three groups because there
+  is not enough local routing for all of them at once. `icebox_vlog`
+  renders the RAM as Lattice's `SB_RAM40_4K`, with nothing set and then
+  with each `RamConfig`/`RamCascade` function alone:
+  - `CBIT_1:CBIT_0` is `WRITE_MODE` and `CBIT_3:CBIT_2` is `READ_MODE`.
+    Lattice's documentation gives the meaning of those parameters (256x16,
+    512x8, 1024x4, 2048x2).
+  - The cascade bits change nothing vlog shows.
+  - On the LP1K a set `PowerUp` removes the RAM. On the UP5K the RAM is
+    there only with `PowerUp` set.
+  - Each port bit's net and each unrouted port's value are recorded:
+    `RE`, `WE`, the addresses, data and mask read 0, and the clock enables
+    read 1.
 
 ### What the board showed
 
@@ -161,9 +181,9 @@ through the logic under test. The Mac sends 64 bytes at 115200 baud over the
 iCELink's serial port and looks at what comes back: an echo, silence, or
 other bytes.
 
-`record-board.txt` holds 34 experiments. Each one's bitstream hash is
+`record-board.txt` holds 47 experiments. Each one's bitstream hash is
 recorded, so `board_record_agrees` can check that the description still
-makes the same designs. All eight findings in the description's `board`
+makes the same designs. All twelve findings in the description's `board`
 section held:
 - Each of the 8 logic cells' LUTs, and each of their 4 inputs, is where the
   description says.
@@ -178,6 +198,13 @@ section held:
 - An unrouted clock enable reads 1, and an unrouted set/reset reads 0.
 - The carry formula holds: with `CarryInSet` the first cell's carry in
   is 1, and without it, 0.
+- A block RAM reads its `.ram_data` contents: word 1 is read at RADDR[0] =
+  A3, clocked from D1, with `RE` driven to 1. Each `RDATA` bit is the
+  word's bit of the same number.
+- `PowerUp` set turns the LP1K's RAM off, and an unrouted `RE` reads 0, as
+  icebox_vlog says.
+- The write port works: A3 is written into word 0 every clock and read
+  back. `MASK[0]` set stops that bit being written; unrouted, it reads 0.
 
 ## Coverage
 
@@ -233,9 +260,10 @@ checks pass, for both parts:
 - 32,376 CRAM bits outside tiles that nothing names.
 - Tile bits with no function or switch: 57 per logic tile, for example. The
   JSON lists each kind.
-- What the tile functions do, beyond the logic cell. IO pin types, RAM
-  modes, DSP and PLL settings are only named. Experiments like the logic
-  cell's, through `icebox_vlog`, could reach them.
+- The DSP (UP5K only) and PLL settings, which are only named. The LP1K's
+  PLL is not in its CM36 package; the chipdb lists CM36 under the PLL's
+  `LOCKED` packages. The RAM modes other than 256x16, and the RAM cascade
+  bits, are recorded from icebox but not tried on the board.
 - The routing has not been checked against the device. The only
   black-box evidence for it is that the routes the icebox experiments
   built read back as intended.

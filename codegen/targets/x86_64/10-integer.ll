@@ -2801,6 +2801,10 @@ define <8 x i16> @PMULLW.8xi16(<8 x i16> "reg"="xv" "tied" %n, <8 x i16> "reg"="
   %r = mul <8 x i16> %n, %m
   ret <8 x i16> %r
 }
+define <4 x i32> @PMULLD.4xi32(<4 x i32> "reg"="xv" "tied" %n, <4 x i32> "reg"="xv" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 00111000 | 01000000 | rr(d, m)" "asm"="pmulld {m}, {d}" "dclass"="xv" "feature"="sse4.1" "nodecode" {
+  %r = mul <4 x i32> %n, %m
+  ret <4 x i32> %r
+}
 
 define <8 x i16> @PAND.8xi16(<8 x i16> "reg"="xv" "tied" %n, <8 x i16> "reg"="xv" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 11011011 | rr(d, m)" "asm"="pand {m}, {d}" "dclass"="xv" "nodecode" {
   %r = and <8 x i16> %n, %m
@@ -6937,6 +6941,14 @@ define <8 x i64> @VPSUBQz.8xi64(<8 x i64> "reg"="zv" %n, <8 x i64> "reg"="zv" %m
 define <8 x i64> @VPMULLQz.8xi64(<8 x i64> "reg"="zv" %n, <8 x i64> "reg"="zv" %m) "enc"="evexr(d, m, 2, 1, n, 2, 1, 0, 0, 0) | 01000000 | 11 reg:3=d&7 rm:3=m&7" "asm"="vpmullq {m}, {n}, {d}" "dclass"="zv" "feature"="avx512f,avx512dq" "nodecode" {
   %r = mul <8 x i64> %n, %m
   ret <8 x i64> %r
+}
+define <4 x i64> @VPMULLQ.4xi64(<4 x i64> "reg"="yv" %n, <4 x i64> "reg"="yv" %m) "enc"="evexr(d, m, 2, 1, n, 1, 1, 0, 0, 0) | 01000000 | 11 reg:3=d&7 rm:3=m&7" "asm"="vpmullq {m}, {n}, {d}" "dclass"="yv" "feature"="avx512dq,avx512vl" "nodecode" {
+  %r = mul <4 x i64> %n, %m
+  ret <4 x i64> %r
+}
+define <2 x i64> @VPMULLQ.2xi64(<2 x i64> "reg"="xv" %n, <2 x i64> "reg"="xv" %m) "enc"="evexr(d, m, 2, 1, n, 0, 1, 0, 0, 0) | 01000000 | 11 reg:3=d&7 rm:3=m&7" "asm"="vpmullq {m}, {n}, {d}" "dclass"="xv" "feature"="avx512dq,avx512vl" "nodecode" {
+  %r = mul <2 x i64> %n, %m
+  ret <2 x i64> %r
 }
 
 define <8 x i64> @VPANDQz.8xi64(<8 x i64> "reg"="zv" %n, <8 x i64> "reg"="zv" %m) "enc"="evexr(d, m, 1, 1, n, 2, 1, 0, 0, 0) | 11011011 | 11 reg:3=d&7 rm:3=m&7" "asm"="vpandq {m}, {n}, {d}" "dclass"="zv" "feature"="avx512f" "nodecode" {

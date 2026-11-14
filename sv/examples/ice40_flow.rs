@@ -79,7 +79,13 @@ fn run() -> Result<(), String> {
         .flat_map(|p| (0..p.width).map(|b| epitome_sv::arch::ice40::place::bit_name(&p.name, p.width, b)))
         .collect();
     let pins: Vec<(String, String)> = pins.into_iter().filter(|(n, _)| names.contains(n)).collect();
-    let b = build(&d, &db, &sem, netlist, &Options { package: "cm36".into(), pins, seed: 1 })?;
+    let b = build(
+        &d,
+        &db,
+        &sem,
+        netlist,
+        &Options { package: "cm36".into(), pins, seed: 1, fabric_clocks: args.iter().any(|a| a == "--fabric-clocks") },
+    )?;
     eprintln!("{}\n({:.2} s)", b.report(), t.elapsed().as_secs_f64());
     let model = std::fs::read_to_string(arch.join("record-timing.txt")).ok().map_or_else(
         || Ok(epitome_sv::arch::ice40::timing::Model::guess()),

@@ -177,8 +177,13 @@ The stages, each in memory, with no text between them until the `.asc`:
    permuted to match. The clock goes on a global network when its pin has a
    global buffer (D1's is network 1), with the column buffers its tiles
    (and RAMs' `RCLK` and `WCLK`) need. Any other clock, including one the
-   design makes, is routed through the fabric to the tiles' and RAMs'
-   clock inputs, like any signal.
+   design makes, goes on a free global network through that network's
+   global buffer input. It is routed as a signal to the `fabout` of the
+   I/O tile the chip database's `gbufin` names (the one nearest the
+   clock's source), with the network's pad bit left clear. With
+   `Options::fabric_clocks` (the example's `--fabric-clocks`), or with
+   no network free, the clock is instead routed through the fabric to
+   each tile's and RAM's clock input.
 5. **Bitstream**. Cells, routes, I/O types (`PINTYPE_0` for an input, 3
    and 4 for an output, as the board experiments found), and the RAM
    blocks' modes (`RamConfig.CBIT_0` to `3`) and contents go into a
@@ -219,7 +224,8 @@ programs each one and watches the iCELink's serial port at 115200 baud:
 | (g) deep RAM | `ramdelay.sv` with `DEPTH` given: 8192 words of 1 bit (4 banks), and 16384 words of 4 bits (8 banks of 2 blocks: all 16 of the chip's blocks) | 37 and 67; 4 and 16 RAM blocks | its bytes echoed, delayed by up to 1.4 ms |
 | (f) RAM contents | `hello_ram.sv`: `hello.sv` with its string as a RAM's initial contents, read into the RAM's output register | 37, 1 RAM block | 261 whole strings in 0.5 s |
 | (h) read while writing | `rdw.sv`: each clock, a word written and read at one address; the data flips each clock, so the old word echoes and the new does not. `W` = 16, 8, 4 and 2 | 34, 1 RAM block (16 wide) | its bytes echoed, in every mode |
-| (i) a design's clock | `hello_div.sv`: the transmitter on 12 MHz divided by 8, its clock routed through the fabric | 113 | 262 whole strings in 0.5 s |
+| (i) a design's clock | `hello_div.sv`: the transmitter on 12 MHz divided by 8, its clock on a global network of its own through a global buffer input | 113 | 261 whole strings in 0.5 s |
+| (j) a design's clock, in the fabric | `hello_div.sv` built with `fabric_clocks`: its clock routed through the fabric to its tiles | 113 | 261 whole strings in 0.5 s |
 
 The counter was checked through B3: the Mac sends a byte every ~0.1 s for
 5 s and notes which come back. The LED (B6) blinks as well, but nothing
@@ -232,6 +238,13 @@ edge reads and writes the same word. With the RAM alone, it mostly
 gave the new word, but 3 bytes in 64 came back wrong, in each mode. So
 the flow never lets that happen (`Netlist::delay_writes`), and (h)
 checks that the old word comes back, as SystemVerilog says.
+
+The chip database names a `fabout` net in each global buffer input's
+I/O tile, but no switch from it to the global network. So the board was
+asked. With the divided clock routed to `fabout` and the network's
+`padin_glb_netwk` bit clear, (i) works on each of global networks 0, 2,
+3, 4, 5, 6 and 7. Network 1 is D1's, so it was not tried. With `fabout`
+left undriven, it is silent.
 
 (e) delays rx by up to 2048 clocks (171 us), which the echo does not
 notice; a wrong bit anywhere in a word turns it off. As a control, moving
@@ -278,9 +291,9 @@ After that they read with one clock of latency, as the flow models
 them. A design that needs a read in its first few microseconds should
 wait. The flow does not add a wait of its own.
 
-Not yet: latches, a global network for a clock the design makes (it is
-routed through the fabric, so its skew is unchecked), timing-driven
-placement and routing (the analysis only reports), hold-time checks, packing a flip-flop with a LUT that has other
+Not yet: latches, timing-driven placement and routing (the analysis
+only reports), hold-time checks and clock skew (which matter most for a
+clock routed through the fabric), packing a flip-flop with a LUT that has other
 readers, and checking resource counts against Yosys and nextpnr. Running
 those was blocked here, and their source is not to be read.
 

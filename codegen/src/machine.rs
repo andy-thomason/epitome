@@ -55,7 +55,9 @@
 //! `!target.cpus` lists CPUs, each a name and then the features it has
 //! (`!{!"generic", !"fp-armv8", !"neon"}`). Entries of the description with
 //! a `"feature"` attribute are used only when their features are on; see
-//! `features.rs`.
+//! `features.rs`. `!target.implies` lists features that bring others with
+//! them, each a feature and then those it implies (`!{!"avx2", !"avx"}`):
+//! turning it on turns them on, and turning one of them off turns it off.
 //!
 //! A relocation is a list of properties, as pairs:
 //!
@@ -325,6 +327,8 @@ pub struct Machine {
     pub min_vector_bits: Option<u32>,
     /// CPUs, with the features each has.
     pub cpus: Vec<(String, Vec<String>)>,
+    /// Features, with the features each implies (`!target.implies`).
+    pub implies: Vec<(String, Vec<String>)>,
     /// The CPU to assume when none is named.
     pub default_cpu: Option<String>,
     /// Branches on a boolean in a register must compare the whole register
@@ -606,6 +610,7 @@ impl Machine {
             mask_classes: Vec::new(),
             min_vector_bits: None,
             cpus: Vec::new(),
+            implies: Vec::new(),
             default_cpu: None,
             compare_booleans: false,
             unaligned_fast: false,
@@ -690,6 +695,11 @@ impl Machine {
         for t in tuples(m, "target.cpus") {
             if let Some((name, feats)) = t.split_first() {
                 mc.cpus.push((name.clone(), feats.to_vec()));
+            }
+        }
+        for t in tuples(m, "target.implies") {
+            if let Some((name, feats)) = t.split_first() {
+                mc.implies.push((name.clone(), feats.to_vec()));
             }
         }
         mc.narrow = match params.get("narrow-results").map(String::as_str) {

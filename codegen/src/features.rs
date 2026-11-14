@@ -9,6 +9,10 @@
 //! in that order. Features the description does not know are ignored. A
 //! description that names no CPUs has every feature on, unless turned off.
 //!
+//! A feature brings those it implies (`!target.implies`), as LLVM's do:
+//! `+avx512f` turns on AVX2, AVX and the SSEs, and `-avx2` turns off the
+//! AVX-512 features with it.
+//!
 //! With a feature off, the entries that need it are not chosen by
 //! instruction selection, and if it is the vector registers' feature,
 //! vectors are done lane by lane.
@@ -28,7 +32,27 @@ pub fn known(t: &Target) -> Features {
         all.extend(f.iter().cloned());
     }
     all.extend(t.machine.vector_widths.iter().filter_map(|(_, f)| f.clone()));
+    for (f, implied) in &t.machine.implies {
+        all.insert(f.clone());
+        all.extend(implied.iter().cloned());
+    }
     all
+}
+
+/// `f` and the features it implies, directly or through others.
+fn with_implied(t: &Target, f: &str) -> Features {
+    let mut out = Features::new();
+    let mut todo = vec![f.to_string()];
+    while let Some(g) = todo.pop() {
+        if out.insert(g.clone()) {
+            for (h, implied) in &t.machine.implies {
+                if *h == g {
+                    todo.extend(implied.iter().cloned());
+                }
+            }
+        }
+    }
+    out
 }
 
 fn string_attr(m: &Module, attrs: &[Attr], key: &str) -> Option<String> {
@@ -50,8 +74,9 @@ fn string_attr(m: &Module, attrs: &[Attr], key: &str) -> Option<String> {
     None
 }
 
-/// Applies `+f` and `-f` changes, for the features in `known`.
-fn apply(set: &mut Features, known: &Features, changes: &str) {
+/// Applies `+f` and `-f` changes, for the features in `known`: `+f` turns
+/// on what `f` implies too, and `-f` turns off what implies `f`.
+fn apply(t: &Target, set: &mut Features, known: &Features, changes: &str) {
     for c in changes.split(',').map(str::trim).filter(|c| !c.is_empty()) {
         let (on, name) = match c.split_at(1) {
             ("+", n) => (true, n),
@@ -60,9 +85,9 @@ fn apply(set: &mut Features, known: &Features, changes: &str) {
         };
         if known.contains(name) {
             if on {
-                set.insert(name.to_string());
+                set.extend(with_implied(t, name));
             } else {
-                set.remove(name);
+                set.retain(|g| !with_implied(t, g).contains(name));
             }
         }
     }
@@ -86,15 +111,15 @@ pub fn of_function(
             .or_else(|| t.machine.default_cpu.as_deref().and_then(cpu_named)),
     };
     let mut set = match cpu {
-        Some((_, f)) => f.iter().cloned().collect(),
+        Some((_, f)) => f.iter().flat_map(|g| with_implied(t, g)).collect(),
         None if t.machine.cpus.is_empty() => known.clone(),
         None => Features::new(),
     };
     if let Some(f) = string_attr(m, attrs, "target-features") {
-        apply(&mut set, &known, &f);
+        apply(t, &mut set, &known, &f);
     }
     for a in mattr {
-        apply(&mut set, &known, a);
+        apply(t, &mut set, &known, a);
     }
     Ok(set)
 }

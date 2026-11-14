@@ -96,6 +96,19 @@ pub fn build_source(
 
 pub fn build(d: &Device, db: &Chipdb, sem: &Semantics, netlist: Netlist, opts: &Options) -> Result<Built, String> {
     let mapped = map(&netlist)?;
+    build_mapped(d, db, sem, netlist, mapped, opts)
+}
+
+/// Places, routes and packs cells already mapped (or made by hand, for
+/// an experiment; `netlist` is then only for the report).
+pub fn build_mapped(
+    d: &Device,
+    db: &Chipdb,
+    sem: &Semantics,
+    netlist: Netlist,
+    mapped: Mapped,
+    opts: &Options,
+) -> Result<Built, String> {
     let placement = place(d, db, &mapped, &opts.package, &opts.pins, opts.seed)?;
     let raw = db.routing.raw();
     let g = Graph::new(&raw);
@@ -108,13 +121,15 @@ pub fn build(d: &Device, db: &Chipdb, sem: &Semantics, netlist: Netlist, opts: &
     // Each clock's sinks: the clock input of every tile with its
     // flip-flops, and its RAMs' RCLK and WCLK.
     let mut clocks: Vec<(Src, Vec<(usize, usize, String)>)> = Vec::new();
-    let mut clock_sink = |c: Src, sink: (usize, usize, String), clocks: &mut Vec<(Src, Vec<(usize, usize, String)>)>| {
-        match clocks.iter_mut().find(|x| x.0 == c) {
+    let clock_sink =
+        |c: Src, sink: (usize, usize, String), clocks: &mut Vec<(Src, Vec<(usize, usize, String)>)>| match clocks
+            .iter_mut()
+            .find(|x| x.0 == c)
+        {
             Some(x) if !x.1.contains(&sink) => x.1.push(sink),
             Some(_) => {}
             None => clocks.push((c, vec![sink])),
-        }
-    };
+        };
     for (i, lc) in m.lcs.iter().enumerate() {
         if let Some(f) = &lc.ff {
             clock_sink(f.clk, (at[i].0, at[i].1, "lutff_global/clk".to_string()), &mut clocks);

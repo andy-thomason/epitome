@@ -664,3 +664,181 @@ fn several_clocks() {
     assert_eq!(clocks.len(), 4, "{clocks:?}");
     build_tq144(CLOCKS, "clocks");
 }
+
+// ---- timing ----
+
+use epitome_sv::arch::ice40::timing::{self, Kind, Model};
+
+fn model() -> Model {
+    std::fs::read_to_string(arch().join("record-timing.txt"))
+        .ok()
+        .map_or_else(Model::guess, |t| Model::from_record(&t).unwrap())
+}
+
+/// Builds a timing experiment for the board.
+fn build_experiment(kind: Kind, n: usize) -> (Built, usize) {
+    let (d, db, sem) = records();
+    let (m, carries) = timing::experiment(kind, n);
+    let pins = vec![("clk".into(), "D1".into()), ("rx".into(), "A3".into()), ("tx".into(), "B3".into())];
+    let b = epitome_sv::arch::ice40::flow::build_mapped(
+        &d,
+        &db,
+        &sem,
+        epitome_sv::synth::Netlist::new(),
+        m,
+        &Options { package: "cm36".into(), pins, seed: 1 },
+    )
+    .unwrap_or_else(|e| panic!("{kind:?} {n}: {e}"));
+    (b, carries)
+}
+
+/// With no delays (the cells' simulation), every experiment's capture is
+/// right, so it echoes for ever.
+#[test]
+fn timing_experiments_echo_without_delays() {
+    use epitome_sv::arch::ice40::map::LcSim;
+    for (kind, n) in [(Kind::Luts, 5), (Kind::Spread, 6), (Kind::Carry, 2), (Kind::Ram, 3)] {
+        let (m, _) = timing::experiment(kind, n);
+        let mut sim = LcSim::new(&m);
+        sim.inputs[1][0] = !0;
+        sim.settle();
+        for cycle in 0..40 {
+            sim.inputs[0][0] = !0;
+            sim.settle();
+            sim.inputs[0][0] = 0;
+            sim.settle();
+            let tx = sim.get(m.outputs[0].1[0]) & 1;
+            assert_eq!(tx, 1, "{kind:?}: the error flag set at cycle {cycle}");
+        }
+        build_experiment(kind, n);
+    }
+}
+
+/// The board designs' longest paths, by the model.
+#[test]
+fn timing_of_board_designs() {
+    let (d, db, _) = records();
+    let model = model();
+    for (name, defs) in
+        [("blink", vec![]), ("hello", vec![]), ("hello_ram", vec![]), ("ramdelay", vec!["WIDTH=4", "DEPTH=16384"])]
+    {
+        let b = build_design(name, &defs);
+        let r = timing::analyse(&b, &d, &db, &model);
+        eprintln!("{name}: {}", r.text(&model));
+        // Each runs at 12 MHz on the board.
+        assert!(r.fmax().unwrap() > 12.0, "{name}: {}", r.text(&model));
+    }
+}
+
+/// Measures the model on the board (`ICE40_BOARD=1 ICE40_CALIBRATE=1`):
+/// for each experiment, the shortest chain that misses the 12 MHz clock,
+/// then the delays that fit, into `record-timing.txt`.
+#[test]
+fn timing_calibrate() {
+    use epitome_sv::arch::ice40::board::{Icesprog, Serial};
+    if std::env::var_os("ICE40_BOARD").is_none() || std::env::var_os("ICE40_CALIBRATE").is_none() {
+        eprintln!("skipped: set ICE40_BOARD=1 ICE40_CALIBRATE=1 to measure the timing on an iCESugar-nano");
+        return;
+    }
+    let ip = Icesprog::find().expect("icesprog");
+    let port = Serial::find().expect("serial port");
+    let probe: Vec<u8> = (0..64u8).map(|i| 0x20 + i).collect();
+    let passes = |kind: Kind, n: usize| -> (bool, (usize, usize, usize)) {
+        let (b, carries) = build_experiment(kind, n);
+        ip.program(&b.bitstream).unwrap();
+        let ok = Serial::open(&port).unwrap().echo(&probe).unwrap() == "echo";
+        let counts = timing::path_counts(&b, kind, n, carries);
+        eprintln!("{kind:?} n={n}: {} (LUTs, switches, carries {counts:?})", if ok { "pass" } else { "FAIL" });
+        (ok, counts)
+    };
+    // The threshold: the path counts halfway between the longest that
+    // passes and the shortest that fails.
+    let threshold = |kind: Kind, hi: usize| -> Option<(f64, f64, f64)> {
+        let (ok, low) = passes(kind, 0);
+        if !ok {
+            return None;
+        }
+        let (ok, _) = passes(kind, hi);
+        if ok {
+            return None;
+        }
+        let (mut lo, mut hi, mut lo_c) = (0, hi, low);
+        let mut hi_c = (0, 0, 0);
+        while hi - lo > 1 {
+            let mid = (lo + hi) / 2;
+            let (ok, c) = passes(kind, mid);
+            if ok { (lo, lo_c) = (mid, c) } else { (hi, hi_c) = (mid, c) }
+        }
+        if hi_c == (0, 0, 0) {
+            hi_c = passes(kind, hi).1;
+        }
+        let avg = |a: usize, b: usize| (a + b) as f64 / 2.0;
+        Some((avg(lo_c.0, hi_c.0), avg(lo_c.1, hi_c.1), avg(lo_c.2, hi_c.2)))
+    };
+    let t = timing::PERIOD;
+    // ICE40_CALIBRATE=ram measures the RAM alone, keeping the rest.
+    if std::env::var("ICE40_CALIBRATE").is_ok_and(|v| v == "ram") {
+        let mut m = model();
+        let (l, h, _) = threshold(Kind::Ram, 600).expect("a RAM path that fails");
+        // Within a stage of a flip-flop's clock-to-output: not below 0.
+        m.ram = (t - l * m.lut - h * m.hop).max(0.0);
+        m.source += &format!("; a RAM read then {l} LUTs with {h} switches");
+        eprintln!("{}", m.to_record());
+        std::fs::write(arch().join("record-timing.txt"), m.to_record()).unwrap();
+        return;
+    }
+    let (l1, h1, _) = threshold(Kind::Luts, 1100).expect("a LUT chain that fails");
+    let (l2, h2, _) = threshold(Kind::Spread, 250).expect("a spread chain that fails");
+    // l * lut + h * hop = t, twice.
+    let det = l1 * h2 - l2 * h1;
+    let lut = (t * h2 - t * h1) / det;
+    let hop = (l1 * t - l2 * t) / det;
+    eprintln!(
+        "LUT chain: {l1} LUTs, {h1} switches; spread: {l2} LUTs, {h2} switches; so lut {lut:.3} ns, hop {hop:.3} ns"
+    );
+    let carry = match threshold(Kind::Carry, 600) {
+        Some((l, h, c)) => (t - l * lut - h * hop) / c,
+        None => f64::NAN,
+    };
+    let (ram, ram_note) = match threshold(Kind::Ram, 600) {
+        Some((l, h, _)) => ((t - l * lut - h * hop).max(0.0), format!("; a RAM read then {l} LUTs with {h} switches")),
+        None => (f64::NAN, String::new()),
+    };
+    let m = Model {
+        lut,
+        hop,
+        carry,
+        ram,
+        source: format!(
+            "measured on the iCESugar-nano: LUT chains of {l1} and {l2} LUTs with {h1} and {h2} switches at 83.3 ns, a 125-carry chain{ram_note}"
+        ),
+    };
+    eprintln!("{}", m.to_record());
+    std::fs::write(arch().join("record-timing.txt"), m.to_record()).unwrap();
+}
+
+#[test]
+fn spread_experiment_places() {
+    for n in [10, 100, 250] {
+        build_experiment(Kind::Spread, n);
+    }
+}
+
+/// Programs one timing experiment (`TRY_KIND`, `TRY_N`) and says whether
+/// it echoes.
+#[test]
+#[ignore]
+fn timing_try() {
+    use epitome_sv::arch::ice40::board::{Icesprog, Serial};
+    let kind = match std::env::var("TRY_KIND").unwrap_or_default().as_str() {
+        "spread" => Kind::Spread,
+        "carry" => Kind::Carry,
+        "ram" => Kind::Ram,
+        _ => Kind::Luts,
+    };
+    let n: usize = std::env::var("TRY_N").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+    let (b, _) = build_experiment(kind, n);
+    Icesprog::find().unwrap().program(&b.bitstream).unwrap();
+    let probe: Vec<u8> = (0..64u8).map(|i| 0x20 + i).collect();
+    eprintln!("TRY {kind:?} {n}: {}", Serial::open(&Serial::find().unwrap()).unwrap().echo(&probe).unwrap());
+}

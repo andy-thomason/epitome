@@ -314,6 +314,15 @@ pub fn place(
             return Err(format!("no room for a carry chain of {} cells", m.chains[c].lcs.len()));
         }
     }
+    // Cells with a fixed place go there.
+    for (i, lc) in m.lcs.iter().enumerate() {
+        if let Some((x, y, _)) = lc.fixed {
+            let t =
+                *st.tile_at.get(&(x, y)).ok_or_else(|| format!("{} is fixed at {x} {y}, not a logic tile", lc.name))?;
+            st.free[t].push(i as u32);
+            st.tile_of[i] = t;
+        }
+    }
     // Then each other cell, those nearest the placed first.
     let mut placed: Vec<bool> = (0..n).map(|i| st.tile_of[i] != usize::MAX).collect();
     loop {
@@ -376,7 +385,8 @@ pub fn place(
     // ---- annealing ----
     let mut rng = Rng::new(seed);
     let total = |st: &State| st.net_cost.iter().sum::<f64>();
-    let free_cells: Vec<u32> = (0..n as u32).filter(|&c| st.chain_of[c as usize].is_none()).collect();
+    let free_cells: Vec<u32> =
+        (0..n as u32).filter(|&c| st.chain_of[c as usize].is_none() && m.lcs[c as usize].fixed.is_none()).collect();
     let movable = free_cells.len() + m.chains.len();
     if movable > 0 && !st.nets.is_empty() {
         let (w, h) = (st.tiles.iter().map(|t| t.0).max().unwrap(), st.tiles.iter().map(|t| t.1).max().unwrap());
@@ -403,7 +413,10 @@ pub fn place(
                 touched = st.nets_of[a as usize].clone();
                 // Move, or swap with a cell there.
                 let b = if st.free[t].len() + st.chained[t] >= 8 || rng.below(2) == 0 {
-                    if st.free[t].is_empty() { None } else { Some(st.free[t][rng.below(st.free[t].len())]) }
+                    // Never a cell with a fixed place.
+                    let movable: Vec<u32> =
+                        st.free[t].iter().copied().filter(|&c| m.lcs[c as usize].fixed.is_none()).collect();
+                    if movable.is_empty() { None } else { Some(movable[rng.below(movable.len())]) }
                 } else {
                     None
                 };
@@ -502,10 +515,20 @@ pub fn place(
             taken.entry(t).or_insert_with(|| vec![false; 8])[k % 8] = true;
         }
     }
+    for (i, lc) in m.lcs.iter().enumerate() {
+        if let Some((x, y, z)) = lc.fixed {
+            let slots = taken.entry(st.tile_at[&(x, y)]).or_insert_with(|| vec![false; 8]);
+            if slots[z] {
+                return Err(format!("{} is fixed at {x} {y} {z}, which is taken", lc.name));
+            }
+            slots[z] = true;
+            at[i] = (x, y, z);
+        }
+    }
     for t in 0..st.tiles.len() {
         let slots = taken.entry(t).or_insert_with(|| vec![false; 8]);
         let (x, y) = st.tiles[t];
-        let mut cells = st.free[t].clone();
+        let mut cells: Vec<u32> = st.free[t].iter().copied().filter(|&c| m.lcs[c as usize].fixed.is_none()).collect();
         cells.sort();
         for c in cells {
             let z = slots.iter().position(|&s| !s).ok_or("a tile over full")?;

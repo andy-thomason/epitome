@@ -81,6 +81,11 @@ fn run() -> Result<(), String> {
     let pins: Vec<(String, String)> = pins.into_iter().filter(|(n, _)| names.contains(n)).collect();
     let b = build(&d, &db, &sem, netlist, &Options { package: "cm36".into(), pins, seed: 1 })?;
     eprintln!("{}\n({:.2} s)", b.report(), t.elapsed().as_secs_f64());
+    let model = std::fs::read_to_string(arch.join("record-timing.txt")).ok().map_or_else(
+        || Ok(epitome_sv::arch::ice40::timing::Model::guess()),
+        |t| epitome_sv::arch::ice40::timing::Model::from_record(&t),
+    )?;
+    eprintln!("{}", epitome_sv::arch::ice40::timing::analyse(&b, &d, &db, &model).text(&model));
 
     std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
     let write = |name: String, data: &[u8]| -> Result<PathBuf, String> {

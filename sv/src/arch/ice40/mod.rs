@@ -27,6 +27,7 @@ pub mod map;
 pub mod place;
 pub mod route;
 pub mod svg;
+pub mod timing;
 
 use bitstream::Cmd;
 use std::fmt::Write;

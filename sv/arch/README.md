@@ -97,8 +97,14 @@ The stages, each in memory, with no text between them until the `.asc`:
    two-input ANDs and XORs, three-input majorities (adders' carries, kept
    for the carry chain), inputs and flip-flops. Gates are hashed and
    constants folded as they are made. `assign`, `always_comb`, and
-   `always_ff` (or `always`) on one clock edge are synthesised, with an
-   asynchronous reset to constants. Procedures are run symbolically: an
+   `always_ff` (or `always`) on a clock edge are synthesised, with an
+   asynchronous reset to constants. There may be any number of clocks, and
+   a clock may be one the design makes (a counter's bit, say). Functions
+   and tasks are run inline: arguments are bound to the formals, the
+   result comes from `return` or the function's own name, and outputs are
+   copied back. `return`, `break` and `continue` set flags that guard the
+   statements after them, so an early return from a loop (a priority
+   encoder) is just logic. Procedures are run symbolically: an
    `if` runs both arms and merges what each assigned under its condition,
    so a flip-flop's enable is where it was assigned. A `case` on a value of
    up to 8 bits with constant labels becomes a decision tree on its bits,
@@ -106,19 +112,26 @@ The stages, each in memory, with no text between them until the `.asc`:
    loops with constant bounds are unrolled. Operators covered: bitwise,
    reductions, shifts (constant or not), `+ - *`, comparisons, and selects
    and part selects (constant or not). Errors point at the source: latches,
-   more than one clock, function calls, division of non-constants, gates,
-   combinational loops, nets with two drivers, and memories used in ways
-   block RAM cannot do (below).
+   division of non-constants, recursion, gates, combinational loops, nets
+   with two drivers, and memories too big for flip-flops used in ways block
+   RAM cannot do (below).
 
    A **memory** (an unpacked array of integral words) is kept whole, for
-   block RAM. `mem[a] <= d` in a clocked process is its write port. Writes
-   in different arms of an `if` or `case` share it, but a memory has one
-   write port. A register that takes a read whole (`q <= mem[a]`, under any
+   block RAM. A write in a clocked process, of a whole word or a part of
+   one (`mem[a][7:0] <= x`, a byte write), has an enable for each bit.
+   Writes to one address in a process are one write, the later winning bit
+   by bit. Writes that a BDD proves are never enabled together, such as
+   those in different arms of an `if` or `case`, share the one write port.
+   A register that takes a read whole (`q <= mem[a]`, under any
    conditions, no reset) becomes a read port, and the register is the
-   RAM's own output register. Any number of read ports may be used. Since
-   block RAM reads only on a clock, a memory that is written is an error
-   anywhere else it is read. A memory only `initial` writes is a table: read
-   anywhere else, it is logic (a decision tree on the address). Its
+   RAM's own output register. Any number of read ports may be used. A
+   memory only `initial` writes is a table: read anywhere else, it is
+   logic (a decision tree on the address). A memory that block RAM cannot
+   do is built from flip-flops, up to 2048 bits, and lowering starts again
+   with it so. That covers a written memory read combinationally, two
+   write ports at once (a register file), a reset, or two writing
+   processes. Flip-flops that start at 1 are kept inverted for the iCE40
+   (`Netlist::zero_inits`). Its
    contents come from `initial` blocks (constant writes, or
    `$readmemh`/`$readmemb` with the file found from the current directory)
    or from a declaration's assignment pattern.
@@ -132,8 +145,14 @@ The stages, each in memory, with no text between them until the `.asc`:
    when nothing else reads the LUT. An enable and an asynchronous reset go
    on the cell's `cen` and `sr`. Each memory read port gets its own copy of
    the memory in RAM4K blocks, all copies written alike, since a block has
-   one read port. A copy takes the mode (256x16, 512x8, 1024x4 or 2048x2)
-   that needs fewest blocks side by side. A memory deeper than 2048 words
+   one read port. A memory whose bits have different write enables (byte
+   writes) is split into lanes first, a memory for each enable. Where a
+   read may meet the word being written on the same edge, the write is
+   delayed a clock through registers and such a read is served from them
+   (`Netlist::delay_writes`): the board showed the block RAM unreliable
+   then. A BDD can prove a design's reads never meet its write, and then
+   nothing changes. A copy takes the mode (256x16, 512x8, 1024x4 or
+   2048x2) that needs fewest blocks side by side. A memory deeper than 2048 words
    is first split into banks on its address's upper bits
    (`Netlist::split_mems`, a netlist-to-netlist pass, checked against the
    interpreter like the rest). The banks are as deep as gives the fewest
@@ -147,8 +166,9 @@ The stages, each in memory, with no text between them until the `.asc`:
    take places 0 upwards in consecutive tiles of a column. Cells are placed
    greedily, then annealed on wirelength (half-perimeter of each net's
    tiles) with moves and swaps of cells and moves of chains. A tile's
-   flip-flops must share enable and set/reset; `place::check` checks the
-   result.
+   flip-flops must share clock, edge, enable and set/reset;
+   `place::check` checks the result. A cell may be given a fixed place
+   (the timing experiments use it).
 4. **Routing** (`route.rs`). PathFinder over the chip database's switches:
    each signal is a tree grown from its source by cheapest paths
    (`Graph::search`, the Dijkstra search the board experiments' breadth-first
@@ -156,8 +176,9 @@ The stages, each in memory, with no text between them until the `.asc`:
    none is. A LUT input may land on any free pin of its cell; the table is
    permuted to match. The clock goes on a global network when its pin has a
    global buffer (D1's is network 1), with the column buffers its tiles
-   (and RAMs' `RCLK` and `WCLK`) need. Otherwise it is routed like any
-   signal.
+   (and RAMs' `RCLK` and `WCLK`) need. Any other clock, including one the
+   design makes, is routed through the fabric to the tiles' and RAMs'
+   clock inputs, like any signal.
 5. **Bitstream**. Cells, routes, I/O types (`PINTYPE_0` for an input, 3
    and 4 for an output, as the board experiments found), and the RAM
    blocks' modes (`RamConfig.CBIT_0` to `3`) and contents go into a
@@ -197,12 +218,20 @@ programs each one and watches the iCELink's serial port at 115200 baud:
 | (e) block RAM | `ramdelay.sv`: each clock, a word made from rx written at the next address and the oldest read back; tx is its bit 0 while every bit is as written. Once for each `WIDTH`: 16, 8, 4, 2 and 1 (256x16, 512x8, 1024x4, 2048x2, and 2048 words of 1 bit in mode 2048x2) | 24 to 26, 1 RAM block | its bytes echoed, in every mode |
 | (g) deep RAM | `ramdelay.sv` with `DEPTH` given: 8192 words of 1 bit (4 banks), and 16384 words of 4 bits (8 banks of 2 blocks: all 16 of the chip's blocks) | 37 and 67; 4 and 16 RAM blocks | its bytes echoed, delayed by up to 1.4 ms |
 | (f) RAM contents | `hello_ram.sv`: `hello.sv` with its string as a RAM's initial contents, read into the RAM's output register | 37, 1 RAM block | 261 whole strings in 0.5 s |
+| (h) read while writing | `rdw.sv`: each clock, a word written and read at one address; the data flips each clock, so the old word echoes and the new does not. `W` = 16, 8, 4 and 2 | 34, 1 RAM block (16 wide) | its bytes echoed, in every mode |
+| (i) a design's clock | `hello_div.sv`: the transmitter on 12 MHz divided by 8, its clock routed through the fabric | 113 | 262 whole strings in 0.5 s |
 
 The counter was checked through B3: the Mac sends a byte every ~0.1 s for
 5 s and notes which come back. The LED (B6) blinks as well, but nothing
 here watches it. Before (d) sent `\r`, it sent an `r`. SystemVerilog's
 string escapes have no `\r`, and the interpreter and the board agreed, so
 `hello.sv` writes the carriage return as `8'h0d`.
+
+Before (h), the board was asked what a block RAM gives when one clock
+edge reads and writes the same word. With the RAM alone, it mostly
+gave the new word, but 3 bytes in 64 came back wrong, in each mode. So
+the flow never lets that happen (`Netlist::delay_writes`), and (h)
+checks that the old word comes back, as SystemVerilog says.
 
 (e) delays rx by up to 2048 clocks (171 us), which the echo does not
 notice; a wrong bit anywhere in a word turns it off. As a control, moving
@@ -213,13 +242,47 @@ bank select's mux inputs made the echo garbled.
 [`hello_ram.svg`](ice40-lp1k/flow/hello_ram.svg) are the two transmitters
 as placed and routed, laid over the die by `svg.rs`.
 
-Not yet: byte
-writes (the RAM's `MASK`), more than one write port, what a block reads
-when it writes the same address (the tests avoid it), more than one
-clock, latches, tasks and functions, timing, packing a flip-flop with a
-LUT that has other readers, and checking resource counts against Yosys
-and nextpnr. Running those was blocked here, and their source is not to
-be read.
+### Timing
+
+`timing.rs` has a delay model measured on the board and a static timing
+analysis that uses it. The example prints the analysis after each
+build. No vendor's or other tool's timing data is used. The board has
+one 12 MHz clock, so each delay is found by how long a path must be to
+miss it. A flip-flop that toggles every clock launches through a chain of
+`n` stages into one that captures it. A sticky flag is set when a capture
+is not what was sent, and that turns the echo off. A binary search on
+`n` finds the shortest chain that fails (`timing_calibrate`, with
+`ICE40_BOARD=1 ICE40_CALIBRATE=1`). The cells are made by hand
+(`timing::experiment`), and placed and routed by the flow
+(`flow::build_mapped`). The switches on the routes it chose are counted.
+
+| Experiment | Longest that passed / shortest that failed | Gives |
+|---|---|---|
+| LUT chain, placed by the placer (about 2 switches a stage) | 76 / 77 LUTs | together: LUT 0.30 ns, switch 0.38 ns |
+| LUT chain, each stage across the die (columns 1 and 12, about 4 switches a stage) | 45 / 46 LUTs | |
+| a 125-cell carry chain, then LUTs | 65 / 66 LUTs | carry 0.08 ns |
+| a block RAM read, then LUTs | 76 / 77 LUTs | the RAM's clock-to-output: within a stage (about 1 ns) of a flip-flop's |
+
+The numbers are in [`ice40-lp1k/record-timing.txt`](ice40-lp1k/record-timing.txt).
+A flip-flop's clock-to-output and setup are folded into them, so the
+analysis is a little optimistic. Its resolution is about a stage, about
+1 ns. `timing::analyse` takes every routed connection's switches and
+every cell's delay, and reports the latest arrival at a flip-flop's
+input, enable or set/reset, or at a RAM input. That gives an Fmax
+estimate, and separately the latest arrival at an output pin. The board
+designs come out at 177 to 353 MHz against their 12 MHz.
+
+The RAM experiment also showed that a block RAM's reads are wrong for
+the first 16 to 32 clocks (1.3 to 2.7 us) after the chip is configured.
+After that they read with one clock of latency, as the flow models
+them. A design that needs a read in its first few microseconds should
+wait. The flow does not add a wait of its own.
+
+Not yet: latches, a global network for a clock the design makes (it is
+routed through the fabric, so its skew is unchecked), timing-driven
+placement and routing (the analysis only reports), hold-time checks, packing a flip-flop with a LUT that has other
+readers, and checking resource counts against Yosys and nextpnr. Running
+those was blocked here, and their source is not to be read.
 
 ## Sources, and how each fact was found
 

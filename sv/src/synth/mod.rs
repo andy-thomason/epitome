@@ -636,8 +636,18 @@ impl Netlist {
             let reg = |n: &mut Netlist, d: Lit, en: Lit, name: String| {
                 n.ff(Ff { d, en, arst: F, arst_value: false, init: false, clock: m.clock, negedge: m.negedge, name })
             };
-            let addr: Vec<Lit> = w.addr.iter().enumerate().map(|(i, &a)| reg(&mut n, a, T, format!("{} write address[{i}]", m.name))).collect();
-            let data: Vec<Lit> = w.data.iter().enumerate().map(|(i, &a)| reg(&mut n, a, T, format!("{} write data[{i}]", m.name))).collect();
+            let addr: Vec<Lit> = w
+                .addr
+                .iter()
+                .enumerate()
+                .map(|(i, &a)| reg(&mut n, a, T, format!("{} write address[{i}]", m.name)))
+                .collect();
+            let data: Vec<Lit> = w
+                .data
+                .iter()
+                .enumerate()
+                .map(|(i, &a)| reg(&mut n, a, T, format!("{} write data[{i}]", m.name)))
+                .collect();
             // One register for each distinct enable, so that lanes stay
             // lanes.
             let mut en_reg: FxMap<Lit, Lit> = FxMap::default();
@@ -709,7 +719,13 @@ impl Netlist {
         let mut m = crate::bdd::Manager::new(200_000);
         let mut memo: FxMap<usize, crate::bdd::Bdd> = FxMap::default();
         let mut vars: FxMap<usize, u32> = FxMap::default();
-        fn build(n: &Netlist, l: Lit, m: &mut crate::bdd::Manager, memo: &mut FxMap<usize, crate::bdd::Bdd>, vars: &mut FxMap<usize, u32>) -> Result<crate::bdd::Bdd, crate::bdd::TooBig> {
+        fn build(
+            n: &Netlist,
+            l: Lit,
+            m: &mut crate::bdd::Manager,
+            memo: &mut FxMap<usize, crate::bdd::Bdd>,
+            vars: &mut FxMap<usize, u32>,
+        ) -> Result<crate::bdd::Bdd, crate::bdd::TooBig> {
             let i = node(l);
             let f = match memo.get(&i) {
                 Some(&f) => f,
@@ -725,13 +741,16 @@ impl Netlist {
                             m.xor(x, y)?
                         }
                         Node::Maj(x, y, z) => {
-                            let (x, y, z) = (build(n, x, m, memo, vars)?, build(n, y, m, memo, vars)?, build(n, z, m, memo, vars)?);
+                            let (x, y, z) =
+                                (build(n, x, m, memo, vars)?, build(n, y, m, memo, vars)?, build(n, z, m, memo, vars)?);
                             let xy = m.and(x, y)?;
                             let o = m.or(x, y)?;
                             let oz = m.and(o, z)?;
                             m.or(xy, oz)?
                         }
-                        Node::Wire(w) if n.wires[w as usize].1.is_some() => build(n, n.wires[w as usize].1.unwrap(), m, memo, vars)?,
+                        Node::Wire(w) if n.wires[w as usize].1.is_some() => {
+                            build(n, n.wires[w as usize].1.unwrap(), m, memo, vars)?
+                        }
                         _ => {
                             let k = vars.len() as u32;
                             let v = *vars.entry(i).or_insert(k);
@@ -947,8 +966,11 @@ impl<'n> Sim<'n> {
                 if e == 0 {
                     continue;
                 }
-                let reads: Vec<(Vec<u64>, u64)> =
-                    m.reads.iter().map(|r| (r.addr.iter().map(|&a| self.get(a)).collect(), self.get(r.en) & e)).collect();
+                let reads: Vec<(Vec<u64>, u64)> = m
+                    .reads
+                    .iter()
+                    .map(|r| (r.addr.iter().map(|&a| self.get(a)).collect(), self.get(r.en) & e))
+                    .collect();
                 let write = m.write.as_ref().map(|w| {
                     (
                         w.addr.iter().map(|&a| self.get(a)).collect(),

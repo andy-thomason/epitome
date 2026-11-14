@@ -135,11 +135,13 @@ pub struct Lc {
     /// `in_3` is the carry in (from the cell below in the chain).
     pub carry_in3: bool,
     pub ff: Option<FfCfg>,
+    /// A place the cell must have: tile and place in it (for experiments).
+    pub fixed: Option<(usize, usize, usize)>,
 }
 
 impl Lc {
-    fn new(name: String) -> Lc {
-        Lc { name, lut: 0, ins: [None; 4], carry: false, carry_in3: false, ff: None }
+    pub fn new(name: String) -> Lc {
+        Lc { name, lut: 0, ins: [None; 4], carry: false, carry_in3: false, ff: None, fixed: None }
     }
 }
 
@@ -158,7 +160,6 @@ pub struct Mapped {
     pub inputs: Vec<Port>,
     /// Each output port's name, width and drivers.
     pub outputs: Vec<(String, Vec<Src>)>,
-
 }
 
 const VAR: [u16; 4] = [0xaaaa, 0xcccc, 0xf0f0, 0xff00];
@@ -234,7 +235,11 @@ pub fn bank_depth(width: u32, depth: u32) -> u32 {
 pub fn map(n: &Netlist) -> Result<Mapped, String> {
     let n = n.delay_writes()?.zero_inits()?;
     let lanes = |m: &crate::synth::Mem| m.write.as_ref().is_some_and(|w| w.en.iter().any(|&e| e != w.en[0]));
-    let n = if n.mems.iter().any(|m| ram_mode(m.width, m.depth).is_none() || lanes(m)) { n.split_mems(&bank_depth)? } else { n };
+    let n = if n.mems.iter().any(|m| ram_mode(m.width, m.depth).is_none() || lanes(m)) {
+        n.split_mems(&bank_depth)?
+    } else {
+        n
+    };
     map_cells(&n)
 }
 

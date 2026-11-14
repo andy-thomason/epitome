@@ -137,7 +137,8 @@ pub fn lower<'a>(d: &Design<'a>, ast: &Ast<'a>, top: InstId) -> Result<Netlist, 
                     regs.insert(k);
                     continue;
                 }
-                e.message += &format!(" (and at {bits} bits it is too big to build from flip-flops: up to {REG_MEM_MAX} are)");
+                e.message +=
+                    &format!(" (and at {bits} bits it is too big to build from flip-flops: up to {REG_MEM_MAX} are)");
                 return Err(e);
             }
             Err((e, _)) => return Err(e),
@@ -191,58 +192,58 @@ fn lower_with<'a>(
 
 impl<'d, 'a> Lower<'d, 'a> {
     fn run(&mut self, top: InstId) -> R<'a, Netlist> {
-    let l = self;
-    let d = l.d;
-    let i = d.instance(top);
-    let spec = d.spec(i.spec);
-    l.insts.push(Inst { path: d.name(i.name).to_string() });
-    let mut outs = Vec::new();
-    for p in &spec.ports {
-        let Some(o) = p.object else {
-            return Err(l.err(p.node, "an interface port on the top module is not synthesised"));
-        };
-        let w = d.types.width(d.object(o).ty);
-        match p.dir {
-            Dir::Input => {
-                let port = l.n.inputs.len() as u32;
-                let bits = (0..w).map(|b| l.n.input(port, b)).collect();
-                l.n.inputs.push(Port { name: d.name(p.name).to_string(), width: w, bits: Vec::new() });
-                l.wires.insert((0, o), bits);
+        let l = self;
+        let d = l.d;
+        let i = d.instance(top);
+        let spec = d.spec(i.spec);
+        l.insts.push(Inst { path: d.name(i.name).to_string() });
+        let mut outs = Vec::new();
+        for p in &spec.ports {
+            let Some(o) = p.object else {
+                return Err(l.err(p.node, "an interface port on the top module is not synthesised"));
+            };
+            let w = d.types.width(d.object(o).ty);
+            match p.dir {
+                Dir::Input => {
+                    let port = l.n.inputs.len() as u32;
+                    let bits = (0..w).map(|b| l.n.input(port, b)).collect();
+                    l.n.inputs.push(Port { name: d.name(p.name).to_string(), width: w, bits: Vec::new() });
+                    l.wires.insert((0, o), bits);
+                }
+                Dir::Output => outs.push((p.name, o, w)),
+                _ => return Err(l.err(p.node, "only input and output ports are synthesised")),
             }
-            Dir::Output => outs.push((p.name, o, w)),
-            _ => return Err(l.err(p.node, "only input and output ports are synthesised")),
         }
-    }
-    l.scope(0, spec.scope)?;
-    // Reads no register took: a table's are its logic; a written
-    // memory's must be built from flip-flops.
-    for i in 0..l.pending.len() {
-        if l.pending[i].taken {
-            continue;
-        }
-        let m = l.pending[i].mem;
-        let (key, info) = l.mems.iter().find(|(_, x)| x.index == m).map(|(k, x)| (*k, *x)).unwrap();
-        if info.rom {
-            let addr = l.pending[i].addr.clone();
-            let v = l.table(m, &addr);
-            for (w, b) in l.pending[i].wires.clone().into_iter().zip(v) {
-                l.n.drive(w, b);
+        l.scope(0, spec.scope)?;
+        // Reads no register took: a table's are its logic; a written
+        // memory's must be built from flip-flops.
+        for i in 0..l.pending.len() {
+            if l.pending[i].taken {
+                continue;
             }
-        } else {
-            l.need_regs = Some(key);
-            let name = l.n.mems[m].name.clone();
-            return Err(l.err(
-                l.pending[i].at,
-                format!("memory {name} is read other than into a register on its clock, which block RAM cannot do"),
-            ));
+            let m = l.pending[i].mem;
+            let (key, info) = l.mems.iter().find(|(_, x)| x.index == m).map(|(k, x)| (*k, *x)).unwrap();
+            if info.rom {
+                let addr = l.pending[i].addr.clone();
+                let v = l.table(m, &addr);
+                for (w, b) in l.pending[i].wires.clone().into_iter().zip(v) {
+                    l.n.drive(w, b);
+                }
+            } else {
+                l.need_regs = Some(key);
+                let name = l.n.mems[m].name.clone();
+                return Err(l.err(
+                    l.pending[i].at,
+                    format!("memory {name} is read other than into a register on its clock, which block RAM cannot do"),
+                ));
+            }
         }
+        for (name, o, w) in outs {
+            let bits = l.obj_bits(0, o);
+            l.n.outputs.push(Port { name: d.name(name).to_string(), width: w, bits });
+        }
+        Ok(std::mem::take(&mut l.n))
     }
-    for (name, o, w) in outs {
-        let bits = l.obj_bits(0, o);
-        l.n.outputs.push(Port { name: d.name(name).to_string(), width: w, bits });
-    }
-    Ok(std::mem::take(&mut l.n))
-}
 }
 
 fn bits_of(c: &Const, w: u32) -> Option<Vec<Lit>> {
@@ -634,7 +635,10 @@ impl<'d, 'a> Lower<'d, 'a> {
                 if !self.n.exclusive(ap, aq) {
                     self.need_regs = self.mem_key(m);
                     let name = self.n.mems[m].name.clone();
-                    return Err(self.err(q.at, format!("{name} is written at two addresses at once: block RAM has one write port")));
+                    return Err(self.err(
+                        q.at,
+                        format!("{name} is written at two addresses at once: block RAM has one write port"),
+                    ));
                 }
                 let addr = p.addr.iter().zip(&q.addr).map(|(&a, &b)| self.n.mux(aq, b, a)).collect();
                 let data = p.data.iter().zip(&q.data).map(|(&a, &b)| self.n.mux(aq, b, a)).collect();
@@ -816,9 +820,9 @@ impl<'d, 'a> Lower<'d, 'a> {
                             }
                             T => {}
                             _ => {
-                                out = Err(
-                                    self.err(self.d.expr(c).node, "a loop's condition must be constant when unrolled")
-                                );
+                                out =
+                                    Err(self
+                                        .err(self.d.expr(c).node, "a loop's condition must be constant when unrolled"));
                                 break;
                             }
                         }
@@ -853,7 +857,11 @@ impl<'d, 'a> Lower<'d, 'a> {
                 Ok(())
             }
             StmtKind::Break | StmtKind::Continue => {
-                let k = if matches!(self.d.stmt(s).kind, StmtKind::Break) { self.flags.len().checked_sub(2) } else { self.flags.len().checked_sub(1) };
+                let k = if matches!(self.d.stmt(s).kind, StmtKind::Break) {
+                    self.flags.len().checked_sub(2)
+                } else {
+                    self.flags.len().checked_sub(1)
+                };
                 let in_loop = self.flags.len() >= 2 && self.flags.last().unwrap().1.0 & 1 == 1;
                 match (k, in_loop) {
                     (Some(k), true) => {
@@ -952,15 +960,20 @@ impl<'d, 'a> Lower<'d, 'a> {
             if per_arm.iter().all(|a| a.len() <= 1) {
                 let first = own.iter().find(|w| w.mem == m).unwrap().clone();
                 // Each arm's write enabled at all, for its address.
-                let any: Vec<Lit> = per_arm.iter().map(|a| a.first().map_or(F, |w| w.en.iter().fold(F, |x, &e| self.n.or(x, e)))).collect();
+                let any: Vec<Lit> = per_arm
+                    .iter()
+                    .map(|a| a.first().map_or(F, |w| w.en.iter().fold(F, |x, &e| self.n.or(x, e))))
+                    .collect();
                 let mut addr = Vec::new();
                 for b in 0..first.addr.len() {
-                    let leaves: Vec<(Lit, Lit)> = per_arm.iter().zip(&any).map(|(a, &e)| a.first().map_or((F, F), |w| (w.addr[b], e))).collect();
+                    let leaves: Vec<(Lit, Lit)> =
+                        per_arm.iter().zip(&any).map(|(a, &e)| a.first().map_or((F, F), |w| (w.addr[b], e))).collect();
                     addr.push(self.tree(v, v.len(), 0, &leaf, &leaves).0);
                 }
                 let (mut data, mut en) = (Vec::new(), Vec::new());
                 for b in 0..first.data.len() {
-                    let leaves: Vec<(Lit, Lit)> = per_arm.iter().map(|a| a.first().map_or((F, F), |w| (w.data[b], w.en[b]))).collect();
+                    let leaves: Vec<(Lit, Lit)> =
+                        per_arm.iter().map(|a| a.first().map_or((F, F), |w| (w.data[b], w.en[b]))).collect();
                     let (d, e) = self.tree(v, v.len(), 0, &leaf, &leaves);
                     data.push(d);
                     en.push(e);
@@ -969,7 +982,10 @@ impl<'d, 'a> Lower<'d, 'a> {
             } else {
                 for mut w in own.iter().filter(|w| w.mem == m).cloned() {
                     for b in 0..w.en.len() {
-                        let leaves: Vec<(Lit, Lit)> = envs.iter().map(|e| (F, e.mw.iter().find(|x| x.id == w.id).map_or(F, |x| x.en[b]))).collect();
+                        let leaves: Vec<(Lit, Lit)> = envs
+                            .iter()
+                            .map(|e| (F, e.mw.iter().find(|x| x.id == w.id).map_or(F, |x| x.en[b])))
+                            .collect();
                         w.en[b] = self.tree(v, v.len(), 0, &leaf, &leaves).1;
                     }
                     out.mw.push(w);
@@ -1233,7 +1249,9 @@ impl<'d, 'a> Lower<'d, 'a> {
     fn mem_shape(&self, o: ObjId) -> (i64, u32, u32) {
         let ty = self.d.object(o).ty;
         match self.tys().get(ty) {
-            Type::Unpacked { elem, dim: types::UDim::Range(l, r) } => (*l.min(r), (l - r).unsigned_abs() as u32 + 1, self.tys().width(*elem)),
+            Type::Unpacked { elem, dim: types::UDim::Range(l, r) } => {
+                (*l.min(r), (l - r).unsigned_abs() as u32 + 1, self.tys().width(*elem))
+            }
             _ => (0, 1, self.tys().width(ty)),
         }
     }
@@ -1241,7 +1259,16 @@ impl<'d, 'a> Lower<'d, 'a> {
     /// Writes `v` to word `word` (`mem[i]`) of memory `o`, or to `part`
     /// of it: a block RAM write, or for a memory of flip-flops, an
     /// assignment to the word's bits where the address picks it.
-    fn mem_write(&mut self, inst: u32, o: ObjId, word: ExprId, part: Option<ExprId>, v: Vec<Lit>, nba: bool, env: &mut Env) -> R<'a, ()> {
+    fn mem_write(
+        &mut self,
+        inst: u32,
+        o: ObjId,
+        word: ExprId,
+        part: Option<ExprId>,
+        v: Vec<Lit>,
+        nba: bool,
+        env: &mut Env,
+    ) -> R<'a, ()> {
         let at = self.d.expr(part.unwrap_or(word)).node;
         let (lo, depth, width) = self.mem_shape(o);
         // Each word bit's value and enable from the select.
@@ -1308,7 +1335,11 @@ impl<'d, 'a> Lower<'d, 'a> {
         if self.regs.contains(&(inst, o)) {
             let bits = self.read(inst, o, env);
             let words: Vec<Vec<Lit>> = (0..1usize << addr.len())
-                .map(|w| (0..width as usize).map(|b| if w < depth as usize { bits[w * width as usize + b] } else { F }).collect())
+                .map(|w| {
+                    (0..width as usize)
+                        .map(|b| if w < depth as usize { bits[w * width as usize + b] } else { F })
+                        .collect()
+                })
                 .collect();
             return Ok(self.pick_word(&addr, &words));
         }
@@ -1504,7 +1535,12 @@ impl<'d, 'a> Lower<'d, 'a> {
         let result = e.blk.get(&ret).map_or(vec![F; width as usize], |s| s.val.clone());
         let out_vals: Vec<(ExprId, Vec<Lit>)> = outs.iter().map(|&(f, a)| (a, self.read(inst, f, &e))).collect();
         // Its own variables and flags go.
-        let gone: Vec<Key> = e.blk.keys().copied().filter(|k| k.0 == u32::MAX || k.0 == inst && self.within(self.d.object(k.1).scope, scope)).collect();
+        let gone: Vec<Key> = e
+            .blk
+            .keys()
+            .copied()
+            .filter(|k| k.0 == u32::MAX || k.0 == inst && self.within(self.d.object(k.1).scope, scope))
+            .collect();
         for k in gone {
             e.blk.remove(&k);
         }
@@ -1708,7 +1744,13 @@ impl<'d, 'a> Lower<'d, 'a> {
 
     /// Assigns value bit `j` to the bits `targets[j]` names, each under
     /// its condition.
-    fn assign_targets(&mut self, targets: Vec<Vec<(Key, u32, Lit)>>, v: Vec<Lit>, nba: bool, env: &mut Env) -> R<'a, ()> {
+    fn assign_targets(
+        &mut self,
+        targets: Vec<Vec<(Key, u32, Lit)>>,
+        v: Vec<Lit>,
+        nba: bool,
+        env: &mut Env,
+    ) -> R<'a, ()> {
         for (t, b) in targets.into_iter().zip(v) {
             for (key, bit, cond) in t {
                 let w = self.obj_width(key.1) as usize;

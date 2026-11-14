@@ -1,0 +1,985 @@
+# What sv/src/arch/ice40/experiment.rs found by running icepack; regenerate with
+# `cargo run --release -p epitome-sv --example ice40_arch -- --rerun`.
+icepack 00da9c3e6cef
+device 5k 26 32
+kind io 18
+kind ipcon 54
+kind logic 54
+kind ramb 42
+kind ramt 42
+kind dsp0 54
+kind dsp1 54
+kind dsp2 54
+kind dsp3 54
+cram_bank 0 336 692 free 8256
+cram_bank 1 176 692 free 7936
+cram_bank 2 336 692 free 8256
+cram_bank 3 176 692 free 7936
+bram_bank 0 256 160
+bram_bank 1 256 80
+bram_bank 2 256 160
+bram_bank 3 256 80
+comment ff00 00 00ff
+cmd 51 0
+cmd 01 5
+cmd 92 20
+cmd 62 2b3
+cmd 82 0
+cmd 72 150
+cmd 11 0
+cmd cram
+cmd 72 b0
+cmd 11 1
+cmd cram
+cmd 72 150
+cmd 11 2
+cmd cram
+cmd 72 b0
+cmd 11 3
+cmd cram
+cmd 72 80
+cmd 11 0
+cmd 82 0
+cmd 62 9f
+cmd bram
+cmd 82 80
+cmd 62 9f
+cmd bram
+cmd 11 1
+cmd 82 0
+cmd 62 4f
+cmd bram
+cmd 82 80
+cmd 62 4f
+cmd bram
+cmd 11 2
+cmd 82 0
+cmd 62 9f
+cmd bram
+cmd 82 80
+cmd 62 9f
+cmd bram
+cmd 11 3
+cmd 82 0
+cmd 62 4f
+cmd bram
+cmd 82 80
+cmd 62 4f
+cmd bram
+cmd crc
+cmd 01 6
+cmd 00 0
+crc 1021 ffff 01 5
+option freq 5
+option nosleep 9 1
+layout io 0 rows 15 14 12 13 11 10 8 9 7 6 4 5 3 2 0 1 cols 19 21 22 23 12 13 14 15 16 10 28 29 30 31 32 33 0 1
+layout io 2 rows 15 14 12 13 11 10 8 9 7 6 4 5 3 2 0 1 cols 14 12 11 10 21 20 19 18 17 23 5 4 3 2 1 0 33 32
+layout ipcon 0 rows 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 cols 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53
+layout logic 0 rows 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 cols 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53
+layout ramb 0 rows 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 cols 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41
+layout logic 2 rows 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 cols 53 52 51 50 49 48 47 46 45 44 43 42 41 40 39 38 37 36 35 34 33 32 31 30 29 28 27 26 25 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0
+layout ramb 2 rows 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 cols 41 40 39 38 37 36 35 34 33 32 31 30 29 28 27 26 25 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0
+layout ipcon 2 rows 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 cols 53 52 51 50 49 48 47 46 45 44 43 42 41 40 39 38 37 36 35 34 33 32 31 30 29 28 27 26 25 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0
+layout ramt 0 rows 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 cols 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41
+layout ramt 2 rows 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 cols 41 40 39 38 37 36 35 34 33 32 31 30 29 28 27 26 25 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0
+layout dsp0 0 rows 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 cols 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53
+layout dsp0 2 rows 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 cols 53 52 51 50 49 48 47 46 45 44 43 42 41 40 39 38 37 36 35 34 33 32 31 30 29 28 27 26 25 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0
+layout dsp1 0 rows 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 cols 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53
+layout dsp1 2 rows 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 cols 53 52 51 50 49 48 47 46 45 44 43 42 41 40 39 38 37 36 35 34 33 32 31 30 29 28 27 26 25 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0
+layout dsp2 0 rows 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 cols 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53
+layout dsp2 2 rows 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 cols 53 52 51 50 49 48 47 46 45 44 43 42 41 40 39 38 37 36 35 34 33 32 31 30 29 28 27 26 25 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0
+layout dsp3 0 rows 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 cols 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53
+layout dsp3 2 rows 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 cols 53 52 51 50 49 48 47 46 45 44 43 42 41 40 39 38 37 36 35 34 33 32 31 30 29 28 27 26 25 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0
+layout ipcon 1 rows 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0 cols 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53
+layout logic 1 rows 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0 cols 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53
+layout ramb 1 rows 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0 cols 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41
+layout logic 3 rows 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0 cols 53 52 51 50 49 48 47 46 45 44 43 42 41 40 39 38 37 36 35 34 33 32 31 30 29 28 27 26 25 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0
+layout ramb 3 rows 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0 cols 41 40 39 38 37 36 35 34 33 32 31 30 29 28 27 26 25 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0
+layout ipcon 3 rows 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0 cols 53 52 51 50 49 48 47 46 45 44 43 42 41 40 39 38 37 36 35 34 33 32 31 30 29 28 27 26 25 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0
+layout ramt 1 rows 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0 cols 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41
+layout ramt 3 rows 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0 cols 41 40 39 38 37 36 35 34 33 32 31 30 29 28 27 26 25 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0
+layout dsp0 1 rows 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0 cols 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53
+layout dsp0 3 rows 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0 cols 53 52 51 50 49 48 47 46 45 44 43 42 41 40 39 38 37 36 35 34 33 32 31 30 29 28 27 26 25 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0
+layout dsp1 1 rows 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0 cols 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53
+layout dsp1 3 rows 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0 cols 53 52 51 50 49 48 47 46 45 44 43 42 41 40 39 38 37 36 35 34 33 32 31 30 29 28 27 26 25 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0
+layout dsp2 1 rows 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0 cols 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53
+layout dsp2 3 rows 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0 cols 53 52 51 50 49 48 47 46 45 44 43 42 41 40 39 38 37 36 35 34 33 32 31 30 29 28 27 26 25 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0
+layout dsp3 1 rows 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0 cols 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53
+layout dsp3 3 rows 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0 cols 53 52 51 50 49 48 47 46 45 44 43 42 41 40 39 38 37 36 35 34 33 32 31 30 29 28 27 26 25 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0
+layout io 1 rows 15 14 12 13 11 10 8 9 7 6 4 5 3 2 0 1 cols 19 21 22 23 12 13 14 15 16 10 28 29 30 31 32 33 0 1
+layout io 3 rows 15 14 12 13 11 10 8 9 7 6 4 5 3 2 0 1 cols 14 12 11 10 21 20 19 18 17 23 5 4 3 2 1 0 33 32
+tile io 1 0 0 0 58
+tile io 2 0 0 0 112
+tile io 3 0 0 0 166
+tile io 4 0 0 0 220
+tile io 5 0 0 0 274
+tile io 6 0 0 0 328
+tile io 7 0 0 0 370
+tile io 8 0 0 0 424
+tile io 9 0 0 0 478
+tile io 10 0 0 0 532
+tile io 11 0 0 0 586
+tile io 12 0 0 0 640
+tile io 13 0 2 0 652
+tile io 14 0 2 0 598
+tile io 15 0 2 0 544
+tile io 16 0 2 0 490
+tile io 17 0 2 0 436
+tile io 18 0 2 0 382
+tile io 19 0 2 0 328
+tile io 20 0 2 0 286
+tile io 21 0 2 0 232
+tile io 22 0 2 0 178
+tile io 23 0 2 0 124
+tile io 24 0 2 0 70
+tile ipcon 0 1 0 16 0
+tile logic 1 1 0 16 54
+tile logic 2 1 0 16 108
+tile logic 3 1 0 16 162
+tile logic 4 1 0 16 216
+tile logic 5 1 0 16 270
+tile ramb 6 1 0 16 324
+tile logic 7 1 0 16 366
+tile logic 8 1 0 16 420
+tile logic 9 1 0 16 474
+tile logic 10 1 0 16 528
+tile logic 11 1 0 16 582
+tile logic 12 1 0 16 636
+tile logic 13 1 2 16 636
+tile logic 14 1 2 16 582
+tile logic 15 1 2 16 528
+tile logic 16 1 2 16 474
+tile logic 17 1 2 16 420
+tile logic 18 1 2 16 366
+tile ramb 19 1 2 16 324
+tile logic 20 1 2 16 270
+tile logic 21 1 2 16 216
+tile logic 22 1 2 16 162
+tile logic 23 1 2 16 108
+tile logic 24 1 2 16 54
+tile ipcon 25 1 2 16 0
+tile ipcon 0 2 0 32 0
+tile logic 1 2 0 32 54
+tile logic 2 2 0 32 108
+tile logic 3 2 0 32 162
+tile logic 4 2 0 32 216
+tile logic 5 2 0 32 270
+tile ramt 6 2 0 32 324
+tile logic 7 2 0 32 366
+tile logic 8 2 0 32 420
+tile logic 9 2 0 32 474
+tile logic 10 2 0 32 528
+tile logic 11 2 0 32 582
+tile logic 12 2 0 32 636
+tile logic 13 2 2 32 636
+tile logic 14 2 2 32 582
+tile logic 15 2 2 32 528
+tile logic 16 2 2 32 474
+tile logic 17 2 2 32 420
+tile logic 18 2 2 32 366
+tile ramt 19 2 2 32 324
+tile logic 20 2 2 32 270
+tile logic 21 2 2 32 216
+tile logic 22 2 2 32 162
+tile logic 23 2 2 32 108
+tile logic 24 2 2 32 54
+tile ipcon 25 2 2 32 0
+tile ipcon 0 3 0 48 0
+tile logic 1 3 0 48 54
+tile logic 2 3 0 48 108
+tile logic 3 3 0 48 162
+tile logic 4 3 0 48 216
+tile logic 5 3 0 48 270
+tile ramb 6 3 0 48 324
+tile logic 7 3 0 48 366
+tile logic 8 3 0 48 420
+tile logic 9 3 0 48 474
+tile logic 10 3 0 48 528
+tile logic 11 3 0 48 582
+tile logic 12 3 0 48 636
+tile logic 13 3 2 48 636
+tile logic 14 3 2 48 582
+tile logic 15 3 2 48 528
+tile logic 16 3 2 48 474
+tile logic 17 3 2 48 420
+tile logic 18 3 2 48 366
+tile ramb 19 3 2 48 324
+tile logic 20 3 2 48 270
+tile logic 21 3 2 48 216
+tile logic 22 3 2 48 162
+tile logic 23 3 2 48 108
+tile logic 24 3 2 48 54
+tile ipcon 25 3 2 48 0
+tile ipcon 0 4 0 64 0
+tile logic 1 4 0 64 54
+tile logic 2 4 0 64 108
+tile logic 3 4 0 64 162
+tile logic 4 4 0 64 216
+tile logic 5 4 0 64 270
+tile ramt 6 4 0 64 324
+tile logic 7 4 0 64 366
+tile logic 8 4 0 64 420
+tile logic 9 4 0 64 474
+tile logic 10 4 0 64 528
+tile logic 11 4 0 64 582
+tile logic 12 4 0 64 636
+tile logic 13 4 2 64 636
+tile logic 14 4 2 64 582
+tile logic 15 4 2 64 528
+tile logic 16 4 2 64 474
+tile logic 17 4 2 64 420
+tile logic 18 4 2 64 366
+tile ramt 19 4 2 64 324
+tile logic 20 4 2 64 270
+tile logic 21 4 2 64 216
+tile logic 22 4 2 64 162
+tile logic 23 4 2 64 108
+tile logic 24 4 2 64 54
+tile ipcon 25 4 2 64 0
+tile dsp0 0 5 0 80 0
+tile logic 1 5 0 80 54
+tile logic 2 5 0 80 108
+tile logic 3 5 0 80 162
+tile logic 4 5 0 80 216
+tile logic 5 5 0 80 270
+tile ramb 6 5 0 80 324
+tile logic 7 5 0 80 366
+tile logic 8 5 0 80 420
+tile logic 9 5 0 80 474
+tile logic 10 5 0 80 528
+tile logic 11 5 0 80 582
+tile logic 12 5 0 80 636
+tile logic 13 5 2 80 636
+tile logic 14 5 2 80 582
+tile logic 15 5 2 80 528
+tile logic 16 5 2 80 474
+tile logic 17 5 2 80 420
+tile logic 18 5 2 80 366
+tile ramb 19 5 2 80 324
+tile logic 20 5 2 80 270
+tile logic 21 5 2 80 216
+tile logic 22 5 2 80 162
+tile logic 23 5 2 80 108
+tile logic 24 5 2 80 54
+tile dsp0 25 5 2 80 0
+tile dsp1 0 6 0 96 0
+tile logic 1 6 0 96 54
+tile logic 2 6 0 96 108
+tile logic 3 6 0 96 162
+tile logic 4 6 0 96 216
+tile logic 5 6 0 96 270
+tile ramt 6 6 0 96 324
+tile logic 7 6 0 96 366
+tile logic 8 6 0 96 420
+tile logic 9 6 0 96 474
+tile logic 10 6 0 96 528
+tile logic 11 6 0 96 582
+tile logic 12 6 0 96 636
+tile logic 13 6 2 96 636
+tile logic 14 6 2 96 582
+tile logic 15 6 2 96 528
+tile logic 16 6 2 96 474
+tile logic 17 6 2 96 420
+tile logic 18 6 2 96 366
+tile ramt 19 6 2 96 324
+tile logic 20 6 2 96 270
+tile logic 21 6 2 96 216
+tile logic 22 6 2 96 162
+tile logic 23 6 2 96 108
+tile logic 24 6 2 96 54
+tile dsp1 25 6 2 96 0
+tile dsp2 0 7 0 112 0
+tile logic 1 7 0 112 54
+tile logic 2 7 0 112 108
+tile logic 3 7 0 112 162
+tile logic 4 7 0 112 216
+tile logic 5 7 0 112 270
+tile ramb 6 7 0 112 324
+tile logic 7 7 0 112 366
+tile logic 8 7 0 112 420
+tile logic 9 7 0 112 474
+tile logic 10 7 0 112 528
+tile logic 11 7 0 112 582
+tile logic 12 7 0 112 636
+tile logic 13 7 2 112 636
+tile logic 14 7 2 112 582
+tile logic 15 7 2 112 528
+tile logic 16 7 2 112 474
+tile logic 17 7 2 112 420
+tile logic 18 7 2 112 366
+tile ramb 19 7 2 112 324
+tile logic 20 7 2 112 270
+tile logic 21 7 2 112 216
+tile logic 22 7 2 112 162
+tile logic 23 7 2 112 108
+tile logic 24 7 2 112 54
+tile dsp2 25 7 2 112 0
+tile dsp3 0 8 0 128 0
+tile logic 1 8 0 128 54
+tile logic 2 8 0 128 108
+tile logic 3 8 0 128 162
+tile logic 4 8 0 128 216
+tile logic 5 8 0 128 270
+tile ramt 6 8 0 128 324
+tile logic 7 8 0 128 366
+tile logic 8 8 0 128 420
+tile logic 9 8 0 128 474
+tile logic 10 8 0 128 528
+tile logic 11 8 0 128 582
+tile logic 12 8 0 128 636
+tile logic 13 8 2 128 636
+tile logic 14 8 2 128 582
+tile logic 15 8 2 128 528
+tile logic 16 8 2 128 474
+tile logic 17 8 2 128 420
+tile logic 18 8 2 128 366
+tile ramt 19 8 2 128 324
+tile logic 20 8 2 128 270
+tile logic 21 8 2 128 216
+tile logic 22 8 2 128 162
+tile logic 23 8 2 128 108
+tile logic 24 8 2 128 54
+tile dsp3 25 8 2 128 0
+tile ipcon 0 9 0 144 0
+tile logic 1 9 0 144 54
+tile logic 2 9 0 144 108
+tile logic 3 9 0 144 162
+tile logic 4 9 0 144 216
+tile logic 5 9 0 144 270
+tile ramb 6 9 0 144 324
+tile logic 7 9 0 144 366
+tile logic 8 9 0 144 420
+tile logic 9 9 0 144 474
+tile logic 10 9 0 144 528
+tile logic 11 9 0 144 582
+tile logic 12 9 0 144 636
+tile logic 13 9 2 144 636
+tile logic 14 9 2 144 582
+tile logic 15 9 2 144 528
+tile logic 16 9 2 144 474
+tile logic 17 9 2 144 420
+tile logic 18 9 2 144 366
+tile ramb 19 9 2 144 324
+tile logic 20 9 2 144 270
+tile logic 21 9 2 144 216
+tile logic 22 9 2 144 162
+tile logic 23 9 2 144 108
+tile logic 24 9 2 144 54
+tile ipcon 25 9 2 144 0
+tile dsp0 0 10 0 160 0
+tile logic 1 10 0 160 54
+tile logic 2 10 0 160 108
+tile logic 3 10 0 160 162
+tile logic 4 10 0 160 216
+tile logic 5 10 0 160 270
+tile ramt 6 10 0 160 324
+tile logic 7 10 0 160 366
+tile logic 8 10 0 160 420
+tile logic 9 10 0 160 474
+tile logic 10 10 0 160 528
+tile logic 11 10 0 160 582
+tile logic 12 10 0 160 636
+tile logic 13 10 2 160 636
+tile logic 14 10 2 160 582
+tile logic 15 10 2 160 528
+tile logic 16 10 2 160 474
+tile logic 17 10 2 160 420
+tile logic 18 10 2 160 366
+tile ramt 19 10 2 160 324
+tile logic 20 10 2 160 270
+tile logic 21 10 2 160 216
+tile logic 22 10 2 160 162
+tile logic 23 10 2 160 108
+tile logic 24 10 2 160 54
+tile dsp0 25 10 2 160 0
+tile dsp1 0 11 0 176 0
+tile logic 1 11 0 176 54
+tile logic 2 11 0 176 108
+tile logic 3 11 0 176 162
+tile logic 4 11 0 176 216
+tile logic 5 11 0 176 270
+tile ramb 6 11 0 176 324
+tile logic 7 11 0 176 366
+tile logic 8 11 0 176 420
+tile logic 9 11 0 176 474
+tile logic 10 11 0 176 528
+tile logic 11 11 0 176 582
+tile logic 12 11 0 176 636
+tile logic 13 11 2 176 636
+tile logic 14 11 2 176 582
+tile logic 15 11 2 176 528
+tile logic 16 11 2 176 474
+tile logic 17 11 2 176 420
+tile logic 18 11 2 176 366
+tile ramb 19 11 2 176 324
+tile logic 20 11 2 176 270
+tile logic 21 11 2 176 216
+tile logic 22 11 2 176 162
+tile logic 23 11 2 176 108
+tile logic 24 11 2 176 54
+tile dsp1 25 11 2 176 0
+tile dsp2 0 12 0 192 0
+tile logic 1 12 0 192 54
+tile logic 2 12 0 192 108
+tile logic 3 12 0 192 162
+tile logic 4 12 0 192 216
+tile logic 5 12 0 192 270
+tile ramt 6 12 0 192 324
+tile logic 7 12 0 192 366
+tile logic 8 12 0 192 420
+tile logic 9 12 0 192 474
+tile logic 10 12 0 192 528
+tile logic 11 12 0 192 582
+tile logic 12 12 0 192 636
+tile logic 13 12 2 192 636
+tile logic 14 12 2 192 582
+tile logic 15 12 2 192 528
+tile logic 16 12 2 192 474
+tile logic 17 12 2 192 420
+tile logic 18 12 2 192 366
+tile ramt 19 12 2 192 324
+tile logic 20 12 2 192 270
+tile logic 21 12 2 192 216
+tile logic 22 12 2 192 162
+tile logic 23 12 2 192 108
+tile logic 24 12 2 192 54
+tile dsp2 25 12 2 192 0
+tile dsp3 0 13 0 208 0
+tile logic 1 13 0 208 54
+tile logic 2 13 0 208 108
+tile logic 3 13 0 208 162
+tile logic 4 13 0 208 216
+tile logic 5 13 0 208 270
+tile ramb 6 13 0 208 324
+tile logic 7 13 0 208 366
+tile logic 8 13 0 208 420
+tile logic 9 13 0 208 474
+tile logic 10 13 0 208 528
+tile logic 11 13 0 208 582
+tile logic 12 13 0 208 636
+tile logic 13 13 2 208 636
+tile logic 14 13 2 208 582
+tile logic 15 13 2 208 528
+tile logic 16 13 2 208 474
+tile logic 17 13 2 208 420
+tile logic 18 13 2 208 366
+tile ramb 19 13 2 208 324
+tile logic 20 13 2 208 270
+tile logic 21 13 2 208 216
+tile logic 22 13 2 208 162
+tile logic 23 13 2 208 108
+tile logic 24 13 2 208 54
+tile dsp3 25 13 2 208 0
+tile ipcon 0 14 0 224 0
+tile logic 1 14 0 224 54
+tile logic 2 14 0 224 108
+tile logic 3 14 0 224 162
+tile logic 4 14 0 224 216
+tile logic 5 14 0 224 270
+tile ramt 6 14 0 224 324
+tile logic 7 14 0 224 366
+tile logic 8 14 0 224 420
+tile logic 9 14 0 224 474
+tile logic 10 14 0 224 528
+tile logic 11 14 0 224 582
+tile logic 12 14 0 224 636
+tile logic 13 14 2 224 636
+tile logic 14 14 2 224 582
+tile logic 15 14 2 224 528
+tile logic 16 14 2 224 474
+tile logic 17 14 2 224 420
+tile logic 18 14 2 224 366
+tile ramt 19 14 2 224 324
+tile logic 20 14 2 224 270
+tile logic 21 14 2 224 216
+tile logic 22 14 2 224 162
+tile logic 23 14 2 224 108
+tile logic 24 14 2 224 54
+tile ipcon 25 14 2 224 0
+tile dsp0 0 15 0 240 0
+tile logic 1 15 0 240 54
+tile logic 2 15 0 240 108
+tile logic 3 15 0 240 162
+tile logic 4 15 0 240 216
+tile logic 5 15 0 240 270
+tile ramb 6 15 0 240 324
+tile logic 7 15 0 240 366
+tile logic 8 15 0 240 420
+tile logic 9 15 0 240 474
+tile logic 10 15 0 240 528
+tile logic 11 15 0 240 582
+tile logic 12 15 0 240 636
+tile logic 13 15 2 240 636
+tile logic 14 15 2 240 582
+tile logic 15 15 2 240 528
+tile logic 16 15 2 240 474
+tile logic 17 15 2 240 420
+tile logic 18 15 2 240 366
+tile ramb 19 15 2 240 324
+tile logic 20 15 2 240 270
+tile logic 21 15 2 240 216
+tile logic 22 15 2 240 162
+tile logic 23 15 2 240 108
+tile logic 24 15 2 240 54
+tile dsp0 25 15 2 240 0
+tile dsp1 0 16 0 256 0
+tile logic 1 16 0 256 54
+tile logic 2 16 0 256 108
+tile logic 3 16 0 256 162
+tile logic 4 16 0 256 216
+tile logic 5 16 0 256 270
+tile ramt 6 16 0 256 324
+tile logic 7 16 0 256 366
+tile logic 8 16 0 256 420
+tile logic 9 16 0 256 474
+tile logic 10 16 0 256 528
+tile logic 11 16 0 256 582
+tile logic 12 16 0 256 636
+tile logic 13 16 2 256 636
+tile logic 14 16 2 256 582
+tile logic 15 16 2 256 528
+tile logic 16 16 2 256 474
+tile logic 17 16 2 256 420
+tile logic 18 16 2 256 366
+tile ramt 19 16 2 256 324
+tile logic 20 16 2 256 270
+tile logic 21 16 2 256 216
+tile logic 22 16 2 256 162
+tile logic 23 16 2 256 108
+tile logic 24 16 2 256 54
+tile dsp1 25 16 2 256 0
+tile dsp2 0 17 0 272 0
+tile logic 1 17 0 272 54
+tile logic 2 17 0 272 108
+tile logic 3 17 0 272 162
+tile logic 4 17 0 272 216
+tile logic 5 17 0 272 270
+tile ramb 6 17 0 272 324
+tile logic 7 17 0 272 366
+tile logic 8 17 0 272 420
+tile logic 9 17 0 272 474
+tile logic 10 17 0 272 528
+tile logic 11 17 0 272 582
+tile logic 12 17 0 272 636
+tile logic 13 17 2 272 636
+tile logic 14 17 2 272 582
+tile logic 15 17 2 272 528
+tile logic 16 17 2 272 474
+tile logic 17 17 2 272 420
+tile logic 18 17 2 272 366
+tile ramb 19 17 2 272 324
+tile logic 20 17 2 272 270
+tile logic 21 17 2 272 216
+tile logic 22 17 2 272 162
+tile logic 23 17 2 272 108
+tile logic 24 17 2 272 54
+tile dsp2 25 17 2 272 0
+tile dsp3 0 18 0 288 0
+tile logic 1 18 0 288 54
+tile logic 2 18 0 288 108
+tile logic 3 18 0 288 162
+tile logic 4 18 0 288 216
+tile logic 5 18 0 288 270
+tile ramt 6 18 0 288 324
+tile logic 7 18 0 288 366
+tile logic 8 18 0 288 420
+tile logic 9 18 0 288 474
+tile logic 10 18 0 288 528
+tile logic 11 18 0 288 582
+tile logic 12 18 0 288 636
+tile logic 13 18 2 288 636
+tile logic 14 18 2 288 582
+tile logic 15 18 2 288 528
+tile logic 16 18 2 288 474
+tile logic 17 18 2 288 420
+tile logic 18 18 2 288 366
+tile ramt 19 18 2 288 324
+tile logic 20 18 2 288 270
+tile logic 21 18 2 288 216
+tile logic 22 18 2 288 162
+tile logic 23 18 2 288 108
+tile logic 24 18 2 288 54
+tile dsp3 25 18 2 288 0
+tile ipcon 0 19 0 304 0
+tile logic 1 19 0 304 54
+tile logic 2 19 0 304 108
+tile logic 3 19 0 304 162
+tile logic 4 19 0 304 216
+tile logic 5 19 0 304 270
+tile ramb 6 19 0 304 324
+tile logic 7 19 0 304 366
+tile logic 8 19 0 304 420
+tile logic 9 19 0 304 474
+tile logic 10 19 0 304 528
+tile logic 11 19 0 304 582
+tile logic 12 19 0 304 636
+tile logic 13 19 2 304 636
+tile logic 14 19 2 304 582
+tile logic 15 19 2 304 528
+tile logic 16 19 2 304 474
+tile logic 17 19 2 304 420
+tile logic 18 19 2 304 366
+tile ramb 19 19 2 304 324
+tile logic 20 19 2 304 270
+tile logic 21 19 2 304 216
+tile logic 22 19 2 304 162
+tile logic 23 19 2 304 108
+tile logic 24 19 2 304 54
+tile ipcon 25 19 2 304 0
+tile ipcon 0 20 0 320 0
+tile logic 1 20 0 320 54
+tile logic 2 20 0 320 108
+tile logic 3 20 0 320 162
+tile logic 4 20 0 320 216
+tile logic 5 20 0 320 270
+tile ramt 6 20 0 320 324
+tile logic 7 20 0 320 366
+tile logic 8 20 0 320 420
+tile logic 9 20 0 320 474
+tile logic 10 20 0 320 528
+tile logic 11 20 0 320 582
+tile logic 12 20 0 320 636
+tile logic 13 20 2 320 636
+tile logic 14 20 2 320 582
+tile logic 15 20 2 320 528
+tile logic 16 20 2 320 474
+tile logic 17 20 2 320 420
+tile logic 18 20 2 320 366
+tile ramt 19 20 2 320 324
+tile logic 20 20 2 320 270
+tile logic 21 20 2 320 216
+tile logic 22 20 2 320 162
+tile logic 23 20 2 320 108
+tile logic 24 20 2 320 54
+tile ipcon 25 20 2 320 0
+tile ipcon 0 21 1 160 0
+tile logic 1 21 1 160 54
+tile logic 2 21 1 160 108
+tile logic 3 21 1 160 162
+tile logic 4 21 1 160 216
+tile logic 5 21 1 160 270
+tile ramb 6 21 1 160 324
+tile logic 7 21 1 160 366
+tile logic 8 21 1 160 420
+tile logic 9 21 1 160 474
+tile logic 10 21 1 160 528
+tile logic 11 21 1 160 582
+tile logic 12 21 1 160 636
+tile logic 13 21 3 160 636
+tile logic 14 21 3 160 582
+tile logic 15 21 3 160 528
+tile logic 16 21 3 160 474
+tile logic 17 21 3 160 420
+tile logic 18 21 3 160 366
+tile ramb 19 21 3 160 324
+tile logic 20 21 3 160 270
+tile logic 21 21 3 160 216
+tile logic 22 21 3 160 162
+tile logic 23 21 3 160 108
+tile logic 24 21 3 160 54
+tile ipcon 25 21 3 160 0
+tile ipcon 0 22 1 144 0
+tile logic 1 22 1 144 54
+tile logic 2 22 1 144 108
+tile logic 3 22 1 144 162
+tile logic 4 22 1 144 216
+tile logic 5 22 1 144 270
+tile ramt 6 22 1 144 324
+tile logic 7 22 1 144 366
+tile logic 8 22 1 144 420
+tile logic 9 22 1 144 474
+tile logic 10 22 1 144 528
+tile logic 11 22 1 144 582
+tile logic 12 22 1 144 636
+tile logic 13 22 3 144 636
+tile logic 14 22 3 144 582
+tile logic 15 22 3 144 528
+tile logic 16 22 3 144 474
+tile logic 17 22 3 144 420
+tile logic 18 22 3 144 366
+tile ramt 19 22 3 144 324
+tile logic 20 22 3 144 270
+tile logic 21 22 3 144 216
+tile logic 22 22 3 144 162
+tile logic 23 22 3 144 108
+tile logic 24 22 3 144 54
+tile ipcon 25 22 3 144 0
+tile dsp0 0 23 1 128 0
+tile logic 1 23 1 128 54
+tile logic 2 23 1 128 108
+tile logic 3 23 1 128 162
+tile logic 4 23 1 128 216
+tile logic 5 23 1 128 270
+tile ramb 6 23 1 128 324
+tile logic 7 23 1 128 366
+tile logic 8 23 1 128 420
+tile logic 9 23 1 128 474
+tile logic 10 23 1 128 528
+tile logic 11 23 1 128 582
+tile logic 12 23 1 128 636
+tile logic 13 23 3 128 636
+tile logic 14 23 3 128 582
+tile logic 15 23 3 128 528
+tile logic 16 23 3 128 474
+tile logic 17 23 3 128 420
+tile logic 18 23 3 128 366
+tile ramb 19 23 3 128 324
+tile logic 20 23 3 128 270
+tile logic 21 23 3 128 216
+tile logic 22 23 3 128 162
+tile logic 23 23 3 128 108
+tile logic 24 23 3 128 54
+tile dsp0 25 23 3 128 0
+tile dsp1 0 24 1 112 0
+tile logic 1 24 1 112 54
+tile logic 2 24 1 112 108
+tile logic 3 24 1 112 162
+tile logic 4 24 1 112 216
+tile logic 5 24 1 112 270
+tile ramt 6 24 1 112 324
+tile logic 7 24 1 112 366
+tile logic 8 24 1 112 420
+tile logic 9 24 1 112 474
+tile logic 10 24 1 112 528
+tile logic 11 24 1 112 582
+tile logic 12 24 1 112 636
+tile logic 13 24 3 112 636
+tile logic 14 24 3 112 582
+tile logic 15 24 3 112 528
+tile logic 16 24 3 112 474
+tile logic 17 24 3 112 420
+tile logic 18 24 3 112 366
+tile ramt 19 24 3 112 324
+tile logic 20 24 3 112 270
+tile logic 21 24 3 112 216
+tile logic 22 24 3 112 162
+tile logic 23 24 3 112 108
+tile logic 24 24 3 112 54
+tile dsp1 25 24 3 112 0
+tile dsp2 0 25 1 96 0
+tile logic 1 25 1 96 54
+tile logic 2 25 1 96 108
+tile logic 3 25 1 96 162
+tile logic 4 25 1 96 216
+tile logic 5 25 1 96 270
+tile ramb 6 25 1 96 324
+tile logic 7 25 1 96 366
+tile logic 8 25 1 96 420
+tile logic 9 25 1 96 474
+tile logic 10 25 1 96 528
+tile logic 11 25 1 96 582
+tile logic 12 25 1 96 636
+tile logic 13 25 3 96 636
+tile logic 14 25 3 96 582
+tile logic 15 25 3 96 528
+tile logic 16 25 3 96 474
+tile logic 17 25 3 96 420
+tile logic 18 25 3 96 366
+tile ramb 19 25 3 96 324
+tile logic 20 25 3 96 270
+tile logic 21 25 3 96 216
+tile logic 22 25 3 96 162
+tile logic 23 25 3 96 108
+tile logic 24 25 3 96 54
+tile dsp2 25 25 3 96 0
+tile dsp3 0 26 1 80 0
+tile logic 1 26 1 80 54
+tile logic 2 26 1 80 108
+tile logic 3 26 1 80 162
+tile logic 4 26 1 80 216
+tile logic 5 26 1 80 270
+tile ramt 6 26 1 80 324
+tile logic 7 26 1 80 366
+tile logic 8 26 1 80 420
+tile logic 9 26 1 80 474
+tile logic 10 26 1 80 528
+tile logic 11 26 1 80 582
+tile logic 12 26 1 80 636
+tile logic 13 26 3 80 636
+tile logic 14 26 3 80 582
+tile logic 15 26 3 80 528
+tile logic 16 26 3 80 474
+tile logic 17 26 3 80 420
+tile logic 18 26 3 80 366
+tile ramt 19 26 3 80 324
+tile logic 20 26 3 80 270
+tile logic 21 26 3 80 216
+tile logic 22 26 3 80 162
+tile logic 23 26 3 80 108
+tile logic 24 26 3 80 54
+tile dsp3 25 26 3 80 0
+tile ipcon 0 27 1 64 0
+tile logic 1 27 1 64 54
+tile logic 2 27 1 64 108
+tile logic 3 27 1 64 162
+tile logic 4 27 1 64 216
+tile logic 5 27 1 64 270
+tile ramb 6 27 1 64 324
+tile logic 7 27 1 64 366
+tile logic 8 27 1 64 420
+tile logic 9 27 1 64 474
+tile logic 10 27 1 64 528
+tile logic 11 27 1 64 582
+tile logic 12 27 1 64 636
+tile logic 13 27 3 64 636
+tile logic 14 27 3 64 582
+tile logic 15 27 3 64 528
+tile logic 16 27 3 64 474
+tile logic 17 27 3 64 420
+tile logic 18 27 3 64 366
+tile ramb 19 27 3 64 324
+tile logic 20 27 3 64 270
+tile logic 21 27 3 64 216
+tile logic 22 27 3 64 162
+tile logic 23 27 3 64 108
+tile logic 24 27 3 64 54
+tile ipcon 25 27 3 64 0
+tile ipcon 0 28 1 48 0
+tile logic 1 28 1 48 54
+tile logic 2 28 1 48 108
+tile logic 3 28 1 48 162
+tile logic 4 28 1 48 216
+tile logic 5 28 1 48 270
+tile ramt 6 28 1 48 324
+tile logic 7 28 1 48 366
+tile logic 8 28 1 48 420
+tile logic 9 28 1 48 474
+tile logic 10 28 1 48 528
+tile logic 11 28 1 48 582
+tile logic 12 28 1 48 636
+tile logic 13 28 3 48 636
+tile logic 14 28 3 48 582
+tile logic 15 28 3 48 528
+tile logic 16 28 3 48 474
+tile logic 17 28 3 48 420
+tile logic 18 28 3 48 366
+tile ramt 19 28 3 48 324
+tile logic 20 28 3 48 270
+tile logic 21 28 3 48 216
+tile logic 22 28 3 48 162
+tile logic 23 28 3 48 108
+tile logic 24 28 3 48 54
+tile ipcon 25 28 3 48 0
+tile ipcon 0 29 1 32 0
+tile logic 1 29 1 32 54
+tile logic 2 29 1 32 108
+tile logic 3 29 1 32 162
+tile logic 4 29 1 32 216
+tile logic 5 29 1 32 270
+tile ramb 6 29 1 32 324
+tile logic 7 29 1 32 366
+tile logic 8 29 1 32 420
+tile logic 9 29 1 32 474
+tile logic 10 29 1 32 528
+tile logic 11 29 1 32 582
+tile logic 12 29 1 32 636
+tile logic 13 29 3 32 636
+tile logic 14 29 3 32 582
+tile logic 15 29 3 32 528
+tile logic 16 29 3 32 474
+tile logic 17 29 3 32 420
+tile logic 18 29 3 32 366
+tile ramb 19 29 3 32 324
+tile logic 20 29 3 32 270
+tile logic 21 29 3 32 216
+tile logic 22 29 3 32 162
+tile logic 23 29 3 32 108
+tile logic 24 29 3 32 54
+tile ipcon 25 29 3 32 0
+tile ipcon 0 30 1 16 0
+tile logic 1 30 1 16 54
+tile logic 2 30 1 16 108
+tile logic 3 30 1 16 162
+tile logic 4 30 1 16 216
+tile logic 5 30 1 16 270
+tile ramt 6 30 1 16 324
+tile logic 7 30 1 16 366
+tile logic 8 30 1 16 420
+tile logic 9 30 1 16 474
+tile logic 10 30 1 16 528
+tile logic 11 30 1 16 582
+tile logic 12 30 1 16 636
+tile logic 13 30 3 16 636
+tile logic 14 30 3 16 582
+tile logic 15 30 3 16 528
+tile logic 16 30 3 16 474
+tile logic 17 30 3 16 420
+tile logic 18 30 3 16 366
+tile ramt 19 30 3 16 324
+tile logic 20 30 3 16 270
+tile logic 21 30 3 16 216
+tile logic 22 30 3 16 162
+tile logic 23 30 3 16 108
+tile logic 24 30 3 16 54
+tile ipcon 25 30 3 16 0
+tile io 1 31 1 0 58
+tile io 2 31 1 0 112
+tile io 3 31 1 0 166
+tile io 4 31 1 0 220
+tile io 5 31 1 0 274
+tile io 6 31 1 0 328
+tile io 7 31 1 0 370
+tile io 8 31 1 0 424
+tile io 9 31 1 0 478
+tile io 10 31 1 0 532
+tile io 11 31 1 0 586
+tile io 12 31 1 0 640
+tile io 13 31 3 0 652
+tile io 14 31 3 0 598
+tile io 15 31 3 0 544
+tile io 16 31 3 0 490
+tile io 17 31 3 0 436
+tile io 18 31 3 0 382
+tile io 19 31 3 0 328
+tile io 20 31 3 0 286
+tile io 21 31 3 0 232
+tile io 22 31 3 0 178
+tile io 23 31 3 0 124
+tile io 24 31 3 0 70
+ram_bits 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0
+ram 6 1 0 0
+ram 19 1 2 0
+ram 6 3 0 16
+ram 19 3 2 16
+ram 6 5 0 32
+ram 19 5 2 32
+ram 6 7 0 48
+ram 19 7 2 48
+ram 6 9 0 64
+ram 19 9 2 64
+ram 6 11 0 80
+ram 19 11 2 80
+ram 6 13 0 96
+ram 19 13 2 96
+ram 6 15 0 112
+ram 19 15 2 112
+ram 6 17 0 128
+ram 19 17 2 128
+ram 6 19 0 144
+ram 19 19 2 144
+ram 6 21 1 0
+ram 19 21 3 0
+ram 6 23 1 16
+ram 19 23 3 16
+ram 6 25 1 32
+ram 19 25 3 32
+ram 6 27 1 48
+ram 19 27 3 48
+ram 6 29 1 64
+ram 19 29 3 64
+fingerprint 1 88698 6060daad92200624
+fingerprint 2 104086 5031c58c552dca53
+fingerprint 3 104086 aec2aaa0969c592d
+fingerprint 4 104090 2570952513b3d594
+fingerprint 5 88709 1bd1ed8bb587234e
+fingerprint 6 88720 a61f1d67b1d6be61
+fingerprint 7 104101 71871942d9e41317
+fingerprint 8 88698 01cdabe632d5e2fb
+fingerprint 9 88709 f495caf61defd052
+fingerprint 10 104102 680c4ca9c32918b3
+fingerprint 11 104086 18708c74289f21fb
+fingerprint 12 104086 1d7c3e71f155e609
+fingerprint 13 104086 fbb23493a0fdbf8e
+fingerprint 14 104090 4ee727ce64e8c5a6
+fingerprint 15 104102 e073109fba8e57a2
+fingerprint 16 104086 6a3f4b3195b4ec1c

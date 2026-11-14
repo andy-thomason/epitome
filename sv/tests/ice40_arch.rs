@@ -289,3 +289,77 @@ fn ram_modes_follow_the_formula() {
         assert_eq!(p, Some(q), "mode {m} address {a} pin {j}");
     }
 }
+
+/// Checks `svg` is well-formed XML as far as this renderer's output goes:
+/// every element closed in order, quotes balanced, no stray `<` or `&`.
+fn well_formed(svg: &str) -> Result<(), String> {
+    let mut stack: Vec<String> = Vec::new();
+    let mut rest = svg;
+    while let Some(i) = rest.find('<') {
+        let text = &rest[..i];
+        if text.contains('>') || text.replace("&amp;", "").replace("&lt;", "").replace("&gt;", "").replace("&quot;", "").contains('&') {
+            return Err(format!("stray character in text {text:?}"));
+        }
+        let end = rest[i..].find('>').ok_or("an unclosed tag")? + i;
+        let tag = &rest[i + 1..end];
+        if tag.matches('"').count() % 2 != 0 {
+            return Err(format!("unbalanced quotes in <{tag}>"));
+        }
+        if let Some(name) = tag.strip_prefix('/') {
+            if stack.pop().as_deref() != Some(name) {
+                return Err(format!("</{name}> closes the wrong element"));
+            }
+        } else if !tag.ends_with('/') {
+            stack.push(tag.split_whitespace().next().unwrap_or("").to_string());
+        }
+        rest = &rest[end + 1..];
+    }
+    if !stack.is_empty() {
+        return Err(format!("unclosed {stack:?}"));
+    }
+    Ok(())
+}
+
+/// The SVG pictures of the parts are well-formed, have every tile, logic
+/// cell and pad, lay a configuration over the die, and are up to date.
+#[test]
+fn svg_renders() {
+    use epitome_sv::arch::ice40::board;
+    use epitome_sv::arch::ice40::svg::{SvgOptions, render_svg};
+    for part in &PARTS {
+        let (d, db, sem) = records(part);
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("arch").join(part.dir).join("record-board.txt");
+        let results = std::fs::read_to_string(path).ok().map(|t| board::results_from_text(&t).unwrap());
+        let svg = render_svg(&d, &db, &sem, &SvgOptions { board: results.as_ref(), ..SvgOptions::default() });
+        well_formed(&svg).unwrap_or_else(|e| panic!("{}: {e}", part.name));
+        let count = |s: &str| svg.matches(s).count();
+        let kind = |k: &str| d.tiles.iter().filter(|t| d.kinds[t.kind].name == k).count();
+        assert_eq!(count(r#"<g class="tile "#), d.tiles.len(), "{}", part.name);
+        let logic = count(r#"<g class="tile logic""#);
+        assert_eq!(logic, kind("logic"));
+        // Each logic tile uses the eight-cell template.
+        let template = &svg[svg.find(r#"<g id="lcs">"#).unwrap()..];
+        let template = &template[..template.find("</g>").unwrap()];
+        assert_eq!(template.matches(r#"class="lc""#).count(), 8);
+        assert_eq!(count(r##"<use href="#lcs""##) * 8, logic * 8);
+        let tiles = &svg[svg.find(r#"<g id="tiles">"#).unwrap()..svg.find(r#"<g id="blocks">"#).unwrap()];
+        assert_eq!(tiles.matches(r#"<circle class="pad"#).count(), 2 * kind("io"));
+        assert_eq!(count(r#"<g class="block RAM""#), kind("ramb"));
+        assert_eq!(count(r#"<g class="block MAC16""#), kind("dsp0"));
+        if part.asc == "5k" {
+            assert_eq!(logic * 8, 5280);
+        }
+        assert!(svg == read(part, "device.svg"), "{}: rerun the ice40_svg example", part.name);
+    }
+    // A board experiment laid over the LP1K.
+    let part = epitome_sv::arch::ice40::part("1k").unwrap();
+    let (d, db, sem) = records(part);
+    let e = board::experiments(&d, &db, &sem).unwrap().into_iter().find(|e| e.name == "ram-write").unwrap();
+    let asc = d.unpack(&e.bits).unwrap();
+    let svg = render_svg(&d, &db, &sem, &SvgOptions { overlay: Some(&asc), ..SvgOptions::default() });
+    well_formed(&svg).unwrap();
+    let tiles = &svg[svg.find(r#"<g id="tiles">"#).unwrap()..svg.find(r#"<g id="blocks">"#).unwrap()];
+    assert!(tiles.matches(r#"class="usedlc""#).count() >= 2);
+    // A3 and B3.
+    assert_eq!(tiles.matches(r#"class="pad usedpad""#).count(), 2);
+}

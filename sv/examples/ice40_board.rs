@@ -2,7 +2,7 @@
 //! iCESugar-nano, and records what it did in
 //! `sv/arch/ice40-lp1k/record-board.txt`.
 //!
-//!     cargo run --release -p epitome-sv --example ice40_board -- [--install] [--only NAME]
+//!     cargo run --release -p epitome-sv --example ice40_board -- [--install] [--only NAME|PREFIX*]
 //!
 //! It reprograms the board's flash for each experiment. `--install` builds
 //! `icesprog` first if it is not built (see `Icesprog::install`).
@@ -34,7 +34,7 @@ fn main() -> ExitCode {
         if args.iter().any(|a| a == "--ram-modes") {
             return ram_modes(&ip, &serial, &d, &db, &sem, &dir, &args);
         }
-        let exps: Vec<_> = board::experiments(&d, &db, &sem)?.into_iter().filter(|e| only.is_none_or(|o| *o == e.name)).collect();
+        let exps: Vec<_> = board::experiments(&d, &db, &sem)?.into_iter().filter(|e| only.is_none_or(|o| o.strip_suffix('*').map_or(*o == e.name, |p| e.name.starts_with(p)))).collect();
         let res = board::run(&ip, &serial, &exps, &mut |s| eprintln!("  {s}"))?;
         if only.is_none() {
             std::fs::write(dir.join("record-board.txt"), board::results_text(&board, &flash, &res)).map_err(|e| e.to_string())?;

@@ -396,6 +396,70 @@ pub fn experiments(d: &Device, db: &Chipdb, sem: &Semantics) -> Result<Vec<Exper
         out.push(Experiment { name: format!("ram-mode{mode}-write"), expect: "echo", bits: ram_write_probe(d, db, sem, &g, mode, addr, pin, p)? });
         out.push(Experiment { name: format!("ram-mode{mode}-write-next"), expect: "no-echo", bits: ram_write_probe(d, db, sem, &g, mode, addr, pin, p ^ 1)? });
     }
+    // The RAM cascade bits (icebox_vlog shows them changing nothing): each
+    // alone and all four, set here or below, reading and writing, with the
+    // ports of here, of below or of both driven, and the RAM here or below
+    // observed.
+    let mut sets: Vec<(String, Vec<(bool, usize)>)> = vec![("none".into(), vec![])];
+    for below in [false, true] {
+        let at = if below { "below" } else { "here" };
+        for k in 4..8 {
+            sets.push((format!("{at}{k}"), vec![(below, k)]));
+        }
+        sets.push((format!("{at}all"), (4..8).map(|k| (below, k)).collect()));
+    }
+    for write in [false, true] {
+        for (from_below, ports) in [(false, (true, false)), (true, (true, false)), (false, (false, true)), (true, (false, true))] {
+            for (name, set) in &sets {
+                let label = format!(
+                    "ram-cascade-{}-{}-ports-{}-{name}",
+                    if write { "write" } else { "read" },
+                    if from_below { "below" } else { "here" },
+                    if ports.0 { "here" } else { "below" },
+                );
+                // With no cascade bit, a RAM reads and writes through its
+                // own ports alone.
+                let expect = match (set.is_empty(), from_below == ports.1, write) {
+                    (true, true, false) => if from_below { "no-echo" } else { "echo" },
+                    (true, true, true) => "echo",
+                    (true, false, _) => "no-echo",
+                    _ => "unknown",
+                };
+                out.push(Experiment { name: label, expect, bits: ram_cascade_probe(d, db, sem, &g, write, from_below, ports, set)? });
+            }
+        }
+    }
+    // Bits in both RAMs: CBIT_6 (which stops a RAM reading through its own
+    // ports) in the RAM observed, with each other bit, or all, in the RAM
+    // whose read port is driven; and CBIT_6 with each other bit in one RAM.
+    for (from_below, ports) in [(true, (true, false)), (false, (false, true))] {
+        let observed = from_below;
+        let driven = !from_below;
+        for others in [vec![4], vec![5], vec![7], vec![4, 5, 7]] {
+            let mut set = vec![(observed, 6)];
+            set.extend(others.iter().map(|&k| (driven, k)));
+            let tag = others.iter().map(|k| k.to_string()).collect::<String>();
+            let name = format!("ram-cascade-pair-read-{}-6-{}-{tag}", if observed { "below" } else { "here" }, if driven { "below" } else { "here" });
+            out.push(Experiment { name, expect: "unknown", bits: ram_cascade_probe(d, db, sem, &g, false, from_below, ports, &set)? });
+        }
+    }
+    // Each bit, watching other data pins of the RAM read through its own
+    // ports.
+    for pin in [7, 8, 15] {
+        for k in [None, Some(4), Some(5), Some(6), Some(7)] {
+            let set: Vec<(bool, usize)> = k.into_iter().map(|k| (false, k)).collect();
+            let name = format!("ram-cascade-pin{pin}-{}", k.map_or("none".into(), |k| format!("here{k}")));
+            let expect = if k.is_none() { "echo" } else { "unknown" };
+            out.push(Experiment { name, expect, bits: ram_cascade_probe_pin(d, db, sem, &g, false, false, (true, false), &set, pin)? });
+        }
+    }
+    for below in [false, true] {
+        for k in [4, 5, 7] {
+            let at = if below { "below" } else { "here" };
+            let name = format!("ram-cascade-pair-read-{at}-6-{at}-{k}");
+            out.push(Experiment { name, expect: "unknown", bits: ram_cascade_probe(d, db, sem, &g, false, below, (!below, below), &[(below, 6), (below, k)])? });
+        }
+    }
     Ok(out)
 }
 
@@ -518,6 +582,35 @@ pub fn findings(r: &Results) -> Vec<(String, bool, Vec<String>)> {
         add(
             "in the same write modes, a data pin writes the bit board::ram_mode_bit gives, and not its neighbour",
             (held(&writes), names(&writes)),
+        );
+    }
+    let cascade: Vec<_> = r.iter().filter(|x| x.0.starts_with("ram-cascade-")).collect();
+    if !cascade.is_empty() {
+        // Experiments where a RAM is read or written through its own ports.
+        let own = |x: &&(String, String, String, usize, u64)| {
+            let n = &x.0;
+            n.starts_with("ram-cascade-pin") || n.contains("-here-ports-here-") || n.contains("-below-ports-below-")
+        };
+        let observed_bit6 = |x: &&(String, String, String, usize, u64)| {
+            let n = &x.0;
+            n.starts_with("ram-cascade-pin") && n.ends_with("here6")
+                || n.contains("-read-here-ports-here-") && (n.ends_with("here6") || n.ends_with("hereall"))
+                || n.contains("-read-below-ports-below-") && (n.ends_with("below6") || n.ends_with("belowall"))
+        };
+        let own_reads6: Vec<_> = cascade.iter().copied().filter(|x| own(x) && observed_bit6(x)).collect();
+        let own_rest: Vec<_> = cascade.iter().copied().filter(|x| own(x) && !observed_bit6(x)).collect();
+        let crossed: Vec<_> = cascade.iter().copied().filter(|x| !own(x)).collect();
+        add(
+            "RamCascade.CBIT_6 stops a block RAM reading through its own ports (every data pin), in either RAM of a pair",
+            (own_reads6.iter().all(|x| x.2 == "silent"), names(&own_reads6)),
+        );
+        add(
+            "RamCascade.CBIT_4, 5 and 7, alone or together, and CBIT_6 for writing, change nothing a RAM's own read or write shows (the RAM below reads its own, inverted, contents)",
+            (own_rest.iter().all(|x| x.2 == if x.0.contains("-read-below-") { "other:64" } else { "echo" }), names(&own_rest)),
+        );
+        add(
+            "no cascade setting tried lets one RAM read or write through the other's ports",
+            (crossed.iter().all(|x| x.2 == "silent"), names(&crossed)),
         );
     }
     add(
@@ -720,4 +813,98 @@ pub fn ram_points_from_text(text: &str) -> Vec<RamPoint> {
             Some((w[1].parse().ok()?, w[2].parse().ok()?, w[3].parse().ok()?, w[4].parse().ok()))
         })
         .collect()
+}
+
+/// The block RAM below [`RAM`] in its column, for the cascade experiments.
+pub const RAM_BELOW: (usize, usize) = (RAM.0, RAM.1 - 2);
+
+/// A probe of the RAM cascade bits, with [`RAM`] ("here") and the RAM
+/// below it in its column.
+///
+/// Reading (`write` false): here holds 0 in word 0 and ones in word 1, the
+/// RAM below the opposite; the read ports of the RAMs in `ports` (here,
+/// below) have RADDR[0] = A3, RE from a cell of ones and RCLK from D1, and
+/// B3 is RDATA[0] of here or, with `from_below`, the RAM below. B3 follows
+/// A3 (echo) if here's contents are read at A3, and is A3 inverted (other)
+/// if the RAM below's are.
+///
+/// Writing (`write` true): both RAMs hold zeros; the write ports of the
+/// RAMs in `ports` write A3 into word 0 bit 0 each clock (WDATA[0] = A3, WE
+/// from a cell of ones, WCLK from D1), and the read port of the RAM read
+/// reads word 0 onto B3: echo if A3 is being written into it.
+///
+/// `cascade` lists `(below, k)`: RamCascade.CBIT_k set in here or below.
+pub fn ram_cascade_probe(
+    d: &Device,
+    db: &Chipdb,
+    sem: &Semantics,
+    g: &Graph,
+    write: bool,
+    from_below: bool,
+    ports: (bool, bool),
+    cascade: &[(bool, usize)],
+) -> Result<Vec<u8>, String> {
+    ram_cascade_probe_pin(d, db, sem, g, write, from_below, ports, cascade, 0)
+}
+
+/// [`ram_cascade_probe`] observing RDATA[pin] (the contents' words are all
+/// zeros or all ones, so any pin reads alike).
+#[allow(clippy::too_many_arguments)]
+pub fn ram_cascade_probe_pin(
+    d: &Device,
+    db: &Chipdb,
+    sem: &Semantics,
+    g: &Graph,
+    write: bool,
+    from_below: bool,
+    ports: (bool, bool),
+    cascade: &[(bool, usize)],
+    pin: usize,
+) -> Result<Vec<u8>, String> {
+    let mut des = Design::new(d, db, sem, g);
+    let rams = [RAM, RAM_BELOW];
+    let (ax, ay, az) = des.pin("cm36", "A3")?;
+    let (bx, by, bz) = des.pin("cm36", "B3")?;
+    des.func(ax, ay, &format!("IOB_{az}.PINTYPE_0"))?;
+    des.func(bx, by, &format!("IOB_{bz}.PINTYPE_3"))?;
+    des.func(bx, by, &format!("IOB_{bz}.PINTYPE_4"))?;
+    for (i, &(x, y)) in rams.iter().enumerate() {
+        let mut v = vec![0u16; 256];
+        if !write {
+            (v[0], v[1]) = if i == 0 { (0, 0xffff) } else { (0xffff, 0) };
+        }
+        des.ram.push(super::asc::AscRam { x, y, words: v });
+    }
+    for &(below, k) in cascade {
+        let (x, y) = rams[below as usize];
+        des.func(x, y + 1, &format!("RamCascade.CBIT_{k}"))?;
+    }
+    let mut ones = ONE_CELLS.iter();
+    let mut one = |des: &mut Design, x: usize, y: usize, port: &str| -> Result<(), String> {
+        let &(ox, oy, lc) = ones.next().ok_or("out of cells of ones")?;
+        let q = des.ram_port(x, y, port)?;
+        des.lut(ox, oy, lc, 0xffff);
+        des.route((ox, oy, &format!("lutff_{lc}/out")), (q.0, q.1, &q.2))
+    };
+    let a3 = (ax, ay, format!("io_{az}/D_IN_0"));
+    for (i, &(x, y)) in rams.iter().enumerate() {
+        if !(if i == 0 { ports.0 } else { ports.1 }) {
+            continue;
+        }
+        let (data, en, clk) = if write { ("WDATA[0]", "WE", "WCLK") } else { ("RADDR[0]", "RE", "RCLK") };
+        let q = des.ram_port(x, y, data)?;
+        des.route((a3.0, a3.1, &a3.2), (q.0, q.1, &q.2))?;
+        one(&mut des, x, y, en)?;
+        let c = des.ram_port(x, y, clk)?;
+        clock_from_d1(&mut des, (c.0, c.1, &c.2))?;
+    }
+    let (sx, sy) = rams[from_below as usize];
+    if write {
+        one(&mut des, sx, sy, "RE")?;
+        let c = des.ram_port(sx, sy, "RCLK")?;
+        clock_from_d1(&mut des, (c.0, c.1, &c.2))?;
+    }
+    let r = des.ram_port(sx, sy, &format!("RDATA[{pin}]"))?;
+    des.route((r.0, r.1, &r.2), (bx, by, &format!("io_{bz}/D_OUT_0")))?;
+    des.bitstream()
 }

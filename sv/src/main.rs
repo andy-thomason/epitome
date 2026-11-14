@@ -186,7 +186,8 @@ fn print_netlist(d: &epitome_sv::design::Design) -> ExitCode {
                     n.dropped
                 );
                 for p in &n.ports {
-                    eprintln!("epitome-sv:   {:?} {} [{}] at {}", p.dir, p.name, p.width, p.offset);
+                    let elems = p.elems.map_or(String::new(), |(ew, stride)| format!(", {ew}-bit elements {stride} bytes apart"));
+                    eprintln!("epitome-sv:   {:?} {} [{}] at {}{elems}", p.dir, p.name, p.width, p.offset);
                 }
             }
             Err(e) => {

@@ -868,12 +868,29 @@ parent's lane `n`, and ports connected to a value whole connect with no
 data movement: the child reads and writes the parent's value where it
 is. An array of `k` instances in a parent of one register, `w` lanes
 wide (its register's width, padding included), is one call: iteration
-`i` has the child's lanes `i * w` to `(i + 1) * w`, and the parent
-gathers each iteration's inputs into its block and scatters its outputs
-back, a lane at a time, once a call. Each lane's value is taken apart
-into 32-bit words and put together again as the other side's pieces
-(through registers for SWAR code, and through memory for SIMD), so a
-parent and its array may differ in shape and lane width. A parent of more than one register gains no width from that and
+`i` has the child's lanes `i * w` to `(i + 1) * w`. Where each
+iteration's connection is the next element of an array the parent keeps
+an element to a slot (an array used only an element at a time, each
+element as narrow as it fits in scalar code, a register of lanes in
+vector code), stored as the child stores the port, those elements
+already are the child's lanes: the child reads or writes them where
+they are, an offset into the array, with nothing copied. For that, an
+input used only an element at a time is kept so too where a child then
+reads it in place (elsewhere its whole value, which a select by a value
+a lane needs, stays one load), and a value connected whole to such an
+input of a single child is kept as it is (up to the top's ports), so
+that pmp's `conf_addr_i`, eight 54-bit
+addresses, is eight 64-bit slots from the top down, and the eight
+`pmp_entry`s read it as their `<8 x i64>`. Otherwise the parent gathers
+each iteration's inputs into its block and scatters its outputs back, a
+lane at a time, once a call. A scalar parent stores each lane's 64-bit
+pieces whole, bytes and halves gathered into an `i64`, and a value the
+same in every iteration (pmp's address) splat to whole registers, so
+that the child's loads of whole registers take the stores' values
+without waiting for them to reach the cache; elsewhere each lane's value
+is taken apart into 32-bit words and put together again as the other
+side's pieces (through registers for SWAR code, and through memory for
+SIMD), so a parent and its array may differ in shape and lane width. A parent of more than one register gains no width from that and
 would lose ports that connect in place, so it calls each instance with
 its own lanes. An array whose call would wait on itself (each
 iteration's input made from the last one's output, as a chain of adders

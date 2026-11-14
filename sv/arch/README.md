@@ -96,7 +96,8 @@ The stages, each in memory, with no text between them until the `.asc`:
    flattened through its instances and bit-blasted into a graph of
    two-input ANDs and XORs, three-input majorities (adders' carries, kept
    for the carry chain), inputs and flip-flops. Gates are hashed and
-   constants folded as they are made. `assign`, `always_comb`, and
+   constants folded as they are made. `assign` (and a net declaration's
+   assignment, `wire x = e;`), `always_comb`, and
    `always_ff` (or `always`) on a clock edge are synthesised, with an
    asynchronous reset to constants. There may be any number of clocks, and
    a clock may be one the design makes (a counter's bit, say). Functions
@@ -199,6 +200,9 @@ What checks what:
 - `flow::check_routes` reads the routes back from the configured bits. For
   every sink it follows the switches set back to a net nothing drives,
   which must be its signal's source.
+- `echo_ram_reverses_a_line` sends `echo_ram.sv` UART frames (a line
+  with a line feed in it, bytes while it replies, an empty line) through
+  all three, then decodes `tx`: the line comes back reversed.
 - The board, below.
 
 The tests are in `sv/tests/ice40_flow.rs`:
@@ -226,6 +230,7 @@ programs each one and watches the iCELink's serial port at 115200 baud:
 | (h) read while writing | `rdw.sv`: each clock, a word written and read at one address; the data flips each clock, so the old word echoes and the new does not. `W` = 16, 8, 4 and 2 | 34, 1 RAM block (16 wide) | its bytes echoed, in every mode |
 | (i) a design's clock | `hello_div.sv`: the transmitter on 12 MHz divided by 8, its clock on a global network of its own through a global buffer input | 113 | 261 whole strings in 0.5 s |
 | (j) a design's clock, in the fabric | `hello_div.sv` built with `fabric_clocks`: its clock routed through the fabric to its tiles | 113 | 261 whole strings in 0.5 s |
+| (k) line echo | `echo_ram.sv`: a UART receiver storing a line in a 512x8 memory; a CR sends it back reversed, then CR LF. Line feeds, and bytes that arrive while it sends, are dropped; a line is kept to 511 bytes | 196 (7 chains), 99 flip-flops, 1 RAM block | 26 random printable lines (0 to 600 bytes) all back reversed |
 
 The counter was checked through B3: the Mac sends a byte every ~0.1 s for
 5 s and notes which come back. The LED (B6) blinks as well, but nothing

@@ -59,11 +59,16 @@ module ops (
     output logic [5:0]  sel,
     output logic [55:0] mux,
     output logic [55:0] each,
-    output logic [7:0]  pri
+    output logic [7:0]  pri,
+    output logic [16:0] decl
 );
   function automatic logic odd(input logic [55:0] x);
     return x[0];
   endfunction
+  // Net declaration assignments, each one continuous assignment.
+  wire p = a[0] ^ b[0];
+  wire [7:0] lo = a[7:0], hi = ~b[7:0];
+  assign decl = {p, lo, hi};
   assign sum = a + b;
   assign diff = a - b;
   assign bits = (a & b) | (~a ^ b);
@@ -148,6 +153,7 @@ fn operators_lane_by_lane() {
                 ("mux", [a, b2, a ^ b2, 0][m as usize]),
                 ("each", each),
                 ("pri", if a & 0xF == 1 { 1 } else if b2 & 1 == 1 { 2 } else if m == 3 { s } else { 0 }),
+                ("decl", ((a ^ b2) & 1) << 16 | (a & 0xFF) << 8 | (!b2 & 0xFF)),
             ];
             for (port, w) in want {
                 let got = st.get(net, port, n);

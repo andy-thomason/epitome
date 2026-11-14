@@ -332,7 +332,11 @@ impl<'d, 'a> Lower<'d, 'a> {
                 }
                 Item::Object(o) => {
                     let obj = self.d.object(o);
-                    if let Some(init) = obj.init {
+                    // A net declaration assignment is a continuous
+                    // assignment (10.3.1); where the design lists it with
+                    // the scope's drivers, it is driven there, not here.
+                    let driver = |e| self.d.drivers.iter().any(|d| d.rhs == e);
+                    if let Some(init) = obj.init.filter(|&e| !matches!(obj.kind, ObjKind::Net(_)) || !driver(e)) {
                         let v = self.eval(inst, init, &Env::default())?;
                         let v = self.fit(v, self.tys().width(obj.ty), self.signed(init));
                         if matches!(obj.kind, ObjKind::Net(_)) {

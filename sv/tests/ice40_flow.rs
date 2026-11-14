@@ -207,6 +207,35 @@ fn synth_rejects() {
     }
 }
 
+/// A net declaration assignment is one continuous assignment (10.3.1),
+/// not two drivers; also where the net is declared a port after it.
+#[test]
+fn net_declaration_assignments() {
+    let text = r#"
+module t(input logic clk, input logic [7:0] b, input logic [7:0] d, output logic [7:0] y, output logic x);
+  logic [1:0] s = 0;
+  always_ff @(posedge clk) s <= {s[0], b[0]};
+  wire r = s[1];
+  wire [7:0] a = b, c = d ^ 8'h5a;
+  assign y = a + c;
+  assign x = r;
+endmodule
+"#;
+    check_flow(text, "t", 200);
+    // Not ANSI: the port declared after its net, and before.
+    check_flow(
+        "module t(a, y, z);\n input logic [3:0] a;\n wire y = ^a;\n output y;\n output z;\n wire [1:0] z = a[1:0] & a[3:2];\nendmodule\n",
+        "t",
+        50,
+    );
+    let e = synthesise(
+        &src("module t(input logic a, output logic y);\n wire w = a;\n assign w = ~a;\n assign y = w;\nendmodule\n"),
+        "t",
+    )
+    .unwrap_err();
+    assert!(e.contains("more than one driver"), "{e}");
+}
+
 /// Flip-flops on different enables go to different tiles; a chain longer
 /// than a tile carries on in the tile above.
 #[test]
@@ -328,6 +357,78 @@ fn board_designs_build() {
     assert_eq!(b.mapped.rams.len(), 4);
     let b = build_design("ramdelay", &["WIDTH=4", "DEPTH=16384"]);
     assert_eq!(b.mapped.rams.iter().map(|r| r.blocks).sum::<u32>(), 16);
+    // A line echo through a 512-byte RAM.
+    let b = build_design("echo_ram", &[]);
+    assert_eq!(b.mapped.rams.len(), 1);
+}
+
+/// Clocks a UART bit at 115200 baud from the board's 12 MHz.
+const BIT: usize = 104;
+
+/// The frames of `bytes` on a UART line, a level for each clock.
+fn uart_frames(bytes: &[u8]) -> Vec<bool> {
+    let mut v = Vec::new();
+    for &b in bytes {
+        let bits = std::iter::once(false).chain((0..8).map(|i| b >> i & 1 != 0)).chain(std::iter::once(true));
+        for bit in bits {
+            v.extend(std::iter::repeat_n(bit, BIT));
+        }
+    }
+    v
+}
+
+/// The bytes on a UART line, a level for each clock: each start bit's
+/// fall, then each bit sampled in its middle.
+fn uart_bytes(line: &[bool]) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut t = 1;
+    while t < line.len() {
+        if line[t - 1] && !line[t] && t + 9 * BIT + BIT / 2 < line.len() {
+            let mid = t + BIT / 2;
+            assert!(!line[mid], "a start bit shorter than half a bit at {t}");
+            let byte = (0..8).fold(0u8, |a, i| a | (line[mid + (i + 1) * BIT] as u8) << i);
+            assert!(line[mid + 9 * BIT], "no stop bit at {}", mid + 9 * BIT);
+            out.push(byte);
+            t = mid + 9 * BIT;
+        }
+        t += 1;
+    }
+    out
+}
+
+/// echo_ram on UART frames: the interpreter, the netlist and the mapped
+/// cells agree, and the line comes back reversed. A line feed, and bytes
+/// sent while the line is going back, are dropped.
+#[test]
+fn echo_ram_reverses_a_line() {
+    use epitome_sv::synth::check::Stimulus;
+    let mut s = Sources::default();
+    s.file(arch().join("flow/echo_ram.sv"));
+    let n = synthesise(&s, "echo_ram").unwrap_or_else(|e| panic!("{e}"));
+    let mut rx = vec![true; 200];
+    rx.extend(uart_frames(b"ab\nc\r"));
+    // The reply (five bytes) starts as the CR's stop bit is sampled.
+    rx.extend(vec![true; 4 * BIT]);
+    rx.extend(uart_frames(b"zz"));
+    rx.extend(vec![true; 6 * 10 * BIT]);
+    rx.extend(uart_frames(b"\r"));
+    rx.extend(vec![true; 3 * 10 * BIT]);
+    let clocks = n.clock_inputs().unwrap();
+    let at = |name: &str| n.inputs.iter().position(|p| p.name == name).unwrap();
+    let (clk, rxi) = (at("clk"), at("rx"));
+    assert_eq!(clocks, vec![(clk, false)]);
+    let cycles = rx.iter().map(|&r| (0..n.inputs.len()).map(|i| (i == rxi && r) as u64).collect()).collect();
+    let st = Stimulus { clocks, cycles };
+    let want = reference(&s, "echo_ram", &n, &st).unwrap();
+    compare(&want, &netlist_lines(&n, &st)).unwrap_or_else(|e| panic!("netlist: {e}"));
+    let m = map(&n).unwrap();
+    eprintln!("echo_ram: {}", m.stats());
+    assert_eq!(m.rams.len(), 1);
+    let got = mapped_lines(&m, &st);
+    compare(&want, &got).unwrap_or_else(|e| panic!("mapped: {e}"));
+    let txi = n.outputs.iter().position(|p| p.name == "tx").unwrap();
+    let tx: Vec<bool> = got.iter().map(|l| l.split(' ').nth(txi).unwrap() == "1").collect();
+    assert_eq!(String::from_utf8_lossy(&uart_bytes(&tx)), "cba\r\n\r\n");
 }
 
 /// Programs the board with each design and watches the serial port; only
@@ -427,6 +528,39 @@ fn board_live() {
     let whole = text.matches("Hello from Epitome\r\n").count();
     eprintln!("(f) {} bytes, {whole} whole strings: {:?}...", got.len(), &text[..text.len().min(60)]);
     assert!(whole >= 100, "(f) {whole} strings in 0.5 s");
+    // (k) a line echo through block RAM: random printable lines, each sent
+    // with a CR, come back reversed (cut to 511 bytes) with CR LF.
+    let b = build_design("echo_ram", &[]);
+    ip.program(&b.bitstream).unwrap();
+    let mut s = Serial::open(&port).unwrap();
+    s.read_quiet(200);
+    let mut seed = 0x9E37_79B9_7F4A_7C15u64;
+    let mut next = move || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed
+    };
+    let mut lens = vec![0, 1, 3, 7, 17, 100, 255, 300, 511, 600];
+    lens.extend((0..16).map(|_| [1, 17, 255, 300, 511][next() as usize % 5]));
+    let mut bad = Vec::new();
+    for &len in &lens {
+        let line: Vec<u8> = (0..len).map(|_| 0x20 + (next() % 95) as u8).collect();
+        let mut want: Vec<u8> = line[..len.min(511)].iter().rev().copied().collect();
+        want.extend(b"\r\n");
+        s.send(&line).unwrap();
+        s.send(b"\r").unwrap();
+        let back = s.read_quiet(300);
+        if back != want {
+            bad.push((len, back.len()));
+        }
+    }
+    eprintln!(
+        "(k) {} of {} lines back reversed; wrong (length, bytes back): {bad:?}",
+        lens.len() - bad.len(),
+        lens.len()
+    );
+    assert!(bad.is_empty(), "(k) {bad:?}");
 }
 
 /// A `case` table becomes a decision tree, and few LUTs: hello's 20

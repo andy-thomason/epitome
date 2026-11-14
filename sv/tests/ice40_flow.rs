@@ -173,18 +173,13 @@ fn synth_rejects() {
             0,
         ),
         (
-            "module t(input logic clk, input logic [1:0] a, input logic d, output logic y);\n logic m [4];\n always_ff @(posedge clk) m[a] <= d;\n assign y = m[a];\nendmodule\n",
-            "read only into a register",
+            "module t(input logic clk, input logic [9:0] a, input logic [7:0] d, output logic [7:0] y);\n logic [7:0] m [1024];\n always_ff @(posedge clk) m[a] <= d;\n assign y = m[a];\nendmodule\n",
+            "too big to build from flip-flops",
             4,
         ),
         (
-            "module t(input logic clk, input logic [1:0] a, input logic d, output logic y);\n logic m [4];\n always_ff @(posedge clk) begin m[a] <= d; y <= m[a] ^ d; end\nendmodule\n",
-            "read synchronously",
-            0,
-        ),
-        (
-            "module t(input logic clk, input logic [1:0] a, b, input logic d, output logic y);\n logic m [4];\n always_ff @(posedge clk) begin m[a] <= d; m[b] <= ~d; end\nendmodule\n",
-            "one write port",
+            "module t(input logic [1:0] a, input logic d, output logic y);\n logic m [4];\n always_comb m[a] = d;\n assign y = m[0];\nendmodule\n",
+            "only on a clock edge",
             3,
         ),
         (
@@ -565,4 +560,51 @@ endmodule
 #[test]
 fn calls_match_interpreter() {
     check_flow(CALLS, "calls", 300);
+}
+
+pub const MEMWRITES: &str = r#"
+module memwrites(input logic clk, input logic [3:0] wa, input logic [3:0] ra, input logic [1:0] be, input logic [15:0] wd,
+                 input logic sel, output logic [15:0] q, output logic [7:0] rf_a, output logic [7:0] rf_b);
+  // Byte writes: a lane of block RAM for each byte.
+  logic [15:0] mem [16];
+  always_ff @(posedge clk) begin
+    if (be[0]) mem[wa][7:0] <= wd[7:0];
+    if (be[1]) mem[wa][15:8] <= wd[15:8];
+    q <= mem[ra];
+  end
+  // Two writes never enabled together share block RAM's one port.
+  logic [7:0] ex [32];
+  logic [7:0] exq;
+  always_ff @(posedge clk) begin
+    if (sel && be == 2'b11) ex[{1'b0, wa}] <= wd[7:0];
+    if (!sel && be == 2'b11) ex[{1'b1, ra}] <= wd[15:8];
+    exq <= ex[{be[0], wa}];
+  end
+  // A register file: two write ports and two reads at once: flip-flops.
+  logic [7:0] rf [8];
+  always_ff @(posedge clk) begin
+    if (be[0]) rf[wa[2:0]] <= wd[7:0];
+    if (be[1]) rf[ra[2:0]] <= wd[15:8] ^ exq;
+  end
+  assign rf_a = rf[wa[2:0] ^ 3'd1];
+  assign rf_b = rf[ra[2:0]];
+endmodule
+"#;
+
+#[test]
+fn memory_writes_and_flip_flop_memories() {
+    let n = check_netlist(MEMWRITES, "memwrites", 600);
+    // mem and ex in block RAM; rf in flip-flops.
+    assert_eq!(n.mems.len(), 2);
+    assert!(n.mems[0].write.as_ref().unwrap().en.iter().any(|&e| e != n.mems[0].write.as_ref().unwrap().en[0]));
+    let m = check_flow(MEMWRITES, "memwrites", 600);
+    // mem in two lanes (bytes) and ex: three RAMs.
+    assert_eq!(m.rams.len(), 3);
+    build_tq144(MEMWRITES, "memwrites");
+    // Initial contents of a memory of flip-flops, some ones.
+    check_flow(
+        "module t(input logic clk, input logic [1:0] a, input logic [3:0] d, input logic we, output logic [3:0] y);\n logic [3:0] m [4] = '{4'h9, 4'hf, 4'h0, 4'h6};\n always_ff @(posedge clk) if (we) m[a] <= d;\n assign y = m[a];\nendmodule\n",
+        "t",
+        200,
+    );
 }

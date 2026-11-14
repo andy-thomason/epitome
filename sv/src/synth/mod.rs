@@ -104,12 +104,14 @@ pub struct Mem {
     pub clocks: Vec<(Lit, bool)>,
 }
 
-/// On the clock's edge, if `en`, word `addr` takes `data`.
+/// On the clock's edge, word `addr` takes bit `b` of `data` where
+/// `en[b]` (all the same for a whole-word write; a byte write enables its
+/// byte).
 #[derive(Clone, Debug)]
 pub struct MemWrite {
     pub addr: Vec<Lit>,
     pub data: Vec<Lit>,
-    pub en: Lit,
+    pub en: Vec<Lit>,
 }
 
 /// On the clock's edge, if `en`, the port's output takes word `addr` (as
@@ -390,7 +392,7 @@ impl Netlist {
                     Some(w) => Some(MemWrite {
                         addr: lits(&w.addr, &mut out, &mut map, &mut ff_todo, &mut ff_map)?,
                         data: lits(&w.data, &mut out, &mut map, &mut ff_todo, &mut ff_map)?,
-                        en: lits(&[w.en], &mut out, &mut map, &mut ff_todo, &mut ff_map)?[0],
+                        en: lits(&w.en, &mut out, &mut map, &mut ff_todo, &mut ff_map)?,
                     }),
                     None => None,
                 };
@@ -465,11 +467,55 @@ impl Netlist {
                 outs.insert((mem, port, bit), i);
             }
         }
+        // Memories whose bits are written under different enables (byte
+        // writes) become a memory for each enable first: their lanes.
+        let mut lanes: Vec<(usize, Mem, Vec<u32>)> = Vec::new();
         for (mi, m) in old.into_iter().enumerate() {
+            let groups: Vec<Lit> = match &m.write {
+                Some(w) => {
+                    let mut g = w.en.clone();
+                    g.sort();
+                    g.dedup();
+                    g
+                }
+                None => Vec::new(),
+            };
+            if groups.len() <= 1 {
+                let bits = (0..m.width).collect();
+                lanes.push((mi, m, bits));
+                continue;
+            }
+            let w = m.write.as_ref().unwrap();
+            for (gi, &e) in groups.iter().enumerate() {
+                let bits: Vec<u32> = (0..m.width).filter(|&b| w.en[b as usize] == e).collect();
+                let width = bits.len() as u32;
+                let mut init = Vec::with_capacity((width * m.depth) as usize);
+                for a in 0..m.depth as usize {
+                    for &b in &bits {
+                        init.push(m.init[a * m.width as usize + b as usize]);
+                    }
+                }
+                let write = Some(MemWrite {
+                    addr: w.addr.clone(),
+                    data: bits.iter().map(|&b| w.data[b as usize]).collect(),
+                    en: vec![e; width as usize],
+                });
+                let lane = Mem { name: format!("{} lane {gi}", m.name), width, init, write, ..m.clone() };
+                lanes.push((mi, lane, bits));
+            }
+        }
+        // Each lane's read data nodes: the old memory's for its bits.
+        for (mi, m, bits) in lanes {
+            let lane_outs: FxMap<(u32, u32, u32), usize> = outs
+                .iter()
+                .filter(|(k, _)| k.0 == mi as u32 && bits.contains(&k.2))
+                .map(|(k, &i)| ((k.0, k.1, bits.iter().position(|&b| b == k.2).unwrap() as u32), i))
+                .collect();
+            let outs = &lane_outs;
             let b = bank(m.width, m.depth);
             if b >= m.depth {
                 let to = n.mems.len() as u32;
-                for (&(mem, port, bit), &i) in &outs {
+                for (&(mem, port, bit), &i) in outs {
                     if mem == mi as u32 {
                         n.nodes[i] = Node::MemOut { mem: to, port, bit };
                     }
@@ -501,8 +547,8 @@ impl Netlist {
                 let init = m.init[lo..lo + depth as usize * width].to_vec();
                 let write = match &m.write {
                     Some(w) => {
-                        let en = picks(&mut n, &w.addr, i);
-                        let en = n.and(en, w.en);
+                        let here = picks(&mut n, &w.addr, i);
+                        let en = w.en.iter().map(|&e| n.and(here, e)).collect();
                         Some(MemWrite { addr: w.addr[..ka].to_vec(), data: w.data.clone(), en })
                     }
                     None => None,
@@ -541,6 +587,80 @@ impl Netlist {
             }
         }
         n.rebuild()
+    }
+
+    /// The same netlist with every flip-flop starting at 0: one that
+    /// starts at 1 holds its complement instead (its input, reset value
+    /// and readers inverted), for a target whose flip-flops all start at
+    /// 0.
+    pub fn zero_inits(&self) -> Result<Netlist, String> {
+        if !self.ffs.iter().any(|f| f.init) {
+            return Ok(self.clone());
+        }
+        let mut n = self.clone();
+        for i in 0..n.nodes.len() {
+            if let Node::Ff(f) = n.nodes[i] {
+                if n.ffs[f as usize].init {
+                    let g = &mut n.ffs[f as usize];
+                    (g.init, g.d, g.arst_value) = (false, g.d ^ 1, !g.arst_value);
+                    n.nodes.push(Node::Ff(f));
+                    let q = lit(n.nodes.len() - 1, true);
+                    n.wires.push((g.name.clone(), Some(q)));
+                    n.nodes[i] = Node::Wire(n.wires.len() as u32 - 1);
+                }
+            }
+        }
+        n.rebuild()
+    }
+
+    /// Whether `a` and `b` are never both true, as binary decision
+    /// diagrams over the nodes that are not gates prove (false if they
+    /// grow too big to tell).
+    pub fn exclusive(&self, a: Lit, b: Lit) -> bool {
+        let mut m = crate::bdd::Manager::new(200_000);
+        let mut memo: FxMap<usize, crate::bdd::Bdd> = FxMap::default();
+        let mut vars: FxMap<usize, u32> = FxMap::default();
+        fn build(n: &Netlist, l: Lit, m: &mut crate::bdd::Manager, memo: &mut FxMap<usize, crate::bdd::Bdd>, vars: &mut FxMap<usize, u32>) -> Result<crate::bdd::Bdd, crate::bdd::TooBig> {
+            let i = node(l);
+            let f = match memo.get(&i) {
+                Some(&f) => f,
+                None => {
+                    let f = match n.nodes[i] {
+                        Node::Zero => crate::bdd::FALSE,
+                        Node::And(x, y) => {
+                            let (x, y) = (build(n, x, m, memo, vars)?, build(n, y, m, memo, vars)?);
+                            m.and(x, y)?
+                        }
+                        Node::Xor(x, y) => {
+                            let (x, y) = (build(n, x, m, memo, vars)?, build(n, y, m, memo, vars)?);
+                            m.xor(x, y)?
+                        }
+                        Node::Maj(x, y, z) => {
+                            let (x, y, z) = (build(n, x, m, memo, vars)?, build(n, y, m, memo, vars)?, build(n, z, m, memo, vars)?);
+                            let xy = m.and(x, y)?;
+                            let o = m.or(x, y)?;
+                            let oz = m.and(o, z)?;
+                            m.or(xy, oz)?
+                        }
+                        Node::Wire(w) if n.wires[w as usize].1.is_some() => build(n, n.wires[w as usize].1.unwrap(), m, memo, vars)?,
+                        _ => {
+                            let k = vars.len() as u32;
+                            let v = *vars.entry(i).or_insert(k);
+                            m.var(v)?
+                        }
+                    };
+                    memo.insert(i, f);
+                    f
+                }
+            };
+            if inv(l) { m.not(f) } else { Ok(f) }
+        }
+        let r = (|| {
+            let x = build(self, a, &mut m, &mut memo, &mut vars)?;
+            let y = build(self, b, &mut m, &mut memo, &mut vars)?;
+            m.and(x, y)
+        })();
+        r.is_ok_and(|f| f == crate::bdd::FALSE)
     }
 
     /// Counts of each kind of node.
@@ -601,7 +721,7 @@ pub fn mem_edge(
     contents: &mut [u64],
     reads: &[(Vec<u64>, u64)],
     outs: &mut [Vec<u64>],
-    write: Option<(Vec<u64>, Vec<u64>, u64)>,
+    write: Option<(Vec<u64>, Vec<u64>, Vec<u64>)>,
 ) {
     for (p, (addr, en)) in reads.iter().enumerate() {
         let a = lane_addrs(addr);
@@ -618,10 +738,12 @@ pub fn mem_edge(
     if let Some((addr, data, en)) = write {
         let a = lane_addrs(&addr);
         for l in 0..64 {
-            if en >> l & 1 != 0 && a[l] < depth {
+            if a[l] < depth {
                 for (b, d) in data.iter().enumerate() {
-                    let c = &mut contents[a[l] * width + b];
-                    *c = *c & !(1 << l) | d & 1 << l;
+                    if en[b] >> l & 1 != 0 {
+                        let c = &mut contents[a[l] * width + b];
+                        *c = *c & !(1 << l) | d & 1 << l;
+                    }
                 }
             }
         }
@@ -699,7 +821,7 @@ impl<'n> Sim<'n> {
                 (
                     w.addr.iter().map(|&a| self.get(a)).collect(),
                     w.data.iter().map(|&a| self.get(a)).collect(),
-                    self.get(w.en),
+                    w.en.iter().map(|&a| self.get(a)).collect(),
                 )
             });
             mem_edge(m.width as usize, m.depth as usize, &mut self.mem[i], &reads, &mut self.mem_out[i], write);

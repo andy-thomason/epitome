@@ -224,7 +224,12 @@ pub fn bank_depth(width: u32, depth: u32) -> u32 {
 }
 
 pub fn map(n: &Netlist) -> Result<Mapped, String> {
-    if n.mems.iter().any(|m| ram_mode(m.width, m.depth).is_none()) {
+    if n.ffs.iter().any(|f| f.init) {
+        // iCE40 flip-flops start at 0.
+        return map(&n.zero_inits()?);
+    }
+    let lanes = |m: &crate::synth::Mem| m.write.as_ref().is_some_and(|w| w.en.iter().any(|&e| e != w.en[0]));
+    if n.mems.iter().any(|m| ram_mode(m.width, m.depth).is_none() || lanes(m)) {
         return map(&n.split_mems(&bank_depth)?);
     }
     let nn = n.nodes.len();
@@ -232,9 +237,6 @@ pub fn map(n: &Netlist) -> Result<Mapped, String> {
         Node::Input { port, .. } => (port, neg),
         _ => unreachable!(),
     });
-    if let Some(f) = n.ffs.iter().find(|f| f.init) {
-        return Err(format!("{} starts at 1: iCE40 flip-flops start at 0", f.name));
-    }
 
     // ---- carry chains ----
     let is_maj = |i: usize| matches!(n.nodes[i], Node::Maj(..));
@@ -310,7 +312,7 @@ pub fn map(n: &Netlist) -> Result<Mapped, String> {
             roots.extend(r.addr.iter().copied().chain([r.en]));
         }
         if let Some(w) = &m.write {
-            roots.extend(w.addr.iter().chain(&w.data).copied().chain([w.en]));
+            roots.extend(w.addr.iter().chain(&w.data).chain(&w.en).copied());
         }
     }
     roots.retain(|&l| l != T && l != F);
@@ -766,7 +768,8 @@ pub fn map(n: &Netlist) -> Result<Mapped, String> {
         if let Some(w) = &m.write {
             waddr = w.addr.iter().map(|&a| port(a, &mut lcs)).collect::<Result<_, _>>()?;
             wdata = w.data.iter().map(|&a| port(a, &mut lcs)).collect::<Result<_, _>>()?;
-            we = port(w.en, &mut lcs)?;
+            // One enable for the word: lanes were split apart before.
+            we = port(w.en[0], &mut lcs)?;
         }
         let name = if m.reads.len() > 1 { format!("{} (read port {p})", m.name) } else { m.name.clone() };
         rams.push(Ram {
@@ -957,7 +960,7 @@ impl<'m> LcSim<'m> {
                 (
                     r.waddr.iter().map(|&a| self.opt(a)).collect(),
                     r.wdata.iter().map(|&a| self.opt(a)).collect(),
-                    self.opt(r.we),
+                    vec![self.opt(r.we); r.width as usize],
                 )
             });
             let mut outs = [std::mem::take(&mut self.ram_out[i])];

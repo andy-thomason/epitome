@@ -27,6 +27,7 @@ Each part's directory holds:
 | `record-icebox.txt` | what the `icebox_vlog` and `icebox_explain` experiments found |
 | `description.json` | the description: every fact, marked with its source, plus the cross-checks and coverage |
 | `logic_cell.sv` | a SystemVerilog model of a logic cell, built from the icebox statements |
+| `device.svg` | a picture of the die (see Pictures) |
 | `record-board.txt` | (LP1K only) what the iCESugar-nano did in each board experiment |
 
 The tests are in `sv/tests/ice40_arch.rs`:
@@ -38,6 +39,37 @@ cargo test --release -p epitome-sv --test ice40_arch
 The tests that need a tool skip it when it is missing. Set
 `ICE40_REQUIRE_TOOLS=1` to make a missing tool a failure. The test that
 reprograms the board runs only with `ICE40_BOARD=1`.
+
+## Pictures
+
+`svg.rs` renders a part's description as an SVG picture of the die, and the
+`ice40_svg` example writes it. The picture is drawn straight from the
+records, as plain SVG with no scripts and no external fonts. Detail is in
+hover text (`<title>`), so it stays readable zoomed out.
+
+```bash
+cargo run --release -p epitome-sv --example ice40_svg
+```
+
+That writes `device.svg` beside each part's description. Each picture
+shows:
+- every tile at its grid place, coloured by kind;
+- each logic tile's eight cells and carry chain;
+- each I/O tile's pads, with their package pins and, on the iCESugar-nano,
+  what the board wires to them;
+- the block RAMs, DSP blocks and special cells;
+- how each part is known: a green outline if shown on the board, grey if
+  found by experiment, and hatched if only the chip database names it.
+
+To lay a configuration over the die, pass one of these options:
+- `--asc FILE`, an `.asc` file;
+- `--bin FILE`, a bitstream;
+- `--experiment NAME`, one of the board experiments.
+
+The overlay outlines the tiles the configuration sets bits in, and marks
+the cells, flip-flops, RAMs and pads it uses. For example,
+`ice40-lp1k/device-ram-write.svg` shows the `ram-write` experiment placed
+on the LP1K.
 
 ## Sources, and how each fact was found
 
@@ -181,9 +213,9 @@ through the logic under test. The Mac sends 64 bytes at 115200 baud over the
 iCELink's serial port and looks at what comes back: an echo, silence, or
 other bytes.
 
-`record-board.txt` holds 59 experiments. Each one's bitstream hash is
+`record-board.txt` holds 176 experiments. Each one's bitstream hash is
 recorded, so `board_record_agrees` can check that the description still
-makes the same designs. All fourteen findings in the description's `board`
+makes the same designs. All seventeen findings in the description's `board`
 section held:
 - Each of the 8 logic cells' LUTs, and each of their 4 inputs, is where the
   description says.
@@ -231,6 +263,27 @@ section held:
   checks this. The `ram-mode*` experiments in the main suite predict from
   the formula: each mode's read, and its write (`CBIT_1:CBIT_0`), which
   lands where the read finds it and not on the neighbouring bit.
+
+**The RAM cascade bits.** icebox_vlog shows `RamCascade.CBIT_4..7` changing
+nothing. On the board, two RAMs were tried:
+- **Setup.** One RAM is the RAM used throughout, and the other is the one
+  below it in its column. They hold opposite contents, so which one is
+  being read shows in the echo.
+- **Bits tried.** Each bit alone and all four, set in either RAM.
+- **What was driven and watched.** Each RAM's read or write port, watching
+  each RAM.
+- **Pairs.** Bits set in both RAMs at once, including `CBIT_6` in the RAM
+  watched with the others in the RAM driven.
+- **Pins.** Other data pins as well as `RDATA[0]`.
+
+What they show:
+- `CBIT_6` stops a RAM reading through its own ports, on every data pin,
+  in either RAM.
+- `CBIT_4`, `5` and `7`, alone or together, change nothing a RAM's own read
+  or write shows; nor does `CBIT_6` for writing.
+- No setting tried lets one RAM read or write through the other's ports.
+
+What a cascade connects, if anything, is still unknown.
 
 ## Coverage
 
@@ -288,8 +341,9 @@ checks pass, for both parts:
   JSON lists each kind.
 - The DSP (UP5K only) and PLL settings, which are only named. The LP1K's
   PLL is not in its CM36 package; the chipdb lists CM36 under the PLL's
-  `LOCKED` packages. The RAM cascade bits are recorded from icebox but not
-  tried on the board.
+  `LOCKED` packages.
+- What the RAM cascade bits connect. On the board, `CBIT_6` stops a RAM's
+  own read, and nothing tried made two RAMs work together.
 - The routing has not been checked against the device. The only
   black-box evidence for it is that the routes the icebox experiments
   built read back as intended.

@@ -22,6 +22,7 @@ pub mod design;
 pub mod experiment;
 pub mod icebox;
 pub mod icepack;
+pub mod svg;
 
 use bitstream::Cmd;
 use std::fmt::Write;

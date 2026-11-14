@@ -1125,6 +1125,29 @@ simulations:
 - decoder: 39 / 38 ns, against 84 / 87;
 - serdiv: 44 / 55 ns, against 71 / 79.
 
+### 8.7 To an FPGA
+
+The same elaborated design also goes to hardware. `sv/src/synth/` flattens
+it and bit-blasts `assign`, `always_comb` and `always_ff` into
+a hashed graph of ANDs, XORs, majorities (adders' carries) and flip-flops
+with enables and asynchronous resets, on any number of clocks. Functions
+and tasks are run inline. Memories stay whole, with a write port (bit
+enables for byte writes) and synchronous read ports, and their initial
+contents. A memory block RAM cannot hold is built from flip-flops.
+`sv/src/arch/ice40/` then maps it onto iCE40 logic cells (carry chains,
+then 4-input cuts) and RAM4K blocks, places them
+(greedy, then annealing) and routes them by PathFinder over the chip
+database's switches. Epitome's own packer makes the bitstream, which runs
+on the iCESugar-nano. A static timing analysis uses LUT, switch, carry
+and RAM delays measured on that board, from chains that just miss its
+12 MHz clock. Every stage is checked against the interpreter
+(7.7) on random stimulus, through a testbench made around the top module.
+`sv/arch/README.md` ("The flow") has the details and what the board
+showed. As elsewhere, the flow is written without reading other tools'
+source: Yosys, ABC, nextpnr and IceStorm may be run as black boxes, never
+read. The cut mapping, annealing and PathFinder follow their published
+papers.
+
 ## 9. Clean-room rules
 
 `epitome-sv` is a clean-room build from IEEE 1800-2023 alone. The

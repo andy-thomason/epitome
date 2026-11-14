@@ -102,6 +102,16 @@ impl Sources {
 /// thread of its own with room for the elaborator's recursion, which goes
 /// as deep as the design's hierarchy.
 pub fn elaborate<R: Send>(src: &Sources, tops: &[&str], f: impl FnOnce(&Design) -> R + Send) -> Result<R, String> {
+    elaborate_with_ast(src, tops, |d, _| Ok(f(d)))
+}
+
+/// [`elaborate`], with the syntax tree too, and errors from `f` rendered
+/// with their positions as the elaborator's are.
+pub fn elaborate_with_ast<R: Send>(
+    src: &Sources,
+    tops: &[&str],
+    f: impl for<'a> FnOnce(&Design<'a>, &crate::ast::Ast<'a>) -> Result<R, crate::source::Error<'a>> + Send,
+) -> Result<R, String> {
     let tops: Vec<String> = tops.iter().map(|t| t.to_string()).collect();
     std::thread::scope(|s| {
         std::thread::Builder::new()
@@ -124,7 +134,7 @@ pub fn elaborate<R: Send>(src: &Sources, tops: &[&str], f: impl FnOnce(&Design) 
                 let out = preprocess(&map, &ids, &opts).map_err(|e| map.render(&e))?;
                 let ast = crate::parse::parse(&out).map_err(|e| map.render(&e))?;
                 let d = crate::design::elab::elaborate_tops(&ast, &out, &tops).map_err(|e| map.render(&e))?;
-                Ok(f(&d))
+                f(&d, &ast).map_err(|e| map.render(&e))
             })
             .expect("a thread to elaborate on")
             .join()

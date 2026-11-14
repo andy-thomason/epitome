@@ -164,6 +164,23 @@ impl Serial {
         out
     }
 
+    /// What arrives in the next `ms` milliseconds.
+    pub fn read_for(&mut self, ms: u64) -> Vec<u8> {
+        let mut out = Vec::new();
+        let t = Instant::now();
+        let mut buf = [0u8; 4096];
+        while t.elapsed() < Duration::from_millis(ms) {
+            if let Ok(n) = self.file.read(&mut buf) {
+                out.extend(&buf[..n]);
+            }
+        }
+        out
+    }
+
+    pub fn send(&mut self, data: &[u8]) -> Result<(), String> {
+        self.file.write_all(data).map_err(|e| e.to_string())
+    }
+
     /// Sends `data` and says what came back: `echo`, `silent` or `other`.
     pub fn echo(&mut self, data: &[u8]) -> Result<String, String> {
         self.read_quiet(200);

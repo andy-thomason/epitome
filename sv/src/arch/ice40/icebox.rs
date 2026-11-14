@@ -125,39 +125,83 @@ impl Graph {
     }
 
     /// The bits to set for a route from `from` to `to` through nets not in
-    /// `used`, which then holds the route's nets.
+    /// `used`, which then holds the route's nets: the shortest in switches
+    /// ([`Graph::search`] with every net costing one).
     pub fn route(&self, from: usize, to: usize, used: &mut FxSet<usize>) -> Result<Vec<(usize, usize, Bit)>, String> {
-        let mut prev: FxMap<usize, (usize, usize, usize, &Vec<Bit>, &String)> = FxMap::default();
-        let mut queue = std::collections::VecDeque::from([from]);
-        let mut seen = FxSet::default();
-        seen.insert(from);
-        while let Some(n) = queue.pop_front() {
-            if n == to {
-                break;
-            }
-            for (dst, x, y, bits, v) in &self.fanout[n] {
-                if (*dst == to || !used.contains(dst)) && seen.insert(*dst) {
-                    prev.insert(*dst, (n, *x, *y, bits, v));
-                    queue.push_back(*dst);
-                }
-            }
-        }
-        if !seen.contains(&to) {
-            return Err(format!("no route from net {from} to net {to}"));
-        }
+        let path = self
+            .search(&[from], &|n| n == to, &|n| if n == to || !used.contains(&n) { Some(1) } else { None })
+            .ok_or_else(|| format!("no route from net {from} to net {to}"))?;
+        used.insert(from);
         let mut out = Vec::new();
-        let mut n = to;
-        used.insert(to);
-        while let Some(&(p, x, y, bits, v)) = prev.get(&n) {
-            for (b, val) in bits.iter().zip(v.bytes()) {
-                if val == b'1' {
-                    out.push((x, y, *b));
-                }
-            }
-            used.insert(p);
-            n = p;
+        for &e in &path {
+            used.insert(e.0);
+            out.extend(self.edge_bits(e));
         }
         Ok(out)
+    }
+
+    pub fn nets(&self) -> usize {
+        self.fanout.len()
+    }
+
+    /// The switches out of net `n`: `(dst, tile x, tile y, bits, values)`.
+    pub fn fanout(&self, n: usize) -> &[(usize, usize, usize, Vec<Bit>, String)] {
+        &self.fanout[n]
+    }
+
+    /// The bits a step of a path sets: the switch's bits whose value is 1.
+    pub fn edge_bits(&self, (_dst, src, k): (usize, usize, usize)) -> Vec<(usize, usize, Bit)> {
+        let (_, x, y, bits, v) = &self.fanout[src][k];
+        bits.iter().zip(v.bytes()).filter(|(_, c)| *c == b'1').map(|(b, _)| (*x, *y, *b)).collect()
+    }
+
+    /// The cheapest path from any of `from` to a net `is_target` accepts,
+    /// each net entered costing `cost` (`None`: not to be entered), as its
+    /// steps `(dst, src, index in src's fanout)` from the source on. Nets
+    /// of equal cost are taken in the order they were reached, so that
+    /// with unit costs it is a breadth-first search.
+    pub fn search(&self, from: &[usize], is_target: &dyn Fn(usize) -> bool, cost: &dyn Fn(usize) -> Option<u64>) -> Option<Vec<(usize, usize, usize)>> {
+        use std::cmp::Reverse;
+        let mut dist: FxMap<usize, u64> = FxMap::default();
+        let mut prev: FxMap<usize, (usize, usize)> = FxMap::default();
+        let mut heap = std::collections::BinaryHeap::new();
+        let mut seq = 0u64;
+        for &f in from {
+            dist.insert(f, 0);
+            heap.push(Reverse((0u64, seq, f)));
+            seq += 1;
+        }
+        let mut found = None;
+        while let Some(Reverse((d, _, n))) = heap.pop() {
+            if dist.get(&n).is_some_and(|&x| x < d) {
+                continue;
+            }
+            if is_target(n) && !from.contains(&n) {
+                found = Some(n);
+                break;
+            }
+            for (k, (dst, ..)) in self.fanout[n].iter().enumerate() {
+                let Some(c) = cost(*dst) else { continue };
+                let nd = d + c;
+                if dist.get(dst).is_none_or(|&x| nd < x) {
+                    dist.insert(*dst, nd);
+                    prev.insert(*dst, (n, k));
+                    heap.push(Reverse((nd, seq, *dst)));
+                    seq += 1;
+                }
+            }
+        }
+        let mut n = found?;
+        let mut path = Vec::new();
+        while let Some(&(p, k)) = prev.get(&n) {
+            path.push((n, p, k));
+            if from.contains(&p) {
+                break;
+            }
+            n = p;
+        }
+        path.reverse();
+        Some(path)
     }
 }
 

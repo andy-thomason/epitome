@@ -7,9 +7,10 @@
 //! x86-64 uses AVX2 unless `NETLIST_MATTR` names other features.
 
 mod common;
+#[path = "cva6/units.rs"]
+mod units;
 
 use std::path::PathBuf;
-use std::time::Instant;
 
 use common::*;
 use epitome_sv::netlist::{self, GROUP};
@@ -18,7 +19,7 @@ use epitome_sv::netlist::{self, GROUP};
 /// inputs for instance `i` (and says what it is), the state is evaluated,
 /// and `check` looks at each lane's outputs.
 fn by_states<T>(
-    b: &Built,
+    b: &Model,
     n: usize,
     mut put: impl FnMut(&mut State, usize, usize) -> T,
     mut check: impl FnMut(&State, usize, &T),
@@ -28,7 +29,7 @@ fn by_states<T>(
         st = State::new(b.net.size);
         let lanes = b.net.lanes.min(n - g * b.net.lanes);
         let ins: Vec<T> = (0..lanes).map(|k| put(&mut st, k, g * b.net.lanes + k)).collect();
-        b.run(&mut st);
+        b.eval_state(&mut st);
         for (k, x) in ins.iter().enumerate() {
             check(&st, k, x);
         }
@@ -96,15 +97,11 @@ endmodule
 
 #[test]
 fn operators_lane_by_lane() {
-    let Some((t, triple, mattr)) = host() else {
+    let Some(host) = host() else {
         eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
         return;
     };
-    let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("netlist");
-    std::fs::create_dir_all(&tmp).unwrap();
-    let src = tmp.join("ops.sv");
-    std::fs::write(&src, OPS).unwrap();
-    let b = build("ops", netlist_of(vec![src], Vec::new(), "ops"), &t, triple, &mattr);
+    let b = build("ops", netlist_of(&text("ops.sv", OPS), "ops"), &host);
     report("ops", &b);
     let net = &b.net;
     let m56 = (1u64 << 56) - 1;
@@ -129,7 +126,7 @@ fn operators_lane_by_lane() {
             }
             ins.push((a, b, s, m, sa as i16, sb as i16));
         }
-        b.run(&mut st);
+        b.eval_state(&mut st);
         for (n, &(a, b2, s, m, sa, sb)) in ins.iter().enumerate() {
             let mut each = 0;
             for i in 0..8 {
@@ -177,102 +174,52 @@ fn pmp_reference(addr: u64, conf: u64, prev: u64, mode: u64) -> bool {
     }
 }
 
-const PMP_TOP: &str = r#"
-// pmp_entry with the cv64a6_imafdc_sv39 configuration (PLEN = 56).
-module pmp_entry_top
-  import cva6_config_pkg::*;
-#(
-    parameter config_pkg::cva6_cfg_t CVA6Cfg = build_config_pkg::build_config(cva6_config_pkg::cva6_cfg)
-) (
-    input logic [CVA6Cfg.PLEN-1:0] addr_i,
-    input logic [CVA6Cfg.PLEN-3:0] conf_addr_i,
-    input logic [CVA6Cfg.PLEN-3:0] conf_addr_prev_i,
-    input riscv::pmp_addr_mode_t conf_addr_mode_i,
-    output logic match_o
-);
-  pmp_entry #(.CVA6Cfg(CVA6Cfg)) i_entry (.*);
-endmodule
-"#;
+/// CVA6's checkout and this machine, or why the test skips.
+fn setup() -> Option<(PathBuf, Host)> {
+    let Some(cva6) = std::env::var_os("CVA6_DIR").map(PathBuf::from) else {
+        eprintln!("set CVA6_DIR to a CVA6 checkout to run this; skipping");
+        return None;
+    };
+    let Some(host) = host() else {
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
+        return None;
+    };
+    Some((cva6, host))
+}
+
+/// Builds CVA6 unit `name` (`cva6/units.rs`), runs it on its stimulus for
+/// a group of instances, and gives each instance's inputs and its one
+/// output to `check`; with the time an instance, the stimulus run `reps`
+/// times, and the lanes of a state.
+fn run_unit(name: &str, reps: usize, mut check: impl FnMut(&Io, &[u32], u64)) -> Option<(f64, usize)> {
+    let (cva6, host) = setup()?;
+    let u = units::unit(name);
+    let b = build(name, netlist_of(&u.sources(&cva6), u.top), &host);
+    report(name, &b);
+    let io = Io::new(&b.net, None).unwrap();
+    let stim = u.stimulus(units::Mix::Random, &io, 1, GROUP, &mut Rng(u.seed));
+    let out = b.run(&io, 1, GROUP, &stim);
+    assert_eq!(io.out_words(), 1);
+    for (i, w) in stim.chunks(io.in_words()).enumerate() {
+        check(&io, w, out[i] as u64);
+    }
+    Some((b.time(&io, 1, GROUP, &stim, reps).ns, b.net.lanes))
+}
 
 #[test]
 fn cva6_pmp_entry() {
-    let Some(cva6) = std::env::var_os("CVA6_DIR").map(PathBuf::from) else {
-        eprintln!("set CVA6_DIR to a CVA6 checkout to run this; skipping");
-        return;
-    };
-    let Some((t, triple, mattr)) = host() else {
-        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
-        return;
-    };
-    let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("netlist");
-    std::fs::create_dir_all(&tmp).unwrap();
-    std::fs::write(tmp.join("pmp_entry_top.sv"), PMP_TOP).unwrap();
-    let c = |p: &str| cva6.join(p);
-    let files = vec![
-        c("core/include/config_pkg.sv"),
-        c("core/include/cv64a6_imafdc_sv39_config_pkg.sv"),
-        c("core/include/riscv_pkg.sv"),
-        c("core/include/build_config_pkg.sv"),
-        c("vendor/pulp-platform/common_cells/src/cf_math_pkg.sv"),
-        c("vendor/pulp-platform/common_cells/src/lzc.sv"),
-        c("core/pmp/src/pmp_entry.sv"),
-        tmp.join("pmp_entry_top.sv"),
-    ];
-    let b = build("pmp_entry", netlist_of(files, vec![c("core/include")], "pmp_entry_top"), &t, triple, &mattr);
-    report("pmp_entry", &b);
-    let net = &b.net;
-    // Random configurations, with addresses often inside the region, as in
-    // examples/soa_pmp_entry.rs.
-    let (m56, mcw) = ((1u64 << 56) - 1, (1u64 << 54) - 1);
-    let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
     let mut matches = 0;
-    let st = by_states(&b, GROUP, |st, n, _| {
-        let mode = rng.next() % 4;
-        let t = rng.next() % 55;
-        let conf = if mode == 3 { (rng.next() << (t + 1) | ((1 << t) - 1)) & mcw } else { rng.next() & mcw };
-        let prev = rng.next() & mcw;
-        let (lo, hi) = (((prev & !1) << 2) & m56, ((conf & !1) << 2) & m56);
-        let addr = match rng.next() % 3 {
-            0 => rng.next() & m56,
-            1 if mode == 3 => ((conf << 2) & m56) ^ (rng.next() & ((1u64 << (t + 3).min(56)) - 1)),
-            _ if hi > lo => lo + rng.next() % (hi - lo),
-            _ => rng.next() & m56,
-        };
-        for (p, v) in [("addr_i", addr), ("conf_addr_i", conf), ("conf_addr_prev_i", prev), ("conf_addr_mode_i", mode)] {
-            st.put(net, p, n, v);
-        }
-        (addr, conf, prev, mode)
-    }, |st, n, &(addr, conf, prev, mode)| {
+    let Some((ns, lanes)) = run_unit("pmp_entry", 200, |io, w, got| {
+        let v = |p| low64(input(io, w, p));
+        let (addr, conf, prev, mode) = (v("addr_i"), v("conf_addr_i"), v("conf_addr_prev_i"), v("conf_addr_mode_i"));
         let want = pmp_reference(addr, conf, prev, mode);
-        assert_eq!(st.get(net, "match_o", n) == 1, want, "lane {n}: addr {addr:x} conf {conf:x} prev {prev:x} mode {mode}");
+        assert_eq!(got == 1, want, "addr {addr:x} conf {conf:x} prev {prev:x} mode {mode}");
         matches += want as usize;
-    });
-    let iters = 2000 * GROUP / net.lanes.max(16);
-    let t0 = Instant::now();
-    for _ in 0..iters {
-        unsafe { (b.eval)(std::hint::black_box(st.ptr)) };
-    }
-    let ns = t0.elapsed().as_secs_f64() * 1e9 / (iters * net.lanes) as f64;
-    eprintln!("pmp_entry: {GROUP} instances agree with the model ({matches} match); {ns:.2} ns an instance ({} lanes)", net.lanes);
+    }) else {
+        return;
+    };
+    eprintln!("pmp_entry: {GROUP} instances agree with the model ({matches} match); {ns:.2} ns an instance ({lanes} lanes)");
 }
-
-const PMP_UNIT_TOP: &str = r#"
-// The PMP unit with the cv64a6_imafdc_sv39 configuration: 8 entries.
-module pmp_top
-  import ariane_pkg::*;
-#(
-    parameter config_pkg::cva6_cfg_t CVA6Cfg = build_config_pkg::build_config(cva6_config_pkg::cva6_cfg)
-) (
-    input logic [CVA6Cfg.PLEN-1:0] addr_i,
-    input riscv::pmp_access_t access_type_i,
-    input riscv::priv_lvl_t priv_lvl_i,
-    input logic [CVA6Cfg.NrPMPEntries-1:0][CVA6Cfg.PLEN-3:0] conf_addr_i,
-    input riscv::pmpcfg_t [CVA6Cfg.NrPMPEntries-1:0] conf_i,
-    output logic allow_o
-);
-  pmp #(.CVA6Cfg(CVA6Cfg)) i_pmp (.*);
-endmodule
-"#;
 
 /// `pmp`'s `always_comb`: the first entry that applies and matches decides;
 /// with none, only machine mode may access.
@@ -287,94 +234,26 @@ fn pmp_unit_reference(addr: u64, access: u64, priv_lvl: u64, conf_addr: &[u64; 8
     priv_lvl == 3
 }
 
+/// Bits `lo..lo + w` (`w` at most 64) of `words`.
+fn bits(words: &[u32], lo: usize, w: usize) -> u64 {
+    (0..w).map(|i| ((words[(lo + i) / 32] >> ((lo + i) % 32) & 1) as u64) << i).sum()
+}
+
 #[test]
 fn cva6_pmp() {
-    let Some(cva6) = std::env::var_os("CVA6_DIR").map(PathBuf::from) else {
-        eprintln!("set CVA6_DIR to a CVA6 checkout to run this; skipping");
-        return;
-    };
-    let Some((t, triple, mattr)) = host() else {
-        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
-        return;
-    };
-    let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("netlist");
-    std::fs::create_dir_all(&tmp).unwrap();
-    std::fs::write(tmp.join("pmp_top.sv"), PMP_UNIT_TOP).unwrap();
-    let c = |p: &str| cva6.join(p);
-    let files = vec![
-        c("core/include/config_pkg.sv"),
-        c("core/include/cv64a6_imafdc_sv39_config_pkg.sv"),
-        c("core/include/riscv_pkg.sv"),
-        c("core/include/build_config_pkg.sv"),
-        c("core/include/ariane_pkg.sv"),
-        c("vendor/pulp-platform/common_cells/src/cf_math_pkg.sv"),
-        c("vendor/pulp-platform/common_cells/src/lzc.sv"),
-        c("core/pmp/src/pmp_entry.sv"),
-        c("core/pmp/src/pmp.sv"),
-        tmp.join("pmp_top.sv"),
-    ];
-    let incs = vec![c("core/include"), c("vendor/pulp-platform/common_cells/include")];
-    let b = build("pmp", netlist_of(files, incs, "pmp_top"), &t, triple, &mattr);
-    report("pmp", &b);
-    let net = &b.net;
-    let (m56, mcw) = ((1u64 << 56) - 1, (1u64 << 54) - 1);
-    let mut rng = Rng(0x0DDB_1A5E_5BAD_5EED);
     let mut allowed = 0;
-    let st = by_states(&b, GROUP, |st, n, _| {
-        // Ascending TOR bounds and NAPOT regions, mixed, so that entries
-        // match, overlap and miss.
-        let mut conf_addr = [0u64; 8];
-        let mut conf = [0u64; 8];
-        let mut at = rng.next() % (1 << 30);
-        for i in 0..8 {
-            let mode = rng.next() % 4;
-            conf_addr[i] = if mode == 3 {
-                let t = rng.next() % 20;
-                ((at >> t << t) | ((1 << t) - 1) >> 1) & mcw
-            } else {
-                at = (at + rng.next() % (1 << 24)) & mcw;
-                at
-            };
-            conf[i] = (rng.next() % 4 == 0) as u64 * 0x80 | mode << 3 | rng.next() % 8;
-        }
-        let pick = rng.next() as usize % 8;
-        let addr = match rng.next() % 3 {
-            0 => rng.next() & m56,
-            _ => ((conf_addr[pick] << 2) + rng.next() % (1 << 12)) & m56,
-        };
-        let access = [1u64, 2, 4][rng.next() as usize % 3];
-        let priv_lvl = rng.next() % 4;
-        st.put(net, "addr_i", n, addr);
-        st.put(net, "access_type_i", n, access);
-        st.put(net, "priv_lvl_i", n, priv_lvl);
-        // conf_addr_i[i] is bits 54i up.
-        let mut wide = [0u64; 7];
-        for (i, &a) in conf_addr.iter().enumerate() {
-            let at = 54 * i;
-            wide[at / 64] |= a << (at % 64);
-            if at % 64 + 54 > 64 {
-                wide[at / 64 + 1] |= a >> (64 - at % 64);
-            }
-        }
-        st.put_wide(net, "conf_addr_i", n, &wide);
-        st.put(net, "conf_i", n, conf.iter().enumerate().fold(0, |w, (i, &c)| w | c << (8 * i)));
-        (addr, access, priv_lvl, conf_addr, conf)
-    }, |st, n, (addr, access, priv_lvl, conf_addr, conf)| {
-        let want = pmp_unit_reference(*addr, *access, *priv_lvl, conf_addr, conf);
-        assert_eq!(
-            st.get(net, "allow_o", n) == 1,
-            want,
-            "lane {n}: addr {addr:x} access {access} priv {priv_lvl} conf_addr {conf_addr:x?} conf {conf:x?}"
-        );
+    let Some((ns, lanes)) = run_unit("pmp", 20, |io, w, got| {
+        let v = |p| low64(input(io, w, p));
+        let (addr, access, priv_lvl) = (v("addr_i"), v("access_type_i"), v("priv_lvl_i"));
+        let conf_addr: [u64; 8] = std::array::from_fn(|i| bits(input(io, w, "conf_addr_i"), 54 * i, 54));
+        let conf: [u64; 8] = std::array::from_fn(|i| bits(input(io, w, "conf_i"), 8 * i, 8));
+        let want = pmp_unit_reference(addr, access, priv_lvl, &conf_addr, &conf);
+        assert_eq!(got == 1, want, "addr {addr:x} access {access} priv {priv_lvl} conf_addr {conf_addr:x?} conf {conf:x?}");
         allowed += want as usize;
-    });
-    let iters = 200 * GROUP / net.lanes.max(16);
-    let t0 = Instant::now();
-    for _ in 0..iters {
-        unsafe { (b.eval)(std::hint::black_box(st.ptr)) };
-    }
-    let ns = t0.elapsed().as_secs_f64() * 1e9 / (iters * net.lanes) as f64;
-    eprintln!("pmp: {GROUP} instances agree with the model ({allowed} allowed); {ns:.2} ns an instance ({} lanes)", net.lanes);
+    }) else {
+        return;
+    };
+    eprintln!("pmp: {GROUP} instances agree with the model ({allowed} allowed); {ns:.2} ns an instance ({lanes} lanes)");
 }
 
 /// common_cells' lzc at several widths, both modes: recognised as a count
@@ -382,41 +261,31 @@ fn cva6_pmp() {
 /// for every input tried, zero and single bits among them.
 #[test]
 fn lzc_recognised_matches_its_logic() {
-    let Some(cva6) = std::env::var_os("CVA6_DIR").map(PathBuf::from) else {
-        eprintln!("set CVA6_DIR to a CVA6 checkout to run this; skipping");
-        return;
-    };
-    let Some((t, triple, mattr)) = host() else {
-        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
-        return;
-    };
-    let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("netlist");
-    std::fs::create_dir_all(&tmp).unwrap();
+    let Some((cva6, host)) = setup() else { return };
     for (w, mode) in [(56u32, 0u32), (56, 1), (13, 0), (13, 1), (37, 0), (64, 1), (32, 0)] {
         let cw = 32 - (w - 1).leading_zeros();
         let name = format!("lzc_{w}_{mode}");
-        let src = tmp.join(format!("{name}.sv"));
-        std::fs::write(
-            &src,
+        let mut src = Sources::default();
+        src.file(cva6.join("vendor/pulp-platform/common_cells/src/cf_math_pkg.sv"));
+        src.file(cva6.join("vendor/pulp-platform/common_cells/src/lzc.sv"));
+        src.text(
+            format!("{name}.sv"),
             format!(
                 "module {name} (input logic [{}:0] in_i, output logic [{}:0] cnt_o, output logic empty_o);\n  \
                  lzc #(.WIDTH({w}), .MODE({mode})) i_lzc (.*);\nendmodule\n",
                 w - 1,
                 cw - 1
             ),
-        )
-        .unwrap();
-        let files =
-            vec![cva6.join("vendor/pulp-platform/common_cells/src/cf_math_pkg.sv"), cva6.join("vendor/pulp-platform/common_cells/src/lzc.sv"), src];
+        );
         let mut built = Vec::new();
         for recognise in [true, false] {
             let opts = netlist::Options { recognise, ..netlist_options() };
-            let net = netlist_with(files.clone(), Vec::new(), &name, opts);
+            let net = netlist_with(&src, &name, opts);
             let tag = if recognise { "known" } else { "logic" };
             if recognise {
                 assert!(net.ir().matches("@llvm.ctlz.").count() > 1, "{name} was not recognised");
             }
-            built.push(build(&format!("{name}_{tag}"), net, &t, triple, &mattr));
+            built.push(build(&format!("{name}_{tag}"), net, &host));
         }
         let mask = if w == 64 { !0 } else { (1u64 << w) - 1 };
         let mut rng = Rng(0x1234_5678_9ABC_DEF1 ^ w as u64);
@@ -443,6 +312,6 @@ fn lzc_recognised_matches_its_logic() {
                 assert_eq!(outs[0][n].0, want, "{name}: in {v:x}");
             }
         }
-        eprintln!("{name}: recognised and its logic agree on {GROUP} inputs; code {} bytes against {}", built[0].sizes.iter().map(|s| s.1).sum::<u64>(), built[1].sizes.iter().map(|s| s.1).sum::<u64>());
+        eprintln!("{name}: recognised and its logic agree on {GROUP} inputs; code {} bytes against {}", built[0].code_bytes(), built[1].code_bytes());
     }
 }

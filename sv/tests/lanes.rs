@@ -7,6 +7,8 @@
 //! On an AArch64 Mac or x86-64 Linux with `cc`; elsewhere the tests skip.
 
 mod common;
+#[path = "cva6/units.rs"]
+mod units;
 
 use std::path::PathBuf;
 
@@ -116,17 +118,15 @@ endmodule
 /// them an instance at a time.
 #[test]
 fn arrays_of_instances() {
-    let Some((t, triple, mattr)) = host() else {
-        eprintln!("needs cc on an AArch64 Mac or x86-64 Linux; skipping");
+    let Some(host) = host() else {
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
         return;
     };
-    let src = tmp_dir().join("arrays_top.sv");
-    std::fs::write(&src, ARRAYS).unwrap();
-    let files = vec![src];
+    let src = text("arrays_top.sv", ARRAYS);
     let mut v = None;
     for sims in [1, 2, 5, 16, 33] {
         let name = format!("arrays_{sims}");
-        let net = netlist_with(files.clone(), Vec::new(), "arrays_top", options_for(sims));
+        let net = netlist_with(&src, "arrays_top", options_for(sims));
         if sims == 1 {
             // The cells one call of five lanes, each row's leaves one of
             // four, the chain's links one lane each, six calls.
@@ -142,41 +142,24 @@ fn arrays_of_instances() {
             assert_eq!(calls("leaf"), 3, "each row's leaves are not one call");
             assert_eq!(calls("chain_link"), 6, "the chain's links are not a call each");
         }
-        let b = build(&name, net, &t, triple, &mattr);
+        let b = build(&name, net, &host);
         report(&name, &b);
+        let io = Io::new(&b.net, Some("clk_i")).unwrap();
         if v.is_none() {
-            v = verilate("arrays", &files, &[], "arrays_top", &b.net.ports, Some("clk_i"));
+            v = verilate("arrays", &src, "arrays_top", &io);
         }
         let Some(v) = &v else { return };
         let (cycles, n) = (24, 99);
         let mut rng = Rng(0xA77A_5000_0000_0001 ^ sims as u64);
-        let stim = stimulus_with(v, cycles, n, &mut rng, &mut |name, c, rng, w| match name {
+        let stim = stimulus_with(&io, cycles, n, &mut rng, &mut |name, c, rng, w| match name {
             "rst_ni" => w[0] = (c > 0 && rng.next() % 16 != 0) as u32,
             _ => {}
         });
-        check_against(&b, v, cycles, n, &stim, &|w| format!("{w:x?}"));
-        let ns = time_replay(&b, v, cycles, n, &stim, 20);
-        eprintln!("{name}: {n} instances, {cycles} cycles agree with Verilator; {ns:.2} ns an instance a cycle; Verilator {}", v.bench(cycles, n, &stim, 20));
+        check_against(&b, &io, v, cycles, n, &stim, &|w| format!("{w:x?}"));
+        let ns = time_replay(&b, &io, cycles, n, &stim, 20);
+        eprintln!("{name}: {n} instances, {cycles} cycles agree with Verilator; {ns:.2} ns an instance a cycle; Verilator {}", bench(v, cycles, n, &stim, 20));
     }
 }
-
-const PMP_TOP: &str = r#"
-// The PMP unit with the cv64a6_imafdc_sv39 configuration: 8 entries.
-module pmp_top
-  import ariane_pkg::*;
-#(
-    parameter config_pkg::cva6_cfg_t CVA6Cfg = build_config_pkg::build_config(cva6_config_pkg::cva6_cfg)
-) (
-    input logic [CVA6Cfg.PLEN-1:0] addr_i,
-    input riscv::pmp_access_t access_type_i,
-    input riscv::priv_lvl_t priv_lvl_i,
-    input logic [CVA6Cfg.NrPMPEntries-1:0][CVA6Cfg.PLEN-3:0] conf_addr_i,
-    input riscv::pmpcfg_t [CVA6Cfg.NrPMPEntries-1:0] conf_i,
-    output logic allow_o
-);
-  pmp #(.CVA6Cfg(CVA6Cfg)) i_pmp (.*);
-endmodule
-"#;
 
 /// CVA6's PMP unit for one simulation, a few and many, against Verilator:
 /// its eight `pmp_entry`s are one call with eight lanes for each lane of
@@ -187,20 +170,16 @@ fn pmp_entries_as_lanes() {
         eprintln!("set CVA6_DIR to a CVA6 checkout to run this; skipping");
         return;
     };
-    let Some((t, triple, mattr)) = host() else {
-        eprintln!("needs cc on an AArch64 Mac or x86-64 Linux; skipping");
+    let Some(host) = host() else {
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
         return;
     };
-    let top = tmp_dir().join("pmp_lanes_top.sv");
-    std::fs::write(&top, PMP_TOP).unwrap();
-    let (files, incs) = cva6_files(
-        &cva6,
-        &["vendor/pulp-platform/common_cells/src/lzc.sv", "core/pmp/src/pmp_entry.sv", "core/pmp/src/pmp.sv", top.to_str().unwrap()],
-    );
+    let u = units::unit("pmp");
+    let src = u.sources(&cva6);
     let mut v = None;
     for sims in [1, 3, 16, GROUP] {
         let name = format!("pmp_lanes_{sims}");
-        let net = netlist_with(files.clone(), incs.clone(), "pmp_top", options_for(sims));
+        let net = netlist_with(&src, u.top, options_for(sims));
         // Below a unit of one register, pmp_entry for eight lanes for each
         // of the unit's (its register's width of them, padding included),
         // one call; below a wider one, eight calls with the unit's lanes.
@@ -213,58 +192,17 @@ fn pmp_entries_as_lanes() {
         assert_eq!(entries[0].lanes as usize, lanes, "pmp_entry's lanes");
         let calls = net.ir().matches(&format!("call void @{}(", entries[0].name)).count();
         assert_eq!(calls, if grouped { 1 } else { 8 }, "pmp_entry's calls");
-        let b = build(&name, net, &t, triple, &mattr);
+        let b = build(&name, net, &host);
         report(&name, &b);
+        let io = Io::new(&b.net, None).unwrap();
         if v.is_none() {
-            v = verilate("pmp_lanes", &files, &incs, "pmp_top", &b.net.ports, None);
+            v = verilate("pmp_lanes", &src, u.top, &io);
         }
         let Some(v) = &v else { return };
         let n = GROUP;
-        let mut rng = Rng(0x0DDB_1A5E_5BAD_5EED ^ sims as u64);
-        let (m56, mcw) = ((1u64 << 56) - 1, (1u64 << 54) - 1);
-        // Ascending TOR bounds and NAPOT regions, mixed, so that entries
-        // match, overlap and miss, and addresses near them.
-        let mut stim = Vec::new();
-        for _ in 0..n {
-            let (mut conf_addr, mut conf) = ([0u64; 8], [0u64; 8]);
-            let mut at = rng.next() % (1 << 30);
-            for i in 0..8 {
-                let mode = rng.next() % 4;
-                conf_addr[i] = if mode == 3 {
-                    let t = rng.next() % 20;
-                    ((at >> t << t) | ((1 << t) - 1) >> 1) & mcw
-                } else {
-                    at = (at + rng.next() % (1 << 24)) & mcw;
-                    at
-                };
-                conf[i] = (rng.next() % 4 == 0) as u64 * 0x80 | mode << 3 | rng.next() % 8;
-            }
-            let pick = rng.next() as usize % 8;
-            let addr = match rng.next() % 3 {
-                0 => rng.next() & m56,
-                _ => ((conf_addr[pick] << 2) + rng.next() % (1 << 12)) & m56,
-            };
-            let mut words = Vec::new();
-            for (p, w) in &v.ins {
-                let mut x = vec![0u32; words_of(*w)];
-                match p.as_str() {
-                    "addr_i" => set_bits(&mut x, 0, 56, addr),
-                    "access_type_i" => x[0] = [1, 2, 4][rng.next() as usize % 3],
-                    "priv_lvl_i" => x[0] = (rng.next() % 4) as u32,
-                    "conf_addr_i" => (0..8).for_each(|i| set_bits(&mut x, 54 * i, 54, conf_addr[i])),
-                    "conf_i" => (0..8).for_each(|i| set_bits(&mut x, 8 * i, 8, conf[i])),
-                    other => panic!("pmp_top has no input {other}"),
-                }
-                words.extend(x);
-            }
-            stim.extend(words);
-        }
-        check_against(&b, v, 1, n, &stim, &|w| format!("{w:x?}"));
-        let ns = time_replay(&b, v, 1, n, &stim, 200);
-        eprintln!("{name}: {n} instances agree with Verilator; {ns:.2} ns an instance; Verilator {}", v.bench(1, n, &stim, 200));
+        let stim = u.stimulus(units::Mix::Random, &io, 1, n, &mut Rng(u.seed ^ sims as u64));
+        check_against(&b, &io, v, 1, n, &stim, &|w| format!("{w:x?}"));
+        let ns = time_replay(&b, &io, 1, n, &stim, 200);
+        eprintln!("{name}: {n} instances agree with Verilator; {ns:.2} ns an instance; Verilator {}", bench(v, 1, n, &stim, 200));
     }
-}
-
-fn words_of(w: u32) -> usize {
-    words(w)
 }

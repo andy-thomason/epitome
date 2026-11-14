@@ -163,6 +163,7 @@ fn board_designs_build() {
     assert_eq!(delay.clock_glb, Some(1));
     let blink = build_design("blink", &[]);
     assert_eq!(blink.mapped.chains.len(), 1);
+    build_design("hello", &[]);
 }
 
 /// Programs the board with each design and watches the serial port; only
@@ -211,4 +212,14 @@ fn board_live() {
     assert!(edges.len() >= 4, "(c) too few changes: {edges:?}");
     let half = (edges[edges.len() - 1] - edges[0]) / (edges.len() - 1) as f64;
     assert!((half - 0.699).abs() < 0.1, "(c) half period {half:.3} s, not 0.70 s");
+    // (d) the UART transmitter: the Mac reads its string.
+    let b = build_design("hello", &[]);
+    ip.program(&b.bitstream).unwrap();
+    let mut s = Serial::open(&port).unwrap();
+    s.read_for(100);
+    let got = s.read_for(500);
+    let text = String::from_utf8_lossy(&got);
+    let whole = text.matches("Hello from Epitome\r\n").count();
+    eprintln!("(d) {} bytes, {whole} whole strings: {:?}...", got.len(), &text[..text.len().min(60)]);
+    assert!(whole >= 100, "(d) {whole} strings in 0.5 s");
 }

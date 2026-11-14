@@ -80,7 +80,11 @@ pub fn lower<'a>(d: &Design<'a>, ast: &Ast<'a>, top: InstId) -> Result<Netlist, 
 }
 
 fn bits_of(c: &Const, w: u32) -> Option<Vec<Lit>> {
-    let b = c.as_bits()?;
+    let b = match c {
+        Const::Bits(b) => b.clone(),
+        Const::Str(s) => crate::design::value::Bits::from_str_bytes(s),
+        _ => return None,
+    };
     let b = b.resize(w, b.signed());
     Some((0..w).map(|i| if b.bit(i) == Logic::One { T } else { F }).collect())
 }

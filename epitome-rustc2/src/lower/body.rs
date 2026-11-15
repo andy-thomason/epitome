@@ -1800,6 +1800,23 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 let ptr = self.ptr_t();
                 let _ = ptr;
                 let t = self.ty(n)?;
+                // `#[linkage = "extern_weak"] static f: Option<fn ...>`: its
+                // value is the address of the symbol, null if nothing defines
+                // it (as `std`'s `weak!` uses it).
+                let (_, _, ast, node) = self.cx.def_ast(*d);
+                if crate::session::attribute_value(ast, node, "linkage").as_deref() == Some("extern_weak") {
+                    let g = match self.b.module().find_global(&name) {
+                        Some(g) => g,
+                        None => {
+                            let i8t = self.i8t();
+                            let mut g = epitome_ir::module::Global::variable(&name, i8t, None, false);
+                            g.props.linkage = Linkage::ExternWeak;
+                            self.b.module().add_global(g)
+                        }
+                    };
+                    let addr = self.b.module().global_value(g);
+                    return Ok(Pv::Val(Operand { ty: t, v: Val::Imm(addr) }));
+                }
                 let g = match self.b.module().find_global(&name) {
                     Some(g) => g,
                     None => {

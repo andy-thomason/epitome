@@ -320,14 +320,23 @@ impl<'a, 's> Cx<'a, 's> {
             TyKind::Array(x, c) => {
                 out.push('[');
                 self.type_key(x, out);
-                out.push_str(&format!("; {:?}]", self.lcx.eval_const(c, &Default::default())));
+                out.push_str("; ");
+                self.const_key(c, out);
+                out.push(']');
             }
-            // A const argument by its value, however it is written.
-            TyKind::ConstArg(c) => match self.lcx.eval_const(c, &Default::default()) {
-                Some(v) => out.push_str(&format!("const {v}")),
-                None => out.push_str(&tcx.display(self.r, t)),
-            },
+            TyKind::ConstArg(c) => self.const_key(c, out),
             _ => out.push_str(&tcx.display(self.r, t)),
+        }
+    }
+
+    /// A constant for `type_key`: its value, or, when the evaluator cannot
+    /// work it out, where it is written, so that two such constants are
+    /// not taken for the same one.
+    fn const_key(&self, c: crate::ty::ConstId, out: &mut String) {
+        match (self.lcx.eval_const(c, &Default::default()), self.tcx.const_of(c)) {
+            (Some(v), _) => out.push_str(&v.to_string()),
+            (None, crate::ty::Const::Expr(k, f, n)) => out.push_str(&format!("expr@{k}:{f}:{}", n.0)),
+            (None, c) => out.push_str(&format!("{c:?}")),
         }
     }
 
@@ -450,8 +459,17 @@ impl Session {
             }
         }
         named.sort_by(|a, b| a.0.cmp(&b.0));
-        let all = named.clone();
-        named.dedup_by(|a, b| a.0 == b.0);
+        // Items of one name are one instance (constant arguments written
+        // apart, of the same value): the first is declared, and the
+        // others share its declaration, whichever order they came in.
+        let mut same = Vec::new();
+        named.dedup_by(|a, b| {
+            let dup = a.0 == b.0;
+            if dup {
+                same.push((a.1, b.1));
+            }
+            dup
+        });
         let mut static_inits = Vec::new();
         for (name, it) in &named {
             match *it {
@@ -522,15 +540,9 @@ impl Session {
             }
         }
 
-        // Items that are one instance by arguments written two ways
-        // (`[u8; 4]` and `[u8; size_of::<u32>()]`) have one name, and are
-        // each the function declared for it.
-        let by_name: FastMap<&str, Item> = named.iter().map(|(n, it)| (n.as_str(), *it)).collect();
-        for (n, it) in &all {
-            if !cx.fns.contains_key(it)
-                && let Some(d) = by_name.get(n.as_str()).and_then(|rep| cx.fns.get(rep)).cloned()
-            {
-                cx.fns.insert(*it, d);
+        for (it, first) in same {
+            if let Some(d) = cx.fns.get(&first).cloned() {
+                cx.fns.insert(it, d);
             }
         }
 

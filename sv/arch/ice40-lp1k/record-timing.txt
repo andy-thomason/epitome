@@ -1,0 +1,6 @@
+# What the timing experiments on the board found (sv/src/arch/ice40/timing.rs), in ns.
+# measured on the iCESugar-nano at 83.3 ns: LUT chains of 77.5 and 46.5 LUTs with 157.5 and 181.5 switches, a 125-carry chain then 66.5 LUTs, and a RAM read then 77.5 LUTs with 160.5 switches (a RAM's clock-to-output is within a stage, about 1 ns, of a flip-flop's: 0 here)
+lut 0.2966
+hop 0.3831
+carry 0.0804
+ram 0.0000

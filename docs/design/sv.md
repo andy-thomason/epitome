@@ -659,17 +659,20 @@ tools to check our netlists.
 
 [MLIR](mlir.md) section 7 flattens a design and builds one scalar `eval`.
 `epitome-sv` does not flatten: it builds one `eval` per specialisation
-that runs every instance of it at once, a vector lane per instance
-(section 8.3). The scalar path stays for designs from Chisel and for
-checking.
+that runs its instances at once, a lane per instance, scalar code where
+there is one and SIMD lanes where there are several, or lanes side by
+side in an integer register where that is as fast (section 8.3). The scalar path of MLIR stays for designs
+from Chisel and for checking.
 
 **Code size is a goal.** The compiled code grows with the design's
 source, not with its instance count or hierarchy. Each specialisation
 becomes one function whose argument is a structure holding the state of
-one group of its instances (section 8.3). That function loops over the
-group's registers rather than being unrolled across them, so more
-instances means more calls, never more code; a large design must not
-become millions of lines of generated code. Choosing lanes over bit planes for
+its instances (section 8.3), or rarely a few, one for each number of
+instances it runs with. With more lanes than a register holds, that
+function loops over the registers rather than being unrolled across
+them, so more instances means more calls or more passes of the loop,
+never more code; a large design must not become millions of lines of
+generated code. Choosing lanes over bit planes for
 wide arithmetic (section 8.3) keeps the code small as well as fast. In
 the `pmp_entry` mock (`sv/examples/soa_pmp_entry.rs`), `eval` with its
 addresses in 32-bit lanes is 91 instructions with one loop; the same
@@ -723,11 +726,84 @@ generated design.
 ### 8.3 Instances as lanes
 
 The netlist's state is kept as a structure of arrays, indexed by
-instance. All instances of one specialisation are numbered, and each is
-a **lane**. With 512-bit vectors (AVX-512, and SME on the Apple M4) a
-group of 512 instances shares one set of registers, and `eval` for a
-specialisation runs a group at a time. The instance count is padded to a
-whole group; padding lanes are masked off.
+instance. Each instance of a specialisation is a **lane** of its
+function, and how many lanes the function has decides the code it is:
+
+- **Lanes.** A simulation can hold independent copies of the whole
+  design, `S` of them (with different seeds or stimulus, so a regression
+  of many runs costs little more than one); `S` is a choice of the build,
+  and one by default. The top has `S` lanes. A single instance of a child
+  has its parent's lanes, and an array of `k` instances made by a
+  generate loop is one call of the child with `k` times as many, where
+  that widens it: pmp's eight `pmp_entry`s are one call with eight lanes
+  for one simulation. So for few simulations a specialisation's lanes
+  are the times it is instantiated in one, times `S`; for many, `S`.
+- **Shapes.** The lanes, rounded up, set the code's shape: one lane is
+  **scalar code** (plain integers, below); several are **SIMD**, a
+  register of 4, 8 or 16 lanes of 32 or 64 bits (a 128-, 256- or 512-bit
+  register), more being a loop over full registers, padding lanes
+  running on zeros. One core running one program runs scalar code for
+  each module it has once, and SIMD only where it has several, as for the
+  eight `pmp_entry`s of a `pmp`.
+- **Lane width.** The lanes are 64 bits wide where the code (with that
+  below it) has arithmetic, shifts or comparisons on values of 33 to 64
+  bits and there are at most 8 lanes: those fill one 512-bit register as
+  32-bit lanes fill half of one, so narrow values cost the same and wide
+  ones are one piece, not two and their carries. With more lanes, 64-bit
+  lanes take twice the registers, and are chosen only where most of the
+  arithmetic is wide. `pmp_entry`'s 56-bit addresses make it 64 bits:
+  pmp's eight entries are one register, its comparisons `vpcmpuq`.
+- **SWAR only where it is as fast.** SIMD does a sum, comparison, shift
+  or select in one instruction, SWAR (below) in several; so SWAR is used
+  only for code of logic alone (no arithmetic, comparisons, shifts or
+  selects) on values narrower than a byte. Either way, the width or
+  SWAR is chosen once for each number of lanes, where that number first
+  comes (the top's, or an array's call): a single child has its parent's
+  lanes and so its layout, and its ports are where its parent keeps
+  them.
+- **Many simulations fit a core's cache.** Each function is a loop over
+  all of its state, so with more state than a core's second-level cache
+  every pass goes to the third level: CVA6's issue stage, 1.6 MB for 512
+  simulations, ran three times as slowly on a Zen 5 core (1 MB of L2) as
+  for 128. A netlist for many simulations holds as many of them (down to
+  16) as keep its state within 512 KB, and the caller runs several
+  states.
+
+**Scalar code.** A function of one lane works on plain integers: each
+value is one 64-bit piece up to 64 bits, and 64-bit pieces above. It
+shares its lowering with vector code (folding, layouts, rolled loops,
+recognised idioms) and differs where a branch beats a multiplexer: an arm
+of an `if` or a `case` big enough to be worth a jump (a handful of
+instructions) is behind a real branch, the values either arm changes
+joined after it, as a compiler for software would; smaller arms are
+both run and selected between. A `break` or `return` leaves: the rest of
+the loop, block or function is behind a branch on not having taken one,
+so a loop's variable stays a constant in each iteration. Values are
+stored as narrow as they fit (a byte, a half, a word, 64-bit pieces).
+
+**SWAR code.** A register of `n` lanes (2, 4 or 8) is an `i64` cut into `n` fields
+of `64 / n` bits, 32, 16 or 8, and a value is computed on in pieces of
+that many bits: a 56-bit address for eight lanes is seven `i64`s, each
+holding a byte of each lane's. A constant is its piece repeated in every
+field, and a mask (a comparison's result, an `if`'s condition) is all
+ones or all zeros a field, so a multiplexer is `y ^ ((x ^ y) & m)`.
+Logic is one instruction. A sum keeps its carries in their fields by
+adding below the fields' top bits and putting those back with an
+exclusive or; a difference does the same with the top bits set in the
+minuend, and the borrow out of a field's top bit is an unsigned
+comparison, which with the top bits flipped is a signed one. Shifts by
+a constant are a shift and a mask, by a value the same in every lane a
+mask worked out from it, and by one a lane a shift by each power of two
+chosen by that bit of the amount. What has no such form (products,
+counts of leading zeros) is done a field at a time. Every value is in
+general-purpose registers, and no vector instructions are needed. With
+`Options::vectors` off, every function with lanes is SWAR.
+
+Values are stored as they are in registers, an `i64` a piece, except
+one-bit values, which are bit planes: a bit a lane, so eight lanes'
+enable is one byte. Loaded, a plane is spread to the lowest bit of each
+field (three shifts, ors and masks for eight lanes), and stored, gathered
+back.
 
 **Layout of a value.** Each object has one of two layouts, chosen at
 lowering from the operations that use it:
@@ -780,21 +856,65 @@ Code generation does not use them yet. The plan, owned by the combiner
 because it helps all code, not only simulators, is in
 [combines](combine.md), "Three-input bit functions".
 
-**No branches.** `if` and `case` are already multiplexers in the netlist.
-Each lane's clock edge is a mask, so instances on different clocks, or
-with enables, share one `eval`: a register takes its next value where
-the mask is set and keeps its old one elsewhere.
+**No branches in vector code.** `if` and `case` are already
+multiplexers in the netlist (save costly arms, run only where some lane
+of a register takes them). Each lane's clock edge is a mask, so instances
+on different clocks, or with enables, share one `eval`: a register takes
+its next value where the mask is set and keeps its old one elsewhere.
 
 **Ports between specialisations.** A child's lanes are ordered by
-parent: where each parent has one instance of the child, child lane `n`
-belongs to parent lane `n`, and ports connect with no data movement. An
-array of instances, or a child used by several parents, needs a gather
-or scatter at the port, done once per `eval` of the child group.
+parent. A single instance has its parent's lanes, child lane `n` its
+parent's lane `n`, and ports connected to a value whole connect with no
+data movement: the child reads and writes the parent's value where it
+is. An array of `k` instances in a parent of one register, `w` lanes
+wide (its register's width, padding included), is one call: iteration
+`i` has the child's lanes `i * w` to `(i + 1) * w`. Where each
+iteration's connection is the next element of an array the parent keeps
+an element to a slot (an array used only an element at a time, each
+element as narrow as it fits in scalar code, a register of lanes in
+vector code), stored as the child stores the port, those elements
+already are the child's lanes: the child reads or writes them where
+they are, an offset into the array, with nothing copied. For that, an
+input used only an element at a time is kept so too where a child then
+reads it in place (elsewhere its whole value, which a select by a value
+a lane needs, stays one load), and a value connected whole to such an
+input of a single child is kept as it is (up to the top's ports), so
+that pmp's `conf_addr_i`, eight 54-bit
+addresses, is eight 64-bit slots from the top down, and the eight
+`pmp_entry`s read it as their `<8 x i64>`. Otherwise the parent gathers
+each iteration's inputs into its block and scatters its outputs back, a
+lane at a time, once a call. A scalar parent stores each lane's 64-bit
+pieces whole, bytes and halves gathered into an `i64`, and a value the
+same in every iteration (pmp's address) splat to whole registers, so
+that the child's loads of whole registers take the stores' values
+without waiting for them to reach the cache; elsewhere each lane's value
+is taken apart into 32-bit words and put together again as the other
+side's pieces (through registers for SWAR code, and through memory for
+SIMD), so a parent and its array may differ in shape and lane width. A parent of more than one register gains no width from that and
+would lose ports that connect in place, so it calls each instance with
+its own lanes. An array whose call would wait on itself (each
+iteration's input made from the last one's output, as a chain of adders
+is) is called an instance at a time too.
 
-**Specialisations with few instances.** The top module has one, and
-would use one lane in 512. The lanes can instead hold independent copies
-of the whole simulation, with different seeds or stimulus, so a
-regression of many runs costs little more than one.
+A parent's code may loop through a child without any value depending on
+itself: an output of the child feeds logic that feeds another of its
+inputs, on which that output does not depend (CVA6's scoreboard and its
+issue logic each read the other's outputs). Which outputs depend on which
+inputs is worked out statement by statement, and the child is called
+twice: first for the outputs that need none of the inputs the loop goes
+through, then for the rest. Its code is then two functions, the first
+holding only what those outputs need.
+
+**Indexed arrays.** A select by a value differs from lane to lane, so it
+is a choice among the elements, each the same constant select, where
+that costs less than shifting the whole value (it costs the value's
+pieces squared). An array of elements wider than a piece, indexed so, is
+laid out with each element starting a piece, so that the same bits of
+every element are the same shift, done once. Such arrays, and other wide
+values indexed by a value or registers no clocked process reads, stay in
+the state: a select loads the pieces it reads, an assignment stores those
+it changes in the lanes that run it, and the arms of an `if` need no
+multiplexers for them.
 
 **Two models.** The same netlist is lowered twice:
 
@@ -908,6 +1028,125 @@ on 64. Tests run each simulation both ways and compare.
 it (one atomic add); a lane group of a few hundred operations is. Small
 specialisations are batched together; large ones are cut at registers,
 which break combinational dependence.
+
+### 8.6 Example: CVA6 through the library
+
+`sv/examples/cva6.rs` builds the CVA6 RISC-V core's units with
+epitome-sv called as a library (`epitome_sv::model`), and with
+Verilator beside it to compare:
+
+```bash
+cargo run --release -p epitome-sv --example cva6 -- --verilator --sims 512
+```
+
+- **Fetch.** CVA6 is fetched with `git` at the commit the tests use,
+  `742dc82` (2026-10-23), into `target/cva6-example` (or `--cva6 DIR` /
+  `CVA6_DIR` names a checkout). It is pinned because the wrappers repeat
+  `cva6.sv`'s types and the stimulus knows its structs' layout and its
+  enums' values. Nothing of CVA6 is committed to Epitome.
+- **Build.** Each unit the netlist compiles today, in the
+  cv64a6_imafdc_sv39 configuration, is built in memory, from source to
+  loaded code: `pmp_entry`, `pmp`, the ALU, the ALU with the branch unit,
+  the compressed decoder, the decoder, `id_stage`, the issue stage, `mult`
+  and `serdiv`. Each is preprocessed, parsed, elaborated, lowered with the
+  IR builder, optimised, compiled and loaded into the process. Nothing is
+  written as text and no file is made.
+  - The units, their wrappers and their stimulus are in `sv/tests/cva6/`,
+    shared with the tests.
+  - The example prints each step's time, the code and state sizes, and
+    the lanes each function was given.
+- **Run.** Each unit runs on random stimulus, and on a typical mix where
+  the tests have one. It runs as one simulation, and with `--sims N` also
+  as N at once.
+- **The whole core.** `cva6` is elaborated from CVA6's own file list,
+  read at run time. Its FPU submodules are fetched at the commits CVA6
+  names. Each specialisation is then tried as a netlist of its own. The
+  netlist does not compile the whole core yet: 96 of its 152
+  specialisations lower. The rest are stopped by:
+  - `initial` and plain `always` processes;
+  - combinational loops across processes;
+  - some assignment patterns, `**` on variables, and a streaming
+    concatenation.
+- **Verilator** (`--verilator`; `$VERILATOR`, `$VERILATOR_ROOT/bin` or the
+  path). Each unit is also built as a Verilator model, a program with a
+  C++ driver written for its ports (`epitome_sv::verilator`). It runs on
+  the same stimulus, and its outputs are checked word for word against
+  epitome-sv's. A missing or too old Verilator is reported, and the run
+  goes on without it.
+  - The numbers here are Verilator 5.053's.
+  - Debian's 5.020 is much slower on CVA6, because of `UNOPTFLAT`
+    fallbacks.
+
+**AVX-512.** On x86-64 the example compiles for the processor's features:
+AVX-512 where it has it. Where epitome-codegen's AVX-512 selection lacks
+an instruction a unit needs, the example says so and compiles that unit
+for AVX2. Today these are `<16 x i16>` and `<8 x i32>` loads and stores.
+
+**Numbers.** mandelbrot (AMD EPYC 9B45, AVX-512), 2026-11-14. Times are
+ns per instance-cycle; where two are given, they are random / typical
+stimulus. `*` marks AVX2, as above. Every run agreed with Verilator word
+for word.
+
+| unit | ours, 1 sim | Verilator, 1 | ours, 512 sims | Verilator, 512 | code bytes, ours / Verilator | state bytes per instance, ours (1 sim) / Verilator |
+|---|---|---|---|---|---|---|
+| pmp_entry | 25.6 | 29.6 | 0.9 | 29.9 | 1,083 / 5,675 | 128 / 128 |
+| pmp | 180.5* | 96.7 | 15.9 | 93.5 | 13,754 / 26,033 | 576 / 320 |
+| alu | 89.8 | 106.0 | 8.9 | 106.7 | 7,910 / 30,721 | 256 / 192 |
+| alu + branch unit | 101.1 | 133.0 | 10.5 | 136.5 | 9,401 / 32,735 | 512 / 384 |
+| compressed decoder | 26.8 | 32.8 | 1.8 | 33.1 | 4,127 / 6,204 | 64 / 64 |
+| decoder | 69.8 / 69.9 | 143.3 / 128.3 | 46.4 / 34.8* | 148.2 / 131.0 | 15,672 / 35,658 | 256 / 576 |
+| id_stage | 218.6 / 216.7* | 152.5 / 155.3 | 241.4 / 144.5* | 223.5 / 207.7 | 27,763 / 46,907 | 905 / 768 |
+| issue_stage | 1,836 / 1,852* | 916 / 962 | 1,222 / 785* | 1,100 / 1,067 | 98,854 / 97,002 | 3,972 / 3,136 |
+| mult | 252.3 / 244.9 | 152.9 / 150.9 | 28.3 / 21.8 | 302.1 / 265.8 | 11,187 / 23,601 | 539 / 320 |
+| serdiv | 96.4 / 93.5 | 105.9 / 105.6 | 5.8 / 4.7 | 123.5 / 115.1 | 4,571 / 16,341 | 221 / 256 |
+
+**How the columns are measured.**
+- **Code bytes:** ours is the machine code of the netlist's functions for
+  one simulation (AVX2's for the starred units). Verilator's is the code
+  and read-only data of the model's archive, as `size` counts it,
+  without its runtime.
+- **Build time:** each unit takes 40–290 ms with epitome-sv, from source
+  to loaded code. Verilator takes about 4.2 s, with ccache off (most of
+  that is compiling its runtime).
+- **The whole example** takes about 2 minutes on this machine, Verilator
+  builds included.
+
+**Reading the numbers.**
+- **Many simulations:** with 512, each unit's code runs once for a whole
+  register of instances. Most units are then 7–33× faster than
+  Verilator, which runs its models one after another.
+- **One simulation:** the code is scalar. It is slower than Verilator on
+  the clocked units that carry a lot of state (mult, id_stage,
+  issue_stage).
+
+On an Apple M4 Pro (AArch64), every unit compiles. For one / 512
+simulations:
+- alu: 45 / 32 ns, against Verilator's 56 / 58;
+- decoder: 39 / 38 ns, against 84 / 87;
+- serdiv: 44 / 55 ns, against 71 / 79.
+
+### 8.7 To an FPGA
+
+The same elaborated design also goes to hardware. `sv/src/synth/` flattens
+it and bit-blasts `assign`, `always_comb` and `always_ff` into
+a hashed graph of ANDs, XORs, majorities (adders' carries) and flip-flops
+with enables and asynchronous resets, on any number of clocks. Functions
+and tasks are run inline. Memories stay whole, with a write port (bit
+enables for byte writes) and synchronous read ports, and their initial
+contents. A memory block RAM cannot hold is built from flip-flops.
+`sv/src/arch/ice40/` then maps it onto iCE40 logic cells (carry chains,
+then 4-input cuts) and RAM4K blocks, places them
+(greedy, then annealing) and routes them by PathFinder over the chip
+database's switches. Epitome's own packer makes the bitstream, which runs
+on the iCESugar-nano. A static timing analysis uses LUT, switch, carry
+and RAM delays measured on that board, from chains that just miss its
+12 MHz clock. Every stage is checked against the interpreter
+(7.7) on random stimulus, through a testbench made around the top module.
+`sv/arch/README.md` ("The flow") has the details and what the board
+showed. As elsewhere, the flow is written without reading other tools'
+source: Yosys, ABC, nextpnr and IceStorm may be run as black boxes, never
+read. The cut mapping, annealing and PathFinder follow their published
+papers.
 
 ## 9. Clean-room rules
 

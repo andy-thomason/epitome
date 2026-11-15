@@ -1,0 +1,12 @@
+# iCESugar (iCE40UP5K-SG48), from its schematic v1.5 and MuseLab's pin
+# constraints for the board.
+clk    35  # 12 MHz from the iCELink (MCO, jumper J1); a global buffer pin
+rx     4   # UART from the Mac (the iCELink's TX, jumper J5): only ever read
+tx     6   # UART to the Mac (the iCELink's RX, jumper J5)
+led    41  # the RGB LED's green (jumper J6), through 470 ohms: low = on
+led_r  40  # its red
+led_b  39  # its blue
+sw[0]  18  # DIP switch S1, pulled up: closed = low
+sw[1]  19
+sw[2]  20
+sw[3]  21

@@ -937,13 +937,14 @@ the fixes they needed). The most common reasons: intrinsics not done
 type type checking left unknown (16), and array lengths the evaluator
 cannot work out (13 for `DecimalSeq`, 11 more elsewhere).
 
-With several threads the counts vary by a few functions from run to
-run: some results depend on the order in which bodies are checked and
-lowered (types are interned in that order, and some choices follow hash
-maps' order). Two caches shared between threads marked an item being
-worked out in a way other threads read as a result (a constant as
-having no value, a type as recursive); each now marks it for its own
-thread only, which removed most of the variation but not all.
+The counts, the list and the IR are the same for any number of threads.
+Results do not depend on the order in which bodies are checked and
+lowered, though types are interned in that order: caches shared between
+threads mark an item being worked out for their own thread only (a
+constant as having no value, a type as recursive), and an instance's
+symbol keys each constant argument by its value, or by where it is
+written when the evaluator cannot work it out, never by how it prints.
+Instances of one symbol share one declaration.
 
 `--lib` compiles the last crate as a library: monomorphisation starts
 from all its non-generic functions (even if it has a `main`), and those

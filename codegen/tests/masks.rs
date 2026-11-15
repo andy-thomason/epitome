@@ -136,6 +136,48 @@ fn wide_masks_as_clangs() {
     assert_eq!(out[0], out[1], "our build of wide.ll differs from clang's");
 }
 
+/// Masks of comparisons split across registers, extended to vectors of
+/// other lane widths and combined with masks made from bits
+/// (`tests/masks/split_cast.ll`), built by us and by clang, each linked with
+/// `split_cast_main.c`: the two must print the same. (A cast of a split
+/// mask to lanes that do not line up with its parts once gave parts of the
+/// wrong type.)
+#[test]
+fn split_masks_cast_as_clangs() {
+    let ok = (cfg!(target_arch = "aarch64") && cfg!(target_os = "macos")
+        || cfg!(target_arch = "x86_64") && cfg!(target_os = "linux"))
+        && Command::new("clang").arg("--version").output().is_ok_and(|o| o.status.success());
+    if !ok {
+        eprintln!("needs clang on an AArch64 Mac or x86-64 Linux; skipping");
+        return;
+    }
+    let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/masks");
+    let tmp = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("masks-split-cast");
+    std::fs::create_dir_all(&tmp).unwrap();
+    let text = std::fs::read_to_string(dir.join("split_cast.ll"))
+        .unwrap()
+        .replace("target triple = \"arm64-apple-macosx14.0.0\"", &format!("target triple = \"{TRIPLE}\""));
+    let ll = tmp.join("split_cast.ll");
+    std::fs::write(&ll, &text).unwrap();
+    let t = host_target();
+    let mut m = epitome_ir::parse_module(&text).unwrap();
+    let ours = tmp.join("ours.o");
+    std::fs::write(&ours, compile(&t, &mut m, &Options::default()).unwrap().object_file(&t).unwrap()).unwrap();
+    let theirs = tmp.join("theirs.o");
+    let st = Command::new("clang").arg("-O1").arg("-c").arg(&ll).arg("-o").arg(&theirs).status().unwrap();
+    assert!(st.success());
+    let mut out = Vec::new();
+    for (name, obj) in [("ours", &ours), ("theirs", &theirs)] {
+        let exe = tmp.join(name);
+        let st = Command::new("clang").arg(obj).arg(dir.join("split_cast_main.c")).arg("-o").arg(&exe).status().unwrap();
+        assert!(st.success());
+        let o = Command::new(&exe).output().unwrap();
+        assert!(o.status.success());
+        out.push(String::from_utf8_lossy(&o.stdout).into_owned());
+    }
+    assert_eq!(out[0], out[1], "our build of split_cast.ll differs from clang's");
+}
+
 /// Logic on masks of 256-bit comparisons with AVX2: eight lanes of 32-bit
 /// comparisons fill a ymm register, so an `or` of two of them is `vpor` on
 /// ymm, not `por` on the low halves. On x86-64 Linux with clang only.

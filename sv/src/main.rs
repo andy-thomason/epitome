@@ -177,16 +177,17 @@ fn print_netlist(d: &epitome_sv::design::Design) -> ExitCode {
     for &top in &d.tops {
         match epitome_sv::netlist::compile(d, top) {
             Ok(n) => {
-                print!("{}", n.ir);
+                print!("{}", n.module);
                 eprintln!(
                     "epitome-sv: {} instances a group, {} bytes of state; entry {}; {} assertions left out",
-                    epitome_sv::netlist::GROUP,
+                    n.group(),
                     n.size,
                     n.entry,
                     n.dropped
                 );
                 for p in &n.ports {
-                    eprintln!("epitome-sv:   {:?} {} [{}] at {}", p.dir, p.name, p.width, p.offset);
+                    let elems = p.elems.map_or(String::new(), |(ew, stride)| format!(", {ew}-bit elements {stride} bytes apart"));
+                    eprintln!("epitome-sv:   {:?} {} [{}] at {}{elems}", p.dir, p.name, p.width, p.offset);
                 }
             }
             Err(e) => {

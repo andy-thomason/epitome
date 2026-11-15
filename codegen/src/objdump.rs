@@ -350,10 +350,18 @@ fn decode_reloc(t: &Target, bytes: &[u8], kind: RelocKind) -> Option<(usize, Env
         let d = &defs[r.0 as usize];
         r == kind || (d.macho.is_some() && d.macho == k.macho) || (d.elf.is_some() && d.elf == k.elf)
     };
-    t.decode_candidates(bytes)
-        .into_iter()
-        .filter(|&(i, _)| t.instrs[i].reloc.is_some_and(alike))
-        .find_map(|(i, alt)| t.instrs[i].decode_alt(bytes, alt).map(|(env, len)| (i, env, len)))
+    // Entries for reading first: one only for selection (`"nodecode"`)
+    // may name its registers otherwise (x86's masks of vectors, whose k0
+    // is unnamed), and is read only where no other has the relocation
+    // (x86's `movq sym@GOTPCREL(%rip)`).
+    let cands: Vec<(usize, usize)> =
+        t.decode_candidates(bytes).into_iter().filter(|&(i, _)| t.instrs[i].reloc.is_some_and(alike)).collect();
+    [true, false].into_iter().find_map(|reading| {
+        cands
+            .iter()
+            .filter(|&&(i, _)| t.instrs[i].decode == reading)
+            .find_map(|&(i, alt)| t.instrs[i].decode_alt(bytes, alt).map(|(env, len)| (i, env, len)))
+    })
 }
 
 /// `-d`: the code sections disassembled.

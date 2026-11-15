@@ -235,6 +235,7 @@ pub fn add_eh_frame(obj: &mut Object, m: &Machine, p: &Params, frames: &[Frame])
                             kind: reloc(RelocUse::GotPcRel32)?,
                             target: RelocTarget::Symbol(sym),
                             addend: 0,
+                            instr: None,
                         });
                     } else {
                         // (A local symbol by its section, as ELF's assemblers
@@ -245,7 +246,13 @@ pub fn add_eh_frame(obj: &mut Object, m: &Machine, p: &Params, frames: &[Frame])
                             Some(x) if !def.global => (RelocTarget::Section(x), def.value as i64),
                             _ => (RelocTarget::Symbol(sym), 0),
                         };
-                        relocs.push(Reloc { offset: field, kind: reloc(RelocUse::EhPcRel)?, target, addend });
+                        relocs.push(Reloc {
+                            offset: field,
+                            kind: reloc(RelocUse::EhPcRel)?,
+                            target,
+                            addend,
+                            instr: None,
+                        });
                     }
                     cie.push(if macho { 0x10 } else { 0x1b });
                     cie.push(fde_enc);
@@ -281,12 +288,14 @@ pub fn add_eh_frame(obj: &mut Object, m: &Machine, p: &Params, frames: &[Frame])
                 kind: reloc(RelocUse::EhSub)?,
                 target: RelocTarget::Symbol(st),
                 addend: 0,
+                instr: None,
             });
             relocs.push(Reloc {
                 offset: field,
                 kind: reloc(RelocUse::EhUnsigned)?,
                 target: RelocTarget::Symbol(f.symbol),
                 addend: 0,
+                instr: None,
             });
         } else {
             fde.extend(0u32.to_le_bytes());
@@ -296,6 +305,7 @@ pub fn add_eh_frame(obj: &mut Object, m: &Machine, p: &Params, frames: &[Frame])
                 kind: reloc(RelocUse::EhPcRel)?,
                 target: RelocTarget::Section(f.section),
                 addend: f.start as i64,
+                instr: None,
             });
         }
         // The LSDA's address, as the function's is: 8 bytes, a pair naming
@@ -325,12 +335,14 @@ pub fn add_eh_frame(obj: &mut Object, m: &Machine, p: &Params, frames: &[Frame])
                     kind: reloc(RelocUse::EhSub)?,
                     target: RelocTarget::Symbol(st),
                     addend: 0,
+                    instr: None,
                 });
                 relocs.push(Reloc {
                     offset: field,
                     kind: reloc(RelocUse::EhUnsigned)?,
                     target: RelocTarget::Symbol(target),
                     addend: 0,
+                    instr: None,
                 });
             }
             // ELF's: PC-relative, 4 bytes, to the table's place.
@@ -343,6 +355,7 @@ pub fn add_eh_frame(obj: &mut Object, m: &Machine, p: &Params, frames: &[Frame])
                     kind: reloc(RelocUse::EhPcRel)?,
                     target: RelocTarget::Section(ls),
                     addend: lo as i64,
+                    instr: None,
                 });
             }
             (None, _) => uleb(&mut fde, 0),

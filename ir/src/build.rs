@@ -889,6 +889,34 @@ impl<'m> FunctionBuilder<'m> {
         GepSpec { b: self, source_ty, ptr: p, indices: vec![], flags: 0 }
     }
 
+    /// Where the function is now, for [`FunctionBuilder::rollback`]: a
+    /// caller that builds code on trial (to see its size, say) and then
+    /// takes it back.
+    pub fn checkpoint(&self) -> Checkpoint {
+        Checkpoint { locals: self.f.locals.len(), blocks: self.f.blocks.len(), insts: self.f.insts.len(), cur: self.cur }
+    }
+
+    /// Takes back everything added since `c`: the instructions (in any
+    /// block), the blocks and the values. Changes to what was there before
+    /// it (an entry added to an older phi) stay.
+    pub fn rollback(&mut self, c: Checkpoint) {
+        let f = &mut self.f;
+        f.insts.truncate(c.insts);
+        f.blocks.truncate(c.blocks);
+        f.layout.retain(|b| b.index() < c.blocks);
+        f.locals.truncate(c.locals);
+        for b in &mut f.blocks {
+            b.insts.retain(|i| i.index() < c.insts);
+        }
+        self.cur = c.cur;
+        self.next_name = None;
+    }
+
+    /// Instructions added since `c`.
+    pub fn added_since(&self, c: &Checkpoint) -> usize {
+        self.f.insts.len() - c.insts
+    }
+
     /// Checks that every block ends in a terminator and has no other, then
     /// adds the function to the module, in place of a declaration of the
     /// same name if there is one.
@@ -924,6 +952,15 @@ impl<'m> FunctionBuilder<'m> {
             }
         }
     }
+}
+
+/// Where a function being built was (see [`FunctionBuilder::checkpoint`]).
+#[derive(Clone, Copy, Debug)]
+pub struct Checkpoint {
+    locals: usize,
+    blocks: usize,
+    insts: usize,
+    cur: Option<BlockId>,
 }
 
 /// A binary operation's flags, then `build`.
@@ -1099,6 +1136,35 @@ impl GepSpec<'_, '_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Code built on trial and taken back leaves the function as it was:
+    /// its instructions, blocks and values gone, later ones numbered as if
+    /// they had never been.
+    #[test]
+    fn rollback_takes_back_a_trial() {
+        let mut m = Module::default();
+        let i32t = m.types.int(32);
+        let mut b = m.function("f", i32t, &[("x", i32t)]);
+        let x = b.param(0);
+        b.block("entry");
+        let y = b.add(x, x);
+        let c = b.checkpoint();
+        let t = b.new_block("trial");
+        let z = b.mul(y, y);
+        let w = b.icmp(ICmpPred::Eq, z, x);
+        b.cond_br(w, t, t);
+        b.at(t);
+        let _ = b.sub(z, x);
+        assert_eq!(b.added_since(&c), 4);
+        b.rollback(c);
+        let r = b.xor(y, x);
+        b.ret(r);
+        b.finish().unwrap();
+        let text = m.to_string();
+        assert!(!text.contains("mul") && !text.contains("trial") && !text.contains("icmp"), "{text}");
+        let again = crate::parse_module(&text).unwrap();
+        assert_eq!(again.to_string(), text);
+    }
 
     /// A loop with a phi, a call to a declared function and a store: the
     /// built module prints as the IR it stands for, and parses back the same.

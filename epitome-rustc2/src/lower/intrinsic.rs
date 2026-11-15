@@ -80,6 +80,17 @@ impl Fx<'_, '_, '_, '_> {
                 }
                 Ok(Pv::Val(o))
             }
+            // `ptr & mask`, as an address (its provenance kept).
+            "ptr_mask" => {
+                let p = self.imm(args[0])?;
+                let m = self.imm(args[1])?;
+                let isz = self.isize_t();
+                let a = self.b.cast(epitome_ir::module::CastOp::PtrToInt, p, isz);
+                let a = self.b.and(a, m);
+                let ptr = self.ptr_t();
+                let r = self.b.cast(epitome_ir::module::CastOp::IntToPtr, a, ptr);
+                imm(r)
+            }
             // `x` written into the box's memory, and the box given back
             // (what `vec!` and `Box::new` of a literal build with).
             "write_box_via_move" => {

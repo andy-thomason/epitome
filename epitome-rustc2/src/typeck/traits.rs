@@ -203,7 +203,12 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let params = tcx.all_params(d);
         let mut o = Some(d);
         while let Some(x) = o {
-            if matches!(self.r.defs[x.0 as usize].kind, DefKind::Impl | DefKind::Trait) {
+            // An inherent impl's `where` clauses are its methods' too
+            // (`impl<T, F: FnOnce(T)> DropGuard<T, F>`: what `new`'s closure
+            // takes); a trait's or a trait impl's are not obligations here.
+            let kind = self.r.defs[x.0 as usize].kind;
+            let inherent = kind == DefKind::Impl && tcx.impl_index.get(&x).is_some_and(|&i| tcx.impls[i].trait_ref.is_none());
+            if matches!(kind, DefKind::Impl | DefKind::Trait) && !inherent {
                 break;
             }
             for p in tcx.predicates[x.0 as usize].clone() {

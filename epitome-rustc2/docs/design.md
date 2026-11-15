@@ -858,29 +858,30 @@ body:
 ```
 
 From every non-generic function of `core` with a body (on mandelbrot):
-22,310 functions in 3.6 s, of which 4,320 (19%) are not lowered, and 243
-more trap where they reach `dyn` or formatting. 4,002 of those not
-lowered are SIMD (`core::arch` and `core::simd`, 5,408 functions), which
-is not attempted (its `asm!` with vector operands among them). Among
-them are about 1,000 that call an LLVM intrinsic of vectors or
-aggregates, `core::arch`'s by `link_name` (`llvm.x86.aesni.aesdec`):
-Rust's ABI passes those in memory, where the intrinsic takes them as
-values, so such a call is not lowered (the intrinsic is not declared).
-They were lowered as calls passing pointers, which is wrong IR, until
-the code generator stopped at them. Of the 16,902 functions that are not
-SIMD, 318 (2%) are not lowered. The most
-common reasons: unsizing an array whose length is an expression the
-evaluator cannot work out (42), calls of instances monomorphisation did
-not find (20), and array lengths not known (17). The 14 intrinsics left
-are the compile-time and variadic ones.
+22,529 functions in 3.6 s, of which 4,345 (19%) are not lowered, and 244
+more trap where they reach `dyn` or formatting. 3,937 of those not
+lowered are SIMD (`core::arch` and `core::simd`), which is not attempted:
+`simd_*` intrinsics, `asm!` with vector operands, and constant arguments
+such as `_MM_CMPINT_EQ` that the evaluator cannot work out. Among them
+are about 1,000 that call an LLVM intrinsic of vectors or aggregates,
+`core::arch`'s by `link_name` (`llvm.x86.aesni.aesdec`): Rust's ABI
+passes those in memory, where the intrinsic takes them as values, so
+such a call is not lowered (the intrinsic is not declared). They were
+lowered as calls passing pointers, which is wrong IR, until the code
+generator stopped at them. Of the functions that are not SIMD, about 400
+are not lowered. The most common reasons: unsizing an array whose length
+is an expression the evaluator cannot work out (44), `Option`s with no
+layout (34), and array lengths not known (18). The intrinsics left
+outside SIMD are the compile-time and variadic ones.
 
-With several threads the counts vary by a few functions from run to
-run: some results depend on the order in which bodies are checked and
-lowered (types are interned in that order, and some choices follow hash
-maps' order). Two caches shared between threads marked an item being
-worked out in a way other threads read as a result (a constant as
-having no value, a type as recursive); each now marks it for its own
-thread only, which removed most of the variation but not all.
+The counts, the list and the IR are the same for any number of threads.
+Results do not depend on the order in which bodies are checked and
+lowered, though types are interned in that order: caches shared between
+threads mark an item being worked out for their own thread only (a
+constant as having no value, a type as recursive), and an instance's
+symbol keys each constant argument by its value, or by where it is
+written when the evaluator cannot work it out, never by how it prints.
+Instances of one symbol share one declaration.
 
 `--lib` compiles the last crate as a library: monomorphisation starts
 from all its non-generic functions (even if it has a `main`), and those

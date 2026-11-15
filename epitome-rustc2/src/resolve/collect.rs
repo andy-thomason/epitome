@@ -3,10 +3,13 @@
 use super::{Binding, Def, DefId, DefKind, Import, ImportKind, ModId, Module, Ns, Res, Resolver, Vis};
 use crate::ast::{Ast, Kind, NodeId};
 use crate::hash::FastMap;
-use crate::session::{ParsedCrate, has_attribute};
+use crate::lexer::Edition;
+use crate::session::{ParsedCrate, Session, has_attribute};
 
 /// Builds the definitions, modules and imports of every crate.
-pub(super) fn collect<'s>(crates: &[ParsedCrate<'s>]) -> Resolver<'s> {
+pub(super) fn collect<'s>(session: &Session, crates: &[ParsedCrate<'s>]) -> Resolver<'s> {
+    let mut builtin_texts = session.builtin_texts.lock().unwrap().clone();
+    builtin_texts.sort();
     let mut r = Resolver {
         defs: Vec::new(),
         modules: Vec::new(),
@@ -24,6 +27,7 @@ pub(super) fn collect<'s>(crates: &[ParsedCrate<'s>]) -> Resolver<'s> {
         res: Vec::new(),
         def_site: Vec::new(),
         macro_bodies: Vec::new(),
+        builtin_texts,
     };
     // Crate roots first, so that `extern crate` can name any of them.
     for (k, c) in crates.iter().enumerate() {
@@ -58,6 +62,23 @@ pub(super) fn collect<'s>(crates: &[ParsedCrate<'s>]) -> Resolver<'s> {
             cx.items(f.ast.root, m);
         }
         r.file_modules.push(file_modules);
+    }
+    // The `extern crate std;` (`core` with `no_std`) a crate root has
+    // without writing it, which 2015's paths start from: `::std::x` and
+    // `use std::x;`. Later editions find crates by name instead. A name the
+    // crate defines itself comes first.
+    for k in 0..crates.len() {
+        if r.editions[k] >= Edition::E2018 || r.no_core[k] {
+            continue;
+        }
+        let name = if r.no_std[k] { "core" } else { "std" };
+        let root = r.roots[k];
+        if let Some(c) = r.crate_root(name)
+            && c != root
+            && let Some(def) = r.modules[c.0 as usize].def
+        {
+            r.bind(root, name, Ns::Type, Res::Def(def), Vis::Restricted(root));
+        }
     }
     r.def_site.sort_by_key(|x| x.0);
     r.macro_bodies.sort();
@@ -323,7 +344,8 @@ impl<'c, 'r, 's> Collector<'c, 'r, 's> {
             }
             Kind::Use => {
                 let Some(tree) = self.ast.child(item, Kind::UseTree) else { return };
-                self.use_tree(tree, Vec::new(), false, m, vis, item);
+                let edition = self.r.editions[self.krate as usize];
+                self.use_tree(tree, Vec::new(), false, edition, m, vis, item);
                 if has_attribute(self.ast, item, "prelude_import") {
                     self.r.prelude_imports[self.krate as usize] = Some(self.r.imports.len() - 1);
                 }
@@ -410,13 +432,28 @@ impl<'c, 'r, 's> Collector<'c, 'r, 's> {
     }
 
     /// Flattens a `use` tree into imports.
-    fn use_tree(&mut self, tree: NodeId, prefix: Vec<&'s str>, rooted: bool, m: ModId, vis: Vis, item: NodeId) {
+    /// `edition` is the one its paths are read in (see `path_edition`).
+    #[allow(clippy::too_many_arguments)]
+    fn use_tree(
+        &mut self,
+        tree: NodeId,
+        prefix: Vec<&'s str>,
+        rooted: bool,
+        edition: Edition,
+        m: ModId,
+        vis: Vis,
+        item: NodeId,
+    ) {
         let mut path = prefix;
         let mut rooted = rooted;
+        let mut edition = edition;
         let mut tail = None;
         for &k in self.ast.children(tree) {
             match self.ast.kind(k) {
-                Kind::PathRoot => rooted = true,
+                Kind::PathRoot => {
+                    rooted = true;
+                    edition = edition.max(self.r.path_edition(self.krate, Some(self.ast.token(k))));
+                }
                 Kind::Path => {
                     for &s in self.ast.children(k) {
                         path.push(self.ast.token(s).ident_name());
@@ -426,7 +463,6 @@ impl<'c, 'r, 's> Collector<'c, 'r, 's> {
                 _ => {}
             }
         }
-        let edition = self.r.editions[self.krate as usize];
         let (krate, file) = (self.krate, self.file);
         let import = |r: &mut Resolver<'s>, path: Vec<&'s str>, kind: ImportKind<'s>| {
             r.imports.push(Import { module: m, krate, path, rooted, kind, vis, file, node: item, edition });
@@ -435,7 +471,7 @@ impl<'c, 'r, 's> Collector<'c, 'r, 's> {
             Some((_, Kind::UseGlob)) => import(self.r, path, ImportKind::Glob),
             Some((g, Kind::UseGroup)) => {
                 for sub in self.ast.children(g).to_vec() {
-                    self.use_tree(sub, path.clone(), rooted, m, vis, item);
+                    self.use_tree(sub, path.clone(), rooted, edition, m, vis, item);
                 }
             }
             other => {

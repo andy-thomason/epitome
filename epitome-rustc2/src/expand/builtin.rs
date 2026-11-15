@@ -4,7 +4,7 @@
 //! `format_args!` in `format.rs`), and those it leaves as calls for later
 //! stages (`asm!`, ...).
 
-use super::lex_text;
+use super::{lex_builtin_text, lex_text};
 use crate::ast::NodeId;
 use crate::cfg::string_value;
 use crate::lexer::Token;
@@ -95,7 +95,7 @@ impl<'c, 's> Context<'c, 's> {
     }
 
     pub(super) fn text(&self, name: &str, text: String) -> Result<Vec<Token<'s>>, Error<'s>> {
-        lex_text(self.session, name, text)
+        lex_builtin_text(self.session, name, text)
     }
 }
 
@@ -394,5 +394,6 @@ fn include<'s>(cx: &Context<'_, 's>, input: &[Token<'s>]) -> Result<Option<Vec<T
     let text =
         std::fs::read_to_string(&path).map_err(|e| cx.error(format!("cannot read `{}`: {e}", path.display())))?;
     cx.session.included.lock().unwrap().push(path.clone());
-    cx.text(&path.display().to_string(), text).map(Some)
+    // Source like the including file's, not code of the macro's own.
+    lex_text(cx.session, &path.display().to_string(), text).map(Some)
 }

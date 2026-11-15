@@ -25,7 +25,9 @@ pub(super) fn collect<'s>(crates: &[ParsedCrate<'s>], r: &Resolver<'s>) -> TyCtx
             if let Some(name) = crate::session::attribute_value(ast, d.node, "lang") {
                 let name = ast.children(d.node).iter().find_map(|&a| {
                     let v = *ast.children(a).last()?;
-                    (ast.kind(a) == Kind::Attribute && ast.kind(v) == Kind::Literal && crate::cfg::string_value(ast.token(v).0) == name)
+                    (ast.kind(a) == Kind::Attribute
+                        && ast.kind(v) == Kind::Literal
+                        && crate::cfg::string_value(ast.token(v).0) == name)
                         .then(|| crate::cfg::string_value(ast.token(v).0))
                 });
                 if let Some(name) = name {
@@ -34,7 +36,8 @@ pub(super) fn collect<'s>(crates: &[ParsedCrate<'s>], r: &Resolver<'s>) -> TyCtx
             }
         }
     }
-    let defs: Vec<DefId> = (0..r.defs.len() as u32).map(DefId).filter(|&d| r.defs[d.0 as usize].parent.is_some()).collect();
+    let defs: Vec<DefId> =
+        (0..r.defs.len() as u32).map(DefId).filter(|&d| r.defs[d.0 as usize].parent.is_some()).collect();
     for &d in &defs {
         generics(&mut tcx, &env, d);
     }
@@ -108,14 +111,7 @@ fn generics_parent(env: &Env, d: DefId) -> Option<DefId> {
     matches!(r.defs[p.0 as usize].kind, DefKind::Impl | DefKind::Trait | DefKind::Enum).then_some(p)
 }
 
-fn new_param<'s>(
-    tcx: &mut TyCtxt<'s>,
-    owner: DefId,
-    index: u32,
-    name: &'s str,
-    is_const: bool,
-    at: At,
-) -> ParamId {
+fn new_param<'s>(tcx: &mut TyCtxt<'s>, owner: DefId, index: u32, name: &'s str, is_const: bool, at: At) -> ParamId {
     let id = ParamId(tcx.params.len() as u32);
     tcx.params.push(ParamDef { owner, index, name, is_const, at });
     tcx.param_at.insert(at, id);
@@ -189,7 +185,17 @@ fn defaults<'s>(tcx: &TyCtxt<'s>, env: &Env<'_, 's>, d: DefId) -> Vec<Option<Ty>
     for (i, p) in own.into_iter().enumerate() {
         let at = tcx.params[p.0 as usize].at;
         let ast = env.ast(at.0, at.1);
-        let mut l = Lower { tcx, env, expanding: FastSet::default(), impl_self: None, holes: false, k: at.0, file: at.1, owner: d, failed: false };
+        let mut l = Lower {
+            tcx,
+            env,
+            expanding: FastSet::default(),
+            impl_self: None,
+            holes: false,
+            k: at.0,
+            file: at.1,
+            owner: d,
+            failed: false,
+        };
         out[i] = match ast.kind(at.2) {
             Kind::TypeParam => ast.children(at.2).iter().copied().find(|&c| is_type(ast.kind(c))).map(|t| l.ty(t)),
             // `const N: usize = 4`: the value after the type.
@@ -208,7 +214,17 @@ fn impl_header<'s>(tcx: &TyCtxt<'s>, env: &Env<'_, 's>, d: DefId) -> (ImplDef, b
     let (at, ast) = node_of(env, d);
     let kids = ast.children(at.2).to_vec();
     let self_node = kids.iter().rev().copied().find(|&c| is_type(ast.kind(c)));
-    let mut l = Lower { tcx, env, expanding: FastSet::default(), impl_self: None, holes: false, k: at.0, file: at.1, owner: d, failed: false };
+    let mut l = Lower {
+        tcx,
+        env,
+        expanding: FastSet::default(),
+        impl_self: None,
+        holes: false,
+        k: at.0,
+        file: at.1,
+        owner: d,
+        failed: false,
+    };
     let self_ty = match self_node {
         Some(t) => l.ty(t),
         None => l.tcx.error(),
@@ -353,8 +369,25 @@ fn signature<'s>(tcx: &TyCtxt<'s>, env: &Env<'_, 's>, d: DefId) -> Option<SigOut
     }
     let (at, ast) = node_of(env, d);
     let node = at.2;
-    let mut out = SigOut { preds: Vec::new(), adt: None, trait_def: None, fn_sig: None, counted: kind != DefKind::Impl, failed: false };
-    let mut l = Lower { tcx, env, expanding: FastSet::default(), impl_self: None, holes: false, k: at.0, file: at.1, owner: d, failed: false };
+    let mut out = SigOut {
+        preds: Vec::new(),
+        adt: None,
+        trait_def: None,
+        fn_sig: None,
+        counted: kind != DefKind::Impl,
+        failed: false,
+    };
+    let mut l = Lower {
+        tcx,
+        env,
+        expanding: FastSet::default(),
+        impl_self: None,
+        holes: false,
+        k: at.0,
+        file: at.1,
+        owner: d,
+        failed: false,
+    };
     predicates(&mut l, node, &mut out.preds);
     match kind {
         DefKind::Struct | DefKind::Union => {
@@ -365,7 +398,8 @@ fn signature<'s>(tcx: &TyCtxt<'s>, env: &Env<'_, 's>, d: DefId) -> Option<SigOut
             });
         }
         DefKind::Enum => {
-            let vs: Vec<NodeId> = ast.children(node).iter().copied().filter(|&v| ast.kind(v) == Kind::Variant).collect();
+            let vs: Vec<NodeId> =
+                ast.children(node).iter().copied().filter(|&v| ast.kind(v) == Kind::Variant).collect();
             let mut variants = Vec::new();
             for v in vs {
                 let (ctor, fs) = fields(&mut l, v);
@@ -467,7 +501,17 @@ pub(crate) fn alias_ty<'s>(tcx: &TyCtxt<'s>, env: &Env<'_, 's>, expanding: &mut 
     let value = ast.children(at.2).iter().copied().find(|&c| is_type(ast.kind(c)));
     let t = match value {
         Some(v) => {
-            let mut l = Lower { tcx, env, expanding: std::mem::take(expanding), impl_self: None, holes: false, k: at.0, file: at.1, owner: d, failed: false };
+            let mut l = Lower {
+                tcx,
+                env,
+                expanding: std::mem::take(expanding),
+                impl_self: None,
+                holes: false,
+                k: at.0,
+                file: at.1,
+                owner: d,
+                failed: false,
+            };
             let t = l.ty(v);
             *expanding = l.expanding;
             t

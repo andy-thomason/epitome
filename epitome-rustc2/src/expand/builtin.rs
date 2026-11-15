@@ -222,7 +222,14 @@ pub fn expand<'s>(cx: &Context<'_, 's>, name: &str, input: &[Token<'s>]) -> Resu
                 } else if input[i].0 == "," {
                     let part = &input[..i];
                     let eof = part.last().map_or(Token(""), |t| Token(&t.0[t.0.len()..]));
-                    if crate::parse::parse_fragment(part.to_vec(), eof, Default::default(), crate::parse::Fragment::Expr).is_ok() {
+                    if crate::parse::parse_fragment(
+                        part.to_vec(),
+                        eof,
+                        Default::default(),
+                        crate::parse::Fragment::Expr,
+                    )
+                    .is_ok()
+                    {
                         end = i;
                         break;
                     }

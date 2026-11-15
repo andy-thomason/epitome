@@ -268,7 +268,13 @@ impl Session {
 
     /// `typeck`, with an index of impls already made (to share with
     /// later stages).
-    pub fn typeck_with<'s>(&'s self, crates: &[ParsedCrate<'s>], r: &Resolver<'s>, tcx: &TyCtxt<'s>, index: &Index<'s>) -> TypeckResults {
+    pub fn typeck_with<'s>(
+        &'s self,
+        crates: &[ParsedCrate<'s>],
+        r: &Resolver<'s>,
+        tcx: &TyCtxt<'s>,
+        index: &Index<'s>,
+    ) -> TypeckResults {
         let bodies: Vec<Body> = (0..r.defs.len() as u32)
             .map(DefId)
             .filter(|&d| {
@@ -344,7 +350,13 @@ impl Session {
 impl TypeckResults {
     /// Each checked body's expressions and patterns with their types, in
     /// source order: `line:col text : type`.
-    pub fn dump(&self, crates: &[ParsedCrate], r: &Resolver, tcx: &TyCtxt, sources: &crate::source::SourceMap) -> String {
+    pub fn dump(
+        &self,
+        crates: &[ParsedCrate],
+        r: &Resolver,
+        tcx: &TyCtxt,
+        sources: &crate::source::SourceMap,
+    ) -> String {
         self.dump_crate(crates, r, tcx, sources, None)
     }
 
@@ -366,7 +378,12 @@ impl TypeckResults {
             }
             let (k, f) = (def.krate as usize, def.file as usize);
             let ast = &crates[k].files[f].ast;
-            let _ = writeln!(out, "{} {}", if matches!(def.kind, DefKind::Fn | DefKind::AssocFn) { "fn" } else { "const" }, r.def_path(d));
+            let _ = writeln!(
+                out,
+                "{} {}",
+                if matches!(def.kind, DefKind::Fn | DefKind::AssocFn) { "fn" } else { "const" },
+                r.def_path(d)
+            );
             let mut nodes = Vec::new();
             collect_nodes(ast, def.node, &mut nodes);
             let types = &self.types[k][f];
@@ -407,7 +424,15 @@ impl TypeckResults {
 pub(crate) fn collect_nodes(ast: &crate::ast::Ast, n: NodeId, out: &mut Vec<NodeId>) {
     for &c in ast.children(n) {
         let k = ast.kind(c);
-        if matches!(k, crate::ast::Kind::Fn | crate::ast::Kind::Impl | crate::ast::Kind::Mod | crate::ast::Kind::Struct | crate::ast::Kind::Enum | crate::ast::Kind::Trait) {
+        if matches!(
+            k,
+            crate::ast::Kind::Fn
+                | crate::ast::Kind::Impl
+                | crate::ast::Kind::Mod
+                | crate::ast::Kind::Struct
+                | crate::ast::Kind::Enum
+                | crate::ast::Kind::Trait
+        ) {
             continue;
         }
         out.push(c);
@@ -420,9 +445,11 @@ impl TyCtxt<'_> {
     pub fn has_infer(&self, t: Ty) -> bool {
         match self.kind(t) {
             TyKind::Infer(_) => true,
-            TyKind::Tuple(l) | TyKind::Adt(_, l) | TyKind::FnDef(_, l) | TyKind::Projection(_, l) | TyKind::Opaque(_, l) => {
-                self.tys(l).into_iter().any(|x| self.has_infer(x))
-            }
+            TyKind::Tuple(l)
+            | TyKind::Adt(_, l)
+            | TyKind::FnDef(_, l)
+            | TyKind::Projection(_, l)
+            | TyKind::Opaque(_, l) => self.tys(l).into_iter().any(|x| self.has_infer(x)),
             TyKind::Ref(_, x) | TyKind::Ptr(_, x) | TyKind::Slice(x) | TyKind::Pat(x, ..) => self.has_infer(x),
             TyKind::Array(x, c) => self.has_infer(x) || matches!(self.const_of(c), crate::ty::Const::Infer(_)),
             TyKind::ConstArg(c) => matches!(self.const_of(c), crate::ty::Const::Infer(_)),
@@ -517,8 +544,7 @@ mod tests {
         }
         let s = plain(&full);
         // Only this crate's bodies, which should have no error types.
-        let ours: Vec<&str> =
-            s.lines().skip_while(|l| !l.starts_with("fn traits::")).collect();
+        let ours: Vec<&str> = s.lines().skip_while(|l| !l.starts_with("fn traits::")).collect();
         assert!(!ours.is_empty(), "no bodies of `traits`");
         for l in &ours {
             assert!(!l.contains("{error}"), "error type in `traits`:\n{}", ours.join("\n"));

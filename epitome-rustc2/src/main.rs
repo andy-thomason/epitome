@@ -207,7 +207,17 @@ fn main() -> ExitCode {
             }
         }
     }
-    if dump_sigs || types_stats || dump_types || typeck_stats || dump_layout || dump_mono || mono_stats || dump_ir || lower_stats || output.is_some() {
+    if dump_sigs
+        || types_stats
+        || dump_types
+        || typeck_stats
+        || dump_layout
+        || dump_mono
+        || mono_stats
+        || dump_ir
+        || lower_stats
+        || output.is_some()
+    {
         let r = session.resolve(&crates);
         let t = std::time::Instant::now();
         let tcx = session.collect_types(&crates, &r);
@@ -283,7 +293,8 @@ fn main() -> ExitCode {
                 }
                 if let Some(out) = &output {
                     let last = crates.len() as u32 - 1;
-                    let own: Vec<_> = lowered.failures.iter().filter(|f| item_crate(&r, f.item) == Some(last)).collect();
+                    let own: Vec<_> =
+                        lowered.failures.iter().filter(|f| item_crate(&r, f.item) == Some(last)).collect();
                     if !own.is_empty() {
                         for f in own {
                             eprintln!("error: could not lower {}: {}", f.name, f.why);
@@ -391,8 +402,13 @@ fn main() -> ExitCode {
 fn item_crate(r: &epitome_rustc2::resolve::Resolver, it: epitome_rustc2::mono::Item) -> Option<u32> {
     use epitome_rustc2::mono::Item;
     let d = match it {
-        Item::Fn(d, _) | Item::Closure(_, d, _) | Item::Static(d) | Item::Foreign(d) | Item::Intrinsic(d, _) | Item::Const(d, _) => d,
-        Item::VTable(..) => return None,
+        Item::Fn(d, _)
+        | Item::Closure(_, d, _)
+        | Item::Static(d)
+        | Item::Foreign(d)
+        | Item::Intrinsic(d, _)
+        | Item::Const(d, _) => d,
+        Item::VTable(..) | Item::DropGlue(_) => return None,
     };
     Some(r.defs[d.0 as usize].krate)
 }
@@ -400,7 +416,13 @@ fn item_crate(r: &epitome_rustc2::resolve::Resolver, it: epitome_rustc2::mono::I
 /// Optimises `m` (unless `!optimise`), compiles it for `target` and
 /// writes the object file, then links it with `cc` into `out` (unless
 /// `emit_obj`, when the object file is `out`).
-fn build(m: &mut epitome_ir::Module, target: epitome_rustc2::lower::Target, out: &Path, optimise: bool, emit_obj: bool) -> Result<(), String> {
+fn build(
+    m: &mut epitome_ir::Module,
+    target: epitome_rustc2::lower::Target,
+    out: &Path,
+    optimise: bool,
+    emit_obj: bool,
+) -> Result<(), String> {
     if optimise {
         epitome_opt::pipeline::run(m, &epitome_opt::pipeline::Options::default());
     }

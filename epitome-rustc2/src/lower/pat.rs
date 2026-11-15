@@ -135,7 +135,9 @@ impl Fx<'_, '_, '_, '_> {
     /// The tag of the enum at `p`, as an integer, with its scalar's size.
     fn tag(&mut self, p: Place) -> R<(Value, u64)> {
         let l = self.layout(p.ty)?;
-        let Variants::Multiple { tag, tag_offset, .. } = &l.variants else { return Err("tag of a single variant".into()) };
+        let Variants::Multiple { tag, tag_offset, .. } = &l.variants else {
+            return Err("tag of a single variant".into());
+        };
         let size = tag.size(self.cx.lcx.target.ptr_size);
         let it = self.b.module().types.int(size as u32 * 8);
         let a = self.offset(p.addr, *tag_offset);
@@ -243,6 +245,26 @@ impl Fx<'_, '_, '_, '_> {
     /// Matches pattern `pat` against the value at `p`: jumps to `fail` if
     /// it does not match (none if it cannot fail), and binds as it goes.
     pub fn pat_match(&mut self, pat: NodeId, p: Place, fail: Option<BlockId>) -> R<()> {
+        // The part of a root `p` is (`drops.pat_path`), as it was outside.
+        let outer = self.drops.pat_path.clone();
+        let r = self.pat_match_in(pat, p, fail);
+        self.drops.pat_path = outer;
+        r
+    }
+
+    /// Matches a field's pattern: field `i` of variant `v` of what is
+    /// being matched.
+    fn field_pat(&mut self, sub: NodeId, fp: Place, v: u32, i: usize, fail: Option<BlockId>) -> R<()> {
+        let outer = self.drops.pat_path.clone();
+        if let Some(mp) = &mut self.drops.pat_path {
+            mp.path.push((v, i));
+        }
+        let r = self.pat_match(sub, fp, fail);
+        self.drops.pat_path = outer;
+        r
+    }
+
+    fn pat_match_in(&mut self, pat: NodeId, p: Place, fail: Option<BlockId>) -> R<()> {
         let ast = self.body.ast;
         let tcx = self.cx.tcx;
         // Through the references default binding modes passed.
@@ -251,6 +273,8 @@ impl Fx<'_, '_, '_, '_> {
         for _ in 0..derefs {
             let o = self.load(p)?;
             p = self.deref(o)?;
+            // Behind a reference: nothing moves out of it.
+            self.drops.pat_path = None;
         }
         let kids = self.kids(pat);
         match ast.kind(pat) {
@@ -279,11 +303,20 @@ impl Fx<'_, '_, '_, '_> {
                     BindingMode::Value => self.load(p)?,
                     BindingMode::Ref(_) => self.addr_of(p, bt)?,
                 };
+                if mode == BindingMode::Value && self.needs_drop(bt) {
+                    // A move out of what is matched, once it has matched.
+                    if self.drops.in_slice > 0 {
+                        return Err("moving out of an array by a pattern is not supported yet".into());
+                    }
+                    let path = self.drops.pat_path.clone();
+                    self.drops.pending.push((path, key));
+                }
                 self.store(Operand { ty: bt, v: o.v }, slot)
             }
             Kind::RefPat => {
                 let o = self.load(p)?;
                 let inner = self.deref(o)?;
+                self.drops.pat_path = None;
                 self.pat_match(*kids.last().unwrap(), inner, fail)
             }
             // `deref!(p)`: through a reference or pointer, or `Deref::deref`.
@@ -303,6 +336,7 @@ impl Fx<'_, '_, '_, '_> {
                         self.deref(o)?
                     }
                 };
+                self.drops.pat_path = None;
                 self.pat_match(kids[1], inner, fail)
             }
             Kind::TuplePat => {
@@ -319,7 +353,9 @@ impl Fx<'_, '_, '_, '_> {
             }
             Kind::StructPat => {
                 let v = self.pat_variant(kids[0], p, fail)?;
-                let TyKind::Adt(d, _) = tcx.kind(p.ty) else { return Err("struct pattern on something not a struct".into()) };
+                let TyKind::Adt(d, _) = tcx.kind(p.ty) else {
+                    return Err("struct pattern on something not a struct".into());
+                };
                 let names: Vec<&str> = tcx.adts[&d].variants[v as usize].fields.iter().map(|f| f.name).collect();
                 for &f in &kids[1..] {
                     if ast.kind(f) != Kind::FieldPat {
@@ -334,7 +370,7 @@ impl Fx<'_, '_, '_, '_> {
                     };
                     let i = names.iter().position(|&x| x == name).ok_or_else(|| format!("no field `{name}`"))?;
                     let fp = self.field(p, v, i)?;
-                    self.pat_match(sub, fp, fail)?;
+                    self.field_pat(sub, fp, v, i, fail)?;
                 }
                 Ok(())
             }
@@ -392,6 +428,7 @@ impl Fx<'_, '_, '_, '_> {
                     }
                 }
                 let matched = self.new_block("or.matched");
+                let pending = self.drops.pending.len();
                 for (i, &alt) in kids.iter().enumerate() {
                     let last = i + 1 == kids.len();
                     let next = if last { fail } else { Some(self.new_block("or.next")) };
@@ -406,9 +443,17 @@ impl Fx<'_, '_, '_, '_> {
                     };
                 }
                 self.b.at(matched);
+                if self.drops.pending.len() > pending {
+                    return Err("an or-pattern that moves what it binds is not supported yet".into());
+                }
                 Ok(())
             }
-            Kind::SlicePat => self.slice_pat(&kids, p, fail),
+            Kind::SlicePat => {
+                self.drops.in_slice += 1;
+                let r = self.slice_pat(&kids, p, fail);
+                self.drops.in_slice -= 1;
+                r
+            }
             Kind::NeverPat => Ok(()),
             k => Err(format!("pattern {k:?} is not supported yet")),
         }
@@ -434,7 +479,9 @@ impl Fx<'_, '_, '_, '_> {
     fn variant_fields(&self, p: Place, v: u32) -> R<usize> {
         let tcx = self.cx.tcx;
         match tcx.kind(p.ty) {
-            TyKind::Adt(d, _) => Ok(tcx.adts.get(&d).and_then(|a| a.variants.get(v as usize)).map_or(0, |x| x.fields.len())),
+            TyKind::Adt(d, _) => {
+                Ok(tcx.adts.get(&d).and_then(|a| a.variants.get(v as usize)).map_or(0, |x| x.fields.len()))
+            }
             _ => Err("constructor pattern on something not a struct or enum".into()),
         }
     }
@@ -442,7 +489,9 @@ impl Fx<'_, '_, '_, '_> {
     /// Tests the variant a constructor pattern's path names; gives it.
     fn pat_variant(&mut self, path: NodeId, p: Place, fail: Option<BlockId>) -> R<u32> {
         let tcx = self.cx.tcx;
-        let TyKind::Adt(d, _) = tcx.kind(p.ty) else { return Err("constructor pattern on something not an ADT".into()) };
+        let TyKind::Adt(d, _) = tcx.kind(p.ty) else {
+            return Err("constructor pattern on something not an ADT".into());
+        };
         let v = self.variant_of_path(path, d).ok_or("variant not found")?;
         if tcx.adts[&d].kind == AdtKind::Enum && fail.is_some() {
             let ok = self.test_variant(p, v)?;
@@ -465,7 +514,7 @@ impl Fx<'_, '_, '_, '_> {
                 _ => i,
             };
             let fp = self.field(p, v, fi)?;
-            self.pat_match(sp, fp, fail)?;
+            self.field_pat(sp, fp, v, fi, fail)?;
         }
         Ok(())
     }
@@ -565,7 +614,8 @@ impl Fx<'_, '_, '_, '_> {
         let ast = self.body.ast;
         let tcx = self.cx.tcx;
         let is_rest = |c: NodeId| {
-            ast.kind(c) == Kind::RestPat || ast.kind(c) == Kind::IdentPat && ast.children(c).iter().any(|&x| ast.kind(x) == Kind::RestPat)
+            ast.kind(c) == Kind::RestPat
+                || ast.kind(c) == Kind::IdentPat && ast.children(c).iter().any(|&x| ast.kind(x) == Kind::RestPat)
         };
         let rest = kids.iter().position(|&c| is_rest(c));
         let (elem, len) = match tcx.kind(p.ty) {
@@ -579,7 +629,11 @@ impl Fx<'_, '_, '_, '_> {
         let fixed = kids.len() - rest.is_some() as usize;
         let need = self.usize_const(fixed as u64);
         if matches!(tcx.kind(p.ty), TyKind::Slice(_)) && fail.is_some() {
-            let ok = if rest.is_some() { self.b.icmp(ICmpPred::Uge, len, need) } else { self.b.icmp(ICmpPred::Eq, len, need) };
+            let ok = if rest.is_some() {
+                self.b.icmp(ICmpPred::Uge, len, need)
+            } else {
+                self.b.icmp(ICmpPred::Eq, len, need)
+            };
             self.test(ok, fail)?;
         }
         let stride = self.layout(elem)?.size;

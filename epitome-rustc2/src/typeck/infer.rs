@@ -221,11 +221,16 @@ impl<'t, 's> Infer<'t, 's> {
             }
             (TyKind::Closure(c, s, x), TyKind::Closure(d, t, y)) => {
                 let (s, t) = (tcx.sig_of(s), tcx.sig_of(t));
-                c == d && self.unify_lists(s.inputs, t.inputs) && self.unify(s.output, t.output) && self.unify_lists(x, y)
+                c == d
+                    && self.unify_lists(s.inputs, t.inputs)
+                    && self.unify(s.output, t.output)
+                    && self.unify_lists(x, y)
             }
             (TyKind::Opaque(o, x), TyKind::Opaque(p, y)) => o == p && self.unify_lists(x, y),
             (TyKind::Projection(d, x), TyKind::Projection(e, y)) => d == e && self.unify_lists(x, y),
-            (TyKind::Ref(m, x), TyKind::Ref(n, y)) | (TyKind::Ptr(m, x), TyKind::Ptr(n, y)) => m == n && self.unify(x, y),
+            (TyKind::Ref(m, x), TyKind::Ref(n, y)) | (TyKind::Ptr(m, x), TyKind::Ptr(n, y)) => {
+                m == n && self.unify(x, y)
+            }
             (TyKind::Slice(x), TyKind::Slice(y)) => self.unify(x, y),
             (TyKind::Pat(x, a, b), TyKind::Pat(y, c, d)) => a == c && b == d && self.unify(x, y),
             (TyKind::Array(x, c), TyKind::Array(y, d)) => self.unify_consts(c, d) && self.unify(x, y),

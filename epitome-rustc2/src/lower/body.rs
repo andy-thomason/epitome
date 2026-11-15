@@ -11,7 +11,9 @@ use crate::resolve::{DefId, DefKind, Res};
 use crate::ty::{AdtKind, FloatTy, IntTy, List, Mutbl, ParamId, Ty, TyKind, UintTy};
 use crate::typeck::{Adjust, Solver, Tables};
 use epitome_ir::build::FunctionBuilder;
-use epitome_ir::module::{Align, BinOp, BlockId, CastOp, FCmpPred, Function as IrFunction, GlobalId, ICmpPred, Linkage, Module, Op, Value};
+use epitome_ir::module::{
+    Align, BinOp, BlockId, CastOp, FCmpPred, Function as IrFunction, GlobalId, ICmpPred, Linkage, Module, Op, Value,
+};
 use epitome_ir::types::TypeId;
 use std::sync::Arc;
 
@@ -79,6 +81,9 @@ struct Breakable<'s> {
     cont: Option<BlockId>,
     /// Where `break value` puts the value.
     result: Option<Place>,
+    /// How many drop scopes were open outside it: leaving it drops the
+    /// ones inside.
+    depth: usize,
 }
 
 pub(crate) struct Fx<'c, 'a, 's, 'm> {
@@ -105,8 +110,11 @@ pub(crate) struct Fx<'c, 'a, 's, 'm> {
     blocks: usize,
     /// What the function traps on where it is reached (see `trap_here`).
     pub traps: Vec<String>,
-    /// The `try` blocks around: where each ends, and its value's slot.
-    tries: Vec<(BlockId, Place)>,
+    /// The `try` blocks around: where each ends, its value's slot, and
+    /// how many drop scopes were open outside it.
+    tries: Vec<(BlockId, Place, usize)>,
+    /// What the body owns, and the scopes that drop it (see `drop.rs`).
+    pub drops: super::drop::Drops,
 }
 
 /// Source comments for `--dump-ir`: block, position in the block, text.
@@ -171,11 +179,16 @@ pub(crate) fn lower_fn(cx: &Cx, m: &mut Module, it: Item, decl: &Decl) -> R<(Not
     let pnodes: Vec<NodeId> = match closure {
         Some(_) => {
             let ps = ast.child(node, Kind::ClosureParams);
-            ps.map(|ps| ast.children(ps).iter().copied().filter(|&c| ast.kind(c) == Kind::ClosureParam).collect()).unwrap_or_default()
+            ps.map(|ps| ast.children(ps).iter().copied().filter(|&c| ast.kind(c) == Kind::ClosureParam).collect())
+                .unwrap_or_default()
         }
         None => {
             let pnode = ast.child(node, Kind::Params).ok_or("no parameters")?;
-            ast.children(pnode).iter().copied().filter(|&c| matches!(ast.kind(c), Kind::SelfParam | Kind::Param)).collect()
+            ast.children(pnode)
+                .iter()
+                .copied()
+                .filter(|&c| matches!(ast.kind(c), Kind::SelfParam | Kind::Param))
+                .collect()
         }
     };
     let skip = closure.is_some() as usize;
@@ -200,6 +213,9 @@ pub(crate) fn lower_fn(cx: &Cx, m: &mut Module, it: Item, decl: &Decl) -> R<(Not
     for (i, &p) in pnodes.iter().enumerate() {
         let t = decl.abi.inputs[i + skip];
         let slot = fx.temp(t)?;
+        // Each parameter is owned by the function, and dropped after its
+        // body's locals.
+        let root = if fx.needs_drop(t) { Some(fx.owned(slot, 0)?) } else { None };
         match decl.abi.args[i + skip] {
             Repr::Imm(_) => {
                 let v = fx.b.param(ir_param);
@@ -216,23 +232,37 @@ pub(crate) fn lower_fn(cx: &Cx, m: &mut Module, it: Item, decl: &Decl) -> R<(Not
         match ast.kind(p) {
             Kind::SelfParam => {
                 fx.locals.insert((k, f, p), slot);
+                if let Some(r) = root {
+                    fx.drops.locals.insert((k, f, p), r);
+                }
             }
             _ => {
-                let pat = ast.children(p).iter().copied().find(|&c| super::pat::is_pattern(ast.kind(c))).ok_or("parameter without a pattern")?;
+                let pat = ast
+                    .children(p)
+                    .iter()
+                    .copied()
+                    .find(|&c| super::pat::is_pattern(ast.kind(c)))
+                    .ok_or("parameter without a pattern")?;
+                fx.drops.pat_path = root.map(|r| super::drop::MovePath { root: r, path: Vec::new() });
                 fx.bind_irrefutable(pat, slot)?;
+                fx.drops.pat_path = None;
+                if let Some(r) = root
+                    && fx.locals.get(&(k, f, pat)).is_some_and(|s| s.addr == slot.addr)
+                {
+                    // The binding is the parameter's own slot.
+                    fx.drops.locals.insert((k, f, pat), r);
+                    fx.drops.pending.clear();
+                }
+                fx.commit_bindings(0)?;
             }
         }
     }
     let v = fx.expr(body_node)?;
     fx.ret_value(v)?;
-    // Every block needs a terminator: those left open are unreachable.
-    fx.close_open_blocks();
-    let entry = fx.entry;
-    fx.b.at(entry);
-    fx.b.br(first);
     let notes = std::mem::take(&mut fx.notes);
     let traps = std::mem::take(&mut fx.traps);
-    fx.b.finish()?;
+    // Every block needs a terminator: those left open are unreachable.
+    fx.finish(first)?;
     Ok((notes, traps))
 }
 
@@ -293,7 +323,13 @@ pub(crate) fn define_static(cx: &Cx, m: &mut Module, d: DefId, name: &str) -> R<
 pub(crate) fn lower_static_init(cx: &Cx, m: &mut Module, d: DefId, g: GlobalId, name: &str) -> R<GlobalId> {
     let (k, f, ast, node) = cx.def_ast(d);
     let t = cx.tcx.type_of(d).ok_or("static without a type")?;
-    let init = ast.children(node).iter().rev().copied().find(|&x| super::pat::is_expr(ast.kind(x))).ok_or("static without a value")?;
+    let init = ast
+        .children(node)
+        .iter()
+        .rev()
+        .copied()
+        .find(|&x| super::pat::is_expr(ast.kind(x)))
+        .ok_or("static without a value")?;
     let b = IrFunction::builder(name).linkage(Linkage::Internal).begin(m);
     let body = Body {
         k,
@@ -343,11 +379,50 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             blocks: 0,
             traps: Vec::new(),
             tries: Vec::new(),
+            drops: Default::default(),
         };
         fx.entry = fx.b.block("start");
         let first = fx.b.new_block("body");
         fx.b.at(first);
+        // The function's scope: its parameters.
+        fx.push_scope(true);
         fx
+    }
+
+    /// A body for a function with no source (drop glue).
+    pub fn for_glue(cx: &'c Cx<'a, 's>, b: FunctionBuilder<'m>, name: &str) -> Self {
+        let body = Body {
+            k: 0,
+            f: 0,
+            ast: &cx.crates[0].files[0].ast,
+            types: &cx.typeck.types[0][0],
+            tables: &cx.typeck.tables[0][0],
+            params: Vec::new(),
+            args: Vec::new(),
+        };
+        Fx::new(cx, b, body, cx.tcx.mk(TyKind::Tuple(cx.tcx.list(Vec::new()))), name)
+    }
+
+    /// The block stack slots go in.
+    pub fn entry(&self) -> BlockId {
+        self.entry
+    }
+
+    /// Whether `key` is a local this closure captured.
+    pub fn is_upvar(&self, key: (u32, u32, NodeId)) -> bool {
+        self.upvars.contains_key(&key)
+    }
+
+    /// Finishes the function: the drops left for the end, an end to every
+    /// block, and the entry block (its stack slots) going on to `first`.
+    pub fn finish(mut self, first: BlockId) -> R<()> {
+        self.finish_drops()?;
+        self.close_open_blocks();
+        let entry = self.entry;
+        self.b.at(entry);
+        self.b.br(first);
+        self.b.finish()?;
+        Ok(())
     }
 
     // ---- types and layouts ----
@@ -363,7 +438,13 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
 
     /// The type of node `n`, at this instance.
     pub fn ty(&mut self, n: NodeId) -> R<Ty> {
-        let t = self.body.types.get(n.0 as usize).copied().flatten().ok_or_else(|| format!("no type for `{}`", self.text(n)))?;
+        let t = self
+            .body
+            .types
+            .get(n.0 as usize)
+            .copied()
+            .flatten()
+            .ok_or_else(|| format!("no type for `{}`", self.text(n)))?;
         let t = self.sub(t);
         if crate::mono::has_param_or_infer(self.cx.tcx, t) || self.cx.tcx.has_error(t) {
             return Err(format!("type not concrete: `{}`: {}", self.text(n), self.cx.tcx.display(self.cx.r, t)));
@@ -390,7 +471,13 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
     }
 
     pub fn kids(&self, n: NodeId) -> Vec<NodeId> {
-        self.body.ast.children(n).iter().copied().filter(|&c| !matches!(self.body.ast.kind(c), Kind::Attribute | Kind::DocComment)).collect()
+        self.body
+            .ast
+            .children(n)
+            .iter()
+            .copied()
+            .filter(|&c| !matches!(self.body.ast.kind(c), Kind::Attribute | Kind::DocComment))
+            .collect()
     }
 
     pub fn res(&self, n: NodeId) -> Option<&'a Res> {
@@ -487,7 +574,16 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         let ptr = self.ptr_t();
         let addr = self
             .b
-            .push(Op::Alloca { inalloca: false, ty: arr, count: None, align: Align::new(l.align.max(1)), addrspace: None }, Some(ptr))
+            .push(
+                Op::Alloca {
+                    inalloca: false,
+                    ty: arr,
+                    count: None,
+                    align: Align::new(l.align.max(1)),
+                    addrspace: None,
+                },
+                Some(ptr),
+            )
             .unwrap();
         if let Some(h) = here {
             self.b.at(h);
@@ -712,7 +808,8 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
 
     /// `*o`: the place a pointer points at.
     pub fn deref(&mut self, o: Operand) -> R<Place> {
-        let target = self.pointee(o.ty).ok_or_else(|| format!("dereference of {}", self.cx.tcx.display(self.cx.r, o.ty)))?;
+        let target =
+            self.pointee(o.ty).ok_or_else(|| format!("dereference of {}", self.cx.tcx.display(self.cx.r, o.ty)))?;
         if self.cx.tcx.kind(o.ty) != TyKind::Ref(Mutbl::Not, target)
             && self.cx.tcx.kind(o.ty) != TyKind::Ref(Mutbl::Mut, target)
             && !matches!(self.cx.tcx.kind(o.ty), TyKind::Ptr(..))
@@ -727,7 +824,11 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             let ps = self.cx.lcx.target.ptr_size;
             let addr = self.load_imm(ptr, a, ps);
             let ma = self.offset(a, ps);
-            let meta = if matches!(self.cx.tcx.kind(target), TyKind::Dyn(_)) { self.load_imm(ptr, ma, ps) } else { self.load_imm(isz, ma, ps) };
+            let meta = if matches!(self.cx.tcx.kind(target), TyKind::Dyn(_)) {
+                self.load_imm(ptr, ma, ps)
+            } else {
+                self.load_imm(isz, ma, ps)
+            };
             return Ok(Place { addr, meta: Some(meta), ty: target });
         }
         let addr = self.imm(o)?;
@@ -782,7 +883,9 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         let l = self.layout(p.ty)?;
         let ft = self.field_ty(p.ty, v, i)?;
         let off = match &l.variants {
-            crate::layout::Variants::Multiple { variants, .. } => variants.get(v as usize).map(|x| x.offset(i)).unwrap_or(0),
+            crate::layout::Variants::Multiple { variants, .. } => {
+                variants.get(v as usize).map(|x| x.offset(i)).unwrap_or(0)
+            }
             _ => l.offset(i),
         };
         let addr = self.offset(p.addr, off);
@@ -821,14 +924,20 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         }
     }
 
+    /// The value of `n`, moved out of its place if it is a place
+    /// expression of a type that needs dropping.
     pub fn operand(&mut self, n: NodeId) -> R<Operand> {
         let pv = self.expr(n)?;
+        if let Pv::Place(p) = pv {
+            self.move_out(n, p)?;
+        }
         self.operand_of(pv)
     }
 
+    /// The place of `n`: a value expression's value in a temporary.
     pub fn place(&mut self, n: NodeId) -> R<Place> {
         let pv = self.expr(n)?;
-        self.place_of(pv)
+        self.temporary(n, pv)
     }
 
     fn pv_ty(pv: &Pv) -> Ty {
@@ -849,10 +958,11 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 Adjust::OverloadedDeref => {
                     let cur = Self::pv_ty(&pv);
                     let mutable = matches!(adj.get(i + 1), Some(Adjust::Borrow(Mutbl::Mut)));
-                    let (lang, name, m) = if mutable { ("deref_mut", "deref_mut", Mutbl::Mut) } else { ("deref", "deref", Mutbl::Not) };
+                    let (lang, name, m) =
+                        if mutable { ("deref_mut", "deref_mut", Mutbl::Mut) } else { ("deref", "deref", Mutbl::Not) };
                     let tr = *tcx.lang.get(lang).ok_or("no `Deref`")?;
                     let method = self.trait_method(tr, name).ok_or("no `deref` method")?;
-                    let p = self.place_of(pv)?;
+                    let p = if i == 0 { self.temporary(n, pv)? } else { self.place_of(pv)? };
                     let rt = tcx.mk(TyKind::Ref(m, cur));
                     let recv = self.addr_of(p, rt)?;
                     let r = self.call_def(method, vec![cur], vec![recv], None)?;
@@ -860,7 +970,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                     pv = Pv::Place(self.deref(o)?);
                 }
                 Adjust::Borrow(m) => {
-                    let p = self.place_of(pv)?;
+                    let p = if i == 0 { self.temporary(n, pv)? } else { self.place_of(pv)? };
                     let rt = tcx.mk(TyKind::Ref(*m, p.ty));
                     pv = Pv::Val(self.addr_of(p, rt)?);
                 }
@@ -881,7 +991,9 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 }
                 Adjust::ReifyFnPointer => {
                     let o = self.operand_of(pv)?;
-                    let TyKind::FnDef(d, l) = tcx.kind(o.ty) else { return Err("reify of something not a function".into()) };
+                    let TyKind::FnDef(d, l) = tcx.kind(o.ty) else {
+                        return Err("reify of something not a function".into());
+                    };
                     let to = match self.body.tables.adjusted.get(&n) {
                         Some(&t) => self.sub(t),
                         None => return Err("function pointer without a type".into()),
@@ -898,7 +1010,9 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
     /// `o` (a pointer to a sized type) made a pointer to the unsized `to`.
     fn unsize(&mut self, o: Operand, to: Ty) -> R<Operand> {
         let tcx = self.cx.tcx;
-        let (Some(src), Some(dst)) = (self.pointee(o.ty), self.pointee(to)) else { return Err("unsizing of something not a pointer".into()) };
+        let (Some(src), Some(dst)) = (self.pointee(o.ty), self.pointee(to)) else {
+            return Err("unsizing of something not a pointer".into());
+        };
         if let TyKind::Dyn(dd) = tcx.kind(dst) {
             let want = tcx.dyn_of(dd).traits.first().cloned();
             if let TyKind::Dyn(sd) = tcx.kind(src) {
@@ -916,15 +1030,17 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             let addr = self.imm(o)?;
             return self.fat(to, addr, vt);
         }
-        let n = self.unsized_len(src, dst).ok_or_else(|| format!("unsizing {} to {}", tcx.display(self.cx.r, o.ty), tcx.display(self.cx.r, to)))?;
+        let n = self
+            .unsized_len(src, dst)
+            .ok_or_else(|| format!("unsizing {} to {}", tcx.display(self.cx.r, o.ty), tcx.display(self.cx.r, to)))?;
         let addr = self.imm(o)?;
         let len = self.usize_const(n);
         self.fat(to, addr, len)
     }
 
     /// The address of the vtable of `t` for trait `tr` at `args` (after
-    /// `Self`), made the first time it is needed: its drop function (null:
-    /// drops are not done yet), size and alignment, then the address of
+    /// `Self`), made the first time it is needed: its drop glue (null if it
+    /// has none), size and alignment, then the address of
     /// each method `vtable_methods` lists for `tr` (null for one with no
     /// function).
     pub fn vtable(&mut self, t: Ty, tr: DefId, args: List) -> R<Value> {
@@ -942,7 +1058,8 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             return Ok(self.b.module().global_value(g));
         }
         let l = self.layout(t)?;
-        let entries = crate::mono::vtable_entries(cx.r, tcx, &cx.typeck.hidden, &mut self.solver, t, tr, &tcx.tys(args));
+        let entries =
+            crate::mono::vtable_entries(cx.r, tcx, &cx.typeck.hidden, &mut self.solver, t, tr, &tcx.tys(args));
         let mut fns = Vec::new();
         for (method, a) in entries {
             let g = match crate::mono::instance(cx.r, cx.crates, tcx, &mut self.solver, method, a) {
@@ -970,7 +1087,11 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             let c = Constant::int(&m.types, isz, v as i64);
             m.consts.intern(c)
         };
-        let mut fields = vec![null, word(m, l.size), word(m, l.align)];
+        let drop = match cx.fns.get(&Item::DropGlue(t)).map(|d| m.global_value(d.g)) {
+            Some(Value::Const(c)) => c,
+            _ => null,
+        };
+        let mut fields = vec![drop, word(m, l.size), word(m, l.align)];
         for g in fns {
             fields.push(match g.map(|g| m.global_value(g)) {
                 Some(Value::Const(c)) => c,
@@ -981,7 +1102,12 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         tys.resize(fields.len(), ptr);
         let ty = m.types.struct_of(&tys);
         let init = Value::Const(m.consts.intern(Constant { ty, kind: ConstKind::Struct(fields) }));
-        let g = epitome_ir::module::Global::builder(&name).init(init).constant().linkage(Linkage::Private).align(ps).build(m);
+        let g = epitome_ir::module::Global::builder(&name)
+            .init(init)
+            .constant()
+            .linkage(Linkage::Private)
+            .align(ps)
+            .build(m);
         Ok(m.global_value(g))
     }
 
@@ -1014,7 +1140,8 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         args[0] = Operand { ty: thin, v: Val::Imm(p.addr) };
         // `Fn::call` and `FnMut::call_mut` (a closure's function, in the
         // vtable): the arguments one by one, not as a tuple.
-        let fn_trait = crate::mono::trait_of(r, d).is_some_and(|tr| ["fn", "fn_mut", "fn_once"].iter().any(|l| tcx.lang.get(l) == Some(&tr)));
+        let fn_trait = crate::mono::trait_of(r, d)
+            .is_some_and(|tr| ["fn", "fn_mut", "fn_once"].iter().any(|l| tcx.lang.get(l) == Some(&tr)));
         if fn_trait && args.len() == 2 {
             let tuple = self.place_of(Pv::Val(args[1]))?;
             let TyKind::Tuple(l) = tcx.kind(tuple.ty) else { return Err("`Fn` arguments not a tuple".into()) };
@@ -1192,14 +1319,16 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 let exit = self.new_block("loop.end");
                 self.goto(head);
                 self.b.at(head);
-                self.loops.push(Breakable { label, block: false, exit, cont: Some(head), result });
+                let depth = self.drops.scopes.len();
+                self.loops.push(Breakable { label, block: false, exit, cont: Some(head), result, depth });
                 let body = *kids.last().unwrap();
-                self.expr(body)?;
+                let v = self.expr(body)?;
+                self.discard(v)?;
                 self.loops.pop();
                 self.goto(head);
                 self.b.at(exit);
                 match result {
-                    Some(p) => Ok(Pv::Place(p)),
+                    Some(p) => Ok(Pv::Val(self.load(p)?)),
                     None => Ok(Pv::Val(Operand { ty: t, v: Val::Zst })),
                 }
             }
@@ -1208,14 +1337,25 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 let rest: Vec<NodeId> = kids.iter().copied().filter(|&c| ast.kind(c) != Kind::Lifetime).collect();
                 let head = self.new_block("while");
                 let exit = self.new_block("while.end");
+                let fail = self.new_block("while.fail");
                 self.goto(head);
                 self.b.at(head);
                 self.note(rest[0]);
-                self.cond(rest[0], exit)?;
-                self.loops.push(Breakable { label, block: false, exit, cont: Some(head), result: None });
-                self.expr(rest[1])?;
+                // The condition's scope: its temporaries and what a
+                // `while let` binds, for one iteration.
+                let depth = self.drops.scopes.len();
+                self.push_scope(false);
+                self.cond(rest[0], fail)?;
+                self.loops.push(Breakable { label, block: false, exit, cont: Some(head), result: None, depth });
+                let v = self.expr(rest[1])?;
+                self.discard(v)?;
                 self.loops.pop();
+                self.drop_scope(depth)?;
                 self.goto(head);
+                self.b.at(fail);
+                self.drop_scope(depth)?;
+                self.forget_scope();
+                self.goto(exit);
                 self.b.at(exit);
                 Ok(Pv::Val(self.unit()))
             }
@@ -1235,6 +1375,8 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                     }
                 }
                 let exit = self.loops[target].exit;
+                let depth = self.loops[target].depth;
+                self.drop_scopes_to(depth)?;
                 self.goto(exit);
                 self.dead();
                 Ok(Pv::Val(Operand { ty: tcx.mk(TyKind::Never), v: Val::Zst }))
@@ -1247,13 +1389,15 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 }
                 .ok_or("`continue` outside a loop")?;
                 let cont = self.loops[target].cont.ok_or("`continue` to a block")?;
+                let depth = self.loops[target].depth;
+                self.drop_scopes_to(depth)?;
                 self.goto(cont);
                 self.dead();
                 Ok(Pv::Val(Operand { ty: tcx.mk(TyKind::Never), v: Val::Zst }))
             }
             Kind::Return => {
                 let v = match kids.first() {
-                    Some(&e) => self.expr(e)?,
+                    Some(&e) => Pv::Val(self.operand(e)?),
                     None => Pv::Val(self.unit()),
                 };
                 self.ret_value(v)?;
@@ -1262,10 +1406,15 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             }
             Kind::Try => self.try_expr(n, &kids),
             Kind::MacroCall => {
-                let name = ast.children(kids[0]).iter().rev().find(|&&s| ast.kind(s) == Kind::Segment).map_or("", |&s| ast.token(s).0);
+                let name = ast
+                    .children(kids[0])
+                    .iter()
+                    .rev()
+                    .find(|&&s| ast.kind(s) == Kind::Segment)
+                    .map_or("", |&s| ast.token(s).0);
                 match name {
-                    "panic" | "core_panic" | "std_panic" | "unreachable_2015" | "unreachable_2021" | "const_panic" | "unreachable"
-                    | "todo" | "unimplemented" => {
+                    "panic" | "core_panic" | "std_panic" | "unreachable_2015" | "unreachable_2021" | "const_panic"
+                    | "unreachable" | "todo" | "unimplemented" => {
                         self.trap();
                         Ok(Pv::Val(Operand { ty: tcx.mk(TyKind::Never), v: Val::Zst }))
                     }
@@ -1290,7 +1439,9 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                         let (v, i, _, used) = tcx.field_step(cur, &path).ok_or("`offset_of` of a field not found")?;
                         let l = self.layout(cur)?;
                         off += match &l.variants {
-                            crate::layout::Variants::Multiple { variants, .. } => variants.get(v as usize).map(|x| x.offset(i)).unwrap_or(0),
+                            crate::layout::Variants::Multiple { variants, .. } => {
+                                variants.get(v as usize).map(|x| x.offset(i)).unwrap_or(0)
+                            }
                             _ => l.offset(i),
                         };
                         cur = self.field_ty(cur, v, i)?;
@@ -1310,26 +1461,39 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
     }
 
     /// Puts `v` where `return` puts the result, and returns.
+    /// Returns `v`: puts it where the result goes, drops everything the
+    /// function owns, and returns.
     fn ret_value(&mut self, v: Pv) -> R<()> {
         if self.terminated() {
             return Ok(());
         }
         let o = self.operand_of(v)?;
         match self.ret {
-            Ret::Void => self.b.ret_void(),
+            Ret::Void => {
+                self.drop_scopes_to(0)?;
+                if !self.terminated() {
+                    self.b.ret_void();
+                }
+            }
             Ret::Imm => {
                 if matches!(o.v, Val::Zst) {
                     // A value that never exists (after a diverging call).
                     self.b.unreachable();
                 } else {
                     let v = self.imm(o)?;
-                    self.b.ret(v);
+                    self.drop_scopes_to(0)?;
+                    if !self.terminated() {
+                        self.b.ret(v);
+                    }
                 }
             }
             Ret::Sret(p) => {
                 let rt = self.ret_ty;
                 self.store(Operand { ty: rt, v: o.v }, Place { addr: p, meta: None, ty: rt })?;
-                self.b.ret_void();
+                self.drop_scopes_to(0)?;
+                if !self.terminated() {
+                    self.b.ret_void();
+                }
             }
         }
         Ok(())
@@ -1345,42 +1509,23 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             return self.try_block(n, &kids);
         }
         let label = kids.first().filter(|&&c| ast.kind(c) == Kind::Lifetime).map(|&c| ast.token(c).0);
-        let stmts: Vec<NodeId> = kids.iter().copied().filter(|&c| !matches!(ast.kind(c), Kind::Lifetime | Kind::Keyword | Kind::InnerAttribute)).collect();
+        let stmts: Vec<NodeId> = kids
+            .iter()
+            .copied()
+            .filter(|&c| !matches!(ast.kind(c), Kind::Lifetime | Kind::Keyword | Kind::InnerAttribute))
+            .collect();
         let labelled = match label {
             Some(l) => {
                 let t = self.ty(n)?;
                 let result = if self.repr(t)? == Repr::Zst { None } else { Some(self.temp(t)?) };
                 let exit = self.new_block("block.end");
-                self.loops.push(Breakable { label: Some(l), block: true, exit, cont: None, result });
+                let depth = self.drops.scopes.len();
+                self.loops.push(Breakable { label: Some(l), block: true, exit, cont: None, result, depth });
                 Some((t, exit, result))
             }
             None => None,
         };
-        let mut value = Pv::Val(self.unit());
-        let last = stmts.len().checked_sub(1);
-        for (i, &s) in stmts.iter().enumerate() {
-            match ast.kind(s) {
-                Kind::LetStmt => {
-                    self.note(s);
-                    self.let_stmt(s)?;
-                }
-                Kind::ExprStmt => {
-                    let Some(&e) = self.kids(s).last() else { continue };
-                    self.note(s);
-                    self.expr(e)?;
-                }
-                Kind::EmptyStmt => {}
-                k if super::pat::is_expr(k) => {
-                    self.note(s);
-                    let v = self.expr(s)?;
-                    if Some(i) == last {
-                        value = v;
-                    }
-                }
-                // Items in a block are lowered as items of their own.
-                _ => {}
-            }
-        }
+        let value = self.stmts(&stmts)?;
         if let Some((t, exit, result)) = labelled {
             if let Some(p) = result {
                 let o = self.operand_of(value)?;
@@ -1401,6 +1546,62 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         Ok(value)
     }
 
+    /// The statements of a block, in a scope of their own (for their
+    /// locals), each statement in a scope of its own (for its
+    /// temporaries). Gives the value of the last, if it is an expression.
+    fn stmts(&mut self, stmts: &[NodeId]) -> R<Pv> {
+        let ast = self.body.ast;
+        self.push_scope(true);
+        let mut value = Pv::Val(self.unit());
+        let last = stmts.len().checked_sub(1);
+        for (i, &s) in stmts.iter().enumerate() {
+            match ast.kind(s) {
+                Kind::LetStmt => {
+                    self.note(s);
+                    self.push_scope(false);
+                    self.let_stmt(s)?;
+                    self.pop_scope()?;
+                }
+                Kind::ExprStmt => {
+                    let Some(&e) = self.kids(s).last() else { continue };
+                    self.note(s);
+                    self.push_scope(false);
+                    let v = self.expr(e)?;
+                    self.discard(v)?;
+                    self.pop_scope()?;
+                }
+                Kind::EmptyStmt => {}
+                k if super::pat::is_expr(k) => {
+                    self.note(s);
+                    self.push_scope(false);
+                    if Some(i) == last {
+                        // The block's value, moved out of where it is. Its
+                        // temporaries are dropped before the block's
+                        // locals (as of edition 2024).
+                        let mut o = self.operand(s)?;
+                        if let Val::Mem(_) = o.v
+                            && !self.terminated()
+                        {
+                            // A copy, out of what is about to be dropped.
+                            let t = self.temp(o.ty)?;
+                            self.store(o, t)?;
+                            o = self.load(t)?;
+                        }
+                        value = Pv::Val(o);
+                    } else {
+                        let v = self.expr(s)?;
+                        self.discard(v)?;
+                    }
+                    self.pop_scope()?;
+                }
+                // Items in a block are lowered as items of their own.
+                _ => {}
+            }
+        }
+        self.pop_scope()?;
+        Ok(value)
+    }
+
     /// `try { stmts; e }`: `Try::from_output(e)`, and each `?` in it that
     /// fails gives `FromResidual::from_residual` of its residual as the
     /// block's value instead of returning.
@@ -1410,31 +1611,14 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         let t = self.ty(n)?;
         let result = self.temp(t)?;
         let exit = self.new_block("try.end");
-        self.tries.push((exit, result));
-        let stmts: Vec<NodeId> = kids.iter().copied().filter(|&c| !matches!(ast.kind(c), Kind::Lifetime | Kind::Keyword | Kind::InnerAttribute)).collect();
-        let mut value = Pv::Val(self.unit());
-        let last = stmts.len().checked_sub(1);
-        for (i, &s) in stmts.iter().enumerate() {
-            match ast.kind(s) {
-                Kind::LetStmt => {
-                    self.note(s);
-                    self.let_stmt(s)?;
-                }
-                Kind::ExprStmt => {
-                    let Some(&e) = self.kids(s).last() else { continue };
-                    self.note(s);
-                    self.expr(e)?;
-                }
-                k if super::pat::is_expr(k) => {
-                    self.note(s);
-                    let v = self.expr(s)?;
-                    if Some(i) == last {
-                        value = v;
-                    }
-                }
-                _ => {}
-            }
-        }
+        let depth = self.drops.scopes.len();
+        self.tries.push((exit, result, depth));
+        let stmts: Vec<NodeId> = kids
+            .iter()
+            .copied()
+            .filter(|&c| !matches!(ast.kind(c), Kind::Lifetime | Kind::Keyword | Kind::InnerAttribute))
+            .collect();
+        let value = self.stmts(&stmts)?;
         self.tries.pop();
         if !self.terminated() {
             let tr = *tcx.lang.get("Try").ok_or("no `Try`")?;
@@ -1446,7 +1630,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         }
         self.goto(exit);
         self.b.at(exit);
-        Ok(Pv::Place(result))
+        Ok(Pv::Val(self.load(result)?))
     }
 
     fn let_stmt(&mut self, s: NodeId) -> R<()> {
@@ -1461,30 +1645,51 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             // Declared, assigned later.
             return self.declare_bindings(pat);
         };
+        let scope = self.block_scope();
+        self.extend_temporaries(init, scope);
         if let Some(&els) = rest.get(1) {
-            let p = self.place(init)?;
+            let p = self.scrutinee(init)?;
             let fail = self.new_block("let.else");
             let ok = self.new_block("let.ok");
             self.pat_match(pat, p, Some(fail))?;
+            self.drops.pat_path = None;
             self.goto(ok);
             self.b.at(fail);
+            let pending = std::mem::take(&mut self.drops.pending);
             self.expr(els)?;
             if !self.terminated() {
                 self.b.unreachable();
             }
             self.b.at(ok);
-            return Ok(());
+            self.drops.pending = pending;
+            return self.commit_bindings(scope);
         }
         if self.simple_binding(pat) {
             let o = self.operand(init)?;
             let t = self.ty(pat)?;
             let slot = self.temp(t)?;
             self.store(Operand { ty: t, v: o.v }, slot)?;
-            self.locals.insert((self.body.k, self.body.f, pat), slot);
+            let key = (self.body.k, self.body.f, pat);
+            self.locals.insert(key, slot);
+            if self.needs_drop(t) {
+                let r = self.owned(slot, scope)?;
+                self.drops.locals.insert(key, r);
+            }
             return Ok(());
         }
+        let p = self.scrutinee(init)?;
+        self.bind_irrefutable(pat, p)?;
+        self.drops.pat_path = None;
+        self.commit_bindings(scope)
+    }
+
+    /// The place a pattern is matched against (`init` of a `let`, a
+    /// `match`'s scrutinee): the part of a root it is, for moves out of it
+    /// (`pat_path`).
+    pub fn scrutinee(&mut self, init: NodeId) -> R<Place> {
         let p = self.place(init)?;
-        self.bind_irrefutable(pat, p)
+        self.drops.pat_path = self.move_path(init).unwrap_or(None);
+        Ok(p)
     }
 
     /// Whether `pat` is `x` or `mut x`, binding by value.
@@ -1503,7 +1708,13 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         if ast.kind(pat) == Kind::IdentPat && self.res(pat).is_none() {
             let t = self.ty(pat)?;
             let slot = self.temp(t)?;
-            self.locals.insert((self.body.k, self.body.f, pat), slot);
+            let key = (self.body.k, self.body.f, pat);
+            self.locals.insert(key, slot);
+            if self.needs_drop(t) {
+                let scope = self.block_scope();
+                let r = self.new_root(slot, scope)?;
+                self.drops.locals.insert(key, r);
+            }
             return Ok(());
         }
         for c in self.kids(pat) {
@@ -1564,7 +1775,12 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 let init = self.b.module().const_bytes(&bytes);
                 let name = format!("{}.str.{}", self.fname, self.strings);
                 self.strings += 1;
-                let g = epitome_ir::module::Global::builder(&name).init(init).constant().linkage(Linkage::Private).align(1).build(self.b.module());
+                let g = epitome_ir::module::Global::builder(&name)
+                    .init(init)
+                    .constant()
+                    .linkage(Linkage::Private)
+                    .align(1)
+                    .build(self.b.module());
                 let addr = self.b.module().global_value(g);
                 match tcx.kind(inner) {
                     TyKind::Str => {
@@ -1594,9 +1810,14 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 // A const parameter: its argument's value.
                 let pid = *tcx.param_at.get(&(self.body.k, self.body.f, *gp)).ok_or("generic parameter not found")?;
                 let i = self.body.params.iter().position(|&x| x == pid).ok_or("const parameter not in scope")?;
-                let TyKind::ConstArg(c) = tcx.kind(self.body.args[i]) else { return Err("const parameter without a value".into()) };
+                let TyKind::ConstArg(c) = tcx.kind(self.body.args[i]) else {
+                    return Err("const parameter without a value".into());
+                };
                 let v = self.cx.lcx.eval_const(c, &Default::default()).ok_or_else(|| match tcx.const_of(c) {
-                    crate::ty::Const::Expr(k, f, e) => format!("const argument the evaluator cannot work out: {}", self.cx.crates[k as usize].files[f as usize].ast.text(e)),
+                    crate::ty::Const::Expr(k, f, e) => format!(
+                        "const argument the evaluator cannot work out: {}",
+                        self.cx.crates[k as usize].files[f as usize].ast.text(e)
+                    ),
                     c => format!("const argument the evaluator cannot work out: {c:?}"),
                 })?;
                 let t = self.ty(n)?;
@@ -1667,9 +1888,15 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         let caps = self.cx.typeck.captures.get(&c).cloned().unwrap_or_default();
         let p = self.temp(t)?;
         for (i, cap) in caps.iter().enumerate() {
-            let src = self.local_place((self.body.k, self.body.f, cap.local))?;
+            let key = (self.body.k, self.body.f, cap.local);
+            let src = self.local_place(key)?;
             let fp = self.field(p, 0, i)?;
-            let o = if cap.by_value { self.load(src)? } else { self.addr_of(src, fp.ty)? };
+            let o = if cap.by_value {
+                self.move_local(key, src.ty)?;
+                self.load(src)?
+            } else {
+                self.addr_of(src, fp.ty)?
+            };
             self.store(Operand { ty: fp.ty, v: o.v }, fp)?;
         }
         Ok(Pv::Val(Operand { ty: t, v: self.load(p)?.v }))
@@ -1717,7 +1944,13 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         }
         // Its initialiser, lowered in its own body.
         let (k, f, ast, node) = self.cx.def_ast(item.0);
-        let init = ast.children(node).iter().rev().copied().find(|&x| super::pat::is_expr(ast.kind(x))).ok_or("constant without a value")?;
+        let init = ast
+            .children(node)
+            .iter()
+            .rev()
+            .copied()
+            .find(|&x| super::pat::is_expr(ast.kind(x)))
+            .ok_or("constant without a value")?;
         let saved = self.body.clone();
         self.body = Body {
             k,
@@ -1851,6 +2084,22 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             return Ok(Pv::Val(self.unit()));
         }
         let compare = matches!(base, "==" | "!=" | "<" | ">" | "<=" | ">=");
+        if compare
+            && let Some(&(m, margs)) = self.body.tables.methods.get(&n)
+            && let (ta, tb) = (self.ty(kids[0])?, self.ty(kids[2])?)
+            && !(is_prim(tcx, ta) && is_prim(tcx, tb))
+        {
+            // `PartialEq::eq(&a, &b)` and its relatives: the operands are
+            // borrowed, not moved.
+            let margs = self.sub_list(margs);
+            let pa = self.place(kids[0])?;
+            let pb = self.place(kids[2])?;
+            let ra = tcx.mk(TyKind::Ref(Mutbl::Not, pa.ty));
+            let rb = tcx.mk(TyKind::Ref(Mutbl::Not, pb.ty));
+            let ra = self.addr_of(pa, ra)?;
+            let rb = self.addr_of(pb, rb)?;
+            return self.call_def(m, margs, vec![ra, rb], None);
+        }
         let a = self.operand(kids[0])?;
         let b = self.operand(kids[2])?;
         if let Some(&(m, margs)) = self.body.tables.methods.get(&n)
@@ -1892,7 +2141,9 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 let elems = self.kids(lhs);
                 let n = match self.cx.tcx.kind(src.ty) {
                     TyKind::Tuple(l) => self.cx.tcx.tys(l).len(),
-                    TyKind::Array(_, c) => self.cx.lcx.eval_const(c, &Default::default()).ok_or("array length not known")? as usize,
+                    TyKind::Array(_, c) => {
+                        self.cx.lcx.eval_const(c, &Default::default()).ok_or("array length not known")? as usize
+                    }
                     _ => return Err("destructuring something not a tuple or array".into()),
                 };
                 let rest = elems.iter().position(|&e| ast.kind(e) == Kind::Range && self.kids(e).len() == 1);
@@ -1913,7 +2164,13 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             Kind::StructExpr | Kind::Call => Err("destructuring assignment of a struct is not supported yet".into()),
             _ => {
                 let p = self.place(lhs)?;
-                self.store(Operand { ty: p.ty, v: o.v }, p)
+                // The value it held is dropped first.
+                let mp = self.drop_before_assign(lhs, p)?;
+                self.store(Operand { ty: p.ty, v: o.v }, p)?;
+                if let Some(mp) = mp {
+                    self.init(&mp)?;
+                }
+                Ok(())
             }
         }
     }
@@ -2069,7 +2326,8 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                     // give the nearest the integer holds, NaN gives 0.
                     let fbits = self.layout(o.ty)?.size * 8;
                     let ibits = self.layout(to)?.size * 8;
-                    let name = format!("llvm.{}.sat.i{ibits}.f{fbits}", if self.signed(to) { "fptosi" } else { "fptoui" });
+                    let name =
+                        format!("llvm.{}.sat.i{ibits}.f{fbits}", if self.signed(to) { "fptosi" } else { "fptoui" });
                     let g = self.b.module().declare(&name, tt, &[ft], false);
                     self.b.call(g, &[v]).unwrap()
                 } else if is_float(to_k) {
@@ -2090,7 +2348,9 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 Ok(Operand { ty: to, v: Val::Imm(v) })
             }
             (Repr::Mem, Repr::Mem) => Ok(Operand { ty: to, v: o.v }),
-            (Repr::Imm(_), Repr::Mem) if self.pointee(o.ty).is_some() && self.pointee(to).is_some() => self.unsize(o, to),
+            (Repr::Imm(_), Repr::Mem) if self.pointee(o.ty).is_some() && self.pointee(to).is_some() => {
+                self.unsize(o, to)
+            }
             _ => Err(format!("cast from {} to {}", tcx.display(self.cx.r, o.ty), tcx.display(self.cx.r, to))),
         }
     }
@@ -2117,7 +2377,13 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         let r = self.b.cast(op, v, i128t);
         let r = self.int_to(r, to, signed);
         let min = if signed { 1u128 << (bits - 1) } else { 0 };
-        let max = if signed { (1u128 << (bits - 1)) - 1 } else if bits == 128 { u128::MAX } else { (1u128 << bits) - 1 };
+        let max = if signed {
+            (1u128 << (bits - 1)) - 1
+        } else if bits == 128 {
+            u128::MAX
+        } else {
+            (1u128 << bits) - 1
+        };
         let (min, max) = (self.int_const(to, min), self.int_const(to, max));
         let zero = self.int_const(to, 0);
         let below = self.b.fcmp(FCmpPred::Olt, v, lo);
@@ -2212,22 +2478,37 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                         Some(&e) => self.operand(e)?,
                         None => {
                             // `S { a }`: the local `a`.
-                            let Some(Res::Local(lp)) = self.res(fk[0]) else { return Err("shorthand field without a local".into()) };
+                            let Some(Res::Local(lp)) = self.res(fk[0]) else {
+                                return Err("shorthand field without a local".into());
+                            };
                             let key = (self.body.k, self.body.f, *lp);
                             let lp = self.local_place(key)?;
+                            self.move_local(key, lp.ty)?;
                             self.load(lp)?
                         }
                     };
-                    let fp = if union { Place { addr: p.addr, meta: None, ty: self.field_ty(t, 0, i)? } } else { self.field(p, v, i)? };
+                    let fp = if union {
+                        Place { addr: p.addr, meta: None, ty: self.field_ty(t, 0, i)? }
+                    } else {
+                        self.field(p, v, i)?
+                    };
                     self.store(Operand { ty: fp.ty, v: o.v }, fp)?;
                     given[i] = true;
                 }
                 Kind::StructBase => {
                     let Some(&b) = fk.first() else { return Err("`..` without a base".into()) };
                     let bp = self.place(b)?;
+                    let base = self.move_path(b)?;
                     for (i, g) in given.iter().enumerate() {
                         if !g {
                             let src = self.field(bp, v, i)?;
+                            if self.needs_drop(src.ty)
+                                && let Some(mp) = &base
+                            {
+                                let mut mp = mp.clone();
+                                mp.path.push((v, i));
+                                self.moved(&mp)?;
+                            }
                             let o = self.load(src)?;
                             let dst = self.field(p, v, i)?;
                             self.store(o, dst)?;
@@ -2269,15 +2550,24 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             }
             Kind::Paren => self.cond(kids[0], els),
             Kind::Let => {
-                let p = self.place(kids[1])?;
-                self.pat_match(kids[0], p, Some(els))
+                // The scrutinee's temporaries and the bindings belong to
+                // the scope around the condition (the `if`'s or `while`'s).
+                let p = self.scrutinee(kids[1])?;
+                self.pat_match(kids[0], p, Some(els))?;
+                self.drops.pat_path = None;
+                let scope = self.drops.scopes.len() - 1;
+                self.commit_bindings(scope)
             }
             _ => {
+                // A condition's temporaries are dropped once it is known.
+                self.push_scope(false);
                 let o = self.operand(n)?;
                 if self.terminated() {
+                    self.forget_scope();
                     return Ok(());
                 }
                 let v = self.imm(o)?;
+                self.pop_scope()?;
                 let c = self.truthy(v);
                 let then = self.new_block("then");
                 self.b.cond_br(c, then, els);
@@ -2292,6 +2582,11 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         let result = if self.repr(t)? == Repr::Zst { None } else { Some(self.temp(t)?) };
         let els = self.new_block("else");
         let join = self.new_block("if.end");
+        // The condition's scope: what an `if let` binds, and its
+        // scrutinee's temporaries, dropped after the `then` branch, or
+        // before the `else` (as of edition 2024).
+        let depth = self.drops.scopes.len();
+        self.push_scope(false);
         self.cond(kids[0], els)?;
         let v = self.operand(kids[1])?;
         if let Some(p) = result
@@ -2299,8 +2594,11 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         {
             self.store(Operand { ty: t, v: v.v }, p)?;
         }
+        self.drop_scope(depth)?;
         self.goto(join);
         self.b.at(els);
+        self.drop_scope(depth)?;
+        self.forget_scope();
         if let Some(&e) = kids.get(2) {
             let v = self.operand(e)?;
             if let Some(p) = result
@@ -2312,7 +2610,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         self.goto(join);
         self.b.at(join);
         Ok(match result {
-            Some(p) => Pv::Place(p),
+            Some(p) => Pv::Val(self.load(p)?),
             None => Pv::Val(Operand { ty: t, v: Val::Zst }),
         })
     }
@@ -2321,6 +2619,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         let ast = self.body.ast;
         let t = self.ty(n)?;
         let scrut = self.place(kids[0])?;
+        let scrut_path = self.move_path(kids[0]).unwrap_or(None);
         let result = if self.repr(t)? == Repr::Zst { None } else { Some(self.temp(t)?) };
         let join = self.new_block("match.end");
         for &arm in &kids[1..] {
@@ -2330,15 +2629,24 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             let ak = self.kids(arm);
             let next = self.new_block("arm.next");
             self.note(ak[0]);
+            self.drops.pat_path = scrut_path.clone();
             self.pat_match(ak[0], scrut, Some(next))?;
+            self.drops.pat_path = None;
             let mut i = 1;
             if let Some(&g) = ak.get(1)
                 && ast.kind(g) == Kind::Guard
             {
                 let ge = self.body.ast.children(g)[0];
+                let pending = std::mem::take(&mut self.drops.pending);
                 self.cond(ge, next)?;
+                self.drops.pending = pending;
                 i = 2;
             }
+            // The arm's scope: its bindings, and its temporaries. Its
+            // bindings move out of the scrutinee only now it has matched.
+            self.push_scope(false);
+            let scope = self.drops.scopes.len() - 1;
+            self.commit_bindings(scope)?;
             if let Some(&body) = ak.get(i) {
                 let v = self.operand(body)?;
                 if let Some(p) = result
@@ -2347,8 +2655,10 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                     self.store(Operand { ty: t, v: v.v }, p)?;
                 }
             }
+            self.pop_scope()?;
             self.goto(join);
             self.b.at(next);
+            self.drops.pending.clear();
         }
         // No arm matched: cannot happen.
         if !self.terminated() {
@@ -2356,7 +2666,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         }
         self.b.at(join);
         Ok(match result {
-            Some(p) => Pv::Place(p),
+            Some(p) => Pv::Val(self.load(p)?),
             None => Pv::Val(Operand { ty: t, v: Val::Zst }),
         })
     }
@@ -2364,7 +2674,8 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
     fn for_expr(&mut self, n: NodeId, kids: &[NodeId]) -> R<Pv> {
         let ast = self.body.ast;
         let tcx = self.cx.tcx;
-        let rest: Vec<NodeId> = kids.iter().copied().filter(|&c| !matches!(ast.kind(c), Kind::Lifetime | Kind::Keyword)).collect();
+        let rest: Vec<NodeId> =
+            kids.iter().copied().filter(|&c| !matches!(ast.kind(c), Kind::Lifetime | Kind::Keyword)).collect();
         let label = kids.first().filter(|&&c| ast.kind(c) == Kind::Lifetime).map(|&c| ast.token(c).0);
         let calls = self.body.tables.implicit.get(&n).cloned().ok_or("`for` without its calls")?;
         let [(into_iter, l1), (next, l2)] = calls[..] else { return Err("`for` without its calls".into()) };
@@ -2375,26 +2686,53 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         let it = self.operand_of(it)?;
         let slot = self.temp(it.ty)?;
         self.store(it, slot)?;
+        // The iterator, dropped after the loop.
+        let outer = self.drops.scopes.len();
+        self.push_scope(false);
+        if self.needs_drop(it.ty) {
+            self.owned(slot, outer)?;
+        }
         let head = self.new_block("for");
         let exit = self.new_block("for.end");
+        let done = self.new_block("for.done");
         self.goto(head);
         self.b.at(head);
+        // Each item, and what the pattern binds of it, for one iteration.
+        let depth = self.drops.scopes.len();
+        self.push_scope(false);
         let rt = tcx.mk(TyKind::Ref(Mutbl::Mut, it.ty));
         let recv = self.addr_of(slot, rt)?;
         let item = self.call_def(next, l2, vec![recv], None)?;
         let item = self.place_of(item)?;
+        let item_root = if self.needs_drop(item.ty) { Some(self.owned(item, depth)?) } else { None };
         let some = self.lang_variant(item.ty, "Some")?;
         let ok = self.test_variant(item, some)?;
         let body = self.new_block("for.body");
-        self.b.cond_br(ok, body, exit);
+        self.b.cond_br(ok, body, done);
         self.b.at(body);
         let x = self.field(item, some, 0)?;
-        self.bind_irrefutable(rest[0], x)?;
-        self.loops.push(Breakable { label, block: false, exit, cont: Some(head), result: None });
-        self.expr(rest[2])?;
+        match item_root {
+            // What it binds moves out of the item.
+            Some(r) => {
+                self.drops.pat_path = Some(super::drop::MovePath { root: r, path: vec![(some, 0)] });
+                self.pat_match(rest[0], x, None)?;
+                self.drops.pat_path = None;
+                self.commit_bindings(depth)?;
+            }
+            None => self.bind_irrefutable(rest[0], x)?,
+        }
+        self.loops.push(Breakable { label, block: false, exit, cont: Some(head), result: None, depth });
+        let v = self.expr(rest[2])?;
+        self.discard(v)?;
         self.loops.pop();
+        self.drop_scope(depth)?;
         self.goto(head);
+        self.b.at(done);
+        self.drop_scope(depth)?;
+        self.forget_scope();
+        self.goto(exit);
         self.b.at(exit);
+        self.pop_scope()?;
         Ok(Pv::Val(self.unit()))
     }
 
@@ -2418,17 +2756,19 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         let out = self.call_def(from_residual, l2, vec![r], None)?;
         match self.tries.last().copied() {
             // In a `try` block: its value.
-            Some((exit, result)) => {
+            Some((exit, result, depth)) => {
                 if !self.terminated() {
                     let o = self.operand_of(out)?;
                     self.store(Operand { ty: result.ty, v: o.v }, result)?;
                 }
+                self.drop_scopes_to(depth)?;
                 self.goto(exit);
             }
             None => self.ret_value(out)?,
         }
         self.b.at(go_on);
-        Ok(Pv::Place(self.field(cf, cont, 0)?))
+        let f = self.field(cf, cont, 0)?;
+        Ok(Pv::Val(self.load(f)?))
     }
 
     // ---- calls ----
@@ -2440,13 +2780,22 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             // A call through the `Fn` traits: `f(a, b)` is `Fn::call(&f,
             // (a, b))`.
             let margs = self.sub_list(margs);
-            let callee = self.expr(kids[0])?;
+            // `FnOnce::call_once` takes the callee by value: it is
+            // dropped after the call.
+            let once = self.cx.r.defs[m.0 as usize].name == "call_once";
+            let callee = if once { Pv::Val(self.operand(kids[0])?) } else { self.expr(kids[0])? };
             let mut args = Vec::new();
             for &a in &arg_nodes {
                 args.push(self.operand(a)?);
             }
-            let _ = m;
-            return self.call_value(callee, margs, args);
+            let callee = if once { Pv::Place(self.place_of(callee)?) } else { callee };
+            let r = self.call_value(callee, margs, args)?;
+            if once && let Pv::Place(p) = callee {
+                let r = self.keep(r)?;
+                self.drop_place(p)?;
+                return Ok(r);
+            }
+            return Ok(r);
         }
         let ct = self.ty(kids[0])?;
         let mut args = Vec::new();
@@ -2464,7 +2813,11 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                     DefKind::Variant => {
                         let t = self.ty(n)?;
                         let TyKind::Adt(e, _) = tcx.kind(t) else { return Err("variant of no enum".into()) };
-                        let v = tcx.adts.get(&e).and_then(|a| a.variants.iter().position(|x| x.def == Some(d))).ok_or("no such variant")? as u32;
+                        let v = tcx
+                            .adts
+                            .get(&e)
+                            .and_then(|a| a.variants.iter().position(|x| x.def == Some(d)))
+                            .ok_or("no such variant")? as u32;
                         self.construct(t, d, v, args)
                     }
                     _ => self.call_def(d, l, args, Some(n)),
@@ -2502,12 +2855,18 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 let r = self.cx.r;
                 let adt = match r.defs[d.0 as usize].kind {
                     DefKind::Struct => d,
-                    _ => r.defs[d.0 as usize].parent.and_then(|m| r.modules[m.0 as usize].def).ok_or("a variant outside an enum")?,
+                    _ => r.defs[d.0 as usize]
+                        .parent
+                        .and_then(|m| r.modules[m.0 as usize].def)
+                        .ok_or("a variant outside an enum")?,
                 };
                 let t = tcx.mk(TyKind::Adt(adt, l));
                 let v = match tcx.kind(t) {
                     TyKind::Adt(e, _) if self.cx.r.defs[d.0 as usize].kind == DefKind::Variant => {
-                        tcx.adts.get(&e).and_then(|a| a.variants.iter().position(|x| x.def == Some(d))).ok_or("no such variant")? as u32
+                        tcx.adts
+                            .get(&e)
+                            .and_then(|a| a.variants.iter().position(|x| x.def == Some(d)))
+                            .ok_or("no such variant")? as u32
                     }
                     _ => 0,
                 };
@@ -2573,7 +2932,8 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
     pub fn fn_address(&mut self, d: DefId, args: Vec<Ty>) -> R<Value> {
         match crate::mono::instance(self.cx.r, self.cx.crates, self.cx.tcx, &mut self.solver, d, args) {
             Resolved::Item(it) => {
-                let decl = self.cx.fns.get(&it).ok_or_else(|| format!("`{}` was not declared", self.cx.r.def_path(d)))?;
+                let decl =
+                    self.cx.fns.get(&it).ok_or_else(|| format!("`{}` was not declared", self.cx.r.def_path(d)))?;
                 let g = decl.g;
                 Ok(self.b.module().global_value(g))
             }
@@ -2589,6 +2949,12 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         if crate::mono::has_param_or_infer_list(tcx, &targs) {
             let a: Vec<String> = targs.iter().map(|&t| tcx.display(r, t)).collect();
             return Err(format!("call of `{}` with arguments not concrete: <{}>", r.def_path(d), a.join(", ")));
+        }
+        if crate::mono::is_drop_glue(tcx, d) {
+            // What `drop_in_place` calls: the type's drop glue.
+            let p = self.deref(*args.first().ok_or("drop glue without its pointer")?)?;
+            self.drop_place(p)?;
+            return Ok(Pv::Val(self.unit()));
         }
         let resolved = crate::mono::instance(r, self.cx.crates, tcx, &mut self.solver, d, targs.clone());
         match resolved {
@@ -2637,7 +3003,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             let o = self.load(p)?;
             let tmp = self.temp(o.ty)?;
             self.store(o, tmp)?;
-            return Ok(Pv::Place(tmp));
+            return Ok(Pv::Val(self.load(tmp)?));
         }
         if matches!(name, "call" | "call_mut" | "call_once") && args.len() == 2 {
             // The arguments come as a tuple.
@@ -2648,13 +3014,42 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 let fp = self.field(tuple, 0, i)?;
                 inner.push(self.load(fp)?);
             }
+            if name == "call_once" && self.needs_drop(args[0].ty) {
+                // The callee, taken by value, is dropped after the call.
+                let p = self.place_of(Pv::Val(args[0]))?;
+                let r = self.call_value(Pv::Place(p), targs, inner)?;
+                let r = self.keep(r)?;
+                self.drop_place(p)?;
+                return Ok(r);
+            }
             return self.call_value(Pv::Val(args[0]), targs, inner);
         }
-        Err(format!("built-in `{}` on {}", self.cx.r.def_path(d), targs.first().map(|&t| tcx.display(self.cx.r, t)).unwrap_or_default()))
+        Err(format!(
+            "built-in `{}` on {}",
+            self.cx.r.def_path(d),
+            targs.first().map(|&t| tcx.display(self.cx.r, t)).unwrap_or_default()
+        ))
+    }
+
+    /// A call's result, copied if it is in memory (out of the way of what
+    /// is dropped after the call).
+    fn keep(&mut self, r: Pv) -> R<Pv> {
+        let o = self.operand_of(r)?;
+        if let Val::Mem(_) = o.v {
+            let t = self.temp(o.ty)?;
+            self.store(o, t)?;
+            return Ok(Pv::Val(self.load(t)?));
+        }
+        Ok(Pv::Val(o))
     }
 
     /// Emits a call with `abi`, passing `args`.
-    fn emit_call(&mut self, abi: &super::FnAbi, call: impl FnOnce(&mut FunctionBuilder<'m>, &[Value]) -> Option<Value>, args: Vec<Operand>) -> R<Pv> {
+    pub fn emit_call(
+        &mut self,
+        abi: &super::FnAbi,
+        call: impl FnOnce(&mut FunctionBuilder<'m>, &[Value]) -> Option<Value>,
+        args: Vec<Operand>,
+    ) -> R<Pv> {
         if self.terminated() {
             return Ok(Pv::Val(Operand { ty: abi.output, v: Val::Zst }));
         }
@@ -2691,7 +3086,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         }
         Ok(match (abi.ret, dst) {
             (Repr::Imm(_), _) => Pv::Val(Operand { ty: abi.output, v: Val::Imm(got.ok_or("call without a value")?) }),
-            (Repr::Mem, Some(p)) => Pv::Place(p),
+            (Repr::Mem, Some(p)) => Pv::Val(Operand { ty: abi.output, v: Val::Mem(p.addr) }),
             _ => Pv::Val(Operand { ty: abi.output, v: Val::Zst }),
         })
     }

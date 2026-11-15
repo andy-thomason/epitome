@@ -9,6 +9,7 @@
 pub mod ast;
 pub mod cfg;
 pub mod consteval;
+pub mod drops;
 pub mod expand;
 pub mod hash;
 pub mod intern;

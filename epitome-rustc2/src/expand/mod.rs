@@ -795,7 +795,9 @@ impl<'x, 's> Expander<'x, 's> {
         for &a in &attrs {
             let segs = names(a);
             let Some(&name) = segs.last() else { continue };
-            if crate::expand::builtin::is_builtin(name) || matches!(name, "cfg" | "cfg_attr" | "derive" | "derive_const") {
+            if crate::expand::builtin::is_builtin(name)
+                || matches!(name, "cfg" | "cfg_attr" | "derive" | "derive_const")
+            {
                 continue;
             }
             let Some(d) = self.resolve(&segs, false, &[u32::MAX], &[]) else { continue };
@@ -913,7 +915,15 @@ impl<'x, 's> Expander<'x, 's> {
     /// expressions, which `expand::asm::parse` of its tokens says the
     /// meaning of. A template may be a macro's call (`concat!`, or a
     /// `macro_rules!` that gives one), expanded now, as rustc does.
-    fn asm_children(&mut self, file: &mut ParsedFile<'s>, call: NodeId, call_tok: usize, input: &[Token<'s>], pos: &[u32], module: &[String]) {
+    fn asm_children(
+        &mut self,
+        file: &mut ParsedFile<'s>,
+        call: NodeId,
+        call_tok: usize,
+        input: &[Token<'s>],
+        pos: &[u32],
+        module: &[String],
+    ) {
         let kids: Vec<NodeId> = file.ast.children(call).to_vec();
         if kids.iter().filter(|&&c| !matches!(file.ast.kind(c), Kind::Attribute | Kind::DocComment)).count() > 2 {
             return;
@@ -945,7 +955,13 @@ impl<'x, 's> Expander<'x, 's> {
     }
 
     /// Parses `tokens` as an expression and adds its nodes to the file.
-    fn graft_expr(&mut self, file: &mut ParsedFile<'s>, call: NodeId, call_tok: usize, tokens: &[Token<'s>]) -> Option<NodeId> {
+    fn graft_expr(
+        &mut self,
+        file: &mut ParsedFile<'s>,
+        call: NodeId,
+        call_tok: usize,
+        tokens: &[Token<'s>],
+    ) -> Option<NodeId> {
         let eof = tokens.last().map_or(Token(""), |t| Token(&t.0[t.0.len()..]));
         match parse_fragment(tokens.to_vec(), eof, self.edition, Fragment::Expr) {
             Ok(frag) => {
@@ -963,7 +979,15 @@ impl<'x, 's> Expander<'x, 's> {
     /// The text of a string literal `tokens` is, or gives once expanded
     /// (a call of `concat!`, or of a `macro_rules!` macro that gives one),
     /// with its escapes as written.
-    fn eager_string(&mut self, file: &ParsedFile<'s>, call: NodeId, tokens: &[Token<'s>], pos: &[u32], module: &[String], depth: u32) -> Option<String> {
+    fn eager_string(
+        &mut self,
+        file: &ParsedFile<'s>,
+        call: NodeId,
+        tokens: &[Token<'s>],
+        pos: &[u32],
+        module: &[String],
+        depth: u32,
+    ) -> Option<String> {
         if depth > 16 {
             return None;
         }

@@ -418,9 +418,11 @@ impl<'s> TyCtxt<'s> {
     pub fn has_error(&self, t: Ty) -> bool {
         match self.kind(t) {
             TyKind::Error => true,
-            TyKind::Tuple(l) | TyKind::Adt(_, l) | TyKind::FnDef(_, l) | TyKind::Projection(_, l) | TyKind::Opaque(_, l) => {
-                self.tys(l).into_iter().any(|x| self.has_error(x))
-            }
+            TyKind::Tuple(l)
+            | TyKind::Adt(_, l)
+            | TyKind::FnDef(_, l)
+            | TyKind::Projection(_, l)
+            | TyKind::Opaque(_, l) => self.tys(l).into_iter().any(|x| self.has_error(x)),
             TyKind::Ref(_, x) | TyKind::Ptr(_, x) | TyKind::Slice(x) | TyKind::Pat(x, ..) => self.has_error(x),
             TyKind::Array(x, c) => self.has_error(x) || self.const_of(c) == Const::Error,
             TyKind::FnPtr(s) => {
@@ -510,7 +512,8 @@ impl TyCtxt<'_> {
     }
 
     pub fn stats(&self) -> TypeStats {
-        let mut reasons: Vec<(String, usize)> = self.errors.lock().unwrap().iter().map(|(k, v)| (k.clone(), *v)).collect();
+        let mut reasons: Vec<(String, usize)> =
+            self.errors.lock().unwrap().iter().map(|(k, v)| (k.clone(), *v)).collect();
         reasons.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
         TypeStats {
             signatures: self.sig_count,

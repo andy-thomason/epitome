@@ -1,8 +1,8 @@
 //! Checking one body.
 
-use super::{Adjust, BindingMode, BodyResult};
 use super::infer::{Infer, VarKind};
 use super::traits::TraitImpls;
+use super::{Adjust, BindingMode, BodyResult};
 use crate::ast::{Ast, Kind, NodeId};
 use crate::hash::{FastMap, FastSet};
 use crate::resolve::{DefId, DefKind, Ns, Res, Resolver};
@@ -133,8 +133,12 @@ pub(super) fn check_body<'s>(
                         i += 1;
                     }
                     Kind::Param => {
-                        let kids: Vec<NodeId> =
-                            ast.children(p).iter().copied().filter(|&c| !matches!(ast.kind(c), Kind::Attribute | Kind::DocComment)).collect();
+                        let kids: Vec<NodeId> = ast
+                            .children(p)
+                            .iter()
+                            .copied()
+                            .filter(|&c| !matches!(ast.kind(c), Kind::Attribute | Kind::DocComment))
+                            .collect();
                         if kids.len() == 2 {
                             cx.pat(kids[0], t, Mutbl::Not, false);
                         }
@@ -317,7 +321,8 @@ impl<'a, 's> FnCtxt<'a, 's> {
     fn captures(&mut self, c: crate::ty::ClosureId) -> Vec<super::Capture> {
         let ast = self.ast;
         let (_, _, node) = self.tcx.closure_at(c);
-        let is_move = |n: NodeId| ast.children(n).iter().any(|&k| ast.kind(k) == Kind::Keyword && ast.token(k).0 == "move");
+        let is_move =
+            |n: NodeId| ast.children(n).iter().any(|&k| ast.kind(k) == Kind::Keyword && ast.token(k).0 == "move");
         // The closure's nodes in source order, each with its parent and
         // the innermost closure it is in.
         let mut nodes: Vec<(NodeId, NodeId, NodeId)> = Vec::new();
@@ -337,7 +342,13 @@ impl<'a, 's> FnCtxt<'a, 's> {
             let path = match ast.kind(n) {
                 Kind::PathExpr => ast.children(n).first().copied(),
                 // `S { a }`: its name is a use of the local `a`, by value.
-                Kind::FieldInit => match ast.children(n).iter().copied().filter(|&c| ast.kind(c) != Kind::Attribute).collect::<Vec<_>>()[..] {
+                Kind::FieldInit => match ast
+                    .children(n)
+                    .iter()
+                    .copied()
+                    .filter(|&c| ast.kind(c) != Kind::Attribute)
+                    .collect::<Vec<_>>()[..]
+                {
                     [name] if ast.kind(name) == Kind::Name => Some(name),
                     _ => None,
                 },
@@ -357,13 +368,19 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 up = parent_of.get(&up).copied().unwrap_or(node);
             }
             let first = ast.children(up).first() == Some(&child);
-            let borrowed = matches!(self.adjustments.get(&child).and_then(|a| a.first()), Some(Adjust::Borrow(_) | Adjust::Deref));
+            let borrowed =
+                matches!(self.adjustments.get(&child).and_then(|a| a.first()), Some(Adjust::Borrow(_) | Adjust::Deref));
             let place_use = borrowed
                 || match ast.kind(up) {
                     Kind::Borrow | Kind::Unary => true,
                     Kind::Field | Kind::Index | Kind::Match | Kind::MethodCall => first,
                     Kind::Let => !first,
-                    Kind::Binary => first && ast.children(up).get(1).is_some_and(|&o| ast.text(o).ends_with('=') && !matches!(ast.text(o).as_str(), "==" | "!=" | "<=" | ">=")),
+                    Kind::Binary => {
+                        first
+                            && ast.children(up).get(1).is_some_and(|&o| {
+                                ast.text(o).ends_with('=') && !matches!(ast.text(o).as_str(), "==" | "!=" | "<=" | ">=")
+                            })
+                    }
                     _ => false,
                 };
             let value_use = !place_use || closure != node && is_move(closure);
@@ -464,7 +481,8 @@ impl<'a, 's> FnCtxt<'a, 's> {
             }
         }
         let hidden_vars = std::mem::take(&mut self.hidden);
-        let hidden: Vec<(crate::ty::OpaqueId, Ty)> = hidden_vars.into_iter().map(|(o, v)| (o, fin(&mut self, v))).collect();
+        let hidden: Vec<(crate::ty::OpaqueId, Ty)> =
+            hidden_vars.into_iter().map(|(o, v)| (o, fin(&mut self, v))).collect();
         BodyResult {
             hidden,
             closures: std::mem::take(&mut self.closures).into_iter().map(|c| (c, self.owner)).collect(),
@@ -512,7 +530,12 @@ impl<'a, 's> FnCtxt<'a, 's> {
     }
 
     fn kids(&self, n: NodeId) -> Vec<NodeId> {
-        self.ast.children(n).iter().copied().filter(|&c| !matches!(self.ast.kind(c), Kind::Attribute | Kind::DocComment)).collect()
+        self.ast
+            .children(n)
+            .iter()
+            .copied()
+            .filter(|&c| !matches!(self.ast.kind(c), Kind::Attribute | Kind::DocComment))
+            .collect()
     }
 
     fn res(&self, path: NodeId) -> Option<&'a Res> {
@@ -643,7 +666,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 }
                 self.rollback(p);
             }
-            (TyKind::Ref(m, x), TyKind::Ptr(m2, y)) | (TyKind::Ptr(m, x), TyKind::Ptr(m2, y)) if m == m2 || m == Mutbl::Mut => {
+            (TyKind::Ref(m, x), TyKind::Ptr(m2, y)) | (TyKind::Ptr(m, x), TyKind::Ptr(m2, y))
+                if m == m2 || m == Mutbl::Mut =>
+            {
                 let p = self.probe();
                 if self.infer.unify(x, y) {
                     return true;
@@ -681,7 +706,10 @@ impl<'a, 's> FnCtxt<'a, 's> {
             }
             (TyKind::Closure(_, cs, _), TyKind::FnPtr(s)) => {
                 let (c, s) = (tcx.sig_of(cs), tcx.sig_of(s));
-                let ok = self.infer.unify(self.mk(TyKind::FnPtr(tcx.sig(crate::ty::FnSig { unsafety: s.unsafety, abi: s.abi, ..c }))), w);
+                let ok = self.infer.unify(
+                    self.mk(TyKind::FnPtr(tcx.sig(crate::ty::FnSig { unsafety: s.unsafety, abi: s.abi, ..c }))),
+                    w,
+                );
                 if ok {
                     self.adjust(n, vec![Adjust::ClosureFnPointer], w);
                 }
@@ -845,7 +873,8 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let own = tcx.generics[d.0 as usize].own.len();
         let own_start = all.len() - own;
         let variant = self.r.defs[d.0 as usize].kind == DefKind::Variant;
-        let in_trait = tcx.generics[d.0 as usize].parent.is_some_and(|p| self.r.defs[p.0 as usize].kind == DefKind::Trait);
+        let in_trait =
+            tcx.generics[d.0 as usize].parent.is_some_and(|p| self.r.defs[p.0 as usize].kind == DefKind::Trait);
         let segs: Vec<NodeId> = ast.children(path).iter().copied().filter(|&s| ast.kind(s) == Kind::Segment).collect();
         let written = |s: Option<&NodeId>| -> Vec<NodeId> {
             s.and_then(|&s| ast.child(s, Kind::GenericArgs))
@@ -897,7 +926,10 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     DefKind::Variant => {
                         let args = self.item_args(d, path);
                         let e = tcx.generics[d.0 as usize].parent;
-                        let kind = e.and_then(|e| tcx.adts.get(&e)).and_then(|a| a.variants.iter().find(|v| v.def == Some(d))).map(|v| v.kind);
+                        let kind = e
+                            .and_then(|e| tcx.adts.get(&e))
+                            .and_then(|a| a.variants.iter().find(|v| v.def == Some(d)))
+                            .map(|v| v.kind);
                         match (kind, e) {
                             (Some(CtorKind::Tuple), _) => self.mk(TyKind::FnDef(d, tcx.list(args))),
                             (Some(CtorKind::Unit), Some(e)) => self.mk(TyKind::Adt(e, tcx.list(args))),
@@ -952,7 +984,8 @@ impl<'a, 's> FnCtxt<'a, 's> {
             Res::Partial(base, 2) => {
                 // `T::Assoc::item`: the associated type, then its item.
                 let base = (**base).clone();
-                let segs: Vec<NodeId> = self.ast.children(path).iter().copied().filter(|&s| self.ast.kind(s) == Kind::Segment).collect();
+                let segs: Vec<NodeId> =
+                    self.ast.children(path).iter().copied().filter(|&s| self.ast.kind(s) == Kind::Segment).collect();
                 let mid = self.ast.token(segs[segs.len() - 2]).0;
                 let name = self.last_segment_name(path);
                 let Some(bt) = self.base_ty(path, &base) else { return self.err(n, "path through an associated item") };
@@ -1059,13 +1092,20 @@ impl<'a, 's> FnCtxt<'a, 's> {
             Res::Def(d) => match self.r.defs[d.0 as usize].kind {
                 DefKind::Struct | DefKind::Enum | DefKind::Union => {
                     // Arguments written on the type's segment, if any.
-                    let segs: Vec<NodeId> = self.ast.children(path).iter().copied().filter(|&s| self.ast.kind(s) == Kind::Segment).collect();
+                    let segs: Vec<NodeId> = self
+                        .ast
+                        .children(path)
+                        .iter()
+                        .copied()
+                        .filter(|&s| self.ast.kind(s) == Kind::Segment)
+                        .collect();
                     let all = tcx.all_params(*d);
                     let mut args = self.infer.instantiate(&all);
                     if segs.len() >= 2
                         && let Some(g) = self.ast.child(segs[segs.len() - 2], Kind::GenericArgs)
                     {
-                        let written: Vec<NodeId> = self.ast.children(g).iter().copied().filter(|&a| is_type(self.ast.kind(a))).collect();
+                        let written: Vec<NodeId> =
+                            self.ast.children(g).iter().copied().filter(|&a| is_type(self.ast.kind(a))).collect();
                         for (i, a) in written.into_iter().enumerate() {
                             if i < args.len() {
                                 args[i] = self.written_ty(a);
@@ -1092,7 +1132,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
     /// `Type::name` as a value: an associated function or constant of an
     /// inherent impl of the type.
     fn assoc_value(&mut self, n: NodeId, path: NodeId, base: &Res, name: &str) -> Ty {
-        let Some(bt) = self.base_ty(path, base) else { return self.err(n, "associated item of something that is not a type") };
+        let Some(bt) = self.base_ty(path, base) else {
+            return self.err(n, "associated item of something that is not a type");
+        };
         let bt = self.norm(bt);
         let tcx = self.tcx;
         // `Self::Variant` and `Alias::Variant`.
@@ -1143,7 +1185,10 @@ impl<'a, 's> FnCtxt<'a, 's> {
         for i in impls {
             let imp = &tcx.impls[i];
             let Some(m) = self.r.defs[imp.def.0 as usize].module else { continue };
-            let Some(Res::Def(item)) = self.r.modules[m.0 as usize].names.get(&(name, ns)).map(|b| b.res.clone()) else { continue };
+            let Some(Res::Def(item)) = self.r.modules[m.0 as usize].names.get(&(name, ns)).map(|b| b.res.clone())
+            else {
+                continue;
+            };
             let s = self.infer.snapshot();
             let params = tcx.all_params(imp.def);
             let args = self.infer.instantiate(&params);
@@ -1161,12 +1206,18 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 && tcx.tys(l).into_iter().any(|x| matches!(tcx.kind(x), TyKind::Projection(..)))
             {
                 let (ls, ms) = (tcx.tys(l), tcx.tys(m));
-                let plain = ls.iter().zip(&ms).filter(|(a, _)| !matches!(tcx.kind(**a), TyKind::Projection(..))).all(|(&a, &b)| self.infer.unify(a, b));
+                let plain = ls
+                    .iter()
+                    .zip(&ms)
+                    .filter(|(a, _)| !matches!(tcx.kind(**a), TyKind::Projection(..)))
+                    .all(|(&a, &b)| self.infer.unify(a, b));
                 let ok = plain
-                    && ls.iter().zip(&ms).filter(|(a, _)| matches!(tcx.kind(**a), TyKind::Projection(..))).all(|(&a, &b)| {
-                        let n = self.normalize(a, 0);
-                        self.infer.unify(n, b)
-                    });
+                    && ls.iter().zip(&ms).filter(|(a, _)| matches!(tcx.kind(**a), TyKind::Projection(..))).all(
+                        |(&a, &b)| {
+                            let n = self.normalize(a, 0);
+                            self.infer.unify(n, b)
+                        },
+                    );
                 if ok {
                     return Some((item, args));
                 }
@@ -1262,7 +1313,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
             }
             Kind::Tuple => {
                 let want: Vec<Option<Ty>> = match expect.map(|e| tcx.kind(self.infer.shallow(e))) {
-                    Some(TyKind::Tuple(l)) if tcx.tys(l).len() == kids.len() => tcx.tys(l).into_iter().map(Some).collect(),
+                    Some(TyKind::Tuple(l)) if tcx.tys(l).len() == kids.len() => {
+                        tcx.tys(l).into_iter().map(Some).collect()
+                    }
                     _ => vec![None; kids.len()],
                 };
                 let tys: Vec<Ty> = kids.iter().zip(want).map(|(&e, w)| self.expr(e, w)).collect();
@@ -1287,7 +1340,17 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 let usize_ = self.mk(TyKind::Uint(UintTy::Usize));
                 let lt = self.expr(kids[1], Some(usize_));
                 self.coerce(kids[1], lt, usize_);
-                let mut l = Lower { tcx, env: &self.env, expanding: FastSet::default(), impl_self: None, holes: true, k: self.k, file: self.file, owner: self.owner, failed: false };
+                let mut l = Lower {
+                    tcx,
+                    env: &self.env,
+                    expanding: FastSet::default(),
+                    impl_self: None,
+                    holes: true,
+                    k: self.k,
+                    file: self.file,
+                    owner: self.owner,
+                    failed: false,
+                };
                 let c = l.konst(kids[1]);
                 self.mk(TyKind::Array(elem, c))
             }
@@ -1295,7 +1358,11 @@ impl<'a, 's> FnCtxt<'a, 's> {
             Kind::Unary => self.unary(n, &kids, expect),
             Kind::Borrow => {
                 let raw = kids.iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == "raw");
-                let mutbl = if kids.iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == "mut") { Mutbl::Mut } else { Mutbl::Not };
+                let mutbl = if kids.iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == "mut") {
+                    Mutbl::Mut
+                } else {
+                    Mutbl::Not
+                };
                 let e = *kids.last().unwrap();
                 let inner_expect = expect.and_then(|x| match tcx.kind(self.infer.shallow(x)) {
                     TyKind::Ref(_, i) | TyKind::Ptr(_, i) => Some(i),
@@ -1318,7 +1385,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     if !by_context {
                         self.rollback(p);
                         let s = self.norm(src);
-                        if let (TyKind::Ref(_, x) | TyKind::Ptr(_, x), TyKind::Ptr(_, y)) = (tcx.kind(s), tcx.kind(self.infer.shallow(target))) {
+                        if let (TyKind::Ref(_, x) | TyKind::Ptr(_, x), TyKind::Ptr(_, y)) =
+                            (tcx.kind(s), tcx.kind(self.infer.shallow(target)))
+                        {
                             let p = self.probe();
                             if !self.infer.unify(y, x) {
                                 self.rollback(p);
@@ -1436,7 +1505,8 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 unit
             }
             Kind::For => {
-                let rest: Vec<NodeId> = kids.iter().copied().filter(|&c| !matches!(ast.kind(c), Kind::Lifetime | Kind::Keyword)).collect();
+                let rest: Vec<NodeId> =
+                    kids.iter().copied().filter(|&c| !matches!(ast.kind(c), Kind::Lifetime | Kind::Keyword)).collect();
                 let label = kids.first().filter(|&&c| ast.kind(c) == Kind::Lifetime).map(|&c| ast.token(c).0);
                 let it = self.expr(rest[1], None);
                 let item = self.iter_item(rest[1], it);
@@ -1659,7 +1729,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
         // known by now; it must be before deciding the operator is built in.
         let (sa, sb) = (self.norm(a), self.norm(b));
         let prim = |s: Ty| self.infer.is_numeric(s) || matches!(tcx.kind(s), TyKind::Bool | TyKind::Char);
-        let both_prim = prim(sa) && prim(sb) || prim(sa) && self.infer.var_kind(sb).is_some() || self.infer.var_kind(sa).is_some() && prim(sb);
+        let both_prim = prim(sa) && prim(sb)
+            || prim(sa) && self.infer.var_kind(sb).is_some()
+            || self.infer.var_kind(sa).is_some() && prim(sb);
         let assign = op.ends_with('=') && !matches!(op.as_str(), "==" | "!=" | "<=" | ">=");
         let compare = matches!(op.as_str(), "==" | "!=" | "<" | ">" | "<=" | ">=");
         if compare {
@@ -1699,7 +1771,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
         }
         // Types waiting on projections (a closure's parameter) may be
         // known by now.
-        if !self.pending.is_empty() && (self.tcx.has_infer(self.infer.resolve(a)) || self.tcx.has_infer(self.infer.resolve(b))) {
+        if !self.pending.is_empty()
+            && (self.tcx.has_infer(self.infer.resolve(a)) || self.tcx.has_infer(self.infer.resolve(b)))
+        {
             self.process_pending();
         }
         let base = op.trim_end_matches('=');
@@ -1917,12 +1991,17 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 match self.r.defs[d.0 as usize].kind {
                     DefKind::Struct | DefKind::Union => {
                         let args = self.item_args(d, path);
-                        (self.mk(TyKind::Adt(d, tcx.list(args))), tcx.adts.get(&d).and_then(|a| a.variants.first().cloned()))
+                        (
+                            self.mk(TyKind::Adt(d, tcx.list(args))),
+                            tcx.adts.get(&d).and_then(|a| a.variants.first().cloned()),
+                        )
                     }
                     DefKind::Variant => {
                         let args = self.item_args(d, path);
                         let e = tcx.generics[d.0 as usize].parent;
-                        let v = e.and_then(|e| tcx.adts.get(&e)).and_then(|a| a.variants.iter().find(|v| v.def == Some(d)).cloned());
+                        let v = e
+                            .and_then(|e| tcx.adts.get(&e))
+                            .and_then(|a| a.variants.iter().find(|v| v.def == Some(d)).cloned());
                         match e {
                             Some(e) => (self.mk(TyKind::Adt(e, tcx.list(args))), v),
                             None => (self.tcx.error(), None),
@@ -2025,7 +2104,11 @@ impl<'a, 's> FnCtxt<'a, 's> {
             return item;
         }
         match tcx.kind(s) {
-            TyKind::Adt(d, l) if ["Range", "RangeFrom", "RangeInclusive"].iter().any(|r| tcx.lang.get(r) == Some(&d)) => tcx.tys(l)[0],
+            TyKind::Adt(d, l)
+                if ["Range", "RangeFrom", "RangeInclusive"].iter().any(|r| tcx.lang.get(r) == Some(&d)) =>
+            {
+                tcx.tys(l)[0]
+            }
             TyKind::Ref(m, x) => match tcx.kind(self.infer.shallow(x)) {
                 TyKind::Array(e, _) | TyKind::Slice(e) => self.mk(TyKind::Ref(m, e)),
                 _ => self.err(n, "iterating needs `IntoIterator`"),
@@ -2068,7 +2151,12 @@ impl<'a, 's> FnCtxt<'a, 's> {
             }),
             None => None,
         };
-        let params = kids.iter().copied().find(|&c| ast.kind(c) == Kind::ClosureParams).map(|p| self.kids(p)).unwrap_or_default();
+        let params = kids
+            .iter()
+            .copied()
+            .find(|&c| ast.kind(c) == Kind::ClosureParams)
+            .map(|p| self.kids(p))
+            .unwrap_or_default();
         let mut inputs = Vec::new();
         for (i, &p) in params.iter().enumerate() {
             let pk = self.kids(p);
@@ -2092,7 +2180,13 @@ impl<'a, 's> FnCtxt<'a, 's> {
         self.loops = saved_loops;
         let id = tcx.closure_id((self.k, self.file, n));
         self.closures.push(id);
-        let sig = tcx.sig(crate::ty::FnSig { inputs: tcx.list(inputs), output: ret, unsafety: false, variadic: false, abi: crate::ty::Abi::Rust });
+        let sig = tcx.sig(crate::ty::FnSig {
+            inputs: tcx.list(inputs),
+            output: ret,
+            unsafety: false,
+            variadic: false,
+            abi: crate::ty::Abi::Rust,
+        });
         self.mk(TyKind::Closure(id, sig, tcx.identity_args(self.owner)))
     }
 
@@ -2155,7 +2249,8 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     self.expr(c, None);
                 }
                 let noreturn = kids.get(1).is_some_and(|&tt| {
-                    self.ast.tokens_of(tt).windows(3).any(|w| w[0].0 == "options" && w[1].0 == "(") && self.ast.tokens_of(tt).iter().any(|t| t.0 == "noreturn")
+                    self.ast.tokens_of(tt).windows(3).any(|w| w[0].0 == "options" && w[1].0 == "(")
+                        && self.ast.tokens_of(tt).iter().any(|t| t.0 == "noreturn")
                 });
                 if noreturn { self.mk(TyKind::Never) } else { self.unit() }
             }
@@ -2170,8 +2265,11 @@ impl<'a, 's> FnCtxt<'a, 's> {
     fn block(&mut self, n: NodeId, expect: Option<Ty>) -> Ty {
         let ast = self.ast;
         let kids = self.kids(n);
-        let stmts: Vec<NodeId> =
-            kids.iter().copied().filter(|&c| !matches!(ast.kind(c), Kind::Lifetime | Kind::Keyword | Kind::InnerAttribute)).collect();
+        let stmts: Vec<NodeId> = kids
+            .iter()
+            .copied()
+            .filter(|&c| !matches!(ast.kind(c), Kind::Lifetime | Kind::Keyword | Kind::InnerAttribute))
+            .collect();
         if ast.kind(n) == Kind::ConstBlock {
             return self.expr(kids[0], expect);
         }
@@ -2280,8 +2378,10 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let kind = ast.kind(p);
         // A pattern that is not a binding or a reference pattern matches
         // through references, binding by reference.
-        let peels = !matches!(kind, Kind::IdentPat | Kind::WildPat | Kind::RefPat | Kind::RestPat | Kind::OrPat | Kind::ParenPat)
-            || kind == Kind::IdentPat && self.r.res_of(self.k as usize, self.file as usize, p).is_some();
+        let peels = !matches!(
+            kind,
+            Kind::IdentPat | Kind::WildPat | Kind::RefPat | Kind::RestPat | Kind::OrPat | Kind::ParenPat
+        ) || kind == Kind::IdentPat && self.r.res_of(self.k as usize, self.file as usize, p).is_some();
         let t = if peels || kind == Kind::RefPat { self.norm(t) } else { t };
         if peels && let TyKind::Ref(m, inner) = tcx.kind(self.infer.shallow(t)) {
             let bm = if by_ref && bm == Mutbl::Not { Mutbl::Not } else { m };
@@ -2298,7 +2398,11 @@ impl<'a, 's> FnCtxt<'a, 's> {
                         Res::Def(d) => match self.r.defs[d.0 as usize].kind {
                             DefKind::Variant | DefKind::Struct => {
                                 let args = self.infer.instantiate(&tcx.all_params(d));
-                                let owner = if self.r.defs[d.0 as usize].kind == DefKind::Variant { tcx.generics[d.0 as usize].parent.unwrap_or(d) } else { d };
+                                let owner = if self.r.defs[d.0 as usize].kind == DefKind::Variant {
+                                    tcx.generics[d.0 as usize].parent.unwrap_or(d)
+                                } else {
+                                    d
+                                };
                                 self.mk(TyKind::Adt(owner, tcx.list(args)))
                             }
                             _ => tcx.type_of(d).unwrap_or_else(|| tcx.error()),
@@ -2382,7 +2486,11 @@ impl<'a, 's> FnCtxt<'a, 's> {
                         let sub = fk[0];
                         (ast.child(sub, Kind::Name).map_or("", |n| ast.token(n).0), sub)
                     };
-                    let ft = fields.iter().find(|x| x.0 == name).map(|x| x.1).unwrap_or_else(|| self.err(f, "no such field in pattern"));
+                    let ft = fields
+                        .iter()
+                        .find(|x| x.0 == name)
+                        .map(|x| x.1)
+                        .unwrap_or_else(|| self.err(f, "no such field in pattern"));
                     self.pat(sub, ft, bm, by_ref);
                 }
             }
@@ -2504,10 +2612,16 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let tcx = self.tcx;
         let (owner, variant) = match self.res(path) {
             Some(Res::Def(d)) => match self.r.defs[d.0 as usize].kind {
-                DefKind::Struct | DefKind::Union => (Some(*d), tcx.adts.get(d).and_then(|a| a.variants.first().cloned())),
+                DefKind::Struct | DefKind::Union => {
+                    (Some(*d), tcx.adts.get(d).and_then(|a| a.variants.first().cloned()))
+                }
                 DefKind::Variant => {
                     let e = tcx.generics[d.0 as usize].parent;
-                    (e, e.and_then(|e| tcx.adts.get(&e)).and_then(|a| a.variants.iter().find(|v| v.def == Some(*d)).cloned()))
+                    (
+                        e,
+                        e.and_then(|e| tcx.adts.get(&e))
+                            .and_then(|a| a.variants.iter().find(|v| v.def == Some(*d)).cloned()),
+                    )
                 }
                 _ => (None, None),
             },
@@ -2519,7 +2633,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 let name = self.last_segment_name(path);
                 let base = (**base).clone();
                 match self.base_ty(path, &base).map(|b| tcx.kind(self.infer.shallow(b))) {
-                    Some(TyKind::Adt(e, _)) => (Some(e), tcx.adts.get(&e).and_then(|a| a.variants.iter().find(|v| v.name == name).cloned())),
+                    Some(TyKind::Adt(e, _)) => {
+                        (Some(e), tcx.adts.get(&e).and_then(|a| a.variants.iter().find(|v| v.name == name).cloned()))
+                    }
                     _ => (None, None),
                 }
             }
@@ -2530,7 +2646,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let args = self.infer.instantiate(&params);
         let at = self.mk(TyKind::Adt(owner, tcx.list(args.clone())));
         self.infer.unify(at, t);
-        let fields = variant.map(|v| v.fields.iter().map(|f| (f.name, subst(tcx, f.ty, &params, &args))).collect()).unwrap_or_default();
+        let fields = variant
+            .map(|v| v.fields.iter().map(|f| (f.name, subst(tcx, f.ty, &params, &args))).collect())
+            .unwrap_or_default();
         (at, fields)
     }
 }

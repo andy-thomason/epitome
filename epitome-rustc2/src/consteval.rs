@@ -175,7 +175,12 @@ struct Eval<'c, 'a, 's> {
 
 impl Eval<'_, '_, '_> {
     fn kids(&self, n: NodeId) -> Vec<NodeId> {
-        self.ast.children(n).iter().copied().filter(|&c| !matches!(self.ast.kind(c), Kind::Attribute | Kind::DocComment)).collect()
+        self.ast
+            .children(n)
+            .iter()
+            .copied()
+            .filter(|&c| !matches!(self.ast.kind(c), Kind::Attribute | Kind::DocComment))
+            .collect()
     }
 
     fn expr(&mut self, n: NodeId) -> Option<Value> {
@@ -358,7 +363,9 @@ impl Eval<'_, '_, '_> {
             Kind::MethodCall => {
                 let name = ast.token(*ast.children(kids[1]).first()?).0;
                 return match name {
-                    "ilog" | "ilog2" | "ilog10" | "count_ones" | "count_zeros" | "leading_zeros" | "trailing_zeros" => Some((32, false)),
+                    "ilog" | "ilog2" | "ilog10" | "count_ones" | "count_zeros" | "leading_zeros" | "trailing_zeros" => {
+                        Some((32, false))
+                    }
                     "len" => int_bits(TyKind::Uint(UintTy::Usize), pb),
                     _ => self.int_type(kids[0]),
                 };

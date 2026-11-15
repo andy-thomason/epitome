@@ -42,7 +42,10 @@ impl Asm<'_, '_> {
     /// Every operand expression present, in order: the order expansion
     /// adds them in.
     pub fn exprs(&self) -> impl Iterator<Item = (usize, usize)> + '_ {
-        self.operands.iter().enumerate().flat_map(|(i, o)| o.exprs.iter().enumerate().filter(|e| e.1.is_some()).map(move |(j, _)| (i, j)))
+        self.operands
+            .iter()
+            .enumerate()
+            .flat_map(|(i, o)| o.exprs.iter().enumerate().filter(|e| e.1.is_some()).map(move |(j, _)| (i, j)))
     }
 }
 
@@ -61,7 +64,10 @@ fn split<'t, 's>(input: &'t [Token<'s>], sep: &str) -> Vec<&'t [Token<'s>]> {
                 start = i + 1;
             }
             // `=>` as two tokens.
-            "=" if depth == 0 && sep == "=>" && input.get(i + 1).is_some_and(|n| n.0 == ">" && input[i].touches(*n)) => {
+            "=" if depth == 0
+                && sep == "=>"
+                && input.get(i + 1).is_some_and(|n| n.0 == ">" && input[i].touches(*n)) =>
+            {
                 out.push(&input[start..i]);
                 start = i + 2;
                 i += 1;
@@ -131,7 +137,8 @@ pub fn parse<'t, 's>(input: &'t [Token<'s>]) -> Option<Asm<'t, 's>> {
             "sym" => Some(Dir::Sym),
             _ => None,
         };
-        let Some(dir) = dir.filter(|d| matches!(d, Dir::Const | Dir::Sym) || op.get(1).is_some_and(|t| t.0 == "(")) else {
+        let Some(dir) = dir.filter(|d| matches!(d, Dir::Const | Dir::Sym) || op.get(1).is_some_and(|t| t.0 == "("))
+        else {
             // A template, before any operand.
             if !asm.operands.is_empty() || name.is_some() {
                 return None;

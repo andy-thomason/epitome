@@ -262,9 +262,18 @@ mod tests {
             decimal_to_quad("3.14159265358979323846264338327950288419716939937510582097494459"),
             Some(0x4000_921f_b544_42d1_8469_898c_c517_01b8)
         );
-        assert_eq!(decimal_to_quad("1.18973149535723176508575932662800702e4932"), Some(0x7ffe_ffff_ffff_ffff_ffff_ffff_ffff_ffff));
-        assert_eq!(decimal_to_quad("3.36210314311209350626267781732175260e-4932"), Some(0x0001_0000_0000_0000_0000_0000_0000_0000));
-        assert_eq!(decimal_to_quad("1.92592994438723585305597794258492732e-34"), Some(0x3f8f_0000_0000_0000_0000_0000_0000_0000));
+        assert_eq!(
+            decimal_to_quad("1.18973149535723176508575932662800702e4932"),
+            Some(0x7ffe_ffff_ffff_ffff_ffff_ffff_ffff_ffff)
+        );
+        assert_eq!(
+            decimal_to_quad("3.36210314311209350626267781732175260e-4932"),
+            Some(0x0001_0000_0000_0000_0000_0000_0000_0000)
+        );
+        assert_eq!(
+            decimal_to_quad("1.92592994438723585305597794258492732e-34"),
+            Some(0x3f8f_0000_0000_0000_0000_0000_0000_0000)
+        );
         // The least subnormal, and half of it (a tie, to even: zero).
         assert_eq!(decimal_to_quad("6.47517511943802511092443895822764655e-4966"), Some(1));
         assert_eq!(decimal_to_quad("3.2e-4966"), Some(0));

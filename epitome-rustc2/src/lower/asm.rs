@@ -117,13 +117,9 @@ impl Fx<'_, '_, '_, '_> {
                 Dir::Const => {
                     let e = node_of[&(i, 0)];
                     let o = self.operand(e)?;
-                    let Val::Imm(Value::Const(c)) = o.v else {
-                        return Err("an `asm!` const operand not a constant".into());
-                    };
+                    let Val::Imm(Value::Const(c)) = o.v else { return Err("an `asm!` const operand not a constant".into()) };
                     let signed = self.signed(o.ty);
-                    let ConstKind::Int(a) = &self.b.module().consts.get(c).kind else {
-                        return Err("an `asm!` const operand not an integer".into());
-                    };
+                    let ConstKind::Int(a) = &self.b.module().consts.get(c).kind else { return Err("an `asm!` const operand not an integer".into()) };
                     let text = if signed { a.to_i64().map(|v| v.to_string()) } else { Some(a.low_u64().to_string()) };
                     text_of[i] = Some(text.ok_or("an `asm!` const operand too wide")?);
                 }
@@ -132,9 +128,7 @@ impl Fx<'_, '_, '_, '_> {
                 Dir::Sym => {
                     let e = node_of[&(i, 0)];
                     let t = self.ty(e)?;
-                    let TyKind::FnDef(d, l) = self.cx.tcx.kind(t) else {
-                        return Err("an `asm!` sym operand not a function".into());
-                    };
+                    let TyKind::FnDef(d, l) = self.cx.tcx.kind(t) else { return Err("an `asm!` sym operand not a function".into()) };
                     let f = self.fn_address(d, self.cx.tcx.tys(l))?;
                     index[i] = Some(outs.len() + in_constraints.len());
                     in_constraints.push("s".into());
@@ -174,10 +168,7 @@ impl Fx<'_, '_, '_, '_> {
                     } else if let Ok(k) = arg.parse::<usize>() {
                         k
                     } else {
-                        asm.operands
-                            .iter()
-                            .position(|o| o.name == Some(arg))
-                            .ok_or_else(|| format!("`asm!` operand `{arg}` not found"))?
+                        asm.operands.iter().position(|o| o.name == Some(arg)).ok_or_else(|| format!("`asm!` operand `{arg}` not found"))?
                     };
                     let op = asm.operands.get(i).ok_or("an `asm!` operand index out of range")?;
                     if let Some(t) = &text_of[i] {
@@ -214,8 +205,7 @@ impl Fx<'_, '_, '_, '_> {
         let mut constraints: Vec<String> = outs.iter().map(|o| o.constraint.clone()).collect();
         constraints.extend(in_constraints);
         if !asm.clobber_abis.is_empty() {
-            let used: Vec<String> =
-                outs.iter().map(|o| o.constraint.trim_start_matches(['=', '&']).to_string()).collect();
+            let used: Vec<String> = outs.iter().map(|o| o.constraint.trim_start_matches(['=', '&']).to_string()).collect();
             for r in ["ax", "cx", "dx", "si", "di", "r8", "r9", "r10", "r11"]
                 .iter()
                 .map(|r| r.to_string())
@@ -258,11 +248,7 @@ impl Fx<'_, '_, '_, '_> {
         let r = self.b.call_indirect(fn_ty, callee, &in_values);
         for (k, o) in outs.iter().enumerate() {
             let Some(p) = o.place else { continue };
-            let v = if outs.len() == 1 {
-                r.ok_or("`asm!` without its result")?
-            } else {
-                self.b.extract_value(r.ok_or("`asm!` without its results")?, &[k as u32])
-            };
+            let v = if outs.len() == 1 { r.ok_or("`asm!` without its result")? } else { self.b.extract_value(r.ok_or("`asm!` without its results")?, &[k as u32]) };
             self.store(Operand { ty: p.ty, v: Val::Imm(v) }, p)?;
         }
         let t = self.ty(n)?;
@@ -279,10 +265,7 @@ fn class_constraint(spec: &[crate::lexer::Token]) -> R<String> {
     let [t] = spec else { return Err("an `asm!` register not understood".into()) };
     if t.is_string() {
         let reg = crate::cfg::string_value(t.0);
-        return Ok(format!(
-            "{{{}}}",
-            llvm_register(reg).ok_or_else(|| format!("`asm!` register `{reg}` is not supported"))?
-        ));
+        return Ok(format!("{{{}}}", llvm_register(reg).ok_or_else(|| format!("`asm!` register `{reg}` is not supported"))?));
     }
     Ok(match t.0 {
         "reg" => "r",

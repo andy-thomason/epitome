@@ -89,12 +89,9 @@ impl Fx<'_, '_, '_, '_> {
                 self.dead();
                 Ok(Pv::Val(Operand { ty: output, v: Val::Zst }))
             }
-            "assume"
-            | "cold_path"
-            | "forget"
-            | "assert_inhabited"
-            | "assert_zero_valid"
-            | "assert_mem_uninitialized_valid" => Ok(Pv::Val(self.unit())),
+            "assume" | "cold_path" | "forget" | "assert_inhabited" | "assert_zero_valid" | "assert_mem_uninitialized_valid" => {
+                Ok(Pv::Val(self.unit()))
+            }
             "likely" | "unlikely" | "black_box" => Ok(Pv::Val(args[0])),
             // The checks of a build without debug assertions.
             "ub_checks" | "contract_checks" | "overflow_checks" | "is_val_statically_known" => {
@@ -158,11 +155,7 @@ impl Fx<'_, '_, '_, '_> {
                     epitome_ir::types::Type::Int(n) => *n,
                     _ => 64,
                 };
-                let f = format!(
-                    "llvm.{}{}.sat.i{bits}",
-                    if signed { 's' } else { 'u' },
-                    if name.ends_with("add") { "add" } else { "sub" }
-                );
+                let f = format!("llvm.{}{}.sat.i{bits}", if signed { 's' } else { 'u' }, if name.ends_with("add") { "add" } else { "sub" });
                 let g = self.b.module().declare(&f, it, &[it, it], false);
                 let r = self.b.call(g, &[x, y]).unwrap();
                 imm(r)
@@ -388,9 +381,7 @@ impl Fx<'_, '_, '_, '_> {
             "const_eval_select" => {
                 // The run-time function, with the tuple's fields.
                 let g = targs.get(2).copied().ok_or("no run-time function")?;
-                let TyKind::FnDef(f, l) = tcx.kind(g) else {
-                    return Err("run-time function not a function item".into());
-                };
+                let TyKind::FnDef(f, l) = tcx.kind(g) else { return Err("run-time function not a function item".into()) };
                 let tuple = self.place_of(Pv::Val(args[0]))?;
                 let n = match tcx.kind(tuple.ty) {
                     TyKind::Tuple(l) => tcx.tys(l).len(),
@@ -461,8 +452,7 @@ impl Fx<'_, '_, '_, '_> {
                     constraints: Vec::new(),
                 };
                 let ptr = self.ptr_t();
-                let callee =
-                    Value::Const(self.b.module().consts.intern(Constant { ty: ptr, kind: ConstKind::InlineAsm(a) }));
+                let callee = Value::Const(self.b.module().consts.intern(Constant { ty: ptr, kind: ConstKind::InlineAsm(a) }));
                 self.b.call_indirect(fn_ty, callee, &[]);
                 Ok(Pv::Val(self.unit()))
             }
@@ -520,14 +510,8 @@ impl Fx<'_, '_, '_, '_> {
             "float_to_int_unchecked" => {
                 // Not saturating: the value is known to fit.
                 let v = self.imm(args[0])?;
-                let Repr::Imm(it) = self.repr(output)? else {
-                    return Err("float_to_int_unchecked to a type in memory".into());
-                };
-                let op = if self.signed(output) {
-                    epitome_ir::module::CastOp::FPToSI
-                } else {
-                    epitome_ir::module::CastOp::FPToUI
-                };
+                let Repr::Imm(it) = self.repr(output)? else { return Err("float_to_int_unchecked to a type in memory".into()) };
+                let op = if self.signed(output) { epitome_ir::module::CastOp::FPToSI } else { epitome_ir::module::CastOp::FPToUI };
                 let r = self.b.cast(op, v, it);
                 imm(r)
             }
@@ -574,14 +558,10 @@ impl Fx<'_, '_, '_, '_> {
         use epitome_ir::module::{Atomic, Op, RmwOp};
         let tcx = self.cx.tcx;
         // The orderings are the last arguments.
-        let orderings: Vec<Ordering> = targs
-            .iter()
-            .filter_map(|&t| match tcx.kind(t) {
-                TyKind::ConstArg(c) => Some(c),
-                _ => None,
-            })
-            .map(|c| self.atomic_ordering(c))
-            .collect::<R<_>>()?;
+        let orderings: Vec<Ordering> = targs.iter().filter_map(|&t| match tcx.kind(t) {
+            TyKind::ConstArg(c) => Some(c),
+            _ => None,
+        }).map(|c| self.atomic_ordering(c)).collect::<R<_>>()?;
         let ord = |i: usize| orderings.get(i).copied().ok_or_else(|| format!("`{name}` without its ordering"));
         if name == "atomic_fence" || name == "atomic_singlethreadfence" {
             let scope = (name == "atomic_singlethreadfence").then(|| b"singlethread".to_vec().into_boxed_slice());
@@ -612,10 +592,7 @@ impl Fx<'_, '_, '_, '_> {
         let atomic = |o: Ordering| Some(Atomic { elementwise: false, scope: None, ordering: o });
         match name {
             "atomic_load" => {
-                let v = self
-                    .b
-                    .push(Op::Load { volatile: false, atomic: atomic(ord(0)?), ptr: dst, align }, Some(it))
-                    .unwrap();
+                let v = self.b.push(Op::Load { volatile: false, atomic: atomic(ord(0)?), ptr: dst, align }, Some(it)).unwrap();
                 let v = from_int(self, v);
                 Ok(Pv::Val(Operand { ty: output, v: Val::Imm(v) }))
             }
@@ -669,16 +646,7 @@ impl Fx<'_, '_, '_, '_> {
                     _ => return Err(format!("intrinsic `{name}` is not supported yet")),
                 };
                 let v = to_int(self, args[1])?;
-                let op = Op::AtomicRmw {
-                    op,
-                    volatile: false,
-                    elementwise: false,
-                    ptr: dst,
-                    value: v,
-                    scope: None,
-                    ordering: ord(0)?,
-                    align,
-                };
+                let op = Op::AtomicRmw { op, volatile: false, elementwise: false, ptr: dst, value: v, scope: None, ordering: ord(0)?, align };
                 let r = self.b.push(op, Some(it)).unwrap();
                 let r = from_int(self, r);
                 Ok(Pv::Val(Operand { ty: output, v: Val::Imm(r) }))
@@ -695,14 +663,9 @@ impl Fx<'_, '_, '_, '_> {
                 let ast = &self.cx.crates[k as usize].files[f as usize].ast;
                 // The last name in it: `{ AO::Relaxed }` names `Relaxed`.
                 let text = ast.text(n);
-                text.rsplit(|c: char| !c.is_alphanumeric() && c != '_')
-                    .find(|w| !w.is_empty())
-                    .unwrap_or("")
-                    .to_string()
+                text.rsplit(|c: char| !c.is_alphanumeric() && c != '_').find(|w| !w.is_empty()).unwrap_or("").to_string()
             }
-            crate::ty::Const::Value(v) => {
-                ["Relaxed", "Release", "Acquire", "AcqRel", "SeqCst"].get(v as usize).copied().unwrap_or("").to_string()
-            }
+            crate::ty::Const::Value(v) => ["Relaxed", "Release", "Acquire", "AcqRel", "SeqCst"].get(v as usize).copied().unwrap_or("").to_string(),
             c => return Err(format!("an atomic ordering not known: {c:?}")),
         };
         Ok(match name.as_str() {

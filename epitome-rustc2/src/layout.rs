@@ -54,13 +54,8 @@ impl Default for TargetData {
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Prim {
     /// An integer of `size` bytes.
-    Int {
-        size: u8,
-        signed: bool,
-    },
-    Float {
-        size: u8,
-    },
+    Int { size: u8, signed: bool },
+    Float { size: u8 },
     Pointer,
 }
 
@@ -183,14 +178,7 @@ impl Layout {
     fn scalar(s: Scalar, ptr: u64) -> Layout {
         let size = s.size(ptr);
         let niche = (s.available(ptr) > 0).then_some(Niche { offset: 0, scalar: s });
-        Layout {
-            size,
-            align: size.max(1),
-            abi: Abi::Scalar(s),
-            fields: Fields::Primitive,
-            variants: Variants::Single { index: 0 },
-            niche,
-        }
+        Layout { size, align: size.max(1), abi: Abi::Scalar(s), fields: Fields::Primitive, variants: Variants::Single { index: 0 }, niche }
     }
 
     /// The offset of field `i` (for an array, element `i`).
@@ -255,13 +243,7 @@ fn round_up(x: u64, a: u64) -> u64 {
 }
 
 impl<'a, 's> LayoutCx<'a, 's> {
-    pub fn new(
-        tcx: &'a TyCtxt<'s>,
-        r: &'a Resolver<'s>,
-        crates: &'a [ParsedCrate<'s>],
-        index: &'a Index<'s>,
-        target: TargetData,
-    ) -> Self {
+    pub fn new(tcx: &'a TyCtxt<'s>, r: &'a Resolver<'s>, crates: &'a [ParsedCrate<'s>], index: &'a Index<'s>, target: TargetData) -> Self {
         LayoutCx {
             tcx,
             r,
@@ -352,12 +334,8 @@ impl<'a, 's> LayoutCx<'a, 's> {
         let ptr = self.ptr();
         let int = |size: u8, signed: bool| Layout::scalar(Scalar::full(Prim::Int { size, signed }, ptr), ptr);
         Ok(match tcx.kind(t) {
-            TyKind::Bool => {
-                Layout::scalar(Scalar { prim: Prim::Int { size: 1, signed: false }, start: 0, end: 1 }, ptr)
-            }
-            TyKind::Char => {
-                Layout::scalar(Scalar { prim: Prim::Int { size: 4, signed: false }, start: 0, end: 0x10FFFF }, ptr)
-            }
+            TyKind::Bool => Layout::scalar(Scalar { prim: Prim::Int { size: 1, signed: false }, start: 0, end: 1 }, ptr),
+            TyKind::Char => Layout::scalar(Scalar { prim: Prim::Int { size: 4, signed: false }, start: 0, end: 0x10FFFF }, ptr),
             k @ (TyKind::Int(_) | TyKind::Uint(_)) => {
                 let (bits, signed) = int_bits(k, self.ptr_bits()).unwrap();
                 let mut l = int((bits / 8) as u8, signed);
@@ -384,32 +362,21 @@ impl<'a, 's> LayoutCx<'a, 's> {
             },
             TyKind::Ref(_, x) | TyKind::Ptr(_, x) => {
                 let nonnull = matches!(tcx.kind(t), TyKind::Ref(..));
-                let addr =
-                    Scalar { prim: Prim::Pointer, start: nonnull as u128, end: Scalar::full(Prim::Pointer, ptr).end };
+                let addr = Scalar { prim: Prim::Pointer, start: nonnull as u128, end: Scalar::full(Prim::Pointer, ptr).end };
                 match self.metadata(x)? {
                     None => Layout::scalar(addr, ptr),
                     Some(meta) => self.pair(addr, meta),
                 }
             }
-            TyKind::FnPtr(_) => {
-                Layout::scalar(Scalar { prim: Prim::Pointer, start: 1, end: Scalar::full(Prim::Pointer, ptr).end }, ptr)
-            }
+            TyKind::FnPtr(_) => Layout::scalar(Scalar { prim: Prim::Pointer, start: 1, end: Scalar::full(Prim::Pointer, ptr).end }, ptr),
             TyKind::FnDef(..) => self.univariant(&[], Repr::default(), 0, false)?,
             TyKind::Array(e, c) => {
                 let el = self.layout_of(e)?;
                 let count = self.eval_const(c, &ConstEnv::default()).ok_or(LayoutError::BadConst)? as u64;
                 let stride = el.size;
                 let niche = if count > 0 { el.niche } else { None };
-                let abi =
-                    if el.is_uninhabited() && count > 0 { Abi::Uninhabited } else { Abi::Aggregate { sized: true } };
-                Layout {
-                    size: stride * count,
-                    align: el.align,
-                    abi,
-                    fields: Fields::Array { stride, count },
-                    variants: Variants::Single { index: 0 },
-                    niche,
-                }
+                let abi = if el.is_uninhabited() && count > 0 { Abi::Uninhabited } else { Abi::Aggregate { sized: true } };
+                Layout { size: stride * count, align: el.align, abi, fields: Fields::Array { stride, count }, variants: Variants::Single { index: 0 }, niche }
             }
             TyKind::Slice(e) => {
                 let el = self.layout_of(e)?;
@@ -446,9 +413,7 @@ impl<'a, 's> LayoutCx<'a, 's> {
             // A pattern type: its type's scalar, holding fewer values.
             TyKind::Pat(x, a, b) => {
                 let mut l = (*self.layout_of(x)?).clone();
-                if let (Abi::Scalar(s), crate::ty::Const::Value(a), crate::ty::Const::Value(b)) =
-                    (l.abi, tcx.const_of(a), tcx.const_of(b))
-                {
+                if let (Abi::Scalar(s), crate::ty::Const::Value(a), crate::ty::Const::Value(b)) = (l.abi, tcx.const_of(a), tcx.const_of(b)) {
                     let mask = Scalar::full(s.prim, ptr).end;
                     let s = Scalar { start: a & mask, end: b & mask, ..s };
                     l.abi = Abi::Scalar(s);
@@ -537,13 +502,7 @@ impl<'a, 's> LayoutCx<'a, 's> {
 
     /// Fields laid out one after another from `prefix` bytes in (an enum
     /// variant's after its tag), reordered unless `repr(C)` or `in_order`.
-    fn univariant(
-        &self,
-        fields: &[Arc<Layout>],
-        repr: Repr,
-        prefix: u64,
-        in_order: bool,
-    ) -> Result<Layout, LayoutError> {
+    fn univariant(&self, fields: &[Arc<Layout>], repr: Repr, prefix: u64, in_order: bool) -> Result<Layout, LayoutError> {
         let ptr = self.ptr();
         let n = fields.len();
         let mut order: Vec<u32> = (0..n as u32).collect();
@@ -587,8 +546,7 @@ impl<'a, 's> LayoutCx<'a, 's> {
             Abi::Uninhabited
         } else if !sized {
             Abi::Aggregate { sized: false }
-        } else if big.len() == 1 && offsets[big[0]] == 0 && fields[big[0]].size == size && fields[big[0]].align == align
-        {
+        } else if big.len() == 1 && offsets[big[0]] == 0 && fields[big[0]].size == size && fields[big[0]].align == align {
             match fields[big[0]].abi {
                 a @ (Abi::Scalar(_) | Abi::ScalarPair(..)) => a,
                 _ => Abi::Aggregate { sized: true },
@@ -607,14 +565,7 @@ impl<'a, 's> LayoutCx<'a, 's> {
             abi = Abi::Scalar(s);
             niche = (s.available(ptr) > 0).then_some(Niche { offset: 0, scalar: s });
         }
-        Ok(Layout {
-            size,
-            align,
-            abi,
-            fields: Fields::Arbitrary { offsets, order },
-            variants: Variants::Single { index: 0 },
-            niche,
-        })
+        Ok(Layout { size, align, abi, fields: Fields::Arbitrary { offsets, order }, variants: Variants::Single { index: 0 }, niche })
     }
 
     /// `repr` and layout attributes of an ADT.
@@ -699,22 +650,13 @@ impl<'a, 's> LayoutCx<'a, 's> {
             if let Some(vd) = v.def {
                 let def = &self.r.defs[vd.0 as usize];
                 let ast = &self.crates[def.krate as usize].files[def.file as usize].ast;
-                let written = ast.children(def.node).iter().copied().find(|&c| {
-                    !matches!(
-                        ast.kind(c),
-                        Kind::Name
-                            | Kind::Attribute
-                            | Kind::DocComment
-                            | Kind::Visibility
-                            | Kind::TupleFields
-                            | Kind::NamedFields
-                    )
-                });
+                let written = ast
+                    .children(def.node)
+                    .iter()
+                    .copied()
+                    .find(|&c| !matches!(ast.kind(c), Kind::Name | Kind::Attribute | Kind::DocComment | Kind::Visibility | Kind::TupleFields | Kind::NamedFields));
                 if let Some(e) = written {
-                    val = self
-                        .eval(def.krate, def.file, e, &ConstEnv::default())
-                        .and_then(|v| v.int())
-                        .ok_or(LayoutError::BadConst)?;
+                    val = self.eval(def.krate, def.file, e, &ConstEnv::default()).and_then(|v| v.int()).ok_or(LayoutError::BadConst)?;
                 }
             }
             out.push(val);
@@ -795,21 +737,14 @@ impl<'a, 's> LayoutCx<'a, 's> {
                 Abi::Aggregate { sized: true }
             },
             fields: Fields::Arbitrary { offsets: vec![0], order: vec![0] },
-            variants: Variants::Multiple {
-                tag,
-                tag_offset: 0,
-                encoding: TagEncoding::Direct,
-                discriminants: discrs.clone(),
-                variants,
-            },
+            variants: Variants::Multiple { tag, tag_offset: 0, encoding: TagEncoding::Direct, discriminants: discrs.clone(), variants },
             niche: (tag.available(ptr) > 0).then_some(Niche { offset: 0, scalar: tag }),
         };
         if explicit {
             return Ok(tagged);
         }
         // A niche: all variants but one have no data.
-        let dataful: Vec<usize> =
-            (0..variant_fields.len()).filter(|&i| variant_fields[i].iter().any(|l| !l.is_zst())).collect();
+        let dataful: Vec<usize> = (0..variant_fields.len()).filter(|&i| variant_fields[i].iter().any(|l| !l.is_zst())).collect();
         if dataful.len() != 1 {
             return Ok(tagged);
         }
@@ -835,11 +770,7 @@ impl<'a, 's> LayoutCx<'a, 's> {
         let abi = match inner.abi {
             Abi::Scalar(_) if inner.size == widened.size(ptr) => Abi::Scalar(widened),
             Abi::ScalarPair(a, b) => {
-                if niche.offset == 0 {
-                    Abi::ScalarPair(widened, b)
-                } else {
-                    Abi::ScalarPair(a, widened)
-                }
+                if niche.offset == 0 { Abi::ScalarPair(widened, b) } else { Abi::ScalarPair(a, widened) }
             }
             _ => Abi::Aggregate { sized: true },
         };
@@ -897,10 +828,7 @@ impl<'a, 's> LayoutCx<'a, 's> {
                         let _ = write!(s, ", tag {ty}@{tag_offset} = {discriminants:?}");
                     }
                     TagEncoding::Niche { untagged, first, last, start } => {
-                        let _ = write!(
-                            s,
-                            ", niche {ty}@{tag_offset}: variants {first}..={last} (not {untagged}) from {start}"
-                        );
+                        let _ = write!(s, ", niche {ty}@{tag_offset}: variants {first}..={last} (not {untagged}) from {start}");
                     }
                 }
             }
@@ -923,21 +851,16 @@ impl<'a, 's> LayoutCx<'a, 's> {
                 continue;
             }
             let (word, t) = match def.kind {
-                DefKind::Struct | DefKind::Enum | DefKind::Union if tcx.adts.contains_key(&d) => (
-                    if def.kind == DefKind::Enum { "enum" } else { "struct" },
-                    tcx.mk(TyKind::Adt(d, tcx.list(vec![]))),
-                ),
+                DefKind::Struct | DefKind::Enum | DefKind::Union if tcx.adts.contains_key(&d) => {
+                    (if def.kind == DefKind::Enum { "enum" } else { "struct" }, tcx.mk(TyKind::Adt(d, tcx.list(vec![]))))
+                }
                 DefKind::TypeAlias => match tcx.type_of(d) {
                     Some(t) => ("type", t),
                     None => continue,
                 },
                 _ => continue,
             };
-            let names: Option<Vec<&str>> = tcx
-                .adts
-                .get(&d)
-                .filter(|a| a.kind != AdtKind::Enum)
-                .map(|a| a.variants[0].fields.iter().map(|f| f.name).collect());
+            let names: Option<Vec<&str>> = tcx.adts.get(&d).filter(|a| a.kind != AdtKind::Enum).map(|a| a.variants[0].fields.iter().map(|f| f.name).collect());
             let desc = match self.layout_of(t) {
                 Ok(l) => self.describe(names.as_deref(), &l),
                 Err(e) => format!("no layout: {e:?}"),

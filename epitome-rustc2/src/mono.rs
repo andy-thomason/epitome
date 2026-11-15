@@ -576,14 +576,7 @@ pub(crate) fn trait_of(r: &Resolver, item: DefId) -> Option<DefId> {
 /// Resolves a use of `d` at `args` (all concrete): a trait method to the
 /// impl's method (or the trait's default), an associated constant to the
 /// impl's.
-pub(crate) fn instance(
-    r: &Resolver,
-    crates: &[ParsedCrate],
-    tcx: &TyCtxt,
-    solver: &mut Solver,
-    d: DefId,
-    args: Vec<Ty>,
-) -> Resolved {
+pub(crate) fn instance(r: &Resolver, crates: &[ParsedCrate], tcx: &TyCtxt, solver: &mut Solver, d: DefId, args: Vec<Ty>) -> Resolved {
     let kind = r.defs[d.0 as usize].kind;
     match kind {
         DefKind::ForeignFn => Resolved::Item(Item::Foreign(d)),
@@ -625,11 +618,7 @@ pub(crate) fn has_param_or_infer(tcx: &TyCtxt, t: Ty) -> bool {
         }
         TyKind::Ref(_, x) | TyKind::Ptr(_, x) | TyKind::Slice(x) | TyKind::Pat(x, ..) => has_param_or_infer(tcx, x),
         TyKind::Array(x, c) => {
-            has_param_or_infer(tcx, x)
-                || matches!(
-                    tcx.const_of(c),
-                    crate::ty::Const::Param(_) | crate::ty::Const::Infer(_) | crate::ty::Const::Error
-                )
+            has_param_or_infer(tcx, x) || matches!(tcx.const_of(c), crate::ty::Const::Param(_) | crate::ty::Const::Infer(_) | crate::ty::Const::Error)
         }
         TyKind::FnPtr(s) => {
             let s = tcx.sig_of(s);
@@ -643,9 +632,7 @@ pub(crate) fn has_param_or_infer(tcx: &TyCtxt, t: Ty) -> bool {
         }
         // Not revealed: its owner's body did not say what it is.
         TyKind::Opaque(..) => true,
-        TyKind::ConstArg(c) => {
-            matches!(tcx.const_of(c), crate::ty::Const::Param(_) | crate::ty::Const::Infer(_) | crate::ty::Const::Error)
-        }
+        TyKind::ConstArg(c) => matches!(tcx.const_of(c), crate::ty::Const::Param(_) | crate::ty::Const::Infer(_) | crate::ty::Const::Error),
         _ => false,
     }
 }

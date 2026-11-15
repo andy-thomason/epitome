@@ -70,20 +70,12 @@ impl Target {
     }
 
     pub fn aarch64_darwin() -> Target {
-        Target {
-            triple: "arm64-apple-macosx14.0.0",
-            data_layout: "e-m:o-i64:64-i128:128-n32:64-S128-Fn32",
-            ptr_size: 8,
-        }
+        Target { triple: "arm64-apple-macosx14.0.0", data_layout: "e-m:o-i64:64-i128:128-n32:64-S128-Fn32", ptr_size: 8 }
     }
 
     /// The machine this compiler runs on.
     pub fn host() -> Target {
-        if cfg!(all(target_arch = "aarch64", target_os = "macos")) {
-            Target::aarch64_darwin()
-        } else {
-            Target::x86_64_linux()
-        }
+        if cfg!(all(target_arch = "aarch64", target_os = "macos")) { Target::aarch64_darwin() } else { Target::x86_64_linux() }
     }
 }
 
@@ -263,8 +255,7 @@ impl<'a, 's> Cx<'a, 's> {
         let sig = self.tcx.fn_sig[d.0 as usize].ok_or_else(|| format!("{} has no signature", self.r.def_path(d)))?;
         let sig = self.tcx.sig_of(sig);
         let params = self.tcx.all_params(d);
-        let sub =
-            |solver: &mut Solver, t: Ty| crate::mono::sub(self.tcx, &self.typeck.hidden, solver, t, &params, args);
+        let sub = |solver: &mut Solver, t: Ty| crate::mono::sub(self.tcx, &self.typeck.hidden, solver, t, &params, args);
         let inputs: Vec<Ty> = self.tcx.tys(sig.inputs).into_iter().map(|t| sub(solver, t)).collect();
         let output = sub(solver, sig.output);
         Ok((inputs, output, sig.abi == crate::ty::Abi::C, sig.variadic))
@@ -273,24 +264,13 @@ impl<'a, 's> Cx<'a, 's> {
     /// The type of closure `c` in its owner `d` at `l`.
     pub fn closure_ty(&self, solver: &mut Solver, c: crate::ty::ClosureId, d: DefId, l: List) -> Result<Ty, String> {
         let (k, f, node) = self.tcx.closure_at(c);
-        let t = self.typeck.types[k as usize][f as usize]
-            .get(node.0 as usize)
-            .copied()
-            .flatten()
-            .ok_or("closure without a type")?;
+        let t = self.typeck.types[k as usize][f as usize].get(node.0 as usize).copied().flatten().ok_or("closure without a type")?;
         Ok(crate::mono::sub(self.tcx, &self.typeck.hidden, solver, t, &self.tcx.all_params(d), &self.tcx.tys(l)))
     }
 
     /// A closure's function takes a pointer to the closure (its captures)
     /// first, then its parameters.
-    pub fn closure_abi(
-        &self,
-        solver: &mut Solver,
-        m: &mut Module,
-        c: crate::ty::ClosureId,
-        d: DefId,
-        l: List,
-    ) -> Result<FnAbi, String> {
+    pub fn closure_abi(&self, solver: &mut Solver, m: &mut Module, c: crate::ty::ClosureId, d: DefId, l: List) -> Result<FnAbi, String> {
         let t = self.closure_ty(solver, c, d, l)?;
         let TyKind::Closure(_, s, _) = self.tcx.kind(t) else { return Err("closure of no closure type".into()) };
         let sig = self.tcx.sig_of(s);
@@ -407,8 +387,7 @@ impl<'a, 's> Cx<'a, 's> {
         let (k, f, ast, node) = self.def_ast(d);
         let kind = self.r.defs[d.0 as usize].kind;
         if matches!(kind, DefKind::ForeignFn | DefKind::ForeignStatic) {
-            return crate::session::attribute_value(ast, node, "link_name")
-                .unwrap_or_else(|| self.r.defs[d.0 as usize].name.to_string());
+            return crate::session::attribute_value(ast, node, "link_name").unwrap_or_else(|| self.r.defs[d.0 as usize].name.to_string());
         }
         if let Some(n) = crate::session::attribute_value(ast, node, "export_name") {
             return n;
@@ -472,9 +451,7 @@ impl Session {
         for &it in &mono.items {
             match it {
                 Item::Fn(d, l) => named.push((cx.symbol(d, l), it)),
-                Item::Foreign(d)
-                    if matches!(r.defs[d.0 as usize].kind, DefKind::ForeignFn | DefKind::AssocFn | DefKind::Fn) =>
-                {
+                Item::Foreign(d) if matches!(r.defs[d.0 as usize].kind, DefKind::ForeignFn | DefKind::AssocFn | DefKind::Fn) => {
                     named.push((cx.symbol(d, tcx.list(Vec::new())), it))
                 }
                 Item::Static(d) => named.push((cx.symbol(d, tcx.list(Vec::new())), it)),
@@ -626,24 +603,18 @@ impl Session {
                 title = format!("closure at node {} in {title}", tcx.closure_at(c).2.0);
             }
             titles.insert(decl.g, title);
-            let got =
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| body::lower_fn(&cx, &mut m, *it, &decl)));
+            let got = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| body::lower_fn(&cx, &mut m, *it, &decl)));
             let why = match got {
                 Ok(Ok((n, t))) => {
                     notes.insert(decl.g, n);
                     if !t.is_empty() {
-                        partial.push(Failure {
-                            item: *it,
-                            name: name.clone(),
-                            why: format!("traps where it uses {}", t.join(", ")),
-                        });
+                        partial.push(Failure { item: *it, name: name.clone(), why: format!("traps where it uses {}", t.join(", ")) });
                     }
                     continue;
                 }
                 Ok(Err(e)) => e,
                 Err(p) => {
-                    let msg =
-                        p.downcast_ref::<String>().cloned().or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string()));
+                    let msg = p.downcast_ref::<String>().cloned().or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string()));
                     format!("internal error: {}", msg.unwrap_or_default())
                 }
             };
@@ -655,9 +626,7 @@ impl Session {
         let mut ctors = Vec::new();
         for (it, d, g, name) in static_inits {
             let fname = format!("{name}.init");
-            let got = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                body::lower_static_init(&cx, &mut m, d, g, &fname)
-            }));
+            let got = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| body::lower_static_init(&cx, &mut m, d, g, &fname)));
             match got {
                 Ok(Ok(f)) => {
                     functions += 1;
@@ -704,8 +673,7 @@ fn x86_64_features() -> &'static FastMap<String, Vec<String>> {
 /// Gives function `g` the attribute `"target-features"="fs"`.
 fn add_target_features(m: &mut Module, g: GlobalId, fs: String) {
     if let epitome_ir::module::GlobalKind::Function(f) = &mut m.globals[g.index()].kind {
-        f.fn_attrs
-            .push(epitome_ir::module::Attr::Str { key: b"target-features".to_vec(), value: Some(fs.into_bytes()) });
+        f.fn_attrs.push(epitome_ir::module::Attr::Str { key: b"target-features".to_vec(), value: Some(fs.into_bytes()) });
     }
 }
 
@@ -746,16 +714,7 @@ fn item_title(cx: &Cx, d: DefId, l: List) -> String {
 /// Whether `t` is a type lowering treats as a primitive for operators:
 /// numbers, `bool`, `char` and raw pointers.
 pub(crate) fn is_prim(tcx: &TyCtxt, t: Ty) -> bool {
-    matches!(
-        tcx.kind(t),
-        TyKind::Int(_)
-            | TyKind::Uint(_)
-            | TyKind::Float(_)
-            | TyKind::Bool
-            | TyKind::Char
-            | TyKind::Ptr(..)
-            | TyKind::FnPtr(_)
-    )
+    matches!(tcx.kind(t), TyKind::Int(_) | TyKind::Uint(_) | TyKind::Float(_) | TyKind::Bool | TyKind::Char | TyKind::Ptr(..) | TyKind::FnPtr(_))
 }
 
 #[cfg(test)]
@@ -782,22 +741,12 @@ mod tests {
             return;
         };
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/run");
-        let mut programs: Vec<_> = std::fs::read_dir(&dir)
-            .unwrap()
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| p.extension().is_some_and(|x| x == "rs"))
-            .collect();
+        let mut programs: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "rs")).collect();
         programs.sort();
         assert!(programs.len() >= 5, "programs: {programs:?}");
         for file in programs {
-            let session = Session::new(Options {
-                threads: 4,
-                cfg: Some(crate::cfg::CfgSet::x86_64_linux()),
-                ..Default::default()
-            });
-            let mut crates =
-                session.parse_crates(vec![CrateRoot::new("core", &core), CrateRoot::new("program", &file)]);
+            let session = Session::new(Options { threads: 4, cfg: Some(crate::cfg::CfgSet::x86_64_linux()), ..Default::default() });
+            let mut crates = session.parse_crates(vec![CrateRoot::new("core", &core), CrateRoot::new("program", &file)]);
             session.expand(&mut crates);
             let r = session.resolve(&crates);
             let tcx = session.collect_types(&crates, &r);
@@ -811,12 +760,7 @@ mod tests {
                 .iter()
                 .filter(|f| {
                     let d = match f.item {
-                        Item::Fn(d, _)
-                        | Item::Closure(_, d, _)
-                        | Item::Static(d)
-                        | Item::Foreign(d)
-                        | Item::Intrinsic(d, _)
-                        | Item::Const(d, _) => d,
+                        Item::Fn(d, _) | Item::Closure(_, d, _) | Item::Static(d) | Item::Foreign(d) | Item::Intrinsic(d, _) | Item::Const(d, _) => d,
                         Item::VTable(..) => return false,
                         // Drop glue the program needs, of whatever type.
                         Item::DropGlue(_) => return true,

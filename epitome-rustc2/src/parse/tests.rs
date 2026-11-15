@@ -339,10 +339,7 @@ fn builtin_forms() {
         ty("unsafe<'a, 'b> &'a &'b u8"),
         "(UnsafeBinderType (Lifetime 'a) (Lifetime 'b) (RefType (Lifetime 'a) (RefType (Lifetime 'b) (PathType (Path (Segment (Name u8)))))))"
     );
-    assert_eq!(
-        ty("builtin # field_of(E, B.q)"),
-        "(BuiltinType (Name field_of) (PathType (Path (Segment (Name E)))) (TokenTree B.q))"
-    );
+    assert_eq!(ty("builtin # field_of(E, B.q)"), "(BuiltinType (Name field_of) (PathType (Path (Segment (Name E)))) (TokenTree B.q))");
     assert_eq!(
         pat("builtin # deref(Some(x))"),
         "(BuiltinPat (Name deref) (TupleStructPat (Path (Segment (Name Some))) (IdentPat (Name x))))"

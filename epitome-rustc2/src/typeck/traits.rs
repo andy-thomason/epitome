@@ -19,8 +19,8 @@
 //! error: the variables may be settled later, and anything waiting on an
 //! associated type is kept as a pending obligation, tried again later.
 
-use super::Adjust;
 use super::check::{FnCtxt, Head, head};
+use super::Adjust;
 use super::infer::VarKind;
 use crate::ast::{Kind, NodeId};
 use crate::hash::FastMap;
@@ -84,10 +84,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 if let Some((&s, rest)) = params.split_first() {
                     let self_ty = self.mk(TyKind::Param(s));
                     let args: Vec<Ty> = rest.iter().map(|&p| self.mk(TyKind::Param(p))).collect();
-                    preds.push(Pred::Trait(
-                        self_ty,
-                        TraitRef { def: d, args: tcx.list(args), bindings: Vec::new(), assoc_bounds: Vec::new() },
-                    ));
+                    preds.push(Pred::Trait(self_ty, TraitRef { def: d, args: tcx.list(args), bindings: Vec::new(), assoc_bounds: Vec::new() }));
                 }
             }
             o = tcx.generics[d.0 as usize].parent;
@@ -161,10 +158,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 let args = tcx.tys(l);
                 for p in &tcx.predicates[a.0 as usize] {
                     match p {
-                        Pred::Trait(pt, tr)
-                            if args.len() >= params.len()
-                                || params.len() == args.len() + tcx.generics[a.0 as usize].own.len() =>
-                        {
+                        Pred::Trait(pt, tr) if args.len() >= params.len() || params.len() == args.len() + tcx.generics[a.0 as usize].own.len() => {
                             let pt = subst(tcx, *pt, &params, &args);
                             if pt == t {
                                 let tr = subst_trait_ref(tcx, tr, &params, &args);
@@ -304,20 +298,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
             return true;
         }
         let is = |name: &str| tcx.lang.get(name) == Some(&tr);
-        if [
-            "sized",
-            "meta_sized",
-            "pointee_sized",
-            "destruct",
-            "freeze",
-            "unsize",
-            "discriminant_kind",
-            "pointee_trait",
-            "transmute_trait",
-            "bikeshed_guaranteed_no_drop",
-        ]
-        .iter()
-        .any(|n| is(n))
+        if ["sized", "meta_sized", "pointee_sized", "destruct", "freeze", "unsize", "discriminant_kind", "pointee_trait", "transmute_trait", "bikeshed_guaranteed_no_drop"]
+            .iter()
+            .any(|n| is(n))
         {
             return true;
         }
@@ -471,9 +454,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
             .filter(|&c| matches!(ast.kind(c), Kind::Generics | Kind::WhereClause))
             .collect();
         while let Some(c) = stack.pop() {
-            if ast.kind(c) == Kind::TraitBound
-                && ast.children(c).first().is_some_and(|&o| ast.kind(o) == Kind::Op && ast.token(o).0 == "?")
-            {
+            if ast.kind(c) == Kind::TraitBound && ast.children(c).first().is_some_and(|&o| ast.kind(o) == Kind::Op && ast.token(o).0 == "?") {
                 n += 1;
             }
             stack.extend(ast.children(c).iter().copied());
@@ -619,9 +600,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
             let s = self.probe();
             let pl = tcx.tys(l);
             let (pa, aa) = match self.trait_of(assoc) {
-                Some(tr) => {
-                    (self.full_trait_args(tr, pt, pl[1..].to_vec()), self.full_trait_args(tr, t, args[1..].to_vec()))
-                }
+                Some(tr) => (self.full_trait_args(tr, pt, pl[1..].to_vec()), self.full_trait_args(tr, t, args[1..].to_vec())),
                 None => (pl[1..].to_vec(), args[1..].to_vec()),
             };
             if self.self_matches(pt, t) && self.args_unify(&pa, &aa) {
@@ -701,22 +680,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 let repr = crate::session::attributes(ast, def.node)
                     .filter(|(n, _)| n == "repr")
                     .flat_map(|(_, a)| ast.tokens_of(a).iter().map(|t| t.0).collect::<Vec<_>>())
-                    .find(|w| {
-                        matches!(
-                            *w,
-                            "u8" | "u16"
-                                | "u32"
-                                | "u64"
-                                | "u128"
-                                | "usize"
-                                | "i8"
-                                | "i16"
-                                | "i32"
-                                | "i64"
-                                | "i128"
-                                | "isize"
-                        )
-                    });
+                    .find(|w| matches!(*w, "u8" | "u16" | "u32" | "u64" | "u128" | "usize" | "i8" | "i16" | "i32" | "i64" | "i128" | "isize"));
                 named(repr.unwrap_or("isize"))
             }
             _ => named("u8"),
@@ -1047,8 +1011,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
     pub(super) fn has_self(&self, item: DefId) -> bool {
         let def = &self.r.defs[item.0 as usize];
         let ast = &self.env.crates[def.krate as usize].files[def.file as usize].ast;
-        ast.child(def.node, crate::ast::Kind::Params)
-            .is_some_and(|p| ast.child(p, crate::ast::Kind::SelfParam).is_some())
+        ast.child(def.node, crate::ast::Kind::Params).is_some_and(|p| ast.child(p, crate::ast::Kind::SelfParam).is_some())
     }
 
     /// `T::name` where `T` implements a trait with an item `name` (a
@@ -1085,14 +1048,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
     /// An operator through its trait (lang item `lang`): `Output` of
     /// `a: Trait<b>` (or of `a: Trait` for a unary operator). Records that
     /// `n` calls the trait's method `method`.
-    pub(super) fn op_trait(
-        &mut self,
-        n: crate::ast::NodeId,
-        lang: &str,
-        method: &str,
-        a: Ty,
-        b: Option<Ty>,
-    ) -> Option<Ty> {
+    pub(super) fn op_trait(&mut self, n: crate::ast::NodeId, lang: &str, method: &str, a: Ty, b: Option<Ty>) -> Option<Ty> {
         let tr = self.lang(lang)?;
         let targs: Vec<Ty> = b.into_iter().collect();
         if !self.select(a, tr, &targs, 0).holds() {
@@ -1107,14 +1063,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
 
     /// Records that node `n` calls trait `tr`'s method `method` with
     /// `Self` = `self_ty` and the trait's other arguments `targs`.
-    pub(super) fn record_trait_method(
-        &mut self,
-        n: crate::ast::NodeId,
-        tr: DefId,
-        method: &str,
-        self_ty: Ty,
-        targs: &[Ty],
-    ) {
+    pub(super) fn record_trait_method(&mut self, n: crate::ast::NodeId, tr: DefId, method: &str, self_ty: Ty, targs: &[Ty]) {
         if let Some(m) = self.trait_item(tr, method, Ns::Value) {
             let mut args = vec![self_ty];
             let full = self.full_trait_args(tr, self_ty, targs.to_vec());
@@ -1188,9 +1137,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
         self.implicit_call(n, tr, "branch", vec![t]);
         let Some(res) = self.trait_item(tr, "Residual", Ns::Type) else { return };
         let residual = self.project_or_var(res, &[t]);
-        let from = tcx.traits.get(&tr).and_then(|d| {
-            d.supertraits.iter().find(|s| self.trait_item(s.def, "from_residual", Ns::Value).is_some()).map(|s| s.def)
-        });
+        let from = tcx.traits.get(&tr).and_then(|d| d.supertraits.iter().find(|s| self.trait_item(s.def, "from_residual", Ns::Value).is_some()).map(|s| s.def));
         if let Some(fr) = from {
             let ret = self.ret;
             self.implicit_call(n, fr, "from_residual", vec![ret, residual]);
@@ -1254,9 +1201,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
             (TyKind::Dyn(_), TyKind::Dyn(_)) => true,
             // A struct whose last field unsizes: `S<[T; N]>` to `S<[T]>`,
             // the other arguments the same.
-            (TyKind::Adt(a, x), TyKind::Adt(b, y))
-                if a == b && tcx.adts.get(&a).is_some_and(|d| d.kind == crate::ty::AdtKind::Struct) =>
-            {
+            (TyKind::Adt(a, x), TyKind::Adt(b, y)) if a == b && tcx.adts.get(&a).is_some_and(|d| d.kind == crate::ty::AdtKind::Struct) => {
                 let (xs, ys) = (tcx.tys(x), tcx.tys(y));
                 let mut unsized_at = None;
                 for (i, (&p, &q)) in xs.iter().zip(&ys).enumerate() {
@@ -1324,8 +1269,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
             }
         }
         // Any trait with such an associated type that `t` implements.
-        let traits: Vec<DefId> =
-            tcx.traits.keys().copied().filter(|&tr| self.trait_item(tr, name, Ns::Type).is_some()).collect();
+        let traits: Vec<DefId> = tcx.traits.keys().copied().filter(|&tr| self.trait_item(tr, name, Ns::Type).is_some()).collect();
         for tr in traits {
             let n = tcx.generics[tr.0 as usize].own.len().saturating_sub(1);
             let targs: Vec<Ty> = (0..n).map(|_| self.infer.fresh()).collect();
@@ -1346,12 +1290,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
 }
 
 /// `tr` with `params` replaced by `args`.
-pub(super) fn subst_trait_ref(
-    tcx: &crate::ty::TyCtxt,
-    tr: &TraitRef,
-    params: &[crate::ty::ParamId],
-    args: &[Ty],
-) -> TraitRef {
+pub(super) fn subst_trait_ref(tcx: &crate::ty::TyCtxt, tr: &TraitRef, params: &[crate::ty::ParamId], args: &[Ty]) -> TraitRef {
     let a: Vec<Ty> = tcx.tys(tr.args).into_iter().map(|x| subst(tcx, x, params, args)).collect();
     TraitRef {
         def: tr.def,
@@ -1366,12 +1305,8 @@ pub(super) fn subst_trait_ref(
 fn mentions_rigid(tcx: &crate::ty::TyCtxt, t: Ty) -> bool {
     match tcx.kind(t) {
         TyKind::Param(_) | TyKind::Opaque(..) | TyKind::Dyn(_) | TyKind::Projection(..) => true,
-        TyKind::Tuple(l) | TyKind::Adt(_, l) | TyKind::FnDef(_, l) => {
-            tcx.tys(l).into_iter().any(|x| mentions_rigid(tcx, x))
-        }
-        TyKind::Ref(_, x) | TyKind::Ptr(_, x) | TyKind::Slice(x) | TyKind::Array(x, _) | TyKind::Pat(x, ..) => {
-            mentions_rigid(tcx, x)
-        }
+        TyKind::Tuple(l) | TyKind::Adt(_, l) | TyKind::FnDef(_, l) => tcx.tys(l).into_iter().any(|x| mentions_rigid(tcx, x)),
+        TyKind::Ref(_, x) | TyKind::Ptr(_, x) | TyKind::Slice(x) | TyKind::Array(x, _) | TyKind::Pat(x, ..) => mentions_rigid(tcx, x),
         _ => false,
     }
 }
@@ -1380,9 +1315,7 @@ fn mentions_rigid(tcx: &crate::ty::TyCtxt, t: Ty) -> bool {
 fn has_projection(tcx: &crate::ty::TyCtxt, t: Ty) -> bool {
     match tcx.kind(t) {
         TyKind::Projection(..) => true,
-        TyKind::Tuple(l) | TyKind::Adt(_, l) | TyKind::Opaque(_, l) | TyKind::FnDef(_, l) => {
-            tcx.tys(l).into_iter().any(|x| has_projection(tcx, x))
-        }
+        TyKind::Tuple(l) | TyKind::Adt(_, l) | TyKind::Opaque(_, l) | TyKind::FnDef(_, l) => tcx.tys(l).into_iter().any(|x| has_projection(tcx, x)),
         TyKind::Ref(_, x) | TyKind::Ptr(_, x) | TyKind::Slice(x) | TyKind::Array(x, _) => has_projection(tcx, x),
         TyKind::FnPtr(s) => {
             let s = tcx.sig_of(s);

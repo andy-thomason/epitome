@@ -135,9 +135,7 @@ impl Fx<'_, '_, '_, '_> {
     /// The tag of the enum at `p`, as an integer, with its scalar's size.
     fn tag(&mut self, p: Place) -> R<(Value, u64)> {
         let l = self.layout(p.ty)?;
-        let Variants::Multiple { tag, tag_offset, .. } = &l.variants else {
-            return Err("tag of a single variant".into());
-        };
+        let Variants::Multiple { tag, tag_offset, .. } = &l.variants else { return Err("tag of a single variant".into()) };
         let size = tag.size(self.cx.lcx.target.ptr_size);
         let it = self.b.module().types.int(size as u32 * 8);
         let a = self.offset(p.addr, *tag_offset);
@@ -353,9 +351,7 @@ impl Fx<'_, '_, '_, '_> {
             }
             Kind::StructPat => {
                 let v = self.pat_variant(kids[0], p, fail)?;
-                let TyKind::Adt(d, _) = tcx.kind(p.ty) else {
-                    return Err("struct pattern on something not a struct".into());
-                };
+                let TyKind::Adt(d, _) = tcx.kind(p.ty) else { return Err("struct pattern on something not a struct".into()) };
                 let names: Vec<&str> = tcx.adts[&d].variants[v as usize].fields.iter().map(|f| f.name).collect();
                 for &f in &kids[1..] {
                     if ast.kind(f) != Kind::FieldPat {
@@ -479,9 +475,7 @@ impl Fx<'_, '_, '_, '_> {
     fn variant_fields(&self, p: Place, v: u32) -> R<usize> {
         let tcx = self.cx.tcx;
         match tcx.kind(p.ty) {
-            TyKind::Adt(d, _) => {
-                Ok(tcx.adts.get(&d).and_then(|a| a.variants.get(v as usize)).map_or(0, |x| x.fields.len()))
-            }
+            TyKind::Adt(d, _) => Ok(tcx.adts.get(&d).and_then(|a| a.variants.get(v as usize)).map_or(0, |x| x.fields.len())),
             _ => Err("constructor pattern on something not a struct or enum".into()),
         }
     }
@@ -489,9 +483,7 @@ impl Fx<'_, '_, '_, '_> {
     /// Tests the variant a constructor pattern's path names; gives it.
     fn pat_variant(&mut self, path: NodeId, p: Place, fail: Option<BlockId>) -> R<u32> {
         let tcx = self.cx.tcx;
-        let TyKind::Adt(d, _) = tcx.kind(p.ty) else {
-            return Err("constructor pattern on something not an ADT".into());
-        };
+        let TyKind::Adt(d, _) = tcx.kind(p.ty) else { return Err("constructor pattern on something not an ADT".into()) };
         let v = self.variant_of_path(path, d).ok_or("variant not found")?;
         if tcx.adts[&d].kind == AdtKind::Enum && fail.is_some() {
             let ok = self.test_variant(p, v)?;
@@ -614,8 +606,7 @@ impl Fx<'_, '_, '_, '_> {
         let ast = self.body.ast;
         let tcx = self.cx.tcx;
         let is_rest = |c: NodeId| {
-            ast.kind(c) == Kind::RestPat
-                || ast.kind(c) == Kind::IdentPat && ast.children(c).iter().any(|&x| ast.kind(x) == Kind::RestPat)
+            ast.kind(c) == Kind::RestPat || ast.kind(c) == Kind::IdentPat && ast.children(c).iter().any(|&x| ast.kind(x) == Kind::RestPat)
         };
         let rest = kids.iter().position(|&c| is_rest(c));
         let (elem, len) = match tcx.kind(p.ty) {
@@ -629,11 +620,7 @@ impl Fx<'_, '_, '_, '_> {
         let fixed = kids.len() - rest.is_some() as usize;
         let need = self.usize_const(fixed as u64);
         if matches!(tcx.kind(p.ty), TyKind::Slice(_)) && fail.is_some() {
-            let ok = if rest.is_some() {
-                self.b.icmp(ICmpPred::Uge, len, need)
-            } else {
-                self.b.icmp(ICmpPred::Eq, len, need)
-            };
+            let ok = if rest.is_some() { self.b.icmp(ICmpPred::Uge, len, need) } else { self.b.icmp(ICmpPred::Eq, len, need) };
             self.test(ok, fail)?;
         }
         let stride = self.layout(elem)?.size;

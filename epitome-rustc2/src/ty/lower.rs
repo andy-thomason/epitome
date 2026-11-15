@@ -122,9 +122,7 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
             Kind::InferType => self.err("`_` in a signature"),
             Kind::FnPtrType => self.fn_ptr(n),
             // In a parameter's type: the parameter it stands for.
-            Kind::ImplTraitType if let Some(&p) = self.tcx.param_at.get(&(self.k, self.file, n)) => {
-                self.tcx.mk(TyKind::Param(p))
-            }
+            Kind::ImplTraitType if let Some(&p) = self.tcx.param_at.get(&(self.k, self.file, n)) => self.tcx.mk(TyKind::Param(p)),
             Kind::ImplTraitType => {
                 let bounds = kids.first().map(|&b| self.bounds(b)).unwrap_or_default();
                 let id = self.tcx.new_opaque(OpaqueDef { owner: self.owner, bounds });
@@ -146,12 +144,8 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
                 // `field_of(T, f)`: `FieldRepresentingType<T, VARIANT, FIELD>`.
                 let t = self.ty(kids[1]);
                 let path = field_path(&ast.text(kids[2]));
-                let Some((v, f)) = self.tcx.field_index(t, &path) else {
-                    return self.err("`field_of` of a field not found");
-                };
-                let Some(&frt) = self.tcx.lang.get("field_representing_type") else {
-                    return self.err("no `FieldRepresentingType`");
-                };
+                let Some((v, f)) = self.tcx.field_index(t, &path) else { return self.err("`field_of` of a field not found") };
+                let Some(&frt) = self.tcx.lang.get("field_representing_type") else { return self.err("no `FieldRepresentingType`") };
                 let c = |cx: &mut Self, x: u32| {
                     let k = cx.tcx.konst(Const::Value(x as u128));
                     cx.tcx.mk(TyKind::ConstArg(k))
@@ -372,12 +366,7 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
                 let Some(&d) = self.tcx.def_at.get(&at) else { return self.err("`Self` of nothing") };
                 match self.env.r.defs[d.0 as usize].kind {
                     DefKind::Trait => {
-                        let t = TraitRef {
-                            def: d,
-                            args: self.tcx.list(Vec::new()),
-                            bindings: Vec::new(),
-                            assoc_bounds: Vec::new(),
-                        };
+                        let t = TraitRef { def: d, args: self.tcx.list(Vec::new()), bindings: Vec::new(), assoc_bounds: Vec::new() };
                         let t = TraitRef { args: self.trait_identity(d), ..t };
                         self.projection(self_ty, &t, name)
                     }
@@ -417,12 +406,7 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
         let owner = self.tcx.params[p.0 as usize].owner;
         // `Self` of a trait: that trait.
         if self.tcx.params[p.0 as usize].name == "Self" && self.env.r.defs[owner.0 as usize].kind == DefKind::Trait {
-            let t = TraitRef {
-                def: owner,
-                args: self.trait_identity(owner),
-                bindings: Vec::new(),
-                assoc_bounds: Vec::new(),
-            };
+            let t = TraitRef { def: owner, args: self.trait_identity(owner), bindings: Vec::new(), assoc_bounds: Vec::new() };
             return self.projection(self_ty, &t, name);
         }
         for t in self.param_bound_traits(p) {

@@ -46,12 +46,8 @@ fn programs_match_rustc() {
     assert!(Command::new("cc").arg("-c").arg(&stub).arg("-o").arg(&eh).status().unwrap().success(), "cc failed");
 
     let programs_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/run");
-    let mut programs: Vec<PathBuf> = std::fs::read_dir(&programs_dir)
-        .unwrap()
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|x| x == "rs"))
-        .collect();
+    let mut programs: Vec<PathBuf> =
+        std::fs::read_dir(&programs_dir).unwrap().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "rs")).collect();
     programs.sort();
     assert!(programs.len() >= 5, "programs: {programs:?}");
     let mut failed = Vec::new();
@@ -79,8 +75,7 @@ fn programs_match_rustc() {
             }
             let built = cmd.arg("-o").arg(&ep).arg(&core).arg(p).output().unwrap();
             if !built.status.success() {
-                failed
-                    .push(format!("{name} (optimised: {opt}): not built:\n{}", String::from_utf8_lossy(&built.stderr)));
+                failed.push(format!("{name} (optimised: {opt}): not built:\n{}", String::from_utf8_lossy(&built.stderr)));
                 continue;
             }
             let got = run(&ep);

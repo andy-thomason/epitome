@@ -11,9 +11,7 @@ use crate::resolve::{DefId, DefKind, Res};
 use crate::ty::{AdtKind, FloatTy, IntTy, List, Mutbl, ParamId, Ty, TyKind, UintTy};
 use crate::typeck::{Adjust, Solver, Tables};
 use epitome_ir::build::FunctionBuilder;
-use epitome_ir::module::{
-    Align, BinOp, BlockId, CastOp, FCmpPred, Function as IrFunction, GlobalId, ICmpPred, Linkage, Module, Op, Value,
-};
+use epitome_ir::module::{Align, BinOp, BlockId, CastOp, FCmpPred, Function as IrFunction, GlobalId, ICmpPred, Linkage, Module, Op, Value};
 use epitome_ir::types::TypeId;
 use std::sync::Arc;
 
@@ -179,16 +177,11 @@ pub(crate) fn lower_fn(cx: &Cx, m: &mut Module, it: Item, decl: &Decl) -> R<(Not
     let pnodes: Vec<NodeId> = match closure {
         Some(_) => {
             let ps = ast.child(node, Kind::ClosureParams);
-            ps.map(|ps| ast.children(ps).iter().copied().filter(|&c| ast.kind(c) == Kind::ClosureParam).collect())
-                .unwrap_or_default()
+            ps.map(|ps| ast.children(ps).iter().copied().filter(|&c| ast.kind(c) == Kind::ClosureParam).collect()).unwrap_or_default()
         }
         None => {
             let pnode = ast.child(node, Kind::Params).ok_or("no parameters")?;
-            ast.children(pnode)
-                .iter()
-                .copied()
-                .filter(|&c| matches!(ast.kind(c), Kind::SelfParam | Kind::Param))
-                .collect()
+            ast.children(pnode).iter().copied().filter(|&c| matches!(ast.kind(c), Kind::SelfParam | Kind::Param)).collect()
         }
     };
     let skip = closure.is_some() as usize;
@@ -237,12 +230,7 @@ pub(crate) fn lower_fn(cx: &Cx, m: &mut Module, it: Item, decl: &Decl) -> R<(Not
                 }
             }
             _ => {
-                let pat = ast
-                    .children(p)
-                    .iter()
-                    .copied()
-                    .find(|&c| super::pat::is_pattern(ast.kind(c)))
-                    .ok_or("parameter without a pattern")?;
+                let pat = ast.children(p).iter().copied().find(|&c| super::pat::is_pattern(ast.kind(c))).ok_or("parameter without a pattern")?;
                 fx.drops.pat_path = root.map(|r| super::drop::MovePath { root: r, path: Vec::new() });
                 fx.bind_irrefutable(pat, slot)?;
                 fx.drops.pat_path = None;
@@ -323,13 +311,7 @@ pub(crate) fn define_static(cx: &Cx, m: &mut Module, d: DefId, name: &str) -> R<
 pub(crate) fn lower_static_init(cx: &Cx, m: &mut Module, d: DefId, g: GlobalId, name: &str) -> R<GlobalId> {
     let (k, f, ast, node) = cx.def_ast(d);
     let t = cx.tcx.type_of(d).ok_or("static without a type")?;
-    let init = ast
-        .children(node)
-        .iter()
-        .rev()
-        .copied()
-        .find(|&x| super::pat::is_expr(ast.kind(x)))
-        .ok_or("static without a value")?;
+    let init = ast.children(node).iter().rev().copied().find(|&x| super::pat::is_expr(ast.kind(x))).ok_or("static without a value")?;
     let b = IrFunction::builder(name).linkage(Linkage::Internal).begin(m);
     let body = Body {
         k,
@@ -438,13 +420,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
 
     /// The type of node `n`, at this instance.
     pub fn ty(&mut self, n: NodeId) -> R<Ty> {
-        let t = self
-            .body
-            .types
-            .get(n.0 as usize)
-            .copied()
-            .flatten()
-            .ok_or_else(|| format!("no type for `{}`", self.text(n)))?;
+        let t = self.body.types.get(n.0 as usize).copied().flatten().ok_or_else(|| format!("no type for `{}`", self.text(n)))?;
         let t = self.sub(t);
         if crate::mono::has_param_or_infer(self.cx.tcx, t) || self.cx.tcx.has_error(t) {
             return Err(format!("type not concrete: `{}`: {}", self.text(n), self.cx.tcx.display(self.cx.r, t)));
@@ -471,13 +447,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
     }
 
     pub fn kids(&self, n: NodeId) -> Vec<NodeId> {
-        self.body
-            .ast
-            .children(n)
-            .iter()
-            .copied()
-            .filter(|&c| !matches!(self.body.ast.kind(c), Kind::Attribute | Kind::DocComment))
-            .collect()
+        self.body.ast.children(n).iter().copied().filter(|&c| !matches!(self.body.ast.kind(c), Kind::Attribute | Kind::DocComment)).collect()
     }
 
     pub fn res(&self, n: NodeId) -> Option<&'a Res> {
@@ -574,16 +544,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         let ptr = self.ptr_t();
         let addr = self
             .b
-            .push(
-                Op::Alloca {
-                    inalloca: false,
-                    ty: arr,
-                    count: None,
-                    align: Align::new(l.align.max(1)),
-                    addrspace: None,
-                },
-                Some(ptr),
-            )
+            .push(Op::Alloca { inalloca: false, ty: arr, count: None, align: Align::new(l.align.max(1)), addrspace: None }, Some(ptr))
             .unwrap();
         if let Some(h) = here {
             self.b.at(h);
@@ -808,8 +769,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
 
     /// `*o`: the place a pointer points at.
     pub fn deref(&mut self, o: Operand) -> R<Place> {
-        let target =
-            self.pointee(o.ty).ok_or_else(|| format!("dereference of {}", self.cx.tcx.display(self.cx.r, o.ty)))?;
+        let target = self.pointee(o.ty).ok_or_else(|| format!("dereference of {}", self.cx.tcx.display(self.cx.r, o.ty)))?;
         if self.cx.tcx.kind(o.ty) != TyKind::Ref(Mutbl::Not, target)
             && self.cx.tcx.kind(o.ty) != TyKind::Ref(Mutbl::Mut, target)
             && !matches!(self.cx.tcx.kind(o.ty), TyKind::Ptr(..))
@@ -824,11 +784,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             let ps = self.cx.lcx.target.ptr_size;
             let addr = self.load_imm(ptr, a, ps);
             let ma = self.offset(a, ps);
-            let meta = if matches!(self.cx.tcx.kind(target), TyKind::Dyn(_)) {
-                self.load_imm(ptr, ma, ps)
-            } else {
-                self.load_imm(isz, ma, ps)
-            };
+            let meta = if matches!(self.cx.tcx.kind(target), TyKind::Dyn(_)) { self.load_imm(ptr, ma, ps) } else { self.load_imm(isz, ma, ps) };
             return Ok(Place { addr, meta: Some(meta), ty: target });
         }
         let addr = self.imm(o)?;
@@ -883,9 +839,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         let l = self.layout(p.ty)?;
         let ft = self.field_ty(p.ty, v, i)?;
         let off = match &l.variants {
-            crate::layout::Variants::Multiple { variants, .. } => {
-                variants.get(v as usize).map(|x| x.offset(i)).unwrap_or(0)
-            }
+            crate::layout::Variants::Multiple { variants, .. } => variants.get(v as usize).map(|x| x.offset(i)).unwrap_or(0),
             _ => l.offset(i),
         };
         let addr = self.offset(p.addr, off);
@@ -958,8 +912,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 Adjust::OverloadedDeref => {
                     let cur = Self::pv_ty(&pv);
                     let mutable = matches!(adj.get(i + 1), Some(Adjust::Borrow(Mutbl::Mut)));
-                    let (lang, name, m) =
-                        if mutable { ("deref_mut", "deref_mut", Mutbl::Mut) } else { ("deref", "deref", Mutbl::Not) };
+                    let (lang, name, m) = if mutable { ("deref_mut", "deref_mut", Mutbl::Mut) } else { ("deref", "deref", Mutbl::Not) };
                     let tr = *tcx.lang.get(lang).ok_or("no `Deref`")?;
                     let method = self.trait_method(tr, name).ok_or("no `deref` method")?;
                     let p = if i == 0 { self.temporary(n, pv)? } else { self.place_of(pv)? };
@@ -991,9 +944,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 }
                 Adjust::ReifyFnPointer => {
                     let o = self.operand_of(pv)?;
-                    let TyKind::FnDef(d, l) = tcx.kind(o.ty) else {
-                        return Err("reify of something not a function".into());
-                    };
+                    let TyKind::FnDef(d, l) = tcx.kind(o.ty) else { return Err("reify of something not a function".into()) };
                     let to = match self.body.tables.adjusted.get(&n) {
                         Some(&t) => self.sub(t),
                         None => return Err("function pointer without a type".into()),
@@ -1010,9 +961,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
     /// `o` (a pointer to a sized type) made a pointer to the unsized `to`.
     fn unsize(&mut self, o: Operand, to: Ty) -> R<Operand> {
         let tcx = self.cx.tcx;
-        let (Some(src), Some(dst)) = (self.pointee(o.ty), self.pointee(to)) else {
-            return Err("unsizing of something not a pointer".into());
-        };
+        let (Some(src), Some(dst)) = (self.pointee(o.ty), self.pointee(to)) else { return Err("unsizing of something not a pointer".into()) };
         if let TyKind::Dyn(dd) = tcx.kind(dst) {
             let want = tcx.dyn_of(dd).traits.first().cloned();
             if let TyKind::Dyn(sd) = tcx.kind(src) {
@@ -1030,9 +979,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             let addr = self.imm(o)?;
             return self.fat(to, addr, vt);
         }
-        let n = self
-            .unsized_len(src, dst)
-            .ok_or_else(|| format!("unsizing {} to {}", tcx.display(self.cx.r, o.ty), tcx.display(self.cx.r, to)))?;
+        let n = self.unsized_len(src, dst).ok_or_else(|| format!("unsizing {} to {}", tcx.display(self.cx.r, o.ty), tcx.display(self.cx.r, to)))?;
         let addr = self.imm(o)?;
         let len = self.usize_const(n);
         self.fat(to, addr, len)
@@ -1058,8 +1005,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             return Ok(self.b.module().global_value(g));
         }
         let l = self.layout(t)?;
-        let entries =
-            crate::mono::vtable_entries(cx.r, tcx, &cx.typeck.hidden, &mut self.solver, t, tr, &tcx.tys(args));
+        let entries = crate::mono::vtable_entries(cx.r, tcx, &cx.typeck.hidden, &mut self.solver, t, tr, &tcx.tys(args));
         let mut fns = Vec::new();
         for (method, a) in entries {
             let g = match crate::mono::instance(cx.r, cx.crates, tcx, &mut self.solver, method, a) {
@@ -1102,12 +1048,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         tys.resize(fields.len(), ptr);
         let ty = m.types.struct_of(&tys);
         let init = Value::Const(m.consts.intern(Constant { ty, kind: ConstKind::Struct(fields) }));
-        let g = epitome_ir::module::Global::builder(&name)
-            .init(init)
-            .constant()
-            .linkage(Linkage::Private)
-            .align(ps)
-            .build(m);
+        let g = epitome_ir::module::Global::builder(&name).init(init).constant().linkage(Linkage::Private).align(ps).build(m);
         Ok(m.global_value(g))
     }
 
@@ -1140,8 +1081,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         args[0] = Operand { ty: thin, v: Val::Imm(p.addr) };
         // `Fn::call` and `FnMut::call_mut` (a closure's function, in the
         // vtable): the arguments one by one, not as a tuple.
-        let fn_trait = crate::mono::trait_of(r, d)
-            .is_some_and(|tr| ["fn", "fn_mut", "fn_once"].iter().any(|l| tcx.lang.get(l) == Some(&tr)));
+        let fn_trait = crate::mono::trait_of(r, d).is_some_and(|tr| ["fn", "fn_mut", "fn_once"].iter().any(|l| tcx.lang.get(l) == Some(&tr)));
         if fn_trait && args.len() == 2 {
             let tuple = self.place_of(Pv::Val(args[1]))?;
             let TyKind::Tuple(l) = tcx.kind(tuple.ty) else { return Err("`Fn` arguments not a tuple".into()) };
@@ -1406,15 +1346,10 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             }
             Kind::Try => self.try_expr(n, &kids),
             Kind::MacroCall => {
-                let name = ast
-                    .children(kids[0])
-                    .iter()
-                    .rev()
-                    .find(|&&s| ast.kind(s) == Kind::Segment)
-                    .map_or("", |&s| ast.token(s).0);
+                let name = ast.children(kids[0]).iter().rev().find(|&&s| ast.kind(s) == Kind::Segment).map_or("", |&s| ast.token(s).0);
                 match name {
-                    "panic" | "core_panic" | "std_panic" | "unreachable_2015" | "unreachable_2021" | "const_panic"
-                    | "unreachable" | "todo" | "unimplemented" => {
+                    "panic" | "core_panic" | "std_panic" | "unreachable_2015" | "unreachable_2021" | "const_panic" | "unreachable"
+                    | "todo" | "unimplemented" => {
                         self.trap();
                         Ok(Pv::Val(Operand { ty: tcx.mk(TyKind::Never), v: Val::Zst }))
                     }
@@ -1439,9 +1374,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                         let (v, i, _, used) = tcx.field_step(cur, &path).ok_or("`offset_of` of a field not found")?;
                         let l = self.layout(cur)?;
                         off += match &l.variants {
-                            crate::layout::Variants::Multiple { variants, .. } => {
-                                variants.get(v as usize).map(|x| x.offset(i)).unwrap_or(0)
-                            }
+                            crate::layout::Variants::Multiple { variants, .. } => variants.get(v as usize).map(|x| x.offset(i)).unwrap_or(0),
                             _ => l.offset(i),
                         };
                         cur = self.field_ty(cur, v, i)?;
@@ -1509,11 +1442,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             return self.try_block(n, &kids);
         }
         let label = kids.first().filter(|&&c| ast.kind(c) == Kind::Lifetime).map(|&c| ast.token(c).0);
-        let stmts: Vec<NodeId> = kids
-            .iter()
-            .copied()
-            .filter(|&c| !matches!(ast.kind(c), Kind::Lifetime | Kind::Keyword | Kind::InnerAttribute))
-            .collect();
+        let stmts: Vec<NodeId> = kids.iter().copied().filter(|&c| !matches!(ast.kind(c), Kind::Lifetime | Kind::Keyword | Kind::InnerAttribute)).collect();
         let labelled = match label {
             Some(l) => {
                 let t = self.ty(n)?;
@@ -1777,12 +1706,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 let init = self.b.module().const_bytes(&bytes);
                 let name = format!("{}.str.{}", self.fname, self.strings);
                 self.strings += 1;
-                let g = epitome_ir::module::Global::builder(&name)
-                    .init(init)
-                    .constant()
-                    .linkage(Linkage::Private)
-                    .align(1)
-                    .build(self.b.module());
+                let g = epitome_ir::module::Global::builder(&name).init(init).constant().linkage(Linkage::Private).align(1).build(self.b.module());
                 let addr = self.b.module().global_value(g);
                 match tcx.kind(inner) {
                     TyKind::Str => {
@@ -1812,14 +1736,9 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 // A const parameter: its argument's value.
                 let pid = *tcx.param_at.get(&(self.body.k, self.body.f, *gp)).ok_or("generic parameter not found")?;
                 let i = self.body.params.iter().position(|&x| x == pid).ok_or("const parameter not in scope")?;
-                let TyKind::ConstArg(c) = tcx.kind(self.body.args[i]) else {
-                    return Err("const parameter without a value".into());
-                };
+                let TyKind::ConstArg(c) = tcx.kind(self.body.args[i]) else { return Err("const parameter without a value".into()) };
                 let v = self.cx.lcx.eval_const(c, &Default::default()).ok_or_else(|| match tcx.const_of(c) {
-                    crate::ty::Const::Expr(k, f, e) => format!(
-                        "const argument the evaluator cannot work out: {}",
-                        self.cx.crates[k as usize].files[f as usize].ast.text(e)
-                    ),
+                    crate::ty::Const::Expr(k, f, e) => format!("const argument the evaluator cannot work out: {}", self.cx.crates[k as usize].files[f as usize].ast.text(e)),
                     c => format!("const argument the evaluator cannot work out: {c:?}"),
                 })?;
                 let t = self.ty(n)?;
@@ -1946,13 +1865,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         }
         // Its initialiser, lowered in its own body.
         let (k, f, ast, node) = self.cx.def_ast(item.0);
-        let init = ast
-            .children(node)
-            .iter()
-            .rev()
-            .copied()
-            .find(|&x| super::pat::is_expr(ast.kind(x)))
-            .ok_or("constant without a value")?;
+        let init = ast.children(node).iter().rev().copied().find(|&x| super::pat::is_expr(ast.kind(x))).ok_or("constant without a value")?;
         let saved = self.body.clone();
         self.body = Body {
             k,
@@ -2143,9 +2056,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 let elems = self.kids(lhs);
                 let n = match self.cx.tcx.kind(src.ty) {
                     TyKind::Tuple(l) => self.cx.tcx.tys(l).len(),
-                    TyKind::Array(_, c) => {
-                        self.cx.lcx.eval_const(c, &Default::default()).ok_or("array length not known")? as usize
-                    }
+                    TyKind::Array(_, c) => self.cx.lcx.eval_const(c, &Default::default()).ok_or("array length not known")? as usize,
                     _ => return Err("destructuring something not a tuple or array".into()),
                 };
                 let rest = elems.iter().position(|&e| ast.kind(e) == Kind::Range && self.kids(e).len() == 1);
@@ -2328,8 +2239,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                     // give the nearest the integer holds, NaN gives 0.
                     let fbits = self.layout(o.ty)?.size * 8;
                     let ibits = self.layout(to)?.size * 8;
-                    let name =
-                        format!("llvm.{}.sat.i{ibits}.f{fbits}", if self.signed(to) { "fptosi" } else { "fptoui" });
+                    let name = format!("llvm.{}.sat.i{ibits}.f{fbits}", if self.signed(to) { "fptosi" } else { "fptoui" });
                     let g = self.b.module().declare(&name, tt, &[ft], false);
                     self.b.call(g, &[v]).unwrap()
                 } else if is_float(to_k) {
@@ -2350,9 +2260,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 Ok(Operand { ty: to, v: Val::Imm(v) })
             }
             (Repr::Mem, Repr::Mem) => Ok(Operand { ty: to, v: o.v }),
-            (Repr::Imm(_), Repr::Mem) if self.pointee(o.ty).is_some() && self.pointee(to).is_some() => {
-                self.unsize(o, to)
-            }
+            (Repr::Imm(_), Repr::Mem) if self.pointee(o.ty).is_some() && self.pointee(to).is_some() => self.unsize(o, to),
             _ => Err(format!("cast from {} to {}", tcx.display(self.cx.r, o.ty), tcx.display(self.cx.r, to))),
         }
     }
@@ -2379,13 +2287,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         let r = self.b.cast(op, v, i128t);
         let r = self.int_to(r, to, signed);
         let min = if signed { 1u128 << (bits - 1) } else { 0 };
-        let max = if signed {
-            (1u128 << (bits - 1)) - 1
-        } else if bits == 128 {
-            u128::MAX
-        } else {
-            (1u128 << bits) - 1
-        };
+        let max = if signed { (1u128 << (bits - 1)) - 1 } else if bits == 128 { u128::MAX } else { (1u128 << bits) - 1 };
         let (min, max) = (self.int_const(to, min), self.int_const(to, max));
         let zero = self.int_const(to, 0);
         let below = self.b.fcmp(FCmpPred::Olt, v, lo);
@@ -2480,20 +2382,14 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                         Some(&e) => self.operand(e)?,
                         None => {
                             // `S { a }`: the local `a`.
-                            let Some(Res::Local(lp)) = self.res(fk[0]) else {
-                                return Err("shorthand field without a local".into());
-                            };
+                            let Some(Res::Local(lp)) = self.res(fk[0]) else { return Err("shorthand field without a local".into()) };
                             let key = (self.body.k, self.body.f, *lp);
                             let lp = self.local_place(key)?;
                             self.move_local(key, lp.ty)?;
                             self.load(lp)?
                         }
                     };
-                    let fp = if union {
-                        Place { addr: p.addr, meta: None, ty: self.field_ty(t, 0, i)? }
-                    } else {
-                        self.field(p, v, i)?
-                    };
+                    let fp = if union { Place { addr: p.addr, meta: None, ty: self.field_ty(t, 0, i)? } } else { self.field(p, v, i)? };
                     self.store(Operand { ty: fp.ty, v: o.v }, fp)?;
                     given[i] = true;
                 }
@@ -2676,8 +2572,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
     fn for_expr(&mut self, n: NodeId, kids: &[NodeId]) -> R<Pv> {
         let ast = self.body.ast;
         let tcx = self.cx.tcx;
-        let rest: Vec<NodeId> =
-            kids.iter().copied().filter(|&c| !matches!(ast.kind(c), Kind::Lifetime | Kind::Keyword)).collect();
+        let rest: Vec<NodeId> = kids.iter().copied().filter(|&c| !matches!(ast.kind(c), Kind::Lifetime | Kind::Keyword)).collect();
         let label = kids.first().filter(|&&c| ast.kind(c) == Kind::Lifetime).map(|&c| ast.token(c).0);
         let calls = self.body.tables.implicit.get(&n).cloned().ok_or("`for` without its calls")?;
         let [(into_iter, l1), (next, l2)] = calls[..] else { return Err("`for` without its calls".into()) };
@@ -2815,11 +2710,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                     DefKind::Variant => {
                         let t = self.ty(n)?;
                         let TyKind::Adt(e, _) = tcx.kind(t) else { return Err("variant of no enum".into()) };
-                        let v = tcx
-                            .adts
-                            .get(&e)
-                            .and_then(|a| a.variants.iter().position(|x| x.def == Some(d)))
-                            .ok_or("no such variant")? as u32;
+                        let v = tcx.adts.get(&e).and_then(|a| a.variants.iter().position(|x| x.def == Some(d))).ok_or("no such variant")? as u32;
                         self.construct(t, d, v, args)
                     }
                     _ => self.call_def(d, l, args, Some(n)),
@@ -2857,18 +2748,12 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 let r = self.cx.r;
                 let adt = match r.defs[d.0 as usize].kind {
                     DefKind::Struct => d,
-                    _ => r.defs[d.0 as usize]
-                        .parent
-                        .and_then(|m| r.modules[m.0 as usize].def)
-                        .ok_or("a variant outside an enum")?,
+                    _ => r.defs[d.0 as usize].parent.and_then(|m| r.modules[m.0 as usize].def).ok_or("a variant outside an enum")?,
                 };
                 let t = tcx.mk(TyKind::Adt(adt, l));
                 let v = match tcx.kind(t) {
                     TyKind::Adt(e, _) if self.cx.r.defs[d.0 as usize].kind == DefKind::Variant => {
-                        tcx.adts
-                            .get(&e)
-                            .and_then(|a| a.variants.iter().position(|x| x.def == Some(d)))
-                            .ok_or("no such variant")? as u32
+                        tcx.adts.get(&e).and_then(|a| a.variants.iter().position(|x| x.def == Some(d))).ok_or("no such variant")? as u32
                     }
                     _ => 0,
                 };
@@ -2934,8 +2819,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
     pub fn fn_address(&mut self, d: DefId, args: Vec<Ty>) -> R<Value> {
         match crate::mono::instance(self.cx.r, self.cx.crates, self.cx.tcx, &mut self.solver, d, args) {
             Resolved::Item(it) => {
-                let decl =
-                    self.cx.fns.get(&it).ok_or_else(|| format!("`{}` was not declared", self.cx.r.def_path(d)))?;
+                let decl = self.cx.fns.get(&it).ok_or_else(|| format!("`{}` was not declared", self.cx.r.def_path(d)))?;
                 let g = decl.g;
                 Ok(self.b.module().global_value(g))
             }
@@ -3026,11 +2910,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             }
             return self.call_value(Pv::Val(args[0]), targs, inner);
         }
-        Err(format!(
-            "built-in `{}` on {}",
-            self.cx.r.def_path(d),
-            targs.first().map(|&t| tcx.display(self.cx.r, t)).unwrap_or_default()
-        ))
+        Err(format!("built-in `{}` on {}", self.cx.r.def_path(d), targs.first().map(|&t| tcx.display(self.cx.r, t)).unwrap_or_default()))
     }
 
     /// A call's result, copied if it is in memory (out of the way of what
@@ -3046,12 +2926,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
     }
 
     /// Emits a call with `abi`, passing `args`.
-    pub fn emit_call(
-        &mut self,
-        abi: &super::FnAbi,
-        call: impl FnOnce(&mut FunctionBuilder<'m>, &[Value]) -> Option<Value>,
-        args: Vec<Operand>,
-    ) -> R<Pv> {
+    pub fn emit_call(&mut self, abi: &super::FnAbi, call: impl FnOnce(&mut FunctionBuilder<'m>, &[Value]) -> Option<Value>, args: Vec<Operand>) -> R<Pv> {
         if self.terminated() {
             return Ok(Pv::Val(Operand { ty: abi.output, v: Val::Zst }));
         }

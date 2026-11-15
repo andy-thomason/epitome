@@ -641,6 +641,7 @@ pub(crate) fn has_param_or_infer(tcx: &TyCtxt, t: Ty) -> bool {
                 || tcx.tys(s.inputs).into_iter().any(|x| has_param_or_infer(tcx, x))
                 || tcx.tys(l).into_iter().any(|x| has_param_or_infer(tcx, x))
         }
+        TyKind::AsyncBlock(_, o, l) => has_param_or_infer(tcx, o) || has_param_or_infer_list(tcx, &tcx.tys(l)),
         // Not revealed: its owner's body did not say what it is.
         TyKind::Opaque(..) => true,
         TyKind::ConstArg(c) => matches!(tcx.const_of(c), crate::ty::Const::Param(_) | crate::ty::Const::Infer(_) | crate::ty::Const::Error),
@@ -687,6 +688,7 @@ pub fn reveal(tcx: &TyCtxt, hidden: &FastMap<crate::ty::OpaqueId, Ty>, t: Ty) ->
             sig.output = reveal(tcx, hidden, sig.output);
             tcx.mk(TyKind::Closure(c, tcx.sig(sig), list(l)))
         }
+        TyKind::AsyncBlock(c, o, l) => tcx.mk(TyKind::AsyncBlock(c, reveal(tcx, hidden, o), list(l))),
         _ => t,
     }
 }

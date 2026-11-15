@@ -62,3 +62,18 @@ fn shout(w: &mut dyn Write, s: &str) -> core::fmt::Result {
 fn zipped(a: [u8; 3], b: &[u16]) -> usize {
     a.iter().zip(b).filter(|(x, y)| u16::from(**x) < **y).count()
 }
+
+/// `async` blocks: futures whose output is the block's value (or what a
+/// `return` in it gives), awaited on their own and as an operand of
+/// `format_args!`.
+async fn awaits(w: &mut dyn Write) -> u16 {
+    let a = async { 1u8 }.await;
+    let b = async {
+        if a > 0 {
+            return 2;
+        }
+        3u16
+    };
+    let _ = w.write_fmt(format_args!("{} {:?}", "", async {}.await));
+    b.await
+}

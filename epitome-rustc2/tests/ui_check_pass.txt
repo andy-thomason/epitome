@@ -29,6 +29,7 @@ associated-type-bounds/all-generics-lookup.rs
 associated-type-bounds/ambiguous-associated-type.rs
 associated-type-bounds/assoc-type-bound-through-where-clause.rs
 associated-type-bounds/associated-item-through-where-clause.rs
+associated-type-bounds/dedup-normalized-1.rs
 associated-type-bounds/dont-imply-atb-in-closure-inference.rs
 associated-type-bounds/entails-sized-dyn-compatibility.rs
 associated-type-bounds/handle-predicates-that-can-define-assoc-type.rs
@@ -92,6 +93,7 @@ associated-types/issue-20825-2.rs
 associated-types/issue-21363.rs
 associated-types/issue-21726.rs
 associated-types/issue-22066.rs
+associated-types/issue-24159.rs
 associated-types/issue-24204.rs
 associated-types/issue-24338.rs
 associated-types/issue-28871.rs
@@ -106,6 +108,7 @@ associated-types/issue-47385.rs
 associated-types/issue-50301.rs
 associated-types/issue-54182-2.rs
 associated-types/issue-63591.rs
+associated-types/issue-65934.rs
 associated-types/issue-69398.rs
 associated-types/issue-88856.rs
 associated-types/issue-91069.rs
@@ -130,22 +133,28 @@ async-await/async-assoc-fn-anon-lifetimes.rs
 async-await/async-closures/different-projection-lengths-for-different-upvars.rs
 async-await/async-closures/imm-deref-lending.rs
 async-await/async-closures/mac-body.rs
+async-await/async-closures/moro-example.rs
 async-await/async-closures/truncated-fields-when-imm.rs
 async-await/async-closures/unifying-function-types-involving-hrtb.rs
 async-await/async-drop/live-dead-storage.rs
 async-await/async-fn-elided-impl-lifetime-parameter.rs
+async-await/async-fn/impl-trait.rs
 async-await/async-trait-fn.rs
 async-await/bound-normalization.rs
+async-await/drop-option-future.rs
 async-await/expansion-in-attrs.rs
+async-await/gat-is-send-across-await.rs
 async-await/in-trait/async-associated-types.rs
 async-await/in-trait/async-example-desugared-boxed.rs
 async-await/in-trait/async-example-desugared-extra.rs
 async-await/in-trait/async-example-desugared-in-trait.rs
 async-await/in-trait/async-example-desugared-manual.rs
+async-await/in-trait/async-example-desugared.rs
 async-await/in-trait/async-lifetimes-and-bounds.rs
 async-await/in-trait/async-lifetimes.rs
 async-await/in-trait/early-bound-1.rs
 async-await/in-trait/early-bound-2.rs
+async-await/in-trait/fn-not-async-err2.rs
 async-await/in-trait/hir-hash.rs
 async-await/in-trait/implied-bounds.rs
 async-await/in-trait/issue-102219.rs
@@ -153,8 +162,10 @@ async-await/in-trait/issue-102310.rs
 async-await/in-trait/issue-104678.rs
 async-await/in-trait/nested-rpit.rs
 async-await/in-trait/returning-possibly-unsized-self.rs
+async-await/issue-64391.rs
 async-await/issue-78115.rs
 async-await/issue-93197.rs
+async-await/issues/issue-112225-1.rs
 async-await/issues/issue-54974.rs
 async-await/issues/issue-55324.rs
 async-await/issues/issue-58885.rs
@@ -164,6 +175,8 @@ async-await/issues/issue-62517-1.rs
 async-await/issues/issue-62517-2.rs
 async-await/issues/issue-63388-3.rs
 async-await/issues/issue-63388-4.rs
+async-await/issues/issue-64477.rs
+async-await/issues/issue-64964.rs
 async-await/issues/issue-78600.rs
 async-await/multiple-lifetimes/hrtb.rs
 async-await/multiple-lifetimes/member-constraints-min-choice-issue-63033.rs
@@ -174,6 +187,8 @@ async-await/return-ty-raw-ptr-coercion.rs
 async-await/return-ty-unsize-coercion.rs
 async-await/return-type-notation/super-method-bound.rs
 async-await/return-type-notation/supertrait-bound.rs
+async-await/track-caller/issue-105134.rs
+async-await/type-parameter-send.rs
 attributes/assoc-expr.rs
 attributes/attr-before-view-item.rs
 attributes/attr-before-view-item2.rs
@@ -209,6 +224,7 @@ borrowck/alias-liveness/rpit-static.rs
 borrowck/alias-liveness/rpitit-static.rs
 borrowck/alias-liveness/rtn-static.rs
 borrowck/array-disjoint-borrows-issue-135671.rs
+borrowck/async-reference-generality.rs
 borrowck/borrow-raw-address-of-deref-mutability-ok.rs
 borrowck/borrow-raw-address-of-mutability-ok.rs
 borrowck/borrowck-move-out-from-array-no-overlap-match.rs
@@ -322,6 +338,7 @@ coercion/leak_check_fndef_lub.rs
 coercion/mut-trait-object-coercion-8398.rs
 coercion/struct-coerce-vec-to-slice.rs
 coercion/struct-literal-field-type-coercion-to-expected-type.rs
+coercion/vtable-impossible-predicates-async.rs
 coherence/coherence-doesnt-use-infcx-evaluate.rs
 coherence/coherence-fn-covariant-bound-vs-static.rs
 coherence/coherence-fn-inputs.rs
@@ -526,6 +543,7 @@ contracts/associated-item.rs
 contracts/contract-clause-unused-parens-issue-143754.rs
 coroutine/avoid-query-cycle-in-ctfe.rs
 coroutine/issue-62506-two_awaits.rs
+coroutine/witness-ignore-fake-reads.rs
 dataflow_const_prop/ptr-in-switch-int-issue-131227.rs
 definition-reachable/private-non-types.rs
 definition-reachable/private-types.rs
@@ -552,6 +570,8 @@ drop/lint-if-let-rescope-false-positives.rs
 drop/lint-tail-expr-drop-order-gated.rs
 drop/norm-ice-106444.rs
 dropck/constrained_by_assoc_type_equality.rs
+dropck/coroutine-liveness-1.rs
+dropck/coroutine-liveness-2.rs
 dropck/issue-54943-1.rs
 dropck/issue-54943-2.rs
 dropck/no-dropck-overflow-on-deep-nesting.rs
@@ -713,6 +733,7 @@ impl-trait/equal-hidden-lifetimes.rs
 impl-trait/explicit-generic-args-with-impl-trait/explicit-generic-args.rs
 impl-trait/explicit-generic-args-with-impl-trait/issue-87718.rs
 impl-trait/fallback.rs
+impl-trait/future-no-bound-vars-ice-112347.rs
 impl-trait/hidden-type-is-opaque.rs
 impl-trait/impl-subtyper.rs
 impl-trait/impl-subtyper2.rs
@@ -785,6 +806,7 @@ impl-trait/precise-capturing/rpitit-outlives.rs
 impl-trait/precise-capturing/self-capture.rs
 impl-trait/recursive-auto-trait.rs
 impl-trait/recursive-impl-trait-type-direct.rs
+impl-trait/recursive-parent-trait-method-call.rs
 impl-trait/recursive-type-alias-impl-trait-declaration-too-subtle-2.rs
 impl-trait/rpit-assoc-pair-with-lifetime.rs
 impl-trait/rpit/equal-lifetime-params-ok.rs
@@ -1451,6 +1473,7 @@ rust-2021/inherent-method-collision.rs
 rust-2021/prelude2021.rs
 rust-2021/reserved-prefixes-migration.rs
 rust-2024/box-slice-into-iter-ambiguous.rs
+rust-2024/prelude2024.rs
 rust-2024/raw-gen-lt.rs
 rust-2024/reserved-guarded-strings-migration.rs
 rust-2024/unsafe-attributes/unsafe-attributes-allow.rs
@@ -1668,6 +1691,7 @@ traits/next-solver/coherence/ambiguity-causes-canonical-state-ice-1.rs
 traits/next-solver/coherence/trait_ref_is_knowable-normalization-1.rs
 traits/next-solver/coherence/trait_ref_is_knowable-normalization-3.rs
 traits/next-solver/const-alias-in-outlive-clause.rs
+traits/next-solver/coroutine_query_cycle.rs
 traits/next-solver/cycles/cyclic-normalization-to-error-nalgebra.rs
 traits/next-solver/cycles/ignore-head-usages-provisional-cache.rs
 traits/next-solver/cycles/inductive-cycle-but-ok.rs
@@ -1677,6 +1701,7 @@ traits/next-solver/cycles/rayon-hang-1.rs
 traits/next-solver/cycles/rayon-hang-2.rs
 traits/next-solver/dedup-regions.rs
 traits/next-solver/destruct.rs
+traits/next-solver/dont-elaborate-for-projections.rs
 traits/next-solver/dont-loop-fulfill-on-region-constraints.rs
 traits/next-solver/elaborate-item-bounds.rs
 traits/next-solver/escaping-bound-vars-in-writeback-normalization.rs
@@ -1704,6 +1729,7 @@ traits/next-solver/normalize/deeply-normalize-env-in-compare-impl-item.rs
 traits/next-solver/normalize/eager-norm-pre-normalizes-to.rs
 traits/next-solver/normalize/normalize-allow-too-many-vars.rs
 traits/next-solver/normalize/normalize-async-closure-in-trait.rs
+traits/next-solver/normalize/normalize-const-in-async-body.rs
 traits/next-solver/normalize/normalize-param-env-5.rs
 traits/next-solver/normalize/normalize-param-env-6.rs
 traits/next-solver/normalize/normalize-path-for-method.rs
@@ -1735,6 +1761,7 @@ traits/next-solver/rpitit-cycle-due-to-rigid.rs
 traits/next-solver/slice-match-byte-lit.rs
 traits/next-solver/supertrait-alias-1.rs
 traits/next-solver/supertrait-alias-2.rs
+traits/next-solver/supertrait-alias-3.rs
 traits/next-solver/typeck/index-of-projection.rs
 traits/next-solver/typeck/normalize-in-upvar-collection.rs
 traits/next-solver/typeck/receiver-self-ty-check-eq.rs
@@ -1742,6 +1769,7 @@ traits/next-solver/typeck/resolve-expectations.rs
 traits/next-solver/unevaluated_const_query_cycle.rs
 traits/next-solver/unsafe-auto-trait-impl.rs
 traits/next-solver/unsize-good.rs
+traits/next-solver/writeback-predicate-bound-region.rs
 traits/non_lifetime_binders/disqualifying-object-candidates.rs
 traits/normalize/assoc-type-hrtb-normalization-30472.rs
 traits/object/bounds-cycle-1.rs
@@ -1754,6 +1782,7 @@ traits/object/outlives-super-proj.rs
 traits/object/redundant.rs
 traits/object/trait-object-with-nested-generics.rs
 traits/object/trait-object-with-send-supertrait.rs
+traits/pointee-tail-is-generic.rs
 traits/polymorphic-trait-creation-7673.rs
 traits/self-not-send-in-default-method-8171.rs
 traits/stack-error-order-dependence-2.rs
@@ -1823,7 +1852,9 @@ type-alias-impl-trait/issue-67844-nested-opaque.rs
 type-alias-impl-trait/issue-69136-inner-lifetime-resolve-ok.rs
 type-alias-impl-trait/issue-72793.rs
 type-alias-impl-trait/issue-89952.rs
+type-alias-impl-trait/issue-93411.rs
 type-alias-impl-trait/nested-tait-inline-mir-validation.rs
+type-alias-impl-trait/nested_impl_trait_in_assoc_ty.rs
 type-alias-impl-trait/nested_in_closure.rs
 type-alias-impl-trait/never_reveal_concrete_type.rs
 type-alias-impl-trait/normalize-alias-type.rs
@@ -1838,6 +1869,7 @@ type-alias-impl-trait/tait-in-function-return-type-issue-101903-fixed.rs
 type-alias-impl-trait/type-alias-impl-trait-sized.rs
 type-alias-impl-trait/unbounded_opaque_type.rs
 type-alias-impl-trait/unused_generic_param.rs
+type-alias-impl-trait/weird-return-types.rs
 type-alias-impl-trait/wf-check-definition-site.rs
 type-alias/issue-14933.rs
 type-alias/issue-37515.rs

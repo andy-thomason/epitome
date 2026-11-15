@@ -44,7 +44,8 @@ pub(super) enum Source {
     Impl(usize, Vec<Ty>),
     /// Something the body may assume (or an obligation on a variable).
     Bound,
-    /// Built in; for the `Fn` traits, the result type.
+    /// Built in; for the `Fn` traits, the result type, and for `Future`
+    /// (of an `async` block) the output.
     Builtin(Option<Ty>),
 }
 
@@ -361,6 +362,12 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 };
             }
         }
+        // `async` blocks implement `Future`, with their value as `Output`.
+        if let TyKind::AsyncBlock(_, out, _) = tcx.kind(t)
+            && tcx.lang.get("future_trait") == Some(&tr)
+        {
+            return Select::Yes(Source::Builtin(Some(out)));
+        }
         let Some(ti) = self.index.trait_impls.get(&tr) else { return Select::No };
         let cands: Vec<usize> = match head(tcx, t) {
             Some(h) => ti.by_head.get(&h).into_iter().flatten().chain(&ti.blanket).copied().collect(),
@@ -648,7 +655,11 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 let it = subst(tcx, it, &params, &a);
                 Some(self.normalize(it, depth + 1))
             }
-            Select::Yes(Source::Builtin(Some(out))) if tcx.lang.get("fn_once_output") == Some(&assoc) => Some(out),
+            Select::Yes(Source::Builtin(Some(out)))
+                if tcx.lang.get("fn_once_output") == Some(&assoc) || tcx.lang.get("future_output") == Some(&assoc) =>
+            {
+                Some(out)
+            }
             _ => None,
         }
     }
@@ -793,6 +804,11 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     }
                     _ => self.mk(TyKind::FnPtr(sig)),
                 }
+            }
+            TyKind::AsyncBlock(c, o, l) => {
+                let o = self.normalize(o, depth);
+                let v = tcx.tys(l).into_iter().map(|x| self.normalize(x, depth)).collect();
+                self.mk(TyKind::AsyncBlock(c, o, tcx.list(v)))
             }
             TyKind::Opaque(o, l) => {
                 let v = tcx.tys(l).into_iter().map(|x| self.normalize(x, depth)).collect();
@@ -1356,6 +1372,7 @@ fn has_projection(tcx: &crate::ty::TyCtxt, t: Ty) -> bool {
                 || tcx.tys(s.inputs).into_iter().any(|x| has_projection(tcx, x))
                 || tcx.tys(l).into_iter().any(|x| has_projection(tcx, x))
         }
+        TyKind::AsyncBlock(_, o, l) => has_projection(tcx, o) || tcx.tys(l).into_iter().any(|x| has_projection(tcx, x)),
         _ => false,
     }
 }

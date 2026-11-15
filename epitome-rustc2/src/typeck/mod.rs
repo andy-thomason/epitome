@@ -451,6 +451,7 @@ impl TyCtxt<'_> {
                     || self.tys(s.inputs).into_iter().any(|x| self.has_infer(x))
                     || self.tys(l).into_iter().any(|x| self.has_infer(x))
             }
+            TyKind::AsyncBlock(_, o, l) => self.has_infer(o) || self.tys(l).into_iter().any(|x| self.has_infer(x)),
             _ => false,
         }
     }
@@ -558,9 +559,17 @@ mod tests {
             // Patterns through references and iterator adapters.
             "(x, y) : (&u8, &u16)",
             "u16::from : fn item core::convert::From::from<u16, u8>",
+            // `async` blocks and `.await`.
+            "async { 1u8 } : {async block} -> u8",
+            "async { 1u8 }.await : u8",
+            "b : {async block} -> u16",
+            "b.await : u16",
+            "async {}.await : ()",
         ] {
             assert!(ours.contains(&want), "no `{want}` in:\n{}", ours.join("\n"));
         }
+        let awaits: Vec<&str> = ours.iter().copied().skip_while(|l| *l != "fn traits::awaits").collect();
+        assert!(awaits.len() > 1 && !awaits.iter().any(|l| l.contains(" : ?")), "a type left unknown:\n{}", awaits.join("\n"));
     }
 
     #[test]

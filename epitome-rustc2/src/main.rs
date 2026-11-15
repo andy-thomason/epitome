@@ -392,7 +392,7 @@ fn item_crate(r: &epitome_rustc2::resolve::Resolver, it: epitome_rustc2::mono::I
     use epitome_rustc2::mono::Item;
     let d = match it {
         Item::Fn(d, _) | Item::Closure(_, d, _) | Item::Static(d) | Item::Foreign(d) | Item::Intrinsic(d, _) | Item::Const(d, _) => d,
-        Item::VTable(..) => return None,
+        Item::VTable(..) | Item::DropGlue(_) => return None,
     };
     Some(r.defs[d.0 as usize].krate)
 }

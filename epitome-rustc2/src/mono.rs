@@ -51,6 +51,9 @@ pub enum Item {
     /// The vtable of a concrete type for a `dyn` trait, at the trait's
     /// arguments (after `Self`).
     VTable(Ty, DefId, List),
+    /// The drop glue of a type (`drop_in_place::<T>`): its `Drop::drop`,
+    /// then the drop glue of each part it holds.
+    DropGlue(Ty),
 }
 
 /// What monomorphisation found.
@@ -77,6 +80,7 @@ impl Session {
         let seen: Mutex<FastSet<Item>> = Mutex::new(roots.iter().copied().collect());
         let unresolved: Mutex<FastMap<String, usize>> = Mutex::new(FastMap::default());
         let uses = std::sync::atomic::AtomicUsize::new(0);
+        let drops = crate::drops::DropInfo::new(tcx);
         pool::run(self.threads(), roots, |item, q| {
             let mut w = Walk {
                 tcx,
@@ -86,6 +90,7 @@ impl Session {
                 solver: Solver::new(tcx, r, crates, index),
                 found: Vec::new(),
                 unresolved: FastMap::default(),
+                drops: &drops,
             };
             w.item(item);
             uses.fetch_add(w.found.len(), std::sync::atomic::Ordering::Relaxed);
@@ -140,6 +145,7 @@ struct Walk<'a, 's> {
     solver: Solver<'a, 's>,
     found: Vec<Item>,
     unresolved: FastMap<String, usize>,
+    drops: &'a crate::drops::DropInfo,
 }
 
 impl<'a, 's> Walk<'a, 's> {
@@ -156,7 +162,29 @@ impl<'a, 's> Walk<'a, 's> {
                 self.body(d, empty)
             }
             Item::VTable(t, tr, l) => self.vtable(t, tr, l),
+            Item::DropGlue(t) => self.drop_glue(t),
             Item::Closure(..) | Item::Intrinsic(..) | Item::Foreign(_) => {}
+        }
+    }
+
+    fn needs_drop(&mut self, t: Ty) -> bool {
+        !has_param_or_infer(self.tcx, t) && self.drops.needs_drop(self.tcx, self.typeck, &mut self.solver, t)
+    }
+
+    /// The drop glue of `t`: its `Drop::drop`, and the glue of each part.
+    fn drop_glue(&mut self, t: Ty) {
+        let tcx = self.tcx;
+        if let TyKind::Adt(d, _) = tcx.kind(t)
+            && self.drops.has_impl(d)
+            && let Some(&tr) = tcx.lang.get("drop")
+            && let Some(m) = self.method_of(tr, "drop")
+        {
+            self.call(m, vec![t]);
+        }
+        for p in crate::drops::parts(tcx, self.typeck, &mut self.solver, t) {
+            if self.needs_drop(p) {
+                self.found.push(Item::DropGlue(p));
+            }
         }
     }
 
@@ -172,6 +200,19 @@ impl<'a, 's> Walk<'a, 's> {
         let args = tcx.tys(args);
         let mut nodes = Vec::new();
         crate::typeck::collect_nodes(ast, def.node, &mut nodes);
+        // Every value a body makes may be dropped in it: the drop glue of
+        // each type its expressions and patterns have that needs it.
+        let mut typed: FastSet<Ty> = FastSet::default();
+        for &n in &nodes {
+            if let Some(Some(t)) = types.get(n.0 as usize)
+                && typed.insert(*t)
+            {
+                let t = self.sub(*t, &params, &args);
+                if self.needs_drop(t) {
+                    self.found.push(Item::DropGlue(t));
+                }
+            }
+        }
         for n in nodes {
             match ast.kind(n) {
                 Kind::PathExpr | Kind::IdentPat | Kind::PathPat => self.path_use(k, f, n, &params, &args),
@@ -262,6 +303,15 @@ impl<'a, 's> Walk<'a, 's> {
         if args.iter().any(|&a| has_param_or_infer(tcx, a)) {
             let a: Vec<String> = args.iter().map(|&t| tcx.display(self.r, t)).collect();
             self.miss(format!("arguments not concrete: {}<{}>", self.r.def_path(d), a.join(", ")));
+            return;
+        }
+        // What `drop_in_place` calls, which the compiler supplies.
+        if is_drop_glue(tcx, d) {
+            if let Some(&t) = args.first()
+                && self.needs_drop(t)
+            {
+                self.found.push(Item::DropGlue(t));
+            }
             return;
         }
         match instance(self.r, self.crates, tcx, &mut self.solver, d, args.clone()) {
@@ -384,6 +434,9 @@ impl<'a, 's> Walk<'a, 's> {
         for (method, args) in entries {
             self.call(method, args);
         }
+        if self.needs_drop(t) {
+            self.found.push(Item::DropGlue(t));
+        }
     }
 }
 
@@ -497,6 +550,13 @@ pub(crate) enum Resolved {
     NoImpl,
     /// Not code: a constructor, say.
     None,
+}
+
+/// Whether `d` is the function whose body the compiler replaces with a
+/// type's drop glue (`drop_glue`, which `drop_in_place` calls; in older
+/// `core`, `drop_in_place` itself).
+pub(crate) fn is_drop_glue(tcx: &TyCtxt, d: DefId) -> bool {
+    tcx.lang.get("drop_glue") == Some(&d) || tcx.lang.get("drop_in_place") == Some(&d)
 }
 
 /// Whether `d` is a compiler intrinsic.
@@ -663,6 +723,7 @@ impl MonoItems {
                 Item::Static(d) => format!("static {}", r.def_path(d)),
                 Item::Const(d, l) => format!("const {}{}", r.def_path(d), args(l)),
                 Item::VTable(t, tr, _) => format!("vtable {} as {}", tcx.display(r, t), r.def_path(tr)),
+                Item::DropGlue(t) => format!("drop glue {}", tcx.display(r, t)),
             })
             .collect();
         lines.sort();

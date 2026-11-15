@@ -34,6 +34,7 @@
 
 mod asm;
 mod body;
+mod drop;
 pub(crate) use body::parse_str;
 mod intrinsic;
 mod pat;
@@ -191,6 +192,8 @@ pub(crate) struct Cx<'a, 's> {
     pub fns: FastMap<Item, Decl>,
     /// Each `static`'s global.
     pub statics: FastMap<DefId, GlobalId>,
+    /// Which types need dropping.
+    pub drops: crate::drops::DropInfo,
 }
 
 impl<'a, 's> Cx<'a, 's> {
@@ -435,7 +438,9 @@ impl Session {
             data_layout: Some(target.data_layout.as_bytes().to_vec()),
             ..Default::default()
         };
-        let mut cx = Cx { tcx, r, crates, typeck, index, lcx, fns: FastMap::default(), statics: FastMap::default() };
+        let drops = crate::drops::DropInfo::new(tcx);
+        let mut cx =
+            Cx { tcx, r, crates, typeck, index, lcx, fns: FastMap::default(), statics: FastMap::default(), drops };
         let mut failures = Vec::new();
         let mut solver = cx.solver();
 
@@ -455,6 +460,7 @@ impl Session {
                     let owner = cx.symbol(d, l);
                     named.push((format!("{owner}.closure.{}", node.0), it))
                 }
+                Item::DropGlue(t) => named.push((drop::glue_symbol(&cx, t), it)),
                 _ => {}
             }
         }
@@ -527,6 +533,25 @@ impl Session {
                     let g = spec.declare(&mut m);
                     cx.fns.insert(*it, Decl { g, abi, name: name.clone() });
                 }
+                Item::DropGlue(t) => {
+                    // `fn(*mut T)`.
+                    let unit = tcx.mk(TyKind::Tuple(tcx.list(Vec::new())));
+                    let pt = tcx.mk(TyKind::Ptr(crate::ty::Mutbl::Mut, t));
+                    let abi = match cx.abi(&mut m, vec![pt], unit, false) {
+                        Ok(a) => a,
+                        Err(e) => {
+                            failures.push(Failure { item: *it, name: name.clone(), why: e });
+                            continue;
+                        }
+                    };
+                    let (ret, params) = Cx::ir_fn_type(&mut m, &abi);
+                    let mut spec = IrFunction::builder(name).returns(ret).linkage(Linkage::Internal);
+                    for p in params {
+                        spec = spec.param("", p);
+                    }
+                    let g = spec.declare(&mut m);
+                    cx.fns.insert(*it, Decl { g, abi, name: name.clone() });
+                }
                 Item::Static(d) => match body::define_static(&cx, &mut m, d, name) {
                     Ok((g, needs_init)) => {
                         cx.statics.insert(d, g);
@@ -551,6 +576,22 @@ impl Session {
         let mut functions = 0;
         let mut partial = Vec::new();
         for (name, it) in &named {
+            if let Item::DropGlue(t) = *it {
+                let Some(decl) = cx.fns.get(it).cloned() else { continue };
+                functions += 1;
+                titles.insert(decl.g, format!("drop glue of {}", tcx.display(r, t)));
+                let got = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    drop::lower_drop_glue(&cx, &mut m, t, &decl)
+                }));
+                let why = match got {
+                    Ok(Ok(())) => continue,
+                    Ok(Err(e)) => e,
+                    Err(_) => "internal error".into(),
+                };
+                body::trap_body(&mut m, &decl);
+                failures.push(Failure { item: *it, name: name.clone(), why });
+                continue;
+            }
             let (d, l) = match *it {
                 Item::Fn(d, l) | Item::Closure(_, d, l) => (d, l),
                 _ => continue,
@@ -721,6 +762,8 @@ mod tests {
                     let d = match f.item {
                         Item::Fn(d, _) | Item::Closure(_, d, _) | Item::Static(d) | Item::Foreign(d) | Item::Intrinsic(d, _) | Item::Const(d, _) => d,
                         Item::VTable(..) => return false,
+                        // Drop glue the program needs, of whatever type.
+                        Item::DropGlue(_) => return true,
                     };
                     r.defs[d.0 as usize].krate == 1
                 })

@@ -243,6 +243,26 @@ impl Fx<'_, '_, '_, '_> {
     /// Matches pattern `pat` against the value at `p`: jumps to `fail` if
     /// it does not match (none if it cannot fail), and binds as it goes.
     pub fn pat_match(&mut self, pat: NodeId, p: Place, fail: Option<BlockId>) -> R<()> {
+        // The part of a root `p` is (`drops.pat_path`), as it was outside.
+        let outer = self.drops.pat_path.clone();
+        let r = self.pat_match_in(pat, p, fail);
+        self.drops.pat_path = outer;
+        r
+    }
+
+    /// Matches a field's pattern: field `i` of variant `v` of what is
+    /// being matched.
+    fn field_pat(&mut self, sub: NodeId, fp: Place, v: u32, i: usize, fail: Option<BlockId>) -> R<()> {
+        let outer = self.drops.pat_path.clone();
+        if let Some(mp) = &mut self.drops.pat_path {
+            mp.path.push((v, i));
+        }
+        let r = self.pat_match(sub, fp, fail);
+        self.drops.pat_path = outer;
+        r
+    }
+
+    fn pat_match_in(&mut self, pat: NodeId, p: Place, fail: Option<BlockId>) -> R<()> {
         let ast = self.body.ast;
         let tcx = self.cx.tcx;
         // Through the references default binding modes passed.
@@ -251,6 +271,8 @@ impl Fx<'_, '_, '_, '_> {
         for _ in 0..derefs {
             let o = self.load(p)?;
             p = self.deref(o)?;
+            // Behind a reference: nothing moves out of it.
+            self.drops.pat_path = None;
         }
         let kids = self.kids(pat);
         match ast.kind(pat) {
@@ -279,11 +301,20 @@ impl Fx<'_, '_, '_, '_> {
                     BindingMode::Value => self.load(p)?,
                     BindingMode::Ref(_) => self.addr_of(p, bt)?,
                 };
+                if mode == BindingMode::Value && self.needs_drop(bt) {
+                    // A move out of what is matched, once it has matched.
+                    if self.drops.in_slice > 0 {
+                        return Err("moving out of an array by a pattern is not supported yet".into());
+                    }
+                    let path = self.drops.pat_path.clone();
+                    self.drops.pending.push((path, key));
+                }
                 self.store(Operand { ty: bt, v: o.v }, slot)
             }
             Kind::RefPat => {
                 let o = self.load(p)?;
                 let inner = self.deref(o)?;
+                self.drops.pat_path = None;
                 self.pat_match(*kids.last().unwrap(), inner, fail)
             }
             // `deref!(p)`: through a reference or pointer, or `Deref::deref`.
@@ -303,6 +334,7 @@ impl Fx<'_, '_, '_, '_> {
                         self.deref(o)?
                     }
                 };
+                self.drops.pat_path = None;
                 self.pat_match(kids[1], inner, fail)
             }
             Kind::TuplePat => {
@@ -334,7 +366,7 @@ impl Fx<'_, '_, '_, '_> {
                     };
                     let i = names.iter().position(|&x| x == name).ok_or_else(|| format!("no field `{name}`"))?;
                     let fp = self.field(p, v, i)?;
-                    self.pat_match(sub, fp, fail)?;
+                    self.field_pat(sub, fp, v, i, fail)?;
                 }
                 Ok(())
             }
@@ -392,6 +424,7 @@ impl Fx<'_, '_, '_, '_> {
                     }
                 }
                 let matched = self.new_block("or.matched");
+                let pending = self.drops.pending.len();
                 for (i, &alt) in kids.iter().enumerate() {
                     let last = i + 1 == kids.len();
                     let next = if last { fail } else { Some(self.new_block("or.next")) };
@@ -406,9 +439,17 @@ impl Fx<'_, '_, '_, '_> {
                     };
                 }
                 self.b.at(matched);
+                if self.drops.pending.len() > pending {
+                    return Err("an or-pattern that moves what it binds is not supported yet".into());
+                }
                 Ok(())
             }
-            Kind::SlicePat => self.slice_pat(&kids, p, fail),
+            Kind::SlicePat => {
+                self.drops.in_slice += 1;
+                let r = self.slice_pat(&kids, p, fail);
+                self.drops.in_slice -= 1;
+                r
+            }
             Kind::NeverPat => Ok(()),
             k => Err(format!("pattern {k:?} is not supported yet")),
         }
@@ -465,7 +506,7 @@ impl Fx<'_, '_, '_, '_> {
                 _ => i,
             };
             let fp = self.field(p, v, fi)?;
-            self.pat_match(sp, fp, fail)?;
+            self.field_pat(sp, fp, v, fi, fail)?;
         }
         Ok(())
     }

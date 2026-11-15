@@ -94,10 +94,17 @@ impl Fx<'_, '_, '_, '_> {
             }
             "likely" | "unlikely" | "black_box" => Ok(Pv::Val(args[0])),
             // The checks of a build without debug assertions.
-            "ub_checks" | "contract_checks" | "overflow_checks" | "is_val_statically_known" | "needs_drop" => {
+            "ub_checks" | "contract_checks" | "overflow_checks" | "is_val_statically_known" => {
                 let i8t = self.i8t();
                 let z = self.b.const_int(i8t, 0);
                 imm(z)
+            }
+            "needs_drop" => {
+                let t = t0.ok_or("no type argument")?;
+                let b = self.needs_drop(t);
+                let i8t = self.i8t();
+                let v = self.b.const_int(i8t, b as i64);
+                imm(v)
             }
             "caller_location" => {
                 // Only panics use it, and they trap.

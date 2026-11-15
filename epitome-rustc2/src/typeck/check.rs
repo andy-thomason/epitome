@@ -1820,6 +1820,13 @@ impl<'a, 's> FnCtxt<'a, 's> {
     }
 
     fn check_args(&mut self, n: NodeId, args: &[NodeId], inputs: &[Ty]) {
+        self.check_args_hinted(n, args, inputs, None);
+    }
+
+    /// `check_args`, each argument checked against `hints` (what the
+    /// expected result says it should be) where given, then coerced to its
+    /// parameter's type.
+    fn check_args_hinted(&mut self, n: NodeId, args: &[NodeId], inputs: &[Ty], hints: Option<&[Ty]>) {
         if args.len() != inputs.len() {
             self.err(n, "wrong number of arguments");
         }
@@ -1830,7 +1837,8 @@ impl<'a, 's> FnCtxt<'a, 's> {
             let a = args[i];
             match inputs.get(i) {
                 Some(&want) => {
-                    let t = self.expr(a, Some(want));
+                    let hint = hints.and_then(|h| h.get(i)).copied().unwrap_or(want);
+                    let t = self.expr(a, Some(hint));
                     self.coerce(a, t, want);
                 }
                 None => {
@@ -1840,7 +1848,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
         }
     }
 
-    fn call(&mut self, n: NodeId, kids: &[NodeId], _expect: Option<Ty>) -> Ty {
+    fn call(&mut self, n: NodeId, kids: &[NodeId], expect: Option<Ty>) -> Ty {
         let tcx = self.tcx;
         let callee = self.expr(kids[0], None);
         let args = self.kids(kids[1]);
@@ -1876,7 +1884,16 @@ impl<'a, 's> FnCtxt<'a, 's> {
                         }
                     }
                 } else {
-                    self.check_args(n, &args, &inputs);
+                    // What the expected result says the arguments are
+                    // (`Vec<Box<dyn Shape>>` from `vec![...]` makes its
+                    // array's elements `Box<dyn Shape>`): hints only.
+                    let hints = expect.and_then(|e| {
+                        let p = self.probe();
+                        let h = self.infer.unify(output, e).then(|| inputs.iter().map(|&t| self.infer.resolve(t)).collect::<Vec<Ty>>());
+                        self.rollback(p);
+                        h
+                    });
+                    self.check_args_hinted(n, &args, &inputs, hints.as_deref());
                 }
                 output
             }

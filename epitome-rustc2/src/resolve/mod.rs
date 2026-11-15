@@ -24,7 +24,7 @@ mod paths;
 
 use crate::ast::NodeId;
 use crate::hash::FastMap;
-use crate::lexer::Edition;
+use crate::lexer::{Edition, Token};
 use crate::session::{ParsedCrate, Session};
 
 /// The built-in types.
@@ -194,6 +194,9 @@ pub struct Resolver<'s> {
     /// The text of every macro body (`macro_rules!` and macro 2.0), sorted:
     /// a token's syntax context for local variables is the body it is in.
     pub macro_bodies: Vec<(usize, usize)>,
+    /// The text built-in macros and derives wrote, sorted
+    /// (`Session::builtin_texts`).
+    pub builtin_texts: Vec<(usize, usize)>,
 }
 
 /// How many paths resolved, for progress reports.
@@ -214,8 +217,8 @@ pub struct ResolveStats {
 
 /// The module tree and imports of `crates`, without resolving paths in
 /// bodies: what macro expansion needs to find macros by path and `use`.
-pub(crate) fn module_tree<'s>(crates: &[ParsedCrate<'s>]) -> Resolver<'s> {
-    let mut r = collect::collect(crates);
+pub(crate) fn module_tree<'s>(session: &Session, crates: &[ParsedCrate<'s>]) -> Resolver<'s> {
+    let mut r = collect::collect(session, crates);
     imports::resolve_imports(&mut r);
     r
 }
@@ -223,7 +226,7 @@ pub(crate) fn module_tree<'s>(crates: &[ParsedCrate<'s>]) -> Resolver<'s> {
 impl Session {
     /// Resolves every name in `crates`.
     pub fn resolve<'s>(&'s self, crates: &[ParsedCrate<'s>]) -> Resolver<'s> {
-        let mut r = collect::collect(crates);
+        let mut r = collect::collect(self, crates);
         r.add_format_sites(crates, &self.format_texts.lock().unwrap());
         imports::resolve_imports(&mut r);
         paths::resolve_paths(self, &mut r, crates);
@@ -391,9 +394,28 @@ impl<'s> Resolver<'s> {
         }
     }
 
+    /// The edition a path in crate `krate` is resolved in, `root` being its
+    /// leading `::` if it has one: the crate's, except that `::name` that
+    /// `$crate` became (with tokens of expansion's own) or that a built-in
+    /// macro wrote names the crate `name` in 2015 too, where `::a` is
+    /// otherwise the crate root.
+    pub(crate) fn path_edition(&self, krate: u32, root: Option<Token>) -> Edition {
+        let edition = self.editions[krate as usize];
+        let Some(t) = root else { return edition };
+        if edition >= Edition::E2018 {
+            return edition;
+        }
+        let p = t.0.as_ptr() as usize;
+        let i = self.builtin_texts.partition_point(|r| r.0 <= p);
+        let builtin = i > 0 && p < self.builtin_texts[i - 1].1;
+        if builtin || crate::expand::is_synthetic(t) { Edition::E2018 } else { edition }
+    }
+
     /// The macro a call `segs!` in module `m` of crate `krate` names, by
     /// path and imports (text-order `macro_rules!` scope is expansion's).
-    pub(crate) fn resolve_macro(&self, krate: u32, m: ModId, segs: &[&str], rooted: bool) -> Option<DefId> {
+    /// `root` is the path's leading `::`, if it has one.
+    pub(crate) fn resolve_macro(&self, krate: u32, m: ModId, segs: &[&str], root: Option<Token>) -> Option<DefId> {
+        let rooted = root.is_some();
         let res = if segs.len() == 1 && !rooted {
             let name = segs[0];
             let mut cur = m;
@@ -413,7 +435,7 @@ impl<'s> Resolver<'s> {
                 .or_else(|| self.preludes[krate as usize].and_then(|p| self.lookup(p, name, Ns::Macro, m)))
                 .or_else(|| self.roots.iter().find_map(|&root| self.lookup(root, name, Ns::Macro, root)))?
         } else {
-            let edition = self.editions[krate as usize];
+            let edition = self.path_edition(krate, root);
             let (start, used) = self.path_start(segs, rooted, m, krate, edition)?;
             if used >= segs.len() {
                 return None;
@@ -439,6 +461,7 @@ impl<'s> Resolver<'s> {
 
 #[cfg(test)]
 mod tests {
+    use crate::lexer::Edition;
     use crate::session::{CrateRoot, Options, Session};
 
     /// Resolves `src` as a crate `t` (one file) and returns the dump.
@@ -532,6 +555,64 @@ mod tests {
         // The caller's `x` is bound first, so it has the smaller node.
         let node = |l: &str| l.rsplit('#').next().unwrap().parse::<u32>().unwrap();
         assert!(node(xs[0]) < node(xs[1]), "the argument should be the caller's `x`:\n{d}");
+    }
+
+    /// 2015's paths start at the crate root, where `std` is the injected
+    /// `extern crate std`; `$crate` from another crate, and `::core` that
+    /// built-in macros and derives write, name the crate in any edition.
+    #[test]
+    fn edition_2015_root_paths() {
+        let dir = std::env::temp_dir().join(format!("epitome-rustc2-2015-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let write = |name: &str, src: &str| {
+            let file = dir.join(name);
+            std::fs::write(&file, src).unwrap();
+            file
+        };
+        let core = write(
+            "core.rs",
+            "#![no_core]\n\
+             pub mod x { pub fn f() {} }\n\
+             pub mod panicking { pub fn panic(_: &str) -> ! { loop {} } }\n\
+             pub mod clone { pub trait Clone { fn clone(&self) -> Self; } }\n\
+             #[macro_export] macro_rules! cm { () => { $crate::x::f() } }",
+        );
+        let std_ = write(
+            "std.rs",
+            "pub mod y { pub trait Tr {} pub fn g() {} }\n\
+             #[macro_export] macro_rules! sm { () => { $crate::y::g() } }",
+        );
+        let t = write(
+            "t.rs",
+            "use std::y::g;\n\
+             mod inner { use std::y::Tr; pub fn k<T: Tr>(_: T) { cm!(); } }\n\
+             #[derive(Clone)] struct S;\n\
+             fn h<T: ::std::y::Tr>(_: T) { g(); cm!(); sm!(); assert!(true); }",
+        );
+        let session = Session::new(Options { threads: 1, ..Default::default() });
+        let mut crates = session.parse_crates(vec![
+            CrateRoot::new("core", &core).edition(Edition::E2018),
+            CrateRoot::new("std", &std_).edition(Edition::E2018),
+            CrateRoot::new("t", &t).edition(Edition::E2015),
+        ]);
+        let expanded = session.expand(&mut crates);
+        let r = session.resolve(&crates);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(crates.iter().all(|c| c.errors.is_empty()));
+        assert!(expanded.unresolved_by_crate.is_empty());
+        assert!(r.failed_import_lines_of(2).is_empty(), "{:?}", r.failed_import_lines_of(2));
+        let d = r.dump(&crates, &session.sources);
+        let s = r.crate_stats(&crates, 2);
+        assert_eq!(s.unresolved, 0, "{:?}\n{d}", s.unresolved_names);
+        for want in [
+            "::std::y::Tr -> Trait std::y::Tr",
+            "core ::x::f -> Fn core::x::f",
+            "std ::y::g -> Fn std::y::g",
+            "::core::panicking::panic -> Fn core::panicking::panic",
+            "::core::clone::Clone -> Trait core::clone::Clone",
+        ] {
+            assert!(d.lines().any(|l| l.ends_with(want)), "no `{want}` in:\n{d}");
+        }
     }
 
     #[test]

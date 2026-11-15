@@ -77,3 +77,35 @@ async fn awaits(w: &mut dyn Write) -> u16 {
     let _ = w.write_fmt(format_args!("{} {:?}", "", async {}.await));
     b.await
 }
+
+/// A closure's parameters from its parameter's `FnOnce` bound, where the
+/// call's expected result has an `impl Trait` that the body defines.
+struct Staged<F>(F);
+
+impl<F> Staged<F> {
+    fn new(f: F) -> Self
+    where
+        F: FnOnce(Counter) -> Counter,
+    {
+        Staged(f)
+    }
+}
+
+trait Stage {}
+
+impl<F: FnOnce(Counter) -> Counter> Stage for F {}
+
+struct Counter(u32);
+
+impl Counter {
+    fn bump(&mut self) {
+        self.0 += 1;
+    }
+}
+
+fn staged() -> Staged<impl Stage> {
+    Staged::new(|mut c| {
+        c.bump();
+        c
+    })
+}

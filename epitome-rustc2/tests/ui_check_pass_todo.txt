@@ -511,7 +511,6 @@ impl-trait/defining-use-uncaptured-non-universal-region-2.rs: type check: mismat
 impl-trait/dyn-trait-elided-two-inputs-ref-assoc.rs: left out: revisions
 impl-trait/eagerly-reveal-in-local-body.rs: type check: field not found
 impl-trait/equality-in-canonical-query.rs: left out: revisions
-impl-trait/hidden-type-is-opaque.rs: type check: method not found
 impl-trait/in-trait/cycle-if-impl-doesnt-apply.rs: left out: revisions
 impl-trait/in-trait/default-body-with-rpit.rs: left out: revisions
 impl-trait/in-trait/default-method-constraint.rs: type check: mismatched types

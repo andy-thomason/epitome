@@ -1290,10 +1290,17 @@ needed:
   FnOnce(T)` says); and a method's receiver taken by value (`hooks.run()`
   in a closure) captured by value.
 
+On macOS (Apple silicon) every function is compiled for the `apple-m1`
+CPU (`"target-cpu"`, as rustc's `aarch64-apple-darwin` target has it), so
+atomics are LSE instructions (`ldadd`, `swp`, `cas`), not calls of the
+outlined helpers (`__aarch64_ldadd8_relax`) that macOS's C library does
+not have; `std_hello` and `std_threads` run there as rustc's builds do.
+macOS's `std` also needed the `ptr_mask` intrinsic, and an `if` whose
+branches are two different functions (`RwLock`'s `write_lock` and
+`read_lock`) made a function pointer.
+
 Not yet: unwinding and panic messages, and the rest of what `std`
-reaches. On macOS, programs with `std` do not link yet: the code
-generator calls the outlined atomics helpers (`__aarch64_ldadd8_relax`)
-that macOS's C library does not have. On
+reaches. On
 mandelbrot, `tests/run/std_hello.rs` (formatting, `Vec`, iterators,
 `String`, `Box<dyn Trait>`, drops and `env::args`) prints what rustc's
 build prints, optimised and not.

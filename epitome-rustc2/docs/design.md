@@ -1443,12 +1443,16 @@ is plain `std` threads.
   submodule: copy it from `rust-src`). `tests/ui_check_pass_todo.txt`
   is the work left, to bring to zero: each test that does not pass yet,
   with the stage and first error where it fails, or what it needs where
-  the runner leaves it out (auxiliary crates, revisions, `--cfg`). Its
+  the runner leaves it out (auxiliary crates, another target). Each
+  revision of a test is a test of its own (`path#rev`), with its own
+  `--cfg` (`CrateRoot::cfg`); test crates may use only `core`, `alloc`
+  and `std` (`CrateRoot::deps`), so that they cannot see each other. Its
   first line names the commit and host. A test that stops passing, or
   one on the list that passes, fails the test; `EPITOME_UI_BLESS=1`
   writes the list again, in the same commit as the change. On 2026-11-15,
   of the 3,800 check-pass tests for aarch64-macos, 2,539 pass, 435 fail
-  and 826 are left out; a run takes a minute on 12 cores.
+  and 826 are left out; with revisions counted one by one, 3,357 of
+  4,296 pass. A run takes about a minute on 12 cores.
 - **Crates:** `cargo test` of crates with `RUSTC=epitome-rustc2`,
   compared with `RUSTC_WRAPPER=epitome-rustc`.
 

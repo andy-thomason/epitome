@@ -1012,6 +1012,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
     fn trait_candidates_in(&mut self, name: &str, scoped: bool) -> Vec<(DefId, DefId)> {
         let Some(c) = self.index.trait_items.get(name) else { return Vec::new() };
         let mut c = c.clone();
+        c.retain(|&(tr, _)| self.can_use(tr));
         if c.len() > 1 || scoped {
             let bound: Vec<DefId> = self
                 .env_preds
@@ -1373,8 +1374,16 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 return Some(self.project_or_var(a, &args));
             }
         }
-        // Any trait with such an associated type that `t` implements.
-        let traits: Vec<DefId> = tcx.traits.keys().copied().filter(|&tr| self.trait_item(tr, name, Ns::Type).is_some()).collect();
+        // Any trait with such an associated type that `t` implements, in
+        // the order they are defined (not the map's, which other crates'
+        // traits change).
+        let mut traits: Vec<DefId> = tcx
+            .traits
+            .keys()
+            .copied()
+            .filter(|&tr| self.can_use(tr) && self.trait_item(tr, name, Ns::Type).is_some())
+            .collect();
+        traits.sort();
         for tr in traits {
             let n = tcx.generics[tr.0 as usize].own.len().saturating_sub(1);
             let targs: Vec<Ty> = (0..n).map(|_| self.infer.fresh()).collect();
@@ -1386,6 +1395,15 @@ impl<'a, 's> FnCtxt<'a, 's> {
             }
         }
         None
+    }
+
+    /// Whether the body's crate may use `d`: it is its own, or of a crate
+    /// it depends on (`CrateRoot::deps`).
+    pub(super) fn can_use(&self, d: DefId) -> bool {
+        let crates = self.env.crates;
+        let c = self.r.defs[d.0 as usize].krate;
+        c == self.k
+            || crates[self.k as usize].deps.as_ref().is_none_or(|deps| deps.contains(&crates[c as usize].name))
     }
 
     /// A `&` or `&mut` of `t`.

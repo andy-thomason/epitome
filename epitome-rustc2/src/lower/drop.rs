@@ -140,6 +140,11 @@ impl Fx<'_, '_, '_, '_> {
         Ok(())
     }
 
+    /// Whether any scope from `depth` in owns anything.
+    pub fn owns_any(&self, depth: usize) -> bool {
+        self.drops.scopes[depth..].iter().any(|s| !s.roots.is_empty())
+    }
+
     /// The innermost block scope (where a `let` puts its locals).
     pub fn block_scope(&self) -> usize {
         self.drops.scopes.iter().rposition(|s| s.block).unwrap_or(0)
@@ -499,6 +504,15 @@ impl Fx<'_, '_, '_, '_> {
     pub fn move_out(&mut self, n: NodeId, p: Place) -> R<()> {
         if !self.needs_drop(p.ty) {
             return Ok(());
+        }
+        let ast = self.body.ast;
+        if ast.kind(n) == Kind::Unary
+            && let [op, e] = self.kids(n)[..]
+            && ast.token(op).0 == "*"
+            && let TyKind::Adt(d, _) = self.cx.tcx.kind(self.ty(e)?)
+            && self.cx.tcx.lang.get("owned_box") == Some(&d)
+        {
+            return Err("moving out of a `Box` is not supported yet".into());
         }
         if let Some(mp) = self.move_path(n)? {
             self.moved(&mp)?;

@@ -1579,8 +1579,10 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                         // temporaries are dropped before the block's
                         // locals (as of edition 2024).
                         let mut o = self.operand(s)?;
+                        let depth = self.drops.scopes.len() - 2;
                         if let Val::Mem(_) = o.v
                             && !self.terminated()
+                            && self.owns_any(depth)
                         {
                             // A copy, out of what is about to be dropped.
                             let t = self.temp(o.ty)?;

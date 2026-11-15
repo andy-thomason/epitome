@@ -930,8 +930,9 @@ any other; then each is defined.
     holds), each element of an array or slice, each capture of a closure;
     a `Box`'s pointee before the `Box`'s own `Drop` frees it; through the
     vtable's first entry for a `dyn`.
-  - **Not yet:** moving out of a closure's capture in its body, moving
-    out of an array by a pattern (`let [a, b] = arr;`), or-patterns that
+  - **Not yet:** moving out of a closure's capture in its body, out of
+    a `Box` (`*b`), or out of an array by a pattern (`let [a, b] =
+    arr;`), or-patterns that
     move what they bind, and unwinding (panics trap, so nothing is
     dropped on the way out).
 - **Formatting** is `core::fmt` itself, compiled as any other code from

@@ -33,8 +33,12 @@ use crate::ty::{AdtKind, Mutbl, Ty, TyKind};
 use epitome_ir::build::FunctionBuilder;
 use epitome_ir::module::{Align, BlockId, Function as IrFunction, ICmpPred, Linkage, Module, Op, Value};
 
-/// A step into a value: variant (0 but for an enum) and field.
+/// A step into a value: variant (0 but for an enum) and field; or
+/// `DEREF`, into what a `Box` holds.
 pub(crate) type Elem = (u32, usize);
+
+/// The step into what a `Box` holds (`*b`).
+pub(crate) const DEREF: Elem = (u32::MAX, 0);
 
 /// A part of a root: the root, and the steps to the part.
 #[derive(Clone, Debug, PartialEq)]
@@ -199,11 +203,9 @@ impl Fx<'_, '_, '_, '_> {
         let tcx = self.cx.tcx;
         match tcx.kind(t) {
             TyKind::Tuple(_) | TyKind::Closure(..) => true,
-            TyKind::Adt(d, _) => {
-                !self.cx.drops.has_impl(d)
-                    && tcx.lang.get("owned_box") != Some(&d)
-                    && tcx.adts.get(&d).is_some_and(|a| a.kind != AdtKind::Union)
-            }
+            // What a box holds can be moved out of it.
+            TyKind::Adt(d, _) if tcx.lang.get("owned_box") == Some(&d) => true,
+            TyKind::Adt(d, _) => !self.cx.drops.has_impl(d) && tcx.adts.get(&d).is_some_and(|a| a.kind != AdtKind::Union),
             _ => false,
         }
     }
@@ -347,8 +349,8 @@ impl Fx<'_, '_, '_, '_> {
                 // The part's place (along fields; parts moved by patterns
                 // are only dropped with their root).
                 let mut p = place;
-                for &(v, i) in &s.path {
-                    p = self.field(p, v, i)?;
+                for &e in &s.path {
+                    p = self.step(p, e)?;
                 }
                 let path = s.path.clone();
                 self.if_flag(flag, |fx| {
@@ -371,6 +373,29 @@ impl Fx<'_, '_, '_, '_> {
             self.goto(s.cont);
         }
         Ok(())
+    }
+
+    /// The part of the value at `p` that step `e` leads to.
+    fn step(&mut self, p: Place, e: Elem) -> R<Place> {
+        if e == DEREF {
+            let o = self.load(p)?;
+            return self.deref(o);
+        }
+        self.field(p, e.0, e.1)
+    }
+
+    /// Drops what a box holds no longer: frees it (its `Drop`), and drops
+    /// its allocator.
+    fn drop_box_shell(&mut self, p: Place) -> R<()> {
+        let tcx = self.cx.tcx;
+        let TyKind::Adt(d, _) = tcx.kind(p.ty) else { return Err("not a `Box`".into()) };
+        let tr = *tcx.lang.get("drop").ok_or("no `Drop`")?;
+        let m = self.trait_method(tr, "drop").ok_or("no `Drop::drop`")?;
+        let rt = tcx.mk(TyKind::Ref(Mutbl::Mut, p.ty));
+        let recv = self.addr_of(p, rt)?;
+        self.call_def(m, vec![p.ty], vec![recv], None)?;
+        let n = tcx.adts.get(&d).map_or(0, |a| a.variants[0].fields.len());
+        self.drop_fields(p, 0, n)
     }
 
     /// Drops the part of root `r` at `prefix` (at `p`): whole if no part
@@ -398,6 +423,15 @@ impl Fx<'_, '_, '_, '_> {
                 Ok(())
             };
             match tcx.kind(p.ty) {
+                // A box: what it holds (if still there), then the box.
+                TyKind::Adt(d, _) if tcx.lang.get("owned_box") == Some(&d) => {
+                    let o = fx.load(p)?;
+                    let inner = fx.deref(o)?;
+                    let mut sub = prefix.to_vec();
+                    sub.push(DEREF);
+                    fx.drop_path(inner, r, &sub)?;
+                    fx.drop_box_shell(p)
+                }
                 TyKind::Tuple(l) => step(fx, 0, tcx.tys(l).len()),
                 TyKind::Closure(c, _, l) => {
                     let n = fx.cx.lcx.upvar_tys(c, l).map_or(0, |v| v.len());
@@ -480,6 +514,16 @@ impl Fx<'_, '_, '_, '_> {
                 }
                 _ => Ok(None),
             },
+            Kind::Unary if ast.token(kids[0]).0 == "*" => {
+                let bt = self.ty(kids[1])?;
+                let is_box = matches!(tcx.kind(bt), TyKind::Adt(d, _) if tcx.lang.get("owned_box") == Some(&d));
+                if !is_box {
+                    return Ok(None);
+                }
+                let Some(mut mp) = self.move_path(kids[1])? else { return Ok(None) };
+                mp.path.push(DEREF);
+                Ok(Some(mp))
+            }
             Kind::Field => {
                 let Some(mut mp) = self.move_path(kids[0])? else { return Ok(None) };
                 let bt = self.ty(kids[0])?;
@@ -505,15 +549,7 @@ impl Fx<'_, '_, '_, '_> {
         if !self.needs_drop(p.ty) {
             return Ok(());
         }
-        let ast = self.body.ast;
-        if ast.kind(n) == Kind::Unary
-            && let [op, e] = self.kids(n)[..]
-            && ast.token(op).0 == "*"
-            && let TyKind::Adt(d, _) = self.cx.tcx.kind(self.ty(e)?)
-            && self.cx.tcx.lang.get("owned_box") == Some(&d)
-        {
-            return Err("moving out of a `Box` is not supported yet".into());
-        }
+
         if let Some(mp) = self.move_path(n)? {
             self.moved(&mp)?;
         }

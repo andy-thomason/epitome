@@ -180,6 +180,12 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let self_ty = match &pred {
             Pred::Trait(t, _) | Pred::Projection(t, ..) => *t,
         };
+        if let Pred::Trait(t, tr) = &pred
+            && self.pending_traits.len() < 4096
+            && self.tcx.tys(tr.args).into_iter().any(|a| self.tcx.has_infer(self.infer.resolve(a)))
+        {
+            self.pending_traits.push((*t, tr.def, tr.args));
+        }
         if !self.tcx.has_infer(self.infer.resolve(self_ty)) || self.obligations.len() > 4096 {
             return;
         }
@@ -227,14 +233,15 @@ impl<'a, 's> FnCtxt<'a, 's> {
     }
 
     /// A snapshot of inference and of the obligations.
-    pub(super) fn probe(&self) -> (super::infer::Snapshot, usize, usize) {
-        (self.infer.snapshot(), self.obligations.len(), self.pending.len())
+    pub(super) fn probe(&self) -> (super::infer::Snapshot, usize, usize, usize) {
+        (self.infer.snapshot(), self.obligations.len(), self.pending.len(), self.pending_traits.len())
     }
 
-    pub(super) fn rollback(&mut self, s: (super::infer::Snapshot, usize, usize)) {
+    pub(super) fn rollback(&mut self, s: (super::infer::Snapshot, usize, usize, usize)) {
         self.infer.rollback(s.0);
         self.obligations.truncate(s.1);
         self.pending.truncate(s.2);
+        self.pending_traits.truncate(s.3);
     }
 
     /// Whether a predicate's self type `pt` is `t`: by unifying, unless
@@ -799,6 +806,28 @@ impl<'a, 's> FnCtxt<'a, 's> {
     /// known enough give their variable a type.
     pub(super) fn process_pending(&mut self) {
         let tcx = self.tcx;
+        // Trait predicates whose arguments are variables: one impl
+        // matching settles them.
+        let mut i = 0;
+        while i < self.pending_traits.len() {
+            let (t, tr, l) = self.pending_traits[i];
+            let args: Vec<Ty> = tcx.tys(l).into_iter().map(|x| self.infer.resolve(x)).collect();
+            if !args.iter().any(|&a| tcx.has_infer(a)) {
+                self.pending_traits.swap_remove(i);
+                continue;
+            }
+            // Its type not known yet: later.
+            if tcx.has_infer(self.infer.resolve(t)) {
+                i += 1;
+                continue;
+            }
+            match self.select(t, tr, &args, 1) {
+                Select::Ambiguous => i += 1,
+                _ => {
+                    self.pending_traits.swap_remove(i);
+                }
+            }
+        }
         let mut i = 0;
         while i < self.pending.len() {
             let (a, l, v) = self.pending[i];

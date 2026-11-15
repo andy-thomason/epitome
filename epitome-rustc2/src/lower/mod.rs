@@ -746,13 +746,20 @@ mod tests {
         assert!(programs.len() >= 5, "programs: {programs:?}");
         for file in programs {
             let session = Session::new(Options { threads: 4, cfg: Some(crate::cfg::CfgSet::x86_64_linux()), ..Default::default() });
-            let mut crates = session.parse_crates(vec![CrateRoot::new("core", &core), CrateRoot::new("program", &file)]);
+            let mut roots = vec![CrateRoot::new("core", &core)];
+            let alloc = core.ancestors().nth(3).unwrap().join("alloc/src/lib.rs");
+            if std::fs::read_to_string(&file).unwrap().contains("extern crate alloc;") {
+                roots.push(CrateRoot::new("alloc", &alloc));
+            }
+            roots.push(CrateRoot::new("program", &file));
+            let program = roots.len() as u32 - 1;
+            let mut crates = session.parse_crates(roots);
             session.expand(&mut crates);
             let r = session.resolve(&crates);
             let tcx = session.collect_types(&crates, &r);
             let index = crate::typeck::Index::new(&tcx, &r);
             let res = session.typeck_with(&crates, &r, &tcx, &index);
-            let roots = crate::mono::roots(&r, &tcx, &crates, 1, false);
+            let roots = crate::mono::roots(&r, &tcx, &crates, program, false);
             let mono = session.collect_mono_items(&crates, &r, &tcx, &index, &res, roots);
             let lowered = session.lower(&crates, &r, &tcx, &index, &res, &mono, super::Target::x86_64_linux());
             let own: Vec<String> = lowered
@@ -765,7 +772,7 @@ mod tests {
                         // Drop glue the program needs, of whatever type.
                         Item::DropGlue(_) => return true,
                     };
-                    r.defs[d.0 as usize].krate == 1
+                    r.defs[d.0 as usize].krate == program
                 })
                 .map(|f| format!("{}: {}", f.name, f.why))
                 .collect();

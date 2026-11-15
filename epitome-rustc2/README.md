@@ -34,7 +34,7 @@ The plan is in [`docs/design.md`](docs/design.md).
 | Layout and constants | Done | Sizes and alignments match rustc's for the 45 types tested. |
 | Monomorphisation | Done | From every non-generic function of `core`: 28,430 items in 0.09 s. 99.9% of uses resolve; most of the rest are specialisations. |
 | Lowering to Epitome IR | Working | The programs in `tests/run/` lower completely. Of the 22,797 functions `core` reaches, all but 297 lower outside SIMD; those that do not trap, and `--lower-stats` says why. |
-| Compiling and running | Working | The fifteen programs in `tests/run/` compile through Epitome's optimiser and code generator, run, and print what rustc's builds print. |
+| Compiling and running | Working | The sixteen programs in `tests/run/` compile through Epitome's optimiser and code generator, run, and print what rustc's builds print. |
 
 Everything up to and including type checking `core`, `alloc` and `std`
 together takes 1.3 s of wall time.
@@ -222,7 +222,7 @@ is checked against `core`:
 | `ast`, `parse` | The arena tree, with `mark`/`finish` building nodes. |
 | `pretty` | Prints the tree as Rust, as an s-expression, or indented. |
 | `session`, `pool`, `source` | Crates and files, the job pool, and the source map. |
-| `cfg`, `expand`, `proc_macro` | `cfg` stripping, then expansion in rounds; proc macros run through the toolchain's proc-macro server. |
+| `cfg`, `expand`, `proc_macro` | `cfg` stripping, then expansion in rounds (with the allocator shim of `#[global_allocator]`); proc macros run through the toolchain's proc-macro server. |
 | `resolve` | Definitions, modules, imports resolved to a fixed point, and hygiene. |
 | `ty` | Interned types; signatures, ADTs, impls, predicates and lang items. |
 | `typeck` | Bodies in parallel: inference (`infer.rs`), expressions and patterns (`check.rs`), and traits (`traits.rs`). |

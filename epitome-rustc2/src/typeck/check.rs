@@ -256,6 +256,10 @@ pub(super) struct FnCtxt<'a, 's> {
     /// Projections waiting for their types to be known: `<args>::assoc`
     /// is the variable.
     pub(super) pending: Vec<(DefId, crate::ty::List, Ty)>,
+    /// Trait predicates on a known type whose trait arguments are still
+    /// variables (`NonNull<u8>: From<Unique<?T>>`): selecting the impl
+    /// once only one matches says what the variables are.
+    pub(super) pending_traits: Vec<(Ty, DefId, crate::ty::List)>,
     pub(super) scope_cache: FastMap<DefId, bool>,
 }
 
@@ -302,6 +306,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
             env_preds: Vec::new(),
             obligations: Vec::new(),
             pending: Vec::new(),
+            pending_traits: Vec::new(),
             scope_cache: FastMap::default(),
         };
         cx.env_predicates();
@@ -775,6 +780,14 @@ impl<'a, 's> FnCtxt<'a, 's> {
             DefKind::Fn | DefKind::AssocFn | DefKind::ForeignFn => {
                 let sig = tcx.sig_of(tcx.fn_sig[d.0 as usize]?);
                 self.oblige_item(d, &args);
+                // A trait's method by path (`From::from(x)`): its trait's
+                // arguments may be settled by the one impl that fits.
+                if let Some(tr) = self.trait_of(d) {
+                    let n = tcx.all_params(tr).len().min(args.len());
+                    if n > 1 && args[1..n].iter().any(|&a| tcx.has_infer(self.infer.resolve(a))) {
+                        self.pending_traits.push((args[0], tr, tcx.list(args[1..n].to_vec())));
+                    }
+                }
                 // `impl Trait` for a parameter: a variable, with the bounds
                 // as obligations. For the result, the opaque type itself.
                 let inst = |cx: &mut Self, t: Ty, input: bool| -> Ty {
@@ -1831,15 +1844,22 @@ impl<'a, 's> FnCtxt<'a, 's> {
     fn field(&mut self, n: NodeId, base_node: NodeId, base: Ty, name: &str) -> Ty {
         let tcx = self.tcx;
         let steps = self.autoderef(base);
+        // A field this body cannot see (`Box`'s own, outside `alloc`) is
+        // passed over for one further along, if there is one.
+        let mut hidden = None;
         for k in 0..steps.len() {
             let t = steps[k].0;
             match tcx.kind(t) {
                 TyKind::Adt(d, l) => {
                     if let Some(adt) = tcx.adts.get(&d)
                         && adt.kind != crate::ty::AdtKind::Enum
-                        && let Some(f) = adt.variants[0].fields.iter().find(|f| f.name == name)
+                        && let Some(i) = adt.variants[0].fields.iter().position(|f| f.name == name)
                     {
-                        let ft = subst(tcx, f.ty, &tcx.all_params(d), &tcx.tys(l));
+                        if k + 1 < steps.len() && self.field_hidden(d, i) {
+                            hidden.get_or_insert(k);
+                            continue;
+                        }
+                        let ft = subst(tcx, adt.variants[0].fields[i].ty, &tcx.all_params(d), &tcx.tys(l));
                         self.adjust(base_node, Self::step_adjustments(&steps, k, None), steps[k].0);
                         return self.normalize(ft, 0);
                     }
@@ -1870,7 +1890,38 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 _ => {}
             }
         }
+        if let Some(k) = hidden
+            && let TyKind::Adt(d, l) = tcx.kind(steps[k].0)
+            && let Some(f) = tcx.adts.get(&d).and_then(|a| a.variants[0].fields.iter().find(|f| f.name == name))
+        {
+            let ft = subst(tcx, f.ty, &tcx.all_params(d), &tcx.tys(l));
+            self.adjust(base_node, Self::step_adjustments(&steps, k, None), steps[k].0);
+            return self.normalize(ft, 0);
+        }
         self.err(n, "field not found")
+    }
+
+    /// Whether field `i` of struct `d` is private to a module this body is
+    /// not in (or `pub(...)` within another crate).
+    fn field_hidden(&self, d: DefId, i: usize) -> bool {
+        let r = self.r;
+        let def = &r.defs[d.0 as usize];
+        let ast = &self.env.crates[def.krate as usize].files[def.file as usize].ast;
+        let Some(list) = ast.children(def.node).iter().copied().find(|&c| matches!(ast.kind(c), Kind::NamedFields | Kind::TupleFields)) else {
+            return false;
+        };
+        let fields: Vec<NodeId> = ast.children(list).iter().copied().filter(|&c| matches!(ast.kind(c), Kind::FieldDef | Kind::TupleField)).collect();
+        let Some(&f) = fields.get(i) else { return false };
+        let here = r.defs[self.owner.0 as usize].krate;
+        match ast.child(f, Kind::Visibility) {
+            Some(v) if ast.child(v, Kind::Path).is_none() => false,
+            Some(_) => def.krate != here,
+            None => {
+                let (Some(m), Some(from)) = (def.parent, r.defs[self.owner.0 as usize].parent) else { return false };
+                let m = r.modules[m.0 as usize].normal;
+                !r.visible(crate::resolve::Vis::Restricted(m), from)
+            }
+        }
     }
 
     /// `base[idx]`: built in for arrays, slices and `str`, else `Index`,

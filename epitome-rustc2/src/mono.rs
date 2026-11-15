@@ -131,8 +131,19 @@ pub fn roots(r: &Resolver, tcx: &TyCtxt, crates: &[ParsedCrate], k: u32, lib: bo
         .collect();
     let empty = tcx.list(Vec::new());
     let is_main = |d: DefId| r.defs[d.0 as usize].name == "main" && r.defs[d.0 as usize].kind == DefKind::Fn;
+    // Functions exported by name (`#[no_mangle]`, as the allocator shim
+    // is) are kept with `main`: other crates call them.
+    let exported = |d: DefId| {
+        let def = &r.defs[d.0 as usize];
+        let ast = &crates[def.krate as usize].files[def.file as usize].ast;
+        crate::session::has_attribute(ast, def.node, "no_mangle") || crate::session::attribute_value(ast, def.node, "export_name").is_some()
+    };
     match fns.iter().find(|&&d| !lib && is_main(d)) {
-        Some(&m) => vec![Item::Fn(m, empty)],
+        Some(&m) => {
+            let mut v = vec![Item::Fn(m, empty)];
+            v.extend(fns.iter().filter(|&&d| d != m && exported(d)).map(|&d| Item::Fn(d, empty)));
+            v
+        }
         None => fns.into_iter().map(|d| Item::Fn(d, empty)).collect(),
     }
 }

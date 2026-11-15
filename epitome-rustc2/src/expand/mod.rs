@@ -27,6 +27,7 @@
 
 pub mod asm;
 pub mod builtin;
+pub mod allocator;
 pub mod derive;
 pub mod format;
 pub mod mbe;
@@ -820,6 +821,11 @@ impl<'x, 's> Expander<'x, 's> {
         // Each derive: a proc macro's library, or none for a built-in.
         let mut derives: Vec<(Option<std::path::PathBuf>, &'s str, NodeId)> = Vec::new();
         for &a in &attrs {
+            // `#[global_allocator]` adds the allocator shim after its static.
+            if names(a).last() == Some(&"global_allocator") {
+                derives.push((None, "global_allocator", a));
+                continue;
+            }
             // `derive_const` derives `const` impls: the same, to us.
             if !matches!(names(a).as_slice(), ["derive"] | ["derive_const"]) {
                 continue;
@@ -853,7 +859,7 @@ impl<'x, 's> Expander<'x, 's> {
         for (lib, name, a) in derives {
             let tokens = match lib {
                 Some(lib) => self.run_proc_macro(file, a, &lib, name, &body, None),
-                None => match derive::derive(&file.ast, item, name) {
+                None => match if name == "global_allocator" { allocator::shim(&file.ast, item) } else { derive::derive(&file.ast, item, name) } {
                     Ok(text) => match lex_text(self.session, &format!("<derive({name})>"), text) {
                         Ok(t) => Some(t),
                         Err(e) => {

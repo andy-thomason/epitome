@@ -542,7 +542,11 @@ impl Fx<'_, '_, '_, '_> {
             }
             Kind::Field => {
                 let Some(mut mp) = self.move_path(kids[0])? else { return Ok(None) };
-                let bt = self.ty(kids[0])?;
+                // The base's type after autoderef (through boxes).
+                let bt = match self.body.tables.adjusted.get(&kids[0]) {
+                    Some(&t) => self.sub(t),
+                    None => self.ty(kids[0])?,
+                };
                 let name = ast.token(kids[1]).0;
                 let i = match tcx.kind(bt) {
                     TyKind::Adt(d, _) => {

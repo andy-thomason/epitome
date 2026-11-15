@@ -1457,14 +1457,26 @@ impl<'a, 's> FnCtxt<'a, 's> {
                         let et = self.expr(e, expect.or(Some(then)));
                         // Two closures (or functions) where a function
                         // pointer is wanted: each made one.
-                        if let Some(want) = expect
-                            && let TyKind::FnPtr(_) = tcx.kind(self.infer.shallow(want))
-                            && [then, et].iter().all(|&t| matches!(tcx.kind(self.infer.shallow(t)), TyKind::Closure(..) | TyKind::FnDef(..)))
-                            && self.infer.shallow(then) != self.infer.shallow(et)
-                        {
-                            self.coerce(kids[1], then, want);
-                            self.coerce(e, et, want);
-                            return want;
+                        let callable = |t: Ty| matches!(tcx.kind(t), TyKind::Closure(..) | TyKind::FnDef(..));
+                        let (st, se) = (self.infer.shallow(then), self.infer.shallow(et));
+                        if callable(st) && callable(se) && st != se {
+                            // The pointer wanted, or with no expectation two
+                            // function items' signature as one.
+                            let want = match expect.map(|w| self.infer.shallow(w)) {
+                                Some(w) if matches!(tcx.kind(w), TyKind::FnPtr(_)) => Some(w),
+                                _ => match tcx.kind(st) {
+                                    TyKind::FnDef(d, l) if matches!(tcx.kind(se), TyKind::FnDef(..)) => self.callable_sig(d, l).and_then(|(inputs, output)| {
+                                        let base = tcx.sig_of(tcx.fn_sig[d.0 as usize]?);
+                                        Some(self.mk(TyKind::FnPtr(tcx.sig(crate::ty::FnSig { inputs: tcx.list(inputs), output, ..base }))))
+                                    }),
+                                    _ => None,
+                                },
+                            };
+                            if let Some(want) = want {
+                                self.coerce(kids[1], then, want);
+                                self.coerce(e, et, want);
+                                return want;
+                            }
                         }
                         self.join(n, then, et)
                     }

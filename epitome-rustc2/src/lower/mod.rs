@@ -59,6 +59,9 @@ pub struct Target {
     pub data_layout: &'static str,
     /// The size of a pointer, in bytes.
     pub ptr_size: u64,
+    /// The CPU every function is compiled for (`"target-cpu"`), as
+    /// rustc's target gives it; none for the code generator's default.
+    pub cpu: Option<&'static str>,
 }
 
 impl Target {
@@ -67,11 +70,20 @@ impl Target {
             triple: "x86_64-unknown-linux-gnu",
             data_layout: "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128",
             ptr_size: 8,
+            cpu: None,
         }
     }
 
+    /// macOS on Apple silicon: every Mac with it has the M1's features
+    /// (LSE atomics among them, so atomics are instructions, not calls of
+    /// helpers macOS does not have).
     pub fn aarch64_darwin() -> Target {
-        Target { triple: "arm64-apple-macosx14.0.0", data_layout: "e-m:o-i64:64-i128:128-n32:64-S128-Fn32", ptr_size: 8 }
+        Target {
+            triple: "arm64-apple-macosx14.0.0",
+            data_layout: "e-m:o-i64:64-i128:128-n32:64-S128-Fn32",
+            ptr_size: 8,
+            cpu: Some("apple-m1"),
+        }
     }
 
     /// The machine this compiler runs on.
@@ -746,6 +758,17 @@ impl Session {
                 && let Some(fs) = cx.target_features(d, target)
             {
                 add_target_features(&mut m, decl.g, fs);
+            }
+        }
+        // Every function defined: the target's CPU.
+        if let Some(cpu) = target.cpu {
+            for g in &mut m.globals {
+                if let epitome_ir::module::GlobalKind::Function(f) = &mut g.kind
+                    && f.has_body
+                    && !f.fn_attrs.iter().any(|a| matches!(a, epitome_ir::module::Attr::Str { key, .. } if key.as_slice() == b"target-cpu"))
+                {
+                    f.fn_attrs.push(epitome_ir::module::Attr::Str { key: b"target-cpu".to_vec(), value: Some(cpu.as_bytes().to_vec()) });
+                }
             }
         }
         let decls = cx.fns.iter().map(|(&it, d)| (it, d.g)).collect();

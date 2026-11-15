@@ -119,16 +119,13 @@ impl Session {
 /// compiled as a library, `lib`), else every function that is not generic
 /// and has a body (not an intrinsic's declaration).
 pub fn roots(r: &Resolver, tcx: &TyCtxt, crates: &[ParsedCrate], k: u32, lib: bool) -> Vec<Item> {
-    let fns: Vec<DefId> = (0..r.defs.len() as u32)
-        .map(DefId)
-        .filter(|&d| {
-            let def = &r.defs[d.0 as usize];
-            def.krate == k
-                && matches!(def.kind, DefKind::Fn | DefKind::AssocFn)
-                && tcx.all_params(d).is_empty()
-                && crates[def.krate as usize].files[def.file as usize].ast.child(def.node, Kind::Block).is_some()
-        })
-        .collect();
+    let defined = |d: DefId| {
+        let def = &r.defs[d.0 as usize];
+        matches!(def.kind, DefKind::Fn | DefKind::AssocFn)
+            && tcx.all_params(d).is_empty()
+            && crates[def.krate as usize].files[def.file as usize].ast.child(def.node, Kind::Block).is_some()
+    };
+    let fns: Vec<DefId> = (0..r.defs.len() as u32).map(DefId).filter(|&d| r.defs[d.0 as usize].krate == k && defined(d)).collect();
     let empty = tcx.list(Vec::new());
     let is_main = |d: DefId| r.defs[d.0 as usize].name == "main" && r.defs[d.0 as usize].kind == DefKind::Fn;
     // Functions exported by name (`#[no_mangle]`, as the allocator shim
@@ -147,17 +144,21 @@ pub fn roots(r: &Resolver, tcx: &TyCtxt, crates: &[ParsedCrate], k: u32, lib: bo
                 && let Some(sig) = tcx.fn_sig[m.0 as usize]
             {
                 v.push(Item::Fn(start, tcx.list(vec![tcx.sig_of(sig).output])));
-                // With no `#[global_allocator]` (whose shim defines
-                // `__rust_alloc`), `std`'s own allocator, which lowering's
-                // allocator shim calls.
-                let named = |n: &str| (0..r.defs.len() as u32).map(DefId).find(|&d| r.defs[d.0 as usize].name == n && r.defs[d.0 as usize].kind == DefKind::Fn);
-                if named("__rust_alloc").is_none() {
-                    for n in crate::lower::DEFAULT_ALLOCATOR.iter().map(|x| x.1) {
-                        if let Some(d) = named(n) {
-                            v.push(Item::Fn(d, empty));
-                        }
-                    }
-                }
+                // What the standard library's crates define for each other
+                // by name (`#[rustc_std_internal_symbol]`: `std`'s own
+                // allocator, `__rust_start_panic` and the rest).
+                v.extend(
+                    (0..r.defs.len() as u32)
+                        .map(DefId)
+                        .filter(|&d| {
+                            let def = &r.defs[d.0 as usize];
+                            def.krate != k
+                                && def.kind == DefKind::Fn
+                                && defined(d)
+                                && crate::session::has_attribute(&crates[def.krate as usize].files[def.file as usize].ast, def.node, "rustc_std_internal_symbol")
+                        })
+                        .map(|d| Item::Fn(d, empty)),
+                );
             }
             v.extend(fns.iter().filter(|&&d| d != m && exported(d)).map(|&d| Item::Fn(d, empty)));
             v

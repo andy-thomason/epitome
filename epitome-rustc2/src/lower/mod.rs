@@ -396,7 +396,10 @@ impl<'a, 's> Cx<'a, 's> {
         if let Some(n) = crate::session::attribute_value(ast, node, "export_name") {
             return n;
         }
-        if crate::session::has_attribute(ast, node, "no_mangle") {
+        // `#[rustc_std_internal_symbol]`: a function one standard library
+        // crate defines and another declares (`__rust_start_panic`), by its
+        // name on both sides.
+        if crate::session::has_attribute(ast, node, "no_mangle") || crate::session::has_attribute(ast, node, "rustc_std_internal_symbol") {
             return self.r.defs[d.0 as usize].name.to_string();
         }
         let mut text = crate::mono::item_path(self.r, self.tcx, d);
@@ -506,6 +509,7 @@ impl Session {
                     let (_, _, ast, node) = cx.def_ast(d);
                     let exported = foreign
                         || crate::session::has_attribute(ast, node, "no_mangle")
+                        || crate::session::has_attribute(ast, node, "rustc_std_internal_symbol")
                         || crate::session::attribute_value(ast, node, "export_name").is_some();
                     let mut spec = IrFunction::builder(name).returns(ret);
                     for p in params {

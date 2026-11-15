@@ -640,6 +640,11 @@ impl Session {
         if !ctors.is_empty() {
             global_ctors(&mut m, &ctors);
         }
+        // With `std`: the C `main`, which runs the program's `main`
+        // through `std`'s `lang_start`.
+        if let Some(e) = entry_point(&cx, &mut m, mono) {
+            failures.push(Failure { item: e.0, name: "main".into(), why: e.1 });
+        }
         failures.sort_by(|a, b| a.name.cmp(&b.name));
         partial.sort_by(|a, b| a.name.cmp(&b.name));
         // Each function's target features (once its body is in: a body
@@ -654,6 +659,55 @@ impl Session {
         let decls = cx.fns.iter().map(|(&it, d)| (it, d.g)).collect();
         Lowered { module: m, functions, failures, partial, notes, titles, decls }
     }
+}
+
+/// The C `main(argc, argv)` of a program with `std`: `lang_start::<T>`
+/// (`std::rt`'s, the `start` lang item) of the program's `main`, `argc`,
+/// `argv` and the default `SIGPIPE` handling, its result the exit status.
+/// Nothing if there is no such `main` or no `std`; a failure if it cannot
+/// be made.
+fn entry_point(cx: &Cx, m: &mut Module, mono: &MonoItems) -> Option<(Item, String)> {
+    let tcx = cx.tcx;
+    let start = *tcx.lang.get("start")?;
+    let empty = tcx.list(Vec::new());
+    // The program's `main`: the last crate's.
+    let main = mono
+        .items
+        .iter()
+        .filter_map(|&it| match it {
+            Item::Fn(d, l) if l == empty && cx.r.defs[d.0 as usize].name == "main" && cx.r.defs[d.0 as usize].kind == DefKind::Fn => Some(d),
+            _ => None,
+        })
+        .max_by_key(|&d| cx.r.defs[d.0 as usize].krate)?;
+    let main_it = Item::Fn(main, empty);
+    let (_, _, ast, node) = cx.def_ast(main);
+    if crate::session::has_attribute(ast, node, "no_mangle") {
+        return None;
+    }
+    let out = tcx.sig_of(tcx.fn_sig[main.0 as usize]?).output;
+    let start_it = Item::Fn(start, tcx.list(vec![out]));
+    let (Some(md), Some(sd)) = (cx.fns.get(&main_it), cx.fns.get(&start_it)) else {
+        return Some((main_it, "`main` or `lang_start` was not declared".into()));
+    };
+    let ints: Vec<TypeId> = sd.abi.args.iter().map(|r| match r {
+        Repr::Imm(t) => Some(*t),
+        _ => None,
+    }).collect::<Option<Vec<_>>>().unwrap_or_default();
+    if ints.len() != 4 || !matches!(sd.abi.ret, Repr::Imm(_)) {
+        return Some((start_it, "`lang_start` has an unexpected signature".into()));
+    }
+    let i32t = m.types.int(32);
+    let ptr = m.types.ptr(0);
+    let mut b = IrFunction::builder("main").returns(i32t).param("argc", i32t).param("argv", ptr).begin(m);
+    let f = b.module().global_value(md.g);
+    let argc = b.param(0);
+    let argc = b.sext(argc, ints[1]);
+    let argv = b.param(1);
+    let sigpipe = b.const_int(ints[3], 0);
+    let r = b.call(sd.g, &[f, argc, argv, sigpipe]).expect("`lang_start` gives a value");
+    let r = b.trunc(r, i32t);
+    b.ret(r);
+    b.finish().err().map(|e| (start_it, e.to_string()))
 }
 
 /// Each Rust target feature of x86-64, and the LLVM features rustc turns

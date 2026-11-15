@@ -188,7 +188,8 @@ pub fn expand<'s>(cx: &Context<'_, 's>, name: &str, input: &[Token<'s>]) -> Resu
         }
         "env" | "option_env" => {
             let Some(var) = args(input).first().and_then(|a| string_arg(a)) else { return Ok(None) };
-            let value = std::env::var(var).ok();
+            let given = cx.session.options.env.iter().find(|(k, _)| k == var).map(|(_, v)| v.clone());
+            let value = given.or_else(|| std::env::var(var).ok());
             let text = match (name, value) {
                 ("env", Some(v)) => quote(&v),
                 ("env", None) => return Err(cx.error(format!("environment variable `{var}` is not set"))),

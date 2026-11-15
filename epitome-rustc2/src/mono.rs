@@ -141,6 +141,13 @@ pub fn roots(r: &Resolver, tcx: &TyCtxt, crates: &[ParsedCrate], k: u32, lib: bo
     match fns.iter().find(|&&d| !lib && is_main(d)) {
         Some(&m) => {
             let mut v = vec![Item::Fn(m, empty)];
+            // With `std`, `main` is run by its `lang_start::<T>` (`T` what
+            // `main` returns), which the entry point lowering adds calls.
+            if let Some(&start) = tcx.lang.get("start")
+                && let Some(sig) = tcx.fn_sig[m.0 as usize]
+            {
+                v.push(Item::Fn(start, tcx.list(vec![tcx.sig_of(sig).output])));
+            }
             v.extend(fns.iter().filter(|&&d| d != m && exported(d)).map(|&d| Item::Fn(d, empty)));
             v
         }

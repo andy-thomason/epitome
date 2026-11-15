@@ -701,8 +701,8 @@ from any thread: size, alignment, fields' offsets, the ABI (`Scalar`,
 Done. Starting from `main` (or, with none or with `--lib`, every
 function of the last crate that is not generic), it finds every function the program needs at
 the generic arguments it is used with, and the closures, statics,
-constants and vtables. Each item is a job on the pool; finding a new one
-adds a job.
+constants, vtables and drop glue. Each item is a job on the pool;
+finding a new one adds a job.
 
 - A body is walked with its arguments put in place of its parameters,
   and the types it mentions normalised. The calls come from type
@@ -732,6 +732,15 @@ adds a job.
 - Calls the compiler implements need no item: a closure or function
   pointer called through `Fn` (a function item's own body runs), a `dyn`
   method, `Clone` of a tuple or a `Copy` type.
+- Drop glue (`src/drops.rs`). A type needs dropping if it has a `Drop`
+  impl, is a `Box` or a `dyn`, or holds by value something that needs
+  it; `ManuallyDrop` and unions hold their contents without dropping
+  them. A body may drop a value of any type its expressions and patterns
+  have, so each such type's drop glue is an item (more than are used:
+  most values are moved, not dropped). A type's glue needs its
+  `Drop::drop` and the glue of each part it holds; a vtable needs its
+  type's glue; and `core`'s `drop_glue` (which `drop_in_place` calls, and
+  whose body the compiler replaces) needs its type's.
 - `impl Trait` as a result is an opaque type with its owner's generic
   arguments (`TyKind::Opaque(id, args)`), as a closure's type carries the
   arguments of the item it is written in. Type checking records what
@@ -800,11 +809,15 @@ any other; then each is defined.
 - **Closures.** Type checking records what each closure captures: every
   local of an enclosing body it uses, by value in a `move` closure or
   where the body moves a value that is not `Copy` out of it, by reference
-  otherwise. Whole variables are captured, not the fields used, which
-  behaves the same while nothing is dropped. A closure's value is a tuple
+  otherwise. Whole variables are captured, not the fields used (as in
+  edition 2018), so a `move` closure that uses one field of a local
+  drops all of it when it is dropped, where rustc's edition 2021 drops
+  the other fields with the local. A closure's value is a tuple
   of its captures, and its function takes a pointer to that tuple first.
   Calls through the `Fn` traits go to the closure's function, the function
-  item's own function, or through a function pointer.
+  item's own function, or through a function pointer. A closure taken by
+  value by `FnOnce::call_once` is dropped after the call; one whose body
+  moves out of what it captured is not lowered yet.
 - **Constants.** One the evaluator can work out is an immediate; any other
   has its initialiser lowered where it is used. A `static` whose value
   the evaluator can work out (an integer, `bool` or `char`) is constant
@@ -872,7 +885,7 @@ any other; then each is defined.
   rustc's: neither is promised.
 - **`dyn`.** A pointer to a `dyn Trait` is the value's address and its
   vtable's. A vtable is a private constant made the first time it is
-  needed: the drop function (null, as drops are not done yet), size and
+  needed: the type's drop glue (null if it needs none), size and
   alignment, then each method's address in `vtable_methods`' order (a
   closure's `call` and `call_mut`: its own function). Unsizing to `dyn`
   takes the vtable of the concrete type; from `dyn A + Send` to `dyn A`
@@ -881,6 +894,46 @@ any other; then each is defined.
   (a call of a `&dyn Fn(A) -> B`) pass the arguments one by one, as the
   closure's function takes them. `size_of_val` and `align_of_val` of a
   `dyn`, and `vtable_size` and `vtable_align`, read the vtable.
+- **Drops** (`lower/drop.rs`). Everything a body owns that needs
+  dropping is a root: a local, a parameter, or a temporary (a value
+  expression used as a place: borrowed, a method's receiver, a field's
+  base, a `match` scrutinee). Each root is in a scope, dropped when
+  control leaves it, the last made first: at its end, or on a `break`,
+  `continue`, `return` or `?` past it. Blocks are scopes for their
+  locals; statements, conditions, `match` arms, a block's last
+  expression, and each iteration of `while` and `for`, for temporaries
+  (as edition 2024 has them: the temporaries of a block's last
+  expression go before its locals, those of an `if let`'s scrutinee
+  before its `else`); the function for its parameters, which go after
+  its body's locals. A `let` keeps the temporaries its initialiser
+  borrows (`let r = &f();`, also through tuples, arrays, struct literals,
+  casts and blocks) for its block.
+  - **Flags.** Each root has a drop flag, a byte in the frame: set when
+    it is initialised, cleared when it is moved out or dropped. A drop
+    tests it, so a value moved on one path and not another is dropped
+    once. A place expression used as a value moves out of what it names
+    (a local, a field of one, a temporary); so do a `move` closure's
+    captures, a struct literal's shorthand fields and its `..base`.
+    Assigning to a place drops what it held first (a local's, if its
+    flag says it holds a value).
+  - **Parts.** Moving a field out of a root (`let a = p.a;`) or binding
+    part of it by value in a pattern (`Some(x)`) gives that path a flag
+    of its own. The root is then dropped part by part: each part not
+    moved, and each moved part whose flag says it holds a value again.
+    Which parts of a root move is only known at the end of the body, so
+    a root that can have parts moved (a struct, tuple, enum or closure
+    with no `Drop` impl) is dropped and initialised in blocks of their
+    own, filled in once the body is lowered. A pattern's bindings move
+    out only once it has matched, and a `match` arm's guard has held.
+  - **Glue.** A type's drop glue is a function taking a `*mut T`: its
+    `Drop::drop`, then each field in order (an enum's, for the variant it
+    holds), each element of an array or slice, each capture of a closure;
+    a `Box`'s pointee before the `Box`'s own `Drop` frees it; through the
+    vtable's first entry for a `dyn`.
+  - **Not yet:** moving out of a closure's capture in its body, moving
+    out of an array by a pattern (`let [a, b] = arr;`), or-patterns that
+    move what they bind, and unwinding (panics trap, so nothing is
+    dropped on the way out).
 - **Formatting** is `core::fmt` itself, compiled as any other code from
   the expansion of `format_args!` (section 6.5): `write!`, `Display` and
   `Debug` of integers, floats, strings and derived types, `{:#?}`, and
@@ -1034,7 +1087,7 @@ not worked out; and in some bodies `.min()` is not found on an iterator
 whose item waits on an operator in a closure (`.map(|(a, b)| a * b)`).
 Lowering reports each of these rather than compiling something wrong.
 
-Not done yet: drops and drop glue (vtables' drop entries are null),
+Not done yet: the moves drops do not handle yet (above),
 upcasting a `dyn` to a supertrait's, function items and pointers as
 `dyn Fn` (closures are done), panics' messages (panics trap),
 unwinding, `Box` and allocation, closures made function pointers, string
@@ -1269,7 +1322,7 @@ Tests of parallel stages run on one thread and on several, and compare.
    and `std` type completely).
 6. Lowering of those to Epitome IR; first run tests pass (done for the
    programs in `tests/run/`).
-7. `dyn` and formatting through `core::fmt` (done); drops, slices and
-   strings.
+7. `dyn` and formatting through `core::fmt` (done); drops (done but for
+   the moves listed in 8.3); `Box` and allocation, slices and strings.
 8. `core`, then `alloc` and `std` from `rust-src`; Cargo builds.
 9. Unwinding, `async`, and the long tail.

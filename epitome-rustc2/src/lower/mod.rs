@@ -818,6 +818,8 @@ mod tests {
                         | Item::Intrinsic(d, _)
                         | Item::Const(d, _) => d,
                         Item::VTable(..) => return false,
+                        // Drop glue the program needs, of whatever type.
+                        Item::DropGlue(_) => return true,
                     };
                     r.defs[d.0 as usize].krate == 1
                 })

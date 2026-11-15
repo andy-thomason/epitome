@@ -34,7 +34,7 @@ The plan is in [`docs/design.md`](docs/design.md).
 | Layout and constants | Done | Sizes and alignments match rustc's for the 45 types tested. |
 | Monomorphisation | Done | From every non-generic function of `core`: 28,430 items in 0.09 s. 99.9% of uses resolve; most of the rest are specialisations. |
 | Lowering to Epitome IR | Working | The programs in `tests/run/` lower completely. Of the 22,711 functions `core` reaches, all but 297 lower outside SIMD; those that do not trap, and `--lower-stats` says why. |
-| Compiling and running | Working | The twelve programs in `tests/run/` compile through Epitome's optimiser and code generator, run, and print what rustc's builds print. |
+| Compiling and running | Working | The fifteen programs in `tests/run/` compile through Epitome's optimiser and code generator, run, and print what rustc's builds print. |
 
 Everything up to and including type checking `core`, `alloc` and `std`
 together takes 1.3 s of wall time.
@@ -227,8 +227,8 @@ is checked against `core`:
 | `ty` | Interned types; signatures, ADTs, impls, predicates and lang items. |
 | `typeck` | Bodies in parallel: inference (`infer.rs`), expressions and patterns (`check.rs`), and traits (`traits.rs`). |
 | `layout`, `consteval` | Types' sizes, alignments, fields and niches; constants worked out from the typed tree. |
-| `mono` | Monomorphisation: every function instance, closure, vtable and constant a program needs. |
-| `lower` | Bodies to Epitome IR: values and places (`body.rs`), patterns and enums (`pat.rs`), and intrinsics (`intrinsic.rs`). |
+| `mono`, `drops` | Monomorphisation: every function instance, closure, vtable, constant and drop glue a program needs; which types need dropping. |
+| `lower` | Bodies to Epitome IR: values and places (`body.rs`), patterns and enums (`pat.rs`), drops and drop glue (`drop.rs`), and intrinsics (`intrinsic.rs`). |
 | `hash`, `intern` | A fast hasher, and sharded interners for ids. |
 
 ## Tests

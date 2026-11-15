@@ -186,6 +186,7 @@ impl<'a> Lexer<'a> {
     pub fn new(src: &'a str) -> Self {
         let mut lexer = Lexer { src, pos: 0, prev: [Token(""), Token("")] };
         lexer.skip_shebang();
+        lexer.skip_frontmatter();
         lexer
     }
 
@@ -212,6 +213,36 @@ impl<'a> Lexer<'a> {
             return;
         }
         self.pos = self.src.find('\n').unwrap_or(self.src.len());
+    }
+
+    /// Frontmatter (as for `cargo -Zscript`) after any shebang and blank
+    /// lines: a fence of three or more `-` at the start of a line, perhaps
+    /// with an infostring after it, then lines of anything up to a line
+    /// of the same fence (trailing white space allowed). Without the
+    /// closing fence nothing is skipped, and the dashes are tokens.
+    fn skip_frontmatter(&mut self) {
+        let mut at = self.pos;
+        let mut lines = self.src[at..].split_inclusive('\n');
+        let fence = loop {
+            let Some(line) = lines.next() else { return };
+            if line.trim().is_empty() {
+                at += line.len();
+                continue;
+            }
+            let dashes = line.len() - line.trim_start_matches('-').len();
+            if dashes < 3 {
+                return;
+            }
+            break &line[..dashes];
+        };
+        let mut end = at;
+        for (i, line) in self.src[at..].split_inclusive('\n').enumerate() {
+            end += line.len();
+            if i > 0 && line.trim_end() == fence {
+                self.pos = end;
+                return;
+            }
+        }
     }
 
     /// Skips white space and comments other than doc comments.
@@ -514,6 +545,16 @@ mod tests {
             ["/// doc", "//! inner", "/** blk */", "/*! in */", "x"]
         );
         assert!(lex("/* open").is_err());
+    }
+
+    #[test]
+    fn frontmatter() {
+        assert_eq!(toks("---\n[dependencies]\n---\nfn"), ["fn"]);
+        assert_eq!(toks("#!/usr/bin/env x\n\n--- cargo\n---\nfn"), ["fn"]);
+        // A shorter run of dashes inside does not close it.
+        assert_eq!(toks("----\n---\n---- \nfn"), ["fn"]);
+        // Not closed: the dashes are tokens.
+        assert_eq!(toks("---\nfn")[0], "-");
     }
 
     #[test]

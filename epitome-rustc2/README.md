@@ -34,7 +34,7 @@ The plan is in [`docs/design.md`](docs/design.md).
 | Layout and constants | Done | Sizes and alignments match rustc's for the 45 types tested. |
 | Monomorphisation | Done | From every non-generic function of `core`: 28,430 items in 0.09 s. 99.9% of uses resolve; most of the rest are specialisations. |
 | Lowering to Epitome IR | Working | The programs in `tests/run/` lower completely. Of the 22,797 functions `core` reaches, all but 297 lower outside SIMD; those that do not trap, and `--lower-stats` says why. |
-| Compiling and running | Working | The sixteen programs in `tests/run/` compile through Epitome's optimiser and code generator, run, and print what rustc's builds print. |
+| Compiling and running | Working | The seventeen programs in `tests/run/` compile through Epitome's optimiser and code generator, run, and print what rustc's builds print, one of them with `std` (`--std`, from rust-src). |
 
 Everything up to and including type checking `core`, `alloc` and `std`
 together takes 1.3 s of wall time.
@@ -58,6 +58,7 @@ $B --dump-ir $L/core/src/lib.rs file.rs      # the Epitome IR, with the source a
 $B --lower-stats $L/core/src/lib.rs file.rs  # what could not be lowered, and why
 $B --lib --dump-ir $L/core/src/lib.rs        # core as a library: its non-generic functions external
 $B -o prog $L/core/src/lib.rs prog.rs        # an executable, through Epitome (tested on x86-64 Linux)
+$B --std -o prog prog.rs                     # one with `std` from rust-src
 
 # The statistics for each stage, on the standard library.
 $B --edition 2024 --expand-stats --resolve-stats --types-stats --typeck-stats \
@@ -228,6 +229,7 @@ is checked against `core`:
 | `typeck` | Bodies in parallel: inference (`infer.rs`), expressions and patterns (`check.rs`), and traits (`traits.rs`). |
 | `layout`, `consteval` | Types' sizes, alignments, fields and niches; constants worked out from the typed tree. |
 | `mono`, `drops` | Monomorphisation: every function instance, closure, vtable, constant and drop glue a program needs; which types need dropping. |
+| `sysroot` | The crates `std` is built from, in rust-src, and what they expect (`--std`). |
 | `lower` | Bodies to Epitome IR: values and places (`body.rs`), patterns and enums (`pat.rs`), drops and drop glue (`drop.rs`), and intrinsics (`intrinsic.rs`). |
 | `hash`, `intern` | A fast hasher, and sharded interners for ids. |
 

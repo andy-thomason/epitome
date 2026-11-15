@@ -1845,6 +1845,19 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 Some(&want) => {
                     let hint = hints.and_then(|h| h.get(i)).copied().unwrap_or(want);
                     let t = self.expr(a, Some(hint));
+                    // A parameter that is still a variable (`Some(run)`'s)
+                    // takes the hint's type, coerced to (a function item
+                    // made the pointer wanted), as rustc does.
+                    if hint != want
+                        && self.infer.var_kind(self.infer.shallow(want)).is_some()
+                        && !self.tcx.has_infer(self.infer.resolve(hint))
+                    {
+                        let p = self.probe();
+                        if self.coerce(a, t, hint) && self.infer.unify(want, hint) {
+                            continue;
+                        }
+                        self.rollback(p);
+                    }
                     self.coerce(a, t, want);
                 }
                 None => {

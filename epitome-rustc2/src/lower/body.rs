@@ -1727,6 +1727,11 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                         Ok(self.fat(t, addr, l)?)
                     }
                     TyKind::Array(..) => Ok(Operand { ty: t, v: Val::Imm(addr) }),
+                    // `&CStr`: its bytes, with the NUL, as its slice.
+                    TyKind::Adt(..) if tok.starts_with('c') => {
+                        let l = self.usize_const(len);
+                        Ok(self.fat(t, addr, l)?)
+                    }
                     _ => Err("string literal of an unexpected type".into()),
                 }
             }
@@ -2824,7 +2829,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         }
     }
 
-    fn call_fn_ptr(&mut self, callee: Operand, args: Vec<Operand>) -> R<Pv> {
+    pub fn call_fn_ptr(&mut self, callee: Operand, args: Vec<Operand>) -> R<Pv> {
         let tcx = self.cx.tcx;
         let TyKind::FnPtr(s) = tcx.kind(callee.ty) else { return Err("not a function pointer".into()) };
         let sig = tcx.sig_of(s);
@@ -3050,6 +3055,37 @@ pub(crate) fn parse_char(tok: &str) -> Option<u32> {
 
 /// The bytes of a string or byte string literal (raw or not).
 pub(crate) fn parse_str(tok: &str) -> Option<Vec<u8>> {
+    // `c"..."`: the bytes, `\x` escapes as bytes and other characters in
+    // UTF-8, then a NUL.
+    if let Some(t) = tok.strip_prefix('c') {
+        let mut out = Vec::new();
+        let raw = t.starts_with('r');
+        let inner = parse_str(t)?;
+        if raw {
+            out = inner;
+        } else {
+            let body = t.strip_prefix('"')?;
+            let body = &body[..body.rfind('"')?];
+            let mut s = body;
+            while !s.is_empty() {
+                if let Some(rest) = s.strip_prefix("\\\n").or_else(|| s.strip_prefix("\\\r\n")) {
+                    s = rest.trim_start();
+                    continue;
+                }
+                let hex = s.starts_with("\\x");
+                let (c, rest) = unescape_one(s)?;
+                if hex {
+                    out.push(c as u8);
+                } else {
+                    let mut buf = [0u8; 4];
+                    out.extend_from_slice(char::from_u32(c)?.encode_utf8(&mut buf).as_bytes());
+                }
+                s = rest;
+            }
+        }
+        out.push(0);
+        return Some(out);
+    }
     let byte = tok.starts_with('b');
     let t = tok.strip_prefix('b').unwrap_or(tok);
     if let Some(r) = t.strip_prefix('r') {

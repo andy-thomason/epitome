@@ -147,6 +147,17 @@ pub fn roots(r: &Resolver, tcx: &TyCtxt, crates: &[ParsedCrate], k: u32, lib: bo
                 && let Some(sig) = tcx.fn_sig[m.0 as usize]
             {
                 v.push(Item::Fn(start, tcx.list(vec![tcx.sig_of(sig).output])));
+                // With no `#[global_allocator]` (whose shim defines
+                // `__rust_alloc`), `std`'s own allocator, which lowering's
+                // allocator shim calls.
+                let named = |n: &str| (0..r.defs.len() as u32).map(DefId).find(|&d| r.defs[d.0 as usize].name == n && r.defs[d.0 as usize].kind == DefKind::Fn);
+                if named("__rust_alloc").is_none() {
+                    for n in crate::lower::DEFAULT_ALLOCATOR.iter().map(|x| x.1) {
+                        if let Some(d) = named(n) {
+                            v.push(Item::Fn(d, empty));
+                        }
+                    }
+                }
             }
             v.extend(fns.iter().filter(|&&d| d != m && exported(d)).map(|&d| Item::Fn(d, empty)));
             v

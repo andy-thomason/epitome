@@ -80,6 +80,14 @@ impl Fx<'_, '_, '_, '_> {
                 }
                 Ok(Pv::Val(o))
             }
+            // Panics abort, so nothing unwinds to be caught: `try_fn(data)`,
+            // and no panic (0).
+            "catch_unwind" => {
+                self.call_fn_ptr(args[0], vec![args[1]])?;
+                let i32t = self.b.module().types.int(32);
+                let z = self.b.const_int(i32t, 0);
+                imm(z)
+            }
             "abort" => {
                 self.trap();
                 Ok(Pv::Val(Operand { ty: output, v: Val::Zst }))

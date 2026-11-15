@@ -640,6 +640,7 @@ impl Session {
         if !ctors.is_empty() {
             global_ctors(&mut m, &ctors);
         }
+        default_allocator(&cx, &mut m);
         // With `std`: the C `main`, which runs the program's `main`
         // through `std`'s `lang_start`.
         if let Some(e) = entry_point(&cx, &mut m, mono) {
@@ -658,6 +659,80 @@ impl Session {
         }
         let decls = cx.fns.iter().map(|(&it, d)| (it, d.g)).collect();
         Lowered { module: m, functions, failures, partial, notes, titles, decls }
+    }
+}
+
+/// The functions `alloc` calls to allocate, and `std`'s own allocator's
+/// functions that they call when no `#[global_allocator]` defines them.
+pub const DEFAULT_ALLOCATOR: [(&str, &str); 4] = [
+    ("__rust_alloc", "__rdl_alloc"),
+    ("__rust_dealloc", "__rdl_dealloc"),
+    ("__rust_realloc", "__rdl_realloc"),
+    ("__rust_alloc_zeroed", "__rdl_alloc_zeroed"),
+];
+
+/// The allocator shim with no `#[global_allocator]` (as rustc makes it):
+/// each of `alloc`'s allocation functions that is declared and not
+/// defined calls `std`'s (`__rdl_alloc` and the rest), passing its
+/// arguments on; `__rust_no_alloc_shim_is_unstable_v2` does nothing, and
+/// `__rust_alloc_error_handler` aborts.
+fn default_allocator(cx: &Cx, m: &mut Module) {
+    let rdl = |name: &str| {
+        cx.fns.iter().find_map(|(it, d)| match *it {
+            Item::Fn(f, _) if cx.r.defs[f.0 as usize].name == name => Some(d.g),
+            _ => None,
+        })
+    };
+    let declared = |m: &Module, name: &str| -> Option<(TypeId, Vec<TypeId>)> {
+        let g = m.find_global(name)?;
+        match &m.global(g).kind {
+            epitome_ir::module::GlobalKind::Function(f) if !f.has_body => {
+                let epitome_ir::types::Type::Function { ret, params, .. } = m.types.get(f.ty).clone() else { return None };
+                Some((ret, params.to_vec()))
+            }
+            _ => None,
+        }
+    };
+    if rdl(DEFAULT_ALLOCATOR[0].1).is_none() {
+        return;
+    }
+    for (shim, target) in DEFAULT_ALLOCATOR {
+        let (Some((ret, params)), Some(t)) = (declared(m, shim), rdl(target)) else { continue };
+        let mut spec = IrFunction::builder(shim).returns(ret);
+        for &p in &params {
+            spec = spec.param("", p);
+        }
+        let mut b = spec.begin(m);
+        b.block("start");
+        let args: Vec<_> = (0..params.len()).map(|i| b.param(i)).collect();
+        match b.call(t, &args) {
+            Some(v) => b.ret(v),
+            None => b.ret_void(),
+        }
+        let _ = b.finish();
+    }
+    if let Some((ret, params)) = declared(m, "__rust_no_alloc_shim_is_unstable_v2") {
+        let mut spec = IrFunction::builder("__rust_no_alloc_shim_is_unstable_v2").returns(ret);
+        for &p in &params {
+            spec = spec.param("", p);
+        }
+        let mut b = spec.begin(m);
+        b.block("start");
+        b.ret_void();
+        let _ = b.finish();
+    }
+    if let Some((ret, params)) = declared(m, "__rust_alloc_error_handler") {
+        let mut spec = IrFunction::builder("__rust_alloc_error_handler").returns(ret);
+        for &p in &params {
+            spec = spec.param("", p);
+        }
+        let mut b = spec.begin(m);
+        b.block("start");
+        let void = b.module().types.void();
+        let trap = b.module().declare("llvm.trap", void, &[], false);
+        b.call(trap, &[]);
+        b.unreachable();
+        let _ = b.finish();
     }
 }
 

@@ -651,8 +651,11 @@ Traits (`traits.rs`):
   arguments are checked after the others, so that those settle `A`.
 - **`async` blocks** have a type of their own (`TyKind::AsyncBlock`,
   by where the block is written, as for a closure), whose `Output` is
-  the block's value, or what a `return` in it gives. `async fn`s are not
-  yet: a call gives the declared result type, as for a plain `fn`.
+  the block's value, or what a `return` in it gives. An `async fn`'s
+  signature returns the same kind of future, written at the function's
+  node, with the declared result type as its `Output` and the function's
+  own generic parameters as its arguments; its body is checked against
+  the declared result type. Lowering supports neither yet.
 
 What lowering is told (`TypeckResults::tables`, per file, by node):
 

@@ -409,7 +409,13 @@ fn signature<'s>(tcx: &TyCtxt<'s>, env: &Env<'_, 's>, d: DefId) -> Option<SigOut
                     _ => {}
                 }
             }
-            let output = output.unwrap_or_else(|| tcx.unit());
+            let mut output = output.unwrap_or_else(|| tcx.unit());
+            // `async fn`: a call gives a future of its own (as an `async`
+            // block, at the function's node) whose output is the declared
+            // return type.
+            if ast.children(node).iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == "async") {
+                output = tcx.mk(TyKind::AsyncBlock(tcx.closure_id(at), output, tcx.identity_args(d)));
+            }
             let inputs = tcx.list(inputs);
             out.fn_sig = Some(tcx.sig(FnSig { inputs, output, unsafety, variadic, abi }));
         }

@@ -427,6 +427,16 @@ those expressions as any others, and lowering reads what each is from the
 call's tokens. A definition with
 `#[rustc_builtin_macro]` dispatches to these by name.
 
+`#[global_allocator]` (`expand/allocator.rs`) adds the allocator shim
+after its static: the functions `alloc` declares and the compiler
+supplies (`__rust_alloc`, `__rust_dealloc`, `__rust_realloc`,
+`__rust_alloc_zeroed`), each calling the static's `GlobalAlloc` method,
+with `__rust_no_alloc_shim_is_unstable_v2` (nothing) and
+`__rust_alloc_error_handler` (an abort, as a panic would be) beside them,
+all `#[no_mangle]`. Monomorphisation keeps a program's `#[no_mangle]`
+functions with `main`, and lowering makes `alloc`'s declarations of
+those names calls of these.
+
 `format_args!` (`expand/format.rs`) is expanded to code that builds
 `core::fmt::Arguments` as `core`'s own `fmt::write` reads it, so later
 stages compile it as any other code. The format string (a literal, or
@@ -930,11 +940,21 @@ any other; then each is defined.
     holds), each element of an array or slice, each capture of a closure;
     a `Box`'s pointee before the `Box`'s own `Drop` frees it; through the
     vtable's first entry for a `dyn`.
-  - **Not yet:** moving out of a closure's capture in its body, out of
-    a `Box` (`*b`), or out of an array by a pattern (`let [a, b] =
-    arr;`), or-patterns that
+  - **Boxes.** Moving out of a box (`let x = *b;`) is a move path into
+    what it holds; the box is then dropped as its own `Drop` (which frees
+    it) and its allocator, without its contents. A box dereferenced as a
+    value expression (`*Box::new(x)`) is a temporary, so it is freed.
+  - **Not yet:** moving out of a closure's capture in its body, or out
+    of an array by a pattern (`let [a, b] = arr;`), or-patterns that
     move what they bind, and unwinding (panics trap, so nothing is
     dropped on the way out).
+- **`Box` and allocation** are `alloc`'s own code, compiled from
+  rust-src with `core` (a program with `extern crate alloc;` and a
+  `#[global_allocator]`): `Box`, `Vec`, `String` and `Box<dyn Trait>`
+  allocate through the allocator shim (section 6.5) and free when
+  dropped. A `Box<T>` is dereferenced through the pointer in its
+  `Unique<T>`; the compile-time allocation intrinsics give null and do
+  nothing at run time, as rustc's build does.
 - **Formatting** is `core::fmt` itself, compiled as any other code from
   the expansion of `format_args!` (section 6.5): `write!`, `Display` and
   `Debug` of integers, floats, strings and derived types, `{:#?}`, and
@@ -1080,6 +1100,16 @@ arguments written on an associated function's path (`TypeId::of::<u32>`,
 Expansion now expands `assert!` as rustc does. On `core`, `alloc` and
 `std`, 97% of bodies now type completely, from 93%.
 
+For `alloc`, two more. A trait's method called by path (`From::from(x)`)
+records its trait predicate (`NonNull<u8>: From<Unique<?T>>`) while its
+arguments are unknown; once its type is known, the one impl that
+matches settles them (`?T = u8`), as for `self.1.deallocate(From::from(
+ptr.cast()), layout)` in `Box`'s `Drop`. Such predicates are kept apart
+from the obligations on variables, which selection assumes. And a field
+autoderef finds that the body cannot see (`Box`'s own `.0` from outside
+`alloc::boxed`) is passed over for one further along: `b.0` of a
+`Box<Pair>` is `Pair`'s.
+
 Gaps in type checking that the test programs work around, for later:
 an integer literal is not inferred through a bound such as `S:
 Sum<Self::Item>` (`(1..=5).map(..).sum::<i64>()` takes `i32` for the
@@ -1092,7 +1122,7 @@ Lowering reports each of these rather than compiling something wrong.
 Not done yet: the moves drops do not handle yet (above),
 upcasting a `dyn` to a supertrait's, function items and pointers as
 `dyn Fn` (closures are done), panics' messages (panics trap),
-unwinding, `Box` and allocation, closures made function pointers, string
+unwinding, closures made function pointers, string
 patterns, SIMD, `async`, and v0 symbol mangling.
 
 **Correct but slow or bloated**, to improve later:
@@ -1325,6 +1355,7 @@ Tests of parallel stages run on one thread and on several, and compare.
 6. Lowering of those to Epitome IR; first run tests pass (done for the
    programs in `tests/run/`).
 7. `dyn` and formatting through `core::fmt` (done); drops (done but for
-   the moves listed in 8.3); `Box` and allocation, slices and strings.
+   the moves listed in 8.3); `Box` and allocation through `alloc`
+   (working: `Box`, `Vec`, `String`); slices and strings.
 8. `core`, then `alloc` and `std` from `rust-src`; Cargo builds.
 9. Unwinding, `async`, and the long tail.

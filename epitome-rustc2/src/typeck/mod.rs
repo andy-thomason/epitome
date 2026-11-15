@@ -565,6 +565,10 @@ mod tests {
             "b : {async block} -> u16",
             "b.await : u16",
             "async {}.await : ()",
+            // A closure's parameter from the `FnOnce` bound, not from the
+            // `impl Trait` of the expected result.
+            "mut c : Counter",
+            "c.bump() : ()  [traits::{impl}::bump]",
         ] {
             assert!(ours.contains(&want), "no `{want}` in:\n{}", ours.join("\n"));
         }

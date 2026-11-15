@@ -279,8 +279,18 @@ impl<'s> Resolver<'s> {
 
     /// The imports that did not resolve, as `module: use path`.
     pub fn failed_import_lines(&self) -> Vec<String> {
+        self.failed_import_lines_where(|_| true)
+    }
+
+    /// Those of crate `k`.
+    pub fn failed_import_lines_of(&self, k: u32) -> Vec<String> {
+        self.failed_import_lines_where(|imp| imp.krate == k)
+    }
+
+    fn failed_import_lines_where(&self, keep: impl Fn(&Import) -> bool) -> Vec<String> {
         self.failed_imports
             .iter()
+            .filter(|&&i| keep(&self.imports[i]))
             .map(|&i| {
                 let imp = &self.imports[i];
                 let module = self.modules[imp.module.0 as usize].normal;

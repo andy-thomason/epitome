@@ -1165,6 +1165,15 @@ is plain `std` threads.
   streams.
 - **Run tests:** programs in `epitome-rustc2/tests/run/`, compiled by
   both rustc and us and run; the outputs must match (section 8.4).
+- **rustc's UI tests:** `tests/ui_check_pass.rs` takes the `check-pass`
+  tests of rust-lang/rust's `tests/ui` (programs rustc accepts; used as
+  input, like the standard library) and checks that they parse, expand,
+  resolve and type check without errors. Set `EPITOME_RUST` to a
+  checkout with `tests/ui` and `library` (`library/backtrace` is a
+  submodule: copy it from `rust-src`). `tests/ui_check_pass.txt` names
+  the commit and the tests that pass; one that stops passing fails the
+  test, and `EPITOME_UI_BLESS=1` writes the list again. At the first
+  run, 1,892 of 2,974 pass, in a minute on 12 cores.
 - **Crates:** `cargo test` of crates with `RUSTC=epitome-rustc2`,
   compared with `RUSTC_WRAPPER=epitome-rustc`.
 

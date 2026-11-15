@@ -793,16 +793,33 @@ impl Resolver<'_> {
 
     /// Counts what the paths of `crates` resolved to.
     pub fn stats(&self, crates: &[ParsedCrate]) -> ResolveStats {
-        let mut s = ResolveStats {
+        let s = ResolveStats {
             defs: self.defs.len(),
             modules: self.modules.len(),
             imports: self.imports.len(),
             imports_failed: self.failed_imports.len(),
             ..Default::default()
         };
+        self.count_crates(crates, 0..crates.len(), s)
+    }
+
+    /// The same for crate `k` alone: its imports and paths (`defs` and
+    /// `modules` are still the session's).
+    pub fn crate_stats(&self, crates: &[ParsedCrate], k: usize) -> ResolveStats {
+        let s = ResolveStats {
+            defs: self.defs.len(),
+            modules: self.modules.len(),
+            imports: self.imports.iter().filter(|i| i.krate as usize == k).count(),
+            imports_failed: self.failed_imports.iter().filter(|&&i| self.imports[i].krate as usize == k).count(),
+            ..Default::default()
+        };
+        self.count_crates(crates, k..k + 1, s)
+    }
+
+    fn count_crates(&self, crates: &[ParsedCrate], ks: std::ops::Range<usize>, mut s: ResolveStats) -> ResolveStats {
         let mut missing: FastMap<String, usize> = FastMap::default();
-        for (k, c) in crates.iter().enumerate() {
-            for (i, f) in c.files.iter().enumerate() {
+        for k in ks {
+            for (i, f) in crates[k].files.iter().enumerate() {
                 let res = &self.res[k][i];
                 count_paths(&f.ast, f.ast.root, res, &mut s, &mut missing);
             }

@@ -102,6 +102,8 @@ pub struct ExpandStats {
     pub builtins_left: usize,
     /// Calls whose macro was not found, by name.
     pub unresolved: BTreeMap<String, usize>,
+    /// The same, by crate.
+    pub unresolved_by_crate: BTreeMap<usize, BTreeMap<String, usize>>,
     /// Calls whose macro was found only by searching for its name (not by
     /// scope, path or import): proc macros of crates outside the session.
     pub found_by_name: BTreeMap<String, usize>,
@@ -193,6 +195,7 @@ impl Session {
                 stats.builtins_left += r.builtins_left;
                 for n in r.unresolved {
                     *stats.unresolved.entry(n.to_string()).or_default() += 1;
+                    *stats.unresolved_by_crate.entry(k).or_default().entry(n.to_string()).or_default() += 1;
                 }
                 for n in r.names {
                     *stats.last_round.entry(n.to_string()).or_default() += 1;
@@ -213,6 +216,7 @@ impl Session {
             // last round's.
             stats.builtins_left = 0;
             stats.unresolved.clear();
+            stats.unresolved_by_crate.clear();
         }
         for (k, e) in round_errors {
             crates[k].errors.push(e);

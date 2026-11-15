@@ -145,13 +145,25 @@ impl Abi {
         self.clobbers
             .iter()
             .copied()
-            .filter(|r| !self.reserved.contains(r) && !self.scratch.contains(r) && *r != self.fp && *r != self.lr)
+            .filter(|r| {
+                !self.reserved.contains(r)
+                    && !self.scratch.contains(r)
+                    // Scratch registers of other files (x86's k6 and k7
+                    // are among its integer clobbers).
+                    && !self.fp_scratch.contains(r)
+                    && *r != self.fp
+                    && *r != self.lr
+            })
             .collect()
     }
 
     /// The registers to allocate values to that survive calls.
     pub fn callee_saved(&self) -> Vec<u8> {
-        self.saved.iter().copied().filter(|r| !self.reserved.contains(r) && !self.scratch.contains(r)).collect()
+        self.saved
+            .iter()
+            .copied()
+            .filter(|r| !self.reserved.contains(r) && !self.scratch.contains(r) && !self.fp_scratch.contains(r))
+            .collect()
     }
 
     pub fn fp_caller_saved(&self) -> Vec<u8> {

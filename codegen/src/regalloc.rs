@@ -942,11 +942,14 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
                         loaded.insert(*v, g);
                         continue;
                     }
+                    // (Of the value's class: a governing predicate's p0-p7,
+                    // not the whole file's scratch registers.)
                     let pool = pool_of(m.def(class).file);
                     let k = next.entry(m.def(class).file).or_default();
-                    let s = match pool.get(*k) {
-                        Some(&s) => {
-                            *k += 1;
+                    let s = match pool.iter().skip(*k).position(|&s| m.in_class(class, s)) {
+                        Some(x) => {
+                            let s = pool[*k + x];
+                            *k += x + 1;
                             s
                         }
                         None if !uses.contains(r) => *pool

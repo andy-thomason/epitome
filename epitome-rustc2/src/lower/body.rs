@@ -2428,6 +2428,12 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                     return Ok(Pv::Val(Operand { ty: tcx.mk(TyKind::Never), v: Val::Zst }));
                 }
                 let decl = self.cx.fns.get(&it).cloned().ok_or_else(|| {
+                    if let Item::Foreign(_) = it
+                        && let name = self.cx.symbol(f, tcx.list(Vec::new()))
+                        && name.starts_with("llvm.")
+                    {
+                        return format!("`{name}` takes or gives vectors or aggregates (SIMD is not lowered yet)");
+                    }
                     let a: Vec<String> = match it {
                         Item::Fn(_, l) => tcx.tys(l).into_iter().map(|t| tcx.display(r, t)).collect(),
                         _ => Vec::new(),

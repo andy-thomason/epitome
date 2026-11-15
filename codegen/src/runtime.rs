@@ -33,8 +33,9 @@ use crate::prepare::{Ctx, Seq, call_intrinsic};
 struct Entry<'t> {
     func: &'t Function,
     root: &'t Inst,
-    /// Its result's type and its parameters', in the module being compiled.
-    result_ty: TypeId,
+    /// Its result's type (none for a call of no result) and its
+    /// parameters', in the module being compiled.
+    result_ty: Option<TypeId>,
     param_tys: Vec<TypeId>,
     /// The runtime function it calls, or the function whose body it
     /// becomes.
@@ -84,8 +85,8 @@ fn entries<'t>(cx: &mut Ctx<'t>, syntax: Syntax) -> Vec<Entry<'t>> {
             }
             _ => unreachable!(),
         };
-        let Some(r) = root.result else { continue };
-        let result_ty = import_ty(d, cx.m, f.locals[r.index()].ty);
+        // (None for a call of no result.)
+        let result_ty = root.result.map(|r| import_ty(d, cx.m, f.locals[r.index()].ty));
         let param_tys = f.params.iter().map(|p| import_ty(d, cx.m, f.locals[p.local.index()].ty)).collect();
         out.push(Entry { func: f, root, result_ty, param_tys, target });
     }
@@ -175,7 +176,7 @@ fn matches(cx: &mut Ctx, f: &Function, e: &Entry, i: &Inst) -> Option<Vec<Value>
     if want.len() != have.len() {
         return None;
     }
-    if Some(e.result_ty) != i.result.map(|r| f.locals[r.index()].ty) {
+    if e.result_ty != i.result.map(|r| f.locals[r.index()].ty) {
         return None;
     }
     let mut args = vec![None; e.func.params.len()];
@@ -203,8 +204,8 @@ fn matches(cx: &mut Ctx, f: &Function, e: &Entry, i: &Inst) -> Option<Vec<Value>
 }
 
 /// The body of description function `g` (one block) on `args`, in `s`: its
-/// value.
-fn instantiate(cx: &mut Ctx, s: &mut Seq, g: &Function, args: &[Value]) -> Result<Value, String> {
+/// value (none for `ret void`).
+fn instantiate(cx: &mut Ctx, s: &mut Seq, g: &Function, args: &[Value]) -> Result<Option<Value>, String> {
     let d = &cx.t.module;
     let mut map: std::collections::HashMap<LocalId, Value> =
         g.params.iter().zip(args).map(|(p, &a)| (p.local, a)).collect();
@@ -221,7 +222,12 @@ fn instantiate(cx: &mut Ctx, s: &mut Seq, g: &Function, args: &[Value]) -> Resul
         let inst = &g.insts[i.index()];
         let ty = inst.result.map(|r| import_ty(d, cx.m, g.locals[r.index()].ty));
         let v = match &inst.op {
-            Op::Ret(Some(r)) => return value(cx, &map, *r),
+            Op::Ret(Some(r)) => return value(cx, &map, *r).map(Some),
+            Op::Ret(None) => return Ok(None),
+            Op::Load { volatile, atomic, ptr, align } => {
+                let ptr = value(cx, &map, *ptr)?;
+                s.op(Op::Load { volatile: *volatile, atomic: atomic.clone(), ptr, align: *align }, ty.unwrap())
+            }
             Op::Binary { op, flags, fmf, lhs, rhs } => {
                 let (lhs, rhs) = (value(cx, &map, *lhs)?, value(cx, &map, *rhs)?);
                 s.op(Op::Binary { op: *op, flags: *flags, fmf: *fmf, lhs, rhs }, ty.unwrap())
@@ -281,8 +287,9 @@ pub fn lower(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
             let mut s = Seq { f, new: Vec::new() };
             let v = match e.target {
                 Replacement::Call(name) => {
-                    let rt = inst.result.map(|r| s.f.locals[r.index()].ty).unwrap();
-                    call_intrinsic(cx, &mut s, name, args, rt)
+                    let rt =
+                        inst.result.map(|r| s.f.locals[r.index()].ty).unwrap_or_else(|| cx.m.types.intern(Type::Void));
+                    Some(call_intrinsic(cx, &mut s, name, args, rt))
                 }
                 Replacement::Body(g) => instantiate(cx, &mut s, g, &args)?,
             };
@@ -290,7 +297,7 @@ pub fn lower(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
             let n = new.len();
             f.blocks[b.index()].insts.splice(k..=k, new);
             if let Some(r) = inst.result {
-                f.replace_uses(Value::Local(r), v);
+                f.replace_uses(Value::Local(r), v.ok_or("a lowering of no value for an instruction of one")?);
             }
             k += n;
         }

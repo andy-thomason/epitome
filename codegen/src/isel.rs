@@ -11,6 +11,12 @@ use crate::mir::*;
 use crate::prepare::{self, Ctx};
 use crate::target::{Class, Head, Key, Kind, Src, Target, bin_bits, sext, wide_bits};
 
+/// How many constants a function's loops may use before they are pool
+/// operands rather than registers made before the loop: a register each,
+/// up to half of x86's 32 vector registers, is faster than a load at each
+/// use; past that they crowd out the loops' own values and are spilled.
+const POOL_FROM: usize = 16;
+
 /// The arrangement of a vector of `len` lanes of `bits` bits: `4s`, `16b`.
 pub fn arrangement(len: u32, bits: u32) -> String {
     format!("{len}{}", lane_suffix(bits))
@@ -125,6 +131,12 @@ pub struct Sel<'a, 'b> {
     cur: usize,
     /// Blocks on a cycle.
     in_loop: Vec<bool>,
+    /// Whether constants in loops are pool operands (`pool_lane`), not
+    /// registers made before the loop: where the loops use more of them
+    /// than `POOL_FROM`, which would crowd out the loops' own values.
+    pool_in_loops: bool,
+    /// Whether the block whose patterns are being chosen is on a cycle.
+    choosing_in_loop: bool,
     /// Constants made once in the entry block, for use in loops.
     hoisted: HashMap<(i64, bool), VReg>,
     /// Constants made in registers in each block, by (block, value, wide)
@@ -360,6 +372,7 @@ impl<'a, 'b> Sel<'a, 'b> {
             abi: abi.clone(),
             dynamic_stack: false,
             eh: None,
+            pool: Vec::new(),
         };
         // A function whose stack pointer moves addresses its frame from a
         // saved register of the convention's, kept from allocation.
@@ -402,6 +415,8 @@ impl<'a, 'b> Sel<'a, 'b> {
             by_head: HashMap::new(),
             cur: 0,
             in_loop: Vec::new(),
+            pool_in_loops: false,
+            choosing_in_loop: false,
             hoisted: HashMap::new(),
             block_ints: HashMap::new(),
             entering: false,
@@ -683,8 +698,18 @@ impl<'a, 'b> Sel<'a, 'b> {
                 let (a, z) = (self.pos[i.index()], self.pos[root.index()]);
                 a < z && !insts[a + 1..z].iter().any(|&k| side_effects(&f.insts[k.index()].op))
             }
-            op => !side_effects(op) && !matches!(op, Op::Alloca { .. } | Op::Call(_)),
+            // The vector length (SVE's), which reads nothing that changes
+            // within a function's mode: into a multiple of it (`rdvl x0,
+            // #1` of `vscale << 4`).
+            op @ Op::Call(_) => self.is_vscale(op),
+            op => !side_effects(op) && !matches!(op, Op::Alloca { .. }),
         }
+    }
+
+    /// Is `op` a call of `llvm.vscale`, which only computes (and so is
+    /// made only where its value is wanted)?
+    fn is_vscale(&self, op: &Op) -> bool {
+        matches!(op, Op::Call(c) if prepare::callee_name(self.cx.m, c).is_some_and(|n| n == "llvm.vscale.i64"))
     }
 
     fn expand(&self, t: Term, root: InstId) -> Option<(Head, Vec<Term>, InstId)> {
@@ -773,6 +798,19 @@ impl<'a, 'b> Sel<'a, 'b> {
             }
             _ => None,
         }
+    }
+
+    /// A vector constant whose lanes are one integer of 1, 2, 4 or 8
+    /// bytes: the lane and its bytes, for a pool operand.
+    fn pool_lane(&self, t: Term) -> Option<(u64, u8)> {
+        let Term::V(Value::Const(c)) = t else { return None };
+        let ty = self.cx.m.constant(c).ty;
+        let Type::Vector { elem, .. } = self.cx.m.types.get(ty) else { return None };
+        let Type::Int(bits @ (8 | 16 | 32 | 64)) = *self.cx.m.types.get(*elem) else { return None };
+        let (v, _) = crate::target::lit_of(self.cx.m, c)?;
+        // (Not zero, which `vpxord` makes from nothing, again wherever it
+        // is wanted if registers run short.)
+        (v != crate::target::UNDEF && v != 0).then(|| (v as u64 & (u64::MAX >> (64 - bits)), (bits / 8) as u8))
     }
 
     fn is_zero_like(&self, t: Term) -> bool {
@@ -905,9 +943,16 @@ impl<'a, 'b> Sel<'a, 'b> {
                     let def = self.t.machine.def(class);
                     let holds = self.holds(ty);
                     // (A mask is as wide as the vectors it was made of: any
-                    // class of vectors holds it.)
-                    let mask = matches!(self.cx.m.types.get(ty), Type::Vector { elem, .. }
-                        if matches!(self.cx.m.types.get(*elem), Type::Int(1)));
+                    // class of vectors at least that wide holds it. Eight
+                    // lanes of 32-bit comparisons are 256 bits, so an `or`
+                    // of them is not a 128-bit `por`.)
+                    let (mask, mask_bits) = match self.cx.m.types.get(ty) {
+                        Type::Vector { scalable: false, elem, len } if matches!(self.cx.m.types.get(*elem), Type::Int(1)) => {
+                            (true, crate::legalize::mask_width(self.cx, self.f, v, &mut Vec::new()).map(|w| *len as u32 * w))
+                        }
+                        Type::Vector { elem, .. } => (matches!(self.cx.m.types.get(*elem), Type::Int(1)), None),
+                        _ => (false, None),
+                    };
                     // (A fixed register, as xmm0 for SSE4.1's blends, holds
                     // what its file's classes do, of any width.)
                     let m = &self.t.machine;
@@ -925,6 +970,7 @@ impl<'a, 'b> Sel<'a, 'b> {
                     if bits == 0
                         || !held
                         || (wide && bits != def.bits && !mask && !fixed)
+                        || (m.holds_of(class) == Some(Holds::Vector) && mask_bits.is_some_and(|b| b > def.bits))
                         || (!wide && holds != Holds::Predicate && (bits > 64 || (bits > 32) != (pp.bits > 32)))
                     {
                         return None;
@@ -943,6 +989,14 @@ impl<'a, 'b> Sel<'a, 'b> {
                     if !matches!(t, Term::B(_)) {
                         return None;
                     }
+                }
+                // A constant whose lanes are one value, kept in read-only
+                // data (x86's broadcast operand).
+                Kind::Sym if pp.pool => {
+                    if self.choosing_in_loop && !self.pool_in_loops {
+                        return None;
+                    }
+                    self.pool_lane(t)?;
                 }
                 // A global's address, as the instruction names it (x86's
                 // `sym(%rip)`): not one reached through the GOT, nor a
@@ -1103,6 +1157,7 @@ impl<'a, 'b> Sel<'a, 'b> {
 
     fn choose_block(&mut self, b: BlockId, layout_next: Option<BlockId>) -> Result<(), String> {
         let f = self.f;
+        self.choosing_in_loop = self.in_loop.get(self.bmap[&b]).copied().unwrap_or(false);
         // Values used by other blocks or by phis are wanted in registers.
         let insts = f.blocks[b.index()].insts.clone();
         for &i in insts.iter().rev() {
@@ -1110,7 +1165,9 @@ impl<'a, 'b> Sel<'a, 'b> {
                 continue;
             }
             let inst = &f.insts[i.index()];
-            let wanted = inst.op.is_terminator() || side_effects(&inst.op) || self.needed.contains(&i);
+            let wanted = inst.op.is_terminator()
+                || (side_effects(&inst.op) && !self.is_vscale(&inst.op))
+                || self.needed.contains(&i);
             if !wanted {
                 continue;
             }
@@ -1370,6 +1427,30 @@ impl<'a, 'b> Sel<'a, 'b> {
                 Type::Int(b) => format!("i{b}"),
                 other => return self.err(format!("a scalable constant of {other:?}")),
             };
+            // One that `dup` holds (-128 to 127), with no register: made
+            // once in a function (`peephole::shared_constants`).
+            let bits = match e {
+                Some(e) => match &self.cx.m.constant(e).kind {
+                    ConstKind::Int(a) => Some(sext(a.low_u64(), self.bits(elem))),
+                    ConstKind::Float(0) | ConstKind::Zero => Some(0),
+                    _ => None,
+                },
+                None => Some(0),
+            };
+            let ilane = match self.bits(elem) {
+                8 => "i8",
+                16 => "i16",
+                32 => "i32",
+                _ => "i64",
+            };
+            if let Some(v) = bits
+                && let Some(dup) = self.t.role(&format!("splat.imm.nxv{len}{ilane}"))
+                && self.fits(dup, vec![None, Some(v)])
+            {
+                let d = self.mf.new_vreg(class);
+                self.push(MInst::new(dup, vec![MOp::Reg(Reg::V(d)), MOp::Imm(v)]));
+                return Ok(Reg::V(d));
+            }
             let role = format!("splat.nxv{len}{lane}");
             let ins = self.t.role(&role).ok_or_else(|| format!("no instruction has role {role}"))?;
             let Kind::Reg(sc) = self.t.instrs[ins].operands[1].kind else {
@@ -1946,6 +2027,10 @@ impl<'a, 'b> Sel<'a, 'b> {
                     MOp::Reg(self.in_file_of(r, class))
                 }
                 (Kind::Imm, t) => MOp::Imm(self.imm_of(t, pp.bits).unwrap()),
+                (Kind::Sym, t) if pp.pool => {
+                    let (value, bytes) = self.pool_lane(t).ok_or("a pool operand that is not a splat")?;
+                    MOp::Sym(self.mf.pool_entry(value, bytes))
+                }
                 (Kind::Sym, Term::V(Value::Const(c))) => {
                     let (g, _) = prepare::const_address(self.cx, c).ok_or("a symbol operand that is not a global")?;
                     MOp::Sym(self.cx.m.global(g).name.clone().unwrap_or_default())
@@ -3338,6 +3423,8 @@ impl<'a, 'b> Sel<'a, 'b> {
                     self.emit_asm(i)?;
                     continue;
                 }
+                // (The vector length, where nothing wanted it.)
+                Op::Call(_) if self.is_vscale(&inst.op) && !self.chosen.contains_key(&i) => continue,
                 Op::Call(_) if !self.chosen.contains_key(&i) => {
                     self.emit_call(i)?;
                     continue;
@@ -3612,6 +3699,49 @@ impl<'a, 'b> Sel<'a, 'b> {
                 });
             }
         }
+        // Which blocks are on a cycle: those that reach themselves.
+        let n = layout.len();
+        let succ: Vec<Vec<usize>> =
+            layout.iter().map(|b| f.successors(*b).iter().map(|s| self.bmap[s]).collect()).collect();
+        self.in_loop = (0..n)
+            .map(|start| {
+                let mut seen = vec![false; n];
+                let mut stack = succ[start].clone();
+                while let Some(x) = stack.pop() {
+                    if x == start {
+                        return true;
+                    }
+                    if !std::mem::replace(&mut seen[x], true) {
+                        stack.extend(succ[x].iter().copied());
+                    }
+                }
+                false
+            })
+            .collect();
+        // The constants a pool operand could take, in the loops (not a
+        // shift's amount, an immediate).
+        let mut consts: HashSet<ConstId> = HashSet::new();
+        for (_, b) in layout.iter().enumerate().filter(|&(k, _)| self.in_loop[k]) {
+            for &i in &f.blocks[b.index()].insts {
+                let op = &f.insts[i.index()].op;
+                if let Op::Binary { op: BinOp::Shl | BinOp::LShr | BinOp::AShr, lhs, .. } = op {
+                    if let Value::Const(c) = lhs
+                        && self.pool_lane(Term::V(*lhs)).is_some()
+                    {
+                        consts.insert(*c);
+                    }
+                    continue;
+                }
+                op.for_each_value(|v| {
+                    if let Value::Const(c) = v
+                        && self.pool_lane(Term::V(*v)).is_some()
+                    {
+                        consts.insert(*c);
+                    }
+                });
+            }
+        }
+        self.pool_in_loops = consts.len() > POOL_FROM;
         // Choose bottom-up: later blocks first, so values they need are
         // known when the blocks defining them are covered.
         for (k, &b) in layout.iter().enumerate().rev() {
@@ -3780,25 +3910,6 @@ impl<'a, 'b> Sel<'a, 'b> {
                 }
             }
         }
-        // Which blocks are on a cycle: those that reach themselves.
-        let n = layout.len();
-        let succ: Vec<Vec<usize>> =
-            layout.iter().map(|b| f.successors(*b).iter().map(|s| self.bmap[s]).collect()).collect();
-        self.in_loop = (0..n)
-            .map(|start| {
-                let mut seen = vec![false; n];
-                let mut stack = succ[start].clone();
-                while let Some(x) = stack.pop() {
-                    if x == start {
-                        return true;
-                    }
-                    if !std::mem::replace(&mut seen[x], true) {
-                        stack.extend(succ[x].iter().copied());
-                    }
-                }
-                false
-            })
-            .collect();
         // The function's types caught and actions, before any landing pad's
         // code asks for a type's index.
         for &b in &layout {

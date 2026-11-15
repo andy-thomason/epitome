@@ -178,6 +178,10 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    let object = filetype.unwrap_or_else(|| output.as_deref().is_some_and(|o| o.ends_with(".o")));
+    // An object file is encoded from the machine code, not the text (which
+    // inline assembly writes when it needs it).
+    opts.no_asm = object && std::env::var_os("EPITOME_CHOP_DUMP").is_none();
     let compiled = match compile(&target, &mut module, &opts) {
         Ok(c) => c,
         Err(e) => {
@@ -255,7 +259,6 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     }
-    let object = filetype.unwrap_or_else(|| output.as_deref().is_some_and(|o| o.ends_with(".o")));
     if object {
         let bytes = match compiled.object_file(&target) {
             Ok(b) => b,

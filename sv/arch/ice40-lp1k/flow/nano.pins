@@ -1,0 +1,5 @@
+# iCESugar-nano (iCE40LP1K-CM36), from its schematic v1.2.
+clk  D1   # 12 MHz from the iCELink (MCO); a global buffer pin
+rx   A3   # UART from the Mac (the iCELink's TX): only ever read
+tx   B3   # UART to the Mac (the iCELink's RX)
+led  B6   # yellow LED, high = on

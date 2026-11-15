@@ -360,8 +360,9 @@ def unpacked_memory():
 def sme_modes():
     """SME's switches of streaming mode and ZA (sme.rs makes the calls),
     and TPIDR2_EL0, where a lazily saved ZA's block is. Streaming mode's
-    switches clear the vector and predicate registers."""
-    every = '"clobbers"="d0-d31,p0-p15"'
+    switches clear the vector and predicate registers, and change the
+    vector length (role sm.switch)."""
+    every = '"clobbers"="d0-d31,p0-p15" "role"="sm.switch"'
     for name, word, asm, what, clob in [
             ('SMSTARTsm', 0xd503437f, 'smstart sm', 'start.sm', every),
             ('SMSTOPsm', 0xd503427f, 'smstop sm', 'stop.sm', every),
@@ -572,6 +573,131 @@ def generic():
            ['%b = call i64 @RDVL1()', '%r = call i64 @LSRXri(i64 %b, i64 4)', 'ret i64 %r'])
 
 
+def immediates():
+    """Operations of a splat of a constant that SVE has an immediate form
+    of: add, sub and subr (0-255), mul, smax and smin (-128 to 127), umax
+    and umin (0-255), and, orr and eor (logical immediates, of words and
+    doublewords), overwriting their register operand; shifts, from another
+    register. And a splat of a constant (-128 to 127), for selection to
+    make scalable constants with (role splat.imm.nxv4i32): it reads no
+    register, so one is made for a function (peephole::shared_constants),
+    as ptrue is. The vector length's multiples: rdvl and cnt[dwh]."""
+    lane_bits = {'b': 8, 'h': 16, 's': 32, 'd': 64}
+    for ty, l, t in [('<vscale x 16 x i8>', 'b', 'nxv16i8'), ('<vscale x 8 x i16>', 'h', 'nxv8i16'),
+                     ('<vscale x 4 x i32>', 's', 'nxv4i32'), ('<vscale x 2 x i64>', 'd', 'nxv2i64')]:
+        two = [f'{ty} "reg"="z" "tied" %n', f'{ty} "imm" %k']
+        for name, imm, ir in [('add', 'imm', 'add {ty} %n, %k'), ('sub', 'imm', 'sub {ty} %n, %k'),
+                              ('subr', 'imm', 'sub {ty} %k, %n'), ('mul', 'imm', 'mul {ty} %n, %k'),
+                              ('smax', 'imm', 'call {ty} @llvm.smax.{t}({ty} %n, {ty} %k)'),
+                              ('smin', 'imm', 'call {ty} @llvm.smin.{t}({ty} %n, {ty} %k)'),
+                              ('umax', 'imm', 'call {ty} @llvm.umax.{t}({ty} %n, {ty} %k)'),
+                              ('umin', 'imm', 'call {ty} @llvm.umin.{t}({ty} %n, {ty} %k)'),
+                              ('and', 'const', 'and {ty} %n, %k'), ('orr', 'const', 'or {ty} %n, %k'),
+                              ('eor', 'const', 'xor {ty} %n, %k')]:
+            hole = f'{{{imm}:h{lane_bits[l]}}}' if imm == 'const' else f'{{{imm}}}'
+            asm81 = f'{name} {{zdn}}.{l}, {{zdn}}.{l}, #{hole}'
+            try:
+                e = enc(asm81, {'zdn': 'd', imm: 'k'})
+            except KeyError:
+                continue
+            asm = asm81.replace('{zdn}', '{d}').replace(f'{{{imm}', '{k')
+            entry(ty, f'{name.upper()}zi.{t}', two, e, asm, [f'%r = {ir.format(ty=ty, t=t)}', f'ret {ty} %r'],
+                  ' "dclass"="z" "movprfx"')
+        for name, ir in [('lsl', 'shl'), ('lsr', 'lshr'), ('asr', 'ashr')]:
+            try:
+                e = enc(f'{name} {{zd}}.{l}, {{zn}}.{l}, #{{const}}', {'zd': 'd', 'zn': 'n', 'const': 'k'})
+            except KeyError:
+                continue
+            entry(ty, f'{name.upper()}zi.{t}', [f'{ty} "reg"="z" %n', f'{ty} "imm" %k'], e,
+                  f'{name} {{d}}.{l}, {{n}}.{l}, #{{k}}', [f'%r = {ir} {ty} %n, %k', f'ret {ty} %r'], ' "dclass"="z"')
+        e = enc(f'dup {{zd}}.{l}, #{{imm}}', {'zd': 'd', 'imm': 'k'})
+        entry(ty, f'DUPzi.{t}', [f'{ty} "imm" %k'], e, f'mov {{d}}.{l}, #{{k}}', [f'ret {ty} %k'],
+              f' "dclass"="z" "role"="splat.imm.{t}" "nomatch"')
+    # The vector length times a power of two: vscale's multiples of 16 by
+    # rdvl (its bytes, times -32 to 31), the others by cnt (its lanes).
+    for sh in range(1, 9):
+        if sh < 4:
+            e, asm = enc(f'cnt{"dwh"[sh - 1]} {{xd}}', {'xd': 'd'}), f'cnt{"dwh"[sh - 1]} {{d}}'
+        else:
+            e = fixed(enc('rdvl {xd}, #{imm}', {'xd': 'd'}), 'imm', 1 << (sh - 4))
+            asm = f'rdvl {{d}}, #{1 << (sh - 4)}'
+        entry('i64', f'VL.shl{sh}', [], e, asm, ['%v = call i64 @llvm.vscale.i64()', f'%r = shl i64 %v, {sh}',
+                                                 'ret i64 %r'], ' "dclass"="x"')
+    # And times a multiple of 16 (part addresses of vectors of more than a
+    # register, from scalable.rs).
+    e = enc('rdvl {xd}, #{imm}', {'xd': 'd'}).replace('imm:s6', 'imm:s6=k/16')
+    entry('i64', 'VL.mul', ['i64 "imm" %k'], e, 'rdvl {d}, #{=k/16}',
+          ['%v = call i64 @llvm.vscale.i64()', '%r = mul i64 %v, %k', 'ret i64 %r'], ' "dclass"="x"')
+    # Added to a register or an address (a vector length or more on):
+    # addvl.
+    add = enc('addvl {xd_sp}, {xn_sp}, #{imm}', {'xd_sp': 'd', 'xn_sp': 'n'})
+    for ty, form, op in [('i64', '', 'add i64 %n, %s'), ('ptr', 'p', 'getelementptr i8, ptr %n, i64 %s')]:
+        for sh in range(4, 9):
+            entry(ty, f'ADDVL{form}.shl{sh}', [f'{ty} "reg"="xsp" %n'], fixed(add, 'imm', 1 << (sh - 4)),
+                  f'addvl {{d}}, {{n}}, #{1 << (sh - 4)}',
+                  ['%v = call i64 @llvm.vscale.i64()', f'%s = shl i64 %v, {sh}', f'%r = {op}', f'ret {ty} %r'],
+                  ' "dclass"="xsp"')
+        entry(ty, f'ADDVL{form}.mul', [f'{ty} "reg"="xsp" %n', 'i64 "imm" %k'], add.replace('imm:s6', 'imm:s6=k/16'),
+              'addvl {d}, {n}, #{=k/16}',
+              ['%v = call i64 @llvm.vscale.i64()', '%s = mul i64 %v, %k', f'%r = {op}', f'ret {ty} %r'],
+              ' "dclass"="xsp"')
+
+
+def reversed_pairs():
+    """Each predicated operation that overwrites its first source, with
+    the one that gives the same with its two sources the other way
+    ("swap"): itself where it commutes, else its reversed form (sdivr of
+    sdiv). Under an all-true predicate, peephole::overwrite_dying picks
+    the form that overwrites the source whose value dies there. lslr, lsrr
+    and asrr have no intrinsic: entries of their own. And "movprfx": what
+    a movprfx may come before (peephole::prefixes)."""
+    have = {line.split('@')[1].split('(')[0]: i for i, line in enumerate(out)
+            if line.startswith('define') and '@SVE.' in line}
+    INTS = [('<vscale x 16 x i8>', 'b', 'nxv16i8'), ('<vscale x 8 x i16>', 'h', 'nxv8i16'),
+            ('<vscale x 4 x i32>', 's', 'nxv4i32'), ('<vscale x 2 x i64>', 'd', 'nxv2i64')]
+    lanes = {'b': 16, 'h': 8, 's': 4, 'd': 2}
+    for ty, l, t in INTS:
+        P = f'<vscale x {lanes[l]} x i1>'
+        for op, ir in [('lslr', 'shl'), ('lsrr', 'lshr'), ('asrr', 'ashr')]:
+            e = enc(f'{op} {{zdn}}.{l}, {{pg}}/m, {{zdn}}.{l}, {{zm}}.{l}', {'zdn': 'd', 'pg': 'a0', 'zm': 'a2'})
+            entry(ty, f'SVE.{op}.{t}', [f'{P} "reg"="pg" %a0', f'{ty} "reg"="z" "tied" %a1', f'{ty} "reg"="z" %a2'],
+                  e, f'{op} {{d}}.{l}, {{a0}}/m, {{d}}.{l}, {{a2}}.{l}',
+                  [f'%s = {ir} {ty} %a2, %a1', f'%r = select {P} %a0, {ty} %s, {ty} %a1', f'ret {ty} %r'],
+                  ' "dclass"="z" "nomatch"')
+            have[f'SVE.{op}.{t}'] = len(out) - 1
+    pairs = []
+    for _, _, t in INTS:
+        for op in ('mul', 'smax', 'smin', 'umax', 'umin', 'add', 'and', 'orr', 'eor', 'smulh', 'umulh', 'sabd',
+                   'uabd'):
+            pairs.append((f'{op}.{t}', f'{op}.{t}'))
+        for a, b in [('sdiv', 'sdivr'), ('udiv', 'udivr'), ('sub', 'subr'), ('lsl', 'lslr'), ('lsr', 'lsrr'),
+                     ('asr', 'asrr')]:
+            pairs += [(f'{a}.{t}', f'{b}.{t}'), (f'{b}.{t}', f'{a}.{t}')]
+    for t in ('nxv8f16', 'nxv4f32', 'nxv2f64'):
+        for op in ('fmul', 'fadd', 'fmaxnm', 'fminnm', 'fmax', 'fmin', 'fabd'):
+            pairs.append((f'{op}.{t}', f'{op}.{t}'))
+        for a, b in [('fdiv', 'fdivr'), ('fsub', 'fsubr')]:
+            pairs += [(f'{a}.{t}', f'{b}.{t}'), (f'{b}.{t}', f'{a}.{t}')]
+    prefixable = set()
+    for a, b in pairs:
+        if f'SVE.{a}' in have and f'SVE.{b}' in have:
+            i = have[f'SVE.{a}']
+            out[i] = out[i].replace(' "nodecode"', f' "swap"="SVE.{b}" "nodecode"', 1)
+            prefixable |= {a, b}
+    # (And the other operations the generic IR's recipes make, which
+    # overwrite a source or a passthru: fmla, the unary ones.)
+    for t in ('nxv4f32', 'nxv2f64'):
+        prefixable |= {f'fmla.{t}', f'fneg.{t}', f'fabs.{t}', f'fsqrt.{t}'}
+    for _, _, t in INTS:
+        prefixable.add(f'abs.{t}')
+    for a in prefixable:
+        i = have.get(f'SVE.{a}')
+        if i is not None:
+            out[i] = out[i].replace(' "nodecode"', ' "movprfx" "nodecode"', 1)
+    entry('<vscale x 16 x i8>', 'MOVPRFX', ['<vscale x 16 x i8> "reg"="z" %n'], enc('movprfx {zd}, {zn}', {'zd': 'd', 'zn': 'n'}),
+          'movprfx {d}, {n}', ['ret <vscale x 16 x i8> %n'], ' "dclass"="z" "role"="movprfx" "nomatch"')
+
+
 def main():
     out.append("""; SVE's instructions for selection. Written by gen_sve.py; do not edit.
 ; The conventions are those of 00-base.ll; docs/design/sve.md has the plan.
@@ -582,6 +708,8 @@ def main():
     unpacked_memory()
     sme_modes()
     generic()
+    immediates()
+    reversed_pairs()
     sys.stdout.write('\n'.join(out))
 
 

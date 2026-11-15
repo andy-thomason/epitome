@@ -128,6 +128,27 @@ pub fn eh_stubs(funcs: &[MFunc], abi: &Abi) -> Vec<GlobalData> {
     out
 }
 
+/// The constants the functions' pool operands name, each once, in
+/// read-only data.
+pub fn pool_data(funcs: &[MFunc], abi: &Abi) -> Vec<GlobalData> {
+    let mut out: Vec<GlobalData> = Vec::new();
+    for (name, value, bytes) in funcs.iter().flat_map(|f| &f.pool) {
+        let symbol = abi.symbol(name);
+        if out.iter().any(|g| g.symbol == symbol) {
+            continue;
+        }
+        out.push(GlobalData {
+            symbol,
+            global: false,
+            section: SectionKind::ReadOnly,
+            section_name: None,
+            align: u64::from(*bytes),
+            items: vec![Item::Int { size: *bytes, value: *value, hex: true }],
+        });
+    }
+    out
+}
+
 /// The globals with initial values, in module order, as data.
 pub fn collect_globals(cx: &Ctx, abi: &Abi) -> Result<Vec<GlobalData>, String> {
     let m = &*cx.m;

@@ -1578,6 +1578,34 @@ def avx512_int():
                   f'vpopcnt{sfx} {{n}}, {{d}}', [f'%r = call {ty} @llvm.ctpop.v{n}i{eb}({ty} %n)', f'ret {ty} %r'],
                   f' "dclass"="{sel}" "feature"="avx512f,avx512vpopcntdq{vl}"')
             out.append(f'declare {ty} @llvm.ctpop.v{n}i{eb}({ty})\n')
+    # Halves of 512-bit vectors (legalisation's, as AVX2's of 256-bit ones
+    # are): the low a copy of the ymm it holds, the high extracted; two
+    # joined; and 256-bit lanes of doublewords widened to quadwords.
+    for full, half, n in [('<64 x i8>', '<32 x i8>', 64), ('<32 x i16>', '<16 x i16>', 32), ('<16 x i32>', '<8 x i32>', 16),
+                          ('<8 x i64>', '<4 x i64>', 8), ('<16 x float>', '<8 x float>', 16), ('<8 x double>', '<4 x double>', 8)]:
+        h = n // 2
+        lo = ', '.join(f'i32 {k}' for k in range(h))
+        hi = ', '.join(f'i32 {k}' for k in range(h, n))
+        both = ', '.join(f'i32 {k}' for k in range(n))
+        T = tag(full)
+        enc, _ = xed('vmovdqa64 {o0}, {o1}', ('ye', 'ye'))
+        entry(half, f'VLOW.{T}', [f'{full} "reg"="zv" %v'], renamed(enc, {'o0': 'v', 'o1': 'd'}), 'vmovdqa64 {v:ye}, {d}',
+              [f'%r = shufflevector {full} %v, {full} poison, <{h} x i32> <{lo}>', f'ret {half} %r'], ' "dclass"="yv"' + F)
+        enc, _ = xed('vextracti64x4 ${c}, {o0}, {o1}', (Z, 'ye'))
+        entry(half, f'VHIGH.{T}', [f'{full} "reg"="zv" %v'], renamed(enc, {'o0': 'v', 'o1': 'd'}).replace('i1:8=c', '00000001'),
+              'vextracti64x4 $1, {v}, {d}', [f'%r = shufflevector {full} %v, {full} poison, <{h} x i32> <{hi}>', f'ret {half} %r'],
+              ' "dclass"="yv"' + F)
+        enc, _ = xed('vinserti64x4 ${c}, {o0}, {o1}, {o2}', ('ye', Z, Z))
+        entry(full, f'VJOIN.{T}', [f'{half} "reg"="yv" %a', f'{half} "reg"="yv" %b'],
+              renamed(enc, {'o0': 'b', 'o1': 'a', 'o2': 'd'}).replace('i1:8=c', '00000001'), 'vinserti64x4 $1, {b}, {a:z}, {d}',
+              [f'%r = shufflevector {half} %a, {half} %b, <{n} x i32> <{both}>', f'ret {full} %r'], ' "dclass"="zv"' + F)
+    for ext, pre in [('sext', 'vpmovsx'), ('zext', 'vpmovzx')]:
+        enc, _ = xed(f'{pre}dq {{o0}}, {{o1}}', ('ye', Z))
+        entry('<8 x i64>', f'{pre.upper()}DQz', ['<8 x i32> "reg"="yv" %n'], renamed(enc, {'o0': 'n', 'o1': 'd'}),
+              f'{pre}dq {{n}}, {{d}}', [f'%r = {ext} <8 x i32> %n to <8 x i64>', 'ret <8 x i64> %r'], ' "dclass"="zv"' + F)
+    enc, _ = xed('vpmovqd {o0}, {o1}', (Z, 'ye'))
+    entry('<8 x i32>', 'VPMOVQDz', ['<8 x i64> "reg"="zv" %n'], renamed(enc, {'o0': 'n', 'o1': 'd'}), 'vpmovqd {n}, {d}',
+          ['%r = trunc <8 x i64> %n to <8 x i32>', 'ret <8 x i32> %r'], ' "dclass"="yv"' + F)
 
 
 def avx512vl_masks():

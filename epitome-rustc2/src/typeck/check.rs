@@ -1300,7 +1300,24 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     Some(TyKind::Tuple(l)) if tcx.tys(l).len() == kids.len() => tcx.tys(l).into_iter().map(Some).collect(),
                     _ => vec![None; kids.len()],
                 };
-                let tys: Vec<Ty> = kids.iter().zip(want).map(|(&e, w)| self.expr(e, w)).collect();
+                let mut tys = Vec::new();
+                for (&e, w) in kids.iter().zip(want) {
+                    let t = self.expr(e, w);
+                    // Each field is coerced to its expected type where an
+                    // array behind a reference unsizes (`(self, &[], &[])`
+                    // as `(&[T], &[U], &[T])`).
+                    if let Some(w) = w
+                        && let (TyKind::Ref(_, x) | TyKind::Ptr(_, x), TyKind::Ref(_, y) | TyKind::Ptr(_, y)) =
+                            (tcx.kind(self.infer.shallow(t)), tcx.kind(self.infer.shallow(w)))
+                        && matches!(tcx.kind(self.infer.shallow(x)), TyKind::Array(..))
+                        && matches!(tcx.kind(self.infer.shallow(y)), TyKind::Slice(_))
+                        && self.coerce(e, t, w)
+                    {
+                        tys.push(w);
+                    } else {
+                        tys.push(t);
+                    }
+                }
                 self.mk(TyKind::Tuple(tcx.list(tys)))
             }
             Kind::Array => {

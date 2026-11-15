@@ -321,7 +321,25 @@ pub(crate) fn define_static(cx: &Cx, m: &mut Module, d: DefId, name: &str) -> R<
     if !crate::session::has_attribute(ast, node, "no_mangle") {
         g = g.linkage(Linkage::Internal);
     }
-    Ok((g.build(m), value.is_none()))
+    let g = g.build(m);
+    // `#[thread_local]`: each thread's own copy, starting as the
+    // initialiser.
+    if crate::session::has_attribute(ast, node, "thread_local") {
+        m.globals[g.index()].props.thread_local = Some(epitome_ir::module::ThreadLocal::GeneralDynamic);
+    }
+    Ok((g, value.is_none()))
+}
+
+/// The address of static `g` in this thread: through
+/// `llvm.threadlocal.address` for a `#[thread_local]` one.
+pub(crate) fn static_address(b: &mut FunctionBuilder, g: GlobalId) -> Value {
+    let addr = b.module().global_value(g);
+    if b.module().global(g).props.thread_local.is_none() {
+        return addr;
+    }
+    let ptr = b.module().types.ptr(0);
+    let f = b.module().declare("llvm.threadlocal.address.p0", ptr, &[ptr], false);
+    b.call(f, &[addr]).expect("`llvm.threadlocal.address` gives an address")
 }
 
 /// The function `name` (`void()`, internal) that stores the value of
@@ -347,7 +365,7 @@ pub(crate) fn lower_static_init(cx: &Cx, m: &mut Module, d: DefId, g: GlobalId, 
     let mut fx = Fx::new(cx, b, body, unit, name);
     let first = fx.b.current_block().expect("the body block");
     let o = fx.operand(init)?;
-    let addr = fx.b.module().global_value(g);
+    let addr = static_address(&mut fx.b, g);
     if !fx.terminated() {
         fx.store(Operand { ty: t, v: o.v }, Place { addr, meta: None, ty: t })?;
         fx.b.ret_void();
@@ -1803,7 +1821,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             }
             Some(Res::Def(d)) if matches!(self.cx.r.defs[d.0 as usize].kind, DefKind::Static) => {
                 let g = *self.cx.statics.get(d).ok_or("static not defined")?;
-                let addr = self.b.module().global_value(g);
+                let addr = static_address(&mut self.b, g);
                 let t = self.ty(n)?;
                 return Ok(Pv::Place(Place { addr, meta: None, ty: t }));
             }

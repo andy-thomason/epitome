@@ -42,6 +42,8 @@ pub struct TypeckResults {
     /// What each closure captures, in order.
     pub captures: FastMap<crate::ty::ClosureId, Vec<Capture>>,
     pub stats: TypeckStats,
+    /// The same counts for each crate's bodies.
+    pub crate_stats: Vec<TypeckStats>,
 }
 
 #[derive(Default, Debug)]
@@ -298,6 +300,8 @@ impl Session {
             crates.iter().map(|c| c.files.iter().map(|_| Tables::default()).collect()).collect();
         let mut stats = TypeckStats::default();
         let mut reasons: FastMap<String, usize> = FastMap::default();
+        let mut crate_stats: Vec<TypeckStats> = crates.iter().map(|_| TypeckStats::default()).collect();
+        let mut crate_reasons: Vec<FastMap<String, usize>> = crates.iter().map(|_| FastMap::default()).collect();
         let mut hidden = FastMap::default();
         let mut closure_owners = FastMap::default();
         let mut captures = FastMap::default();
@@ -305,13 +309,15 @@ impl Session {
             hidden.extend(res.hidden);
             closure_owners.extend(res.closures);
             captures.extend(res.captures);
-            stats.bodies += 1;
-            if res.error_nodes == 0 && res.unknown_nodes == 0 {
-                stats.clean_bodies += 1;
+            for s in [&mut stats, &mut crate_stats[res.k as usize]] {
+                s.bodies += 1;
+                if res.error_nodes == 0 && res.unknown_nodes == 0 {
+                    s.clean_bodies += 1;
+                }
+                s.nodes += res.types.len();
+                s.error_nodes += res.error_nodes;
+                s.unknown_nodes += res.unknown_nodes;
             }
-            stats.nodes += res.types.len();
-            stats.error_nodes += res.error_nodes;
-            stats.unknown_nodes += res.unknown_nodes;
             let file = &mut types[res.k as usize][res.file as usize];
             for (n, t) in res.types {
                 if let Some(slot) = file.get_mut(n.0 as usize) {
@@ -328,17 +334,26 @@ impl Session {
             for (n, d, l) in res.implicit {
                 t.implicit.entry(n).or_default().push((d, l));
             }
-            for (k, v) in res.errors {
-                *reasons.entry(k).or_default() += v;
+            for (why, n) in res.errors {
+                *crate_reasons[res.k as usize].entry(why.clone()).or_default() += n;
+                *reasons.entry(why).or_default() += n;
             }
         }
-        let mut reasons: Vec<(String, usize)> = reasons.into_iter().collect();
-        reasons.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-        stats.reasons = reasons;
+        stats.reasons = most_common(reasons);
+        for (s, r) in crate_stats.iter_mut().zip(crate_reasons) {
+            s.reasons = most_common(r);
+        }
         let mut bodies = checked.into_inner().unwrap();
         bodies.sort();
-        TypeckResults { types, tables, bodies, hidden, closure_owners, captures, stats }
+        TypeckResults { types, tables, bodies, hidden, closure_owners, captures, stats, crate_stats }
     }
+}
+
+/// Counts by reason, most common first.
+fn most_common(counts: FastMap<String, usize>) -> Vec<(String, usize)> {
+    let mut v: Vec<(String, usize)> = counts.into_iter().collect();
+    v.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    v
 }
 
 impl TypeckResults {

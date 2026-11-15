@@ -130,10 +130,19 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
             }
             Kind::DynTraitType => {
                 let b = kids.iter().copied().find(|&c| ast.kind(c) == Kind::Bounds);
-                let traits = b.map(|b| self.bounds(b)).unwrap_or_default();
+                let mut traits = b.map(|b| self.bounds(b)).unwrap_or_default();
                 if traits.is_empty() {
                     return self.err("`dyn` with no trait");
                 }
+                // The principal trait first, then the auto traits in order
+                // of definition: `dyn Send + FnOnce()` is `dyn FnOnce() +
+                // Send`.
+                let auto = |t: &crate::ty::TraitRef| {
+                    let def = &self.env.r.defs[t.def.0 as usize];
+                    let ast = &self.env.crates[def.krate as usize].files[def.file as usize].ast;
+                    ast.children(def.node).iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == "auto")
+                };
+                traits.sort_by_key(|t| if auto(t) { (1, t.def.0) } else { (0, 0) });
                 let d = self.tcx.dyn_(DynData { traits });
                 self.tcx.mk(TyKind::Dyn(d))
             }

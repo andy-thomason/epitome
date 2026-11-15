@@ -161,6 +161,9 @@ impl<'a> Parser<'a> {
             "mod" => ItemKind::Mod,
             "use" => ItemKind::Use,
             "static" => ItemKind::Static,
+            // `type const N: usize = 3;`: a constant usable as a type's
+            // const argument.
+            "type" if self.at_n(q + 1, "const") => ItemKind::Const,
             "type" => ItemKind::Type,
             "crate" if has("extern") => ItemKind::ExternCrate,
             "{" if has("extern") => ItemKind::ExternBlock,
@@ -626,6 +629,9 @@ impl<'a> Parser<'a> {
         // which only introduces the item.
         let end = self.pos + self.qualifiers_len(0);
         while self.pos < end && !self.at("const") {
+            self.leaf(Kind::Keyword, 1);
+        }
+        if self.at("type") {
             self.leaf(Kind::Keyword, 1);
         }
         self.expect("const")?;

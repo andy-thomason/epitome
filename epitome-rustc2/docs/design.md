@@ -975,7 +975,8 @@ body:
 ```
 
 From every non-generic function of `core` with a body (on mandelbrot):
-22,711 functions in 3.5 s, of which 4,234 (19%) are not lowered, and
+22,797 functions in 3.7 s (57 of them drop glue, and what it calls), of
+which 4,234 (19%) are not lowered, and
 one more traps where it upcasts a `dyn` (244 trapped at `dyn` and
 formatting before they were done). 3,937 of those not lowered are SIMD
 (`core::arch` and `core::simd`), which is not attempted: `simd_*`

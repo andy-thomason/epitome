@@ -2335,8 +2335,24 @@ impl<'a, 's> FnCtxt<'a, 's> {
             }
             return r;
         }
-        // `async` and `gen` blocks: a future or iterator of their own.
-        if keyword("async") || keyword("gen") {
+        // `async` blocks: a future of their own, whose output is the
+        // block's value (or what a `return` in it gives).
+        if keyword("async") && !keyword("gen") {
+            let tcx = self.tcx;
+            let out = self.infer.fresh();
+            let saved_ret = std::mem::replace(&mut self.ret, out);
+            let saved_loops = std::mem::take(&mut self.loops);
+            let bt = self.stmts(&stmts, Some(out));
+            self.ret = saved_ret;
+            self.loops = saved_loops;
+            if tcx.kind(self.infer.shallow(bt)) != TyKind::Never && !self.infer.unify(bt, out) {
+                self.err(n, "mismatched types");
+            }
+            let id = tcx.closure_id((self.k, self.file, n));
+            return self.mk(TyKind::AsyncBlock(id, out, tcx.identity_args(self.owner)));
+        }
+        // `gen` blocks: an iterator of their own.
+        if keyword("gen") {
             self.stmts(&stmts, None);
             return self.infer.fresh();
         }

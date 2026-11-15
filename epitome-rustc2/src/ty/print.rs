@@ -181,6 +181,10 @@ impl TyCtxt<'_> {
                 out.push_str(") -> ");
                 self.write_ty(r, s.output, out);
             }
+            TyKind::AsyncBlock(_, o, _) => {
+                out.push_str("{async block} -> ");
+                self.write_ty(r, o, out);
+            }
             TyKind::Infer(v) => {
                 let _ = write!(out, "?{v}");
             }

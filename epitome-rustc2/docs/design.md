@@ -629,7 +629,8 @@ Traits (`traits.rs`):
 - **Selection** (`T: Trait<A>`): what the body assumes; the bounds of a
   `dyn` or `impl Trait`; obligations on a variable (from a generic
   function's bounds, or an `impl Trait` it returns); built-ins (`Sized`,
-  `Tuple`, auto traits, `Fn` for closures, function items and pointers);
+  `Tuple`, auto traits, `Fn` for closures, function items and pointers,
+  `Future` for `async` blocks);
   then impls, found by trait and the head of the self type, each tried
   in a snapshot with its own `where` clauses checked a few levels deep.
   Missing trait arguments take their defaults (`Add` is `Add<Self>`).
@@ -648,6 +649,10 @@ Traits (`traits.rs`):
 - **Closures** passed to a generic function take their parameter and
   result types from its `F: FnMut(A) -> B` obligations. Closure
   arguments are checked after the others, so that those settle `A`.
+- **`async` blocks** have a type of their own (`TyKind::AsyncBlock`,
+  by where the block is written, as for a closure), whose `Output` is
+  the block's value, or what a `return` in it gives. `async fn`s are not
+  yet: a call gives the declared result type, as for a plain `fn`.
 
 What lowering is told (`TypeckResults::tables`, per file, by node):
 

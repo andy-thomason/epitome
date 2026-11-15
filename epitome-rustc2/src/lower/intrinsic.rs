@@ -93,6 +93,15 @@ impl Fx<'_, '_, '_, '_> {
                 Ok(Pv::Val(self.unit()))
             }
             "likely" | "unlikely" | "black_box" => Ok(Pv::Val(args[0])),
+            // Allocation at compile time: at run time, none (null), and
+            // nothing to free.
+            "const_allocate" => {
+                let ptr = self.ptr_t();
+                let z = self.b.module().const_zero(ptr);
+                imm(z)
+            }
+            "const_deallocate" => Ok(Pv::Val(self.unit())),
+            "const_make_global" => Ok(Pv::Val(Operand { ty: output, v: args[0].v })),
             // The checks of a build without debug assertions.
             "ub_checks" | "contract_checks" | "overflow_checks" | "is_val_statically_known" => {
                 let i8t = self.i8t();

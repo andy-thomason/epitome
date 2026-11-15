@@ -4,7 +4,8 @@
 //! statuses must be the same.
 //!
 //! The programs are `#![no_std]` with a C `main`, and write through
-//! libc's `putchar`; `floats.rs` uses `#![feature(f16)]`, which
+//! libc's `putchar` (those with `extern crate alloc;` get `alloc` from
+//! rust-src as well); `floats.rs` uses `#![feature(f16)]`, which
 //! `RUSTC_BOOTSTRAP=1` lets rustc take. rustc links them against libc
 //! and libm, with a stub for `rust_eh_personality`, which the precompiled
 //! `core` refers to although nothing unwinds. Only on x86-64 Linux, with rust-src and `cc`.
@@ -73,7 +74,12 @@ fn programs_match_rustc() {
             if !opt {
                 cmd.arg("-O0");
             }
-            let built = cmd.arg("-o").arg(&ep).arg(&core).arg(p).output().unwrap();
+            cmd.arg("-o").arg(&ep).arg(&core);
+            // `alloc` too, for a program that uses it.
+            if std::fs::read_to_string(p).unwrap().contains("extern crate alloc;") {
+                cmd.arg(core.ancestors().nth(3).unwrap().join("alloc/src/lib.rs"));
+            }
+            let built = cmd.arg(p).output().unwrap();
             if !built.status.success() {
                 failed.push(format!("{name} (optimised: {opt}): not built:\n{}", String::from_utf8_lossy(&built.stderr)));
                 continue;

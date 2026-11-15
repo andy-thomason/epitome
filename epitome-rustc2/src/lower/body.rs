@@ -774,8 +774,21 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             && self.cx.tcx.kind(o.ty) != TyKind::Ref(Mutbl::Mut, target)
             && !matches!(self.cx.tcx.kind(o.ty), TyKind::Ptr(..))
         {
-            // `Box<T>`: its first field holds the pointer.
-            return Err("dereference of a `Box`".into());
+            // `Box<T>`: the pointer in its first field, a `Unique<T>`, in
+            // its `NonNull<T>`, in its pattern type over `*const T`.
+            let mut p = self.place_of(Pv::Val(o))?;
+            for _ in 0..4 {
+                match self.cx.tcx.kind(p.ty) {
+                    TyKind::Ptr(..) => break,
+                    TyKind::Pat(x, ..) => p = Place { ty: x, ..p },
+                    _ => p = self.field(p, 0, 0)?,
+                }
+            }
+            if !matches!(self.cx.tcx.kind(p.ty), TyKind::Ptr(..)) {
+                return Err("a `Box` without its pointer".into());
+            }
+            let ptr = self.load(p)?;
+            return self.deref(ptr);
         }
         if self.is_unsized(target)? {
             let a = self.mem(o)?;
@@ -1900,6 +1913,14 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 let recv = self.addr_of(p, rt)?;
                 let r = self.call_def(m, margs, vec![recv], None)?;
                 let o = self.operand_of(r)?;
+                return Ok(Pv::Place(self.deref(o)?));
+            }
+            // A box is dereferenced in place (a temporary if need be), so
+            // that it is dropped (and freed) when its contents move out.
+            let bt = self.ty(kids[1])?;
+            if matches!(tcx.kind(bt), TyKind::Adt(d, _) if tcx.lang.get("owned_box") == Some(&d)) {
+                let p = self.place(kids[1])?;
+                let o = self.load(p)?;
                 return Ok(Pv::Place(self.deref(o)?));
             }
             let o = self.operand(kids[1])?;

@@ -290,11 +290,19 @@ fn nano() -> &'static Board {
     board("nano").unwrap()
 }
 
-/// The board `ICE40_BOARD` names (`1` is the nano), if it is set.
+/// The board `ICE40_BOARD` names (`1` is the nano), if it is set and
+/// `icesprog -p` reports that board plugged in: a test for another board
+/// skips, rather than program it.
 fn live_board() -> Option<&'static Board> {
+    use epitome_sv::arch::ice40::board::Icesprog;
     let v = std::env::var("ICE40_BOARD").ok()?;
     let name = if v == "1" { "nano" } else { v.as_str() };
-    Some(board(name).unwrap_or_else(|| panic!("ICE40_BOARD={v}: no such board (nano, icesugar)")))
+    let brd = board(name).unwrap_or_else(|| panic!("ICE40_BOARD={v}: no such board (nano, icesugar)"));
+    if let Some(Err(e)) = Icesprog::find().map(|ip| ip.expect(brd)) {
+        eprintln!("skipped: {e}");
+        return None;
+    }
+    Some(brd)
 }
 
 /// A board design: the board's part's own (`flow/NAME.sv` in its
@@ -1266,4 +1274,97 @@ fn rv32i_builds() {
     assert!(b.mapped.lcs.len() > 2000, "{}", b.mapped.stats());
     assert_eq!(b.placement.rams.iter().flatten().count(), 20);
     assert!(r.fmax().unwrap() > 12.0, "{}", r.text(&model_for(brd)));
+}
+
+// ---- the configured bits, read by IceStorm's tools ----
+
+/// What `icebox_vlog` (run as a black box on `icepack -u`'s full-die
+/// `.asc` of the bitstream) says the configured bits do, simulated by
+/// Epitome's interpreter, against the source on `cycles` cycles of random
+/// stimulus: a check of the bits' meaning by another reading of them than
+/// the flow's own. The chip's pads are wired to the design's port bits by
+/// the placement; its RAMs are `sb_ram40_4k.sv`. None without the tools.
+fn icebox_check(src: &Sources, top: &str, b: &Built, cycles: usize) -> Option<Result<(), String>> {
+    use epitome_sv::arch::ice40::icebox::Icebox;
+    use epitome_sv::arch::ice40::icepack::Icepack;
+    use epitome_sv::arch::ice40::place::bit_name;
+    let (Some(ip), Some(ib)) = (Icepack::find(), Icebox::find()) else {
+        assert!(std::env::var_os("ICE40_REQUIRE_TOOLS").is_none(), "icepack or icebox missing");
+        return None;
+    };
+    let check = || -> Result<(), String> {
+        let asc = ip.unpack(&b.bitstream)?;
+        let v = ib.run("icebox_vlog", &[], &asc)?;
+        let n = &b.netlist;
+        // The design's port bits on the chip's pads.
+        let mut pads: Vec<(String, String)> = Vec::new();
+        for (ports, places) in [(&n.inputs, &b.placement.inputs), (&n.outputs, &b.placement.outputs)] {
+            for (&(port, bit), p) in places.iter() {
+                let q = &ports[port as usize];
+                let name = if q.width == 1 { q.name.clone() } else { format!("{}[{bit}]", q.name) };
+                pads.push((format!("io_{}_{}_{}", p.0, p.1, p.2), name));
+                let _ = bit_name;
+            }
+        }
+        let header = v.lines().find(|l| l.starts_with("module chip")).ok_or("no chip module")?;
+        let mut conns = Vec::new();
+        for w in header.split(['(', ')', ',', ';']).map(str::trim) {
+            let Some(pad) = w.strip_prefix("input ").or_else(|| w.strip_prefix("output ")) else { continue };
+            let port = pads.iter().find(|p| p.0 == pad).ok_or_else(|| format!("pad {pad} is no port's"))?;
+            conns.push(format!(".{pad}({})", port.1));
+        }
+        let decl = |dir: &str, p: &epitome_sv::synth::Port| format!("{dir} logic [{}:0] {}", p.width - 1, p.name);
+        let ports: Vec<String> =
+            n.inputs.iter().map(|p| decl("input", p)).chain(n.outputs.iter().map(|p| decl("output", p))).collect();
+        let mut chip = Sources::default();
+        chip.text("chip.v", v.clone());
+        chip.file(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("arch/sb_ram40_4k.sv"));
+        chip.text(
+            "chip_top.sv",
+            format!("module chip_top({});\n  chip c({});\nendmodule\n", ports.join(", "), conns.join(", ")),
+        );
+        let st = random_stimulus(n, cycles, 0xc41b).unwrap();
+        let want = reference(src, top, n, &st)?;
+        let got = reference(&chip, "chip_top", n, &st)?;
+        compare(&want, &got)
+    };
+    Some(check())
+}
+
+/// The board designs, and the RV32I computer, as icebox_vlog reads their
+/// bitstreams: on the nano's LP1K and the iCESugar's UP5K.
+#[test]
+fn icebox_reads_the_board_designs() {
+    for brd in [nano(), board("icesugar").unwrap()] {
+        let mut designs = vec![
+            ("echo", vec![]),
+            ("echo", vec!["INVERT"]),
+            ("delay", vec![]),
+            ("blink", vec![]),
+            ("hello", vec![]),
+            ("hello_ram", vec![]),
+            ("echo_ram", vec![]),
+            ("ramdelay", vec!["WIDTH=4"]),
+            ("ramdelay", vec!["WIDTH=1", "DEPTH=8192"]),
+        ];
+        if brd.name == "icesugar" {
+            designs.push(("ramdelay", vec!["WIDTH=14", "DEPTH=8192"]));
+            designs.push(("rv32i", vec![]));
+        }
+        for (name, defs) in designs {
+            let b = build_design_for(brd, name, &defs, false);
+            let mut s = Sources::default();
+            s.file(design_file(brd, name));
+            for &k in &defs {
+                let (k, v) = k.split_once('=').unwrap_or((k, "1"));
+                s.define(k, v);
+            }
+            let t = std::time::Instant::now();
+            match icebox_check(&s, name, &b, if name == "rv32i" { 1500 } else { 600 }) {
+                None => return,
+                Some(r) => r.unwrap_or_else(|e| panic!("{name} {defs:?} on the {}: {e}", brd.title)),
+            }
+            eprintln!("{name} {defs:?} on the {}: icebox_vlog agrees ({:.1} s)", brd.title, t.elapsed().as_secs_f64());
+        }
+    }
 }

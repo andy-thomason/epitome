@@ -388,6 +388,36 @@ impl<'a, 's> FnCtxt<'a, 's> {
         }
     }
 
+    /// Where several impls match `t: tr<args>` (a specialising family, such
+    /// as `SpecExtend`'s), but every one that does gives the variables in
+    /// `args` the same types: those types. Whether it settled them.
+    fn settle_by_agreement(&mut self, t: Ty, tr: DefId, args: &[Ty]) -> bool {
+        let tcx = self.tcx;
+        let t = self.infer.shallow(t);
+        let Some(ti) = self.index.trait_impls.get(&tr) else { return false };
+        let cands: Vec<usize> = match head(tcx, t) {
+            Some(h) => ti.by_head.get(&h).into_iter().flatten().chain(&ti.blanket).copied().collect(),
+            None => return false,
+        };
+        let mut agreed: Option<Vec<Ty>> = None;
+        for i in cands {
+            let s = self.probe();
+            let got = self.impl_matches(i, t, args, 1).map(|_| args.iter().map(|&a| self.infer.resolve(a)).collect::<Vec<Ty>>());
+            self.rollback(s);
+            let Some(got) = got else { continue };
+            if got.iter().any(|&a| tcx.has_infer(a)) {
+                return false;
+            }
+            match &agreed {
+                None => agreed = Some(got),
+                Some(a) if *a == got => {}
+                Some(_) => return false,
+            }
+        }
+        let Some(agreed) = agreed else { return false };
+        args.iter().zip(agreed).all(|(&a, b)| self.infer.unify(a, b))
+    }
+
     /// For a concrete `t` that several impls match (specialisation): the
     /// one that is more specific than each of the others, which match its
     /// header. Its arguments, as `select` gives them.
@@ -822,7 +852,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 continue;
             }
             match self.select(t, tr, &args, 1) {
-                Select::Ambiguous => i += 1,
+                Select::Ambiguous if !self.settle_by_agreement(t, tr, &args) => i += 1,
                 _ => {
                     self.pending_traits.swap_remove(i);
                 }
@@ -1040,9 +1070,20 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     continue;
                 }
             };
-            if inputs.is_empty() || !self.infer.unify(inputs[0], recv) || !self.select(self_ty, tr, &targs, 0).holds() {
+            if inputs.is_empty() || !self.infer.unify(inputs[0], recv) {
                 self.rollback(s);
                 continue;
+            }
+            match self.select(self_ty, tr, &targs, 0) {
+                Select::No => {
+                    self.rollback(s);
+                    continue;
+                }
+                // Its trait's arguments may be settled later.
+                Select::Ambiguous if targs.iter().any(|&a| tcx.has_infer(self.infer.resolve(a))) => {
+                    self.pending_traits.push((self_ty, tr, tcx.list(targs.clone())));
+                }
+                _ => {}
             }
             return Some((item, args, inputs[1..].to_vec(), output));
         }

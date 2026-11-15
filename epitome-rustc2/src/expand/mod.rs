@@ -1014,13 +1014,13 @@ impl<'x, 's> Expander<'x, 's> {
                     rules.expand(inner, eof, &mut cx).ok()?
                 }
                 MacroKind::Builtin(b) => {
-                    let cx = builtin::Context { session: self.session, file, call, crate_name: self.crate_name };
+                    let cx = builtin::Context { session: self.session, file, call, crate_name: self.crate_name, krate: self.krate };
                     builtin::expand(&cx, b, inner).ok()??
                 }
                 MacroKind::Proc(..) => return None,
             },
             None if builtin::is_builtin(name) => {
-                let cx = builtin::Context { session: self.session, file, call, crate_name: self.crate_name };
+                let cx = builtin::Context { session: self.session, file, call, crate_name: self.crate_name, krate: self.krate };
                 builtin::expand(&cx, name, inner).ok()??
             }
             None => return None,
@@ -1038,7 +1038,7 @@ impl<'x, 's> Expander<'x, 's> {
         place: Place,
     ) -> Option<Vec<Token<'s>>> {
         let _ = place;
-        let cx = builtin::Context { session: self.session, file, call, crate_name: self.crate_name };
+        let cx = builtin::Context { session: self.session, file, call, crate_name: self.crate_name, krate: self.krate };
         match builtin::expand(&cx, name, input) {
             Ok(Some(t)) => Some(t),
             Ok(None) => {
@@ -1083,10 +1083,10 @@ impl<'x, 's> Expander<'x, 's> {
         let root = file.ast.graft(&frag, offset);
         let nodes = self.place_nodes(file, root, place);
         // What a macro gives is configured like any other code.
-        Some(match &self.session.options.cfg {
+        Some(match self.session.cfg_of(self.krate) {
             Some(cfg) => {
                 let eof = Token(&file.source.text[file.source.text.len()..]);
-                let (kept, errors) = crate::cfg::strip_new(&mut file.ast, &nodes, cfg, self.edition, eof);
+                let (kept, errors) = crate::cfg::strip_new(&mut file.ast, &nodes, &cfg, self.edition, eof);
                 self.result.errors.extend(errors);
                 kept
             }

@@ -214,7 +214,13 @@ impl Sim<'_, '_, '_> {
                         return ops::default_value(tys, ty);
                     }
                 }
-                member(tys, base, bt, *i)
+                let v = member(tys, base, bt, *i);
+                // A 2-state member of a 4-state packed struct or union reads
+                // its `x` and `z` bits as 0 (7.2.1, 7.3.1).
+                match v {
+                    Const::Bits(b) if tys.is_integral(ty) && !tys.is_four_state(ty) && !b.is_known() => Const::Bits(b.known_or_zero()),
+                    v => v,
+                }
             }
             K::Field(o) => {
                 let h = match e.args.first() {

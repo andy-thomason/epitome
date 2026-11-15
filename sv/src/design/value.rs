@@ -775,12 +775,11 @@ impl Bits {
     }
 
     /// The value read as a real number (6.12.2).
+    /// The value as a real; `x` and `z` bits count as 0 (6.12.2).
     pub fn to_f64(&self) -> f64 {
-        if !self.is_known() {
-            return 0.0;
-        }
-        let neg = self.is_negative();
-        let m = if neg { self.neg().with_signed(false) } else { self.clone() };
+        let b = self.known_or_zero();
+        let neg = b.is_negative();
+        let m = if neg { b.neg().with_signed(false) } else { b };
         let mut r = 0.0;
         for i in (0..m.width).rev() {
             r = r * 2.0 + if m.bit(i) == Logic::One { 1.0 } else { 0.0 };

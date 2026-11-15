@@ -1341,11 +1341,19 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
         self.d.spec(self.insts[inst as usize].spec).time_unit
     }
 
-    /// A delay in an instance's time unit, as ticks of the global
-    /// precision.
+    fn precision_of(&self, inst: u32) -> i8 {
+        if inst == u32::MAX {
+            return self.d.unit_time.1;
+        }
+        self.d.spec(self.insts[inst as usize].spec).time_precision
+    }
+
+    /// A delay in an instance's time unit, rounded to the instance's own
+    /// precision (3.14.1), as ticks of the global precision.
     fn ticks(&self, inst: u32, v: &Const) -> u64 {
-        let unit = self.unit_of(inst);
-        let scale = 10f64.powi((unit - self.precision) as i32);
+        let (unit, prec) = (self.unit_of(inst), self.precision_of(inst));
+        let local = 10f64.powi((unit - prec) as i32);
+        let global = 10f64.powi((prec - self.precision) as i32);
         let x = match v {
             Const::Real(r) => *r,
             Const::Bits(b) => {
@@ -1356,7 +1364,7 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
             }
             _ => 0.0,
         };
-        (x * scale).round().max(0.0) as u64
+        ((x * local).round() * global).round().max(0.0) as u64
     }
 
     fn after(&mut self, ticks: u64, e: Timed) {

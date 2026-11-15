@@ -595,7 +595,18 @@ impl Fx<'_, '_, '_, '_> {
                     let o = self.operand_of(pv)?;
                     Ok(Operand { ty: t, v: o.v })
                 }
-                None => Err("path in a pattern that is not a constant".into()),
+                // A `const` by its path (`INCOMPLETE`, a module's).
+                None => {
+                    let path = if ast.kind(n) == Kind::PathPat { self.kids(n)[0] } else { n };
+                    match self.res(path) {
+                        Some(&Res::Def(d)) if self.cx.r.defs[d.0 as usize].kind == DefKind::Const => {
+                            let pv = self.constant(n, d, Vec::new())?;
+                            let o = self.operand_of(pv)?;
+                            Ok(Operand { ty: t, v: o.v })
+                        }
+                        _ => Err("path in a pattern that is not a constant".into()),
+                    }
+                }
             },
             k => Err(format!("{k:?} in a pattern")),
         }

@@ -80,6 +80,22 @@ impl Fx<'_, '_, '_, '_> {
                 }
                 Ok(Pv::Val(o))
             }
+            // `x` written into the box's memory, and the box given back
+            // (what `vec!` and `Box::new` of a literal build with).
+            "write_box_via_move" => {
+                let t = t0.ok_or("no type argument")?;
+                let p = self.deref(args[0])?;
+                self.store(Operand { ty: t, v: args[1].v }, Place { ty: t, ..p })?;
+                Ok(Pv::Val(Operand { ty: output, v: args[0].v }))
+            }
+            // Panics abort, so nothing unwinds to be caught: `try_fn(data)`,
+            // and no panic (0).
+            "catch_unwind" => {
+                self.call_fn_ptr(args[0], vec![args[1]])?;
+                let i32t = self.b.module().types.int(32);
+                let z = self.b.const_int(i32t, 0);
+                imm(z)
+            }
             "abort" => {
                 self.trap();
                 Ok(Pv::Val(Operand { ty: output, v: Val::Zst }))

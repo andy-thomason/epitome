@@ -660,14 +660,21 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 self.rollback(p);
             }
             (TyKind::Adt(a, x), TyKind::Adt(b, y)) if a == b && Some(a) == self.lang("owned_box") => {
-                let (x, y) = (tcx.tys(x)[0], tcx.tys(y)[0]);
+                // The allocators are the same; the pointees the same, or
+                // the one unsizing to the other.
+                let (xs, ys) = (tcx.tys(x), tcx.tys(y));
                 let p = self.probe();
-                if self.infer.unify(x, y) {
-                    return true;
-                }
-                if self.unsizes_to(x, y) {
-                    self.adjust(n, vec![Adjust::Unsize], w);
-                    return true;
+                if xs[1..].iter().zip(&ys[1..]).all(|(&a, &b)| self.infer.unify(a, b)) {
+                    let (x, y) = (xs[0], ys[0]);
+                    let q = self.probe();
+                    if self.infer.unify(x, y) {
+                        return true;
+                    }
+                    self.rollback(q);
+                    if self.unsizes_to(x, y) {
+                        self.adjust(n, vec![Adjust::Unsize], w);
+                        return true;
+                    }
                 }
                 self.rollback(p);
             }
@@ -762,6 +769,13 @@ impl<'a, 's> FnCtxt<'a, 's> {
         if self.tcx.kind(sb) == TyKind::Never {
             return a;
         }
+        // `*mut T` and `*const T`: both `*const T`.
+        if let (TyKind::Ptr(ma, x), TyKind::Ptr(mb, y)) = (self.tcx.kind(sa), self.tcx.kind(sb))
+            && ma != mb
+            && self.infer.unify(x, y)
+        {
+            return self.mk(TyKind::Ptr(Mutbl::Not, x));
+        }
         if !self.coerce(n, b, a) {
             return self.tcx.error();
         }
@@ -816,10 +830,10 @@ impl<'a, 's> FnCtxt<'a, 's> {
         }
     }
 
-    /// `t` with each `impl Trait` in it (at the top, or behind a
-    /// reference) replaced by a variable bound by its bounds. In the body
-    /// that defines them, the variables are what they stand for (their
-    /// hidden types), which are recorded.
+    /// `t` with each `impl Trait` in it (at the top, behind a reference,
+    /// or among a type's arguments) replaced by a variable bound by its
+    /// bounds. In the body that defines them, the variables are what they
+    /// stand for (their hidden types), which are recorded.
     fn opaque_vars(&mut self, t: Ty, defining: bool) -> Ty {
         let tcx = self.tcx;
         match tcx.kind(t) {
@@ -843,6 +857,15 @@ impl<'a, 's> FnCtxt<'a, 's> {
             TyKind::Ref(m, x) => {
                 let x = self.opaque_vars(x, defining);
                 self.mk(TyKind::Ref(m, x))
+            }
+            // Inside other types too (`Option<impl Write>`).
+            TyKind::Adt(d, l) if tcx.tys(l).iter().any(|&x| has_opaque(tcx, x)) => {
+                let args: Vec<Ty> = tcx.tys(l).into_iter().map(|x| self.opaque_vars(x, defining)).collect();
+                self.mk(TyKind::Adt(d, tcx.list(args)))
+            }
+            TyKind::Tuple(l) if tcx.tys(l).iter().any(|&x| has_opaque(tcx, x)) => {
+                let args: Vec<Ty> = tcx.tys(l).into_iter().map(|x| self.opaque_vars(x, defining)).collect();
+                self.mk(TyKind::Tuple(tcx.list(args)))
             }
             _ => t,
         }
@@ -1194,9 +1217,15 @@ impl<'a, 's> FnCtxt<'a, 's> {
     /// `recv.name(args)`: for each type autoderef goes through, the
     /// receiver by value, then borrowed, then borrowed mutably; inherent
     /// methods before trait methods at each.
+    /// Traits in scope are tried along the whole chain first, then (in
+    /// case scope was missed) any trait.
     fn method_call(&mut self, n: NodeId, recv_node: NodeId, recv_ty: Ty, name: &str) -> Option<(DefId, Vec<Ty>, Ty)> {
-        let tcx = self.tcx;
         let steps = self.autoderef(recv_ty);
+        self.method_call_in(n, recv_node, &steps, name, true).or_else(|| self.method_call_in(n, recv_node, &steps, name, false))
+    }
+
+    fn method_call_in(&mut self, n: NodeId, recv_node: NodeId, steps: &[(Ty, Option<Adjust>)], name: &str, scoped: bool) -> Option<(DefId, Vec<Ty>, Ty)> {
+        let tcx = self.tcx;
         for k in 0..steps.len() {
             let t = steps[k].0;
             if self.infer.var_kind(t) == Some(VarKind::General) {
@@ -1234,16 +1263,16 @@ impl<'a, 's> FnCtxt<'a, 's> {
                             && self.infer.unify(sp, recv)
                         {
                             self.methods.push((n, item, args));
-                            let adj = Self::step_adjustments(&steps, k, borrow);
+                            let adj = Self::step_adjustments(steps, k, borrow);
                             self.adjust(recv_node, adj, recv);
                             return Some((item, inputs[1..].to_vec(), output));
                         }
                     }
                     self.rollback(s);
                 }
-                if let Some((item, args, inputs, output)) = self.trait_method(recv, name) {
+                if let Some((item, args, inputs, output)) = self.trait_method(recv, name, scoped) {
                     self.methods.push((n, item, args));
-                    let adj = Self::step_adjustments(&steps, k, borrow);
+                    let adj = Self::step_adjustments(steps, k, borrow);
                     self.adjust(recv_node, adj, recv);
                     return Some((item, inputs, output));
                 }
@@ -1278,7 +1307,23 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     Some(TyKind::Tuple(l)) if tcx.tys(l).len() == kids.len() => tcx.tys(l).into_iter().map(Some).collect(),
                     _ => vec![None; kids.len()],
                 };
-                let tys: Vec<Ty> = kids.iter().zip(want).map(|(&e, w)| self.expr(e, w)).collect();
+                let mut tys = Vec::new();
+                for (&e, w) in kids.iter().zip(want) {
+                    let t = self.expr(e, w);
+                    // Each field is coerced to its expected type where a
+                    // pointer's can change (an array behind it unsizing,
+                    // `*mut` to `*const`: `(self, &[], &[])` as `(&[T],
+                    // &[U], &[T])`), or it is `!`.
+                    let pointer = |t: Ty| matches!(tcx.kind(self.infer.shallow(t)), TyKind::Ref(..) | TyKind::Ptr(..));
+                    if let Some(w) = w
+                        && (pointer(t) && pointer(w) || tcx.kind(self.infer.shallow(t)) == TyKind::Never)
+                        && self.coerce(e, t, w)
+                    {
+                        tys.push(w);
+                    } else {
+                        tys.push(t);
+                    }
+                }
                 self.mk(TyKind::Tuple(tcx.list(tys)))
             }
             Kind::Array => {
@@ -1381,6 +1426,17 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 match kids.get(2) {
                     Some(&e) => {
                         let et = self.expr(e, expect.or(Some(then)));
+                        // Two closures (or functions) where a function
+                        // pointer is wanted: each made one.
+                        if let Some(want) = expect
+                            && let TyKind::FnPtr(_) = tcx.kind(self.infer.shallow(want))
+                            && [then, et].iter().all(|&t| matches!(tcx.kind(self.infer.shallow(t)), TyKind::Closure(..) | TyKind::FnDef(..)))
+                            && self.infer.shallow(then) != self.infer.shallow(et)
+                        {
+                            self.coerce(kids[1], then, want);
+                            self.coerce(e, et, want);
+                            return want;
+                        }
                         self.join(n, then, et)
                     }
                     None => {
@@ -1770,6 +1826,13 @@ impl<'a, 's> FnCtxt<'a, 's> {
     }
 
     fn check_args(&mut self, n: NodeId, args: &[NodeId], inputs: &[Ty]) {
+        self.check_args_hinted(n, args, inputs, None);
+    }
+
+    /// `check_args`, each argument checked against `hints` (what the
+    /// expected result says it should be) where given, then coerced to its
+    /// parameter's type.
+    fn check_args_hinted(&mut self, n: NodeId, args: &[NodeId], inputs: &[Ty], hints: Option<&[Ty]>) {
         if args.len() != inputs.len() {
             self.err(n, "wrong number of arguments");
         }
@@ -1780,7 +1843,21 @@ impl<'a, 's> FnCtxt<'a, 's> {
             let a = args[i];
             match inputs.get(i) {
                 Some(&want) => {
-                    let t = self.expr(a, Some(want));
+                    let hint = hints.and_then(|h| h.get(i)).copied().unwrap_or(want);
+                    let t = self.expr(a, Some(hint));
+                    // A parameter that is still a variable (`Some(run)`'s)
+                    // takes the hint's type, coerced to (a function item
+                    // made the pointer wanted), as rustc does.
+                    if hint != want
+                        && self.infer.var_kind(self.infer.shallow(want)).is_some()
+                        && !self.tcx.has_infer(self.infer.resolve(hint))
+                    {
+                        let p = self.probe();
+                        if self.coerce(a, t, hint) && self.infer.unify(want, hint) {
+                            continue;
+                        }
+                        self.rollback(p);
+                    }
                     self.coerce(a, t, want);
                 }
                 None => {
@@ -1790,7 +1867,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
         }
     }
 
-    fn call(&mut self, n: NodeId, kids: &[NodeId], _expect: Option<Ty>) -> Ty {
+    fn call(&mut self, n: NodeId, kids: &[NodeId], expect: Option<Ty>) -> Ty {
         let tcx = self.tcx;
         let callee = self.expr(kids[0], None);
         let args = self.kids(kids[1]);
@@ -1826,7 +1903,16 @@ impl<'a, 's> FnCtxt<'a, 's> {
                         }
                     }
                 } else {
-                    self.check_args(n, &args, &inputs);
+                    // What the expected result says the arguments are
+                    // (`Vec<Box<dyn Shape>>` from `vec![...]` makes its
+                    // array's elements `Box<dyn Shape>`): hints only.
+                    let hints = expect.and_then(|e| {
+                        let p = self.probe();
+                        let h = self.infer.unify(output, e).then(|| inputs.iter().map(|&t| self.infer.resolve(t)).collect::<Vec<Ty>>());
+                        self.rollback(p);
+                        h
+                    });
+                    self.check_args_hinted(n, &args, &inputs, hints.as_deref());
                 }
                 output
             }
@@ -2590,4 +2676,15 @@ impl<'a, 's> FnCtxt<'a, 's> {
 /// constant written as a literal, a negated one or a block.
 fn is_generic_arg(k: Kind) -> bool {
     is_type(k) || matches!(k, Kind::Literal | Kind::Unary | Kind::Block)
+}
+
+/// Whether `t` has an `impl Trait` in it (at the top, behind references,
+/// or among type arguments).
+fn has_opaque(tcx: &crate::ty::TyCtxt, t: Ty) -> bool {
+    match tcx.kind(t) {
+        TyKind::Opaque(..) => true,
+        TyKind::Ref(_, x) => has_opaque(tcx, x),
+        TyKind::Adt(_, l) | TyKind::Tuple(l) => tcx.tys(l).into_iter().any(|x| has_opaque(tcx, x)),
+        _ => false,
+    }
 }

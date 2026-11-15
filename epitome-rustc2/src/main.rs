@@ -48,6 +48,9 @@
 //! - `--lib`: compile the last crate as a library: monomorphise from all
 //!   its non-generic functions (even if it has a `main`), and make them
 //!   external, so that optimising keeps them. With `-o`, use `--emit=obj`.
+//! - `--std`: load `std` and the crates it is built from (from the
+//!   toolchain's rust-src, as `sysroot::std_crates` lists them) before
+//!   the crates given, with the feature and environment they expect.
 //! - `--dump-layout`: the layout of every non-generic struct, enum, union
 //!   and type alias of the last crate given.
 //! - `--parse-tree dir`: parse every `.rs` file under `dir` (each on its
@@ -86,6 +89,7 @@ fn main() -> ExitCode {
     let mut cfg = CfgSet::host();
     let mut externs: Vec<(String, PathBuf)> = Vec::new();
     let mut no_cfg = false;
+    let mut with_std = false;
     let mut files = Vec::new();
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -113,6 +117,7 @@ fn main() -> ExitCode {
             "-O0" => no_opt = true,
             "--emit=obj" => emit_obj = true,
             "--lib" => lib = true,
+            "--std" => with_std = true,
             "-o" => output = value("-o").map(PathBuf::from),
             "--lower-stats" => lower_stats = true,
             _ if arg.starts_with("--cfg") => {
@@ -168,6 +173,24 @@ fn main() -> ExitCode {
         return print_tokens(&files);
     }
 
+    // `std` and its crates first, as rust-src has them.
+    let mut std_roots = Vec::new();
+    if with_std {
+        let roots = epitome_rustc2::sysroot::rust_src()
+            .ok_or_else(|| "no rust-src: `rustup component add rust-src`".to_string())
+            .and_then(|lib| epitome_rustc2::sysroot::std_crates(&lib));
+        match roots {
+            Ok(r) => std_roots = r,
+            Err(e) => {
+                eprintln!("error: {e}");
+                return ExitCode::FAILURE;
+            }
+        }
+        for (n, v) in epitome_rustc2::sysroot::std_cfg() {
+            cfg.set_value(n, v);
+        }
+        options.env.extend(epitome_rustc2::sysroot::std_env(std::env::consts::ARCH));
+    }
     if !no_cfg {
         options.cfg = Some(cfg);
     }
@@ -175,15 +198,15 @@ fn main() -> ExitCode {
         options.proc_macro_server = epitome_rustc2::proc_macro::Server::from_rustc();
     }
     let session = Session::new(options);
-    let roots = files
-        .iter()
-        .map(|f| {
+    let roots = std_roots
+        .into_iter()
+        .chain(files.iter().map(|f| {
             let mut root = CrateRoot::new(crate_name(f), f).edition(edition);
             for (name, lib) in &externs {
                 root = root.proc_macro(name.clone(), lib.clone());
             }
             root
-        })
+        }))
         .collect();
     let mut crates = session.parse_crates(roots);
     if !no_expand {

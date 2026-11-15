@@ -25,7 +25,7 @@ fn derive_function_and_attribute_macros() {
         .unwrap();
     assert!(status.success());
 
-    let session = Session::new(Options { threads: 2, cfg: Some(CfgSet::host()), proc_macro_server: Some(server) });
+    let session = Session::new(Options { threads: 2, cfg: Some(CfgSet::host()), proc_macro_server: Some(server), ..Default::default() });
     let root = CrateRoot::new("use_hello", dir.join("use_hello.rs")).edition(Edition::E2021).proc_macro("hello", &lib);
     let mut crates = session.parse_crates(vec![root]);
     let stats = session.expand(&mut crates);

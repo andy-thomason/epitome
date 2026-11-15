@@ -816,10 +816,10 @@ impl<'a, 's> FnCtxt<'a, 's> {
         }
     }
 
-    /// `t` with each `impl Trait` in it (at the top, or behind a
-    /// reference) replaced by a variable bound by its bounds. In the body
-    /// that defines them, the variables are what they stand for (their
-    /// hidden types), which are recorded.
+    /// `t` with each `impl Trait` in it (at the top, behind a reference,
+    /// or among a type's arguments) replaced by a variable bound by its
+    /// bounds. In the body that defines them, the variables are what they
+    /// stand for (their hidden types), which are recorded.
     fn opaque_vars(&mut self, t: Ty, defining: bool) -> Ty {
         let tcx = self.tcx;
         match tcx.kind(t) {
@@ -843,6 +843,15 @@ impl<'a, 's> FnCtxt<'a, 's> {
             TyKind::Ref(m, x) => {
                 let x = self.opaque_vars(x, defining);
                 self.mk(TyKind::Ref(m, x))
+            }
+            // Inside other types too (`Option<impl Write>`).
+            TyKind::Adt(d, l) if tcx.tys(l).iter().any(|&x| has_opaque(tcx, x)) => {
+                let args: Vec<Ty> = tcx.tys(l).into_iter().map(|x| self.opaque_vars(x, defining)).collect();
+                self.mk(TyKind::Adt(d, tcx.list(args)))
+            }
+            TyKind::Tuple(l) if tcx.tys(l).iter().any(|&x| has_opaque(tcx, x)) => {
+                let args: Vec<Ty> = tcx.tys(l).into_iter().map(|x| self.opaque_vars(x, defining)).collect();
+                self.mk(TyKind::Tuple(tcx.list(args)))
             }
             _ => t,
         }
@@ -2590,4 +2599,15 @@ impl<'a, 's> FnCtxt<'a, 's> {
 /// constant written as a literal, a negated one or a block.
 fn is_generic_arg(k: Kind) -> bool {
     is_type(k) || matches!(k, Kind::Literal | Kind::Unary | Kind::Block)
+}
+
+/// Whether `t` has an `impl Trait` in it (at the top, behind references,
+/// or among type arguments).
+fn has_opaque(tcx: &crate::ty::TyCtxt, t: Ty) -> bool {
+    match tcx.kind(t) {
+        TyKind::Opaque(..) => true,
+        TyKind::Ref(_, x) => has_opaque(tcx, x),
+        TyKind::Adt(_, l) | TyKind::Tuple(l) => tcx.tys(l).into_iter().any(|x| has_opaque(tcx, x)),
+        _ => false,
+    }
 }

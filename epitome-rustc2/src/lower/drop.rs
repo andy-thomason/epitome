@@ -507,10 +507,7 @@ impl Fx<'_, '_, '_, '_> {
                     if let Some(&r) = self.drops.locals.get(&key) {
                         return Ok(Some(MovePath { root: r, path: Vec::new() }));
                     }
-                    if self.is_upvar(key) {
-                        return Err("moving out of a closure's capture is not supported yet".into());
-                    }
-                    Ok(None)
+                    Ok(self.capture_path(key))
                 }
                 _ => Ok(None),
             },
@@ -565,10 +562,28 @@ impl Fx<'_, '_, '_, '_> {
         if let Some(&r) = self.drops.locals.get(&key) {
             return self.moved(&MovePath { root: r, path: Vec::new() });
         }
-        if self.is_upvar(key) {
-            return Err("moving out of a closure's capture is not supported yet".into());
+        if let Some(mp) = self.capture_path(key) {
+            return self.moved(&mp);
         }
         Ok(())
+    }
+
+    /// The part of the closure's captures that local `key` is, if it is
+    /// captured by value and the closure owns its captures. Otherwise
+    /// (not owning them) a move out of one is noted, for the closure to be
+    /// lowered again owning them.
+    fn capture_path(&mut self, key: (u32, u32, NodeId)) -> Option<MovePath> {
+        let (i, by_value) = self.upvar(key)?;
+        if !by_value {
+            return None;
+        }
+        match self.env_root {
+            Some(r) => Some(MovePath { root: r, path: vec![(0, i)] }),
+            None => {
+                self.moved_capture = true;
+                None
+            }
+        }
     }
 
     /// Commits the bindings a pattern made: each moves out of the part it

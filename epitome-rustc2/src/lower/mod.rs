@@ -194,6 +194,10 @@ pub(crate) struct Cx<'a, 's> {
     pub statics: FastMap<DefId, GlobalId>,
     /// Which types need dropping.
     pub drops: crate::drops::DropInfo,
+    /// Each closure lowered so far, and whether it owns its captures (an
+    /// `FnOnce` that moves out of them), so that its callers do not drop
+    /// it after calling it.
+    pub owning: std::cell::RefCell<FastMap<Item, bool>>,
 }
 
 impl<'a, 's> Cx<'a, 's> {
@@ -440,7 +444,7 @@ impl Session {
         };
         let drops = crate::drops::DropInfo::new(tcx);
         let mut cx =
-            Cx { tcx, r, crates, typeck, index, lcx, fns: FastMap::default(), statics: FastMap::default(), drops };
+            Cx { tcx, r, crates, typeck, index, lcx, fns: FastMap::default(), statics: FastMap::default(), drops, owning: Default::default() };
         let mut failures = Vec::new();
         let mut solver = cx.solver();
 
@@ -575,14 +579,38 @@ impl Session {
         let mut titles = FastMap::default();
         let mut functions = 0;
         let mut partial = Vec::new();
+        // Closures first, so that every call of one by `call_once` knows
+        // whether the closure drops its own captures: each is lowered not
+        // owning them; those that move out of one (`FnOnce`), and those
+        // that called a closure not lowered yet, are lowered again.
+        let closures: Vec<&(String, Item)> = named.iter().filter(|x| matches!(x.1, Item::Closure(..))).collect();
+        let mut again = Vec::new();
+        for (name, it) in closures {
+            let Some(decl) = cx.fns.get(it).cloned() else { continue };
+            functions += 1;
+            if let Item::Closure(c, d, l) = *it {
+                titles.insert(decl.g, format!("closure at node {} in {}", tcx.closure_at(c).2.0, item_title(&cx, d, l)));
+            }
+            let (moved, unknown) = lower_item(&cx, &mut m, *it, &decl, name, false, &mut notes, &mut partial, &mut failures);
+            cx.owning.borrow_mut().insert(*it, moved);
+            if moved || unknown {
+                again.push((name.clone(), *it, decl, moved));
+            }
+        }
+        for (name, it, decl, owns) in again {
+            if let epitome_ir::module::GlobalKind::Function(f) = &mut m.globals[decl.g.index()].kind {
+                f.has_body = false;
+            }
+            failures.retain(|f| f.item != it);
+            partial.retain(|f| f.item != it);
+            lower_item(&cx, &mut m, it, &decl, &name, owns, &mut notes, &mut partial, &mut failures);
+        }
         for (name, it) in &named {
             if let Item::DropGlue(t) = *it {
                 let Some(decl) = cx.fns.get(it).cloned() else { continue };
                 functions += 1;
                 titles.insert(decl.g, format!("drop glue of {}", tcx.display(r, t)));
-                let got = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    drop::lower_drop_glue(&cx, &mut m, t, &decl)
-                }));
+                let got = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop::lower_drop_glue(&cx, &mut m, t, &decl)));
                 let why = match got {
                     Ok(Ok(())) => continue,
                     Ok(Err(e)) => e,
@@ -592,34 +620,11 @@ impl Session {
                 failures.push(Failure { item: *it, name: name.clone(), why });
                 continue;
             }
-            let (d, l) = match *it {
-                Item::Fn(d, l) | Item::Closure(_, d, l) => (d, l),
-                _ => continue,
-            };
+            let Item::Fn(d, l) = *it else { continue };
             let Some(decl) = cx.fns.get(it).cloned() else { continue };
             functions += 1;
-            let mut title = item_title(&cx, d, l);
-            if let Item::Closure(c, ..) = *it {
-                title = format!("closure at node {} in {title}", tcx.closure_at(c).2.0);
-            }
-            titles.insert(decl.g, title);
-            let got = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| body::lower_fn(&cx, &mut m, *it, &decl)));
-            let why = match got {
-                Ok(Ok((n, t))) => {
-                    notes.insert(decl.g, n);
-                    if !t.is_empty() {
-                        partial.push(Failure { item: *it, name: name.clone(), why: format!("traps where it uses {}", t.join(", ")) });
-                    }
-                    continue;
-                }
-                Ok(Err(e)) => e,
-                Err(p) => {
-                    let msg = p.downcast_ref::<String>().cloned().or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string()));
-                    format!("internal error: {}", msg.unwrap_or_default())
-                }
-            };
-            body::trap_body(&mut m, &decl);
-            failures.push(Failure { item: *it, name: name.clone(), why });
+            titles.insert(decl.g, item_title(&cx, d, l));
+            lower_item(&cx, &mut m, *it, &decl, name, false, &mut notes, &mut partial, &mut failures);
         }
         // Statics whose values are not known until their initialisers
         // run: a function each, run before `main`.
@@ -660,6 +665,42 @@ impl Session {
         let decls = cx.fns.iter().map(|(&it, d)| (it, d.g)).collect();
         Lowered { module: m, functions, failures, partial, notes, titles, decls }
     }
+}
+
+/// Lowers function (or closure) `it` into `decl`: its notes, or a failure
+/// (and a body that traps). Gives whether (a closure not owning its
+/// captures) it moved out of one, and whether it called a closure whose
+/// kind was not known yet.
+#[allow(clippy::too_many_arguments)]
+fn lower_item(
+    cx: &Cx,
+    m: &mut Module,
+    it: Item,
+    decl: &Decl,
+    name: &str,
+    owns_env: bool,
+    notes: &mut FastMap<GlobalId, Vec<(epitome_ir::module::BlockId, usize, String)>>,
+    partial: &mut Vec<Failure>,
+    failures: &mut Vec<Failure>,
+) -> (bool, bool) {
+    let got = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| body::lower_fn(cx, m, it, decl, owns_env)));
+    let why = match got {
+        Ok(Ok((n, t, moved, unknown))) => {
+            notes.insert(decl.g, n);
+            if !t.is_empty() {
+                partial.push(Failure { item: it, name: name.to_string(), why: format!("traps where it uses {}", t.join(", ")) });
+            }
+            return (moved, unknown);
+        }
+        Ok(Err(e)) => e,
+        Err(p) => {
+            let msg = p.downcast_ref::<String>().cloned().or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string()));
+            format!("internal error: {}", msg.unwrap_or_default())
+        }
+    };
+    body::trap_body(m, decl);
+    failures.push(Failure { item: it, name: name.to_string(), why });
+    (false, false)
 }
 
 /// The functions `alloc` calls to allocate, and `std`'s own allocator's

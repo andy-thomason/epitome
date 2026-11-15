@@ -33,6 +33,13 @@ impl Fx<'_, '_, '_, '_> {
                 }
                 let p = self.deref(args[0])?;
                 let meta = p.meta.ok_or("unsized value without metadata")?;
+                if let TyKind::Dyn(_) = tcx.kind(t) {
+                    // The vtable's second and third words.
+                    let ps = self.cx.lcx.target.ptr_size;
+                    let at = self.offset(meta, if name == "size_of_val" { ps } else { 2 * ps });
+                    let v = self.load_imm(isz, at, ps);
+                    return imm(v);
+                }
                 let elem = match tcx.kind(t) {
                     TyKind::Slice(e) => self.layout(e)?,
                     TyKind::Str => self.layout(tcx.mk(TyKind::Uint(crate::ty::UintTy::U8)))?,
@@ -46,6 +53,14 @@ impl Fx<'_, '_, '_, '_> {
                     let c = self.b.const_int(isz, elem.align as i64);
                     imm(c)
                 }
+            }
+            "vtable_size" | "vtable_align" => {
+                // A vtable's second and third words.
+                let vt = self.imm(args[0])?;
+                let ps = self.cx.lcx.target.ptr_size;
+                let at = self.offset(vt, if name == "vtable_size" { ps } else { 2 * ps });
+                let v = self.load_imm(isz, at, ps);
+                imm(v)
             }
             "transmute" | "transmute_unchecked" => {
                 let src = args[0];

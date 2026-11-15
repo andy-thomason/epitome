@@ -485,7 +485,9 @@ impl Fx<'_, '_, '_, '_> {
                 }
                 Ok(())
             }
-            Res::Partial(..) | Res::SelfTy(..) => {
+            // A path type checking found a constant for (`Self::MAX`, an
+            // associated constant): compared as one below.
+            Res::Partial(..) | Res::SelfTy(..) if !self.body.tables.consts.contains_key(&pat) => {
                 if let TyKind::Adt(e, _) = tcx.kind(p.ty)
                     && tcx.adts[&e].kind == AdtKind::Enum
                     && fail.is_some()

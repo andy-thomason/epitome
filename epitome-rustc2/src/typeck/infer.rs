@@ -115,6 +115,7 @@ impl<'t, 's> Infer<'t, 's> {
                     u if matches!(tcx.kind(u), TyKind::Infer(_)) => t,
                     u => self.resolve(u),
                 },
+                Const::SizeOf(_) => tcx.mk(TyKind::ConstArg(self.resolve_const(c))),
                 _ => t,
             },
             TyKind::FnPtr(s) => {
@@ -135,6 +136,7 @@ impl<'t, 's> Infer<'t, 's> {
                 TyKind::ConstArg(d) => self.resolve_const(d),
                 _ => c,
             },
+            Const::SizeOf(t) => tcx.konst(Const::SizeOf(self.resolve(t))),
             _ => c,
         }
     }

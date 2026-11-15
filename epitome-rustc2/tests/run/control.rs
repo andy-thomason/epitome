@@ -1,6 +1,8 @@
 //! Control flow: labelled loops with values, `while let`, `match` with
 //! guards, ranges, or-patterns and bindings, slice patterns, `let else`,
-//! `if let` chains, `?` on `Option` and `Result`, and early returns.
+//! `if let` chains, `?` on `Option` and `Result`, early returns,
+//! associated constants as patterns (`Self::MASK`), and a variant's
+//! constructor passed as a function.
 #![no_std]
 #![no_main]
 
@@ -154,6 +156,27 @@ fn countdown(mut stack: [u8; 4]) -> u32 {
     total + stack[0] as u32
 }
 
+struct Bits;
+
+impl Bits {
+    const MASK: u64 = 0xff;
+    const LOW: u64 = 1;
+
+    fn kind(x: u64) -> i64 {
+        match (x & Self::LOW, x & Self::MASK) {
+            (0, Self::MASK) => 1,
+            (_, Self::MASK) => 2,
+            (0, 0) => 3,
+            (Self::LOW, _) => 4,
+            _ => 5,
+        }
+    }
+}
+
+fn apply<T, U, F: FnOnce(T) -> U>(f: F, x: T) -> U {
+    f(x)
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn main() -> i32 {
     for n in [-5, 0, 2, 8, 9, 101, 120] {
@@ -200,6 +223,15 @@ pub extern "C" fn main() -> i32 {
     assert!(digits(7) == 1);
     assert!(first_square_over(10) == 16, "got {}", first_square_over(10));
     put_str("asserts held\n");
+    for x in [0u64, 0xfe, 0xff, 0x100, 0x1ff, 0x101] {
+        put_i64(Bits::kind(x));
+    }
+    put_i64(apply(Some, 5i64).unwrap_or(0));
+    put_i64(match apply(Err::<i64, i64>, 6) {
+        Ok(_) => 0,
+        Err(e) => e,
+    });
+    put_i64(Some(7i64).map(Some).flatten().unwrap_or(0));
     0
 }
 

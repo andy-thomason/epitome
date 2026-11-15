@@ -535,6 +535,7 @@ pub(crate) fn subst_const(tcx: &TyCtxt, c: super::ConstId, params: &[ParamId], a
             },
             None => c,
         },
+        super::Const::SizeOf(t) => tcx.konst(super::Const::SizeOf(subst(tcx, t, params, args))),
         _ => c,
     }
 }
@@ -569,6 +570,7 @@ pub(crate) fn subst(tcx: &TyCtxt, t: Ty, params: &[ParamId], args: &[Ty]) -> Ty 
                 Some(i) if i < args.len() => args[i],
                 _ => t,
             },
+            super::Const::SizeOf(_) => tcx.mk(TyKind::ConstArg(subst_const(tcx, c, params, args))),
             _ => t,
         },
         TyKind::FnPtr(s) => {

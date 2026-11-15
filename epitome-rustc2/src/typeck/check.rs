@@ -334,10 +334,16 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let copy = self.lang("copy");
         let mut out: Vec<super::Capture> = Vec::new();
         for &(n, parent, closure) in &nodes {
-            if ast.kind(n) != Kind::PathExpr {
-                continue;
-            }
-            let Some(&path) = ast.children(n).first() else { continue };
+            let path = match ast.kind(n) {
+                Kind::PathExpr => ast.children(n).first().copied(),
+                // `S { a }`: its name is a use of the local `a`, by value.
+                Kind::FieldInit => match ast.children(n).iter().copied().filter(|&c| ast.kind(c) != Kind::Attribute).collect::<Vec<_>>()[..] {
+                    [name] if ast.kind(name) == Kind::Name => Some(name),
+                    _ => None,
+                },
+                _ => None,
+            };
+            let Some(path) = path else { continue };
             let Some(Res::Local(p)) = self.res(path) else { continue };
             let p = *p;
             if inside.contains(&p) {
@@ -1531,7 +1537,11 @@ impl<'a, 's> FnCtxt<'a, 's> {
             b'b' if b.get(1) == Some(&b'\'') => return self.mk(TyKind::Uint(UintTy::U8)),
             b'b' => {
                 let u8_ = self.mk(TyKind::Uint(UintTy::U8));
-                let c = tcx.konst(Const::Expr(self.k, self.file, n));
+                // `&[u8; N]`, N its length (an expression if it is bad).
+                let c = match crate::lower::parse_str(t) {
+                    Some(bytes) => tcx.konst(Const::Value(bytes.len() as u128)),
+                    None => tcx.konst(Const::Expr(self.k, self.file, n)),
+                };
                 let a = self.mk(TyKind::Array(u8_, c));
                 return self.mk(TyKind::Ref(Mutbl::Not, a));
             }

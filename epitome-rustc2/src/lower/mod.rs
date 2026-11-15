@@ -34,6 +34,7 @@
 
 mod asm;
 mod body;
+pub(crate) use body::parse_str;
 mod intrinsic;
 mod pat;
 mod quad;

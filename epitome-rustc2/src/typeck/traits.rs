@@ -22,6 +22,7 @@
 use super::check::{FnCtxt, Head, head};
 use super::Adjust;
 use super::infer::VarKind;
+use crate::ast::{Kind, NodeId};
 use crate::hash::FastMap;
 use crate::resolve::{DefId, DefKind, Ns, Res};
 use crate::ty::collect::subst;
@@ -429,9 +430,36 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 ok
             })
             .collect();
+        // Impls whose headers match each other may differ only in `Sized`
+        // (`impl<W: Write + ?Sized> S for &mut W` and `impl<W: Write> S for
+        // &mut W`): the one that does not relax it is the more specific, by
+        // the implicit `Sized` bounds the predicates do not record.
+        let fewest = best.iter().map(|&i| self.relaxes_sized(i)).min();
+        let best: Vec<usize> = best.into_iter().filter(|&i| Some(self.relaxes_sized(i)) == fewest).collect();
         let [i] = best[..] else { return None };
         let args = self.impl_matches(i, t, targs, 0)?;
         Some((i, args))
+    }
+
+    /// How many `?Sized` bounds impl `i` writes, in its generics and
+    /// `where` clause.
+    fn relaxes_sized(&self, i: usize) -> usize {
+        let def = &self.r.defs[self.tcx.impls[i].def.0 as usize];
+        let ast = &self.env.crates[def.krate as usize].files[def.file as usize].ast;
+        let mut n = 0;
+        let mut stack: Vec<NodeId> = ast
+            .children(def.node)
+            .iter()
+            .copied()
+            .filter(|&c| matches!(ast.kind(c), Kind::Generics | Kind::WhereClause))
+            .collect();
+        while let Some(c) = stack.pop() {
+            if ast.kind(c) == Kind::TraitBound && ast.children(c).first().is_some_and(|&o| ast.kind(o) == Kind::Op && ast.token(o).0 == "?") {
+                n += 1;
+            }
+            stack.extend(ast.children(c).iter().copied());
+        }
+        n
     }
 
     /// A trait's arguments (after `Self`) with defaults filled in for those

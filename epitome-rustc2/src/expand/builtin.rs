@@ -1,7 +1,8 @@
 //! Built-in macros: those expansion does itself (`cfg_select!`, `cfg!`,
 //! `include!`, `stringify!`, `concat!`, `line!`, `column!`, `file!`,
-//! `module_path!`, `env!`, `option_env!`, `compile_error!`, `assert!`), and those it
-//! leaves as calls for later stages (`format_args!`, `asm!`, ...).
+//! `module_path!`, `env!`, `option_env!`, `compile_error!`, `assert!`,
+//! `format_args!` in `format.rs`), and those it leaves as calls for later
+//! stages (`asm!`, ...).
 
 use super::lex_text;
 use crate::ast::NodeId;
@@ -26,13 +27,13 @@ const EXPANDED: &[&str] = &[
     "compile_error",
     "pattern_type",
     "assert",
+    "format_args",
+    "format_args_nl",
+    "const_format_args",
 ];
 
 /// Built-ins left as calls, for type checking or lowering to handle.
 const LEFT: &[&str] = &[
-    "format_args",
-    "format_args_nl",
-    "const_format_args",
     "asm",
     "global_asm",
     "naked_asm",
@@ -89,17 +90,17 @@ impl<'c, 's> Context<'c, 's> {
         ast.tokens[i]
     }
 
-    fn error(&self, message: impl Into<String>) -> Error<'s> {
+    pub(super) fn error(&self, message: impl Into<String>) -> Error<'s> {
         Error::new(self.site().0, message)
     }
 
-    fn text(&self, name: &str, text: String) -> Result<Vec<Token<'s>>, Error<'s>> {
+    pub(super) fn text(&self, name: &str, text: String) -> Result<Vec<Token<'s>>, Error<'s>> {
         lex_text(self.session, name, text)
     }
 }
 
 /// Splits macro input at top-level commas.
-fn args<'t, 's>(input: &'t [Token<'s>]) -> Vec<&'t [Token<'s>]> {
+pub(super) fn args<'t, 's>(input: &'t [Token<'s>]) -> Vec<&'t [Token<'s>]> {
     let mut out = Vec::new();
     let mut depth = 0i32;
     let mut start = 0;
@@ -201,6 +202,9 @@ pub fn expand<'s>(cx: &Context<'_, 's>, name: &str, input: &[Token<'s>]) -> Resu
             Err(cx.error(msg.to_string()))
         }
         "include" => include(cx, input),
+        "format_args" | "const_format_args" | "format_args_nl" => {
+            super::format::format_args(cx, input, name == "format_args_nl")
+        }
         // `assert!(c)`: `if !(c) { ::core::panicking::panic("assertion
         // failed: c") }`, as rustc expands it; with a message,
         // `::core::panic!(message)` instead. The condition keeps its own
@@ -347,7 +351,7 @@ fn concat<'s>(cx: &Context<'_, 's>, input: &[Token<'s>]) -> Result<Option<Vec<To
 }
 
 /// What an argument of `concat!` is, as far as eager expansion goes.
-enum Eager<'s> {
+pub(super) enum Eager<'s> {
     /// A built-in's call that expanded to one literal.
     Literal(Vec<Token<'s>>),
     /// Not a macro call.
@@ -359,7 +363,7 @@ enum Eager<'s> {
 /// Expands `arg` if it is a call of a built-in that gives a literal:
 /// `path!(..)`, `path![..]` or `path!{..}`, the path's last name one of
 /// `concat`, `stringify`, `line`, `column`, `file`, `module_path`, `env`.
-fn eager_literal<'s>(cx: &Context<'_, 's>, arg: &[Token<'s>]) -> Result<Eager<'s>, Error<'s>> {
+pub(super) fn eager_literal<'s>(cx: &Context<'_, 's>, arg: &[Token<'s>]) -> Result<Eager<'s>, Error<'s>> {
     let Some(bang) = arg.iter().position(|t| t.0 == "!") else { return Ok(Eager::NotACall) };
     let path = &arg[..bang];
     let is_path = !path.is_empty() && path.iter().all(|t| t.0 == "::" || t.0 == ":" || t.0 == "$crate" || t.is_ident());

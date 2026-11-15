@@ -224,6 +224,7 @@ impl Session {
     /// Resolves every name in `crates`.
     pub fn resolve<'s>(&'s self, crates: &[ParsedCrate<'s>]) -> Resolver<'s> {
         let mut r = collect::collect(crates);
+        r.add_format_sites(crates, &self.format_texts.lock().unwrap());
         imports::resolve_imports(&mut r);
         paths::resolve_paths(self, &mut r, crates);
         r
@@ -231,6 +232,21 @@ impl Session {
 }
 
 impl<'s> Resolver<'s> {
+    /// Makes the code `format_args!` expands to (text ranges `texts`)
+    /// resolve in `core::fmt`, the module of `Arguments` (the
+    /// `format_arguments` lang item), where the private `fmt::rt` is seen.
+    fn add_format_sites(&mut self, crates: &[ParsedCrate<'s>], texts: &[(usize, usize)]) {
+        let fmt = self.defs.iter().find(|d| {
+            d.kind == DefKind::Struct && d.name == "Arguments" && {
+                let ast = &crates[d.krate as usize].files[d.file as usize].ast;
+                crate::session::attribute_value(ast, d.node, "lang").as_deref() == Some("format_arguments")
+            }
+        });
+        let Some(m) = fmt.and_then(|d| d.parent) else { return };
+        self.def_site.extend(texts.iter().map(|&(s, e)| (s, e, m)));
+        self.def_site.sort_by_key(|x| x.0);
+    }
+
     /// What path (or pattern) `node` of file `file` of crate `krate`
     /// resolved to.
     pub fn res_of(&self, krate: usize, file: usize, node: NodeId) -> Option<&Res> {

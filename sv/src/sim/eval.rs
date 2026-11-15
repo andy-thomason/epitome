@@ -826,6 +826,7 @@ impl Sim<'_, '_, '_> {
     fn bind_args(&mut self, cx: &Cx, sub: SubId, args: &[ExprId]) -> (Locals, Option<u32>, Vec<ExprId>) {
         let s = self.d.sub(sub);
         let formals = s.args.clone();
+        let scope = s.scope;
         let (this, actuals) = if args.len() == formals.len() + 1 {
             let h = match self.eval(cx, args[0]) {
                 Const::Handle(h) => Some(h),
@@ -843,9 +844,28 @@ impl Sim<'_, '_, '_> {
                 (_, Some(&a)) => self.eval(cx, a),
             };
             let v = ops::convert(self.types(), &v, self.d.object(f).ty);
-            locals.borrow_mut().push((f, v));
+            if matches!(self.homes[f.0 as usize], Home::Local) {
+                locals.borrow_mut().push((f, v));
+            } else {
+                // A static subroutine's arguments live in its static
+                // storage (13.3.2).
+                let inst = self.def_inst(cx.inst, scope);
+                if let Some(slot) = self.slot_of_obj(inst, f) {
+                    self.write(&Target { place: Place::Slot(slot), path: vec![], ty: self.d.object(f).ty }, v, false);
+                }
+            }
         }
         (locals, this, actuals)
+    }
+
+    /// A subroutine variable's value after a call: its local, or for a
+    /// static subroutine its static storage.
+    fn sub_var(&self, cx: &Cx, sub: SubId, locals: &Locals, o: ObjId) -> Option<Const> {
+        if matches!(self.homes[o.0 as usize], Home::Local) {
+            return locals.borrow().iter().rev().find(|(k, _)| *k == o).map(|(_, v)| v.clone());
+        }
+        let inst = self.def_inst(cx.inst, self.d.sub(sub).scope);
+        self.slot_of_obj(inst, o).map(|s| self.read_slot(s))
     }
 
     /// Copies output, inout and ref arguments back to the caller.
@@ -856,8 +876,7 @@ impl Sim<'_, '_, '_> {
             if matches!(dir, Dir::Output | Dir::Inout | Dir::Ref)
                 && let Some(&a) = actuals.get(i)
             {
-                let v = locals.borrow().iter().find(|(k, _)| *k == f).map(|(_, v)| v.clone());
-                if let Some(v) = v {
+                if let Some(v) = self.sub_var(cx, sub, locals, f) {
                     let t = self.target(cx, a);
                     self.write_cx(cx, &t, v, false);
                 }
@@ -938,7 +957,7 @@ impl Sim<'_, '_, '_> {
         let v = match v {
             Some(v) => v,
             None => match result_obj {
-                Some(r) => locals.borrow().iter().rev().find(|(k, _)| *k == r).map(|(_, v)| v.clone()).unwrap_or(Const::Null),
+                Some(r) => self.sub_var(cx, sub, &locals, r).unwrap_or(Const::Null),
                 None => Const::Null,
             },
         };

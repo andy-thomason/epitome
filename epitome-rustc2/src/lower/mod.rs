@@ -971,10 +971,25 @@ mod tests {
         programs.sort();
         assert!(programs.len() >= 5, "programs: {programs:?}");
         for file in programs {
-            let session = Session::new(Options { threads: 4, cfg: Some(crate::cfg::CfgSet::x86_64_linux()), ..Default::default() });
-            let mut roots = vec![CrateRoot::new("core", &core)];
+            let mut cfg = crate::cfg::CfgSet::x86_64_linux();
+            let mut options = Options { threads: 4, ..Default::default() };
+            if !std::fs::read_to_string(&file).unwrap().contains("#![no_std]") {
+                for (n, v) in crate::sysroot::std_cfg() {
+                    cfg.set_value(n, v);
+                }
+                options.env = crate::sysroot::std_env("x86_64");
+            }
+            options.cfg = Some(cfg);
+            let session = Session::new(options);
+            let text = std::fs::read_to_string(&file).unwrap();
+            let with_std = !text.contains("#![no_std]");
+            let mut roots = if with_std {
+                crate::sysroot::std_crates(core.ancestors().nth(3).unwrap()).unwrap()
+            } else {
+                vec![CrateRoot::new("core", &core)]
+            };
             let alloc = core.ancestors().nth(3).unwrap().join("alloc/src/lib.rs");
-            if std::fs::read_to_string(&file).unwrap().contains("extern crate alloc;") {
+            if !with_std && text.contains("extern crate alloc;") {
                 roots.push(CrateRoot::new("alloc", &alloc));
             }
             roots.push(CrateRoot::new("program", &file));
@@ -1004,7 +1019,7 @@ mod tests {
                 .collect();
             assert!(own.is_empty(), "{}: not lowered: {own:#?}", file.display());
             let text = lowered.module.to_string();
-            assert!(text.contains("define i32 @main()"), "{}: no main", file.display());
+            assert!(text.contains("define i32 @main("), "{}: no main", file.display());
             if let Err(e) = epitome_ir::parse_module(&text) {
                 panic!("{}: the IR does not parse: {e}", file.display());
             }

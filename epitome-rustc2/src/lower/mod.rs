@@ -699,6 +699,7 @@ fn entry_point(cx: &Cx, m: &mut Module, mono: &MonoItems) -> Option<(Item, Strin
     let i32t = m.types.int(32);
     let ptr = m.types.ptr(0);
     let mut b = IrFunction::builder("main").returns(i32t).param("argc", i32t).param("argv", ptr).begin(m);
+    b.block("start");
     let f = b.module().global_value(md.g);
     let argc = b.param(0);
     let argc = b.sext(argc, ints[1]);

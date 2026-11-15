@@ -145,6 +145,10 @@ pub struct Session {
     /// `format_args!` expands to, which resolves as if written in
     /// `core::fmt` (as rustc reaches `fmt::rt` through lang items).
     pub format_texts: Mutex<Vec<(usize, usize)>>,
+    /// The text ranges of the code built-in macros and derives write
+    /// (`format_args!`'s too), whose `::core::x` names the crate `core`
+    /// in a 2015 crate as in any other, as `$crate` would.
+    pub builtin_texts: Mutex<Vec<(usize, usize)>>,
 }
 
 /// Reading and parsing one file.
@@ -188,6 +192,7 @@ impl Session {
             proc_macro_server,
             included: Mutex::new(Vec::new()),
             format_texts: Mutex::new(Vec::new()),
+            builtin_texts: Mutex::new(Vec::new()),
         }
     }
 
@@ -201,9 +206,17 @@ impl Session {
         &self.sources.add(Source::new(name, text)).text
     }
 
+    /// Adds code a built-in macro or derive wrote (see `builtin_texts`).
+    pub(crate) fn add_builtin_text(&self, name: &str, text: String) -> &str {
+        let t = self.add_text(name, text);
+        let start = t.as_ptr() as usize;
+        self.builtin_texts.lock().unwrap().push((start, start + t.len()));
+        t
+    }
+
     /// Adds code `format_args!` expands to (see `format_texts`).
     pub(crate) fn add_format_text(&self, text: String) -> &str {
-        let t = self.add_text("<format_args!>", text);
+        let t = self.add_builtin_text("<format_args!>", text);
         let start = t.as_ptr() as usize;
         self.format_texts.lock().unwrap().push((start, start + t.len()));
         t

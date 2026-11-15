@@ -193,7 +193,8 @@ impl<'w, 's> Walker<'w, 's> {
         // The first segment: a keyword, `Self`, or a name in type scope.
         let first = names[0];
         let (cur, used) = if rooted || matches!(first, "crate" | "self" | "super") {
-            let edition = self.r.editions[self.krate as usize];
+            let root = self.ast.child(path, Kind::PathRoot).map(|n| self.ast.token(n));
+            let edition = self.r.path_edition(self.krate, root);
             self.r.path_start(&names, rooted, self.module, self.krate, edition)?
         } else {
             let res = self.lookup_name(first, Ns::Type, true)?;

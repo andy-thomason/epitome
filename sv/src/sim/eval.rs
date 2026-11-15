@@ -274,8 +274,10 @@ impl Sim<'_, '_, '_> {
                     if re.kind == K::Range {
                         let lo = self.eval(cx, re.args[0]);
                         let hi = self.eval(cx, re.args[1]);
-                        let ge = ops::binary(tys, BinOp::Ge, v.clone(), lo, Types::BIT);
-                        let le = ops::binary(tys, BinOp::Le, v.clone(), hi, Types::BIT);
+                        // `$` as a bound is the lowest or highest value (11.4.13).
+                        let yes = || Some(Const::Bits(Bits::from_bool(true)));
+                        let ge = if matches!(lo, Const::Unbounded) { yes() } else { ops::binary(tys, BinOp::Ge, v.clone(), lo, Types::BIT) };
+                        let le = if matches!(hi, Const::Unbounded) { yes() } else { ops::binary(tys, BinOp::Le, v.clone(), hi, Types::BIT) };
                         match (ge.as_ref().and_then(truth), le.as_ref().and_then(truth)) {
                             (Some(true), Some(true)) => return Const::Bits(Bits::from_bool(true)),
                             (None, _) | (_, None) => any_x = true,
@@ -1075,7 +1077,12 @@ impl Sim<'_, '_, '_> {
         let tys = &self.d.types;
         match tys.get(e.ty).clone() {
             Type::Unpacked { elem, dim: UDim::Dynamic } => {
-                let n = e.args.first().map_or(0, |&a| self.eval(cx, a).to_i64().unwrap_or(0).max(0) as usize);
+                let n = e.args.first().map_or(0, |&a| self.eval(cx, a).to_i64().unwrap_or(0));
+                if n < 0 {
+                    let _ = writeln!(self.out, "error: new[] given a negative size, {n} (7.5.1)");
+                    self.outcome.errors += 1;
+                }
+                let n = n.max(0) as usize;
                 let mut items = vec![ops::default_value(self.types(), elem); n];
                 if let Some(&init) = e.args.get(1)
                     && let Const::Aggregate(old) = self.eval(cx, init)

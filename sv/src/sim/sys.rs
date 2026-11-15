@@ -737,7 +737,7 @@ impl Sim<'_, '_, '_> {
                     }
                 }
             }
-            Type::Enum { items, .. } => {
+            Type::Enum { items, base, .. } => {
                 let cur = match &v {
                     Const::Bits(b) => items.iter().position(|(_, x)| x.case_eq(&b.resize(x.width(), b.signed()))),
                     _ => None,
@@ -754,7 +754,8 @@ impl Sim<'_, '_, '_> {
                             let j = if name == "next" { (i as i64 + k).rem_euclid(n) } else { (i as i64 - k).rem_euclid(n) };
                             Const::Bits(items[j as usize].1.clone())
                         }
-                        None => items.first().map_or(Const::Null, |(_, x)| Const::Bits(x.clone())),
+                        // Not a member: the base type's default (6.19.5.3, Table 6-7).
+                        None => ops::default_value(&self.d.types, base),
                     },
                     _ => Const::Null,
                 }

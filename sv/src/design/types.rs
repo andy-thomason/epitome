@@ -237,6 +237,33 @@ impl Types {
         self.intern(Type::Vector { atom, signed, dims })
     }
 
+    /// Whether two types match (6.22.1): the same type, or simple bit
+    /// vectors of the same state count, signedness and ranges, a built-in
+    /// integer type counting as one with range `[width-1:0]` (`reg` is
+    /// `logic`, `integer` is `logic signed [31:0]`); arrays match when
+    /// their kinds and bounds do and their elements match.
+    pub fn matching(&self, a: TypeId, b: TypeId) -> bool {
+        if a == b {
+            return true;
+        }
+        let vector = |t: &Type| match t {
+            Type::Vector { atom, signed, dims } => {
+                let four = atom.four_state();
+                let dims = if atom.is_scalar() || !dims.is_empty() { dims.clone() } else { vec![(atom.width() as i64 - 1, 0)] };
+                Some((four, *signed, dims))
+            }
+            _ => None,
+        };
+        match (self.get(a), self.get(b)) {
+            (x @ Type::Vector { .. }, y @ Type::Vector { .. }) => vector(x) == vector(y),
+            (Type::Unpacked { elem: x, dim: d1 }, Type::Unpacked { elem: y, dim: d2 }) => d1 == d2 && self.matching(*x, *y),
+            (Type::PackedArray { elem: x, dim: d1, signed: s1 }, Type::PackedArray { elem: y, dim: d2, signed: s2 }) => {
+                d1 == d2 && s1 == s2 && self.matching(*x, *y)
+            }
+            _ => false,
+        }
+    }
+
     pub fn is_integral(&self, id: TypeId) -> bool {
         matches!(self.get(id), Type::Vector { .. } | Type::PackedArray { .. } | Type::Enum { .. })
             || matches!(self.get(id), Type::Struct { packed: true, .. })

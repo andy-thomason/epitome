@@ -32,7 +32,7 @@ fn files(dir: &Path, out: &mut Vec<PathBuf>) {
 }
 
 /// The value of `:key:` in a test's header comment, with continuation
-/// lines joined.
+/// lines joined by newlines (`:expect:` takes one output line from each).
 fn header(text: &str, key: &str) -> Option<String> {
     let head = text.strip_prefix("/*")?.split("*/").next()?;
     let mut value: Option<String> = None;
@@ -44,7 +44,7 @@ fn header(text: &str, key: &str) -> Option<String> {
                 break;
             }
         } else if let Some(v) = &mut value {
-            v.push(' ');
+            v.push('\n');
             v.push_str(line.trim());
         }
     }
@@ -396,7 +396,7 @@ fn simulate_all() {
         let ok = if should_fail {
             r.failed || r.errors > 0
         } else if let Some(expect) = header(&text, "expect") {
-            let want: Vec<&str> = expect.split("  ").map(str::trim).filter(|l| !l.is_empty()).collect();
+            let want: Vec<&str> = expect.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
             let mut lines = output.lines().map(str::trim);
             !r.failed && want.iter().all(|w| lines.any(|l| l == *w))
         } else {

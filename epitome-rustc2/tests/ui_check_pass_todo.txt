@@ -14,8 +14,7 @@ any/try_as_dyn_generic_impl.rs: left out: revisions
 array-slice-vec/infer_array_len.rs: type check: a type left unknown
 asm/inline-syntax.rs: left out: revisions
 asm/normalizable-asm-ty.rs: left out: revisions
-associated-consts/issue-110933.rs: error: expected a name, found `const` (issue-110933.rs:7:10)
-associated-consts/type-const-in-array-len.rs: error: expected a name, found `const` (type-const-in-array-len.rs:8:10)
+associated-consts/issue-110933.rs: error: expected a type, found `const` (issue-110933.rs:12:17)
 associated-inherent-types/assoc-inherent-late-bound.rs: type check: a type left unknown
 associated-inherent-types/assoc-inherent-use.rs: type check: a type left unknown
 associated-inherent-types/bugs/wf-check-skipped.rs: left out: revisions
@@ -256,22 +255,13 @@ compiletest-self-test/compile-flags-incremental.rs: left out: revisions
 compiletest-self-test/minicore-smoke-test.rs: left out: flags that change the crate
 compiletest-self-test/no-prefer-dynamic-means-no-so.rs: left out: auxiliary crates
 const-generics/array-impls/alloc-traits-impls-length-32.rs: type check: a type left unknown
-const-generics/associated-const-bindings/bound-var-in-ty.rs: error: expected a name, found `const` (bound-var-in-ty.rs:17:10)
-const-generics/associated-const-bindings/coexisting-with-type-binding.rs: error: expected a name, found `const` (coexisting-with-type-binding.rs:15:10)
-const-generics/associated-const-bindings/const_evaluatable_unchecked.rs: error: expected a name, found `const` (const_evaluatable_unchecked.rs:11:10)
-const-generics/associated-const-bindings/dyn-compat-basic.rs: error: expected a name, found `const` (dyn-compat-basic.rs:10:10)
-const-generics/associated-const-bindings/dyn-const-projection-escaping-bound-vars.rs: error: expected a name, found `const` (dyn-const-projection-escaping-bound-vars.rs:8:25)
-const-generics/associated-const-bindings/equality-unused-issue-126729.rs: error: expected a name, found `const` (equality-unused-issue-126729.rs:8:10)
-const-generics/associated-const-bindings/equality_bound_with_infer.rs: error: expected a name, found `const` (equality_bound_with_infer.rs:10:10)
-const-generics/associated-const-bindings/normalization-via-param-env.rs: error: expected a name, found `const` (normalization-via-param-env.rs:9:10)
-const-generics/associated-const-bindings/supertraits.rs: error: expected a name, found `const` (supertraits.rs:19:10)
+const-generics/associated-const-bindings/bound-var-in-ty.rs: error: expected a type, found `const` (bound-var-in-ty.rs:23:13)
+const-generics/associated-const-bindings/equality_bound_with_infer.rs: type check: a type left unknown
 const-generics/condition-in-trait-const-arg.rs: left out: revisions
 const-generics/const-argument-non-static-lifetime.rs: left out: revisions
 const-generics/const-param-in-async.rs: type check: `.await` on something that is not a future
 const-generics/defaults/complex-generic-default-expr.rs: left out: revisions
 const-generics/defaults/external.rs: left out: auxiliary crates
-const-generics/gca/basic-different-definitions.rs: error: expected a name, found `const` (basic-different-definitions.rs:13:6)
-const-generics/gca/basic.rs: error: expected a name, found `const` (basic.rs:11:6)
 const-generics/generic_const_exprs/cross-crate-2.rs: left out: auxiliary crates
 const-generics/generic_const_exprs/direct-inline-const-generic-default.rs: error: expected a type, found `const` (direct-inline-const-generic-default.rs:8:27)
 const-generics/generic_const_exprs/issue-72787.rs: left out: revisions
@@ -292,26 +282,12 @@ const-generics/issues/issue-74255.rs: left out: revisions
 const-generics/issues/issue-74906.rs: type check: `.await` on something that is not a future
 const-generics/issues/issue-75047.rs: left out: revisions
 const-generics/issues/issue-85031-2.rs: type check: a type left unknown
-const-generics/mgca/adt_expr_infers_from_value.rs: error: expected a name, found `const` (adt_expr_infers_from_value.rs:20:6)
-const-generics/mgca/assoc-const.rs: error: expected a name, found `const` (assoc-const.rs:7:10)
-const-generics/mgca/concrete-expr-with-generics-in-env.rs: error: expected a name, found `const` (concrete-expr-with-generics-in-env.rs:7:10)
-const-generics/mgca/explicit_anon_consts_literals_hack.rs: error: expected a name, found `const` (explicit_anon_consts_literals_hack.rs:7:10)
-const-generics/mgca/generic-args-on-enum-variant-segments.rs: error: expected a name, found `const` (generic-args-on-enum-variant-segments.rs:13:6)
+const-generics/mgca/adt_expr_infers_from_value.rs: error: expected a type, found `const` (adt_expr_infers_from_value.rs:38:31)
 const-generics/mgca/higher-ranked-lts-good.rs: error: expected a type, found `const` (higher-ranked-lts-good.rs:10:14)
 const-generics/mgca/infer-vars-in-const-args-correct.rs: type check: a type left unknown
-const-generics/mgca/multi_braced_direct_const_args.rs: error: expected a name, found `const` (multi_braced_direct_const_args.rs:9:10)
-const-generics/mgca/opaque-ty-assoc-const-equality-117923.rs: error: expected a name, found `const` (opaque-ty-assoc-const-equality-117923.rs:7:10)
-const-generics/mgca/paren.rs: error: expected a name, found `const` (paren.rs:7:6)
+const-generics/mgca/paren.rs: macro not found: direct_const_arg!
 const-generics/mgca/serialized-direct-const-with-anon-const-body.rs: left out: auxiliary crates
-const-generics/mgca/tuple_expr_arg_macroless.rs: error: expected a name, found `const` (tuple_expr_arg_macroless.rs:12:10)
-const-generics/mgca/tuple_expr_arg_simple.rs: error: expected a name, found `const` (tuple_expr_arg_simple.rs:7:10)
-const-generics/mgca/type-const-ctor-148953.rs: error: expected a name, found `const` (type-const-ctor-148953.rs:19:10)
-const-generics/mgca/type-const-used-in-trait.rs: error: expected a name, found `const` (type-const-used-in-trait.rs:6:6)
-const-generics/mgca/type_const-array-return.rs: error: expected a name, found `const` (type_const-array-return.rs:9:10)
-const-generics/mgca/type_const-incemental-compile.rs: error: expected a name, found `const` (type_const-incemental-compile.rs:9:6)
-const-generics/mgca/type_const-pub.rs: error: expected a name, found `const` (type_const-pub.rs:8:10)
-const-generics/mgca/type_const-use.rs: error: expected a name, found `const` (type_const-use.rs:6:6)
-const-generics/mgca/type_const_in_pattern.rs: error: expected a name, found `const` (type_const_in_pattern.rs:6:6)
+const-generics/mgca/tuple_expr_arg_simple.rs: macro not found: direct_const_arg!
 const-generics/min_adt_const_params/forbid-non_exhaustive-const-param-ty.rs: left out: revisions
 const-generics/min_const_generics/param-env-eager-norm-dedup.rs: left out: revisions
 const-generics/parent_generics_of_encoding.rs: left out: auxiliary crates
@@ -436,19 +412,6 @@ fmt/format-args-capture-issue-106408.rs: left out: auxiliary crates
 fmt/indoc-issue-106408.rs: left out: auxiliary crates
 fmt/nested-awaits-issue-122674.rs: type check: `.await` on something that is not a future
 fn/fn_def_opaque_coercion.rs: type check: mismatched types
-frontmatter/content-contains-whitespace.rs: error: unterminated character literal (content-contains-whitespace.rs:4:55)
-frontmatter/content-non-lexible-tokens.rs: error: unexpected character '🏳' (content-non-lexible-tokens.rs:2:1)
-frontmatter/escape-hyphens-leading.rs: error: expected an item, found `-` (escape-hyphens-leading.rs:1:1)
-frontmatter/escape-hyphens-nonleading-1.rs: error: expected an item, found `-` (escape-hyphens-nonleading-1.rs:1:1)
-frontmatter/escape-hyphens-nonleading-2.rs: error: unexpected character '🚧' (escape-hyphens-nonleading-2.rs:2:6)
-frontmatter/escape-hyphens-nonleading-3.rs: error: expected an item, found `-` (escape-hyphens-nonleading-3.rs:1:1)
-frontmatter/fence-whitespace-trailing-1.rs: error: expected an item, found `-` (fence-whitespace-trailing-1.rs:3:1)
-frontmatter/fence-whitespace-trailing-2.rs: error: expected an item, found `-` (fence-whitespace-trailing-2.rs:1:1)
-frontmatter/frontmatter-crlf.rs: error: expected an item, found `-` (frontmatter-crlf.rs:2:1)
-frontmatter/infostring-dot-nonleading.rs: error: expected an item, found `-` (infostring-dot-nonleading.rs:1:1)
-frontmatter/infostring-hyphen-nonleading.rs: error: expected an item, found `-` (infostring-hyphen-nonleading.rs:1:1)
-frontmatter/location-after-shebang.rs: error: expected an item, found `-` (location-after-shebang.rs:2:1)
-frontmatter/location-include-in-item-ctxt.rs: error: expanding `include!`: expected an item, found `-` (location-include-in-item-ctxt.rs:6:1)
 frontmatter/location-proc-macro-observer.rs: left out: auxiliary crates
 generic-associated-types/gat-with-ambig-args-still-rigid.rs: left out: revisions
 generic-associated-types/guide-inference-in-gat-arg-deeper.rs: left out: revisions
@@ -460,10 +423,8 @@ generic-associated-types/issue-93874.rs: type check: call of something that is n
 generic-associated-types/no-incomplete-gat-arg-inference.rs: left out: revisions
 generic-associated-types/parse/in-trait-impl.rs: path not resolved: Foo
 generic-associated-types/rigid-hr-projection-issue-93340.rs: left out: revisions
-generic-const-items/assoc-const-bindings.rs: error: expected a name, found `const` (assoc-const-bindings.rs:10:10)
 generic-const-items/basic.rs: type check: mismatched types
 generic-const-items/def-site-eval.rs: left out: revisions
-generic-const-items/type-const-nested-assoc-const.rs: error: expected a name, found `const` (type-const-nested-assoc-const.rs:6:6)
 higher-ranked/builtin-closure-like-bounds.rs: left out: revisions
 higher-ranked/hrtb-projection-closure-return-34430.rs: left out: revisions
 higher-ranked/leak-check/candidate-from-env-universe-err-1.rs: left out: revisions
@@ -1189,7 +1150,6 @@ typeck/issue-55810-must-typeck-match-pats-before-guards.rs: type check: method n
 unboxed-closures/arg-constrained-after-closure-inference.rs: type check: a type left unknown
 unpretty/ast-const-trait-bound.rs: path not resolved: Bar
 unpretty/exhaustive.rs: left out: revisions
-unpretty/frontmatter.rs: error: expected an item, found `-` (frontmatter.rs:1:1)
 unpretty/interpolation-expanded.rs: type check: operator on types that do not implement it
 unsafe-binders/cat-projection.rs: left out: revisions
 unsafe/issue-106126-good-path-bug.rs: left out: auxiliary crates

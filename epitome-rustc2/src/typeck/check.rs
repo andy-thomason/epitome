@@ -1303,14 +1303,13 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 let mut tys = Vec::new();
                 for (&e, w) in kids.iter().zip(want) {
                     let t = self.expr(e, w);
-                    // Each field is coerced to its expected type where an
-                    // array behind a reference unsizes (`(self, &[], &[])`
-                    // as `(&[T], &[U], &[T])`).
+                    // Each field is coerced to its expected type where a
+                    // pointer's can change (an array behind it unsizing,
+                    // `*mut` to `*const`: `(self, &[], &[])` as `(&[T],
+                    // &[U], &[T])`), or it is `!`.
+                    let pointer = |t: Ty| matches!(tcx.kind(self.infer.shallow(t)), TyKind::Ref(..) | TyKind::Ptr(..));
                     if let Some(w) = w
-                        && let (TyKind::Ref(_, x) | TyKind::Ptr(_, x), TyKind::Ref(_, y) | TyKind::Ptr(_, y)) =
-                            (tcx.kind(self.infer.shallow(t)), tcx.kind(self.infer.shallow(w)))
-                        && matches!(tcx.kind(self.infer.shallow(x)), TyKind::Array(..))
-                        && matches!(tcx.kind(self.infer.shallow(y)), TyKind::Slice(_))
+                        && (pointer(t) && pointer(w) || tcx.kind(self.infer.shallow(t)) == TyKind::Never)
                         && self.coerce(e, t, w)
                     {
                         tys.push(w);

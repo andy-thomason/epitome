@@ -198,6 +198,9 @@ pub(crate) struct Cx<'a, 's> {
     /// `FnOnce` that moves out of them), so that its callers do not drop
     /// it after calling it.
     pub owning: std::cell::RefCell<FastMap<Item, bool>>,
+    /// For each closure that captures nothing, a function of its
+    /// signature that calls it (what it is as a function pointer).
+    pub fnptr: FastMap<Item, Decl>,
 }
 
 impl<'a, 's> Cx<'a, 's> {
@@ -447,7 +450,7 @@ impl Session {
         };
         let drops = crate::drops::DropInfo::new(tcx);
         let mut cx =
-            Cx { tcx, r, crates, typeck, index, lcx, fns: FastMap::default(), statics: FastMap::default(), drops, owning: Default::default() };
+            Cx { tcx, r, crates, typeck, index, lcx, fns: FastMap::default(), statics: FastMap::default(), drops, owning: Default::default(), fnptr: FastMap::default() };
         let mut failures = Vec::new();
         let mut solver = cx.solver();
 
@@ -540,6 +543,22 @@ impl Session {
                     }
                     let g = spec.declare(&mut m);
                     cx.fns.insert(*it, Decl { g, abi, name: name.clone() });
+                    // One that captures nothing can be a function pointer:
+                    // a function of its signature that calls it.
+                    if typeck.captures.get(&c).is_none_or(|v| v.is_empty())
+                        && let Ok(TyKind::Closure(_, s, _)) = cx.closure_ty(&mut solver, c, d, l).map(|t| tcx.kind(t))
+                        && let sig = tcx.sig_of(s)
+                        && let Ok(abi) = cx.abi(&mut m, tcx.tys(sig.inputs), sig.output, false)
+                    {
+                        let fname = format!("{name}.fnptr");
+                        let (ret, params) = Cx::ir_fn_type(&mut m, &abi);
+                        let mut spec = IrFunction::builder(&fname).returns(ret).linkage(Linkage::Internal);
+                        for p in params {
+                            spec = spec.param("", p);
+                        }
+                        let g = spec.declare(&mut m);
+                        cx.fnptr.insert(*it, Decl { g, abi, name: fname });
+                    }
                 }
                 Item::DropGlue(t) => {
                     // `fn(*mut T)`.
@@ -609,6 +628,12 @@ impl Session {
             partial.retain(|f| f.item != it);
             lower_item(&cx, &mut m, it, &decl, &name, owns, &mut notes, &mut partial, &mut failures);
         }
+        // Closures as function pointers: each calls its closure, with no
+        // captures.
+        for (it, thunk) in &cx.fnptr {
+            let Some(closure) = cx.fns.get(it) else { continue };
+            fnptr_thunk(&mut m, thunk, closure);
+        }
         for (name, it) in &named {
             if let Item::DropGlue(t) = *it {
                 let Some(decl) = cx.fns.get(it).cloned() else { continue };
@@ -669,6 +694,32 @@ impl Session {
         let decls = cx.fns.iter().map(|(&it, d)| (it, d.g)).collect();
         Lowered { module: m, functions, failures, partial, notes, titles, decls }
     }
+}
+
+/// Defines `thunk`, a closure that captures nothing as a function: it calls
+/// the closure (`closure`) with no captures (a null pointer for them) and
+/// its own arguments.
+fn fnptr_thunk(m: &mut Module, thunk: &Decl, closure: &Decl) {
+    let (ret, params) = Cx::ir_fn_type(m, &thunk.abi);
+    let mut spec = IrFunction::builder(&thunk.name).returns(ret).linkage(Linkage::Internal);
+    for &p in &params {
+        spec = spec.param("", p);
+    }
+    let mut b = spec.begin(m);
+    b.block("start");
+    let ptr = b.module().types.ptr(0);
+    let null = b.module().const_zero(ptr);
+    let mut args: Vec<_> = (0..params.len()).map(|i| b.param(i)).collect();
+    // After the result's address, if it is returned in memory.
+    let at = (thunk.abi.ret == Repr::Mem) as usize;
+    if closure.abi.args.first().is_some_and(|r| *r != Repr::Zst) {
+        args.insert(at, null);
+    }
+    match b.call(closure.g, &args) {
+        Some(v) if matches!(thunk.abi.ret, Repr::Imm(_)) => b.ret(v),
+        _ => b.ret_void(),
+    }
+    let _ = b.finish();
 }
 
 /// Lowers function (or closure) `it` into `decl`: its notes, or a failure

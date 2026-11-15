@@ -990,7 +990,19 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                     let f = self.fn_address(d, tcx.tys(l))?;
                     pv = Pv::Val(Operand { ty: to, v: Val::Imm(f) });
                 }
-                Adjust::ClosureFnPointer => return Err("closures are not supported yet".into()),
+                Adjust::ClosureFnPointer => {
+                    // A closure that captures nothing, as its function.
+                    let o = self.operand_of(pv)?;
+                    let TyKind::Closure(c, _, l) = tcx.kind(o.ty) else { return Err("a closure pointer of no closure".into()) };
+                    let owner = *self.cx.typeck.closure_owners.get(&c).ok_or("closure without an owner")?;
+                    let thunk = self.cx.fnptr.get(&Item::Closure(c, owner, l)).ok_or("a closure that captures as a function pointer")?.g;
+                    let to = match self.body.tables.adjusted.get(&n) {
+                        Some(&t) => self.sub(t),
+                        None => return Err("function pointer without a type".into()),
+                    };
+                    let f = self.b.module().global_value(thunk);
+                    pv = Pv::Val(Operand { ty: to, v: Val::Imm(f) });
+                }
             }
         }
         Ok(pv)

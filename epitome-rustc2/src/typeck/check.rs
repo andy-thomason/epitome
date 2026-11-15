@@ -1397,6 +1397,17 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 match kids.get(2) {
                     Some(&e) => {
                         let et = self.expr(e, expect.or(Some(then)));
+                        // Two closures (or functions) where a function
+                        // pointer is wanted: each made one.
+                        if let Some(want) = expect
+                            && let TyKind::FnPtr(_) = tcx.kind(self.infer.shallow(want))
+                            && [then, et].iter().all(|&t| matches!(tcx.kind(self.infer.shallow(t)), TyKind::Closure(..) | TyKind::FnDef(..)))
+                            && self.infer.shallow(then) != self.infer.shallow(et)
+                        {
+                            self.coerce(kids[1], then, want);
+                            self.coerce(e, et, want);
+                            return want;
+                        }
                         self.join(n, then, et)
                     }
                     None => {

@@ -1,7 +1,7 @@
-//! `std` threads with `thread_local!`: each thread has its own copy of a
-//! thread local (one with a `const` initialiser, one initialised on first
-//! use, one with a destructor), threads are spawned and joined, and
-//! values come back from them and through a channel of `Arc<Mutex<_>>`.
+//! `std` threads with `thread_local!`: each thread has its own copy of
+//! two thread locals (one with a `const` initialiser, one initialised on
+//! first use, which has a destructor); threads are spawned and joined,
+//! and values come back from `join` and through an `Arc<Mutex<_>>`.
 
 use std::cell::{Cell, RefCell};
 use std::sync::{Arc, Mutex};

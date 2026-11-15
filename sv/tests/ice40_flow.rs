@@ -1,7 +1,8 @@
 //! The FPGA flow (`epitome_sv::synth`, `epitome_sv::arch::ice40::flow`):
 //! each stage checked on small designs, against Epitome's interpreter on
-//! random stimulus. The board tests run only with `ICE40_BOARD=1` and
-//! the iCESugar-nano plugged in.
+//! random stimulus. The board tests run only with `ICE40_BOARD` set to the
+//! board plugged in: `nano` (or `1`) for the iCESugar-nano, `icesugar` for
+//! the iCESugar.
 
 use epitome_sv::arch::ice40::map::{map, mapped_lines};
 use epitome_sv::model::Sources;
@@ -271,6 +272,7 @@ endmodule
 // ---- the flow on the board's designs ----
 
 use epitome_sv::arch::ice40::Device;
+use epitome_sv::arch::ice40::board::{Board, board};
 use epitome_sv::arch::ice40::chipdb::Chipdb;
 use epitome_sv::arch::ice40::flow::{Built, Options, build, parse_pins};
 use epitome_sv::arch::ice40::icebox::Semantics;
@@ -281,15 +283,29 @@ fn arch() -> PathBuf {
 }
 
 fn records() -> (Device, Chipdb, Semantics) {
-    let read = |n: &str| std::fs::read_to_string(arch().join(n)).unwrap();
-    (
-        Device::from_record(&read("record-icepack.txt")).unwrap(),
-        Chipdb::from_text(&read("record-chipdb.txt")).unwrap(),
-        Semantics::from_text(&read("record-icebox.txt")).unwrap(),
-    )
+    nano().records().unwrap()
 }
 
-/// Builds `flow/NAME.sv` for the board, checking the mapped cells against
+fn nano() -> &'static Board {
+    board("nano").unwrap()
+}
+
+/// The board `ICE40_BOARD` names (`1` is the nano), if it is set.
+fn live_board() -> Option<&'static Board> {
+    let v = std::env::var("ICE40_BOARD").ok()?;
+    let name = if v == "1" { "nano" } else { v.as_str() };
+    Some(board(name).unwrap_or_else(|| panic!("ICE40_BOARD={v}: no such board (nano, icesugar)")))
+}
+
+/// A board design: the board's part's own (`flow/NAME.sv` in its
+/// description), or else one of the designs every board runs, kept with
+/// the nano's.
+fn design_file(b: &Board, name: &str) -> PathBuf {
+    let own = b.arch().join(format!("flow/{name}.sv"));
+    if own.is_file() { own } else { arch().join(format!("flow/{name}.sv")) }
+}
+
+/// Builds `flow/NAME.sv` for the nano, checking the mapped cells against
 /// the interpreter first.
 fn build_design(name: &str, defines: &[&str]) -> Built {
     build_design_with(name, defines, false)
@@ -298,9 +314,14 @@ fn build_design(name: &str, defines: &[&str]) -> Built {
 /// [`build_design`], with a clock the design makes routed through the
 /// fabric if `fabric_clocks`.
 fn build_design_with(name: &str, defines: &[&str], fabric_clocks: bool) -> Built {
-    let (d, db, sem) = records();
+    build_design_for(nano(), name, defines, fabric_clocks)
+}
+
+/// [`build_design_with`] for board `brd`.
+fn build_design_for(brd: &Board, name: &str, defines: &[&str], fabric_clocks: bool) -> Built {
+    let (d, db, sem) = brd.records().unwrap();
     let mut s = Sources::default();
-    s.file(arch().join(format!("flow/{name}.sv")));
+    s.file(design_file(brd, name));
     for &k in defines {
         let (k, v) = k.split_once('=').unwrap_or((k, "1"));
         s.define(k, v);
@@ -312,13 +333,23 @@ fn build_design_with(name: &str, defines: &[&str], fabric_clocks: bool) -> Built
     let want = reference(&s, name, &n, &st).unwrap();
     let m = map(&n).unwrap();
     compare(&want, &mapped_lines(&m, &st)).unwrap_or_else(|e| panic!("{name}: {e}"));
-    let pins = parse_pins(&std::fs::read_to_string(arch().join("flow/nano.pins")).unwrap()).unwrap();
-    let ports: Vec<&str> = n.inputs.iter().chain(&n.outputs).map(|p| p.name.as_str()).collect();
-    let pins = pins.into_iter().filter(|(p, _)| ports.contains(&p.as_str())).collect();
-    let b = build(&d, &db, &sem, n, &Options { package: "cm36".into(), pins, seed: 1, fabric_clocks })
+    let pins = board_pins(brd, &n);
+    let b = build(&d, &db, &sem, n, &Options { package: brd.package.into(), pins, seed: 1, fabric_clocks })
         .unwrap_or_else(|e| panic!("{name}: {e}"));
-    eprintln!("{name}:\n{}", b.report());
+    eprintln!("{name} on the {}:\n{}", brd.title, b.report());
     b
+}
+
+/// The board's pins for the ports the design has.
+fn board_pins(brd: &Board, n: &epitome_sv::synth::Netlist) -> Vec<(String, String)> {
+    let pins = parse_pins(&std::fs::read_to_string(brd.pins_file()).unwrap()).unwrap();
+    let ports: Vec<String> = n
+        .inputs
+        .iter()
+        .chain(&n.outputs)
+        .flat_map(|p| (0..p.width).map(|b| epitome_sv::arch::ice40::place::bit_name(&p.name, p.width, b)))
+        .collect();
+    pins.into_iter().filter(|(p, _)| ports.contains(p)).collect()
 }
 
 #[test]
@@ -432,17 +463,21 @@ fn echo_ram_reverses_a_line() {
 }
 
 /// Programs the board with each design and watches the serial port; only
-/// with `ICE40_BOARD=1` (it reprograms an iCESugar-nano).
+/// with `ICE40_BOARD` set to the board plugged in (`nano` or `icesugar`:
+/// it reprograms it).
 #[test]
 fn board_live() {
     use epitome_sv::arch::ice40::board::{Icesprog, Serial};
     use std::time::{Duration, Instant};
-    if std::env::var_os("ICE40_BOARD").is_none() {
-        eprintln!("skipped: set ICE40_BOARD=1 to reprogram an iCESugar-nano");
+    let Some(brd) = live_board() else {
+        eprintln!("skipped: set ICE40_BOARD=nano (or icesugar) to reprogram the board plugged in");
         return;
-    }
+    };
     let ip = Icesprog::find().expect("icesprog");
+    ip.expect(brd).unwrap();
     let port = Serial::find().expect("serial port");
+    let build_design = |name: &str, defines: &[&str]| build_design_for(brd, name, defines, false);
+    let build_design_with = |name: &str, defines: &[&str], fabric| build_design_for(brd, name, defines, fabric);
     let probe: Vec<u8> = (0..64u8).map(|i| 0x20 + i).collect();
     let run = |b: &Built| -> String {
         ip.program(&b.bitstream).unwrap();
@@ -493,8 +528,14 @@ fn board_live() {
         eprintln!("(e) through a RAM {w} bits wide: {seen}");
         assert_eq!(seen, "echo", "(e) WIDTH={w}");
     }
-    // (g) deeper than a block: banks, up to the whole chip's RAM.
-    for (w, depth) in [("1", "8192"), ("4", "16384")] {
+    // (g) deeper than a block: banks, up to the nano's whole RAM (16
+    // blocks), and on the UP5K 28 of its 30 (seven 2048x2 blocks wide,
+    // four deep).
+    let mut deep = vec![("1", "8192"), ("4", "16384")];
+    if brd.name == "icesugar" {
+        deep.push(("14", "8192"));
+    }
+    for (w, depth) in deep {
         let seen = run(&build_design("ramdelay", &[&format!("WIDTH={w}"), &format!("DEPTH={depth}")]));
         eprintln!("(g) through {depth} words of {w} bits: {seen}");
         assert_eq!(seen, "echo", "(g) WIDTH={w} DEPTH={depth}");
@@ -561,6 +602,49 @@ fn board_live() {
         lens.len()
     );
     assert!(bad.is_empty(), "(k) {bad:?}");
+    if brd.name == "icesugar" {
+        board_rv32i(&ip, &port, brd);
+    }
+}
+
+/// (l) The RV32I computer: started by a CR, it sends its banner, self-test
+/// and primes, then answers lines, as the emulator does.
+fn board_rv32i(ip: &epitome_sv::arch::ice40::board::Icesprog, port: &PathBuf, brd: &Board) {
+    use epitome_sv::arch::ice40::board::Serial;
+    use epitome_sv::arch::ice40::rv32i::{Emulator, assemble};
+    let p = assemble(&std::fs::read_to_string(up5k().join("flow/rv32i_demo.s")).unwrap()).unwrap();
+    let b = build_design_for(brd, "rv32i", &[], false);
+    ip.program(&b.bitstream).unwrap();
+    let mut s = Serial::open(port).unwrap();
+    s.read_quiet(200);
+    let mut seed = 0x2545_F491_4F6C_DD1Du64;
+    let mut next = move || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed
+    };
+    let mut lines: Vec<Vec<u8>> = vec![b"".to_vec(), b"Hello, iCESugar".to_vec(), b"".to_vec()];
+    for len in [1, 7, 40, 199, 200, 230] {
+        lines.push((0..len).map(|_| 0x20 + (next() % 95) as u8).collect());
+    }
+    let refs: Vec<&[u8]> = lines.iter().map(|l| l.as_slice()).collect();
+    let want = Emulator::session(&p, &refs).unwrap();
+    let mut bad = Vec::new();
+    for (i, l) in lines.iter().enumerate() {
+        s.send(l).unwrap();
+        s.send(b"\r").unwrap();
+        let back = s.read_quiet(300);
+        if i < 3 {
+            eprintln!("(l) {}", String::from_utf8_lossy(&back).trim_end());
+        }
+        if back != want[i + 1] {
+            eprintln!("(l) line {i}: {:?}, not {:?}", String::from_utf8_lossy(&back), String::from_utf8_lossy(&want[i + 1]));
+            bad.push(i);
+        }
+    }
+    eprintln!("(l) the RV32I computer: {} of {} replies as the emulator's", lines.len() - bad.len(), lines.len());
+    assert!(bad.is_empty(), "(l) {bad:?}");
 }
 
 /// A `case` table becomes a decision tree, and few LUTs: hello's 20
@@ -623,8 +707,9 @@ fn ram_modes() {
 }
 
 /// Programs `$TRY_SV` (top: the file's name; `$TRY_D` macros, comma
-/// separated) and says what the serial port sees: for trying designs on
-/// the board by hand.
+/// separated) on the board `ICE40_BOARD` names (the nano if unset) and
+/// says what the serial port sees: for trying designs on the board by
+/// hand.
 #[test]
 #[ignore]
 fn board_try() {
@@ -632,7 +717,8 @@ fn board_try() {
     let Some(path) = std::env::var_os("TRY_SV") else { return };
     let path = PathBuf::from(path);
     let top = path.file_stem().unwrap().to_string_lossy().into_owned();
-    let (d, db, sem) = records();
+    let brd = live_board().unwrap_or(nano());
+    let (d, db, sem) = brd.records().unwrap();
     let mut s = Sources::default();
     s.file(&path);
     for k in std::env::var("TRY_D").unwrap_or_default().split(',').filter(|k| !k.is_empty()) {
@@ -640,15 +726,16 @@ fn board_try() {
         s.define(k, v);
     }
     let n = synthesise(&s, &top).unwrap_or_else(|e| panic!("{e}"));
-    let pins = parse_pins(&std::fs::read_to_string(arch().join("flow/nano.pins")).unwrap()).unwrap();
-    let ports: Vec<&str> = n.inputs.iter().chain(&n.outputs).map(|p| p.name.as_str()).collect();
-    let pins = pins.into_iter().filter(|(p, _)| ports.contains(&p.as_str())).collect();
-    let b = build(&d, &db, &sem, n, &Options { package: "cm36".into(), pins, seed: 1, fabric_clocks: false }).unwrap();
+    let pins = board_pins(brd, &n);
+    let b = build(&d, &db, &sem, n, &Options { package: brd.package.into(), pins, seed: 1, fabric_clocks: false })
+        .unwrap();
     eprintln!("{}", b.report());
     for (i, r) in b.mapped.rams.iter().enumerate() {
         eprintln!("ram {} mode {} at {:?}", r.name, r.mode, b.placement.rams[i]);
     }
-    Icesprog::find().unwrap().program(&b.bitstream).unwrap();
+    let ip = Icesprog::find().unwrap();
+    ip.expect(brd).unwrap();
+    ip.program(&b.bitstream).unwrap();
     let mut ser = Serial::open(&Serial::find().unwrap()).unwrap();
     let probe: Vec<u8> = (0..64u8).map(|i| 0x20 + i).collect();
     eprintln!("TRY: {}", ser.echo(&probe).unwrap());
@@ -818,23 +905,34 @@ fn several_clocks() {
 use epitome_sv::arch::ice40::timing::{self, Kind, Model};
 
 fn model() -> Model {
-    std::fs::read_to_string(arch().join("record-timing.txt"))
+    model_for(nano())
+}
+
+/// The board's part's timing record, or the guess.
+fn model_for(brd: &Board) -> Model {
+    std::fs::read_to_string(brd.arch().join("record-timing.txt"))
         .ok()
         .map_or_else(Model::guess, |t| Model::from_record(&t).unwrap())
 }
 
-/// Builds a timing experiment for the board.
+/// Builds a timing experiment for the nano.
 fn build_experiment(kind: Kind, n: usize) -> (Built, usize) {
-    let (d, db, sem) = records();
+    build_experiment_for(nano(), kind, n)
+}
+
+/// Builds a timing experiment for board `brd`: its clock, rx and tx pins.
+fn build_experiment_for(brd: &Board, kind: Kind, n: usize) -> (Built, usize) {
+    let (d, db, sem) = brd.records().unwrap();
     let (m, carries) = timing::experiment(kind, n);
-    let pins = vec![("clk".into(), "D1".into()), ("rx".into(), "A3".into()), ("tx".into(), "B3".into())];
+    let pins = parse_pins(&std::fs::read_to_string(brd.pins_file()).unwrap()).unwrap();
+    let pins = pins.into_iter().filter(|(p, _)| ["clk", "rx", "tx"].contains(&p.as_str())).collect();
     let b = epitome_sv::arch::ice40::flow::build_mapped(
         &d,
         &db,
         &sem,
         epitome_sv::synth::Netlist::new(),
         m,
-        &Options { package: "cm36".into(), pins, seed: 1, fabric_clocks: false },
+        &Options { package: brd.package.into(), pins, seed: 1, fabric_clocks: false },
     )
     .unwrap_or_else(|e| panic!("{kind:?} {n}: {e}"));
     (b, carries)
@@ -878,21 +976,23 @@ fn timing_of_board_designs() {
     }
 }
 
-/// Measures the model on the board (`ICE40_BOARD=1 ICE40_CALIBRATE=1`):
-/// for each experiment, the shortest chain that misses the 12 MHz clock,
-/// then the delays that fit, into `record-timing.txt`.
+/// Measures the model on the board (`ICE40_BOARD=nano` or `icesugar`, and
+/// `ICE40_CALIBRATE=1`): for each experiment, the shortest chain that
+/// misses the 12 MHz clock, then the delays that fit, into the part's
+/// `record-timing.txt`.
 #[test]
 fn timing_calibrate() {
     use epitome_sv::arch::ice40::board::{Icesprog, Serial};
-    if std::env::var_os("ICE40_BOARD").is_none() || std::env::var_os("ICE40_CALIBRATE").is_none() {
-        eprintln!("skipped: set ICE40_BOARD=1 ICE40_CALIBRATE=1 to measure the timing on an iCESugar-nano");
+    let (Some(brd), Some(_)) = (live_board(), std::env::var_os("ICE40_CALIBRATE")) else {
+        eprintln!("skipped: set ICE40_BOARD=nano (or icesugar) and ICE40_CALIBRATE=1 to measure the timing on the board");
         return;
-    }
+    };
     let ip = Icesprog::find().expect("icesprog");
+    ip.expect(brd).unwrap();
     let port = Serial::find().expect("serial port");
     let probe: Vec<u8> = (0..64u8).map(|i| 0x20 + i).collect();
     let passes = |kind: Kind, n: usize| -> (bool, (usize, usize, usize)) {
-        let (b, carries) = build_experiment(kind, n);
+        let (b, carries) = build_experiment_for(brd, kind, n);
         ip.program(&b.bitstream).unwrap();
         let ok = Serial::open(&port).unwrap().echo(&probe).unwrap() == "echo";
         let counts = timing::path_counts(&b, kind, n, carries);
@@ -926,13 +1026,13 @@ fn timing_calibrate() {
     let t = timing::PERIOD;
     // ICE40_CALIBRATE=ram measures the RAM alone, keeping the rest.
     if std::env::var("ICE40_CALIBRATE").is_ok_and(|v| v == "ram") {
-        let mut m = model();
+        let mut m = model_for(brd);
         let (l, h, _) = threshold(Kind::Ram, 600).expect("a RAM path that fails");
         // Within a stage of a flip-flop's clock-to-output: not below 0.
         m.ram = (t - l * m.lut - h * m.hop).max(0.0);
         m.source += &format!("; a RAM read then {l} LUTs with {h} switches");
         eprintln!("{}", m.to_record());
-        std::fs::write(arch().join("record-timing.txt"), m.to_record()).unwrap();
+        std::fs::write(brd.arch().join("record-timing.txt"), m.to_record()).unwrap();
         return;
     }
     let (l1, h1, _) = threshold(Kind::Luts, 1100).expect("a LUT chain that fails");
@@ -958,11 +1058,12 @@ fn timing_calibrate() {
         carry,
         ram,
         source: format!(
-            "measured on the iCESugar-nano: LUT chains of {l1} and {l2} LUTs with {h1} and {h2} switches at 83.3 ns, a 125-carry chain{ram_note}"
+            "measured on the {}: LUT chains of {l1} and {l2} LUTs with {h1} and {h2} switches at 83.3 ns, a 125-carry chain{ram_note}",
+            brd.title
         ),
     };
     eprintln!("{}", m.to_record());
-    std::fs::write(arch().join("record-timing.txt"), m.to_record()).unwrap();
+    std::fs::write(brd.arch().join("record-timing.txt"), m.to_record()).unwrap();
 }
 
 #[test]
@@ -985,8 +1086,184 @@ fn timing_try() {
         _ => Kind::Luts,
     };
     let n: usize = std::env::var("TRY_N").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
-    let (b, _) = build_experiment(kind, n);
+    let (b, _) = build_experiment_for(live_board().unwrap_or(nano()), kind, n);
     Icesprog::find().unwrap().program(&b.bitstream).unwrap();
     let probe: Vec<u8> = (0..64u8).map(|i| 0x20 + i).collect();
     eprintln!("TRY {kind:?} {n}: {}", Serial::open(&Serial::find().unwrap()).unwrap().echo(&probe).unwrap());
+}
+
+/// The RV32I assembler's encodings, against instructions written out by
+/// hand from the RISC-V specification's formats.
+#[test]
+fn rv32i_assembles() {
+    use epitome_sv::arch::ice40::rv32i::assemble;
+    let p = assemble(
+        "nop\nret\necall\nlui a0, 0x12345\naddi sp, sp, -16\nsw ra, 12(sp)\nlw ra, 12(sp)\n\
+         x: jal ra, y\nbeq a0, a1, x\nsrai a0, a0, 7\nsub t0, t1, t2\ny: lbu a5, -1(s11)\nsb a5, 2047(a4)\nauipc t0, 1\n",
+    )
+    .unwrap();
+    let want = [
+        0x0000_0013u32,
+        0x0000_8067,
+        0x0000_0073,
+        0x1234_5537,
+        0xff01_0113,
+        0x0011_2623,
+        0x00c1_2083,
+        0x0100_00ef, // jal ra, +16
+        0xfeb5_0ee3, // beq a0, a1, -4
+        0x4075_5513,
+        0x4073_02b3,
+        0xfffd_c783,
+        0x7ef7_0fa3,
+        0x0000_1297,
+    ];
+    let got = p.words();
+    for (i, (g, w)) in got.iter().zip(&want).enumerate() {
+        assert_eq!(g, w, "instruction {i}: {g:#010x}, not {w:#010x}");
+    }
+}
+
+fn up5k() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("arch/ice40-up5k")
+}
+
+/// The demonstration program's image in the design is the assembler's.
+#[test]
+fn rv32i_image_is_current() {
+    use epitome_sv::arch::ice40::rv32i::assemble;
+    let dir = up5k().join("flow");
+    let p = assemble(&std::fs::read_to_string(dir.join("rv32i_demo.s")).unwrap()).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(dir.join("rv32i_demo.svh")).unwrap(),
+        p.to_sv("rv32i_demo.s"),
+        "rv32i_demo.svh is stale: `cargo run --release -p epitome-sv --example ice40_rv32i` remakes it"
+    );
+}
+
+/// The RV32I computer's mapped cells, with its UART at 8 clocks a bit,
+/// send what the emulator does: once a CR has started it, the banner,
+/// self-test and primes, then a reply to each line, sent once the prompt
+/// has come.
+#[test]
+fn rv32i_runs_its_program() {
+    use epitome_sv::arch::ice40::map::LcSim;
+    use epitome_sv::arch::ice40::rv32i::{Emulator, assemble};
+    const BIT: usize = 8;
+    let dir = up5k().join("flow");
+    let p = assemble(&std::fs::read_to_string(dir.join("rv32i_demo.s")).unwrap()).unwrap();
+    let lines: [&[u8]; 4] = [b"", b"Hello, iCESugar", b"", b"0123456789 abcdefghijklmnopqrstuvwxyz"];
+    let want: Vec<u8> = Emulator::session(&p, &lines).unwrap().concat();
+    let mut s = Sources::default();
+    s.file(dir.join("rv32i.sv"));
+    s.text(
+        "fast.sv",
+        format!("module fast(input logic clk, rx, output logic tx, led);\n  rv32i #(.BIT({BIT})) cpu(.*);\nendmodule\n"),
+    );
+    let n = synthesise(&s, "fast").unwrap_or_else(|e| panic!("{e}"));
+    let m = map(&n).unwrap();
+    eprintln!("rv32i: {}", m.stats());
+    let at = |name: &str| m.inputs.iter().position(|p| p.name == name).unwrap();
+    let (clk, rxi) = (at("clk"), at("rx"));
+    let txo = m.outputs.iter().position(|(p, _)| p == "tx").unwrap();
+    let mut sim = LcSim::new(&m);
+    let mut sending: std::collections::VecDeque<bool> = Default::default();
+    let mut got: Vec<u8> = Vec::new();
+    let (mut prev, mut frame_at): (bool, Option<usize>) = (true, None);
+    let mut next_line = 0;
+    let prompts = |got: &[u8]| got.windows(2).filter(|w| w == b"> ").count();
+    let t = std::time::Instant::now();
+    let mut cycle = 0usize;
+    let mut rx_was = false;
+    while !(next_line == lines.len() && prompts(&got) >= lines.len()) {
+        assert!(cycle < 2_000_000, "after {cycle} cycles: {:?}", String::from_utf8_lossy(&got));
+        if sending.is_empty() && next_line < lines.len() && prompts(&got) >= next_line {
+            for &b in lines[next_line].iter().chain(b"\r") {
+                let bits = std::iter::once(false).chain((0..8).map(|i| b >> i & 1 != 0)).chain([true, true]);
+                for bit in bits {
+                    sending.extend(std::iter::repeat_n(bit, BIT));
+                }
+            }
+            next_line += 1;
+        }
+        let rx = sending.pop_front().unwrap_or(true);
+        if rx != rx_was || cycle == 0 {
+            sim.inputs[rxi][0] = if rx { !0 } else { 0 };
+            sim.settle();
+            rx_was = rx;
+        }
+        let tx = sim.get(m.outputs[txo].1[0]) & 1 != 0;
+        // A start bit's fall, then each bit sampled in its middle.
+        match frame_at {
+            None if prev && !tx => frame_at = Some(cycle),
+            Some(f) if cycle == f + BIT / 2 + 9 * BIT => {
+                frame_at = None;
+                assert!(tx, "no stop bit at {cycle}");
+            }
+            _ => {}
+        }
+        if let Some(f) = frame_at {
+            let k = cycle - f;
+            if k >= BIT + BIT / 2 && (k - BIT / 2) % BIT == 0 && k < 9 * BIT {
+                let i = (k - BIT / 2) / BIT - 1;
+                if i == 0 {
+                    got.push(0);
+                }
+                *got.last_mut().unwrap() |= (tx as u8) << i;
+            }
+        }
+        prev = tx;
+        sim.inputs[clk][0] = !0;
+        sim.settle();
+        sim.inputs[clk][0] = 0;
+        sim.settle();
+        cycle += 1;
+    }
+    eprintln!("{cycle} cycles in {:.1} s:\n{}", t.elapsed().as_secs_f64(), String::from_utf8_lossy(&got));
+    assert_eq!(String::from_utf8_lossy(&got), String::from_utf8_lossy(&want));
+}
+
+/// The board designs build for the iCESugar's UP5K too, with its pins: a
+/// RAM block there needs its PowerUp bit, which the nano's does not.
+#[test]
+fn up5k_designs_build() {
+    let brd = board("icesugar").unwrap();
+    let (d, db, sem) = brd.records().unwrap();
+    let power_up = db.tile_bits.iter().find(|(k, _)| k == "ramb").unwrap().1.iter().find(|(f, _)| f == "RamConfig.PowerUp").unwrap().1[0];
+    for (name, defs) in [("echo", vec![]), ("delay", vec![]), ("blink", vec![]), ("hello", vec![]), ("hello_ram", vec![]), ("echo_ram", vec![]), ("ramdelay", vec!["WIDTH=14", "DEPTH=8192"])] {
+        let b = build_design_for(brd, name, &defs, false);
+        let rams: Vec<(usize, usize)> = b.placement.rams.iter().flatten().copied().collect();
+        for &(x, y) in &rams {
+            assert!(b.bits.contains(&(x, y, power_up)), "{name}: the RAM at {x} {y} is not powered up");
+        }
+        if name == "ramdelay" {
+            assert_eq!(rams.len(), 28);
+        }
+        let r = timing::analyse(&b, &d, &db, &model_for(brd));
+        assert!(r.fmax().unwrap_or(1e9) > 12.0, "{name}: {}", r.text(&model_for(brd)));
+    }
+    let _ = sem;
+    let nano_bits = build_design("hello_ram", &[]).bits;
+    let (_, ndb, _) = records();
+    let nano_power = ndb.tile_bits.iter().find(|(k, _)| k == "ramb").unwrap().1.iter().find(|(f, _)| f == "RamConfig.PowerUp").unwrap().1[0];
+    assert!(!nano_bits.iter().any(|&(_, _, b)| b == nano_power), "the nano's RAM must not have PowerUp set");
+    for n in [10, 100] {
+        build_experiment_for(brd, Kind::Spread, n);
+    }
+}
+
+/// The RV32I computer builds for the iCESugar: well over a thousand logic
+/// cells and 20 block RAMs (16 of memory, 4 of registers), placed, routed
+/// and inside the 12 MHz clock by the model.
+#[test]
+fn rv32i_builds() {
+    let brd = board("icesugar").unwrap();
+    let (d, db, _) = brd.records().unwrap();
+    let t = std::time::Instant::now();
+    let b = build_design_for(brd, "rv32i", &[], false);
+    let r = timing::analyse(&b, &d, &db, &model_for(brd));
+    eprintln!("{}\n{:.1} s", r.text(&model_for(brd)), t.elapsed().as_secs_f64());
+    assert!(b.mapped.lcs.len() > 2000, "{}", b.mapped.stats());
+    assert_eq!(b.placement.rams.iter().flatten().count(), 20);
+    assert!(r.fmax().unwrap() > 12.0, "{}", r.text(&model_for(brd)));
 }

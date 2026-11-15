@@ -40,7 +40,7 @@ fn main() -> ExitCode {
             } else {
                 (None, None, String::new())
             };
-            let opts = SvgOptions { overlay: overlay.as_ref(), board: results.as_ref(), caption };
+            let opts = SvgOptions { overlay: overlay.as_ref(), board: results.as_ref(), caption, rams: None };
             let svg = render_svg(&d, &db, &sem, &opts);
             let out = arg("--out").map(PathBuf::from).unwrap_or_else(|| dir.join(if overlaid { format!("device-{name}.svg") } else { "device.svg".into() }));
             std::fs::write(&out, svg).map_err(|e| format!("{}: {e}", out.display()))?;

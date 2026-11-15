@@ -875,6 +875,10 @@ pub struct LcSim<'m> {
     ff_clk: Vec<u64>,
     ram_clk: Vec<u64>,
     primed: bool,
+    /// The cells in an order in which each comes after the cells whose
+    /// outputs or carries it reads (a flip-flop's output is its state):
+    /// one pass settles them. None if there is a loop.
+    order: Option<Vec<u32>>,
 }
 
 impl<'m> LcSim<'m> {
@@ -891,6 +895,31 @@ impl<'m> LcSim<'m> {
             }
         }
         let n = m.lcs.len();
+        // Kahn's algorithm over what each cell's LUT and carry read.
+        let mut users: Vec<Vec<u32>> = vec![Vec::new(); n];
+        let mut waiting = vec![0usize; n];
+        for (i, lc) in m.lcs.iter().enumerate() {
+            let reads = lc.ins.iter().enumerate().filter(|&(k, _)| !(k == 3 && lc.carry_in3)).filter_map(|(_, s)| match s {
+                Some(Src::Lc(j)) if m.lcs[*j as usize].ff.is_none() => Some(*j),
+                _ => None,
+            });
+            for j in reads.chain(below[i]) {
+                users[j as usize].push(i as u32);
+                waiting[i] += 1;
+            }
+        }
+        let mut order: Vec<u32> = (0..n as u32).filter(|&i| waiting[i as usize] == 0).collect();
+        let mut k = 0;
+        while k < order.len() {
+            for &u in &users[order[k] as usize] {
+                waiting[u as usize] -= 1;
+                if waiting[u as usize] == 0 {
+                    order.push(u);
+                }
+            }
+            k += 1;
+        }
+        let order = (order.len() == n).then_some(order);
         LcSim {
             m,
             out: vec![0; n],
@@ -904,6 +933,7 @@ impl<'m> LcSim<'m> {
             ff_clk: vec![0; n],
             ram_clk: vec![0; m.rams.len()],
             primed: false,
+            order,
         }
     }
 
@@ -925,8 +955,8 @@ impl<'m> LcSim<'m> {
             Some(b) => self.cout[b as usize],
             None => self.ci[i],
         };
-        let v: Vec<u64> =
-            (0..4).map(|k| if k == 3 && lc.carry_in3 { cin } else { lc.ins[k].map_or(0, |s| self.get(s)) }).collect();
+        let v: [u64; 4] =
+            std::array::from_fn(|k| if k == 3 && lc.carry_in3 { cin } else { lc.ins[k].map_or(0, |s| self.get(s)) });
         let mut o = 0u64;
         for m in 0..16 {
             if lc.lut >> m & 1 != 0 {
@@ -944,7 +974,22 @@ impl<'m> LcSim<'m> {
     /// Settles the cells (asynchronous resets first).
     pub fn eval(&mut self) {
         for _ in 0..2 {
-            for _ in 0..=self.m.lcs.len() {
+            if let Some(order) = &self.order {
+                // Flip-flops' outputs first: cells read them in any order.
+                for (i, lc) in self.m.lcs.iter().enumerate() {
+                    if lc.ff.is_some() {
+                        self.out[i] = self.state[i];
+                    }
+                }
+                for &i in order {
+                    let i = i as usize;
+                    let (o, co) = self.lut(i);
+                    self.out[i] = if self.m.lcs[i].ff.is_some() { self.state[i] } else { o };
+                    self.cout[i] = co;
+                }
+            }
+            let sweeps = if self.order.is_some() { 0 } else { self.m.lcs.len() + 1 };
+            for _ in 0..sweeps {
                 let mut changed = false;
                 for i in 0..self.m.lcs.len() {
                     let (o, co) = self.lut(i);

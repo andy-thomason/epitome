@@ -1,7 +1,7 @@
 //! Renders a part's description as an SVG picture of the die: every tile
 //! at its place in the grid, coloured by kind; the eight logic cells and
 //! carry chain of each logic tile; the pads of each I/O tile, with their
-//! package pins and, on the iCESugar-nano, what the board wires to them;
+//! package pins and what the part's board (`board::BOARDS`) wires to them;
 //! the block RAMs, DSP blocks and special cells; how each part is known
 //! (shown on the board, found by experiment, or only named by the chip
 //! database); and, optionally, a configuration laid over it: the cells,
@@ -11,7 +11,7 @@
 //! elements (shown on hover), so the picture stays readable zoomed out.
 
 use super::asc::Asc;
-use super::board::Results;
+use super::board::{BOARDS, Results};
 use super::chipdb::{Bit, Chipdb};
 use super::icebox::Semantics;
 use super::{Device, part};
@@ -27,6 +27,10 @@ pub struct SvgOptions<'a> {
     pub board: Option<&'a Results>,
     /// The picture's heading, under the part's name.
     pub caption: Option<String>,
+    /// The overlay's RAM blocks (their `ramb` tiles), where known (the
+    /// flow's placement); otherwise a RAM is taken as used if its tiles
+    /// have bits, routes through them included.
+    pub rams: Option<&'a [(usize, usize)]>,
 }
 
 /// The size of a tile, in SVG units.
@@ -62,14 +66,6 @@ impl Known {
 fn esc(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
 }
-
-/// What the iCESugar-nano wires to its FPGA's pins (its schematic).
-const NANO_PINS: &[(&str, &str)] = &[
-    ("A3", "UART from the iCELink (FPGA input)"),
-    ("B3", "UART to the iCELink (FPGA output)"),
-    ("D1", "12 MHz clock from the iCELink"),
-    ("B6", "yellow LED"),
-];
 
 pub fn render_svg(d: &Device, db: &Chipdb, sem: &Semantics, opts: &SvgOptions) -> String {
     let p = part(&d.asc_device);
@@ -125,9 +121,14 @@ pub fn render_svg(d: &Device, db: &Chipdb, sem: &Semantics, opts: &SvgOptions) -
                 used_rams.insert((r.x, r.y));
             }
         }
-        for t in &d.tiles {
-            if d.kinds[t.kind].name == "ramb" && (used_tiles.contains(&(t.x, t.y)) || used_tiles.contains(&(t.x, t.y + 1))) {
-                used_rams.insert((t.x, t.y));
+        match opts.rams {
+            Some(rams) => used_rams.extend(rams.iter().copied()),
+            None => {
+                for t in &d.tiles {
+                    if d.kinds[t.kind].name == "ramb" && (used_tiles.contains(&(t.x, t.y)) || used_tiles.contains(&(t.x, t.y + 1))) {
+                        used_rams.insert((t.x, t.y));
+                    }
+                }
             }
         }
     }
@@ -176,7 +177,9 @@ pub fn render_svg(d: &Device, db: &Chipdb, sem: &Semantics, opts: &SvgOptions) -
             pins.insert((*x, *y, *z), pin.clone());
         }
     }
-    let nano = p.is_some_and(|p| p.board == "iCESugar-nano");
+    // What the part's board wires to its pins (its schematic).
+    let wiring: &[(&str, &str)] =
+        p.and_then(|p| BOARDS.iter().find(|b| b.title == p.board)).map_or(&[], |b| b.wiring);
 
     // Tiles.
     s.push_str("<g id=\"tiles\">\n");
@@ -239,7 +242,7 @@ pub fn render_svg(d: &Device, db: &Chipdb, sem: &Semantics, opts: &SvgOptions) -
                 for z in 0..2 {
                     let (cx, cy) = if vertical { (x0 + T / 2.0, y0 + T * (0.3 + 0.4 * z as f64)) } else { (x0 + T * (0.3 + 0.4 * z as f64), y0 + T / 2.0) };
                     let pin = pins.get(&(t.x, t.y, z));
-                    let wired = pin.and_then(|p| NANO_PINS.iter().find(|(n, _)| nano && n == p)).map(|(_, w)| *w);
+                    let wired = pin.and_then(|p| wiring.iter().find(|(n, _)| n == p)).map(|(_, w)| *w);
                     let tip = format!(
                         "PIO ({}, {}, {z}){}{}",
                         t.x,
@@ -349,11 +352,9 @@ pub fn render_svg(d: &Device, db: &Chipdb, sem: &Semantics, opts: &SvgOptions) -
     writeln!(s, r#"<text class="h2" x="{lx}" y="{ly}">Pins</text>"#).unwrap();
     ly += 16.0;
     writeln!(s, r#"<circle class="pad" cx="{}" cy="{}" r="4.5"/><text class="lg" x="{}" y="{ly}">pad, with its {} package pin</text>"#, lx + 6.0, ly - 4.0, lx + 18.0, esc(&package.to_uppercase())).unwrap();
-    if nano {
-        for (pin, what) in NANO_PINS {
-            ly += 14.0;
-            writeln!(s, r#"<text class="boardpin" x="{lx}" y="{ly}">{pin}</text><text class="lg" x="{}" y="{ly}">{}</text>"#, lx + 18.0, esc(what)).unwrap();
-        }
+    for (pin, what) in wiring {
+        ly += 14.0;
+        writeln!(s, r#"<text class="boardpin" x="{lx}" y="{ly}">{pin}</text><text class="lg" x="{}" y="{ly}">{}</text>"#, lx + 18.0, esc(what)).unwrap();
     }
     if opts.overlay.is_some() {
         ly += 26.0;

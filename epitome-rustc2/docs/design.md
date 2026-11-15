@@ -1449,14 +1449,17 @@ is plain `std` threads.
   tests of rust-lang/rust's `tests/ui` (programs rustc accepts; used as
   input, like the standard library) and checks that they parse, expand,
   resolve and type check without errors. Set `EPITOME_RUST` to a
-  checkout with `tests/ui` and `library` (`library/backtrace` is a
+  checkout with `tests/ui`, `tests/auxiliary` and `library` (`library/backtrace` is a
   submodule: copy it from `rust-src`). `tests/ui_check_pass_todo.txt`
   is the work left, to bring to zero: each test that does not pass yet,
   with the stage and first error where it fails, or what it needs where
-  the runner leaves it out (auxiliary crates, another target). Each
+  the runner leaves it out (proc-macro crates, another target). Each
   revision of a test is a test of its own (`path#rev`), with its own
   `--cfg` (`CrateRoot::cfg`); test crates may use only `core`, `alloc`
-  and `std` (`CrateRoot::deps`), so that they cannot see each other. Its
+  and `std` and their own auxiliary crates (`CrateRoot::deps`, which the
+  extern prelude follows), so that they cannot see each other. A test
+  that defines lang items, or whose auxiliary crates do (`minicore`),
+  runs in a session of its own, since lang items are the session's. Its
   first line names the commit and host. A test that stops passing, or
   one on the list that passes, fails the test; `EPITOME_UI_BLESS=1`
   writes the list again, in the same commit as the change. On 2026-11-15,

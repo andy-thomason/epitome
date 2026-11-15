@@ -170,6 +170,8 @@ pub struct Resolver<'s> {
     pub roots: Vec<ModId>,
     /// Crate names, for the extern prelude.
     pub crate_names: Vec<String>,
+    /// The crates each crate may name (`CrateRoot::deps`); all if `None`.
+    pub crate_deps: Vec<Option<Vec<String>>>,
     pub editions: Vec<Edition>,
     /// Each crate's std prelude module, if it has one.
     pub preludes: Vec<Option<ModId>>,

@@ -38,7 +38,8 @@ impl<'s> Resolver<'s> {
     }
 
     /// A crate in crate `krate`'s extern prelude: a crate of the session by
-    /// its name, or an `extern crate` (perhaps renamed) at the crate root.
+    /// its name (one of its deps, if it has a list of them), or an `extern
+    /// crate` (perhaps renamed) at the crate root.
     pub(super) fn extern_prelude(&self, krate: u32, name: &str) -> Option<ModId> {
         let root = self.roots[krate as usize];
         if let Some(b) = self.modules[root.0 as usize].names.get(&(name, Ns::Type))
@@ -46,6 +47,11 @@ impl<'s> Resolver<'s> {
             && self.defs[d.0 as usize].parent.is_none()
         {
             return self.defs[d.0 as usize].module;
+        }
+        if let Some(deps) = &self.crate_deps[krate as usize]
+            && !deps.iter().any(|d| d == name)
+        {
+            return None;
         }
         self.crate_root(name)
     }

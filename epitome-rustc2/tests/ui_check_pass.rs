@@ -1,8 +1,9 @@
 //! rustc's `check-pass` UI tests: programs rustc accepts, so they must
 //! parse, expand, resolve and type check here without errors.
 //!
-//! Set `EPITOME_RUST` to a checkout of rust-lang/rust with `tests/ui` and
-//! `library` (a sparse checkout of the two is enough), at the commit named
+//! Set `EPITOME_RUST` to a checkout of rust-lang/rust with `tests/ui`,
+//! `tests/auxiliary` and `library` (a sparse checkout of those is
+//! enough), at the commit named
 //! in `tests/ui_check_pass_todo.txt`; without it the test is skipped. The
 //! tests chosen are loaded, a few hundred at a time, as crates of one
 //! session beside `core`, `alloc` and `std` from the checkout's `library`.
@@ -11,6 +12,12 @@
 //! a child process, so that a test that crashes or hangs the compiler is
 //! found (by halving) and fails on its own.
 //!
+//! A test's auxiliary crates (`//@ aux-build`, `//@ aux-crate`,
+//! `//@ add-minicore`) are crates of the session too, by their names; a
+//! batch never has two different crates of one name. Lang items are the
+//! session's, so a test that defines them, or whose auxiliary crates do
+//! (`minicore`), runs in a session of its own.
+//!
 //! Each revision of a test with `//@ revisions` is a test of its own,
 //! `path#rev`, compiled with `--cfg rev` and the directives for it
 //! (`//@[rev] ...`) as well as the file's.
@@ -18,7 +25,7 @@
 //! `tests/ui_check_pass_todo.txt` is the work left: every `check-pass`
 //! test that does not pass yet, with why. Those that fail say at which
 //! stage and the first error; those left out say what they need that the
-//! runner cannot give yet (auxiliary crates, another target, `--test`).
+//! runner cannot give yet (proc-macro crates, another target, `--test`).
 //! Tests for other hosts (`ignore-*`, `only-*`) are not listed. The list
 //! is for one rust-lang/rust commit and one host, named on its first line.
 //!
@@ -35,14 +42,37 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// A test to run: its path under `tests/ui` (with `#revision` for one
-/// revision of a test with several), the edition it asks for, and the
-/// options it sets with `--cfg` (`name` or `name="value"`).
+/// revision of a test with several), the edition it asks for, the
+/// options it sets with `--cfg` (`name` or `name="value"`), and its
+/// auxiliary crates: those it uses itself (`deps`) and all those they
+/// need (`aux`).
 struct Test {
     rel: String,
     path: PathBuf,
     edition: Edition,
     cfg: Vec<String>,
+    deps: Vec<String>,
+    aux: Vec<Aux>,
+    /// It or one of its auxiliary crates defines lang items, which are
+    /// the whole session's: it runs in a session of its own.
+    alone: bool,
 }
+
+/// An auxiliary crate (`//@ aux-build`, `//@ aux-crate`): its name, file,
+/// edition, `--cfg` options and the auxiliary crates it uses.
+#[derive(Clone, PartialEq)]
+struct Aux {
+    name: String,
+    path: PathBuf,
+    edition: Edition,
+    cfg: Vec<String>,
+    deps: Vec<String>,
+    /// It defines lang items (`#![no_core]` crates such as `minicore`).
+    lang: bool,
+}
+
+/// The crates every test and auxiliary crate may use.
+const STD: [&str; 3] = ["core", "alloc", "std"];
 
 /// How many tests a child process takes at a time.
 const BATCH: usize = 250;
@@ -127,11 +157,22 @@ fn select_one(path: &Path, name: String, directives: &[(&str, &str)], rev: Optio
     let mut left_out: Option<&'static str> = None;
     let mut edition = Edition::E2015;
     let mut cfg: Vec<String> = rev.map(str::to_string).into_iter().collect();
+    // Auxiliary crates, as (name, file).
+    let mut aux_files: Vec<(String, String)> = Vec::new();
     for &(name, value) in directives {
         match name {
-            "aux-build" | "aux-crate" | "aux-bin" | "aux-codegen-backend" | "proc-macro" => {
-                left_out.get_or_insert("auxiliary crates");
+            "aux-build" | "aux-crate" => match aux_spec(name, value) {
+                Some(a) => aux_files.push(a),
+                None => _ = left_out.get_or_insert("auxiliary crates"),
+            },
+            // `tests/auxiliary/minicore.rs`, a `core` of lang items.
+            "add-minicore" => {
+                let tests = path.ancestors().find(|a| a.file_name().is_some_and(|n| n == "ui")).and_then(Path::parent);
+                let minicore = tests.map(|t| t.join("auxiliary/minicore.rs"));
+                aux_files.push(("minicore".into(), minicore.map_or(String::new(), |m| m.display().to_string())));
             }
+            "proc-macro" => _ = left_out.get_or_insert("proc-macro crates"),
+            "aux-bin" | "aux-codegen-backend" => _ = left_out.get_or_insert("auxiliary binaries"),
             "edition" => {
                 // `2021`, or a range `2018..` / `2015..2021`: its start.
                 let start: String = value.chars().take_while(char::is_ascii_digit).collect();
@@ -178,14 +219,105 @@ fn select_one(path: &Path, name: String, directives: &[(&str, &str)], rev: Optio
             }
         }
     }
+    let aux_dir = path.parent().unwrap().join("auxiliary");
+    let mut aux = Vec::new();
+    if left_out.is_none()
+        && let Err(why) = aux_crates(&aux_dir, &aux_files, rev, &mut aux, 0)
+    {
+        left_out = Some(why);
+    }
     let what = if ignored {
         Selected::Ignored
     } else if let Some(why) = left_out {
         Selected::LeftOut(why)
     } else {
-        Selected::Run(Test { rel: name.clone(), path: path.to_path_buf(), edition, cfg })
+        let deps = aux_files.into_iter().map(|a| a.0).collect();
+        let lang = std::fs::read_to_string(path).is_ok_and(|t| defines_lang_items(&t));
+        let alone = lang || aux.iter().any(|a| a.lang);
+        Selected::Run(Test { rel: name.clone(), path: path.to_path_buf(), edition, cfg, deps, aux, alone })
     };
     Some((name, what))
+}
+
+/// Whether a crate's source defines lang items.
+fn defines_lang_items(text: &str) -> bool {
+    text.contains("#[lang =") || text.contains("#[lang=")
+}
+
+/// The name and file of `//@ aux-build: file.rs` (the file's name, with
+/// `-` as `_`) or `//@ aux-crate: [options:]name=file.rs`.
+fn aux_spec(directive: &str, value: &str) -> Option<(String, String)> {
+    if directive == "aux-crate" {
+        let (name, file) = value.split_once('=')?;
+        let name = name.rsplit(':').next()?.trim();
+        return Some((name.to_string(), file.trim().to_string()));
+    }
+    let file = value.trim();
+    let stem = Path::new(file).file_stem()?.to_string_lossy().replace('-', "_");
+    Some((stem, file.to_string()))
+}
+
+/// Adds the auxiliary crates `files` (from `dir`) to `out`, with those
+/// they use in turn, each once. A crate name used for two different
+/// crates, or a proc-macro crate, leaves the test out.
+fn aux_crates(
+    dir: &Path,
+    files: &[(String, String)],
+    rev: Option<&str>,
+    out: &mut Vec<Aux>,
+    depth: usize,
+) -> Result<(), &'static str> {
+    if depth > 8 {
+        return Err("auxiliary crates");
+    }
+    for (name, file) in files {
+        let path = dir.join(file);
+        let text = std::fs::read_to_string(&path).map_err(|_| "auxiliary crates")?;
+        if text.contains("crate_type = \"proc-macro\"") {
+            return Err("proc-macro crates");
+        }
+        let mut edition = Edition::E2015;
+        let mut cfg: Vec<String> = rev.map(str::to_string).into_iter().collect();
+        let mut nested = Vec::new();
+        for line in text.lines() {
+            let Some(d) = line.trim_start().strip_prefix("//@") else { continue };
+            let (n, v) = d.split_once(':').map_or((d.trim(), ""), |(n, v)| (n.trim(), v.trim()));
+            match n {
+                "edition" => {
+                    let start: String = v.chars().take_while(char::is_ascii_digit).collect();
+                    edition = Edition::parse(&start).ok_or("edition")?;
+                }
+                "aux-build" | "aux-crate" => nested.push(aux_spec(n, v).ok_or("auxiliary crates")?),
+                "proc-macro" => return Err("proc-macro crates"),
+                "compile-flags" => {
+                    let mut flags = v.split_whitespace();
+                    while let Some(f) = flags.next() {
+                        if f == "--cfg" {
+                            cfg.extend(flags.next().map(|c| c.trim_matches('\'').to_string()));
+                        } else if let Some(c) = f.strip_prefix("--cfg=") {
+                            cfg.push(c.trim_matches('\'').to_string());
+                        } else if f == "--edition" {
+                            edition = flags.next().and_then(Edition::parse).ok_or("edition")?;
+                        } else if let Some(e) = f.strip_prefix("--edition=") {
+                            edition = Edition::parse(e).ok_or("edition")?;
+                        } else if f.contains("proc-macro") {
+                            return Err("proc-macro crates");
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        aux_crates(dir, &nested, rev, out, depth + 1)?;
+        let deps = nested.into_iter().map(|n| n.0).collect();
+        let a = Aux { name: name.clone(), path, edition, cfg, deps, lang: defines_lang_items(&text) };
+        match out.iter().find(|x| x.name == a.name) {
+            Some(x) if *x != a => return Err("auxiliary crates with the same name"),
+            Some(_) => {}
+            None => out.push(a),
+        }
+    }
+    Ok(())
 }
 
 /// Whether `ignore-x` / `only-x` names this host.
@@ -224,64 +356,98 @@ fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
+/// A crate's configuration: the host's with `--cfg` options added.
+fn cfg_with(options: &[String]) -> Option<CfgSet> {
+    if options.is_empty() {
+        return None;
+    }
+    let mut cfg = CfgSet::host();
+    for c in options {
+        match c.split_once('=') {
+            Some((n, v)) => cfg.set_value(n, v.trim_matches('"')),
+            None => cfg.set(c),
+        };
+    }
+    Some(cfg)
+}
+
+/// A crate that may use the standard crates and `deps`.
+fn crate_root(name: String, path: &Path, edition: Edition, cfg: &[String], deps: &[String]) -> CrateRoot {
+    let mut all: Vec<String> = STD.map(String::from).to_vec();
+    all.extend(deps.iter().cloned());
+    let root = CrateRoot::new(name, path).edition(edition).deps(all);
+    match cfg_with(cfg) {
+        Some(c) => root.cfg(c),
+        None => root,
+    }
+}
+
 /// Runs `tests` in one session: for each, `None` if it passed, or why not.
+/// The tests' auxiliary crates are loaded once each, by name (the batch
+/// has no two different crates of one name).
 fn run(library: &Path, tests: &[&Test]) -> Vec<Option<String>> {
     let session = Session::new(Options { cfg: Some(CfgSet::host()), ..Default::default() });
-    let mut roots: Vec<CrateRoot> = ["core", "alloc", "std"]
-        .iter()
-        .map(|n| CrateRoot::new(*n, library.join(n).join("src/lib.rs")).edition(Edition::E2024))
-        .collect();
+    let mut roots: Vec<CrateRoot> =
+        STD.iter().map(|n| CrateRoot::new(*n, library.join(n).join("src/lib.rs")).edition(Edition::E2024)).collect();
+    let mut aux_index: BTreeMap<&str, usize> = BTreeMap::new();
+    for a in tests.iter().flat_map(|t| &t.aux) {
+        if !aux_index.contains_key(a.name.as_str()) {
+            aux_index.insert(&a.name, roots.len());
+            roots.push(crate_root(a.name.clone(), &a.path, a.edition, &a.cfg, &a.deps));
+        }
+    }
     let first = roots.len();
     // Names no program could mean, so that one test's paths cannot find
     // another test.
-    roots.extend(tests.iter().enumerate().map(|(i, t)| {
-        let root = CrateRoot::new(format!("__ui_test_{i}"), &t.path)
-            .edition(t.edition)
-            .deps(["core", "alloc", "std"].map(String::from).to_vec());
-        if t.cfg.is_empty() {
-            return root;
-        }
-        let mut cfg = CfgSet::host();
-        for c in &t.cfg {
-            match c.split_once('=') {
-                Some((n, v)) => cfg.set_value(n, v.trim_matches('"')),
-                None => cfg.set(c),
-            };
-        }
-        root.cfg(cfg)
-    }));
+    roots.extend(
+        tests
+            .iter()
+            .enumerate()
+            .map(|(i, t)| crate_root(format!("__ui_test_{i}"), &t.path, t.edition, &t.cfg, &t.deps)),
+    );
     let mut crates = session.parse_crates(roots);
     let expanded = session.expand(&mut crates);
     let r = session.resolve(&crates);
     let tcx = session.collect_types(&crates, &r);
     let res = session.typeck(&crates, &r, &tcx);
-    (first..crates.len())
-        .map(|k| {
-            let c = &crates[k];
-            if let Some(e) = c.errors.first() {
-                // `file:line:col: error: message`: the message, then where.
-                let line = e.render_in(&session.sources).lines().next().unwrap_or("").to_string();
-                return Some(match line.split_once(": error: ") {
-                    Some((at, message)) => format!("error: {message} ({})", at.rsplit('/').next().unwrap_or(at)),
-                    None => line,
-                });
+    let verdict = |k: usize| {
+        let c = &crates[k];
+        if let Some(e) = c.errors.first() {
+            // `file:line:col: error: message`: the message, then where.
+            let line = e.render_in(&session.sources).lines().next().unwrap_or("").to_string();
+            return Some(match line.split_once(": error: ") {
+                Some((at, message)) => format!("error: {message} ({})", at.rsplit('/').next().unwrap_or(at)),
+                None => line,
+            });
+        }
+        if let Some(m) = expanded.unresolved_by_crate.get(&k) {
+            return Some(format!("macro not found: {}!", m.keys().next().unwrap()));
+        }
+        if let Some(i) = r.failed_import_lines_of(k as u32).first() {
+            return Some(format!("import not resolved: {i}"));
+        }
+        let s = r.crate_stats(&crates, k);
+        if s.unresolved > 0 {
+            return Some(format!("path not resolved: {}", s.unresolved_names[0].0));
+        }
+        let t = &res.crate_stats[k];
+        if t.clean_bodies < t.bodies {
+            let why = t.reasons.first().map_or("a type left unknown", |w| w.0.as_str());
+            return Some(format!("type check: {why}"));
+        }
+        None
+    };
+    tests
+        .iter()
+        .enumerate()
+        .map(|(i, t)| {
+            // An auxiliary crate that fails fails the test.
+            for a in &t.aux {
+                if let Some(why) = verdict(aux_index[a.name.as_str()]) {
+                    return Some(format!("auxiliary crate `{}`: {why}", a.name));
+                }
             }
-            if let Some(m) = expanded.unresolved_by_crate.get(&k) {
-                return Some(format!("macro not found: {}!", m.keys().next().unwrap()));
-            }
-            if let Some(i) = r.failed_import_lines_of(k as u32).first() {
-                return Some(format!("import not resolved: {i}"));
-            }
-            let s = r.crate_stats(&crates, k);
-            if s.unresolved > 0 {
-                return Some(format!("path not resolved: {}", s.unresolved_names[0].0));
-            }
-            let t = &res.crate_stats[k];
-            if t.clean_bodies < t.bodies {
-                let why = t.reasons.first().map_or("a type left unknown", |w| w.0.as_str());
-                return Some(format!("type check: {why}"));
-            }
-            None
+            verdict(first + i)
         })
         .collect()
 }
@@ -294,10 +460,16 @@ fn run(library: &Path, tests: &[&Test]) -> Vec<Option<String>> {
 fn run_isolated(library: &Path, tests: &[&Test], out: &mut Vec<Option<String>>) {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"));
     let (batch, results) = (dir.join("ui_check_pass.batch"), dir.join("ui_check_pass.results"));
-    let list: String = tests
-        .iter()
-        .map(|t| format!("{}\t{}\t{}\t{}\n", year(t.edition), t.rel, t.path.display(), t.cfg.join("\x1f")))
-        .collect();
+    let mut list = String::new();
+    for t in tests {
+        let line = |kind: &str, name: &str, e: Edition, path: &Path, cfg: &[String], deps: &[String]| {
+            format!("{kind}\t{name}\t{}\t{}\t{}\t{}\n", year(e), path.display(), cfg.join("\x1f"), deps.join("\x1f"))
+        };
+        list += &line("T", &t.rel, t.edition, &t.path, &t.cfg, &t.deps);
+        for a in &t.aux {
+            list += &line("A", &a.name, a.edition, &a.path, &a.cfg, &a.deps);
+        }
+    }
     std::fs::write(&batch, list).unwrap();
     let _ = std::fs::remove_file(&results);
     let mut child = Command::new(std::env::current_exe().unwrap())
@@ -363,16 +535,19 @@ fn run_isolated(library: &Path, tests: &[&Test], out: &mut Vec<Option<String>>) 
 fn child(batch: &Path) {
     let library = PathBuf::from(std::env::var_os("EPITOME_RUST_LIBRARY").unwrap());
     let results = PathBuf::from(std::env::var_os("EPITOME_UI_RESULTS").unwrap());
-    let tests: Vec<Test> = std::fs::read_to_string(batch)
-        .unwrap()
-        .lines()
-        .map(|l| {
-            let mut f = l.splitn(4, '\t');
-            let (e, rel, path, cfg) = (f.next().unwrap(), f.next().unwrap(), f.next().unwrap(), f.next().unwrap());
-            let cfg = cfg.split('\x1f').filter(|c| !c.is_empty()).map(str::to_string).collect();
-            Test { rel: rel.to_string(), path: PathBuf::from(path), edition: Edition::parse(e).unwrap(), cfg }
-        })
-        .collect();
+    let mut tests: Vec<Test> = Vec::new();
+    for l in std::fs::read_to_string(batch).unwrap().lines() {
+        let f: Vec<&str> = l.split('\t').collect();
+        let list = |x: &str| x.split('\x1f').filter(|c| !c.is_empty()).map(str::to_string).collect::<Vec<_>>();
+        let (name, edition, path) = (f[1].to_string(), Edition::parse(f[2]).unwrap(), PathBuf::from(f[3]));
+        if f[0] == "T" {
+            let t = Test { rel: name, path, edition, cfg: list(f[4]), deps: list(f[5]), aux: Vec::new(), alone: false };
+            tests.push(t);
+        } else {
+            let a = Aux { name, path, edition, cfg: list(f[4]), deps: list(f[5]), lang: false };
+            tests.last_mut().unwrap().aux.push(a);
+        }
+    }
     // A compiler's stack: deep expressions recurse deeply.
     let verdicts = std::thread::Builder::new()
         .stack_size(256 << 20)
@@ -435,10 +610,28 @@ fn check_pass_tests_are_accepted() {
         }
     }
     let t = std::time::Instant::now();
-    let refs: Vec<&Test> = tests.iter().collect();
+    // Batches of tests whose auxiliary crates do not clash: one name, one
+    // crate.
+    let mut batches: Vec<Vec<&Test>> = vec![Vec::new()];
+    let mut names: BTreeMap<&str, &Aux> = BTreeMap::new();
+    for t in &tests {
+        if t.alone {
+            batches.push(vec![t]);
+            batches.push(Vec::new());
+            names.clear();
+            continue;
+        }
+        let clash = t.aux.iter().any(|a| names.get(a.name.as_str()).is_some_and(|b| *b != a));
+        if clash || batches.last().unwrap().len() == BATCH {
+            batches.push(Vec::new());
+            names.clear();
+        }
+        names.extend(t.aux.iter().map(|a| (a.name.as_str(), a)));
+        batches.last_mut().unwrap().push(t);
+    }
     let mut verdicts = Vec::new();
-    for chunk in refs.chunks(BATCH) {
-        run_isolated(&library, chunk, &mut verdicts);
+    for b in batches.iter().filter(|b| !b.is_empty()) {
+        run_isolated(&library, b, &mut verdicts);
     }
     let elapsed = t.elapsed();
 

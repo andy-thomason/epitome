@@ -15,6 +15,7 @@ pub(super) fn collect<'s>(session: &Session, crates: &[ParsedCrate<'s>]) -> Reso
         modules: Vec::new(),
         roots: Vec::new(),
         crate_names: crates.iter().map(|c| c.name.clone()).collect(),
+        crate_deps: crates.iter().map(|c| c.deps.clone()).collect(),
         editions: crates.iter().map(|c| c.edition).collect(),
         preludes: vec![None; crates.len()],
         file_modules: Vec::new(),

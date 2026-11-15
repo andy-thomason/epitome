@@ -160,7 +160,7 @@ impl Session {
                 }
             }
             let results: Mutex<Vec<(usize, FileResult<'s>)>> = Mutex::new(Vec::new());
-            let resolver = crate::resolve::module_tree(crates);
+            let resolver = crate::resolve::module_tree(self, crates);
             let editions: Vec<Edition> = crates.iter().map(|c| c.edition).collect();
             let names: Vec<String> = crates.iter().map(|c| c.name.clone()).collect();
             let dirs: Vec<std::path::PathBuf> = crates.iter().map(|c| c.dir.clone()).collect();
@@ -673,12 +673,12 @@ impl<'x, 's> Expander<'x, 's> {
             .filter(|&&s| ast.kind(s) == Kind::Segment)
             .map(|&s| ast.token(s).ident_name())
             .collect();
-        let rooted = ast.child(path, Kind::PathRoot).is_some();
+        let root = ast.child(path, Kind::PathRoot).map(|n| ast.token(n));
         let name = *segs.last()?;
         let mut pos = file.pos.clone();
         pos.extend(node_pos(ast, call));
         let module: Vec<String> = scope.iter().map(|s| s.name.clone()).collect();
-        let def = self.resolve(&segs, rooted, &pos, &module);
+        let def = self.resolve(&segs, root, &pos, &module);
         let input: Vec<Token<'s>> = self.desugar_docs(inner(ast, tt));
         let call_tok = ast.node(call).first as usize;
         let eof = ast.tokens_of(tt).last().map_or(Token(""), |t| Token(&t.0[..0]));
@@ -803,7 +803,7 @@ impl<'x, 's> Expander<'x, 's> {
             if crate::expand::builtin::is_builtin(name) || matches!(name, "cfg" | "cfg_attr" | "derive" | "derive_const") {
                 continue;
             }
-            let Some(d) = self.resolve(&segs, false, &[u32::MAX], &[]) else { continue };
+            let Some(d) = self.resolve(&segs, None, &[u32::MAX], &[]) else { continue };
             let MacroKind::Proc(lib, crate::proc_macro::ProcMacroKind::Attr) = &self.macros.defs[d].kind else {
                 continue;
             };
@@ -838,7 +838,7 @@ impl<'x, 's> Expander<'x, 's> {
             for path in inner(&file.ast, tt).split(|t| t.0 == ",") {
                 let segs: Vec<&'s str> = path.iter().filter(|t| t.is_ident()).map(|t| t.ident_name()).collect();
                 let Some(&last) = segs.last() else { continue };
-                match self.resolve(&segs, false, &[u32::MAX], &[]).map(|d| &self.macros.defs[d].kind) {
+                match self.resolve(&segs, None, &[u32::MAX], &[]).map(|d| &self.macros.defs[d].kind) {
                     Some(MacroKind::Proc(lib, crate::proc_macro::ProcMacroKind::Derive)) => {
                         derives.push((Some(lib.clone()), last, a));
                     }
@@ -864,7 +864,7 @@ impl<'x, 's> Expander<'x, 's> {
             let tokens = match lib {
                 Some(lib) => self.run_proc_macro(file, a, &lib, name, &body, None),
                 None => match if name == "global_allocator" { allocator::shim(&file.ast, item) } else { derive::derive(&file.ast, item, name) } {
-                    Ok(text) => match lex_text(self.session, &format!("<derive({name})>"), text) {
+                    Ok(text) => match lex_builtin_text(self.session, &format!("<derive({name})>"), text) {
                         Ok(t) => Some(t),
                         Err(e) => {
                             self.result.errors.push(e);
@@ -998,10 +998,10 @@ impl<'x, 's> Expander<'x, 's> {
         }
         let segs: Vec<&'s str> = tokens[..bang].iter().filter(|t| t.is_ident()).map(|t| t.ident_name()).collect();
         let name = *segs.last()?;
-        let rooted = tokens.first().is_some_and(|t| t.0 == "::" || t.0 == ":");
+        let root = tokens.first().copied().filter(|t| t.0 == "::" || t.0 == ":");
         let inner = &tokens[bang + 2..tokens.len() - 1];
         let eof = Token(&tokens.last()?.0[..0]);
-        let out = match self.resolve(&segs, rooted, pos, module) {
+        let out = match self.resolve(&segs, root, pos, module) {
             Some(d) => match &self.macros.defs[d].kind {
                 MacroKind::Rules(rules) => {
                     let make = |s: String| Token(self.session.add_text("<macro>", s));
@@ -1130,8 +1130,9 @@ impl<'x, 's> Expander<'x, 's> {
         }
     }
 
-    /// Finds the macro a call names.
-    fn resolve(&self, segs: &[&'s str], rooted: bool, pos: &[u32], module: &[String]) -> Option<usize> {
+    /// Finds the macro a call names; `root` is its path's leading `::`.
+    fn resolve(&self, segs: &[&'s str], root: Option<Token<'s>>, pos: &[u32], module: &[String]) -> Option<usize> {
+        let rooted = root.is_some();
         let m = self.macros;
         let name = *segs.last()?;
         if segs.len() == 1 && !rooted {
@@ -1157,7 +1158,7 @@ impl<'x, 's> Expander<'x, 's> {
         let call_site = *self.mods.last()?;
         let def_site = self.resolver.def_site_module(segs[0]);
         for here in def_site.into_iter().chain([call_site]) {
-            if let Some(d) = self.resolver.resolve_macro(self.krate as u32, here, segs, rooted) {
+            if let Some(d) = self.resolver.resolve_macro(self.krate as u32, here, segs, root) {
                 let def = &self.resolver.defs[d.0 as usize];
                 if let Some(&i) = m.by_node.get(&(def.krate as usize, def.file, def.node)) {
                     return Some(i);
@@ -1212,4 +1213,14 @@ fn is_item(k: Kind) -> bool {
 pub(crate) fn lex_text<'s>(session: &'s Session, name: &str, text: String) -> Result<Vec<Token<'s>>, Error<'s>> {
     let text = session.add_text(name, text);
     lex(text)
+}
+
+/// `lex_text` for code a built-in macro or derive wrote
+/// (`Session::builtin_texts`).
+pub(crate) fn lex_builtin_text<'s>(
+    session: &'s Session,
+    name: &str,
+    text: String,
+) -> Result<Vec<Token<'s>>, Error<'s>> {
+    lex(session.add_builtin_text(name, text))
 }

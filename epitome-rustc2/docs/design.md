@@ -1269,11 +1269,31 @@ Type checking needed these for `std`:
   on them (`SpecExtend`'s family), and a `Box`'s allocator is unified in
   coercion.
 
-Not yet: `std::thread::spawn` (which calls a `Box<dyn FnOnce()>`, a
-`dyn` method taking `self` by value, and `AssertUnwindSafe<F>` through its
-`FnOnce` impl); unwinding and panic messages; and the rest of what `std`
-reaches. Threads made with `pthread_create` work, each with its own
-thread locals (`tests/run/tls.rs`, on x86-64 Linux and on macOS). On
+Threads: `std::thread::spawn` and `join` work (`tests/run/std_threads.rs`:
+`thread_local!` per thread, `Arc<Mutex<_>>`, results from `join`), as do
+threads made with `pthread_create` (`tests/run/tls.rs`). What spawning
+needed:
+
+- **Calls of things with `Fn` impls of their own** (`AssertUnwindSafe<F>`,
+  `Box<F>`): the impl's method, the arguments as a tuple.
+- **A `dyn` taken by value.** `Box<dyn FnOnce()>`'s `call_once` is
+  `<dyn FnOnce() as FnOnce<()>>::call_once(*self, args)`: the `dyn` is
+  moved out of the box (which is then freed without dropping it) and
+  passed by address to its vtable's `call_once`. For a closure that is a
+  shim: the closure's function, then the closure's drop glue unless the
+  closure drops its own captures.
+- **Moves out of what a box holds through autoderef** (`self.rust_start`
+  of a `self: Box<Self>`): a path through the box.
+- **Type checking**: a `dyn` type's auto traits in one order (`dyn Send +
+  FnOnce()` is `dyn FnOnce() + Send`); an inherent impl's `where` clauses
+  as its methods' obligations (`DropGuard::new`'s closure takes what `F:
+  FnOnce(T)` says); and a method's receiver taken by value (`hooks.run()`
+  in a closure) captured by value.
+
+Not yet: unwinding and panic messages, and the rest of what `std`
+reaches. On macOS, programs with `std` do not link yet: the code
+generator calls the outlined atomics helpers (`__aarch64_ldadd8_relax`)
+that macOS's C library does not have. On
 mandelbrot, `tests/run/std_hello.rs` (formatting, `Vec`, iterators,
 `String`, `Box<dyn Trait>`, drops and `env::args`) prints what rustc's
 build prints, optimised and not.

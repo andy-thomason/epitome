@@ -366,7 +366,10 @@ impl<'a, 's> FnCtxt<'a, 's> {
             let place_use = borrowed
                 || match ast.kind(up) {
                     Kind::Borrow | Kind::Unary => true,
-                    Kind::Field | Kind::Index | Kind::Match | Kind::MethodCall => first,
+                    // A method's receiver is a place only if it is
+                    // borrowed (`borrowed`, from its adjustments): one taken
+                    // by value (`hooks.run()`) is moved.
+                    Kind::Field | Kind::Index | Kind::Match => first,
                     Kind::Let => !first,
                     Kind::Binary => first && ast.children(up).get(1).is_some_and(|&o| ast.text(o).ends_with('=') && !matches!(ast.text(o).as_str(), "==" | "!=" | "<=" | ">=")),
                     _ => false,

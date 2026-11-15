@@ -6,16 +6,21 @@
 //! in `tests/ui_check_pass_todo.txt`; without it the test is skipped. The
 //! tests chosen are loaded, a few hundred at a time, as crates of one
 //! session beside `core`, `alloc` and `std` from the checkout's `library`.
-//! Each session runs in a child process, so that a test that crashes or
-//! hangs the compiler is found (by halving) and fails on its own.
+//! Each test crate has its own configuration (`--cfg`) and may use only
+//! those three, so that tests cannot see each other. Each session runs in
+//! a child process, so that a test that crashes or hangs the compiler is
+//! found (by halving) and fails on its own.
+//!
+//! Each revision of a test with `//@ revisions` is a test of its own,
+//! `path#rev`, compiled with `--cfg rev` and the directives for it
+//! (`//@[rev] ...`) as well as the file's.
 //!
 //! `tests/ui_check_pass_todo.txt` is the work left: every `check-pass`
 //! test that does not pass yet, with why. Those that fail say at which
-//! stage and the first error; those left out say what they need that one
-//! shared session cannot give (auxiliary crates, revisions, `--cfg` and
-//! other flags that change a crate's configuration). Tests for other
-//! hosts (`ignore-*`, `only-*`) are not listed. The list is for one
-//! rust-lang/rust commit and one host, named on its first line.
+//! stage and the first error; those left out say what they need that the
+//! runner cannot give yet (auxiliary crates, another target, `--test`).
+//! Tests for other hosts (`ignore-*`, `only-*`) are not listed. The list
+//! is for one rust-lang/rust commit and one host, named on its first line.
 //!
 //! The test fails if a test not on the list fails, or one on it passes:
 //! `EPITOME_UI_BLESS=1` writes the list again, so a change that fixes
@@ -29,11 +34,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// A test to run: its path under `tests/ui`, and the edition it asks for.
+/// A test to run: its path under `tests/ui` (with `#revision` for one
+/// revision of a test with several), the edition it asks for, and the
+/// options it sets with `--cfg` (`name` or `name="value"`).
 struct Test {
     rel: String,
     path: PathBuf,
     edition: Edition,
+    cfg: Vec<String>,
 }
 
 /// How many tests a child process takes at a time.
@@ -48,38 +56,79 @@ fn year(e: Edition) -> &'static str {
     }
 }
 
-/// What a file's `//@` directives say: whether it is a `check-pass`
-/// test, and if it is, the test to run or why it is left out.
+/// What a `check-pass` test (or one revision of one) needs.
 enum Selected {
-    NotCheckPass,
     /// Not run on this host (`ignore-*`, `only-*`): neither run nor listed.
     Ignored,
     LeftOut(&'static str),
     Run(Test),
 }
 
-fn select(ui: &Path, path: &Path) -> Selected {
-    let Ok(text) = std::fs::read_to_string(path) else { return Selected::NotCheckPass };
-    let mut check_pass = false;
-    let mut ignored = false;
-    // The first reason the test cannot run here.
-    let mut left_out: Option<&'static str> = None;
-    let mut edition = Edition::E2015;
+/// The modes compiletest knows; a test is in one.
+const MODES: [&str; 6] = ["check-pass", "build-pass", "run-pass", "check-fail", "build-fail", "run-fail"];
+
+/// The `check-pass` tests of a file, by name (the path, or `path#rev` for
+/// each revision), with what each needs. A directive `//@[a,b] name`
+/// applies to revisions `a` and `b` only; each revision is compiled with
+/// `--cfg rev` as well as its own flags.
+fn select(ui: &Path, path: &Path) -> Vec<(String, Selected)> {
+    let Ok(text) = std::fs::read_to_string(path) else { return Vec::new() };
+    // Each directive: the revisions it is for (all if `None`), its name
+    // and its value.
+    let mut directives: Vec<(Option<Vec<&str>>, &str, &str)> = Vec::new();
     for line in text.lines() {
         let Some(d) = line.trim_start().strip_prefix("//@") else { continue };
         let mut d = d.trim();
-        // `//@[rev] directive`: a revision's own.
+        let mut revs = None;
         if let Some(rest) = d.strip_prefix('[') {
-            left_out.get_or_insert("revisions");
-            d = rest.split_once(']').map_or("", |x| x.1.trim());
+            let Some((r, rest)) = rest.split_once(']') else { continue };
+            revs = Some(r.split(',').map(str::trim).collect());
+            d = rest.trim();
         }
         let (name, value) = match d.split_once(':') {
             Some((n, v)) => (n.trim(), v.trim()),
             None => (d, ""),
         };
+        directives.push((revs, name, value));
+    }
+    let rel = path.strip_prefix(ui).unwrap().to_string_lossy().into_owned();
+    let revisions: Vec<&str> = directives
+        .iter()
+        .filter(|d| d.0.is_none() && d.1 == "revisions")
+        .flat_map(|d| d.2.split([' ', ',']).filter(|r| !r.is_empty()))
+        .collect();
+    if revisions.is_empty() {
+        let all: Vec<(&str, &str)> = directives.iter().map(|d| (d.1, d.2)).collect();
+        return select_one(path, rel, &all, None).into_iter().collect();
+    }
+    revisions
+        .iter()
+        .filter_map(|&rev| {
+            // The file's directives, then the revision's (which come
+            // after, so that its mode wins).
+            let mut mine: Vec<(&str, &str)> = directives.iter().filter(|d| d.0.is_none()).map(|d| (d.1, d.2)).collect();
+            mine.extend(
+                directives.iter().filter(|d| d.0.as_ref().is_some_and(|r| r.contains(&rev))).map(|d| (d.1, d.2)),
+            );
+            select_one(path, format!("{rel}#{rev}"), &mine, Some(rev))
+        })
+        .collect()
+}
+
+/// What one test (or revision) whose directives are `directives` needs;
+/// `None` if it is not a `check-pass` test.
+fn select_one(path: &Path, name: String, directives: &[(&str, &str)], rev: Option<&str>) -> Option<(String, Selected)> {
+    let mode = directives.iter().rev().find(|d| MODES.contains(&d.0)).map(|d| d.0);
+    if mode != Some("check-pass") {
+        return None;
+    }
+    let mut ignored = false;
+    // The first reason the test cannot run here.
+    let mut left_out: Option<&'static str> = None;
+    let mut edition = Edition::E2015;
+    let mut cfg: Vec<String> = rev.map(str::to_string).into_iter().collect();
+    for &(name, value) in directives {
         match name {
-            "check-pass" => check_pass = true,
-            "revisions" => _ = left_out.get_or_insert("revisions"),
             "aux-build" | "aux-crate" | "aux-bin" | "aux-codegen-backend" | "proc-macro" => {
                 left_out.get_or_insert("auxiliary crates");
             }
@@ -94,19 +143,24 @@ fn select(ui: &Path, path: &Path) -> Selected {
             "compile-flags" => {
                 let mut flags = value.split_whitespace();
                 while let Some(f) = flags.next() {
-                    if let Some(e) = f.strip_prefix("--edition") {
-                        let e = if e.is_empty() { flags.next().unwrap_or("") } else { e.trim_start_matches('=') };
-                        match Edition::parse(e) {
+                    // `--flag value` or `--flag=value`.
+                    let mut arg = |prefix: &str| {
+                        let v = f.strip_prefix(prefix)?;
+                        Some(
+                            if v.is_empty() { flags.next().unwrap_or("") } else { v.trim_start_matches('=') }
+                                .to_string(),
+                        )
+                    };
+                    if let Some(e) = arg("--edition") {
+                        match Edition::parse(&e) {
                             Some(e) => edition = e,
                             None => _ = left_out.get_or_insert("edition"),
                         }
+                    } else if let Some(c) = arg("--cfg") {
+                        cfg.push(c.trim_matches('\'').to_string());
                     } else if f == "--test" {
                         left_out.get_or_insert("--test");
-                    } else if f.starts_with("--cfg")
-                        || f.starts_with("--extern")
-                        || f.starts_with("--target")
-                        || f.starts_with("-Zcrate-attr")
-                    {
+                    } else if f.starts_with("--extern") || f.starts_with("--target") || f.starts_with("-Zcrate-attr") {
                         left_out.get_or_insert("flags that change the crate");
                     } else if f.starts_with("--crate-type")
                         && (f.contains("proc-macro") || flags.clone().next() == Some("proc-macro"))
@@ -124,17 +178,14 @@ fn select(ui: &Path, path: &Path) -> Selected {
             }
         }
     }
-    if !check_pass {
-        return Selected::NotCheckPass;
-    }
-    if ignored {
-        return Selected::Ignored;
-    }
-    if let Some(why) = left_out {
-        return Selected::LeftOut(why);
-    }
-    let rel = path.strip_prefix(ui).unwrap().to_string_lossy().into_owned();
-    Selected::Run(Test { rel, path: path.to_path_buf(), edition })
+    let what = if ignored {
+        Selected::Ignored
+    } else if let Some(why) = left_out {
+        Selected::LeftOut(why)
+    } else {
+        Selected::Run(Test { rel: name.clone(), path: path.to_path_buf(), edition, cfg })
+    };
+    Some((name, what))
 }
 
 /// Whether `ignore-x` / `only-x` names this host.
@@ -183,9 +234,22 @@ fn run(library: &Path, tests: &[&Test]) -> Vec<Option<String>> {
     let first = roots.len();
     // Names no program could mean, so that one test's paths cannot find
     // another test.
-    roots.extend(
-        tests.iter().enumerate().map(|(i, t)| CrateRoot::new(format!("__ui_test_{i}"), &t.path).edition(t.edition)),
-    );
+    roots.extend(tests.iter().enumerate().map(|(i, t)| {
+        let root = CrateRoot::new(format!("__ui_test_{i}"), &t.path)
+            .edition(t.edition)
+            .deps(["core", "alloc", "std"].map(String::from).to_vec());
+        if t.cfg.is_empty() {
+            return root;
+        }
+        let mut cfg = CfgSet::host();
+        for c in &t.cfg {
+            match c.split_once('=') {
+                Some((n, v)) => cfg.set_value(n, v.trim_matches('"')),
+                None => cfg.set(c),
+            };
+        }
+        root.cfg(cfg)
+    }));
     let mut crates = session.parse_crates(roots);
     let expanded = session.expand(&mut crates);
     let r = session.resolve(&crates);
@@ -230,8 +294,10 @@ fn run(library: &Path, tests: &[&Test]) -> Vec<Option<String>> {
 fn run_isolated(library: &Path, tests: &[&Test], out: &mut Vec<Option<String>>) {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"));
     let (batch, results) = (dir.join("ui_check_pass.batch"), dir.join("ui_check_pass.results"));
-    let list: String =
-        tests.iter().map(|t| format!("{}\t{}\t{}\n", year(t.edition), t.rel, t.path.display())).collect();
+    let list: String = tests
+        .iter()
+        .map(|t| format!("{}\t{}\t{}\t{}\n", year(t.edition), t.rel, t.path.display(), t.cfg.join("\x1f")))
+        .collect();
     std::fs::write(&batch, list).unwrap();
     let _ = std::fs::remove_file(&results);
     let mut child = Command::new(std::env::current_exe().unwrap())
@@ -301,9 +367,10 @@ fn child(batch: &Path) {
         .unwrap()
         .lines()
         .map(|l| {
-            let mut f = l.splitn(3, '\t');
-            let (e, rel, path) = (f.next().unwrap(), f.next().unwrap(), f.next().unwrap());
-            Test { rel: rel.to_string(), path: PathBuf::from(path), edition: Edition::parse(e).unwrap() }
+            let mut f = l.splitn(4, '\t');
+            let (e, rel, path, cfg) = (f.next().unwrap(), f.next().unwrap(), f.next().unwrap(), f.next().unwrap());
+            let cfg = cfg.split('\x1f').filter(|c| !c.is_empty()).map(str::to_string).collect();
+            Test { rel: rel.to_string(), path: PathBuf::from(path), edition: Edition::parse(e).unwrap(), cfg }
         })
         .collect();
     // A compiler's stack: deep expressions recurse deeply.
@@ -356,14 +423,14 @@ fn check_pass_tests_are_accepted() {
         if !f.to_string_lossy().contains(&filter) {
             continue;
         }
-        match select(&ui, f) {
-            Selected::Run(t) => tests.push(t),
-            Selected::NotCheckPass => {}
-            Selected::Ignored => ignored += 1,
-            Selected::LeftOut(why) => {
-                *left_out.entry(why).or_default() += 1;
-                let rel = f.strip_prefix(&ui).unwrap().to_string_lossy().into_owned();
-                todo.insert(rel, format!("left out: {why}"));
+        for (name, what) in select(&ui, f) {
+            match what {
+                Selected::Run(t) => tests.push(t),
+                Selected::Ignored => ignored += 1,
+                Selected::LeftOut(why) => {
+                    *left_out.entry(why).or_default() += 1;
+                    todo.insert(name, format!("left out: {why}"));
+                }
             }
         }
     }

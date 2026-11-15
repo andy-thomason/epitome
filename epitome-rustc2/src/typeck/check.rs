@@ -992,7 +992,26 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 let mid = self.ast.token(segs[segs.len() - 2]).0;
                 let name = self.last_segment_name(path);
                 let Some(bt) = self.base_ty(path, &base) else { return self.err(n, "path through an associated item") };
-                let Some(at) = self.assoc_type_of(bt, mid) else { return self.err(n, "associated type not found") };
+                // `<T as Trait>::Assoc::item`: `Assoc` of that trait.
+                let at = if let Some(q) = self.ast.child(path, Kind::QSelf)
+                    && let Some(&tr) = self.ast.children(q).get(1)
+                    && let Some(&tp) = self.ast.children(tr).first()
+                {
+                    let Some((self_ty, trait_ref)) = self.qualified_trait_ref(q, tp) else {
+                        return self.err(n, "trait in qualified path not found");
+                    };
+                    let Some(a) = self.trait_item(trait_ref.def, mid, Ns::Type) else {
+                        return self.err(n, "associated type not found");
+                    };
+                    let mut args = vec![self_ty];
+                    for t in tcx.tys(trait_ref.args) {
+                        args.push(self.fill_holes(t));
+                    }
+                    self.project_or_var(a, &args)
+                } else {
+                    let Some(at) = self.assoc_type_of(bt, mid) else { return self.err(n, "associated type not found") };
+                    at
+                };
                 let at = self.norm(at);
                 if let Some((item, impl_args)) = self.inherent_item(at, name, Ns::Value) {
                     let own = tcx.generics[item.0 as usize].own.len();
@@ -1040,21 +1059,10 @@ impl<'a, 's> FnCtxt<'a, 's> {
     /// `<T as Trait>::name` as a value.
     fn qualified_trait_value(&mut self, n: NodeId, q: NodeId, tr: NodeId, name: &str) -> Ty {
         let tcx = self.tcx;
-        let qk = self.ast.children(q).to_vec();
-        let self_ty = self.written_ty(qk[0]);
         let Some(&tp) = self.ast.children(tr).first() else { return self.err(n, "bad qualified path") };
-        let mut l = Lower {
-            tcx,
-            env: &self.env,
-            expanding: FastSet::default(),
-            impl_self: None,
-            holes: true,
-            k: self.k,
-            file: self.file,
-            owner: self.owner,
-            failed: false,
+        let Some((self_ty, trait_ref)) = self.qualified_trait_ref(q, tp) else {
+            return self.err(n, "trait in qualified path not found");
         };
-        let Some(trait_ref) = l.trait_ref(tp) else { return self.err(n, "trait in qualified path not found") };
         let Some(item) = self.trait_item(trait_ref.def, name, Ns::Value) else {
             return self.err(n, "no such item in the trait of a qualified path");
         };
@@ -1080,6 +1088,24 @@ impl<'a, 's> FnCtxt<'a, 's> {
             },
             _ => self.err(n, "qualified path to something that is not a value"),
         }
+    }
+
+    /// The self type and trait of a qualified path's `<T as Trait>` (`tp`
+    /// the trait's path).
+    fn qualified_trait_ref(&mut self, q: NodeId, tp: NodeId) -> Option<(Ty, crate::ty::TraitRef)> {
+        let self_ty = self.written_ty(self.ast.children(q)[0]);
+        let mut l = Lower {
+            tcx: self.tcx,
+            env: &self.env,
+            expanding: FastSet::default(),
+            impl_self: None,
+            holes: true,
+            k: self.k,
+            file: self.file,
+            owner: self.owner,
+            failed: false,
+        };
+        Some((self_ty, l.trait_ref(tp)?))
     }
 
     /// The type a path's base names, for `Type::item`.

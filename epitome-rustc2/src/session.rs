@@ -25,7 +25,7 @@ use crate::parse::parse_str;
 use crate::pool;
 use crate::source::{Error, Source, SourceMap};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 /// Options for a whole run.
 #[derive(Clone, Debug, Default)]
@@ -56,6 +56,13 @@ pub struct CrateRoot {
     /// Proc-macro libraries the crate uses, by the name it knows them by
     /// (as `--extern name=lib.so`).
     pub proc_macros: Vec<(String, PathBuf)>,
+    /// The configuration for this crate, in place of the session's (as
+    /// for a crate compiled with its own `--cfg`).
+    pub cfg: Option<CfgSet>,
+    /// The other crates this one may use, by name; all the session's if
+    /// `None`. Lookups that search every trait (a method whose trait is
+    /// not in scope) search only these crates' and its own.
+    pub deps: Option<Vec<String>>,
 }
 
 impl CrateRoot {
@@ -66,6 +73,8 @@ impl CrateRoot {
             edition: Edition::default(),
             follow_modules: true,
             proc_macros: Vec::new(),
+            cfg: None,
+            deps: None,
         }
     }
 
@@ -76,6 +85,16 @@ impl CrateRoot {
 
     pub fn edition(mut self, edition: Edition) -> Self {
         self.edition = edition;
+        self
+    }
+
+    pub fn cfg(mut self, cfg: CfgSet) -> Self {
+        self.cfg = Some(cfg);
+        self
+    }
+
+    pub fn deps(mut self, deps: Vec<String>) -> Self {
+        self.deps = Some(deps);
         self
     }
 
@@ -122,6 +141,8 @@ pub struct ParsedFile<'s> {
 /// after its parent's, in the order of the `mod` items).
 pub struct ParsedCrate<'s> {
     pub name: String,
+    /// The crates it may use (`CrateRoot::deps`).
+    pub deps: Option<Vec<String>>,
     pub edition: Edition,
     pub follow_modules: bool,
     /// The root file's directory, the current directory for proc macros.
@@ -152,6 +173,10 @@ pub struct Session {
     /// (`format_args!`'s too), whose `::core::x` names the crate `core`
     /// in a 2015 crate as in any other, as `$crate` would.
     pub builtin_texts: Mutex<Vec<(usize, usize)>>,
+    /// Each crate's configuration where it has its own
+    /// (`CrateRoot::cfg`), by index in `parse_crates`.
+    crate_cfgs: Mutex<Vec<Option<Arc<CfgSet>>>>,
+    session_cfg: Option<Arc<CfgSet>>,
 }
 
 /// Reading and parsing one file.
@@ -189,6 +214,7 @@ pub fn node_pos(ast: &Ast, id: NodeId) -> [u32; 2] {
 impl Session {
     pub fn new(options: Options) -> Self {
         let proc_macro_server = options.proc_macro_server.as_ref().map(crate::proc_macro::Server::new);
+        let session_cfg = options.cfg.clone().map(Arc::new);
         Session {
             sources: SourceMap::new(),
             options,
@@ -196,6 +222,8 @@ impl Session {
             included: Mutex::new(Vec::new()),
             format_texts: Mutex::new(Vec::new()),
             builtin_texts: Mutex::new(Vec::new()),
+            crate_cfgs: Mutex::new(Vec::new()),
+            session_cfg,
         }
     }
 
@@ -225,12 +253,19 @@ impl Session {
         t
     }
 
+    /// The configuration to strip crate `krate`'s code with, if any.
+    pub fn cfg_of(&self, krate: usize) -> Option<Arc<CfgSet>> {
+        self.crate_cfgs.lock().unwrap().get(krate).cloned().flatten().or_else(|| self.session_cfg.clone())
+    }
+
     /// Loads and parses crates, all at once.
     pub fn parse_crates(&self, roots: Vec<CrateRoot>) -> Vec<ParsedCrate<'_>> {
+        *self.crate_cfgs.lock().unwrap() = roots.iter().map(|r| r.cfg.clone().map(Arc::new)).collect();
         let mut crates: Vec<ParsedCrate> = roots
             .iter()
             .map(|r| ParsedCrate {
                 name: r.name.clone(),
+                deps: r.deps.clone(),
                 edition: r.edition,
                 follow_modules: r.follow_modules,
                 dir: r.root.parent().map_or_else(PathBuf::new, Path::to_path_buf),
@@ -314,9 +349,9 @@ impl Session {
                 return done;
             }
         };
-        if let Some(cfg) = &self.options.cfg {
+        if let Some(cfg) = self.cfg_of(job.krate) {
             let eof = Token(&source.text[source.text.len()..]);
-            done.errors.extend(strip(&mut ast, cfg, job.edition, eof));
+            done.errors.extend(strip(&mut ast, &cfg, job.edition, eof));
         }
         let file = ParsedFile {
             derived: FastSet::default(),

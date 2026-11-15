@@ -2925,8 +2925,13 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             }
             // Anything else with an impl of the trait (`AssertUnwindSafe<F>`,
             // `Box<F>`): its method, the arguments as a tuple.
-            _ if method.is_some() && margs.len() == 2 => {
-                let m = method.unwrap();
+            _ if let Some(m) = method
+                && margs.len() == 2
+                && matches!(
+                    crate::mono::instance(self.cx.r, self.cx.crates, tcx, &mut self.solver, m, vec![place.ty, margs[1]]),
+                    Resolved::Item(Item::Fn(..))
+                ) =>
+            {
                 let name = self.cx.r.defs[m.0 as usize].name;
                 let tuple_t = margs[1];
                 let tuple = self.temp(tuple_t)?;

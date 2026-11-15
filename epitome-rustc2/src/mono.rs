@@ -119,16 +119,13 @@ impl Session {
 /// compiled as a library, `lib`), else every function that is not generic
 /// and has a body (not an intrinsic's declaration).
 pub fn roots(r: &Resolver, tcx: &TyCtxt, crates: &[ParsedCrate], k: u32, lib: bool) -> Vec<Item> {
-    let fns: Vec<DefId> = (0..r.defs.len() as u32)
-        .map(DefId)
-        .filter(|&d| {
-            let def = &r.defs[d.0 as usize];
-            def.krate == k
-                && matches!(def.kind, DefKind::Fn | DefKind::AssocFn)
-                && tcx.all_params(d).is_empty()
-                && crates[def.krate as usize].files[def.file as usize].ast.child(def.node, Kind::Block).is_some()
-        })
-        .collect();
+    let defined = |d: DefId| {
+        let def = &r.defs[d.0 as usize];
+        matches!(def.kind, DefKind::Fn | DefKind::AssocFn)
+            && tcx.all_params(d).is_empty()
+            && crates[def.krate as usize].files[def.file as usize].ast.child(def.node, Kind::Block).is_some()
+    };
+    let fns: Vec<DefId> = (0..r.defs.len() as u32).map(DefId).filter(|&d| r.defs[d.0 as usize].krate == k && defined(d)).collect();
     let empty = tcx.list(Vec::new());
     let is_main = |d: DefId| r.defs[d.0 as usize].name == "main" && r.defs[d.0 as usize].kind == DefKind::Fn;
     // Functions exported by name (`#[no_mangle]`, as the allocator shim
@@ -141,6 +138,28 @@ pub fn roots(r: &Resolver, tcx: &TyCtxt, crates: &[ParsedCrate], k: u32, lib: bo
     match fns.iter().find(|&&d| !lib && is_main(d)) {
         Some(&m) => {
             let mut v = vec![Item::Fn(m, empty)];
+            // With `std`, `main` is run by its `lang_start::<T>` (`T` what
+            // `main` returns), which the entry point lowering adds calls.
+            if let Some(&start) = tcx.lang.get("start")
+                && let Some(sig) = tcx.fn_sig[m.0 as usize]
+            {
+                v.push(Item::Fn(start, tcx.list(vec![tcx.sig_of(sig).output])));
+                // What the standard library's crates define for each other
+                // by name (`#[rustc_std_internal_symbol]`: `std`'s own
+                // allocator, `__rust_start_panic` and the rest).
+                v.extend(
+                    (0..r.defs.len() as u32)
+                        .map(DefId)
+                        .filter(|&d| {
+                            let def = &r.defs[d.0 as usize];
+                            def.krate != k
+                                && def.kind == DefKind::Fn
+                                && defined(d)
+                                && crate::session::has_attribute(&crates[def.krate as usize].files[def.file as usize].ast, def.node, "rustc_std_internal_symbol")
+                        })
+                        .map(|d| Item::Fn(d, empty)),
+                );
+            }
             v.extend(fns.iter().filter(|&&d| d != m && exported(d)).map(|&d| Item::Fn(d, empty)));
             v
         }
@@ -641,6 +660,7 @@ pub(crate) fn has_param_or_infer(tcx: &TyCtxt, t: Ty) -> bool {
                 || tcx.tys(s.inputs).into_iter().any(|x| has_param_or_infer(tcx, x))
                 || tcx.tys(l).into_iter().any(|x| has_param_or_infer(tcx, x))
         }
+        TyKind::AsyncBlock(_, o, l) => has_param_or_infer(tcx, o) || has_param_or_infer_list(tcx, &tcx.tys(l)),
         // Not revealed: its owner's body did not say what it is.
         TyKind::Opaque(..) => true,
         TyKind::ConstArg(c) => matches!(tcx.const_of(c), crate::ty::Const::Param(_) | crate::ty::Const::Infer(_) | crate::ty::Const::Error),
@@ -687,6 +707,7 @@ pub fn reveal(tcx: &TyCtxt, hidden: &FastMap<crate::ty::OpaqueId, Ty>, t: Ty) ->
             sig.output = reveal(tcx, hidden, sig.output);
             tcx.mk(TyKind::Closure(c, tcx.sig(sig), list(l)))
         }
+        TyKind::AsyncBlock(c, o, l) => tcx.mk(TyKind::AsyncBlock(c, reveal(tcx, hidden, o), list(l))),
         _ => t,
     }
 }

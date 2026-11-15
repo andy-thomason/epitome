@@ -629,7 +629,8 @@ Traits (`traits.rs`):
 - **Selection** (`T: Trait<A>`): what the body assumes; the bounds of a
   `dyn` or `impl Trait`; obligations on a variable (from a generic
   function's bounds, or an `impl Trait` it returns); built-ins (`Sized`,
-  `Tuple`, auto traits, `Fn` for closures, function items and pointers);
+  `Tuple`, auto traits, `Fn` for closures, function items and pointers,
+  `Future` for `async` blocks);
   then impls, found by trait and the head of the self type, each tried
   in a snapshot with its own `where` clauses checked a few levels deep.
   Missing trait arguments take their defaults (`Add` is `Add<Self>`).
@@ -648,6 +649,10 @@ Traits (`traits.rs`):
 - **Closures** passed to a generic function take their parameter and
   result types from its `F: FnMut(A) -> B` obligations. Closure
   arguments are checked after the others, so that those settle `A`.
+- **`async` blocks** have a type of their own (`TyKind::AsyncBlock`,
+  by where the block is written, as for a closure), whose `Output` is
+  the block's value, or what a `return` in it gives. `async fn`s are not
+  yet: a call gives the declared result type, as for a plain `fn`.
 
 What lowering is told (`TypeckResults::tables`, per file, by node):
 
@@ -1183,6 +1188,80 @@ The programs, which each print what rustc's build prints:
 | `dyn.rs` | Trait objects: `&dyn` and `&mut dyn` of several types, in slices and struct fields; default and supertraits' methods through `dyn`; a generic trait; large results; `size_of_val` and `align_of_val`; `dyn Tr + Send` to `dyn Tr`; `dyn Any` downcasts; closures as `dyn Fn` and `dyn FnMut`. |
 | `fmt.rs` | `core::fmt` through `write!` to a `fmt::Write`: integers in every base with widths, fill, alignment, signs, `#` and `0`; widths and precisions from arguments; strings, chars, bools; `Debug` of tuples, arrays, `Option` and derived types, `{:#?}` and `{:x?}`; a user `Display`; positional, named and captured arguments; nested `format_args!`; a `Write` that fails; and `f32` and `f64` every way. |
 
+### 8.5 The standard library
+
+`--std` compiles a program with `std` from the toolchain's rust-src
+(`src/sysroot.rs`): `core`, `alloc`, `std`, and the crates `std` is built
+from (`std_detect`, `unwind`, `panic_abort`, and from `library/vendor/`
+`libc`, `cfg-if`, `hashbrown` and `rustc-demangle`), each named and in the
+edition its `Cargo.toml` gives, with what rustc's bootstrap gives them:
+the `rustc-dep-of-std` feature (for every crate, as `cfg` is one set
+for the session), and `STD_ENV_ARCH` for `env!` (`Options::env`, which
+`env!` and `option_env!` read before the process's environment).
+
+```sh
+$B --std -o hello hello.rs && ./hello
+```
+
+What a program with `std` needs beyond its code:
+
+- **The entry point.** With `std`, monomorphisation keeps
+  `lang_start::<T>` (the `start` lang item, `T` what `main` returns) with
+  `main`, and lowering adds the C `main(argc, argv)`, which calls it with
+  the address of the program's `main`, `argc`, `argv` and the default
+  `SIGPIPE` handling, and gives its result as the exit status.
+- **The default allocator.** With no `#[global_allocator]`, each of
+  `alloc`'s allocation functions (`__rust_alloc` and the rest) calls
+  `std`'s own (`__rdl_alloc` and the rest), as rustc's allocator shim
+  does.
+- **Functions one crate defines for another by name**
+  (`#[rustc_std_internal_symbol]`: `__rust_start_panic` of `panic_abort`,
+  `__rdl_alloc` of `std`) are named by their names, not mangled, and kept
+  with `main`.
+- **Weak symbols.** `#[linkage = "extern_weak"] static f: Option<fn ...>`
+  (`std`'s `weak!`, for `gettid`) is the address of the symbol `f`, null
+  if nothing defines it, not a load from it.
+- **Panics** still trap: `catch_unwind` (with nothing to unwind) calls
+  its function and gives 0.
+- **Closures as function pointers.** One that captures nothing (as
+  `thread_local!`'s are) becomes a function of its signature that calls
+  it with no captures.
+- **`FnOnce` closures.** A closure whose body moves out of what it
+  captured owns its captures: it drops what it did not move out at its
+  end, and its callers do not drop it after `call_once`. Whether a
+  closure does is known once its body is lowered, so closures are lowered
+  before the functions that call them, each first as one that does not
+  own its captures, and again (owning them) if it moved out of one.
+- **C strings** (`c"main"`) are `&CStr`: the bytes and a NUL.
+
+Type checking needed these for `std`:
+
+- An `impl Trait` inside a result type (`Option<impl Write>`) has its
+  hidden type recorded, as one at the top does.
+- The two branches of an `if` that are different closures, where a
+  function pointer is wanted (`thread_local!`'s
+  `if needs_drop::<T>() { |_| ... } else { |_| ... }`), are each made one.
+- A method call looks along the whole autoderef chain with the traits in
+  scope (and those the body assumes) before trying any other trait:
+  `self.inner.borrow_mut()` of a `ReentrantLockGuard<RefCell<_>>` is
+  `RefCell`'s, not `BorrowMut`'s on the guard.
+- A call's expected result hints at its arguments (`let v:
+  Vec<Box<dyn Shape>> = vec![...]` makes the array's elements `Box<dyn
+  Shape>`, so each is unsized).
+- A tuple's fields are coerced to the expected tuple's (`(self, &[],
+  &[])` as `(&[T], &[U], &[T])`; `*mut` to `*const`), and `*mut T` and
+  `*const T` branches join as `*const T`.
+- A trait's arguments are settled when every impl that matches agrees
+  on them (`SpecExtend`'s family), and a `Box`'s allocator is unified in
+  coercion.
+
+Not yet: `#[thread_local]` statics are ordinary globals, and their
+initialisers run once at start-up (right with one thread); threads,
+unwinding and panic messages; and the rest of what `std` reaches. On
+mandelbrot, `tests/run/std_hello.rs` (formatting, `Vec`, iterators,
+`String`, `Box<dyn Trait>`, drops and `env::args`) prints what rustc's
+build prints, optimised and not.
+
 ## 9. Crates and Cargo
 
 Libraries are written as `.rlib` archives holding the object and a
@@ -1371,5 +1450,6 @@ Tests of parallel stages run on one thread and on several, and compare.
 7. `dyn` and formatting through `core::fmt` (done); drops (done but for
    the moves listed in 8.3); `Box` and allocation through `alloc`
    (working: `Box`, `Vec`, `String`); slices and strings.
-8. `core`, then `alloc` and `std` from `rust-src`; Cargo builds.
+8. `core`, then `alloc` and `std` from `rust-src` (`std`: working, for
+   programs on one thread, section 8.5); Cargo builds.
 9. Unwinding, `async`, and the long tail.

@@ -3,7 +3,8 @@
 //! and without the optimiser) and by rustc, and run: the outputs and exit
 //! statuses must be the same.
 //!
-//! The programs are `#![no_std]` with a C `main`, and write through
+//! A program without `#![no_std]` uses `std` (with `--std`, `std` from
+//! rust-src). The others are `#![no_std]` with a C `main`, and write through
 //! libc's `putchar` (those with `extern crate alloc;` get `alloc` from
 //! rust-src as well); `floats.rs` uses `#![feature(f16)]`, which
 //! `RUSTC_BOOTSTRAP=1` lets rustc take. rustc links them against libc
@@ -55,17 +56,18 @@ fn programs_match_rustc() {
     for p in &programs {
         let name = p.file_stem().unwrap().to_string_lossy().into_owned();
         let rc = dir.join(format!("{name}.rustc"));
+        let text = std::fs::read_to_string(p).unwrap();
+        // A program without `#![no_std]` uses `std`: rustc's own, and
+        // `--std` (rust-src's) for epitome-rustc2.
+        let with_std = !text.contains("#![no_std]");
         // `RUSTC_BOOTSTRAP` lets this stable rustc take the features a
         // program uses (`f16`).
-        let built = Command::new("rustc")
-            .env("RUSTC_BOOTSTRAP", "1")
-            .args(["--edition", "2024", "-C", "panic=abort", "-C", "link-arg=-lc", "-C", "link-arg=-lm"])
-            .arg(format!("-Clink-arg={}", eh.display()))
-            .arg(p)
-            .arg("-o")
-            .arg(&rc)
-            .output()
-            .unwrap();
+        let mut rustc = Command::new("rustc");
+        rustc.env("RUSTC_BOOTSTRAP", "1").args(["--edition", "2024", "-C", "panic=abort"]);
+        if !with_std {
+            rustc.args(["-C", "link-arg=-lc", "-C", "link-arg=-lm"]).arg(format!("-Clink-arg={}", eh.display()));
+        }
+        let built = rustc.arg(p).arg("-o").arg(&rc).output().unwrap();
         assert!(built.status.success(), "rustc failed on {name}:\n{}", String::from_utf8_lossy(&built.stderr));
         let want = run(&rc);
         for opt in [true, false] {
@@ -74,10 +76,15 @@ fn programs_match_rustc() {
             if !opt {
                 cmd.arg("-O0");
             }
-            cmd.arg("-o").arg(&ep).arg(&core);
-            // `alloc` too, for a program that uses it.
-            if std::fs::read_to_string(p).unwrap().contains("extern crate alloc;") {
-                cmd.arg(core.ancestors().nth(3).unwrap().join("alloc/src/lib.rs"));
+            cmd.arg("-o").arg(&ep);
+            if with_std {
+                cmd.arg("--std");
+            } else {
+                cmd.arg(&core);
+                // `alloc` too, for a program that uses it.
+                if text.contains("extern crate alloc;") {
+                    cmd.arg(core.ancestors().nth(3).unwrap().join("alloc/src/lib.rs"));
+                }
             }
             let built = cmd.arg(p).output().unwrap();
             if !built.status.success() {

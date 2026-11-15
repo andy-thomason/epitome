@@ -194,6 +194,13 @@ pub(crate) struct Cx<'a, 's> {
     pub statics: FastMap<DefId, GlobalId>,
     /// Which types need dropping.
     pub drops: crate::drops::DropInfo,
+    /// Each closure lowered so far, and whether it owns its captures (an
+    /// `FnOnce` that moves out of them), so that its callers do not drop
+    /// it after calling it.
+    pub owning: std::cell::RefCell<FastMap<Item, bool>>,
+    /// For each closure that captures nothing, a function of its
+    /// signature that calls it (what it is as a function pointer).
+    pub fnptr: FastMap<Item, Decl>,
 }
 
 impl<'a, 's> Cx<'a, 's> {
@@ -392,7 +399,10 @@ impl<'a, 's> Cx<'a, 's> {
         if let Some(n) = crate::session::attribute_value(ast, node, "export_name") {
             return n;
         }
-        if crate::session::has_attribute(ast, node, "no_mangle") {
+        // `#[rustc_std_internal_symbol]`: a function one standard library
+        // crate defines and another declares (`__rust_start_panic`), by its
+        // name on both sides.
+        if crate::session::has_attribute(ast, node, "no_mangle") || crate::session::has_attribute(ast, node, "rustc_std_internal_symbol") {
             return self.r.defs[d.0 as usize].name.to_string();
         }
         let mut text = crate::mono::item_path(self.r, self.tcx, d);
@@ -440,7 +450,7 @@ impl Session {
         };
         let drops = crate::drops::DropInfo::new(tcx);
         let mut cx =
-            Cx { tcx, r, crates, typeck, index, lcx, fns: FastMap::default(), statics: FastMap::default(), drops };
+            Cx { tcx, r, crates, typeck, index, lcx, fns: FastMap::default(), statics: FastMap::default(), drops, owning: Default::default(), fnptr: FastMap::default() };
         let mut failures = Vec::new();
         let mut solver = cx.solver();
 
@@ -502,6 +512,7 @@ impl Session {
                     let (_, _, ast, node) = cx.def_ast(d);
                     let exported = foreign
                         || crate::session::has_attribute(ast, node, "no_mangle")
+                        || crate::session::has_attribute(ast, node, "rustc_std_internal_symbol")
                         || crate::session::attribute_value(ast, node, "export_name").is_some();
                     let mut spec = IrFunction::builder(name).returns(ret);
                     for p in params {
@@ -532,6 +543,22 @@ impl Session {
                     }
                     let g = spec.declare(&mut m);
                     cx.fns.insert(*it, Decl { g, abi, name: name.clone() });
+                    // One that captures nothing can be a function pointer:
+                    // a function of its signature that calls it.
+                    if typeck.captures.get(&c).is_none_or(|v| v.is_empty())
+                        && let Ok(TyKind::Closure(_, s, _)) = cx.closure_ty(&mut solver, c, d, l).map(|t| tcx.kind(t))
+                        && let sig = tcx.sig_of(s)
+                        && let Ok(abi) = cx.abi(&mut m, tcx.tys(sig.inputs), sig.output, false)
+                    {
+                        let fname = format!("{name}.fnptr");
+                        let (ret, params) = Cx::ir_fn_type(&mut m, &abi);
+                        let mut spec = IrFunction::builder(&fname).returns(ret).linkage(Linkage::Internal);
+                        for p in params {
+                            spec = spec.param("", p);
+                        }
+                        let g = spec.declare(&mut m);
+                        cx.fnptr.insert(*it, Decl { g, abi, name: fname });
+                    }
                 }
                 Item::DropGlue(t) => {
                     // `fn(*mut T)`.
@@ -575,14 +602,44 @@ impl Session {
         let mut titles = FastMap::default();
         let mut functions = 0;
         let mut partial = Vec::new();
+        // Closures first, so that every call of one by `call_once` knows
+        // whether the closure drops its own captures: each is lowered not
+        // owning them; those that move out of one (`FnOnce`), and those
+        // that called a closure not lowered yet, are lowered again.
+        let closures: Vec<&(String, Item)> = named.iter().filter(|x| matches!(x.1, Item::Closure(..))).collect();
+        let mut again = Vec::new();
+        for (name, it) in closures {
+            let Some(decl) = cx.fns.get(it).cloned() else { continue };
+            functions += 1;
+            if let Item::Closure(c, d, l) = *it {
+                titles.insert(decl.g, format!("closure at node {} in {}", tcx.closure_at(c).2.0, item_title(&cx, d, l)));
+            }
+            let (moved, unknown) = lower_item(&cx, &mut m, *it, &decl, name, false, &mut notes, &mut partial, &mut failures);
+            cx.owning.borrow_mut().insert(*it, moved);
+            if moved || unknown {
+                again.push((name.clone(), *it, decl, moved));
+            }
+        }
+        for (name, it, decl, owns) in again {
+            if let epitome_ir::module::GlobalKind::Function(f) = &mut m.globals[decl.g.index()].kind {
+                f.has_body = false;
+            }
+            failures.retain(|f| f.item != it);
+            partial.retain(|f| f.item != it);
+            lower_item(&cx, &mut m, it, &decl, &name, owns, &mut notes, &mut partial, &mut failures);
+        }
+        // Closures as function pointers: each calls its closure, with no
+        // captures.
+        for (it, thunk) in &cx.fnptr {
+            let Some(closure) = cx.fns.get(it) else { continue };
+            fnptr_thunk(&mut m, thunk, closure);
+        }
         for (name, it) in &named {
             if let Item::DropGlue(t) = *it {
                 let Some(decl) = cx.fns.get(it).cloned() else { continue };
                 functions += 1;
                 titles.insert(decl.g, format!("drop glue of {}", tcx.display(r, t)));
-                let got = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    drop::lower_drop_glue(&cx, &mut m, t, &decl)
-                }));
+                let got = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop::lower_drop_glue(&cx, &mut m, t, &decl)));
                 let why = match got {
                     Ok(Ok(())) => continue,
                     Ok(Err(e)) => e,
@@ -592,34 +649,11 @@ impl Session {
                 failures.push(Failure { item: *it, name: name.clone(), why });
                 continue;
             }
-            let (d, l) = match *it {
-                Item::Fn(d, l) | Item::Closure(_, d, l) => (d, l),
-                _ => continue,
-            };
+            let Item::Fn(d, l) = *it else { continue };
             let Some(decl) = cx.fns.get(it).cloned() else { continue };
             functions += 1;
-            let mut title = item_title(&cx, d, l);
-            if let Item::Closure(c, ..) = *it {
-                title = format!("closure at node {} in {title}", tcx.closure_at(c).2.0);
-            }
-            titles.insert(decl.g, title);
-            let got = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| body::lower_fn(&cx, &mut m, *it, &decl)));
-            let why = match got {
-                Ok(Ok((n, t))) => {
-                    notes.insert(decl.g, n);
-                    if !t.is_empty() {
-                        partial.push(Failure { item: *it, name: name.clone(), why: format!("traps where it uses {}", t.join(", ")) });
-                    }
-                    continue;
-                }
-                Ok(Err(e)) => e,
-                Err(p) => {
-                    let msg = p.downcast_ref::<String>().cloned().or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string()));
-                    format!("internal error: {}", msg.unwrap_or_default())
-                }
-            };
-            body::trap_body(&mut m, &decl);
-            failures.push(Failure { item: *it, name: name.clone(), why });
+            titles.insert(decl.g, item_title(&cx, d, l));
+            lower_item(&cx, &mut m, *it, &decl, name, false, &mut notes, &mut partial, &mut failures);
         }
         // Statics whose values are not known until their initialisers
         // run: a function each, run before `main`.
@@ -640,6 +674,12 @@ impl Session {
         if !ctors.is_empty() {
             global_ctors(&mut m, &ctors);
         }
+        default_allocator(&cx, &mut m);
+        // With `std`: the C `main`, which runs the program's `main`
+        // through `std`'s `lang_start`.
+        if let Some(e) = entry_point(&cx, &mut m, mono) {
+            failures.push(Failure { item: e.0, name: "main".into(), why: e.1 });
+        }
         failures.sort_by(|a, b| a.name.cmp(&b.name));
         partial.sort_by(|a, b| a.name.cmp(&b.name));
         // Each function's target features (once its body is in: a body
@@ -654,6 +694,192 @@ impl Session {
         let decls = cx.fns.iter().map(|(&it, d)| (it, d.g)).collect();
         Lowered { module: m, functions, failures, partial, notes, titles, decls }
     }
+}
+
+/// Defines `thunk`, a closure that captures nothing as a function: it calls
+/// the closure (`closure`) with no captures (a null pointer for them) and
+/// its own arguments.
+fn fnptr_thunk(m: &mut Module, thunk: &Decl, closure: &Decl) {
+    let (ret, params) = Cx::ir_fn_type(m, &thunk.abi);
+    let mut spec = IrFunction::builder(&thunk.name).returns(ret).linkage(Linkage::Internal);
+    for &p in &params {
+        spec = spec.param("", p);
+    }
+    let mut b = spec.begin(m);
+    b.block("start");
+    let ptr = b.module().types.ptr(0);
+    let null = b.module().const_zero(ptr);
+    let mut args: Vec<_> = (0..params.len()).map(|i| b.param(i)).collect();
+    // After the result's address, if it is returned in memory.
+    let at = (thunk.abi.ret == Repr::Mem) as usize;
+    if closure.abi.args.first().is_some_and(|r| *r != Repr::Zst) {
+        args.insert(at, null);
+    }
+    match b.call(closure.g, &args) {
+        Some(v) if matches!(thunk.abi.ret, Repr::Imm(_)) => b.ret(v),
+        _ => b.ret_void(),
+    }
+    let _ = b.finish();
+}
+
+/// Lowers function (or closure) `it` into `decl`: its notes, or a failure
+/// (and a body that traps). Gives whether (a closure not owning its
+/// captures) it moved out of one, and whether it called a closure whose
+/// kind was not known yet.
+#[allow(clippy::too_many_arguments)]
+fn lower_item(
+    cx: &Cx,
+    m: &mut Module,
+    it: Item,
+    decl: &Decl,
+    name: &str,
+    owns_env: bool,
+    notes: &mut FastMap<GlobalId, Vec<(epitome_ir::module::BlockId, usize, String)>>,
+    partial: &mut Vec<Failure>,
+    failures: &mut Vec<Failure>,
+) -> (bool, bool) {
+    let got = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| body::lower_fn(cx, m, it, decl, owns_env)));
+    let why = match got {
+        Ok(Ok((n, t, moved, unknown))) => {
+            notes.insert(decl.g, n);
+            if !t.is_empty() {
+                partial.push(Failure { item: it, name: name.to_string(), why: format!("traps where it uses {}", t.join(", ")) });
+            }
+            return (moved, unknown);
+        }
+        Ok(Err(e)) => e,
+        Err(p) => {
+            let msg = p.downcast_ref::<String>().cloned().or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string()));
+            format!("internal error: {}", msg.unwrap_or_default())
+        }
+    };
+    body::trap_body(m, decl);
+    failures.push(Failure { item: it, name: name.to_string(), why });
+    (false, false)
+}
+
+/// The functions `alloc` calls to allocate, and `std`'s own allocator's
+/// functions that they call when no `#[global_allocator]` defines them.
+pub const DEFAULT_ALLOCATOR: [(&str, &str); 4] = [
+    ("__rust_alloc", "__rdl_alloc"),
+    ("__rust_dealloc", "__rdl_dealloc"),
+    ("__rust_realloc", "__rdl_realloc"),
+    ("__rust_alloc_zeroed", "__rdl_alloc_zeroed"),
+];
+
+/// The allocator shim with no `#[global_allocator]` (as rustc makes it):
+/// each of `alloc`'s allocation functions that is declared and not
+/// defined calls `std`'s (`__rdl_alloc` and the rest), passing its
+/// arguments on; `__rust_no_alloc_shim_is_unstable_v2` does nothing, and
+/// `__rust_alloc_error_handler` aborts.
+fn default_allocator(cx: &Cx, m: &mut Module) {
+    let rdl = |name: &str| {
+        cx.fns.iter().find_map(|(it, d)| match *it {
+            Item::Fn(f, _) if cx.r.defs[f.0 as usize].name == name => Some(d.g),
+            _ => None,
+        })
+    };
+    let declared = |m: &Module, name: &str| -> Option<(TypeId, Vec<TypeId>)> {
+        let g = m.find_global(name)?;
+        match &m.global(g).kind {
+            epitome_ir::module::GlobalKind::Function(f) if !f.has_body => {
+                let epitome_ir::types::Type::Function { ret, params, .. } = m.types.get(f.ty).clone() else { return None };
+                Some((ret, params.to_vec()))
+            }
+            _ => None,
+        }
+    };
+    if rdl(DEFAULT_ALLOCATOR[0].1).is_none() {
+        return;
+    }
+    for (shim, target) in DEFAULT_ALLOCATOR {
+        let (Some((ret, params)), Some(t)) = (declared(m, shim), rdl(target)) else { continue };
+        let mut spec = IrFunction::builder(shim).returns(ret);
+        for &p in &params {
+            spec = spec.param("", p);
+        }
+        let mut b = spec.begin(m);
+        b.block("start");
+        let args: Vec<_> = (0..params.len()).map(|i| b.param(i)).collect();
+        match b.call(t, &args) {
+            Some(v) => b.ret(v),
+            None => b.ret_void(),
+        }
+        let _ = b.finish();
+    }
+    if let Some((ret, params)) = declared(m, "__rust_no_alloc_shim_is_unstable_v2") {
+        let mut spec = IrFunction::builder("__rust_no_alloc_shim_is_unstable_v2").returns(ret);
+        for &p in &params {
+            spec = spec.param("", p);
+        }
+        let mut b = spec.begin(m);
+        b.block("start");
+        b.ret_void();
+        let _ = b.finish();
+    }
+    if let Some((ret, params)) = declared(m, "__rust_alloc_error_handler") {
+        let mut spec = IrFunction::builder("__rust_alloc_error_handler").returns(ret);
+        for &p in &params {
+            spec = spec.param("", p);
+        }
+        let mut b = spec.begin(m);
+        b.block("start");
+        let void = b.module().types.void();
+        let trap = b.module().declare("llvm.trap", void, &[], false);
+        b.call(trap, &[]);
+        b.unreachable();
+        let _ = b.finish();
+    }
+}
+
+/// The C `main(argc, argv)` of a program with `std`: `lang_start::<T>`
+/// (`std::rt`'s, the `start` lang item) of the program's `main`, `argc`,
+/// `argv` and the default `SIGPIPE` handling, its result the exit status.
+/// Nothing if there is no such `main` or no `std`; a failure if it cannot
+/// be made.
+fn entry_point(cx: &Cx, m: &mut Module, mono: &MonoItems) -> Option<(Item, String)> {
+    let tcx = cx.tcx;
+    let start = *tcx.lang.get("start")?;
+    let empty = tcx.list(Vec::new());
+    // The program's `main`: the last crate's.
+    let main = mono
+        .items
+        .iter()
+        .filter_map(|&it| match it {
+            Item::Fn(d, l) if l == empty && cx.r.defs[d.0 as usize].name == "main" && cx.r.defs[d.0 as usize].kind == DefKind::Fn => Some(d),
+            _ => None,
+        })
+        .max_by_key(|&d| cx.r.defs[d.0 as usize].krate)?;
+    let main_it = Item::Fn(main, empty);
+    let (_, _, ast, node) = cx.def_ast(main);
+    if crate::session::has_attribute(ast, node, "no_mangle") {
+        return None;
+    }
+    let out = tcx.sig_of(tcx.fn_sig[main.0 as usize]?).output;
+    let start_it = Item::Fn(start, tcx.list(vec![out]));
+    let (Some(md), Some(sd)) = (cx.fns.get(&main_it), cx.fns.get(&start_it)) else {
+        return Some((main_it, "`main` or `lang_start` was not declared".into()));
+    };
+    let ints: Vec<TypeId> = sd.abi.args.iter().map(|r| match r {
+        Repr::Imm(t) => Some(*t),
+        _ => None,
+    }).collect::<Option<Vec<_>>>().unwrap_or_default();
+    if ints.len() != 4 || !matches!(sd.abi.ret, Repr::Imm(_)) {
+        return Some((start_it, "`lang_start` has an unexpected signature".into()));
+    }
+    let i32t = m.types.int(32);
+    let ptr = m.types.ptr(0);
+    let mut b = IrFunction::builder("main").returns(i32t).param("argc", i32t).param("argv", ptr).begin(m);
+    b.block("start");
+    let f = b.module().global_value(md.g);
+    let argc = b.param(0);
+    let argc = b.sext(argc, ints[1]);
+    let argv = b.param(1);
+    let sigpipe = b.const_int(ints[3], 0);
+    let r = b.call(sd.g, &[f, argc, argv, sigpipe]).expect("`lang_start` gives a value");
+    let r = b.trunc(r, i32t);
+    b.ret(r);
+    b.finish().err().map(|e| (start_it, e.to_string()))
 }
 
 /// Each Rust target feature of x86-64, and the LLVM features rustc turns
@@ -745,10 +971,25 @@ mod tests {
         programs.sort();
         assert!(programs.len() >= 5, "programs: {programs:?}");
         for file in programs {
-            let session = Session::new(Options { threads: 4, cfg: Some(crate::cfg::CfgSet::x86_64_linux()), ..Default::default() });
-            let mut roots = vec![CrateRoot::new("core", &core)];
+            let mut cfg = crate::cfg::CfgSet::x86_64_linux();
+            let mut options = Options { threads: 4, ..Default::default() };
+            if !std::fs::read_to_string(&file).unwrap().contains("#![no_std]") {
+                for (n, v) in crate::sysroot::std_cfg() {
+                    cfg.set_value(n, v);
+                }
+                options.env = crate::sysroot::std_env("x86_64");
+            }
+            options.cfg = Some(cfg);
+            let session = Session::new(options);
+            let text = std::fs::read_to_string(&file).unwrap();
+            let with_std = !text.contains("#![no_std]");
+            let mut roots = if with_std {
+                crate::sysroot::std_crates(core.ancestors().nth(3).unwrap()).unwrap()
+            } else {
+                vec![CrateRoot::new("core", &core)]
+            };
             let alloc = core.ancestors().nth(3).unwrap().join("alloc/src/lib.rs");
-            if std::fs::read_to_string(&file).unwrap().contains("extern crate alloc;") {
+            if !with_std && text.contains("extern crate alloc;") {
                 roots.push(CrateRoot::new("alloc", &alloc));
             }
             roots.push(CrateRoot::new("program", &file));
@@ -778,7 +1019,7 @@ mod tests {
                 .collect();
             assert!(own.is_empty(), "{}: not lowered: {own:#?}", file.display());
             let text = lowered.module.to_string();
-            assert!(text.contains("define i32 @main()"), "{}: no main", file.display());
+            assert!(text.contains("define i32 @main("), "{}: no main", file.display());
             if let Err(e) = epitome_ir::parse_module(&text) {
                 panic!("{}: the IR does not parse: {e}", file.display());
             }

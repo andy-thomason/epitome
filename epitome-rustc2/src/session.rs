@@ -39,6 +39,9 @@ pub struct Options {
     /// The proc-macro server (`libexec/rust-analyzer-proc-macro-srv` of the
     /// toolchain that built the proc-macro libraries).
     pub proc_macro_server: Option<PathBuf>,
+    /// Environment variables `env!` and `option_env!` see before the
+    /// process's own (`STD_ENV_ARCH`, which `std` reads).
+    pub env: Vec<(String, String)>,
 }
 
 /// A crate to load: its name, root file and edition.

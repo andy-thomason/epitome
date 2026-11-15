@@ -60,7 +60,6 @@ assumptions_on_binders/test-infra-works.rs: macro not found: test_binder_constra
 async-await/async-closures/async-fn-mut-impl-fn-once.rs: left out: revisions
 async-await/async-closures/by-move-body-inlined-attrs.rs: type check: method not found
 async-await/async-closures/call-once-deduction.rs: type check: a type left unknown
-async-await/async-closures/moro-example.rs: type check: mismatched types
 async-await/async-closures/no-borrow-from-env.rs: type check: call of something that is not a function
 async-await/async-closures/sig-from-bare-fn.rs: type check: a type left unknown
 async-await/async-closures/signature-inference-from-two-part-bound.rs: left out: revisions
@@ -69,17 +68,14 @@ async-await/async-drop/live-dead-storage2.rs: type check: call of something that
 async-await/async-drop/live-dead-storage3.rs: type check: `.await` on something that is not a future
 async-await/async-drop/live-dead-storage4.rs: type check: `.await` on something that is not a future
 async-await/async-fn/edition-2015-not-async-bound.rs: path not resolved: Foo
-async-await/async-fn/impl-trait.rs: type check: a type left unknown
 async-await/async-fn/project.rs: left out: revisions
 async-await/async-fn/sugar.rs: type check: `.await` on something that is not a future
 async-await/await-unsize.rs: type check: `.await` on something that is not a future
 async-await/conditional-and-guaranteed-initialization.rs: type check: `.await` on something that is not a future
 async-await/drop-live-upvar-2.rs: left out: revisions
-async-await/drop-option-future.rs: type check: a type left unknown
 async-await/drop-tracking-unresolved-typeck-results.rs: left out: revisions
 async-await/for-await-2015.rs: error: expected a pattern, found `in` (for-await-2015.rs:10:15)
-async-await/format-await-send.rs: type check: `.await` on something that is not a future
-async-await/gat-is-send-across-await.rs: type check: a type left unknown
+async-await/format-await-send.rs: type check: mismatched types
 async-await/higher-ranked-auto-trait-1.rs: left out: revisions
 async-await/higher-ranked-auto-trait-12.rs: left out: revisions
 async-await/higher-ranked-auto-trait-14.rs: left out: revisions
@@ -96,10 +92,8 @@ async-await/higher-ranked-auto-trait-8.rs: left out: revisions
 async-await/higher-ranked-auto-trait-9.rs: left out: revisions
 async-await/higher-ranked-normalize-assumptions-2.rs: left out: revisions
 async-await/higher-ranked-normalize-assumptions.rs: left out: revisions
-async-await/in-trait/async-example-desugared.rs: type check: a type left unknown
 async-await/in-trait/async-example.rs: type check: `.await` on something that is not a future
 async-await/in-trait/cycle-if-impl-doesnt-apply.rs: left out: revisions
-async-await/in-trait/fn-not-async-err2.rs: type check: a type left unknown
 async-await/in-trait/issue-102138.rs: type check: `.await` on something that is not a future
 async-await/issue-105501.rs: type check: method not found
 async-await/issue-107036.rs: left out: auxiliary crates
@@ -107,16 +101,12 @@ async-await/issue-54239-private-type-triggers-lint.rs: type check: `.await` on s
 async-await/issue-63832-await-short-temporary-lifetime-1.rs: type check: `.await` on something that is not a future
 async-await/issue-63832-await-short-temporary-lifetime.rs: type check: `.await` on something that is not a future
 async-await/issue-64130-4-async-move.rs: type check: `.await` on something that is not a future
-async-await/issue-64391.rs: type check: a type left unknown
 async-await/issue-73050.rs: type check: `.await` on something that is not a future
-async-await/issues/issue-112225-1.rs: type check: field of a value whose type is not yet known
 async-await/issues/issue-53249.rs: type check: `.await` on something that is not a future
 async-await/issues/issue-60655-latebound-regions.rs: type check: `.await` on something that is not a future
 async-await/issues/issue-64391-2.rs: type check: `.await` on something that is not a future
 async-await/issues/issue-64433.rs: type check: `.await` on something that is not a future
 async-await/issues/issue-64477-2.rs: type check: `.await` on something that is not a future
-async-await/issues/issue-64477.rs: type check: a type left unknown
-async-await/issues/issue-64964.rs: type check: method not found
 async-await/issues/issue-65436-raw-ptr-not-send.rs: type check: `.await` on something that is not a future
 async-await/issues/issue-69307-nested.rs: type check: `.await` on something that is not a future
 async-await/issues/issue-69307.rs: type check: `.await` on something that is not a future
@@ -132,8 +122,6 @@ async-await/return-type-notation/rtn-implied-in-supertrait.rs: type check: `.awa
 async-await/send-bound-async-closure.rs: left out: revisions
 async-await/track-caller/async-block.rs: left out: revisions
 async-await/track-caller/async-closure-gate.rs: left out: revisions
-async-await/track-caller/issue-105134.rs: type check: a type left unknown
-async-await/type-parameter-send.rs: type check: a type left unknown
 async-await/unreachable-lint.rs: type check: `.await` on something that is not a future
 attributes/dont-dup-expr-attrs.rs: error: expanding `m2!`: expected `;`, found `}` (dont-dup-expr-attrs.rs:32:9)
 attributes/duplicated-attributes.rs: left out: --test
@@ -151,12 +139,10 @@ attributes/z-crate-attr/crate-type.rs: left out: flags that change the crate
 attributes/z-crate-attr/shebang.rs: left out: flags that change the crate
 autodiff/flag_nott.rs: path not resolved: d_square
 autodiff/macro_hygiene.rs: path not resolved: dyn
-borrowck/alias-liveness/escaping-bounds.rs: type check: mismatched types
+borrowck/alias-liveness/escaping-bounds.rs: type check: a type left unknown
 borrowck/alias-liveness/gat-outlives.rs: left out: revisions
 borrowck/alias-liveness/gat-static-unnormalized.rs: left out: revisions
-borrowck/alias-liveness/nested-rpit.rs: type check: mismatched types
 borrowck/assign-never-type.rs: type check: a type left unknown
-borrowck/async-reference-generality.rs: type check: a type left unknown
 borrowck/format-args-temporary-scopes.rs: left out: revisions
 borrowck/implied-bound-from-impl-header.rs: left out: revisions
 borrowck/implied-bound-from-normalized-arg.rs: left out: revisions
@@ -197,8 +183,6 @@ closures/2229_closure_analysis/issue_88118.rs: type check: a type left unknown
 closures/2229_closure_analysis/match/if-let-guards.rs: left out: revisions
 closures/2229_closure_analysis/migrations/issue-86753.rs: type check: a type left unknown
 closures/2229_closure_analysis/run_pass/issue-88431.rs: type check: mismatched types
-closures/boxed-closure-sent-through-thread.rs: type check: indexing a value whose type is not yet known
-closures/boxed-closure-with-borrowed-param.rs: type check: a type left unknown
 closures/closure-capture-hrtb-gat-no-ice-120811.rs: type check: a type left unknown
 closures/closure_no_cap_coerce_many_check_pass.rs: type check: mismatched types
 closures/deduce-signature/deduce-from-opaque-type-after-norm.rs: left out: revisions
@@ -212,9 +196,8 @@ closures/issue-48109.rs: type check: mismatched types
 closures/issue-87814-1.rs: type check: a type left unknown
 closures/issue-87814-2.rs: type check: a type left unknown
 closures/opaque-upvar.rs: left out: revisions
-closures/ref-binding-lifetime-in-closure-pattern.rs: type check: dereference of something that does not implement `Deref`
 closures/self-supertrait-bounds.rs: type check: a type left unknown
-closures/supertrait-hint-cycle.rs: type check: a type left unknown
+closures/supertrait-hint-cycle.rs: type check: mismatched types
 closures/supertrait-hint-references-assoc-ty.rs: left out: revisions
 codegen/target-cpus.rs: left out: flags that change the crate
 codemap_tests/unicode.rs: left out: revisions
@@ -223,7 +206,6 @@ coercion/fudge-inference/fn-ret-trait-object-propagated-to-inputs-issue-149379-1
 coercion/index-coercion-over-indexmut-72002.rs: type check: indexing something that does not implement `Index`
 coercion/issue-88097.rs: left out: revisions
 coercion/sub-principals.rs: left out: revisions
-coercion/vtable-impossible-predicates-async.rs: type check: a type left unknown
 coherence/coherence-overlap-negative-trait.rs: left out: auxiliary crates
 coherence/coherence-overlap-negative-trait2.rs: left out: auxiliary crates
 coherence/coherence-with-coroutine.rs: left out: revisions
@@ -344,10 +326,9 @@ consts/const-closure-hkl.rs: left out: revisions
 consts/const-eval/const_panic_stability.rs: left out: revisions
 consts/const-eval/issue-65394.rs: left out: revisions
 consts/const-eval/stable-metric/ctfe-simple-loop.rs: left out: revisions
-consts/const-fn-cycle.rs: type check: mismatched types
+consts/const-fn-cycle.rs: type check: a type left unknown
 consts/const-fn-stability-calls-3.rs: left out: auxiliary crates
 consts/const-fn-variant-ctor.rs: left out: revisions
-consts/const-mut-refs/const_mut_refs.rs: type check: mismatched types
 consts/const-try.rs: left out: revisions
 consts/extra-const-ub/detect-extra-ub.rs: left out: revisions
 consts/issue-104396.rs: type check: a type left unknown
@@ -378,7 +359,6 @@ coroutine/metadata-sufficient-for-layout.rs: left out: auxiliary crates
 coroutine/partial-drop.rs: type check: unsupported expression
 coroutine/return-types-diverge.rs: type check: unsupported expression
 coroutine/static-coroutine-with-nonstatic-yield.rs: type check: unsupported expression
-coroutine/witness-ignore-fake-reads.rs: type check: a type left unknown
 crate-loading/cross-compiled-proc-macro.rs: left out: flags that change the crate
 crate-loading/no-implicit-sysroot-deps-pass.rs: left out: auxiliary crates
 cross-crate/cross-crate-array-len.rs: left out: auxiliary crates
@@ -404,7 +384,7 @@ delegation/macro-inside-glob.rs: error: expected an item, found `reuse` (macro-i
 delegation/macro-inside-list.rs: error: expected an item, found `reuse` (macro-inside-list.rs:18:5)
 delegation/parse.rs: error: expected an item, found `reuse` (parse.rs:38:5)
 delegation/rename.rs: error: expected an item, found `reuse` (rename.rs:10:1)
-deref/deref-to-dyn-fn-mut-callable.rs: type check: call of something that is not a function
+deref/deref-to-dyn-fn-mut-callable.rs: type check: mismatched types
 derives/coercepointee/built-in-proc-macro-scope.rs: left out: auxiliary crates
 derives/coercepointee/proc-macro-attribute-mixing.rs: left out: auxiliary crates
 derives/derive-macro-const-default.rs: type check: method not found
@@ -418,8 +398,6 @@ diagnostic_namespace/existing_proc_macros.rs: left out: auxiliary crates
 drop/lint-if-let-rescope-gated.rs: left out: revisions
 drop/tail-expr-drop-order-negative.rs: left out: revisions
 drop/tail_expr_drop_order-on-recursive-boxed-fut.rs: type check: `.await` on something that is not a future
-dropck/coroutine-liveness-1.rs: type check: a type left unknown
-dropck/coroutine-liveness-2.rs: type check: a type left unknown
 dropck/explicit-drop-bounds.rs: left out: revisions
 dropck/explicit-implied-outlives.rs: left out: revisions
 dropck/transitive-outlives.rs: left out: revisions
@@ -455,7 +433,6 @@ feature-gates/feature-gate-generic-const-parameter-types.rs: left out: revisions
 feature-gates/feature-gate-unsafe_fields.rs: left out: revisions
 feature-gates/incomplete-features.rs: left out: revisions
 fmt/format-args-capture-issue-106408.rs: left out: auxiliary crates
-fmt/format-with-yield-point.rs: type check: a type left unknown
 fmt/indoc-issue-106408.rs: left out: auxiliary crates
 fmt/nested-awaits-issue-122674.rs: type check: `.await` on something that is not a future
 fn/fn_def_opaque_coercion.rs: type check: mismatched types
@@ -534,20 +511,20 @@ impl-trait/defining-use-uncaptured-non-universal-region-2.rs: type check: mismat
 impl-trait/dyn-trait-elided-two-inputs-ref-assoc.rs: left out: revisions
 impl-trait/eagerly-reveal-in-local-body.rs: type check: field not found
 impl-trait/equality-in-canonical-query.rs: left out: revisions
-impl-trait/future-no-bound-vars-ice-112347.rs: type check: a type left unknown
+impl-trait/hidden-type-is-opaque.rs: type check: method not found
 impl-trait/in-trait/cycle-if-impl-doesnt-apply.rs: left out: revisions
 impl-trait/in-trait/default-body-with-rpit.rs: left out: revisions
 impl-trait/in-trait/default-method-constraint.rs: type check: mismatched types
 impl-trait/in-trait/dyn-compatibility-sized.rs: left out: revisions
 impl-trait/in-trait/foreign.rs: left out: auxiliary crates
-impl-trait/in-trait/late-bound-in-object-assocty.rs: type check: a type left unknown
+impl-trait/in-trait/late-bound-in-object-assocty.rs: type check: mismatched types
 impl-trait/in-trait/method-compatability-via-leakage.rs: left out: revisions
 impl-trait/in-trait/nested-rpitit-bounds.rs: left out: revisions
 impl-trait/in-trait/placeholder-implied-bounds.rs: left out: revisions
 impl-trait/in-trait/refine-cycle.rs: left out: revisions
 impl-trait/in-trait/refine-normalize.rs: left out: revisions
 impl-trait/in-trait/signature-mismatch.rs: left out: revisions
-impl-trait/issues/issue-104815.rs: type check: a type left unknown
+impl-trait/issues/issue-104815.rs: type check: mismatched types
 impl-trait/issues/issue-105826.rs: left out: revisions
 impl-trait/issues/issue-49579.rs: type check: a type left unknown
 impl-trait/lifetime-ambiguity-regression.rs: type check: a type left unknown
@@ -582,7 +559,6 @@ impl-trait/precise-capturing/external-macro.rs: left out: auxiliary crates
 impl-trait/precise-capturing/illegal-positions.rs: left out: revisions
 impl-trait/recursive-bound-eval.rs: left out: revisions
 impl-trait/recursive-coroutine-boxed.rs: left out: revisions
-impl-trait/recursive-parent-trait-method-call.rs: type check: mismatched types
 impl-trait/rpit/const_check_false_cycle.rs: left out: revisions
 impl-trait/rpit/dyn-in-nested-rpit.rs: left out: revisions
 impl-trait/rpit/precise-capture-155151.rs: left out: revisions
@@ -606,7 +582,6 @@ imports/ambiguous-import-visibility-macro.rs: left out: auxiliary crates
 imports/ambiguous-import-visibility.rs: left out: auxiliary crates
 imports/ambiguous-trait-in-scope-and-underscore.rs: left out: revisions
 imports/dummy-import-ice.rs: left out: auxiliary crates
-imports/extern-prelude-extern-crate-absolute-expanded.rs: type check: mismatched types
 imports/extern-prelude-extern-crate-cfg.rs: left out: flags that change the crate
 imports/extern-prelude-extern-crate-pass.rs: left out: auxiliary crates
 imports/extern-prelude-extern-crate-shadowing.rs: left out: auxiliary crates
@@ -637,7 +612,6 @@ keyword/soup.rs: import not resolved: __ui_test_119::x: use Ok (as Ok)
 late-bound-lifetimes/cross_crate_alias.rs: left out: auxiliary crates
 layout/reprc-power-alignment.rs: left out: flags that change the crate
 lazy-type-alias-impl-trait/freeze_cycle.rs: type check: a type left unknown
-lazy-type-alias-impl-trait/nested.rs: type check: mismatched types
 lazy-type-alias-impl-trait/recursion2.rs: type check: mismatched types
 lexer/ident_normalization.rs: path not resolved: K
 lifetimes/lifetime-inference-destructuring-arg.rs: left out: revisions
@@ -661,12 +635,11 @@ lint/expect-future_breakage-crash-issue-126521.rs: error: expanding `foo!`: expe
 lint/for-loops-over-fallibles/external-macro-issue-148114.rs: left out: auxiliary crates
 lint/forbid-macro-with-deny.rs: left out: revisions
 lint/function-item-references.rs: error: expanding `format_args_nl!`: expected `>`, found `)`
-lint/improper-ctypes/tait-extern-fn-next-solver-issue-156345.rs: type check: mismatched types
+lint/improper-ctypes/tait-extern-fn-next-solver-issue-156345.rs: type check: a type left unknown
 lint/inert-attr-macro.rs: error: expanding `foo!`: expected an expression, found the end of the input (inert-attr-macro.rs:10:15)
 lint/lint-gpu-kernel.rs: left out: revisions
 lint/lint-missing-doc-expect.rs: left out: revisions
 lint/lint-missing-doc-test.rs: left out: --test
-lint/lint-non-uppercase-usages.rs: type check: mismatched types
 lint/lint-output-format-2.rs: left out: auxiliary crates
 lint/lint-stability-deprecated.rs: left out: auxiliary crates
 lint/lints-in-foreign-macros.rs: left out: auxiliary crates
@@ -701,7 +674,6 @@ macros/issue-34171.rs: error: in `null!`: no rule of the macro matches this inpu
 macros/issue-69838-mods-relative-to-included-path.rs: error: no file for module `bar`: neither `/private/tmp/claude-502/-Users-amy-andy-thomason-epitome/d698d809-bf3b-400b-91f6-effe1b4b32f5/scratchpad/rust/tests/ui/macros/bar.rs` nor `/private/tmp/claude-502/-Users-amy-andy-thomason-epitome/d698d809-bf3b-400b-91f6-effe1b4b32f5/scratchpad/rust/tests/ui/macros/bar/mod.rs` (included.rs:3:9)
 macros/issue-75982-foreign-macro-weird-mod.rs: left out: auxiliary crates
 macros/issue-95267.rs: error: in `f!`: no rule of the macro matches this input (issue-95267.rs:13:5)
-macros/issue-95533.rs: type check: mismatched types
 macros/macro-def-site-super.rs: left out: auxiliary crates
 macros/macro-deprecation.rs: left out: auxiliary crates
 macros/macro-expansion-empty-span-147408.rs: path not resolved: dyn
@@ -953,7 +925,6 @@ rust-2024/prelude-migration/future-poll-not-future.rs: left out: revisions
 rust-2024/prelude-migration/into-future-adt.rs: left out: revisions
 rust-2024/prelude-migration/into-future-already-into-future.rs: left out: revisions
 rust-2024/prelude-migration/into-future-not-into-future.rs: left out: revisions
-rust-2024/prelude2024.rs: type check: method not found
 rust-2024/unsafe-attributes/safe-proc-macro-attribute.rs: left out: revisions
 rust-2024/unsafe-attributes/unsafe-attribute-marked.rs: left out: revisions
 rust-2024/unsafe-attributes/unsafe-attributes-from-pm.rs: left out: revisions
@@ -965,7 +936,6 @@ sanitizer/cfg-kasan.rs: left out: revisions
 sanitizer/cfg-khwasan.rs: left out: flags that change the crate
 sanitizer/cfg.rs: left out: revisions
 self/arbitrary_self_types_pin_getref.rs: left out: revisions
-self/arbitrary_self_types_pin_lifetime.rs: type check: mismatched types
 self/self-ctor-nongeneric.rs: path not resolved: Self
 single-use-lifetime/anonymous_lifetime_in_impl_trait.rs: left out: revisions
 single-use-lifetime/issue-104440.rs: type check: method not found
@@ -1017,8 +987,6 @@ target_modifiers/target_cpu_default.rs: left out: auxiliary crates
 target_modifiers/two_flags.rs: left out: auxiliary crates
 test-attrs/decl-macro-test.rs: left out: --test
 test-attrs/issue-53675-a-test-called-panic.rs: left out: --test
-thread-local/long-docs.rs: type check: mismatched types
-thread-local/name-collision.rs: type check: mismatched types
 thread-local/thread-local-static-ref-use-after-free.rs: type check: `.await` on something that is not a future
 tool-attributes/cfg-register.rs: left out: revisions
 trait-bounds/issue-94999.rs: type check: method not found
@@ -1049,7 +1017,6 @@ traits/const-traits/match-non-const-eq.rs: left out: revisions
 traits/const-traits/minicore-const-fn-early-bound.rs: left out: auxiliary crates
 traits/const-traits/minicore-drop-without-feature-gate.rs: left out: auxiliary crates
 traits/const-traits/minicore-works.rs: left out: auxiliary crates
-traits/const-traits/static-const-trait-bound.rs: type check: mismatched types
 traits/const-traits/super-traits-fail-3.rs: left out: revisions
 traits/copy-is-not-modulo-regions.rs: left out: revisions
 traits/issue-59029-2.rs: path not resolved: Self
@@ -1076,16 +1043,14 @@ traits/next-solver/coherence/coherence-unknowable-does-not-eagerly-normalize.rs:
 traits/next-solver/const-param-placeholder.rs: left out: revisions
 traits/next-solver/coroutine-yield-unnormalized-alias.rs: type check: unsupported expression
 traits/next-solver/coroutine.rs: left out: revisions
-traits/next-solver/coroutine_query_cycle.rs: type check: a type left unknown
 traits/next-solver/cycles/coinduction/only-one-coinductive-step-needed-trait.rs: left out: revisions
 traits/next-solver/cycles/coinduction/only-one-coinductive-step-needed.rs: left out: revisions
 traits/next-solver/cycles/inductive-cycle-discarded-coinductive-constraints.rs: type check: a type left unknown
 traits/next-solver/cycles/leak-check-coinductive-cycle.rs: type check: a type left unknown
 traits/next-solver/cycles/normalizes-to-is-not-productive-2.rs: left out: revisions
 traits/next-solver/cycles/provisional-result-done.rs: type check: a type left unknown
-traits/next-solver/deduce-ty-from-object.rs: type check: a type left unknown
+traits/next-solver/deduce-ty-from-object.rs: type check: mismatched types
 traits/next-solver/deeply-nested-stalled-on-coroutines.rs: type check: call of something that is not a function
-traits/next-solver/fudge-inference/fudge-inference-with-aliases-2.rs: type check: mismatched types
 traits/next-solver/generalize/alias-with-bound-vars-incomplete-generalization.rs: left out: revisions
 traits/next-solver/generalize/bivariant-alias.rs: left out: revisions
 traits/next-solver/generalize/constrain-inference-during-normalize.rs: type check: a type left unknown
@@ -1108,7 +1073,6 @@ traits/next-solver/normalization-shadowing/is-global-norm-binius_field-regressio
 traits/next-solver/normalize/dont-mark-const-aliases-as-rigid-in-param-env.rs: left out: revisions
 traits/next-solver/normalize/indirectly-constrained-term.rs: left out: revisions
 traits/next-solver/normalize/normalize-assoc-ty-expected-int-var-no-ice-1.rs: left out: revisions
-traits/next-solver/normalize/normalize-const-in-async-body.rs: type check: a type left unknown
 traits/next-solver/normalize/normalize-param-env-4.rs: left out: revisions
 traits/next-solver/normalize/normalize-region-obligations.rs: left out: revisions
 traits/next-solver/normalize/normalize-self-type-constrains-trait-args.rs: left out: revisions
@@ -1144,7 +1108,6 @@ traits/next-solver/typeck/structurally-resolve-in-resolve_for_branch.rs: type ch
 traits/next-solver/unevaluated-const-impl-trait-ref.rs: left out: revisions
 traits/next-solver/unsize-goal-mismatch-2.rs: left out: revisions
 traits/next-solver/unsize-goal-mismatch.rs: left out: revisions
-traits/next-solver/writeback-predicate-bound-region.rs: type check: a type left unknown
 traits/non-lifetime-via-dyn-builtin.rs: left out: revisions
 traits/non_lifetime_binders/basic.rs: path not resolved: T
 traits/non_lifetime_binders/drop-impl-pred.rs: left out: revisions
@@ -1159,7 +1122,6 @@ traits/normalize/normalize-param-env-missing-implied-bound-1.rs: left out: revis
 traits/normalize/normalize-param-env-missing-implied-bound-2.rs: left out: revisions
 traits/normalize/pointee-normalize-equate.rs: left out: revisions
 traits/object/dyn-type-param-bound-not-checked.rs: left out: revisions
-traits/pointee-tail-is-generic.rs: type check: a type left unknown
 traits/trait-upcasting/add-supertrait-auto-traits.rs: left out: revisions
 traits/trait-upcasting/fewer-associated.rs: left out: revisions
 traits/trait-upcasting/illegal-upcast-to-impl-opaque.rs: left out: revisions
@@ -1199,16 +1161,14 @@ type-alias-impl-trait/issue-53678-coroutine-and-const-fn.rs: type check: unsuppo
 type-alias-impl-trait/issue-58662-coroutine-with-lifetime.rs: type check: unsupported expression
 type-alias-impl-trait/issue-76202-trait-impl-for-tait.rs: left out: revisions
 type-alias-impl-trait/issue-78450.rs: left out: revisions
-type-alias-impl-trait/issue-93411.rs: type check: a type left unknown
 type-alias-impl-trait/issue-96572-unconstrained.rs: left out: revisions
 type-alias-impl-trait/itiat-allow-nested-closures.rs: left out: revisions
 type-alias-impl-trait/match-unification.rs: type check: mismatched types
 type-alias-impl-trait/method_resolution2.rs: left out: revisions
 type-alias-impl-trait/method_resolution5.rs: left out: revisions
 type-alias-impl-trait/multiple-def-uses-in-one-fn-pass.rs: error: expanding `format_args_nl!`: expected `>`, found `)`
-type-alias-impl-trait/multiple_definitions.rs: type check: mismatched types
+type-alias-impl-trait/multiple_definitions.rs: type check: a type left unknown
 type-alias-impl-trait/nested-tait-inference.rs: left out: revisions
-type-alias-impl-trait/nested_impl_trait_in_assoc_ty.rs: type check: a type left unknown
 type-alias-impl-trait/nested_inference_failure.rs: left out: revisions
 type-alias-impl-trait/normalize-args-before-defining-use-check.rs: left out: revisions
 type-alias-impl-trait/normalize-hidden-types.rs: left out: revisions
@@ -1221,7 +1181,6 @@ type-alias-impl-trait/tait-normalize.rs: left out: revisions
 type-alias-impl-trait/tait-param-inference-issue-117310.rs: type check: a type left unknown
 type-alias-impl-trait/type-alias-impl-trait-tuple.rs: left out: revisions
 type-alias-impl-trait/type_of_a_let.rs: left out: revisions
-type-alias-impl-trait/weird-return-types.rs: type check: a type left unknown
 type-alias-impl-trait/wf-in-associated-type.rs: left out: revisions
 type-alias/lack-of-wfcheck-generic-const-args.rs: left out: revisions
 type/pattern_types/assoc_const.rs: left out: revisions

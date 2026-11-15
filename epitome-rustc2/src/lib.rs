@@ -25,5 +25,6 @@ pub mod proc_macro;
 pub mod resolve;
 pub mod session;
 pub mod source;
+pub mod sysroot;
 pub mod ty;
 pub mod typeck;

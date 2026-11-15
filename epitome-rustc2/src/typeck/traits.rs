@@ -44,7 +44,8 @@ pub(super) enum Source {
     Impl(usize, Vec<Ty>),
     /// Something the body may assume (or an obligation on a variable).
     Bound,
-    /// Built in; for the `Fn` traits, the result type.
+    /// Built in; for the `Fn` traits, the result type, and for `Future`
+    /// (of an `async` block) the output.
     Builtin(Option<Ty>),
 }
 
@@ -361,6 +362,12 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 };
             }
         }
+        // `async` blocks implement `Future`, with their value as `Output`.
+        if let TyKind::AsyncBlock(_, out, _) = tcx.kind(t)
+            && tcx.lang.get("future_trait") == Some(&tr)
+        {
+            return Select::Yes(Source::Builtin(Some(out)));
+        }
         let Some(ti) = self.index.trait_impls.get(&tr) else { return Select::No };
         let cands: Vec<usize> = match head(tcx, t) {
             Some(h) => ti.by_head.get(&h).into_iter().flatten().chain(&ti.blanket).copied().collect(),
@@ -386,6 +393,36 @@ impl<'a, 's> FnCtxt<'a, 's> {
             },
             None => Select::No,
         }
+    }
+
+    /// Where several impls match `t: tr<args>` (a specialising family, such
+    /// as `SpecExtend`'s), but every one that does gives the variables in
+    /// `args` the same types: those types. Whether it settled them.
+    fn settle_by_agreement(&mut self, t: Ty, tr: DefId, args: &[Ty]) -> bool {
+        let tcx = self.tcx;
+        let t = self.infer.shallow(t);
+        let Some(ti) = self.index.trait_impls.get(&tr) else { return false };
+        let cands: Vec<usize> = match head(tcx, t) {
+            Some(h) => ti.by_head.get(&h).into_iter().flatten().chain(&ti.blanket).copied().collect(),
+            None => return false,
+        };
+        let mut agreed: Option<Vec<Ty>> = None;
+        for i in cands {
+            let s = self.probe();
+            let got = self.impl_matches(i, t, args, 1).map(|_| args.iter().map(|&a| self.infer.resolve(a)).collect::<Vec<Ty>>());
+            self.rollback(s);
+            let Some(got) = got else { continue };
+            if got.iter().any(|&a| tcx.has_infer(a)) {
+                return false;
+            }
+            match &agreed {
+                None => agreed = Some(got),
+                Some(a) if *a == got => {}
+                Some(_) => return false,
+            }
+        }
+        let Some(agreed) = agreed else { return false };
+        args.iter().zip(agreed).all(|(&a, b)| self.infer.unify(a, b))
     }
 
     /// For a concrete `t` that several impls match (specialisation): the
@@ -648,7 +685,11 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 let it = subst(tcx, it, &params, &a);
                 Some(self.normalize(it, depth + 1))
             }
-            Select::Yes(Source::Builtin(Some(out))) if tcx.lang.get("fn_once_output") == Some(&assoc) => Some(out),
+            Select::Yes(Source::Builtin(Some(out)))
+                if tcx.lang.get("fn_once_output") == Some(&assoc) || tcx.lang.get("future_output") == Some(&assoc) =>
+            {
+                Some(out)
+            }
             _ => None,
         }
     }
@@ -794,6 +835,11 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     _ => self.mk(TyKind::FnPtr(sig)),
                 }
             }
+            TyKind::AsyncBlock(c, o, l) => {
+                let o = self.normalize(o, depth);
+                let v = tcx.tys(l).into_iter().map(|x| self.normalize(x, depth)).collect();
+                self.mk(TyKind::AsyncBlock(c, o, tcx.list(v)))
+            }
             TyKind::Opaque(o, l) => {
                 let v = tcx.tys(l).into_iter().map(|x| self.normalize(x, depth)).collect();
                 self.mk(TyKind::Opaque(o, tcx.list(v)))
@@ -822,7 +868,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 continue;
             }
             match self.select(t, tr, &args, 1) {
-                Select::Ambiguous => i += 1,
+                Select::Ambiguous if !self.settle_by_agreement(t, tr, &args) => i += 1,
                 _ => {
                     self.pending_traits.swap_remove(i);
                 }
@@ -952,9 +998,16 @@ impl<'a, 's> FnCtxt<'a, 's> {
     /// Traits with an item named `name`, those the body is more likely to
     /// mean first: bounds, then traits in scope, then the rest.
     pub(super) fn trait_candidates(&mut self, name: &str) -> Vec<(DefId, DefId)> {
+        self.trait_candidates_in(name, false)
+    }
+
+    /// The traits with an item `name`, and those items: what the body
+    /// assumes first, then those in scope, then (unless `scoped`) the
+    /// rest.
+    fn trait_candidates_in(&mut self, name: &str, scoped: bool) -> Vec<(DefId, DefId)> {
         let Some(c) = self.index.trait_items.get(name) else { return Vec::new() };
         let mut c = c.clone();
-        if c.len() > 1 {
+        if c.len() > 1 || scoped {
             let bound: Vec<DefId> = self
                 .env_preds
                 .iter()
@@ -964,15 +1017,21 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     _ => None,
                 })
                 .collect();
-            c.sort_by_cached_key(|&(tr, _)| {
-                if bound.contains(&tr) {
-                    0
-                } else if self.in_scope(tr) {
-                    1
-                } else {
-                    2
-                }
-            });
+            let rank: Vec<u8> = c
+                .iter()
+                .map(|&(tr, _)| {
+                    if bound.contains(&tr) {
+                        0
+                    } else if self.in_scope(tr) {
+                        1
+                    } else {
+                        2
+                    }
+                })
+                .collect();
+            let mut ranked: Vec<(u8, (DefId, DefId))> = rank.into_iter().zip(c).collect();
+            ranked.sort_by_key(|x| x.0);
+            c = ranked.into_iter().filter(|x| !scoped || x.0 < 2).map(|x| x.1).collect();
         }
         c
     }
@@ -1007,9 +1066,10 @@ impl<'a, 's> FnCtxt<'a, 's> {
 
     /// A trait method `name` whose receiver is `recv`: the method, the
     /// other parameters' types and the result.
-    pub(super) fn trait_method(&mut self, recv: Ty, name: &str) -> Option<(DefId, Vec<Ty>, Vec<Ty>, Ty)> {
+    /// With `scoped`, only traits the body assumes or has in scope.
+    pub(super) fn trait_method(&mut self, recv: Ty, name: &str, scoped: bool) -> Option<(DefId, Vec<Ty>, Vec<Ty>, Ty)> {
         let tcx = self.tcx;
-        for (tr, item) in self.trait_candidates(name) {
+        for (tr, item) in self.trait_candidates_in(name, scoped) {
             if self.r.defs[item.0 as usize].kind != DefKind::AssocFn || !self.has_self(item) {
                 continue;
             }
@@ -1026,9 +1086,20 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     continue;
                 }
             };
-            if inputs.is_empty() || !self.infer.unify(inputs[0], recv) || !self.select(self_ty, tr, &targs, 0).holds() {
+            if inputs.is_empty() || !self.infer.unify(inputs[0], recv) {
                 self.rollback(s);
                 continue;
+            }
+            match self.select(self_ty, tr, &targs, 0) {
+                Select::No => {
+                    self.rollback(s);
+                    continue;
+                }
+                // Its trait's arguments may be settled later.
+                Select::Ambiguous if targs.iter().any(|&a| tcx.has_infer(self.infer.resolve(a))) => {
+                    self.pending_traits.push((self_ty, tr, tcx.list(targs.clone())));
+                }
+                _ => {}
             }
             return Some((item, args, inputs[1..].to_vec(), output));
         }
@@ -1356,6 +1427,7 @@ fn has_projection(tcx: &crate::ty::TyCtxt, t: Ty) -> bool {
                 || tcx.tys(s.inputs).into_iter().any(|x| has_projection(tcx, x))
                 || tcx.tys(l).into_iter().any(|x| has_projection(tcx, x))
         }
+        TyKind::AsyncBlock(_, o, l) => has_projection(tcx, o) || tcx.tys(l).into_iter().any(|x| has_projection(tcx, x)),
         _ => false,
     }
 }

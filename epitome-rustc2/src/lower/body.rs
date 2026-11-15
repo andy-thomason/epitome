@@ -113,6 +113,15 @@ pub(crate) struct Fx<'c, 'a, 's, 'm> {
     tries: Vec<(BlockId, Place, usize)>,
     /// What the body owns, and the scopes that drop it (see `drop.rs`).
     pub drops: super::drop::Drops,
+    /// In a closure that moves out of what it captured (an `FnOnce`): its
+    /// captures, a root it drops what is left of at its end.
+    pub env_root: Option<usize>,
+    /// In a closure lowered not owning its captures: whether it moved out
+    /// of one (so it must be lowered again, owning them).
+    pub moved_capture: bool,
+    /// Whether it called a closure by `call_once` whose kind was not
+    /// known yet (so it must be lowered again, once all are).
+    pub unknown_closure: bool,
 }
 
 /// Source comments for `--dump-ir`: block, position in the block, text.
@@ -121,7 +130,12 @@ pub(crate) type Notes = Vec<(BlockId, usize, String)>;
 /// Lowers the body of function (or closure) `it` into the function `decl`
 /// declares. Gives the source comments for `--dump-ir`, and what the
 /// function traps on where it is reached (see `Fx::trap_here`).
-pub(crate) fn lower_fn(cx: &Cx, m: &mut Module, it: Item, decl: &Decl) -> R<(Notes, Vec<String>)> {
+/// What lowering a function found: its notes, what it traps on, whether
+/// (a closure not owning its captures) it moved out of one, and whether it
+/// called a closure whose kind was not known yet.
+pub(crate) type Lowered = (Notes, Vec<String>, bool, bool);
+
+pub(crate) fn lower_fn(cx: &Cx, m: &mut Module, it: Item, decl: &Decl, owns_env: bool) -> R<Lowered> {
     let tcx = cx.tcx;
     let (owner, l, closure) = match it {
         Item::Fn(d, l) => (d, l, None),
@@ -202,6 +216,12 @@ pub(crate) fn lower_fn(cx: &Cx, m: &mut Module, it: Item, decl: &Decl) -> R<(Not
         for (i, cap) in cx.typeck.captures.get(&c).into_iter().flatten().enumerate() {
             fx.upvars.insert((k, f, cap.local), (i, cap.by_value));
         }
+        // An `FnOnce` body owns its captures: what it does not move out
+        // is dropped at its end.
+        if owns_env && fx.needs_drop(env_ty) {
+            let env = Place { addr: p, meta: None, ty: env_ty };
+            fx.env_root = Some(fx.owned(env, 0)?);
+        }
     }
     for (i, &p) in pnodes.iter().enumerate() {
         let t = decl.abi.inputs[i + skip];
@@ -249,9 +269,10 @@ pub(crate) fn lower_fn(cx: &Cx, m: &mut Module, it: Item, decl: &Decl) -> R<(Not
     fx.ret_value(v)?;
     let notes = std::mem::take(&mut fx.notes);
     let traps = std::mem::take(&mut fx.traps);
+    let (moved, unknown) = (fx.moved_capture, fx.unknown_closure);
     // Every block needs a terminator: those left open are unreachable.
     fx.finish(first)?;
-    Ok((notes, traps))
+    Ok((notes, traps, moved, unknown))
 }
 
 /// Replaces `decl`'s body (or declaration) with one that traps.
@@ -362,6 +383,9 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             traps: Vec::new(),
             tries: Vec::new(),
             drops: Default::default(),
+            env_root: None,
+            moved_capture: false,
+            unknown_closure: false,
         };
         fx.entry = fx.b.block("start");
         let first = fx.b.new_block("body");
@@ -390,9 +414,10 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         self.entry
     }
 
-    /// Whether `key` is a local this closure captured.
-    pub fn is_upvar(&self, key: (u32, u32, NodeId)) -> bool {
-        self.upvars.contains_key(&key)
+    /// Where among its captures this closure holds local `key`, and
+    /// whether by value.
+    pub fn upvar(&self, key: (u32, u32, NodeId)) -> Option<(usize, bool)> {
+        self.upvars.get(&key).copied()
     }
 
     /// Finishes the function: the drops left for the end, an end to every
@@ -965,7 +990,19 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                     let f = self.fn_address(d, tcx.tys(l))?;
                     pv = Pv::Val(Operand { ty: to, v: Val::Imm(f) });
                 }
-                Adjust::ClosureFnPointer => return Err("closures are not supported yet".into()),
+                Adjust::ClosureFnPointer => {
+                    // A closure that captures nothing, as its function.
+                    let o = self.operand_of(pv)?;
+                    let TyKind::Closure(c, _, l) = tcx.kind(o.ty) else { return Err("a closure pointer of no closure".into()) };
+                    let owner = *self.cx.typeck.closure_owners.get(&c).ok_or("closure without an owner")?;
+                    let thunk = self.cx.fnptr.get(&Item::Closure(c, owner, l)).ok_or("a closure that captures as a function pointer")?.g;
+                    let to = match self.body.tables.adjusted.get(&n) {
+                        Some(&t) => self.sub(t),
+                        None => return Err("function pointer without a type".into()),
+                    };
+                    let f = self.b.module().global_value(thunk);
+                    pv = Pv::Val(Operand { ty: to, v: Val::Imm(f) });
+                }
             }
         }
         Ok(pv)
@@ -1717,7 +1754,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 let bytes = parse_str(tok).ok_or_else(|| format!("bad string literal {tok}"))?;
                 let len = bytes.len() as u64;
                 let init = self.b.module().const_bytes(&bytes);
-                let name = format!("{}.str.{}", self.fname, self.strings);
+                let name = format!("{}.str.{}{}", self.fname, self.strings, if self.env_root.is_some() { ".once" } else { "" });
                 self.strings += 1;
                 let g = epitome_ir::module::Global::builder(&name).init(init).constant().linkage(Linkage::Private).align(1).build(self.b.module());
                 let addr = self.b.module().global_value(g);
@@ -1727,6 +1764,11 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                         Ok(self.fat(t, addr, l)?)
                     }
                     TyKind::Array(..) => Ok(Operand { ty: t, v: Val::Imm(addr) }),
+                    // `&CStr`: its bytes, with the NUL, as its slice.
+                    TyKind::Adt(..) if tok.starts_with('c') => {
+                        let l = self.usize_const(len);
+                        Ok(self.fat(t, addr, l)?)
+                    }
                     _ => Err("string literal of an unexpected type".into()),
                 }
             }
@@ -1770,6 +1812,23 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 let ptr = self.ptr_t();
                 let _ = ptr;
                 let t = self.ty(n)?;
+                // `#[linkage = "extern_weak"] static f: Option<fn ...>`: its
+                // value is the address of the symbol, null if nothing defines
+                // it (as `std`'s `weak!` uses it).
+                let (_, _, ast, node) = self.cx.def_ast(*d);
+                if crate::session::attribute_value(ast, node, "linkage").as_deref() == Some("extern_weak") {
+                    let g = match self.b.module().find_global(&name) {
+                        Some(g) => g,
+                        None => {
+                            let i8t = self.i8t();
+                            let mut g = epitome_ir::module::Global::variable(&name, i8t, None, false);
+                            g.props.linkage = Linkage::ExternWeak;
+                            self.b.module().add_global(g)
+                        }
+                    };
+                    let addr = self.b.module().global_value(g);
+                    return Ok(Pv::Val(Operand { ty: t, v: Val::Imm(addr) }));
+                }
                 let g = match self.b.module().find_global(&name) {
                     Some(g) => g,
                     None => {
@@ -2708,7 +2767,10 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             }
             let callee = if once { Pv::Place(self.place_of(callee)?) } else { callee };
             let r = self.call_value(callee, margs, args)?;
-            if once && let Pv::Place(p) = callee {
+            if once
+                && let Pv::Place(p) = callee
+                && !self.closure_owns_env(p.ty)
+            {
                 let r = self.keep(r)?;
                 self.drop_place(p)?;
                 return Ok(r);
@@ -2824,7 +2886,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         }
     }
 
-    fn call_fn_ptr(&mut self, callee: Operand, args: Vec<Operand>) -> R<Pv> {
+    pub fn call_fn_ptr(&mut self, callee: Operand, args: Vec<Operand>) -> R<Pv> {
         let tcx = self.cx.tcx;
         let TyKind::FnPtr(s) = tcx.kind(callee.ty) else { return Err("not a function pointer".into()) };
         let sig = tcx.sig_of(s);
@@ -2921,7 +2983,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 let fp = self.field(tuple, 0, i)?;
                 inner.push(self.load(fp)?);
             }
-            if name == "call_once" && self.needs_drop(args[0].ty) {
+            if name == "call_once" && self.needs_drop(args[0].ty) && !self.closure_owns_env(args[0].ty) {
                 // The callee, taken by value, is dropped after the call.
                 let p = self.place_of(Pv::Val(args[0]))?;
                 let r = self.call_value(Pv::Place(p), targs, inner)?;
@@ -2932,6 +2994,22 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             return self.call_value(Pv::Val(args[0]), targs, inner);
         }
         Err(format!("built-in `{}` on {}", self.cx.r.def_path(d), targs.first().map(|&t| tcx.display(self.cx.r, t)).unwrap_or_default()))
+    }
+
+    /// Whether a value of `t` is a closure that drops its own captures (an
+    /// `FnOnce` that moves out of them): its caller does not drop it after
+    /// calling it.
+    pub fn closure_owns_env(&mut self, t: Ty) -> bool {
+        let tcx = self.cx.tcx;
+        let TyKind::Closure(c, _, l) = tcx.kind(t) else { return false };
+        let Some(&owner) = self.cx.typeck.closure_owners.get(&c) else { return false };
+        match self.cx.owning.borrow().get(&Item::Closure(c, owner, l)) {
+            Some(&b) => b,
+            None => {
+                self.unknown_closure = true;
+                false
+            }
+        }
     }
 
     /// A call's result, copied if it is in memory (out of the way of what
@@ -3050,6 +3128,37 @@ pub(crate) fn parse_char(tok: &str) -> Option<u32> {
 
 /// The bytes of a string or byte string literal (raw or not).
 pub(crate) fn parse_str(tok: &str) -> Option<Vec<u8>> {
+    // `c"..."`: the bytes, `\x` escapes as bytes and other characters in
+    // UTF-8, then a NUL.
+    if let Some(t) = tok.strip_prefix('c') {
+        let mut out = Vec::new();
+        let raw = t.starts_with('r');
+        let inner = parse_str(t)?;
+        if raw {
+            out = inner;
+        } else {
+            let body = t.strip_prefix('"')?;
+            let body = &body[..body.rfind('"')?];
+            let mut s = body;
+            while !s.is_empty() {
+                if let Some(rest) = s.strip_prefix("\\\n").or_else(|| s.strip_prefix("\\\r\n")) {
+                    s = rest.trim_start();
+                    continue;
+                }
+                let hex = s.starts_with("\\x");
+                let (c, rest) = unescape_one(s)?;
+                if hex {
+                    out.push(c as u8);
+                } else {
+                    let mut buf = [0u8; 4];
+                    out.extend_from_slice(char::from_u32(c)?.encode_utf8(&mut buf).as_bytes());
+                }
+                s = rest;
+            }
+        }
+        out.push(0);
+        return Some(out);
+    }
     let byte = tok.starts_with('b');
     let t = tok.strip_prefix('b').unwrap_or(tok);
     if let Some(r) = t.strip_prefix('r') {

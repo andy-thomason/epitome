@@ -769,6 +769,13 @@ impl<'a, 's> FnCtxt<'a, 's> {
         if self.tcx.kind(sb) == TyKind::Never {
             return a;
         }
+        // `*mut T` and `*const T`: both `*const T`.
+        if let (TyKind::Ptr(ma, x), TyKind::Ptr(mb, y)) = (self.tcx.kind(sa), self.tcx.kind(sb))
+            && ma != mb
+            && self.infer.unify(x, y)
+        {
+            return self.mk(TyKind::Ptr(Mutbl::Not, x));
+        }
         if !self.coerce(n, b, a) {
             return self.tcx.error();
         }

@@ -660,14 +660,21 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 self.rollback(p);
             }
             (TyKind::Adt(a, x), TyKind::Adt(b, y)) if a == b && Some(a) == self.lang("owned_box") => {
-                let (x, y) = (tcx.tys(x)[0], tcx.tys(y)[0]);
+                // The allocators are the same; the pointees the same, or
+                // the one unsizing to the other.
+                let (xs, ys) = (tcx.tys(x), tcx.tys(y));
                 let p = self.probe();
-                if self.infer.unify(x, y) {
-                    return true;
-                }
-                if self.unsizes_to(x, y) {
-                    self.adjust(n, vec![Adjust::Unsize], w);
-                    return true;
+                if xs[1..].iter().zip(&ys[1..]).all(|(&a, &b)| self.infer.unify(a, b)) {
+                    let (x, y) = (xs[0], ys[0]);
+                    let q = self.probe();
+                    if self.infer.unify(x, y) {
+                        return true;
+                    }
+                    self.rollback(q);
+                    if self.unsizes_to(x, y) {
+                        self.adjust(n, vec![Adjust::Unsize], w);
+                        return true;
+                    }
                 }
                 self.rollback(p);
             }

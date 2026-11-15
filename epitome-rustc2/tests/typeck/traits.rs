@@ -109,3 +109,40 @@ fn staged() -> Staged<impl Stage> {
         c
     })
 }
+
+/// `async fn`s: a call gives a future whose output is the declared return
+/// type, and the body, with its own `return`, is checked against that type.
+async fn halve(x: u16) -> u16 {
+    if x == 0 {
+        return 0;
+    }
+    x / 2
+}
+
+struct Clock(u32);
+
+impl Clock {
+    async fn tick(&self) -> u32 {
+        self.0 + 1
+    }
+}
+
+trait Source {
+    async fn read(&self) -> u8;
+}
+
+impl Source for Clock {
+    async fn read(&self) -> u8 {
+        self.0 as u8
+    }
+}
+
+async fn read_any<S: Source>(s: &S) -> u8 {
+    s.read().await
+}
+
+async fn async_fns(c: Clock) -> u32 {
+    let h = halve(4).await;
+    let r = read_any(&c).await + c.read().await;
+    c.tick().await + h as u32 + r as u32
+}

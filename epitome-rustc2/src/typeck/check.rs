@@ -118,7 +118,13 @@ pub(super) fn check_body<'s>(
             let sig = tcx.sig_of(tcx.fn_sig[owner.0 as usize]?);
             let inputs = tcx.tys(sig.inputs);
             let inputs: Vec<Ty> = inputs.into_iter().map(|t| cx.fill_holes(t)).collect();
-            let out = cx.fill_holes(sig.output);
+            // An `async fn`'s body is checked against the declared return
+            // type, the output of the future a call gives.
+            let out = match tcx.kind(sig.output) {
+                TyKind::AsyncBlock(c, o, _) if tcx.closure_at(c) == (k, file, item) => o,
+                _ => sig.output,
+            };
+            let out = cx.fill_holes(out);
             // `impl Trait`: a variable bound by its bounds, so that a
             // closure returned gets its signature from them.
             cx.ret = cx.opaque_vars(out, true);

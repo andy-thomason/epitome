@@ -60,8 +60,8 @@
 <circle class="pad" cx="473.6" cy="1608" r="4.5"><title>PIO (8, 0, 1)</title></circle>
 </g>
 <g class="tile io" data-x="9" data-y="0"><title>io (9, 0): I/O tile: two pads; 288 bits, CRAM bank 0; found by experiment (icepack, icebox)</title><rect class="tile io exp" x="488" y="1584" width="48" height="48"/>
-<circle class="pad" cx="502.4" cy="1608" r="4.5"><title>PIO (9, 0, 0): package pin 4</title></circle>
-<text class="pin" x="497.4" y="1621">4</text>
+<circle class="pad" cx="502.4" cy="1608" r="4.5"><title>PIO (9, 0, 0): package pin 4; on the board, UART from the iCELink (FPGA input, jumper J5)</title></circle>
+<text class="boardpin" x="497.4" y="1621">4</text>
 <circle class="pad" cx="521.6" cy="1608" r="4.5"><title>PIO (9, 0, 1): package pin 3</title></circle>
 <text class="pin" x="516.6" y="1621">3</text>
 </g>
@@ -79,8 +79,8 @@
 </g>
 <g class="tile io" data-x="13" data-y="0"><title>io (13, 0): I/O tile: two pads; 288 bits, CRAM bank 2; found by experiment (icepack, icebox)</title><rect class="tile io exp" x="680" y="1584" width="48" height="48"/>
 <circle class="pad" cx="694.4" cy="1608" r="4.5"><title>PIO (13, 0, 0)</title></circle>
-<circle class="pad" cx="713.6" cy="1608" r="4.5"><title>PIO (13, 0, 1): package pin 6</title></circle>
-<text class="pin" x="708.6" y="1621">6</text>
+<circle class="pad" cx="713.6" cy="1608" r="4.5"><title>PIO (13, 0, 1): package pin 6; on the board, UART to the iCELink (FPGA output, jumper J5)</title></circle>
+<text class="boardpin" x="708.6" y="1621">6</text>
 </g>
 <g class="tile io" data-x="14" data-y="0"><title>io (14, 0): I/O tile: two pads; 288 bits, CRAM bank 2; found by experiment (icepack, icebox)</title><rect class="tile io exp" x="728" y="1584" width="48" height="48"/>
 <circle class="pad" cx="742.4" cy="1608" r="4.5"><title>PIO (14, 0, 0)</title></circle>
@@ -104,14 +104,14 @@
 <g class="tile io" data-x="18" data-y="0"><title>io (18, 0): I/O tile: two pads; 288 bits, CRAM bank 2; found by experiment (icepack, icebox)</title><rect class="tile io exp" x="920" y="1584" width="48" height="48"/>
 <circle class="pad" cx="934.4" cy="1608" r="4.5"><title>PIO (18, 0, 0): package pin 12</title></circle>
 <text class="pin" x="929.4" y="1621">12</text>
-<circle class="pad" cx="953.6" cy="1608" r="4.5"><title>PIO (18, 0, 1): package pin 21</title></circle>
-<text class="pin" x="948.6" y="1621">21</text>
+<circle class="pad" cx="953.6" cy="1608" r="4.5"><title>PIO (18, 0, 1): package pin 21; on the board, switch S1-4 (closed = low)</title></circle>
+<text class="boardpin" x="948.6" y="1621">21</text>
 </g>
 <g class="tile io" data-x="19" data-y="0"><title>io (19, 0): I/O tile: two pads; 288 bits, CRAM bank 2; found by experiment (icepack, icebox)</title><rect class="tile io exp" x="968" y="1584" width="48" height="48"/>
 <circle class="pad" cx="982.4" cy="1608" r="4.5"><title>PIO (19, 0, 0): package pin 13</title></circle>
 <text class="pin" x="977.4" y="1621">13</text>
-<circle class="pad" cx="1001.6" cy="1608" r="4.5"><title>PIO (19, 0, 1): package pin 20</title></circle>
-<text class="pin" x="996.6" y="1621">20</text>
+<circle class="pad" cx="1001.6" cy="1608" r="4.5"><title>PIO (19, 0, 1): package pin 20; on the board, switch S1-3 (closed = low)</title></circle>
+<text class="boardpin" x="996.6" y="1621">20</text>
 </g>
 <g class="tile io" data-x="20" data-y="0"><title>io (20, 0): I/O tile: two pads; 288 bits, CRAM bank 2; found by experiment (icepack, icebox)</title><rect class="tile io exp" x="1016" y="1584" width="48" height="48"/>
 <circle class="pad" cx="1030.4" cy="1608" r="4.5"><title>PIO (20, 0, 0)</title></circle>
@@ -119,13 +119,13 @@
 </g>
 <g class="tile io" data-x="21" data-y="0"><title>io (21, 0): I/O tile: two pads; 288 bits, CRAM bank 2; found by experiment (icepack, icebox)</title><rect class="tile io exp" x="1064" y="1584" width="48" height="48"/>
 <circle class="pad" cx="1078.4" cy="1608" r="4.5"><title>PIO (21, 0, 0)</title></circle>
-<circle class="pad" cx="1097.6" cy="1608" r="4.5"><title>PIO (21, 0, 1): package pin 19</title></circle>
-<text class="pin" x="1092.6" y="1621">19</text>
+<circle class="pad" cx="1097.6" cy="1608" r="4.5"><title>PIO (21, 0, 1): package pin 19; on the board, switch S1-2 (closed = low)</title></circle>
+<text class="boardpin" x="1092.6" y="1621">19</text>
 </g>
 <g class="tile io" data-x="22" data-y="0"><title>io (22, 0): I/O tile: two pads; 288 bits, CRAM bank 2; found by experiment (icepack, icebox)</title><rect class="tile io exp" x="1112" y="1584" width="48" height="48"/>
 <circle class="pad" cx="1126.4" cy="1608" r="4.5"><title>PIO (22, 0, 0)</title></circle>
-<circle class="pad" cx="1145.6" cy="1608" r="4.5"><title>PIO (22, 0, 1): package pin 18</title></circle>
-<text class="pin" x="1140.6" y="1621">18</text>
+<circle class="pad" cx="1145.6" cy="1608" r="4.5"><title>PIO (22, 0, 1): package pin 18; on the board, switch S1-1 (closed = low)</title></circle>
+<text class="boardpin" x="1140.6" y="1621">18</text>
 </g>
 <g class="tile io" data-x="23" data-y="0"><title>io (23, 0): I/O tile: two pads; 288 bits, CRAM bank 2; found by experiment (icepack, icebox)</title><rect class="tile io exp" x="1160" y="1584" width="48" height="48"/>
 <circle class="pad" cx="1174.4" cy="1608" r="4.5"><title>PIO (23, 0, 0): package pin 14</title></circle>
@@ -2432,18 +2432,18 @@
 <circle class="pad" cx="233.6" cy="120" r="4.5"><title>PIO (3, 31, 1)</title></circle>
 </g>
 <g class="tile io" data-x="4" data-y="31"><title>io (4, 31): I/O tile: two pads; 288 bits, CRAM bank 1; found by experiment (icepack, icebox)</title><rect class="tile io exp" x="248" y="96" width="48" height="48"/>
-<circle class="pad" cx="262.4" cy="120" r="4.5"><title>PIO (4, 31, 0): package pin 39</title></circle>
-<text class="pin" x="257.4" y="133">39</text>
+<circle class="pad" cx="262.4" cy="120" r="4.5"><title>PIO (4, 31, 0): package pin 39; on the board, RGB LED, blue (low = on, jumper J6)</title></circle>
+<text class="boardpin" x="257.4" y="133">39</text>
 <circle class="pad" cx="281.6" cy="120" r="4.5"><title>PIO (4, 31, 1)</title></circle>
 </g>
 <g class="tile io" data-x="5" data-y="31"><title>io (5, 31): I/O tile: two pads; 288 bits, CRAM bank 1; found by experiment (icepack, icebox)</title><rect class="tile io exp" x="296" y="96" width="48" height="48"/>
-<circle class="pad" cx="310.4" cy="120" r="4.5"><title>PIO (5, 31, 0): package pin 40</title></circle>
-<text class="pin" x="305.4" y="133">40</text>
+<circle class="pad" cx="310.4" cy="120" r="4.5"><title>PIO (5, 31, 0): package pin 40; on the board, RGB LED, red (low = on, jumper J6)</title></circle>
+<text class="boardpin" x="305.4" y="133">40</text>
 <circle class="pad" cx="329.6" cy="120" r="4.5"><title>PIO (5, 31, 1)</title></circle>
 </g>
 <g class="tile io" data-x="6" data-y="31"><title>io (6, 31): I/O tile: two pads; 288 bits, CRAM bank 1; found by experiment (icepack, icebox)</title><rect class="tile io exp" x="344" y="96" width="48" height="48"/>
-<circle class="pad" cx="358.4" cy="120" r="4.5"><title>PIO (6, 31, 0): package pin 41</title></circle>
-<text class="pin" x="353.4" y="133">41</text>
+<circle class="pad" cx="358.4" cy="120" r="4.5"><title>PIO (6, 31, 0): package pin 41; on the board, RGB LED, green (low = on, jumper J6)</title></circle>
+<text class="boardpin" x="353.4" y="133">41</text>
 <circle class="pad" cx="377.6" cy="120" r="4.5"><title>PIO (6, 31, 1)</title></circle>
 </g>
 <g class="tile io" data-x="7" data-y="31"><title>io (7, 31): I/O tile: two pads; 288 bits, CRAM bank 1; found by experiment (icepack, icebox)</title><rect class="tile io exp" x="392" y="96" width="48" height="48"/>
@@ -2472,8 +2472,8 @@
 </g>
 <g class="tile io" data-x="12" data-y="31"><title>io (12, 31): I/O tile: two pads; 288 bits, CRAM bank 1; found by experiment (icepack, icebox)</title><rect class="tile io exp" x="632" y="96" width="48" height="48"/>
 <circle class="pad" cx="646.4" cy="120" r="4.5"><title>PIO (12, 31, 0)</title></circle>
-<circle class="pad" cx="665.6" cy="120" r="4.5"><title>PIO (12, 31, 1): package pin 35</title></circle>
-<text class="pin" x="660.6" y="133">35</text>
+<circle class="pad" cx="665.6" cy="120" r="4.5"><title>PIO (12, 31, 1): package pin 35; on the board, 12 MHz clock from the iCELink (jumper J1)</title></circle>
+<text class="boardpin" x="660.6" y="133">35</text>
 </g>
 <g class="tile io" data-x="13" data-y="31"><title>io (13, 31): I/O tile: two pads; 288 bits, CRAM bank 3; found by experiment (icepack, icebox)</title><rect class="tile io exp" x="680" y="96" width="48" height="48"/>
 <circle class="pad" cx="694.4" cy="120" r="4.5"><title>PIO (13, 31, 0): package pin 37</title></circle>
@@ -2704,5 +2704,15 @@
 <text class="lg" x="1346" y="256">named by the chip database only</text>
 <text class="h2" x="1328" y="282">Pins</text>
 <circle class="pad" cx="1334" cy="294" r="4.5"/><text class="lg" x="1346" y="298">pad, with its SG48 package pin</text>
+<text class="boardpin" x="1328" y="312">4</text><text class="lg" x="1346" y="312">UART from the iCELink (FPGA input, jumper J5)</text>
+<text class="boardpin" x="1328" y="326">6</text><text class="lg" x="1346" y="326">UART to the iCELink (FPGA output, jumper J5)</text>
+<text class="boardpin" x="1328" y="340">35</text><text class="lg" x="1346" y="340">12 MHz clock from the iCELink (jumper J1)</text>
+<text class="boardpin" x="1328" y="354">39</text><text class="lg" x="1346" y="354">RGB LED, blue (low = on, jumper J6)</text>
+<text class="boardpin" x="1328" y="368">40</text><text class="lg" x="1346" y="368">RGB LED, red (low = on, jumper J6)</text>
+<text class="boardpin" x="1328" y="382">41</text><text class="lg" x="1346" y="382">RGB LED, green (low = on, jumper J6)</text>
+<text class="boardpin" x="1328" y="396">18</text><text class="lg" x="1346" y="396">switch S1-1 (closed = low)</text>
+<text class="boardpin" x="1328" y="410">19</text><text class="lg" x="1346" y="410">switch S1-2 (closed = low)</text>
+<text class="boardpin" x="1328" y="424">20</text><text class="lg" x="1346" y="424">switch S1-3 (closed = low)</text>
+<text class="boardpin" x="1328" y="438">21</text><text class="lg" x="1346" y="438">switch S1-4 (closed = low)</text>
 </g>
 </svg>

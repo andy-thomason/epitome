@@ -32,6 +32,90 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
+/// A board the flow builds for: where its part's description is, the
+/// package, its pin constraints file (in the description's `flow/`), the
+/// name `icesprog -p` reports for it, and what it wires to the FPGA's pins
+/// (from its schematic).
+pub struct Board {
+    /// The short name `--board` and `ICE40_BOARD` take.
+    pub name: &'static str,
+    pub title: &'static str,
+    pub probe: &'static str,
+    pub part: &'static str,
+    pub package: &'static str,
+    pub pins: &'static str,
+    pub wiring: &'static [(&'static str, &'static str)],
+}
+
+pub const BOARDS: [Board; 2] = [
+    Board {
+        name: "nano",
+        title: "iCESugar-nano",
+        probe: "iCESugar-Nano",
+        part: "ice40-lp1k",
+        package: "cm36",
+        pins: "nano.pins",
+        wiring: &[
+            ("A3", "UART from the iCELink (FPGA input)"),
+            ("B3", "UART to the iCELink (FPGA output)"),
+            ("D1", "12 MHz clock from the iCELink"),
+            ("B6", "yellow LED"),
+        ],
+    },
+    Board {
+        name: "icesugar",
+        title: "iCESugar",
+        probe: "iCESugar",
+        part: "ice40-up5k",
+        package: "sg48",
+        pins: "icesugar.pins",
+        wiring: &[
+            ("4", "UART from the iCELink (FPGA input, jumper J5)"),
+            ("6", "UART to the iCELink (FPGA output, jumper J5)"),
+            ("35", "12 MHz clock from the iCELink (jumper J1)"),
+            ("39", "RGB LED, blue (low = on, jumper J6)"),
+            ("40", "RGB LED, red (low = on, jumper J6)"),
+            ("41", "RGB LED, green (low = on, jumper J6)"),
+            ("18", "switch S1-1 (closed = low)"),
+            ("19", "switch S1-2 (closed = low)"),
+            ("20", "switch S1-3 (closed = low)"),
+            ("21", "switch S1-4 (closed = low)"),
+        ],
+    },
+];
+
+/// The board called `name` (`nano`, `icesugar`), or the one with part
+/// `name` (`ice40-lp1k`, `ice40-up5k`).
+pub fn board(name: &str) -> Option<&'static Board> {
+    BOARDS.iter().find(|b| b.name == name).or_else(|| BOARDS.iter().find(|b| b.part == name))
+}
+
+impl Board {
+    /// The part's description: `sv/arch/<part>`.
+    pub fn arch(&self) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("arch").join(self.part)
+    }
+
+    /// The part's records: the icepack experiments' device, the chip
+    /// database and the icebox experiments' semantics.
+    pub fn records(&self) -> Result<(Device, Chipdb, Semantics), String> {
+        let read = |n: &str| {
+            let p = self.arch().join(n);
+            std::fs::read_to_string(&p).map_err(|e| format!("{}: {e}", p.display()))
+        };
+        Ok((
+            Device::from_record(&read("record-icepack.txt")?)?,
+            Chipdb::from_text(&read("record-chipdb.txt")?)?,
+            Semantics::from_text(&read("record-icebox.txt")?)?,
+        ))
+    }
+
+    /// The board's pin constraints file.
+    pub fn pins_file(&self) -> PathBuf {
+        self.arch().join("flow").join(self.pins)
+    }
+}
+
 /// The MuseLab `icesugar` commit `icesprog` is built from.
 pub const ICESPROG_COMMIT: &str = "1ebe71bf448e33a1bccfa2db6730d59eafb6c390";
 /// The hidapi release it is built with.
@@ -97,6 +181,16 @@ impl Icesprog {
             t.lines().find_map(|l| l.strip_prefix(name)).map(|r| r.trim().trim_start_matches('[').split(']').next().unwrap_or("").to_string())
         };
         Ok((field("board:").ok_or_else(|| format!("no board in: {t}"))?, field("flash:").unwrap_or_default()))
+    }
+
+    /// Fails unless `icesprog -p` reports `board`: a bitstream for another
+    /// part must not reach the flash.
+    pub fn expect(&self, board: &Board) -> Result<(), String> {
+        let (got, _) = self.probe()?;
+        if !got.eq_ignore_ascii_case(board.probe) {
+            return Err(format!("the board plugged in is the {got}, not the {}", board.title));
+        }
+        Ok(())
     }
 
     /// Writes a bitstream to the flash, from which the FPGA configures.

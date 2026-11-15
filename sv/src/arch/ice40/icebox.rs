@@ -166,6 +166,7 @@ impl Graph {
         let mut prev: FxMap<usize, (usize, usize)> = FxMap::default();
         let mut heap = std::collections::BinaryHeap::new();
         let mut seq = 0u64;
+        let starts: FxSet<usize> = from.iter().copied().collect();
         for &f in from {
             dist.insert(f, 0);
             heap.push(Reverse((0u64, seq, f)));
@@ -176,7 +177,7 @@ impl Graph {
             if dist.get(&n).is_some_and(|&x| x < d) {
                 continue;
             }
-            if is_target(n) && !from.contains(&n) {
+            if is_target(n) && !starts.contains(&n) {
                 found = Some(n);
                 break;
             }
@@ -195,7 +196,7 @@ impl Graph {
         let mut path = Vec::new();
         while let Some(&(p, k)) = prev.get(&n) {
             path.push((n, p, k));
-            if from.contains(&p) {
+            if starts.contains(&p) {
                 break;
             }
             n = p;

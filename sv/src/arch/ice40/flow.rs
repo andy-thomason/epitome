@@ -228,9 +228,15 @@ pub fn build_mapped(
     }
 
     // ---- RAM blocks: modes and contents ----
+    // Where the icebox experiments found no RAM with nothing set (the
+    // UP5K), a block is there only with its PowerUp bit.
+    let power_up = sem.ram_funcs.iter().any(|(f, p)| f == "none" && p == "omitted");
     for (ri, r) in m.rams.iter().enumerate() {
         for (b, &(x, y)) in placement.rams[ri].iter().enumerate() {
             des.ram.push(super::asc::AscRam { x, y, words: r.block_words(b as u32) });
+            if power_up {
+                des.func(x, y, "RamConfig.PowerUp")?;
+            }
             // icebox_vlog: CBIT_2 and 3 are the read mode's bits, CBIT_0
             // and 1 the write mode's, in the upper tile.
             for (bit, rf, wf) in

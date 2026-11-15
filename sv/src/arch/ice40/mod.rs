@@ -26,6 +26,7 @@ pub mod icepack;
 pub mod map;
 pub mod place;
 pub mod route;
+pub mod rv32i;
 pub mod svg;
 pub mod timing;
 

@@ -74,8 +74,10 @@ on the LP1K.
 ## The flow: SystemVerilog to the board
 
 `sv/src/synth/` and `sv/src/arch/ice40/{map,place,route,flow}.rs` take a
-SystemVerilog design to an LP1K bitstream, every stage Epitome's own, and
-the `ice40_flow` example runs them:
+SystemVerilog design to an iCE40 bitstream, every stage Epitome's own, and
+the `ice40_flow` example runs them. It builds for the iCESugar-nano's LP1K
+unless `--board icesugar` (or `--part ice40-up5k`) picks the iCESugar's
+UP5K; see [The iCESugar's UP5K](#the-icesugars-up5k) below.
 
 ```bash
 cargo run --release -p epitome-sv --example ice40_flow -- sv/arch/ice40-lp1k/flow/hello.sv --check 3000 --program
@@ -87,8 +89,9 @@ routes, writes `hello.asc`, `hello.bin` and `hello.svg` to
 `target/ice40_flow` (`--out` for elsewhere), and programs the board.
 `--pins FILE` gives the pin constraints, lines of `port pin` or
 `port[i] pin`; the default is the board's,
-[`ice40-lp1k/flow/nano.pins`](ice40-lp1k/flow/nano.pins). `-D NAME=VALUE`
-defines a macro.
+[`ice40-lp1k/flow/nano.pins`](ice40-lp1k/flow/nano.pins) (the boards are
+`board::BOARDS`). `-D NAME=VALUE` defines a macro. `--program` first asks
+`icesprog -p` which board is plugged in, and refuses another.
 
 The stages, each in memory, with no text between them until the `.asc`:
 
@@ -203,14 +206,24 @@ What checks what:
 - `echo_ram_reverses_a_line` sends `echo_ram.sv` UART frames (a line
   with a line feed in it, bytes while it replies, an empty line) through
   all three, then decodes `tx`: the line comes back reversed.
+- `icebox_reads_the_board_designs` reads each board design's bitstream
+  another way: `icepack -u` makes the full-die `.asc` from it and
+  `icebox_vlog` prints the Verilog it says the bits make (both IceStorm
+  programs, run as black boxes). Epitome's interpreter runs that Verilog,
+  its RAMs modelled by [`sb_ram40_4k.sv`](sb_ram40_4k.sv), against the
+  source on the same random stimulus. This checks what the configured bits
+  mean, not only the flow's own reading of them, and needs no board.
 - The board, below.
 
 The tests are in `sv/tests/ice40_flow.rs`:
 
 ```bash
 cargo test --release -p epitome-sv --test ice40_flow
-ICE40_BOARD=1 cargo test --release -p epitome-sv --test ice40_flow board_live
+ICE40_BOARD=nano cargo test --release -p epitome-sv --test ice40_flow board_live
 ```
+
+`ICE40_BOARD` names the board plugged in: `nano` (or `1`) or `icesugar`.
+A board test skips if `icesprog -p` reports another board.
 
 ### On the board
 
@@ -306,6 +319,116 @@ only reports), hold-time checks and clock skew (which matter most for a
 clock routed through the fabric), packing a flip-flop with a LUT that has other
 readers, and checking resource counts against Yosys and nextpnr. Running
 those was blocked here, and their source is not to be read.
+
+## The iCESugar's UP5K
+
+The same flow builds for the iCE40UP5K-SG48 of MuseLab's iCESugar
+(`--board icesugar`). Its pins,
+[`ice40-up5k/flow/icesugar.pins`](ice40-up5k/flow/icesugar.pins), are from
+the board's schematic (v1.5) and MuseLab's pin file for it:
+
+| Pin | Port | What the board wires |
+|---|---|---|
+| 35 | `clk` | 12 MHz from the iCELink's MCO (jumper J1); a global buffer pin, network 7 |
+| 4 | `rx` | the iCELink's UART transmit (jumper J5): only ever read |
+| 6 | `tx` | the iCELink's UART receive (jumper J5) |
+| 41, 40, 39 | `led`, `led_r`, `led_b` | the RGB LED's green, red and blue (jumper J6), through 470 ohms: low lights them |
+| 18 to 21 | `sw[0]` to `sw[3]` | DIP switch S1, pulled up: closed is low |
+
+Nothing in map, place or route was the LP1K's own: grid, tiles, RAM
+sites, ports and global buffers all come from the part's records. Two
+things differ, and the records said both:
+
+- A UP5K block RAM is there only with its `RamConfig.PowerUp` bit set
+  (in the `ramb` tile): `icebox_vlog` shows no RAM without it, where the
+  LP1K's shows one. The flow sets it where the icebox records say a RAM
+  needs it (`ram_func none omitted`).
+- The read port is in the lower tile (`ramb`) and the write port in the
+  upper (`ramt`), the other way round from the LP1K. The ports come from
+  the icebox records' port map, so nothing changed for it.
+
+The LP1K's bitstreams are byte for byte what they were.
+
+No UP5K board has been on Amy's desk, so nothing here has run on one.
+What checks the UP5K builds without one: `--check` (the interpreter
+against the mapped cells), `flow::check_routes`, the packer against
+`icepack` (`icepack` of the flow's `.asc` gives the flow's bitstream, for
+every design below), and `icebox_reads_the_board_designs`, which passes
+for each. As a control, leaving out the PowerUp bit made it fail
+(`hello_ram`'s output unknown from the first read). `board_live` and
+`timing_calibrate` take `ICE40_BOARD=icesugar` and skip unless
+`icesprog -p` reports an iCESugar. Their UP5K steps, ready for a board:
+(a) to (k) as on the nano, (g) also through 28 of the 30 block RAMs, and
+(l) the RV32I computer below, its replies compared with its emulator's.
+
+| Design | Cells | RAM blocks | Routing passes | Longest path (guessed delays) | Build |
+|---|---|---|---|---|---|
+| `echo.sv` | 0 | | 1 | | 0.4 s |
+| `delay.sv` | 4 | | 1 | 2.5 ns | 0.4 s |
+| `blink.sv` | 27 (a 22-cell chain) | | 1 | 6.4 ns | 0.4 s |
+| `hello.sv` | 53 | | 3 | 8.5 ns | 0.5 s |
+| `hello_ram.sv` | 37 | 1 | 1 | 8.5 ns | 0.4 s |
+| `echo_ram.sv` | 196 | 1 | 4 | 14.5 ns | 2.0 s |
+| `ramdelay.sv`, 8192 words of 14 bits | 82 | 28 (7 wide, 4 deep, 2048x2) | 3 | 11.1 ns | 9.8 s |
+| `rv32i.sv` | 2380 (2356 LUTs, 137 carries, 433 flip-flops) | 20 | 5 | 54.5 ns | 58 s |
+
+The delays are `timing::Model::guess` (LUT 1.0 ns, switch 0.5 ns, carry
+0.2 ns), slower than the LP1K's measured ones (LUT 0.30 ns, switch
+0.38 ns, carry 0.08 ns); the UP5K has not been measured. Even on the guess, the
+computer has a third of its 83.3 ns clock to spare. Build times are on Amy's Mac; most of the
+computer's is routing.
+
+### An RV32I computer
+
+[`ice40-up5k/flow/rv32i.sv`](ice40-up5k/flow/rv32i.sv) is the bigger
+design: a processor for RV32I, the RISC-V base integer instructions,
+written for this from the RISC-V unprivileged specification's instruction
+formats, with 8 KB of memory and a UART at 115200 baud. It takes four
+clocks an instruction (fetch, decode, execute, and a fifth for a load's
+alignment). Memory is 2048 words in four byte lanes (sixteen 2048x2
+blocks); the register file is read twice an instruction, so it is two
+copies (four blocks). The memory map is in `sv/src/arch/ice40/rv32i.rs`:
+the UART's status, receive and transmit registers and the LED at
+`0x8000_0000` up.
+
+Its program, [`rv32i_demo.s`](ice40-up5k/flow/rv32i_demo.s), waits for a
+byte, then prints a banner, the signature of a self-test that uses every
+kind of RV32I instruction, the primes below 200 and the count below 2000
+(a sieve in memory). Then it answers each line with its length, its
+CRC-32 and the line reversed. `rv32i.rs` assembles it (into
+`rv32i_demo.svh`, the memory's initial contents) and emulates it:
+
+```bash
+cargo run --release -p epitome-sv --example ice40_rv32i -- "Hello, iCESugar"
+cargo run --release -p epitome-sv --example ice40_flow -- sv/arch/ice40-up5k/flow/rv32i.sv --board icesugar --check 3000
+```
+
+```
+Epitome RV32I on the iCESugar (iCE40UP5K)
+self-test fb1d535a
+primes: 2 3 5 7 11 13 ... 191 193 197 199
+primes below 2000: 303
+> 15 3e87293b raguSECi ,olleH
+```
+
+What checks it: `rv32i_assembles` (encodings written out by hand from the
+specification's formats), `rv32i_image_is_current`,
+`rv32i_runs_its_program` (the mapped cells, with the UART at 8 clocks a
+bit, run 228,599 clocks and send exactly what the emulator does: banner,
+self-test, primes and the replies to three lines), `rv32i_builds`, and
+`icebox_reads_the_board_designs` (icebox_vlog's reading of its bitstream,
+1500 clocks against the source). The CRC-32s match Python's
+`zlib.crc32`.
+
+For that run, `map::LcSim` now settles the cells in one pass in
+dependency order (it swept them all until nothing changed), and
+`Graph::search` keeps its start nets in a set (it scanned the route tree
+for each net it took); both give the same results as before.
+
+The pictures, laid over the die by `svg.rs`:
+[`rv32i.svg`](ice40-up5k/flow/rv32i.svg), the computer, and
+[`echo_ram.svg`](ice40-up5k/flow/echo_ram.svg), the line echo, on the
+UP5K.
 
 ## Sources, and how each fact was found
 

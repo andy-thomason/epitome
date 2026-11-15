@@ -838,11 +838,25 @@ any other; then each is defined.
   the evaluator can work out (an integer, `bool` or `char`) is constant
   data. Any other (`AtomicU32::new(5)`) starts as zeros, and a function
   that runs its initialiser and stores the value is listed in
-  `llvm.global_ctors`, to run before `main`. A static's initialiser is a
-  constant expression, with no effects to run in another order, and in a
-  `no_std` program nothing reads the static before `main`; but such a
-  static is writable memory, and a byte-producing constant evaluator
-  should replace this. Const generic arguments are values in bodies.
+  `llvm.global_ctors`, to run before `main` (a static's initialiser is
+  a constant expression, with no effects to run in another order). Before
+  that, the function is run at compile time (`lower/image.rs`): an
+  interpreter of the IR, with memory as bytes (stack slots, and globals as
+  their initialisers give them) and the addresses of globals kept as
+  relocations, follows it and the functions it calls (integer arithmetic,
+  comparisons, casts, control flow, `llvm.memcpy` and `llvm.memset`).
+  What it leaves in the static becomes the static's initialiser (a packed
+  struct of bytes and addresses), and nothing runs at start-up; floating
+  point, atomics, a function with no body or a spent budget leave the
+  start-up function. Const generic arguments are values in bodies.
+- **Thread locals.** A `#[thread_local]` static is a `thread_local` global,
+  each thread's copy starting as its initialiser (worked out as above),
+  and every use of its address is `llvm.threadlocal.address`, which
+  Epitome's code generator makes TLV descriptors on macOS, descriptors
+  (tlsdesc) on AArch64 ELF and initial-exec loads on x86-64. `thread_local!`
+  is `std`'s macro over these, and works as written. A thread local whose
+  initialiser cannot be worked out at compile time is initialised at
+  start-up in the main thread only.
 - **Intrinsics** (`#[rustc_intrinsic]` functions of `core`) are lowered at
   the call: sizes and alignments, `transmute`, the arithmetic ones
   (wrapping, unchecked, with overflow, saturating), bit counts and
@@ -1255,9 +1269,11 @@ Type checking needed these for `std`:
   on them (`SpecExtend`'s family), and a `Box`'s allocator is unified in
   coercion.
 
-Not yet: `#[thread_local]` statics are ordinary globals, and their
-initialisers run once at start-up (right with one thread); threads,
-unwinding and panic messages; and the rest of what `std` reaches. On
+Not yet: `std::thread::spawn` (which calls a `Box<dyn FnOnce()>`, a
+`dyn` method taking `self` by value, and `AssertUnwindSafe<F>` through its
+`FnOnce` impl); unwinding and panic messages; and the rest of what `std`
+reaches. Threads made with `pthread_create` work, each with its own
+thread locals (`tests/run/tls.rs`, on x86-64 Linux and on macOS). On
 mandelbrot, `tests/run/std_hello.rs` (formatting, `Vec`, iterators,
 `String`, `Box<dyn Trait>`, drops and `env::args`) prints what rustc's
 build prints, optimised and not.

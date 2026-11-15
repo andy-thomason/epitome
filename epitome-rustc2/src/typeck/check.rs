@@ -1869,7 +1869,15 @@ impl<'a, 's> FnCtxt<'a, 's> {
             let a = args[i];
             match inputs.get(i) {
                 Some(&want) => {
-                    let hint = hints.and_then(|h| h.get(i)).copied().unwrap_or(want);
+                    // A hint that is only a variable (an `impl Trait` of
+                    // the expected result, in the body that defines it)
+                    // says less than the parameter's own type: a closure
+                    // takes its signature from the `Fn` bound on that.
+                    let hint = hints
+                        .and_then(|h| h.get(i))
+                        .copied()
+                        .filter(|&h| self.infer.var_kind(self.infer.shallow(h)) != Some(VarKind::General))
+                        .unwrap_or(want);
                     let t = self.expr(a, Some(hint));
                     // A parameter that is still a variable (`Some(run)`'s)
                     // takes the hint's type, coerced to (a function item

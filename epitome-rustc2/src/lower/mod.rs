@@ -35,6 +35,7 @@
 mod asm;
 mod body;
 mod drop;
+mod image;
 pub(crate) use body::parse_str;
 mod intrinsic;
 mod pat;
@@ -655,8 +656,9 @@ impl Session {
             titles.insert(decl.g, item_title(&cx, d, l));
             lower_item(&cx, &mut m, *it, &decl, name, false, &mut notes, &mut partial, &mut failures);
         }
-        // Statics whose values are not known until their initialisers
-        // run: a function each, run before `main`.
+        // Statics whose values the evaluator does not know: a function
+        // each that computes the value, run here (`image.rs`) for the
+        // static's initialiser, or if that cannot be, before `main`.
         let mut ctors = Vec::new();
         for (it, d, g, name) in static_inits {
             let fname = format!("{name}.init");
@@ -665,7 +667,19 @@ impl Session {
                 Ok(Ok(f)) => {
                     functions += 1;
                     titles.insert(f, format!("the value of static {}", r.def_path(d)));
-                    ctors.push(f);
+                    let size = tcx.type_of(d).and_then(|t| cx.layout(t).ok()).map(|l| l.size);
+                    let img = size.and_then(|n| std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| image::run(&m, f, g, n))).ok().flatten());
+                    match img {
+                        Some(img) => {
+                            let c = image::constant(&mut m, &img);
+                            let ty = m.consts.get(c).ty;
+                            if let epitome_ir::module::GlobalKind::Variable(v) = &mut m.globals[g.index()].kind {
+                                v.ty = ty;
+                                v.init = Some(c);
+                            }
+                        }
+                        None => ctors.push(f),
+                    }
                 }
                 Ok(Err(e)) => failures.push(Failure { item: it, name: fname, why: e }),
                 Err(_) => failures.push(Failure { item: it, name: fname, why: "internal error".into() }),

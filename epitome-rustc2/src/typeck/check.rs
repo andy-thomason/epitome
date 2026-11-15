@@ -1210,9 +1210,15 @@ impl<'a, 's> FnCtxt<'a, 's> {
     /// `recv.name(args)`: for each type autoderef goes through, the
     /// receiver by value, then borrowed, then borrowed mutably; inherent
     /// methods before trait methods at each.
+    /// Traits in scope are tried along the whole chain first, then (in
+    /// case scope was missed) any trait.
     fn method_call(&mut self, n: NodeId, recv_node: NodeId, recv_ty: Ty, name: &str) -> Option<(DefId, Vec<Ty>, Ty)> {
-        let tcx = self.tcx;
         let steps = self.autoderef(recv_ty);
+        self.method_call_in(n, recv_node, &steps, name, true).or_else(|| self.method_call_in(n, recv_node, &steps, name, false))
+    }
+
+    fn method_call_in(&mut self, n: NodeId, recv_node: NodeId, steps: &[(Ty, Option<Adjust>)], name: &str, scoped: bool) -> Option<(DefId, Vec<Ty>, Ty)> {
+        let tcx = self.tcx;
         for k in 0..steps.len() {
             let t = steps[k].0;
             if self.infer.var_kind(t) == Some(VarKind::General) {
@@ -1250,16 +1256,16 @@ impl<'a, 's> FnCtxt<'a, 's> {
                             && self.infer.unify(sp, recv)
                         {
                             self.methods.push((n, item, args));
-                            let adj = Self::step_adjustments(&steps, k, borrow);
+                            let adj = Self::step_adjustments(steps, k, borrow);
                             self.adjust(recv_node, adj, recv);
                             return Some((item, inputs[1..].to_vec(), output));
                         }
                     }
                     self.rollback(s);
                 }
-                if let Some((item, args, inputs, output)) = self.trait_method(recv, name) {
+                if let Some((item, args, inputs, output)) = self.trait_method(recv, name, scoped) {
                     self.methods.push((n, item, args));
-                    let adj = Self::step_adjustments(&steps, k, borrow);
+                    let adj = Self::step_adjustments(steps, k, borrow);
                     self.adjust(recv_node, adj, recv);
                     return Some((item, inputs, output));
                 }

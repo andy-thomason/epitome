@@ -952,9 +952,16 @@ impl<'a, 's> FnCtxt<'a, 's> {
     /// Traits with an item named `name`, those the body is more likely to
     /// mean first: bounds, then traits in scope, then the rest.
     pub(super) fn trait_candidates(&mut self, name: &str) -> Vec<(DefId, DefId)> {
+        self.trait_candidates_in(name, false)
+    }
+
+    /// The traits with an item `name`, and those items: what the body
+    /// assumes first, then those in scope, then (unless `scoped`) the
+    /// rest.
+    fn trait_candidates_in(&mut self, name: &str, scoped: bool) -> Vec<(DefId, DefId)> {
         let Some(c) = self.index.trait_items.get(name) else { return Vec::new() };
         let mut c = c.clone();
-        if c.len() > 1 {
+        if c.len() > 1 || scoped {
             let bound: Vec<DefId> = self
                 .env_preds
                 .iter()
@@ -964,15 +971,21 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     _ => None,
                 })
                 .collect();
-            c.sort_by_cached_key(|&(tr, _)| {
-                if bound.contains(&tr) {
-                    0
-                } else if self.in_scope(tr) {
-                    1
-                } else {
-                    2
-                }
-            });
+            let rank: Vec<u8> = c
+                .iter()
+                .map(|&(tr, _)| {
+                    if bound.contains(&tr) {
+                        0
+                    } else if self.in_scope(tr) {
+                        1
+                    } else {
+                        2
+                    }
+                })
+                .collect();
+            let mut ranked: Vec<(u8, (DefId, DefId))> = rank.into_iter().zip(c).collect();
+            ranked.sort_by_key(|x| x.0);
+            c = ranked.into_iter().filter(|x| !scoped || x.0 < 2).map(|x| x.1).collect();
         }
         c
     }
@@ -1007,9 +1020,10 @@ impl<'a, 's> FnCtxt<'a, 's> {
 
     /// A trait method `name` whose receiver is `recv`: the method, the
     /// other parameters' types and the result.
-    pub(super) fn trait_method(&mut self, recv: Ty, name: &str) -> Option<(DefId, Vec<Ty>, Vec<Ty>, Ty)> {
+    /// With `scoped`, only traits the body assumes or has in scope.
+    pub(super) fn trait_method(&mut self, recv: Ty, name: &str, scoped: bool) -> Option<(DefId, Vec<Ty>, Vec<Ty>, Ty)> {
         let tcx = self.tcx;
-        for (tr, item) in self.trait_candidates(name) {
+        for (tr, item) in self.trait_candidates_in(name, scoped) {
             if self.r.defs[item.0 as usize].kind != DefKind::AssocFn || !self.has_self(item) {
                 continue;
             }

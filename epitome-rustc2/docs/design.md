@@ -921,21 +921,22 @@ body:
 ```
 
 From every non-generic function of `core` with a body (on mandelbrot):
-22,499 functions in 3.5 s, of which 4,047 (18%) are not lowered, and
-one more traps where it upcasts a `dyn` (243 trapped at `dyn` and
-formatting before they were done). 3,842 of those not lowered are SIMD (`core::arch` and `core::simd`, 5,408 functions), which
-is not attempted (its `asm!` with vector operands among them). Among
-them are about 1,000 that call an LLVM intrinsic of vectors or
-aggregates, `core::arch`'s by `link_name` (`llvm.x86.aesni.aesdec`):
-Rust's ABI passes those in memory, where the intrinsic takes them as
-values, so such a call is not lowered (the intrinsic is not declared).
-They were lowered as calls passing pointers, which is wrong IR, until
-the code generator stopped at them. Of the 16,902 functions that are not
-SIMD, 205 (1%) are not lowered (318 before `dyn` and formatting, and
-the fixes they needed). The most common reasons: intrinsics not done
-(19: the compile-time and variadic ones), `array::try_from_fn` with a
-type type checking left unknown (16), and array lengths the evaluator
-cannot work out (13 for `DecimalSeq`, 11 more elsewhere).
+22,711 functions in 3.5 s, of which 4,234 (19%) are not lowered, and
+one more traps where it upcasts a `dyn` (244 trapped at `dyn` and
+formatting before they were done). 3,937 of those not lowered are SIMD
+(`core::arch` and `core::simd`), which is not attempted: `simd_*`
+intrinsics, `asm!` with vector operands, and constant arguments such as
+`_MM_CMPINT_EQ` that the evaluator cannot work out. Among them are about
+1,000 that call an LLVM intrinsic of vectors or aggregates, `core::arch`'s
+by `link_name` (`llvm.x86.aesni.aesdec`): Rust's ABI passes those in
+memory, where the intrinsic takes them as values, so such a call is not
+lowered (the intrinsic is not declared). They were lowered as calls
+passing pointers, which is wrong IR, until the code generator stopped at
+them. Of the functions that are not SIMD, 297 are not lowered (about 400
+before `dyn` and formatting, and the fixes they needed). The most common
+reasons: `Option`s with no layout (34), arrays whose length the evaluator
+cannot work out (20 of `[u8; _]`, 13 for `DecimalSeq`), and
+`array::try_from_fn` with a type type checking left unknown (16).
 
 The counts, the list and the IR are the same for any number of threads.
 Results do not depend on the order in which bodies are checked and

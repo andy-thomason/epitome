@@ -27,6 +27,7 @@
 use super::body::{Fx, Operand, Place, Pv, R, Val};
 use super::{Cx, Decl, Repr};
 use crate::ast::{Kind, NodeId};
+use crate::typeck::Adjust;
 use crate::mono::Item;
 use crate::resolve::Res;
 use crate::ty::{AdtKind, Mutbl, Ty, TyKind};
@@ -488,13 +489,31 @@ impl Fx<'_, '_, '_, '_> {
     /// The part of a root expression `n` (a place expression) names, if it
     /// names one: a local, a field of one, or a temporary.
     pub fn move_path(&mut self, n: NodeId) -> R<Option<MovePath>> {
-        let ast = self.body.ast;
         let tcx = self.cx.tcx;
-        if let Some(adj) = self.body.tables.adjustments.get(&n)
+        // Through boxes autoderef went into (`self.rust_start` of a
+        // `self: Box<Self>`): steps into what each holds. Any other
+        // adjustment (through a reference) names nothing to move.
+        if let Some(adj) = self.body.tables.adjustments.get(&n).cloned()
             && !adj.is_empty()
         {
-            return Ok(None);
+            let mut t = self.ty(n)?;
+            for a in &adj {
+                match (a, tcx.kind(t)) {
+                    (Adjust::Deref, TyKind::Adt(d, l)) if tcx.lang.get("owned_box") == Some(&d) => t = tcx.tys(l)[0],
+                    _ => return Ok(None),
+                }
+            }
+            let Some(mut mp) = self.move_path_unadjusted(n)? else { return Ok(None) };
+            mp.path.extend(std::iter::repeat_n(DEREF, adj.len()));
+            return Ok(Some(mp));
         }
+        self.move_path_unadjusted(n)
+    }
+
+    /// `move_path` of `n` itself, before its adjustments.
+    fn move_path_unadjusted(&mut self, n: NodeId) -> R<Option<MovePath>> {
+        let ast = self.body.ast;
+        let tcx = self.cx.tcx;
         if let Some(&r) = self.drops.temps.get(&n) {
             return Ok(Some(MovePath { root: r, path: Vec::new() }));
         }

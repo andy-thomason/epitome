@@ -94,14 +94,24 @@ impl Server {
         let p = guard.as_mut().unwrap();
         let mut line = req.to_text();
         line.push('\n');
-        let mut answer = String::new();
-        let ok = p.stdin.write_all(line.as_bytes()).and_then(|_| p.stdin.flush()).is_ok()
-            && p.stdout.read_line(&mut answer).is_ok_and(|n| n > 0);
-        if !ok {
+        if p.stdin.write_all(line.as_bytes()).and_then(|_| p.stdin.flush()).is_err() {
             *guard = None;
             return Err("the proc-macro server stopped (a macro may have crashed it)".to_string());
         }
-        Json::parse(&answer)
+        // The answer is a line of JSON; a macro that prints writes to the
+        // same stream, and its lines are passed over.
+        loop {
+            let mut answer = String::new();
+            if !p.stdout.read_line(&mut answer).is_ok_and(|n| n > 0) {
+                *guard = None;
+                return Err("the proc-macro server stopped (a macro may have crashed it)".to_string());
+            }
+            if answer.trim_start().starts_with('{')
+                && let Ok(json) = Json::parse(&answer)
+            {
+                return Ok(json);
+            }
+        }
     }
 
     /// The procedural macros in a library.

@@ -27,6 +27,12 @@ pub(super) fn resolve_imports(r: &mut Resolver) {
             break;
         }
     }
+    // Imports from a proc-macro library (`use test_macros::Derive;`) are of
+    // macros, which expansion finds by name: nothing to bind here.
+    pending.retain(|&i| {
+        let imp = &r.imports[i];
+        !imp.path.first().is_some_and(|first| r.crate_proc_macros[imp.krate as usize].iter().any(|p| p == first))
+    });
     r.failed_imports = pending;
     find_preludes(r);
 }

@@ -49,7 +49,6 @@ attributes/path-inline-module.rs: error: cannot read `/private/tmp/claude-502/-U
 attributes/z-crate-attr/cfg-false.rs: left out: flags that change the crate
 autodiff/flag_nott.rs: path not resolved: d_square
 borrowck/alias-liveness/escaping-bounds.rs: type check: a type left unknown
-borrowck/assign-never-type.rs: type check: a type left unknown
 borrowck/static-trait-bound-lost.rs: type check: a type left unknown
 cfg/raw-true-false.rs: error:  (raw-true-false.rs:6:5)
 check-cfg/compact-names.rs: error: unknown `cfg` operator `target` (compact-names.rs:9:7)
@@ -126,7 +125,6 @@ hygiene/cross-crate-define-and-use.rs: type check: struct literal of something t
 hygiene/dollar-crate-modern.rs: path not resolved: crate
 hygiene/eager-from-opaque-2.rs: type check: a type left unknown
 hygiene/generic_params.rs: type check: method not found
-hygiene/hir-res-hygiene.rs: type check: a type left unknown
 hygiene/issue-32922.rs: error: expanding `foo!`: expected the end of the input, found `;` (eager-from-opaque.rs:14:9)
 hygiene/transparent-basic.rs: path not resolved: x
 hygiene/unpretty-debug.rs: type check: operator on types that do not implement it
@@ -207,7 +205,6 @@ parser/impl-qpath.rs: error: expected `>`, found `+` (impl-qpath.rs:6:10)
 parser/impls-nested-within-anon-consts-semantic.rs: path not resolved: Type
 parser/macro/macro-braces-dot-question.rs: error: expected an expression, found `.` (macro-braces-dot-question.rs:6:21)
 parser/self-param-syntactic-pass.rs: error: expected a type, found `mut` (self-param-syntactic-pass.rs:59:17)
-parser/try-with-nonterminal-block.rs: type check: a type left unknown
 pattern/deref-patterns/const-pats-do-not-mislead-inference.rs#deref_patterns: type check: a type left unknown
 pattern/slice-patterns-nested.rs: type check: a type left unknown
 pin-ergonomics/pattern-matching-deref-pattern.rs#pin_ergonomics: type check: pattern of another type
@@ -229,7 +226,6 @@ proc-macro/panic-abort.rs: left out: proc-macro crate
 proc-macro/test-count-attributes.rs: error: proc macro `assert_no_attributes`: assertion `left == right` failed (test-count-attributes.rs:8:1)
 proc-macro/test-followed-by-attr-macros.rs: error: expected a macro matcher in delimiters (test-followed-by-attr-macros.rs:20:9)
 proc-macro/test.rs: error: proc macro `run`: assertion `left == right` failed (test.rs:14:1)
-reachable/unreachable-question-mark-forbid.rs: type check: a type left unknown
 regions/type-param-outlives-reempty-issue-74429-2.rs: type check: a type left unknown
 repeat-expr/copy-inference-side-effects.rs: type check: a type left unknown
 resolve/extern-prelude.rs: type check: wrong number of arguments

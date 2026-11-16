@@ -118,6 +118,7 @@ pub(super) fn check_body<'s>(
             let sig = tcx.sig_of(tcx.fn_sig[owner.0 as usize]?);
             let inputs = tcx.tys(sig.inputs);
             let inputs: Vec<Ty> = inputs.into_iter().map(|t| cx.fill_holes(t)).collect();
+            let inputs: Vec<Ty> = inputs.into_iter().map(|t| cx.reveal_defined(t)).collect();
             // An `async fn`'s body is checked against the declared return
             // type, the output of the future a call gives.
             let out = match tcx.kind(sig.output) {
@@ -256,6 +257,9 @@ pub(super) struct FnCtxt<'a, 's> {
     coroutine: Option<(Ty, Ty)>,
     /// The next closure checked is marked `#[coroutine]`.
     coroutine_attr: bool,
+    /// The variable standing for each opaque type this body defines (its
+    /// hidden type), one for all its uses, and the opaque type.
+    defined: FastMap<crate::ty::OpaqueId, (Ty, Ty)>,
     /// Variables a `!` was coerced to: unknown at the end, they are `!`
     /// (2024) or `()` (before), as for rustc's diverging variables.
     diverging: Vec<Ty>,
@@ -317,6 +321,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
             coroutine: None,
             coroutine_attr: false,
             diverging: Vec::new(),
+            defined: FastMap::default(),
             loops: Vec::new(),
             errors: FastMap::default(),
             reported: FastSet::default(),
@@ -413,6 +418,14 @@ impl<'a, 's> FnCtxt<'a, 's> {
 
     fn finish(mut self) -> BodyResult {
         self.process_pending();
+        // An opaque type this body could define but did not settle: a use
+        // of it, not a definition.
+        let defined: Vec<(Ty, Ty)> = self.defined.values().copied().collect();
+        for (v, t) in defined {
+            if self.infer.var_kind(self.infer.shallow(v)) == Some(VarKind::General) {
+                self.infer.unify(v, t);
+            }
+        }
         let edition = self.env.crates[self.k as usize].edition;
         for v in std::mem::take(&mut self.diverging) {
             if self.infer.var_kind(self.infer.shallow(v)) == Some(VarKind::General) {
@@ -574,7 +587,73 @@ impl<'a, 's> FnCtxt<'a, 's> {
             failed: false,
         };
         let t = l.ty(n);
-        self.fill_holes(t)
+        let t = self.fill_holes(t);
+        self.reveal_defined(t)
+    }
+
+    /// `t` with each type-alias `impl Trait` this body defines replaced by
+    /// its hidden type's variable.
+    fn reveal_defined(&mut self, t: Ty) -> Ty {
+        let tcx = self.tcx;
+        let map = |cx: &mut Self, l: crate::ty::List| -> crate::ty::List {
+            let v: Vec<Ty> = tcx.tys(l).into_iter().map(|x| cx.reveal_defined(x)).collect();
+            tcx.list(v)
+        };
+        match tcx.kind(t) {
+            TyKind::Opaque(o, _) if self.defines(o) => self.opaque_vars(t, true),
+            TyKind::Ref(m, x) => {
+                let x = self.reveal_defined(x);
+                self.mk(TyKind::Ref(m, x))
+            }
+            TyKind::Ptr(m, x) => {
+                let x = self.reveal_defined(x);
+                self.mk(TyKind::Ptr(m, x))
+            }
+            TyKind::Slice(x) => {
+                let x = self.reveal_defined(x);
+                self.mk(TyKind::Slice(x))
+            }
+            TyKind::Array(x, c) => {
+                let x = self.reveal_defined(x);
+                self.mk(TyKind::Array(x, c))
+            }
+            TyKind::Adt(d, l) if tcx.tys(l).iter().any(|&x| has_opaque(tcx, x)) => {
+                let l = map(self, l);
+                self.mk(TyKind::Adt(d, l))
+            }
+            TyKind::Tuple(l) if tcx.tys(l).iter().any(|&x| has_opaque(tcx, x)) => {
+                let l = map(self, l);
+                self.mk(TyKind::Tuple(l))
+            }
+            _ => t,
+        }
+    }
+
+    /// Whether this body defines type-alias `impl Trait` `o`: it lists the
+    /// alias in `#[define_opaque(..)]`, or the alias is declared inside it.
+    fn defines(&self, o: crate::ty::OpaqueId) -> bool {
+        let alias = self.tcx.opaque(o).owner;
+        let a = &self.r.defs[alias.0 as usize];
+        if a.kind != DefKind::TypeAlias {
+            return false;
+        }
+        let me = &self.r.defs[self.owner.0 as usize];
+        let ast = self.ast;
+        let item = ast.node(me.node);
+        if a.krate == me.krate && a.file == me.file {
+            let n = ast.node(a.node);
+            if n.first >= item.first && n.end <= item.end && a.node != me.node {
+                return true;
+            }
+        }
+        // `#[define_opaque(Tait, other::Tait2)]`, by the aliases' names.
+        ast.children(me.node).iter().any(|&c| {
+            ast.kind(c) == Kind::Attribute && {
+                let text = ast.text(c);
+                text.trim_start_matches("#[").starts_with("define_opaque")
+                    && text.split(|ch: char| !(ch.is_alphanumeric() || ch == '_')).any(|w| w == a.name)
+            }
+        })
     }
 
     /// A written generic argument: a type, or a constant (`4`, `{ N + 1
@@ -875,6 +954,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let tcx = self.tcx;
         match tcx.kind(t) {
             TyKind::Opaque(o, l) => {
+                if defining && let Some(&(v, _)) = self.defined.get(&o) {
+                    return v;
+                }
                 let v = self.infer.fresh();
                 let def = tcx.opaque(o);
                 let (params, args) = (tcx.all_params(def.owner), tcx.tys(l));
@@ -888,6 +970,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 }
                 if defining {
                     self.hidden.push((o, v));
+                    self.defined.insert(o, (v, t));
                 }
                 v
             }

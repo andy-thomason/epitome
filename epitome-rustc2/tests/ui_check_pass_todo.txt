@@ -88,7 +88,7 @@ closures/issue-48109.rs: type check: mismatched types
 closures/issue-87814-1.rs: type check: a type left unknown
 closures/issue-87814-2.rs: type check: a type left unknown
 closures/self-supertrait-bounds.rs: type check: a type left unknown
-closures/supertrait-hint-cycle.rs: type check: mismatched types
+closures/supertrait-hint-cycle.rs: type check: a type left unknown
 closures/supertrait-hint-references-assoc-ty.rs#current: type check: method not found
 closures/supertrait-hint-references-assoc-ty.rs#next: type check: method not found
 coercion/cast-higher-ranked-unsafe-fn-ptr.rs: type check: mismatched types
@@ -153,7 +153,6 @@ ergonomic-clones/async/basic.rs: error: expected `|`, found `{` (basic.rs:12:15)
 extern-flag/noprelude-and-prelude.rs: left out: flags that change the crate
 extern/extern-types-inherent-impl.rs: type check: associated item of something that is not a type
 feature-gates/feature-gate-explicit-extern-abis.rs#future: left out: edition
-fn/fn_def_opaque_coercion.rs: type check: mismatched types
 generic-associated-types/issue-87750.rs: type check: a type left unknown
 generic-associated-types/issue-89008.rs: type check: a type left unknown
 generic-associated-types/issue-93874.rs: type check: call of something that is not a function
@@ -183,8 +182,6 @@ hygiene/transparent-basic.rs: path not resolved: x
 hygiene/unpretty-debug.rs: type check: operator on types that do not implement it
 hygiene/wrap_unhygienic_example.rs: macro not found: unhygienic_macro!
 impl-trait/defining-use-uncaptured-non-universal-region-2.rs: type check: mismatched types
-impl-trait/eagerly-reveal-in-local-body.rs: type check: field not found
-impl-trait/in-trait/default-method-constraint.rs: type check: mismatched types
 impl-trait/in-trait/late-bound-in-object-assocty.rs: type check: mismatched types
 impl-trait/issues/issue-104815.rs: type check: mismatched types
 impl-trait/issues/issue-49579.rs: type check: a type left unknown
@@ -367,7 +364,6 @@ traits/next-solver/lazy-nested-obligations-3.rs: type check: a type left unknown
 traits/next-solver/method/path_lookup_wf_constraints.rs: type check: a type left unknown
 traits/next-solver/normalize/normalize-self-type-constrains-trait-args.rs#current: type check: a type left unknown
 traits/next-solver/normalize/normalize-self-type-constrains-trait-args.rs#next: type check: a type left unknown
-traits/next-solver/opaques/non-defining-use-hir-typeck.rs: type check: a type left unknown
 traits/next-solver/overflow-discards-constraints.rs: type check: a type left unknown
 traits/next-solver/overflow/fcw-on-normalization.rs#next: type check: method not found
 traits/next-solver/overflow/fcw-on-normalization.rs#old: type check: method not found
@@ -397,24 +393,12 @@ try-block/try-block-homogeneous.rs: type check: method not found
 try-block/try-block-unused-delims.rs: type check: a type left unknown
 tuple/indexing-in-macro.rs: error: in `m!`: no rule of the macro matches this input (indexing-in-macro.rs:7:1)
 type-alias-impl-trait/broken_mir.rs: type check: a type left unknown
-type-alias-impl-trait/cross_inference.rs#current: type check: mismatched types
-type-alias-impl-trait/cross_inference.rs#next: type check: mismatched types
-type-alias-impl-trait/cross_inference_pattern_bug_no_type.rs: type check: mismatched types
 type-alias-impl-trait/cross_inference_rpit.rs: type check: mismatched types
-type-alias-impl-trait/destructuring.rs: type check: mismatched types
-type-alias-impl-trait/issue-96572-unconstrained.rs#default: type check: mismatched types
-type-alias-impl-trait/issue-96572-unconstrained.rs#edition2021: type check: mismatched types
 type-alias-impl-trait/match-unification.rs: type check: mismatched types
-type-alias-impl-trait/method_resolution2.rs#current: type check: method not found
-type-alias-impl-trait/method_resolution2.rs#next: type check: method not found
 type-alias-impl-trait/method_resolution5.rs#current: type check: method not found
 type-alias-impl-trait/method_resolution5.rs#next: type check: method not found
 type-alias-impl-trait/multiple-def-uses-in-one-fn-pass.rs: error: expanding `format_args_nl!`: expected `>`, found `)`
-type-alias-impl-trait/multiple_definitions.rs: type check: a type left unknown
-type-alias-impl-trait/normalize-hidden-types.rs#next: type check: mismatched types
 type-alias-impl-trait/obligation_ice.rs: type check: method not found
-type-alias-impl-trait/tait-normalize.rs#current: type check: mismatched types
-type-alias-impl-trait/tait-normalize.rs#next: type check: mismatched types
 type-alias-impl-trait/tait-param-inference-issue-117310.rs: type check: a type left unknown
 typeck/issue-55810-must-typeck-match-pats-before-guards.rs: type check: method not found
 unboxed-closures/arg-constrained-after-closure-inference.rs: type check: a type left unknown

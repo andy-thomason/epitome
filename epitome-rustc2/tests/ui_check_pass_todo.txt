@@ -98,14 +98,6 @@ consts/issue-104396.rs: type check: a type left unknown
 consts/issue-62045.rs: type check: a type left unknown
 consts/issue-67696-const-prop-ice.rs: type check: a type left unknown
 consts/self_normalization2.rs: type check: a type left unknown
-coroutine/async-gen-deduce-yield.rs: type check: unsupported expression
-coroutine/async-gen-yield-ty-is-unit.rs: type check: method not found
-coroutine/gen_block_is_fused_iter.rs#next: type check: unsupported expression
-coroutine/gen_block_is_fused_iter.rs#old: type check: unsupported expression
-coroutine/gen_block_is_iter.rs#next: type check: unsupported expression
-coroutine/gen_block_is_iter.rs#old: type check: unsupported expression
-coroutine/gen_fn_lifetime_capture.rs: type check: method not found
-coroutine/return-types-diverge.rs: type check: unsupported expression
 crate-loading/cross-compiled-proc-macro.rs: left out: proc-macro crates rustc cannot build
 delegation/body-identity-glob.rs: error: expected an item, found `reuse` (body-identity-glob.rs:19:5)
 delegation/body-identity-list.rs: error: expected an item, found `reuse` (body-identity-list.rs:19:5)
@@ -136,8 +128,6 @@ generic-associated-types/issue-89008.rs: type check: a type left unknown
 generic-associated-types/issue-93874.rs: type check: call of something that is not a function
 generic-associated-types/parse/in-trait-impl.rs: path not resolved: Foo
 generic-const-items/basic.rs: type check: mismatched types
-higher-ranked/builtin-closure-like-bounds.rs#current: type check: method not found
-higher-ranked/builtin-closure-like-bounds.rs#next: type check: method not found
 higher-ranked/leak-check/leak-check-in-selection-2.rs#next: type check: a type left unknown
 higher-ranked/leak-check/leak-check-in-selection-2.rs#old: type check: a type left unknown
 higher-ranked/leak-check/leak-check-in-selection-4-hr-nested.rs#next: type check: a type left unknown

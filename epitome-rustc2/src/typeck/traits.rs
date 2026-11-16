@@ -378,6 +378,13 @@ impl<'a, 's> FnCtxt<'a, 's> {
             let r = targs.first().copied().unwrap_or_else(|| self.unit());
             return if self.infer.unify(r, resume) { Select::Yes(Source::Builtin(None)) } else { Select::No };
         }
+        // `gen` blocks implement `Iterator`, `async gen` ones
+        // `AsyncIterator`, their `Item` the type they yield.
+        if let TyKind::GenBlock(_, _, _, a) = tcx.kind(t)
+            && tcx.lang.get(if a { "async_iterator" } else { "iterator" }) == Some(&tr)
+        {
+            return Select::Yes(Source::Builtin(None));
+        }
         // `async` blocks implement `Future`, with their value as `Output`.
         if let TyKind::AsyncBlock(_, out, _) = tcx.kind(t)
             && tcx.lang.get("future_trait") == Some(&tr)
@@ -671,6 +678,14 @@ impl<'a, 's> FnCtxt<'a, 's> {
         if tcx.lang.get("metadata_type") == Some(&assoc) {
             return self.pointee_metadata(t, 0);
         }
+        // A `gen` block's `Item`.
+        if let TyKind::GenBlock(_, y, _, a) = tcx.kind(t)
+            && let Some(tr) = self.trait_of(assoc)
+            && tcx.lang.get(if a { "async_iterator" } else { "iterator" }) == Some(&tr)
+            && self.r.defs[assoc.0 as usize].name == "Item"
+        {
+            return Some(y);
+        }
         // A coroutine's `Yield` and `Return`.
         if let TyKind::Coroutine(_, parts, _) = tcx.kind(t)
             && let TyKind::Tuple(l) = tcx.kind(parts)
@@ -871,6 +886,11 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 let o = self.normalize(o, depth);
                 let v = tcx.tys(l).into_iter().map(|x| self.normalize(x, depth)).collect();
                 self.mk(TyKind::Coroutine(c, o, tcx.list(v)))
+            }
+            TyKind::GenBlock(c, y, l, a) => {
+                let y = self.normalize(y, depth);
+                let v = tcx.tys(l).into_iter().map(|x| self.normalize(x, depth)).collect();
+                self.mk(TyKind::GenBlock(c, y, tcx.list(v), a))
             }
             TyKind::Opaque(o, l) => {
                 let v = tcx.tys(l).into_iter().map(|x| self.normalize(x, depth)).collect();
@@ -1537,7 +1557,7 @@ fn has_projection(tcx: &crate::ty::TyCtxt, t: Ty) -> bool {
                 || tcx.tys(s.inputs).into_iter().any(|x| has_projection(tcx, x))
                 || tcx.tys(l).into_iter().any(|x| has_projection(tcx, x))
         }
-        TyKind::AsyncBlock(_, o, l) | TyKind::Coroutine(_, o, l) => {
+        TyKind::AsyncBlock(_, o, l) | TyKind::Coroutine(_, o, l) | TyKind::GenBlock(_, o, l, _) => {
             has_projection(tcx, o) || tcx.tys(l).into_iter().any(|x| has_projection(tcx, x))
         }
         _ => false,

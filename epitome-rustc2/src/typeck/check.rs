@@ -123,6 +123,13 @@ pub(super) fn check_body<'s>(
             // type, the output of the future a call gives.
             let out = match tcx.kind(sig.output) {
                 TyKind::AsyncBlock(c, o, _) if tcx.closure_at(c) == (k, file, item) => o,
+                // A `gen fn`'s body yields the declared type and returns
+                // `()`.
+                TyKind::GenBlock(c, y, _, _) if tcx.closure_at(c) == (k, file, item) => {
+                    let unit = tcx.unit();
+                    cx.coroutine = Some((unit, y));
+                    unit
+                }
                 _ => sig.output,
             };
             let out = cx.fill_holes(out);
@@ -2632,10 +2639,21 @@ impl<'a, 's> FnCtxt<'a, 's> {
             let id = tcx.closure_id((self.k, self.file, n));
             return self.mk(TyKind::AsyncBlock(id, out, tcx.identity_args(self.owner)));
         }
-        // `gen` blocks: an iterator of their own.
+        // `gen` blocks (and `async gen`): an iterator of their own, of
+        // what their `yield`s give.
         if keyword("gen") {
-            self.stmts(&stmts, None);
-            return self.infer.fresh();
+            let tcx = self.tcx;
+            let yields = self.infer.fresh();
+            let unit = self.unit();
+            let saved_ret = std::mem::replace(&mut self.ret, unit);
+            let saved_co = self.coroutine.replace((unit, yields));
+            let saved_loops = std::mem::take(&mut self.loops);
+            self.stmts(&stmts, Some(unit));
+            self.ret = saved_ret;
+            self.coroutine = saved_co;
+            self.loops = saved_loops;
+            let id = tcx.closure_id((self.k, self.file, n));
+            return self.mk(TyKind::GenBlock(id, yields, tcx.identity_args(self.owner), keyword("async")));
         }
         self.stmts(&stmts, expect)
     }

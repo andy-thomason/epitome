@@ -114,6 +114,10 @@ pub enum TyKind {
     /// written): the tuple of its resume, yield and return types, and the
     /// arguments of the generic parameters of the item it is written in.
     Coroutine(ClosureId, Ty, List),
+    /// A `gen` block or `gen fn`'s result (`async gen` if the flag is
+    /// set): an iterator (or async iterator) of the type its `yield`s
+    /// give, with the arguments of the item it is written in.
+    GenBlock(ClosureId, Ty, List, bool),
     /// A type from an `extern` block.
     Foreign(DefId),
     /// A pattern type, `pattern_type!(u32 is 1..)`: the type, holding only
@@ -450,7 +454,7 @@ impl<'s> TyCtxt<'s> {
                     || self.tys(s.inputs).into_iter().any(|x| self.has_error(x))
                     || self.tys(l).into_iter().any(|x| self.has_error(x))
             }
-            TyKind::AsyncBlock(_, o, l) | TyKind::Coroutine(_, o, l) => {
+            TyKind::AsyncBlock(_, o, l) | TyKind::Coroutine(_, o, l) | TyKind::GenBlock(_, o, l, _) => {
                 self.has_error(o) || self.tys(l).into_iter().any(|x| self.has_error(x))
             }
             TyKind::Dyn(d) => self.dyn_of(d).traits.iter().any(|t| self.trait_ref_has_error(t)),

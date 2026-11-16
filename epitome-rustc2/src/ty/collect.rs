@@ -592,6 +592,7 @@ pub(crate) fn subst(tcx: &TyCtxt, t: Ty, params: &[ParamId], args: &[Ty]) -> Ty 
             tcx.mk(TyKind::Closure(c, tcx.sig(sig), sub_list(l)))
         }
         TyKind::AsyncBlock(c, o, l) => tcx.mk(TyKind::AsyncBlock(c, sub(o), sub_list(l))),
+        TyKind::Coroutine(c, o, l) => tcx.mk(TyKind::Coroutine(c, sub(o), sub_list(l))),
         TyKind::Opaque(o, l) => tcx.mk(TyKind::Opaque(o, sub_list(l))),
         TyKind::Dyn(d) => {
             let mut data = tcx.dyn_of(d);

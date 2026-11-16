@@ -143,7 +143,6 @@ coercion/cast-higher-ranked-unsafe-fn-ptr.rs: type check: mismatched types
 coercion/index-coercion-over-indexmut-72002.rs: type check: indexing something that does not implement `Index`
 coercion/issue-88097.rs#current: type check: mismatched types
 coercion/issue-88097.rs#next: type check: mismatched types
-coherence/coherence-with-coroutine.rs#specialized: type check: unsupported expression
 coinduction/canonicalization-rerun.rs#next: type check: a type left unknown
 coinduction/canonicalization-rerun.rs#old: type check: a type left unknown
 compile-flags/invalid/crate-type-flag.rs#proc_dash_macro: left out: proc-macro crate
@@ -187,24 +186,12 @@ consts/raw-ptr-const.rs: type check: a type left unknown
 consts/self_normalization2.rs: type check: a type left unknown
 coroutine/async-gen-deduce-yield.rs: type check: unsupported expression
 coroutine/async-gen-yield-ty-is-unit.rs: type check: method not found
-coroutine/clone-rpit.rs#current: type check: unsupported expression
-coroutine/clone-rpit.rs#next: type check: unsupported expression
 coroutine/gen_block_is_fused_iter.rs#next: type check: unsupported expression
 coroutine/gen_block_is_fused_iter.rs#old: type check: unsupported expression
 coroutine/gen_block_is_iter.rs#next: type check: unsupported expression
 coroutine/gen_block_is_iter.rs#old: type check: unsupported expression
 coroutine/gen_fn_lifetime_capture.rs: type check: method not found
-coroutine/issue-110929-coroutine-conflict-error-ice.rs: type check: unsupported expression
-coroutine/issue-52304.rs#current: type check: unsupported expression
-coroutine/issue-52304.rs#next: type check: unsupported expression
-coroutine/issue-53548.rs: type check: unsupported expression
-coroutine/issue-57478.rs: type check: unsupported expression
-coroutine/issue-61442-stmt-expr-with-drop.rs: type check: method not found
-coroutine/issue-69017.rs: type check: unsupported expression
-coroutine/metadata-sufficient-for-layout.rs: auxiliary crate `metadata_sufficient_for_layout`: type check: unsupported expression
-coroutine/partial-drop.rs: type check: unsupported expression
 coroutine/return-types-diverge.rs: type check: unsupported expression
-coroutine/static-coroutine-with-nonstatic-yield.rs: type check: unsupported expression
 crate-loading/cross-compiled-proc-macro.rs: left out: flags that change the crate
 custom_test_frameworks/test-case-on-use-item-129765.rs: left out: --test
 debuginfo/dwarf-versions.rs#five: left out: flags that change the crate
@@ -246,16 +233,6 @@ editions/edition-imports-virtual-2015-ambiguity.rs: left out: flags that change 
 editions/edition-keywords-2018-2015-expansion.rs: error: expanding `produces_async!`: expected a name, found `async` (edition-keywords-2018-2015-expansion.rs:11:5)
 editions/nested-macro-rules-edition.rs#e2024: macro not found: macro_inner!
 ergonomic-clones/async/basic.rs: error: expected `|`, found `{` (basic.rs:12:15)
-ergonomic-clones/dotuse/basic.rs: type check: unsupported expression
-ergonomic-clones/dotuse/block.rs: type check: unsupported expression
-explicit-tail-calls/become-macro.rs: type check: unsupported expression
-explicit-tail-calls/become-trait-fn.rs: type check: unsupported expression
-explicit-tail-calls/ctfe-arg-good-borrow.rs: type check: unsupported expression
-explicit-tail-calls/ctfe-arg-move.rs: type check: mismatched types
-explicit-tail-calls/higher-ranked-arg.rs: type check: unsupported expression
-explicit-tail-calls/ret-ty-modulo-anonymization.rs: type check: mismatched types
-explicit-tail-calls/return-lifetime-sub.rs: type check: mismatched types
-explicit-tail-calls/two-phase.rs: type check: unsupported expression
 extern-flag/noprelude-and-prelude.rs: left out: flags that change the crate
 extern/extern-types-inherent-impl.rs: type check: associated item of something that is not a type
 feature-gates/feature-gate-explicit-extern-abis.rs#future: left out: edition
@@ -312,8 +289,6 @@ impl-trait/non-defining-uses/multiple-opaques-ok.rs: type check: mismatched type
 impl-trait/precise-capturing/external-macro.rs: left out: proc-macro crates
 impl-trait/recursive-bound-eval.rs#current: type check: a type left unknown
 impl-trait/recursive-bound-eval.rs#next: type check: a type left unknown
-impl-trait/recursive-coroutine-boxed.rs#current: type check: unsupported expression
-impl-trait/recursive-coroutine-boxed.rs#next: type check: unsupported expression
 impl-trait/trait_resolution.rs: type check: a type left unknown
 implied-bounds/dyn-erasure-no-tait.rs: path not resolved: dyn
 implied-bounds/dyn-erasure-tait.rs: path not resolved: dyn
@@ -374,7 +349,6 @@ lint/unused/unused-variable-with-raw-identifier-in-struct-pattern.rs: type check
 lint/unused/unused_assignment.rs: left out: proc-macro crates
 lint/unused/unused_parens/parens-around-guard-patterns-not-unused.rs: error: expected `)`, found `if` (parens-around-guard-patterns-not-unused.rs:12:12)
 lint/use-redundant/use-redundant-issue-78894.rs: import not resolved: : use bar (as bar)
-liveness/liveness-upvars.rs: type check: unsupported expression
 liveness/unused-assignments-from-macro-147648.rs: left out: proc-macro crates
 macros/cross-crate-pat-span.rs: macro not found: custom_matches!
 macros/dollar-crate-nested-encoding.rs: macro not found: exported!
@@ -620,8 +594,6 @@ traits/next-solver/assembly/ambiguity-due-to-uniquification-3.rs#next: type chec
 traits/next-solver/closure-signature-inference-hr-ambig-alias-naming-self.rs#current: type check: method not found
 traits/next-solver/closure-signature-inference-hr-ambig-alias-naming-self.rs#next: type check: method not found
 traits/next-solver/closure-substs-ambiguity.rs: type check: a type left unknown
-traits/next-solver/coroutine-yield-unnormalized-alias.rs: type check: unsupported expression
-traits/next-solver/coroutine.rs#pass: type check: unsupported expression
 traits/next-solver/cycles/inductive-cycle-discarded-coinductive-constraints.rs: type check: a type left unknown
 traits/next-solver/cycles/leak-check-coinductive-cycle.rs: type check: a type left unknown
 traits/next-solver/cycles/provisional-result-done.rs: type check: a type left unknown
@@ -671,8 +643,6 @@ type-alias-impl-trait/cross_inference.rs#next: type check: mismatched types
 type-alias-impl-trait/cross_inference_pattern_bug_no_type.rs: type check: mismatched types
 type-alias-impl-trait/cross_inference_rpit.rs: type check: mismatched types
 type-alias-impl-trait/destructuring.rs: type check: mismatched types
-type-alias-impl-trait/issue-53678-coroutine-and-const-fn.rs: type check: unsupported expression
-type-alias-impl-trait/issue-58662-coroutine-with-lifetime.rs: type check: unsupported expression
 type-alias-impl-trait/issue-96572-unconstrained.rs#default: type check: mismatched types
 type-alias-impl-trait/issue-96572-unconstrained.rs#edition2021: type check: mismatched types
 type-alias-impl-trait/match-unification.rs: type check: mismatched types

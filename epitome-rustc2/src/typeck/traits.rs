@@ -367,6 +367,17 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 };
             }
         }
+        // Coroutines implement `Coroutine<R>` for their resume type `R`.
+        if let TyKind::Coroutine(_, parts, _) = tcx.kind(t)
+            && tcx.lang.get("coroutine") == Some(&tr)
+        {
+            let resume = tcx.tys(match tcx.kind(parts) {
+                TyKind::Tuple(l) => l,
+                _ => return Select::No,
+            })[0];
+            let r = targs.first().copied().unwrap_or_else(|| self.unit());
+            return if self.infer.unify(r, resume) { Select::Yes(Source::Builtin(None)) } else { Select::No };
+        }
         // `async` blocks implement `Future`, with their value as `Output`.
         if let TyKind::AsyncBlock(_, out, _) = tcx.kind(t)
             && tcx.lang.get("future_trait") == Some(&tr)
@@ -660,6 +671,17 @@ impl<'a, 's> FnCtxt<'a, 's> {
         if tcx.lang.get("metadata_type") == Some(&assoc) {
             return self.pointee_metadata(t, 0);
         }
+        // A coroutine's `Yield` and `Return`.
+        if let TyKind::Coroutine(_, parts, _) = tcx.kind(t)
+            && let TyKind::Tuple(l) = tcx.kind(parts)
+        {
+            if tcx.lang.get("coroutine_yield") == Some(&assoc) {
+                return Some(tcx.tys(l)[1]);
+            }
+            if tcx.lang.get("coroutine_return") == Some(&assoc) {
+                return Some(tcx.tys(l)[2]);
+            }
+        }
         if tcx.lang.get("discriminant_type") == Some(&assoc) {
             return self.discriminant_type(t);
         }
@@ -844,6 +866,11 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 let o = self.normalize(o, depth);
                 let v = tcx.tys(l).into_iter().map(|x| self.normalize(x, depth)).collect();
                 self.mk(TyKind::AsyncBlock(c, o, tcx.list(v)))
+            }
+            TyKind::Coroutine(c, o, l) => {
+                let o = self.normalize(o, depth);
+                let v = tcx.tys(l).into_iter().map(|x| self.normalize(x, depth)).collect();
+                self.mk(TyKind::Coroutine(c, o, tcx.list(v)))
             }
             TyKind::Opaque(o, l) => {
                 let v = tcx.tys(l).into_iter().map(|x| self.normalize(x, depth)).collect();
@@ -1450,7 +1477,9 @@ fn has_projection(tcx: &crate::ty::TyCtxt, t: Ty) -> bool {
                 || tcx.tys(s.inputs).into_iter().any(|x| has_projection(tcx, x))
                 || tcx.tys(l).into_iter().any(|x| has_projection(tcx, x))
         }
-        TyKind::AsyncBlock(_, o, l) => has_projection(tcx, o) || tcx.tys(l).into_iter().any(|x| has_projection(tcx, x)),
+        TyKind::AsyncBlock(_, o, l) | TyKind::Coroutine(_, o, l) => {
+            has_projection(tcx, o) || tcx.tys(l).into_iter().any(|x| has_projection(tcx, x))
+        }
         _ => false,
     }
 }

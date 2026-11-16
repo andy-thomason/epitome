@@ -451,7 +451,9 @@ impl TyCtxt<'_> {
                     || self.tys(s.inputs).into_iter().any(|x| self.has_infer(x))
                     || self.tys(l).into_iter().any(|x| self.has_infer(x))
             }
-            TyKind::AsyncBlock(_, o, l) => self.has_infer(o) || self.tys(l).into_iter().any(|x| self.has_infer(x)),
+            TyKind::AsyncBlock(_, o, l) | TyKind::Coroutine(_, o, l) => {
+                self.has_infer(o) || self.tys(l).into_iter().any(|x| self.has_infer(x))
+            }
             _ => false,
         }
     }

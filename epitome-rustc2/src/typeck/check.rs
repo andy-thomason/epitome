@@ -251,6 +251,10 @@ pub(super) struct FnCtxt<'a, 's> {
     /// The closures written in this body.
     closures: Vec<crate::ty::ClosureId>,
     pub(super) ret: Ty,
+    /// In a coroutine: its resume and yield types, for `yield`.
+    coroutine: Option<(Ty, Ty)>,
+    /// The next closure checked is marked `#[coroutine]`.
+    coroutine_attr: bool,
     loops: Vec<Loop<'s>>,
     errors: FastMap<String, usize>,
     /// Nodes already counted as errors.
@@ -306,6 +310,8 @@ impl<'a, 's> FnCtxt<'a, 's> {
             closures: Vec::new(),
             where_depth: 2,
             ret: tcx.unit(),
+            coroutine: None,
+            coroutine_attr: false,
             loops: Vec::new(),
             errors: FastMap::default(),
             reported: FastSet::default(),
@@ -418,6 +424,14 @@ impl<'a, 's> FnCtxt<'a, 's> {
             if self.tcx.has_error(t) {
                 error_nodes += 1;
             } else if self.tcx.has_infer(t) {
+                // With `EPITOME_TYPECK_WHY` set to a reason with
+                // "unknown" in it, the first node in each body whose type
+                // was left unknown.
+                if unknown_nodes == 0 && why_filter().is_some_and(|w| "a type left unknown".contains(w)) {
+                    let mut text = self.ast.text(n).replace('\n', " ");
+                    text.truncate((0..=80.min(text.len())).rev().find(|&i| text.is_char_boundary(i)).unwrap_or(0));
+                    eprintln!("a type left unknown: {text} in {}", self.r.def_path(self.owner));
+                }
                 unknown_nodes += 1;
             }
             types.push((n, t));
@@ -505,9 +519,8 @@ impl<'a, 's> FnCtxt<'a, 's> {
             *self.errors.entry(why.to_string()).or_default() += 1;
             // `EPITOME_TYPECK_WHY=text`: print the errors whose reason
             // has `text` in it, with where they are.
-            static WHY: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
-            if let Some(w) = WHY.get_or_init(|| std::env::var("EPITOME_TYPECK_WHY").ok())
-                && why.contains(w.as_str())
+            if let Some(w) = why_filter()
+                && why.contains(w)
             {
                 let mut text = self.ast.text(n).replace('\n', " ");
                 text.truncate((0..=80.min(text.len())).rev().find(|&i| text.is_char_boundary(i)).unwrap_or(0));
@@ -1335,6 +1348,12 @@ impl<'a, 's> FnCtxt<'a, 's> {
             Kind::PathExpr => self.path_value(n, kids[0]),
             Kind::Paren | Kind::AttrExpr => {
                 let e = *kids.last().unwrap();
+                // `#[coroutine] || ...`.
+                self.coroutine_attr = ast.kind(n) == Kind::AttrExpr
+                    && ast.kind(e) == Kind::Closure
+                    && ast.children(n).iter().any(|&a| {
+                        ast.kind(a) == Kind::Attribute && ast.text(a).trim_start_matches("#[").starts_with("coroutine")
+                    });
                 self.expr(e, expect)
             }
             Kind::Tuple => {
@@ -1625,6 +1644,33 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 }
             }
             Kind::Builtin => self.builtin_expr(n, &kids, expect),
+            // `yield e`: `e` is what the coroutine yields, and the value is
+            // what it is resumed with.
+            Kind::Yield if self.coroutine.is_some() => {
+                let (resume, yields) = self.coroutine.unwrap();
+                match kids.iter().copied().find(|&c| is_expr(ast.kind(c))) {
+                    Some(e) => {
+                        let t = self.expr(e, Some(yields));
+                        self.coerce(e, t, yields);
+                    }
+                    None => {
+                        let u = self.unit();
+                        if !self.infer.unify(u, yields) {
+                            self.err(n, "mismatched types");
+                        }
+                    }
+                }
+                resume
+            }
+            // `become f(x)`: a tail call, which returns its value.
+            Kind::Become if kids.len() == 1 && is_expr(ast.kind(kids[0])) => {
+                let ret = self.ret;
+                let t = self.expr(kids[0], Some(ret));
+                self.coerce(kids[0], t, ret);
+                self.mk(TyKind::Never)
+            }
+            // `x.use`: a clone (or copy) of `x`.
+            Kind::UseExpr if kids.len() == 1 && is_expr(ast.kind(kids[0])) => self.expr(kids[0], expect),
             Kind::Yield | Kind::Become | Kind::Yeet | Kind::UseExpr => {
                 for &c in &kids {
                     if is_expr(ast.kind(c)) {
@@ -2244,6 +2290,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
     fn closure(&mut self, n: NodeId, kids: &[NodeId], expect: Option<Ty>) -> Ty {
         let tcx = self.tcx;
         let ast = self.ast;
+        if std::mem::take(&mut self.coroutine_attr) {
+            return self.coroutine_closure(n, kids);
+        }
         // Parameter types written, or taken from an expected closure or
         // function pointer type.
         let mut expected_ret = None;
@@ -2277,15 +2326,56 @@ impl<'a, 's> FnCtxt<'a, 's> {
         };
         let body = *kids.last().unwrap();
         let saved_ret = std::mem::replace(&mut self.ret, ret);
+        let saved_co = self.coroutine.take();
         let saved_loops = std::mem::take(&mut self.loops);
         let bt = self.expr(body, Some(ret));
         self.coerce(body, bt, ret);
         self.ret = saved_ret;
+        self.coroutine = saved_co;
         self.loops = saved_loops;
         let id = tcx.closure_id((self.k, self.file, n));
         self.closures.push(id);
         let sig = tcx.sig(crate::ty::FnSig { inputs: tcx.list(inputs), output: ret, unsafety: false, variadic: false, abi: crate::ty::Abi::Rust });
         self.mk(TyKind::Closure(id, sig, tcx.identity_args(self.owner)))
+    }
+
+    /// `#[coroutine] |arg| body`: a coroutine resumed with `arg` (`()` if
+    /// it takes none), yielding what its `yield`s give, and returning the
+    /// body's value.
+    fn coroutine_closure(&mut self, n: NodeId, kids: &[NodeId]) -> Ty {
+        let tcx = self.tcx;
+        let ast = self.ast;
+        let params = kids.iter().copied().find(|&c| ast.kind(c) == Kind::ClosureParams).map(|p| self.kids(p)).unwrap_or_default();
+        let resume = match params.first() {
+            Some(&p) => {
+                let pk = self.kids(p);
+                let t = match pk.get(1) {
+                    Some(&ty) => self.written_ty(ty),
+                    None => self.infer.fresh(),
+                };
+                self.pat(pk[0], t, Mutbl::Not, false);
+                t
+            }
+            None => self.unit(),
+        };
+        let ret = match kids.iter().copied().find(|&c| ast.kind(c) == Kind::RetType) {
+            Some(r) => self.written_ty(self.ast.children(r)[0]),
+            None => self.infer.fresh(),
+        };
+        let yields = self.infer.fresh();
+        let body = *kids.last().unwrap();
+        let saved_ret = std::mem::replace(&mut self.ret, ret);
+        let saved_co = self.coroutine.replace((resume, yields));
+        let saved_loops = std::mem::take(&mut self.loops);
+        let bt = self.expr(body, Some(ret));
+        self.coerce(body, bt, ret);
+        self.ret = saved_ret;
+        self.coroutine = saved_co;
+        self.loops = saved_loops;
+        let id = tcx.closure_id((self.k, self.file, n));
+        self.closures.push(id);
+        let parts = self.mk(TyKind::Tuple(tcx.list(vec![resume, yields, ret])));
+        self.mk(TyKind::Coroutine(id, parts, tcx.identity_args(self.owner)))
     }
 
     /// `builtin # name(..)`: `offset_of` is a `usize` (its container's
@@ -2396,9 +2486,11 @@ impl<'a, 's> FnCtxt<'a, 's> {
             let tcx = self.tcx;
             let out = self.infer.fresh();
             let saved_ret = std::mem::replace(&mut self.ret, out);
+            let saved_co = self.coroutine.take();
             let saved_loops = std::mem::take(&mut self.loops);
             let bt = self.stmts(&stmts, Some(out));
             self.ret = saved_ret;
+            self.coroutine = saved_co;
             self.loops = saved_loops;
             if tcx.kind(self.infer.shallow(bt)) != TyKind::Never && !self.infer.unify(bt, out) {
                 self.err(n, "mismatched types");
@@ -2758,4 +2850,10 @@ fn has_opaque(tcx: &crate::ty::TyCtxt, t: Ty) -> bool {
         TyKind::Adt(_, l) | TyKind::Tuple(l) => tcx.tys(l).into_iter().any(|x| has_opaque(tcx, x)),
         _ => false,
     }
+}
+
+/// `EPITOME_TYPECK_WHY`: print the errors whose reason has this in it.
+fn why_filter() -> Option<&'static str> {
+    static WHY: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    WHY.get_or_init(|| std::env::var("EPITOME_TYPECK_WHY").ok()).as_deref()
 }

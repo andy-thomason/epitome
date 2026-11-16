@@ -144,7 +144,7 @@ derives/derive-macro-const-default.rs: type check: method not found
 derives/derive-renamed.rs: import not resolved: : use derive (as my_derive)
 editions/edition-imports-virtual-2015-ambiguity.rs: left out: flags that change the crate
 editions/edition-keywords-2018-2015-expansion.rs: error: expanding `produces_async!`: expected a name, found `async` (edition-keywords-2018-2015-expansion.rs:11:5)
-editions/nested-macro-rules-edition.rs#e2024: macro not found: macro_inner!
+editions/nested-macro-rules-edition.rs#e2024: error: expanding `macro_inner_input!`: expected a name, found `gen` (nested-macro-rules-edition.rs:30:5)
 ergonomic-clones/async/basic.rs: error: expected `|`, found `{` (basic.rs:12:15)
 extern-flag/noprelude-and-prelude.rs: left out: flags that change the crate
 extern/extern-types-inherent-impl.rs: type check: associated item of something that is not a type
@@ -167,16 +167,13 @@ higher-ranked/trait-bounds/issue-43623.rs: type check: a type left unknown
 higher-ranked/trait-bounds/normalize-under-binder/issue-56556.rs: type check: a type left unknown
 higher-ranked/trait-bounds/rigid-equate-projections-in-higher-ranked-fn-signature.rs#current: type check: a type left unknown
 hygiene/cross-crate-define-and-use.rs: type check: struct literal of something that is not a struct or variant
-hygiene/dollar-crate-modern.rs: macro not found: define_uses_dollar_crate_legacy_nested!
+hygiene/dollar-crate-modern.rs: path not resolved: crate
 hygiene/eager-from-opaque-2.rs: type check: a type left unknown
 hygiene/generic_params.rs: type check: method not found
 hygiene/hir-res-hygiene.rs: type check: a type left unknown
 hygiene/issue-32922.rs: error: expanding `foo!`: expected the end of the input, found `;` (eager-from-opaque.rs:14:9)
-hygiene/legacy_interaction.rs: macro not found: m!
-hygiene/local_inner_macros.rs: import not resolved: : use local_inner_macros::public_macro (as public_macro)
 hygiene/transparent-basic.rs: path not resolved: x
 hygiene/unpretty-debug.rs: type check: operator on types that do not implement it
-hygiene/wrap_unhygienic_example.rs: macro not found: unhygienic_macro!
 impl-trait/defining-use-uncaptured-non-universal-region-2.rs: type check: mismatched types
 impl-trait/in-trait/late-bound-in-object-assocty.rs: type check: mismatched types
 impl-trait/issues/issue-104815.rs: type check: mismatched types
@@ -193,17 +190,14 @@ impl-trait/non-defining-uses/double-wrap-with-defining-use.rs#next: type check: 
 impl-trait/non-defining-uses/impl-deref-function-call.rs#current: type check: call of something that is not a function
 impl-trait/non-defining-uses/impl-deref-function-call.rs#next: type check: call of something that is not a function
 impl-trait/non-defining-uses/multiple-opaques-ok.rs: type check: mismatched types
-impl-trait/precise-capturing/external-macro.rs: macro not found: macro_rpit!
+impl-trait/precise-capturing/external-macro.rs: path not resolved: element
 impl-trait/recursive-bound-eval.rs#current: type check: a type left unknown
 impl-trait/recursive-bound-eval.rs#next: type check: a type left unknown
 impl-trait/trait_resolution.rs: type check: a type left unknown
 implied-bounds/implied-bounds-on-nested-references-plus-variance-2.rs: type check: a type left unknown
 imports/ambiguous-glob-vs-expanded-extern.rs: macro not found: mac!
 imports/ambiguous-import-visibility-globglob-priv-pass.rs: import not resolved: : use crate::one_private::S (as S)
-imports/extern-prelude-extern-crate-pass.rs: macro not found: m!
-imports/extern-prelude-extern-crate-shadowing.rs: macro not found: m!
 imports/overwrite-different-vis-2.rs: path not resolved: f
-imports/redundant-import-undetected-macro-use-prelude.rs: import not resolved: : use two_macros::n (as n)
 imports/remove-unused-private-import-errors.rs#keep: type check: associated item of something that is not a type
 inference/iter-ufcs-coercion-type-unification.rs: type check: a type left unknown
 iterators/into-iter-on-boxed-slices-2021.rs: type check: a type left unknown
@@ -218,27 +212,21 @@ lint/dead-code/imported_main_path_under_test.rs: left out: --test
 lint/dead-code/imported_main_renamed_from_mod_under_test.rs: left out: --test
 lint/expansion-time.rs: error: expanding `include!`: expected `;`, found `2` (expansion-time.rs:21:5)
 lint/expect-future_breakage-crash-issue-126521.rs: error: expanding `foo!`: expected the end of the input, found `;` (expect-future_breakage-crash-issue-126521.rs:19:13)
-lint/for-loops-over-fallibles/external-macro-issue-148114.rs: macro not found: do_loop!
-lint/forbid-macro-with-deny.rs#deny: macro not found: emit_deny!
-lint/forbid-macro-with-deny.rs#forbid: macro not found: emit_forbid!
+lint/forbid-macro-with-deny.rs#deny: error: expanding `emit_deny!`: expected the end of the input, found `;` (forbid-macro-with-deny.rs:31:5)
+lint/forbid-macro-with-deny.rs#forbid: error: expanding `emit_forbid!`: expected the end of the input, found `;` (forbid-macro-with-deny.rs:28:5)
 lint/function-item-references.rs: error: expanding `format_args_nl!`: expected `>`, found `)`
 lint/inert-attr-macro.rs: error: expanding `foo!`: expected an expression, found the end of the input (inert-attr-macro.rs:10:15)
 lint/lint-missing-doc-expect.rs#test_: left out: --test
 lint/lint-missing-doc-test.rs: left out: --test
-lint/non-local-defs/cargo-update.rs: macro not found: non_local_impl!
-lint/non-local-defs/macro_rules.rs: macro not found: non_local_macro_rules!
 lint/ptr_null_checks.rs: type check: a type left unknown
 lint/rfc-2383-lint-reason/expect_lint_from_macro.rs: error: expanding `trigger_unused_variables_macro!`: expected the end of the input, found `;` (expect_lint_from_macro.rs:27:5)
 lint/rfc-2383-lint-reason/expect_tool_lint_rfc_2383.rs: type check: a type left unknown
 lint/semicolon-in-expressions-from-macros/semicolon-in-expressions-from-macros.rs: error: expanding `foo!`: expected the end of the input, found `;` (semicolon-in-expressions-from-macros.rs:30:13)
-lint/trivial-cast-ice.rs: macro not found: foo!
 lint/unused-parens-pinned-reference-patterns.rs: error: expected `;`, found `const` (unused-parens-pinned-reference-patterns.rs:13:14)
 lint/unused/unused-variable-with-raw-identifier-in-struct-pattern.rs: type check: no such field in pattern
 lint/use-redundant/use-redundant-issue-78894.rs: import not resolved: : use bar (as bar)
-macros/cross-crate-pat-span.rs: macro not found: custom_matches!
-macros/dollar-crate-nested-encoding.rs: macro not found: exported!
+macros/dollar-crate-nested-encoding.rs: path not resolved: crate
 macros/expand-full-in-format-str.rs: type check: a type left unknown
-macros/expr_2021_implicit_in_2024.rs: macro not found: m!
 macros/issue-34171.rs: error: in `null!`: no rule of the macro matches this input (issue-34171.rs:5:20)
 macros/issue-69838-mods-relative-to-included-path.rs: error: no file for module `bar`: neither `/private/tmp/claude-502/-Users-amy-andy-thomason-epitome/d698d809-bf3b-400b-91f6-effe1b4b32f5/scratchpad/rust/tests/ui/macros/bar.rs` nor `/private/tmp/claude-502/-Users-amy-andy-thomason-epitome/d698d809-bf3b-400b-91f6-effe1b4b32f5/scratchpad/rust/tests/ui/macros/bar/mod.rs` (included.rs:3:9)
 macros/issue-95267.rs: error: in `f!`: no rule of the macro matches this input (issue-95267.rs:13:5)
@@ -279,8 +267,6 @@ privacy/issue-57264-2.rs: type check: method not found
 privacy/use-in-impl-scope-12729.rs: import not resolved: __ui_test_43::bar: use Foo (as Foo)
 proc-macro/allowed-attr-stmt-expr.rs: error: expanding `second_make_stmt!`: expected the end of the input, found `;` (allowed-attr-stmt-expr.rs:64:5)
 proc-macro/attributes-included.rs: error: proc macro `bar`: assertion `left == right` failed (attributes-included.rs:11:1)
-proc-macro/dollar-crate-issue-62325.rs: macro not found: issue_62325!
-proc-macro/dollar-crate.rs: macro not found: external!
 proc-macro/edition-imports-2018.rs: import not resolved: __ui_test_73::check: use import::Path (as Path)
 proc-macro/hygiene_example.rs: macro not found: hello!
 proc-macro/inert-attribute-order.rs: error: expanding `print_attr!`: expected an item, found `/` (inert-attribute-order.rs:13:1)
@@ -297,7 +283,6 @@ proc-macro/test.rs: error: proc macro `run`: assertion `left == right` failed (t
 reachable/unreachable-question-mark-forbid.rs: type check: a type left unknown
 regions/type-param-outlives-reempty-issue-74429-2.rs: type check: a type left unknown
 repeat-expr/copy-inference-side-effects.rs: type check: a type left unknown
-resolve/const-with-typo-in-pattern-binding-ice-135289.rs: macro not found: assert_matches!
 resolve/extern-prelude-speculative.rs: left out: flags that change the crate
 resolve/extern-prelude.rs: left out: flags that change the crate
 resolve/open-ns-5.rs: import not resolved: : use my_api::utils::utils_helper (as utils_helper)

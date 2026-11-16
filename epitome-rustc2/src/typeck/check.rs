@@ -2171,7 +2171,23 @@ impl<'a, 's> FnCtxt<'a, 's> {
         };
         let sig = match sig {
             Some(x) => Some(x),
-            None if self.infer.var_kind(s).is_none() => self.call_fn_traits(n, s, args.len()),
+            None if self.infer.var_kind(s).is_none() => self.call_fn_traits(n, s, args.len()).or_else(|| {
+                // Through `Deref` (`Box<dyn Fn()>`, `impl Deref<Target =
+                // fn()>`): the first type on the way that can be called.
+                let steps = self.autoderef(s);
+                steps.into_iter().skip(1).find_map(|(t, _)| {
+                    let t = self.norm(t);
+                    match tcx.kind(t) {
+                        TyKind::FnDef(d, l) => self.callable_sig(d, l),
+                        TyKind::FnPtr(sig) | TyKind::Closure(_, sig, _) => {
+                            let sig = tcx.sig_of(sig);
+                            Some((tcx.tys(sig.inputs), sig.output))
+                        }
+                        _ if self.infer.var_kind(t).is_none() => self.call_fn_traits(n, t, args.len()),
+                        _ => None,
+                    }
+                })
+            }),
             None => None,
         };
         match sig {

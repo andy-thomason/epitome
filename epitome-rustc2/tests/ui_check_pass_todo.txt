@@ -93,7 +93,6 @@ crate-loading/cross-compiled-proc-macro.rs: left out: proc-macro crates rustc ca
 delegation/body-identity-glob.rs: path not resolved: check
 delegation/body-identity-list.rs: path not resolved: check
 delegation/impl-reuse-pass.rs: path not resolved: F2
-deref/deref-to-dyn-fn-mut-callable.rs: type check: mismatched types
 derives/derive-renamed.rs: import not resolved: : use derive (as my_derive)
 editions/edition-imports-virtual-2015-ambiguity.rs: path not resolved: edition_imports_2015
 editions/edition-keywords-2018-2015-expansion.rs: error: expanding `produces_async!`: expected a name, found `async` (edition-keywords-2018-2015-expansion.rs:11:5)
@@ -134,8 +133,8 @@ impl-trait/nested-hkl-lifetime.rs: type check: a type left unknown
 impl-trait/non-defining-uses/ambiguous-ops.rs#next: type check: mismatched types
 impl-trait/non-defining-uses/deref-constrains-self-ty.rs#next: type check: method not found
 impl-trait/non-defining-uses/double-wrap-with-defining-use.rs#next: type check: mismatched types
-impl-trait/non-defining-uses/impl-deref-function-call.rs#current: type check: call of something that is not a function
-impl-trait/non-defining-uses/impl-deref-function-call.rs#next: type check: call of something that is not a function
+impl-trait/non-defining-uses/impl-deref-function-call.rs#current: type check: a type left unknown
+impl-trait/non-defining-uses/impl-deref-function-call.rs#next: type check: a type left unknown
 impl-trait/non-defining-uses/multiple-opaques-ok.rs: type check: mismatched types
 impl-trait/precise-capturing/external-macro.rs: path not resolved: element
 impl-trait/recursive-bound-eval.rs#current: type check: a type left unknown
@@ -232,7 +231,6 @@ rust-2018/suggestions-not-always-applicable.rs: import not resolved: __ui_test_4
 rust-2021/future-prelude-collision-turbofish.rs: type check: a type left unknown
 sanitizer/cfg.rs#leak: path not resolved: main
 sanitizer/cfg.rs#memory: path not resolved: main
-self/self-ctor-nongeneric.rs: path not resolved: Self
 single-use-lifetime/issue-104440.rs: type check: method not found
 single-use-lifetime/issue-117965.rs: type check: mismatched types
 sized/coinductive-1-gat.rs: type check: a type left unknown
@@ -242,7 +240,6 @@ str/str-escape.rs: type check: mismatched types
 trait-bounds/issue-94999.rs: type check: method not found
 traits/alias/empty.rs: path not resolved: Self
 traits/const-traits/conditionally-const-trait-bound-syntax.rs: path not resolved: Tr
-traits/const-traits/minicore-works.rs: type check: call of something that is not a function
 traits/issue-59029-2.rs: path not resolved: Self
 traits/issue-66768.rs: type check: method not found
 traits/issue-84399-bad-fresh-caching.rs: type check: method not found
@@ -273,7 +270,6 @@ traits/next-solver/rerun-if-any-opaque-or-has-infer-as-hidden-in-codegen.rs: typ
 traits/next-solver/supertrait-alias-4.rs: type check: a type left unknown
 traits/next-solver/typeck/resolve-before-checking-builtin-ptr.rs: type check: mismatched types
 traits/next-solver/typeck/structurally-resolve-in-probe_adt.rs: type check: a type left unknown
-traits/vtable/issue-91807.rs: type check: call of something that is not a function
 transmute/unnecessary-transmute-path-remap-ice-140277.rs: macro not found: transmute!
 try-block/try-block-heterogeneous.rs: error: expected an expression, found `try` (try-block-heterogeneous.rs:11:5)
 try-block/try-block-homogeneous.rs: type check: method not found

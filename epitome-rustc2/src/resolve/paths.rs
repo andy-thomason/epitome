@@ -494,7 +494,15 @@ impl<'w, 's> Walker<'w, 's> {
 
     /// An item: it starts with no locals in scope, and its own generics.
     fn item(&mut self, item: NodeId) {
+        // `Self` of an enclosing impl stays in scope (`fn bar() -> S {
+        // Self(0) }` inside a method), as rustc allows for one that is not
+        // generic; items with a `Self` of their own bind it again.
+        let outer_self = self.ribs.iter().rev().find_map(|r| r.types.iter().rev().find(|t| t.0 == "Self").cloned());
         let saved = std::mem::take(&mut self.ribs);
+        if let Some(s) = outer_self {
+            self.push();
+            self.rib().types.push(s);
+        }
         self.item_body(item);
         self.ribs = saved;
     }

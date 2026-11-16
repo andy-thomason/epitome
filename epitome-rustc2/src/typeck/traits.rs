@@ -1382,11 +1382,28 @@ impl<'a, 's> FnCtxt<'a, 's> {
                         inputs = Some(tcx.tys(l));
                     }
                 }
-                Pred::Projection(pt, a, _, ty) if Some(*a) == output && self.infer.shallow(*pt) == t => ret = Some(*ty),
+                // Not a projection on the closure's own type (`Fn0: Fn(i32)
+                // -> Self::Out`), whose value would need the closure's.
+                Pred::Projection(pt, a, _, ty)
+                    if Some(*a) == output && self.infer.shallow(*pt) == t && !self.projects_from(*ty, t) =>
+                {
+                    ret = Some(*ty)
+                }
                 _ => {}
             }
         }
         inputs.map(|i| (i, ret))
+    }
+
+    /// Whether `t` has a projection on `v` in it.
+    fn projects_from(&self, t: Ty, v: Ty) -> bool {
+        let tcx = self.tcx;
+        match tcx.kind(self.infer.shallow(t)) {
+            TyKind::Projection(_, l) => tcx.tys(l).first().is_some_and(|&s| self.mentions(s, v)),
+            TyKind::Adt(_, l) | TyKind::Tuple(l) => tcx.tys(l).into_iter().any(|x| self.projects_from(x, v)),
+            TyKind::Ref(_, x) | TyKind::Ptr(_, x) | TyKind::Slice(x) | TyKind::Array(x, _) => self.projects_from(x, v),
+            _ => false,
+        }
     }
 
     /// Whether type `t` has `v` (a variable) in it.

@@ -38,7 +38,8 @@
 //! Tests for other hosts (`ignore-*`, `only-*`) are not listed. The list
 //! is for one rust-lang/rust commit and one host, named on its first line.
 //!
-//! The test fails if a test not on the list fails, or one on it passes:
+//! The test fails if a test not on the list fails, one on it now crashes
+//! the compiler (where its reason was not a crash), or one on it passes:
 //! `EPITOME_UI_BLESS=1` writes the list again, so a change that fixes
 //! tests takes them off in the same commit. `EPITOME_UI_FILTER=substring`
 //! runs only the tests whose path has it in (`EPITOME_UI_FILTER=/ui/fmt/`).
@@ -46,7 +47,7 @@
 use epitome_rustc2::cfg::CfgSet;
 use epitome_rustc2::lexer::Edition;
 use epitome_rustc2::session::{CrateRoot, Options, Session};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -850,18 +851,24 @@ fn check_pass_tests_are_accepted() {
         return;
     }
     // Only the paths are compared: a test may fail for a new reason.
-    let listed: BTreeSet<&str> = list
+    let listed: BTreeMap<&str, &str> = list
         .lines()
         .filter(|l| !l.starts_with('#') && !l.is_empty())
-        .map(|l| l.split_once(": ").map_or(l, |x| x.0))
-        .filter(|p| ui.join(p).to_string_lossy().contains(&filter))
+        .map(|l| l.split_once(": ").unwrap_or((l, "")))
+        .filter(|(p, _)| ui.join(p).to_string_lossy().contains(&filter))
         .collect();
-    let now_fail: Vec<String> =
-        todo.iter().filter(|(p, _)| !listed.contains(p.as_str())).map(|(p, why)| format!("  {p}: {why}")).collect();
-    let now_pass: Vec<&str> = listed.iter().copied().filter(|p| !todo.contains_key(*p)).collect();
+    // Failing for a new reason is no change, but a crash (a panic, a stack
+    // overflow, a hang) where there was none is.
+    let crash = |why: &str| why.starts_with("crash") || why == "timed out";
+    let now_fail: Vec<String> = todo
+        .iter()
+        .filter(|(p, why)| listed.get(p.as_str()).is_none_or(|was| crash(why) && !crash(was)))
+        .map(|(p, why)| format!("  {p}: {why}"))
+        .collect();
+    let now_pass: Vec<&str> = listed.keys().copied().filter(|p| !todo.contains_key(*p)).collect();
     let mut problems = String::new();
     if !now_fail.is_empty() {
-        problems += &format!("{} tests that passed now fail:\n{}\n", now_fail.len(), now_fail.join("\n"));
+        problems += &format!("{} tests that passed now fail, or now crash:\n{}\n", now_fail.len(), now_fail.join("\n"));
     }
     if !now_pass.is_empty() {
         problems += &format!(

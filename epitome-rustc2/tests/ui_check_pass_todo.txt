@@ -50,8 +50,6 @@ attributes/z-crate-attr/cfg-false.rs: left out: flags that change the crate
 autodiff/flag_nott.rs: path not resolved: d_square
 borrowck/alias-liveness/escaping-bounds.rs: type check: a type left unknown
 borrowck/assign-never-type.rs: type check: a type left unknown
-borrowck/issue-103095.rs#current: crash: stack overflow
-borrowck/issue-103095.rs#next: crash: stack overflow
 borrowck/static-trait-bound-lost.rs: type check: a type left unknown
 cfg/raw-true-false.rs: error:  (raw-true-false.rs:6:5)
 check-cfg/compact-names.rs: error: unknown `cfg` operator `target` (compact-names.rs:9:7)
@@ -73,8 +71,6 @@ closures/issue-87814-1.rs: type check: a type left unknown
 closures/issue-87814-2.rs: type check: a type left unknown
 closures/self-supertrait-bounds.rs: type check: a type left unknown
 closures/supertrait-hint-cycle.rs: type check: a type left unknown
-closures/supertrait-hint-references-assoc-ty.rs#current: crash: stack overflow
-closures/supertrait-hint-references-assoc-ty.rs#next: crash: stack overflow
 coercion/cast-higher-ranked-unsafe-fn-ptr.rs: type check: mismatched types
 coercion/index-coercion-over-indexmut-72002.rs: type check: indexing something that does not implement `Index`
 coercion/issue-88097.rs#current: type check: mismatched types
@@ -288,8 +284,6 @@ traits/next-solver/overflow-discards-constraints.rs: type check: a type left unk
 traits/next-solver/overflow/fcw-on-normalization.rs#next: type check: method not found
 traits/next-solver/overflow/fcw-on-normalization.rs#old: type check: method not found
 traits/next-solver/rerun-if-any-opaque-or-has-infer-as-hidden-in-codegen.rs: type check: method not found
-traits/next-solver/self-referential-closure-sig-1.rs#next: crash: stack overflow
-traits/next-solver/self-referential-closure-sig-1.rs#old: crash: stack overflow
 traits/next-solver/supertrait-alias-4.rs: type check: a type left unknown
 traits/next-solver/typeck/resolve-before-checking-builtin-ptr.rs: type check: mismatched types
 traits/next-solver/typeck/structurally-resolve-in-probe_adt.rs: type check: a type left unknown

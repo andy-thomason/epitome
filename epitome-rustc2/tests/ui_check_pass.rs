@@ -18,6 +18,11 @@
 //! session's, so a test that defines them, or whose auxiliary crates do
 //! (`minicore`), runs in a session of its own.
 //!
+//! Proc-macro crates (`//@ proc-macro`, or an auxiliary crate of that
+//! type) are built by rustc, run as a program, and expanded through the
+//! toolchain's proc-macro server; `proc_macro` itself is loaded for the
+//! tests that name it.
+//!
 //! Flags that change the configuration (`--target`, `-C panic=abort`,
 //! `-Zsanitizer=...`) are given to `rustc --print cfg`, and the test's
 //! crates get what it prints: so tests for other targets run too.
@@ -29,7 +34,7 @@
 //! `tests/ui_check_pass_todo.txt` is the work left: every `check-pass`
 //! test that does not pass yet, with why. Those that fail say at which
 //! stage and the first error; those left out say what they need that the
-//! runner cannot give yet (proc-macro crates, `--extern`, `--test`).
+//! runner cannot give yet (`--extern`, `--test`).
 //! Tests for other hosts (`ignore-*`, `only-*`) are not listed. The list
 //! is for one rust-lang/rust commit and one host, named on its first line.
 //!
@@ -59,6 +64,8 @@ struct Test {
     cfg: Vec<String>,
     deps: Vec<String>,
     aux: Vec<Aux>,
+    /// The proc-macro crates it uses: names and libraries built by rustc.
+    pm: Vec<(String, PathBuf)>,
     /// It or one of its auxiliary crates defines lang items, which are
     /// the whole session's: it runs in a session of its own.
     alone: bool,
@@ -73,12 +80,15 @@ struct Aux {
     edition: Edition,
     cfg: Vec<String>,
     deps: Vec<String>,
+    /// The proc-macro crates it uses.
+    pm: Vec<(String, PathBuf)>,
     /// It defines lang items (`#![no_core]` crates such as `minicore`).
     lang: bool,
 }
 
-/// The crates every test and auxiliary crate may use.
-const STD: [&str; 3] = ["core", "alloc", "std"];
+/// The crates every test and auxiliary crate may use (and `proc_macro`,
+/// loaded only for tests that name it).
+const STD: [&str; 4] = ["core", "alloc", "std", "proc_macro"];
 
 /// How many tests a child process takes at a time.
 const BATCH: usize = 250;
@@ -164,20 +174,20 @@ fn select_one(path: &Path, name: String, directives: &[(&str, &str)], rev: Optio
     let mut edition = Edition::E2015;
     let mut cfg: Vec<String> = rev.map(str::to_string).into_iter().collect();
     // Auxiliary crates, as (name, file).
-    let mut aux_files: Vec<(String, String)> = Vec::new();
+    // Auxiliary crates: name, file, and whether `//@ proc-macro` made it one.
+    let mut aux_files: Vec<(String, String, bool)> = Vec::new();
     for &(name, value) in directives {
         match name {
-            "aux-build" | "aux-crate" => match aux_spec(name, value) {
-                Some(a) => aux_files.push(a),
+            "aux-build" | "aux-crate" | "proc-macro" => match aux_spec(name, value) {
+                Some((n, f)) => aux_files.push((n, f, name == "proc-macro")),
                 None => _ = left_out.get_or_insert("auxiliary crates"),
             },
             // `tests/auxiliary/minicore.rs`, a `core` of lang items.
             "add-minicore" => {
                 let tests = path.ancestors().find(|a| a.file_name().is_some_and(|n| n == "ui")).and_then(Path::parent);
                 let minicore = tests.map(|t| t.join("auxiliary/minicore.rs"));
-                aux_files.push(("minicore".into(), minicore.map_or(String::new(), |m| m.display().to_string())));
+                aux_files.push(("minicore".into(), minicore.map_or(String::new(), |m| m.display().to_string()), false));
             }
-            "proc-macro" => _ = left_out.get_or_insert("proc-macro crates"),
             "aux-bin" | "aux-codegen-backend" => _ = left_out.get_or_insert("auxiliary binaries"),
             "edition" => {
                 // `2021`, or a range `2018..` / `2015..2021`: its start.
@@ -248,20 +258,23 @@ fn select_one(path: &Path, name: String, directives: &[(&str, &str)], rev: Optio
     }
     let aux_dir = path.parent().unwrap().join("auxiliary");
     let mut aux = Vec::new();
-    if left_out.is_none()
-        && let Err(why) = aux_crates(&aux_dir, &aux_files, &base_cfg(rev, &cfg), &mut aux, 0)
-    {
-        left_out = Some(why);
+    let mut pm = Vec::new();
+    if left_out.is_none() {
+        match aux_crates(&aux_dir, &aux_files, &base_cfg(rev, &cfg), &mut aux, 0) {
+            Ok(p) => pm = p,
+            Err(why) => left_out = Some(why),
+        }
     }
     let what = if ignored {
         Selected::Ignored
     } else if let Some(why) = left_out {
         Selected::LeftOut(why)
     } else {
-        let deps = aux_files.into_iter().map(|a| a.0).collect();
+        let deps =
+            aux_files.into_iter().filter(|a| !pm.iter().any(|p: &(String, PathBuf)| p.0 == a.0)).map(|a| a.0).collect();
         let lang = std::fs::read_to_string(path).is_ok_and(|t| defines_lang_items(&t));
         let alone = lang || aux.iter().any(|a| a.lang);
-        Selected::Run(Test { rel: name.clone(), path: path.to_path_buf(), edition, cfg, deps, aux, alone })
+        Selected::Run(Test { rel: name.clone(), path: path.to_path_buf(), edition, cfg, deps, aux, pm, alone })
     };
     Some((name, what))
 }
@@ -313,27 +326,27 @@ fn aux_spec(directive: &str, value: &str) -> Option<(String, String)> {
 }
 
 /// Adds the auxiliary crates `files` (from `dir`) to `out`, with those
-/// they use in turn, each once. A crate name used for two different
-/// crates, or a proc-macro crate, leaves the test out.
+/// they use in turn, each once, and gives the proc-macro crates among
+/// `files`, built by rustc. A crate name used for two different crates
+/// leaves the test out.
 fn aux_crates(
     dir: &Path,
-    files: &[(String, String)],
+    files: &[(String, String, bool)],
     base: &[String],
     out: &mut Vec<Aux>,
     depth: usize,
-) -> Result<(), &'static str> {
+) -> Result<Vec<(String, PathBuf)>, &'static str> {
     if depth > 8 {
         return Err("auxiliary crates");
     }
-    for (name, file) in files {
+    let mut pm = Vec::new();
+    for (name, file, proc_macro) in files {
         let path = dir.join(file);
         let text = std::fs::read_to_string(&path).map_err(|_| "auxiliary crates")?;
-        if text.contains("crate_type = \"proc-macro\"") {
-            return Err("proc-macro crates");
-        }
         let mut edition = Edition::E2015;
         let mut cfg: Vec<String> = base.to_vec();
         let mut nested = Vec::new();
+        let mut is_pm = *proc_macro || text.contains("crate_type = \"proc-macro\"");
         for line in text.lines() {
             let Some(d) = line.trim_start().strip_prefix("//@") else { continue };
             let (n, v) = d.split_once(':').map_or((d.trim(), ""), |(n, v)| (n.trim(), v.trim()));
@@ -342,8 +355,10 @@ fn aux_crates(
                     let start: String = v.chars().take_while(char::is_ascii_digit).collect();
                     edition = Edition::parse(&start).ok_or("edition")?;
                 }
-                "aux-build" | "aux-crate" => nested.push(aux_spec(n, v).ok_or("auxiliary crates")?),
-                "proc-macro" => return Err("proc-macro crates"),
+                "aux-build" | "aux-crate" | "proc-macro" => {
+                    let (nn, nf) = aux_spec(n, v).ok_or("auxiliary crates")?;
+                    nested.push((nn, nf, n == "proc-macro"));
+                }
                 "compile-flags" => {
                     let mut flags = v.split_whitespace();
                     while let Some(f) = flags.next() {
@@ -356,23 +371,58 @@ fn aux_crates(
                         } else if let Some(e) = f.strip_prefix("--edition=") {
                             edition = Edition::parse(e).ok_or("edition")?;
                         } else if f.contains("proc-macro") {
-                            return Err("proc-macro crates");
+                            is_pm = true;
                         }
                     }
                 }
                 _ => {}
             }
         }
-        aux_crates(dir, &nested, base, out, depth + 1)?;
-        let deps = nested.into_iter().map(|n| n.0).collect();
-        let a = Aux { name: name.clone(), path, edition, cfg, deps, lang: defines_lang_items(&text) };
+        if is_pm {
+            // Built for the host by rustc, and run by its proc-macro server.
+            if !nested.is_empty() {
+                return Err("proc-macro crates with auxiliary crates");
+            }
+            pm.push((name.clone(), build_proc_macro(&path, name, edition)?));
+            continue;
+        }
+        let nested_pm = aux_crates(dir, &nested, base, out, depth + 1)?;
+        let deps = nested.into_iter().filter(|n| !nested_pm.iter().any(|p| p.0 == n.0)).map(|n| n.0).collect();
+        let a = Aux { name: name.clone(), path, edition, cfg, deps, pm: nested_pm, lang: defines_lang_items(&text) };
         match out.iter().find(|x| x.name == a.name) {
             Some(x) if *x != a => return Err("auxiliary crates with the same name"),
             Some(_) => {}
             None => out.push(a),
         }
     }
-    Ok(())
+    Ok(pm)
+}
+
+/// Builds the proc-macro crate at `path` with rustc (once each), for its
+/// server to load.
+fn build_proc_macro(path: &Path, name: &str, edition: Edition) -> Result<PathBuf, &'static str> {
+    static BUILT: std::sync::Mutex<BTreeMap<(PathBuf, &'static str), Option<PathBuf>>> =
+        std::sync::Mutex::new(BTreeMap::new());
+    let mut built = BUILT.lock().unwrap();
+    let n = built.len();
+    built
+        .entry((path.to_path_buf(), year(edition)))
+        .or_insert_with(|| {
+            let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("ui_proc_macros/{n}"));
+            std::fs::create_dir_all(&dir).ok()?;
+            let lib = dir.join(format!("lib{name}.{}", std::env::consts::DLL_EXTENSION));
+            let ok = Command::new("rustc")
+                .args(["--crate-type", "proc-macro", "--edition", year(edition), "--crate-name", name, "-o"])
+                .arg(&lib)
+                .arg(path)
+                .env("RUSTC_BOOTSTRAP", "1")
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|s| s.success());
+            ok.then_some(lib)
+        })
+        .clone()
+        .ok_or("proc-macro crates rustc cannot build")
 }
 
 /// Whether `ignore-x` / `only-x` names this host.
@@ -433,10 +483,20 @@ fn cfg_with(options: &[String]) -> Option<CfgSet> {
 }
 
 /// A crate that may use the standard crates and `deps`.
-fn crate_root(name: String, path: &Path, edition: Edition, cfg: &[String], deps: &[String]) -> CrateRoot {
+fn crate_root(
+    name: String,
+    path: &Path,
+    edition: Edition,
+    cfg: &[String],
+    deps: &[String],
+    pm: &[(String, PathBuf)],
+) -> CrateRoot {
     let mut all: Vec<String> = STD.map(String::from).to_vec();
     all.extend(deps.iter().cloned());
-    let root = CrateRoot::new(name, path).edition(edition).deps(all);
+    let mut root = CrateRoot::new(name, path).edition(edition).deps(all);
+    for (n, lib) in pm {
+        root = root.proc_macro(n.clone(), lib.clone());
+    }
     match cfg_with(cfg) {
         Some(c) => root.cfg(c),
         None => root,
@@ -454,7 +514,10 @@ fn names_core(text: &str) -> bool {
 /// The tests' auxiliary crates are loaded once each, by name (the batch
 /// has no two different crates of one name).
 fn run(library: &Path, tests: &[&Test]) -> Vec<Option<String>> {
-    let session = Session::new(Options { cfg: Some(CfgSet::host()), ..Default::default() });
+    // The toolchain's proc-macro server, if any crate uses proc macros.
+    let uses_pm = tests.iter().any(|t| !t.pm.is_empty() || t.aux.iter().any(|a| !a.pm.is_empty()));
+    let server = if uses_pm { epitome_rustc2::proc_macro::Server::from_rustc() } else { None };
+    let session = Session::new(Options { cfg: Some(CfgSet::host()), proc_macro_server: server, ..Default::default() });
     // Tests whose crates are all `#![no_core]` (over `minicore`) need no
     // standard library, which is most of a session's work: unless they
     // name `core` or derive (which writes `::core` paths), as rustc finds
@@ -463,7 +526,13 @@ fn run(library: &Path, tests: &[&Test]) -> Vec<Option<String>> {
         std::fs::read_to_string(p).is_ok_and(|t| t.contains("#![no_core]") && !names_core(&t) && !t.contains("derive"))
     };
     let standalone = tests.iter().all(|t| no_core(&t.path) && t.aux.iter().all(|a| no_core(&a.path)));
-    let std_crates: &[&str] = if standalone { &[] } else { &STD };
+    let mut std_crates: Vec<&str> = if standalone { Vec::new() } else { STD[..3].to_vec() };
+    // `proc_macro` too, from the sysroot as rustc finds it, if a test or
+    // auxiliary crate names it.
+    let names_pm = |p: &Path| std::fs::read_to_string(p).is_ok_and(|t| t.contains("proc_macro"));
+    if !standalone && tests.iter().any(|t| names_pm(&t.path) || t.aux.iter().any(|a| names_pm(&a.path))) {
+        std_crates.push("proc_macro");
+    }
     let mut roots: Vec<CrateRoot> = std_crates
         .iter()
         .map(|n| CrateRoot::new(*n, library.join(n).join("src/lib.rs")).edition(Edition::E2024))
@@ -472,7 +541,7 @@ fn run(library: &Path, tests: &[&Test]) -> Vec<Option<String>> {
     for a in tests.iter().flat_map(|t| &t.aux) {
         if !aux_index.contains_key(a.name.as_str()) {
             aux_index.insert(&a.name, roots.len());
-            roots.push(crate_root(a.name.clone(), &a.path, a.edition, &a.cfg, &a.deps));
+            roots.push(crate_root(a.name.clone(), &a.path, a.edition, &a.cfg, &a.deps, &a.pm));
         }
     }
     let first = roots.len();
@@ -482,7 +551,7 @@ fn run(library: &Path, tests: &[&Test]) -> Vec<Option<String>> {
         tests
             .iter()
             .enumerate()
-            .map(|(i, t)| crate_root(format!("__ui_test_{i}"), &t.path, t.edition, &t.cfg, &t.deps)),
+            .map(|(i, t)| crate_root(format!("__ui_test_{i}"), &t.path, t.edition, &t.cfg, &t.deps, &t.pm)),
     );
     let mut crates = session.parse_crates(roots);
     let expanded = session.expand(&mut crates);
@@ -544,9 +613,14 @@ fn run_isolated(library: &Path, tests: &[&Test], out: &mut Vec<Option<String>>) 
         let line = |kind: &str, name: &str, e: Edition, path: &Path, cfg: &[String], deps: &[String]| {
             format!("{kind}\t{name}\t{}\t{}\t{}\t{}\n", year(e), path.display(), cfg.join("\x1f"), deps.join("\x1f"))
         };
+        // A proc-macro crate (`M name lib`) belongs to the line before.
+        let macros =
+            |pm: &[(String, PathBuf)]| pm.iter().map(|(n, l)| format!("M\t{n}\t{}\n", l.display())).collect::<String>();
         list += &line("T", &t.rel, t.edition, &t.path, &t.cfg, &t.deps);
+        list += &macros(&t.pm);
         for a in &t.aux {
             list += &line("A", &a.name, a.edition, &a.path, &a.cfg, &a.deps);
+            list += &macros(&a.pm);
         }
     }
     std::fs::write(&batch, list).unwrap();
@@ -617,13 +691,22 @@ fn child(batch: &Path) {
     let mut tests: Vec<Test> = Vec::new();
     for l in std::fs::read_to_string(batch).unwrap().lines() {
         let f: Vec<&str> = l.split('\t').collect();
+        if f[0] == "M" {
+            let t = tests.last_mut().unwrap();
+            let pm = (f[1].to_string(), PathBuf::from(f[2]));
+            match t.aux.last_mut() {
+                Some(a) => a.pm.push(pm),
+                None => t.pm.push(pm),
+            }
+            continue;
+        }
         let list = |x: &str| x.split('\x1f').filter(|c| !c.is_empty()).map(str::to_string).collect::<Vec<_>>();
         let (name, edition, path) = (f[1].to_string(), Edition::parse(f[2]).unwrap(), PathBuf::from(f[3]));
         if f[0] == "T" {
-            let t = Test { rel: name, path, edition, cfg: list(f[4]), deps: list(f[5]), aux: Vec::new(), alone: false };
-            tests.push(t);
+            let (cfg, deps) = (list(f[4]), list(f[5]));
+            tests.push(Test { rel: name, path, edition, cfg, deps, aux: Vec::new(), pm: Vec::new(), alone: false });
         } else {
-            let a = Aux { name, path, edition, cfg: list(f[4]), deps: list(f[5]), lang: false };
+            let a = Aux { name, path, edition, cfg: list(f[4]), deps: list(f[5]), pm: Vec::new(), lang: false };
             tests.last_mut().unwrap().aux.push(a);
         }
     }

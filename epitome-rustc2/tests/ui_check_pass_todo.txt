@@ -50,9 +50,7 @@ async-await/higher-ranked-auto-trait-15.rs#assumptions: type check: a type left 
 async-await/issue-105501.rs: type check: method not found
 attributes/dont-dup-expr-attrs.rs: error: expanding `m2!`: expected `;`, found `}` (dont-dup-expr-attrs.rs:32:9)
 attributes/duplicated-attributes.rs: left out: --test
-attributes/helper-attr-interpolated-non-lit-arg.rs: left out: proc-macro crates
 attributes/path-inline-module.rs: error: cannot read `/private/tmp/claude-502/-Users-amy-andy-thomason-epitome/d698d809-bf3b-400b-91f6-effe1b4b32f5/scratchpad/rust/tests/ui/attributes/inline_with_inner_path/foo.rs`: No such file or directory (os error 2) (path-inline-module.rs:19:9)
-attributes/use-extern-crate-named-macro-use.rs: left out: proc-macro crates
 attributes/z-crate-attr/cfg-false.rs: left out: flags that change the crate
 attributes/z-crate-attr/comments.rs: left out: flags that change the crate
 attributes/z-crate-attr/crate-name.rs: left out: flags that change the crate
@@ -147,12 +145,8 @@ delegation/macro-inside-list.rs: error: expected an item, found `reuse` (macro-i
 delegation/parse.rs: error: expected an item, found `reuse` (parse.rs:38:5)
 delegation/rename.rs: error: expected an item, found `reuse` (rename.rs:10:1)
 deref/deref-to-dyn-fn-mut-callable.rs: type check: mismatched types
-derives/coercepointee/built-in-proc-macro-scope.rs: left out: proc-macro crates
-derives/coercepointee/proc-macro-attribute-mixing.rs: left out: proc-macro crates
 derives/derive-macro-const-default.rs: type check: method not found
-derives/derive-marker-tricky.rs: left out: proc-macro crates
 derives/derive-renamed.rs: import not resolved: : use derive (as my_derive)
-diagnostic_namespace/existing_proc_macros.rs: left out: proc-macro crates
 editions/edition-imports-virtual-2015-ambiguity.rs: left out: flags that change the crate
 editions/edition-keywords-2018-2015-expansion.rs: error: expanding `produces_async!`: expected a name, found `async` (edition-keywords-2018-2015-expansion.rs:11:5)
 editions/nested-macro-rules-edition.rs#e2024: macro not found: macro_inner!
@@ -160,10 +154,7 @@ ergonomic-clones/async/basic.rs: error: expected `|`, found `{` (basic.rs:12:15)
 extern-flag/noprelude-and-prelude.rs: left out: flags that change the crate
 extern/extern-types-inherent-impl.rs: type check: associated item of something that is not a type
 feature-gates/feature-gate-explicit-extern-abis.rs#future: left out: edition
-fmt/format-args-capture-issue-106408.rs: left out: proc-macro crates
-fmt/indoc-issue-106408.rs: left out: proc-macro crates
 fn/fn_def_opaque_coercion.rs: type check: mismatched types
-frontmatter/location-proc-macro-observer.rs: left out: proc-macro crates
 generic-associated-types/issue-87750.rs: type check: a type left unknown
 generic-associated-types/issue-89008.rs: type check: a type left unknown
 generic-associated-types/issue-93874.rs: type check: call of something that is not a function
@@ -210,7 +201,7 @@ impl-trait/non-defining-uses/double-wrap-with-defining-use.rs#next: type check: 
 impl-trait/non-defining-uses/impl-deref-function-call.rs#current: type check: call of something that is not a function
 impl-trait/non-defining-uses/impl-deref-function-call.rs#next: type check: call of something that is not a function
 impl-trait/non-defining-uses/multiple-opaques-ok.rs: type check: mismatched types
-impl-trait/precise-capturing/external-macro.rs: left out: proc-macro crates
+impl-trait/precise-capturing/external-macro.rs: macro not found: macro_rpit!
 impl-trait/recursive-bound-eval.rs#current: type check: a type left unknown
 impl-trait/recursive-bound-eval.rs#next: type check: a type left unknown
 impl-trait/trait_resolution.rs: type check: a type left unknown
@@ -219,27 +210,20 @@ implied-bounds/dyn-erasure-tait.rs: path not resolved: dyn
 implied-bounds/implied-bounds-on-nested-references-plus-variance-2.rs: type check: a type left unknown
 imports/ambiguous-glob-vs-expanded-extern.rs: macro not found: mac!
 imports/ambiguous-import-visibility-globglob-priv-pass.rs: import not resolved: : use crate::one_private::S (as S)
-imports/ambiguous-import-visibility-macro.rs: left out: proc-macro crates
-imports/ambiguous-import-visibility.rs: left out: proc-macro crates
-imports/dummy-import-ice.rs: left out: proc-macro crates
 imports/extern-prelude-extern-crate-pass.rs: macro not found: m!
 imports/extern-prelude-extern-crate-shadowing.rs: macro not found: m!
 imports/overwrite-different-vis-2.rs: path not resolved: f
 imports/redundant-import-undetected-macro-use-prelude.rs: import not resolved: : use two_macros::n (as n)
 imports/remove-unused-private-import-errors.rs#keep: type check: associated item of something that is not a type
-imports/same-res-ambigious.rs#fail: left out: proc-macro crates
-imports/same-res-ambigious.rs#pass: left out: proc-macro crates
-imports/underscore-imports/duplicate.rs: left out: proc-macro crates
 inference/inference-thread-loop-closure.rs: type check: a type left unknown
 inference/inference-variable-behind-raw-pointer.rs: type check: a type left unknown
 inference/iter-ufcs-coercion-type-unification.rs: type check: a type left unknown
 iterators/into-iter-on-boxed-slices-2021.rs: type check: a type left unknown
-keyword/soup.rs: import not resolved: __ui_test_147::x: use Ok (as Ok)
+keyword/soup.rs: import not resolved: __ui_test_59::x: use Ok (as Ok)
 lazy-type-alias-impl-trait/freeze_cycle.rs: type check: a type left unknown
 lazy-type-alias-impl-trait/recursion2.rs: type check: mismatched types
 lexer/ident_normalization.rs: path not resolved: K
 lifetimes/raw/three-tokens.rs: error: expanding `check!`: expected `;`, found the end of the input (three-tokens.rs:14:1)
-lint/dead-code/allow-derived-inherent-impl-issue-102190.rs: left out: proc-macro crates
 lint/dead-code/imported_main_dead_code_under_test.rs: left out: --test
 lint/dead-code/imported_main_glob_under_test.rs: left out: --test
 lint/dead-code/imported_main_path_under_test.rs: left out: --test
@@ -262,14 +246,10 @@ lint/rfc-2383-lint-reason/expect_lint_from_macro.rs: error: expanding `trigger_u
 lint/rfc-2383-lint-reason/expect_tool_lint_rfc_2383.rs: type check: a type left unknown
 lint/semicolon-in-expressions-from-macros/semicolon-in-expressions-from-macros.rs: error: expanding `foo!`: expected the end of the input, found `;` (semicolon-in-expressions-from-macros.rs:30:13)
 lint/trivial-cast-ice.rs: macro not found: foo!
-lint/unsafe_code/forge_unsafe_block.rs: left out: proc-macro crates
 lint/unused-parens-pinned-reference-patterns.rs: error: expected `;`, found `const` (unused-parens-pinned-reference-patterns.rs:13:14)
 lint/unused/diverging-path.rs: path not resolved: dyn
-lint/unused/unused-parens-trait-obj-proc-macro-144378.rs: left out: proc-macro crates
 lint/unused/unused-variable-with-raw-identifier-in-struct-pattern.rs: type check: no such field in pattern
-lint/unused/unused_assignment.rs: left out: proc-macro crates
 lint/use-redundant/use-redundant-issue-78894.rs: import not resolved: : use bar (as bar)
-liveness/unused-assignments-from-macro-147648.rs: left out: proc-macro crates
 macros/cross-crate-pat-span.rs: macro not found: custom_matches!
 macros/dollar-crate-nested-encoding.rs: macro not found: exported!
 macros/expand-full-in-format-str.rs: type check: a type left unknown
@@ -319,91 +299,23 @@ pin-ergonomics/reborrow-self.rs: type check: method not found
 pin-ergonomics/user-type-projection.rs: error: expected `;`, found `const` (user-type-projection.rs:18:14)
 privacy/issue-57264-2.rs: type check: method not found
 privacy/use-in-impl-scope-12729.rs: import not resolved: __ui_test_43::bar: use Foo (as Foo)
-proc-macro/allowed-attr-stmt-expr.rs: left out: proc-macro crates
-proc-macro/allowed-signatures.rs: import not resolved: : use proc_macro::TokenStream (as TokenStream)
-proc-macro/attr-complex-fn.rs: left out: proc-macro crates
-proc-macro/attribute-after-derive.rs: left out: proc-macro crates
-proc-macro/attributes-included.rs: left out: proc-macro crates
-proc-macro/attributes-on-definitions.rs: left out: proc-macro crates
-proc-macro/attributes-on-modules.rs: left out: proc-macro crates
-proc-macro/call-deprecated.rs: left out: proc-macro crates
-proc-macro/call-site.rs: left out: proc-macro crates
-proc-macro/capture-macro-rules-invoke.rs: left out: proc-macro crates
-proc-macro/capture-unglued-token.rs: left out: proc-macro crates
-proc-macro/cfg-attr-trace.rs: left out: proc-macro crates
-proc-macro/cfg-eval-inner.rs: left out: proc-macro crates
-proc-macro/cfg-eval.rs: left out: proc-macro crates
-proc-macro/closure-hir-span.rs: left out: proc-macro crates
-proc-macro/crate-attrs-multiple.rs: left out: proc-macro crates
-proc-macro/derive-cfg-nested-tokens.rs: left out: proc-macro crates
-proc-macro/derive-helper-configured.rs: left out: proc-macro crates
-proc-macro/derive-helper-shadowed.rs: left out: proc-macro crates
-proc-macro/derive-helper-shadowing-2.rs: left out: proc-macro crates
-proc-macro/derive-helper-vs-legacy.rs: left out: proc-macro crates
-proc-macro/derive-in-mod.rs: left out: proc-macro crates
-proc-macro/doc-comment-preserved.rs: left out: proc-macro crates
-proc-macro/dollar-crate-issue-101211.rs: left out: proc-macro crates
-proc-macro/dollar-crate-issue-57089.rs: left out: proc-macro crates
-proc-macro/dollar-crate-issue-62325.rs: left out: proc-macro crates
-proc-macro/dollar-crate.rs: left out: proc-macro crates
-proc-macro/edition-imports-2018.rs: left out: proc-macro crates
-proc-macro/expand-to-derive.rs: left out: proc-macro crates
-proc-macro/expr-stmt-nonterminal-tokens.rs: left out: proc-macro crates
-proc-macro/extern-prelude-extern-crate-proc-macro.rs: import not resolved: : use proc_macro::TokenStream (as TokenStream)
-proc-macro/gen-macro-rules.rs: left out: proc-macro crates
-proc-macro/generate-dollar-ident.rs: left out: proc-macro crates
-proc-macro/helper-attr-blocked-by-import.rs: left out: proc-macro crates
-proc-macro/helper-attr-builtin-derive.rs: left out: proc-macro crates
-proc-macro/helper-attr-compat-collision.rs: left out: proc-macro crates
-proc-macro/hygiene_example.rs: left out: proc-macro crates
-proc-macro/identity-closure-preserving.rs: left out: proc-macro crates
-proc-macro/inert-attribute-order.rs: left out: proc-macro crates
-proc-macro/inner-attr-file-mod-cfg-attr.rs: left out: proc-macro crates
-proc-macro/input-interpolated.rs: left out: proc-macro crates
-proc-macro/invalid-punct-ident-4.rs: left out: proc-macro crates
-proc-macro/issue-53481.rs: left out: proc-macro crates
-proc-macro/issue-73933-procedural-masquerade.rs: left out: proc-macro crates
-proc-macro/issue-75734-pp-paren.rs: left out: proc-macro crates
-proc-macro/issue-75930-derive-cfg.rs: left out: proc-macro crates
-proc-macro/issue-76182-leading-vert-pat.rs: left out: proc-macro crates
-proc-macro/issue-78675-captured-inner-attrs.rs: left out: proc-macro crates
-proc-macro/issue-79242-slow-retokenize-check.rs: left out: proc-macro crates
-proc-macro/issue-79825.rs: left out: proc-macro crates
-proc-macro/issue-80760-empty-stmt.rs: left out: proc-macro crates
-proc-macro/issue-81007-item-attrs.rs: left out: proc-macro crates
-proc-macro/issue-81555.rs: left out: proc-macro crates
-proc-macro/literal-to-string.rs: left out: proc-macro crates
-proc-macro/macro-crate-multi-decorator.rs: left out: proc-macro crates
-proc-macro/macro-rules-derive-cfg-nested.rs: left out: proc-macro crates
-proc-macro/macro-rules-derive-cfg.rs: left out: proc-macro crates
-proc-macro/macro-use-attr.rs: left out: proc-macro crates
-proc-macro/macro-use-bang.rs: left out: proc-macro crates
-proc-macro/macro_rules_edition_from_pm.rs#edition2021: left out: proc-macro crates
-proc-macro/macro_rules_edition_from_pm.rs#edition2024: left out: proc-macro crates
-proc-macro/macros-in-type.rs: left out: proc-macro crates
-proc-macro/meta-macro-hygiene.rs: left out: proc-macro crates
-proc-macro/modules-in-input.rs: left out: proc-macro crates
-proc-macro/nested-derive-cfg.rs: left out: proc-macro crates
-proc-macro/nested-empty-proc-macro.rs: left out: proc-macro crates
-proc-macro/nested-nonterminal-tokens.rs: left out: proc-macro crates
-proc-macro/no-macro-use-attr.rs: left out: proc-macro crates
-proc-macro/nonterminal-expansion.rs: left out: proc-macro crates
-proc-macro/nonterminal-recollect-attr.rs: left out: proc-macro crates
-proc-macro/nonterminal-token-hygiene.rs: left out: proc-macro crates
-proc-macro/out-of-line-mod.rs: left out: proc-macro crates
+proc-macro/allowed-attr-stmt-expr.rs: error: expanding `second_make_stmt!`: expected the end of the input, found `;` (allowed-attr-stmt-expr.rs:64:5)
+proc-macro/attributes-included.rs: error: proc macro `bar`: assertion `left == right` failed (attributes-included.rs:11:1)
+proc-macro/dollar-crate-issue-62325.rs: macro not found: issue_62325!
+proc-macro/dollar-crate.rs: macro not found: external!
+proc-macro/edition-imports-2018.rs: import not resolved: __ui_test_73::check: use import::Path (as Path)
+proc-macro/hygiene_example.rs: macro not found: hello!
+proc-macro/inert-attribute-order.rs: error: expanding `print_attr!`: expected an item, found `/` (inert-attribute-order.rs:13:1)
+proc-macro/invalid-punct-ident-4.rs: error: proc macro `lexer_failure`: assertion `left == right` failed (invalid-punct-ident-4.rs:7:1)
+proc-macro/issue-79825.rs: error: proc macro `assert_input`: assertion `left == right` failed (issue-79825.rs:7:1)
+proc-macro/issue-80760-empty-stmt.rs: error: in `empty_stmt!`: no rule of the macro matches this input (issue-80760-empty-stmt.rs:25:5)
+proc-macro/meta-macro-hygiene.rs: left out: proc-macro crates rustc cannot build
+proc-macro/modules-in-input.rs: error: proc macro `expect_mod_item`: assertion `left == right` failed (modules-in-input.rs:10:1)
 proc-macro/panic-abort.rs: left out: proc-macro crate
-proc-macro/parse-invis-delim-issue-128895.rs: left out: proc-macro crates
-proc-macro/pretty-print-tts.rs: left out: proc-macro crates
-proc-macro/proc-macro-decls.rs: import not resolved: : use proc_macro::TokenStream (as TokenStream)
-proc-macro/proc-macro-deprecated-attr.rs: import not resolved: : use proc_macro *
-proc-macro/quote/debug.rs: macro not found: quote!
-proc-macro/test-count-attributes.rs: left out: proc-macro crates
+proc-macro/test-count-attributes.rs: left out: --test
 proc-macro/test-followed-by-attr-macros.rs: left out: --test
-proc-macro/test-re-emit.rs: left out: proc-macro crates
-proc-macro/test.rs: left out: proc-macro crates
-proc-macro/trailing-plus.rs: left out: proc-macro crates
-proc-macro/trait-fn-args-2015.rs: left out: proc-macro crates
-proc-macro/weird-braces.rs: left out: proc-macro crates
+proc-macro/test-re-emit.rs: left out: --test
+proc-macro/test.rs: error: proc macro `run`: assertion `left == right` failed (test.rs:14:1)
 reachable/never-assign-dead-code.rs: type check: a type left unknown
 reachable/never-pattern-closure-param-array.rs: type check: a type left unknown
 reachable/unreachable-question-mark-forbid.rs: type check: a type left unknown
@@ -411,8 +323,6 @@ regions/type-param-outlives-reempty-issue-74429-2.rs: type check: a type left un
 repeat-expr/can-have-side-effects-consider-element.rs: type check: a type left unknown
 repeat-expr/copy-inference-side-effects.rs: type check: a type left unknown
 resolve/const-with-typo-in-pattern-binding-ice-135289.rs: macro not found: assert_matches!
-resolve/derive-macro-1.rs: left out: proc-macro crates
-resolve/derive-macro-2.rs: left out: proc-macro crates
 resolve/extern-prelude-speculative.rs: left out: flags that change the crate
 resolve/extern-prelude.rs: left out: flags that change the crate
 resolve/open-ns-5.rs: import not resolved: : use my_api::utils::utils_helper (as utils_helper)
@@ -420,18 +330,14 @@ resolve/open-ns-6.rs: import not resolved: : use my_api (as my_api)
 rfcs/rfc-0000-never_patterns/typeck.rs#pass: type check: a type left unknown
 rfcs/rfc-2361-dbg-macro/dbg-macro-ref-impl.rs: path not resolved: dyn
 rfcs/rfc-2457-non-ascii-idents/idents-normalized.rs: error: unexpected character '\u{301}' (idents-normalized.rs:6:15)
-rfcs/rfc-2565-param-attrs/issue-64682-dropping-first-attrs-in-impl-fns.rs: left out: proc-macro crates
+rfcs/rfc-2565-param-attrs/issue-64682-dropping-first-attrs-in-impl-fns.rs: error: proc macro `rename_params`: assertion `left == right` failed (issue-64682-dropping-first-attrs-in-impl-fns.rs:9:1)
 rfcs/rfc-2565-param-attrs/param-attrs-allowed.rs: type check: a type left unknown
-rfcs/rfc-2565-param-attrs/param-attrs-pretty.rs: left out: proc-macro crates
-rfcs/rfc-3348-c-string-literals/edition-spans.rs: left out: proc-macro crates
+rfcs/rfc-2565-param-attrs/param-attrs-pretty.rs: error: proc macro `attr_extern`: assertion `left == right` failed (param-attrs-pretty.rs:15:1)
 rfcs/rfc-3348-c-string-literals/pre-2021-lexing.rs: error: in `parse!`: no rule of the macro matches this input (pre-2021-lexing.rs:26:27)
 rust-2018/remove-extern-crate.rs: left out: flags that change the crate
-rust-2018/suggestions-not-always-applicable.rs: left out: proc-macro crates
+rust-2018/suggestions-not-always-applicable.rs: import not resolved: __ui_test_34::test: use crate::foo::foo (as foo)
 rust-2018/uniform-paths/issue-56596-2.rs: left out: flags that change the crate
 rust-2021/future-prelude-collision-turbofish.rs: type check: a type left unknown
-rust-2024/unsafe-attributes/safe-proc-macro-attribute.rs#proc_macro_attr: left out: proc-macro crates
-rust-2024/unsafe-attributes/unsafe-attributes-from-pm.rs#edition2021: left out: proc-macro crates
-rust-2024/unsafe-attributes/unsafe-attributes-from-pm.rs#edition2024: left out: proc-macro crates
 sanitizer/cfg.rs#leak: path not resolved: main
 sanitizer/cfg.rs#memory: path not resolved: main
 self/self-ctor-nongeneric.rs: path not resolved: Self

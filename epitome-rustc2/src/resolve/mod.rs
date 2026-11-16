@@ -172,6 +172,9 @@ pub struct Resolver<'s> {
     pub crate_names: Vec<String>,
     /// The crates each crate may name (`CrateRoot::deps`); all if `None`.
     pub crate_deps: Vec<Option<Vec<String>>>,
+    /// The names of each crate's proc-macro libraries
+    /// (`CrateRoot::proc_macro`), which are not crates of the session.
+    pub crate_proc_macros: Vec<Vec<String>>,
     pub editions: Vec<Edition>,
     /// Each crate's std prelude module, if it has one.
     pub preludes: Vec<Option<ModId>>,

@@ -57,7 +57,6 @@ attributes/z-crate-attr/crate-name.rs: left out: flags that change the crate
 attributes/z-crate-attr/crate-type.rs: left out: flags that change the crate
 attributes/z-crate-attr/shebang.rs: left out: flags that change the crate
 autodiff/flag_nott.rs: path not resolved: d_square
-autodiff/macro_hygiene.rs: path not resolved: dyn
 borrowck/alias-liveness/escaping-bounds.rs: type check: a type left unknown
 borrowck/assign-never-type.rs: type check: a type left unknown
 borrowck/issue-103095.rs#current: type check: a type left unknown
@@ -103,14 +102,11 @@ const-generics/associated-const-bindings/equality_bound_with_infer.rs: type chec
 const-generics/generic_const_exprs/cross-crate-2.rs: type check: a type left unknown
 const-generics/generic_const_exprs/issue-80561-incorrect-param-env.rs: type check: a type left unknown
 const-generics/generic_const_exprs/poly-const-uneval-ice-106423.rs: type check: a type left unknown
-const-generics/generic_const_parameter_types/inherent-type-const.rs#next: macro not found: direct_const_arg!
-const-generics/generic_const_parameter_types/inherent-type-const.rs#old: macro not found: direct_const_arg!
 const-generics/infer_arr_len_from_pat.rs: type check: a type left unknown
 const-generics/issues/issue-85031-2.rs: type check: a type left unknown
 const-generics/mgca/adt_expr_infers_from_value.rs: type check: a type left unknown
 const-generics/mgca/infer-vars-in-const-args-correct.rs: type check: a type left unknown
-const-generics/mgca/paren.rs: macro not found: direct_const_arg!
-const-generics/mgca/tuple_expr_arg_simple.rs: macro not found: direct_const_arg!
+const-generics/mgca/paren.rs: error: expanding `direct_const_arg!`: expected a type, found `{` (paren.rs:24:18)
 const-generics/trait-const-args.rs: type check: a type left unknown
 const-generics/where-clauses.rs: type check: a type left unknown
 consts/issue-104396.rs: type check: a type left unknown
@@ -201,8 +197,6 @@ impl-trait/precise-capturing/external-macro.rs: macro not found: macro_rpit!
 impl-trait/recursive-bound-eval.rs#current: type check: a type left unknown
 impl-trait/recursive-bound-eval.rs#next: type check: a type left unknown
 impl-trait/trait_resolution.rs: type check: a type left unknown
-implied-bounds/dyn-erasure-no-tait.rs: path not resolved: dyn
-implied-bounds/dyn-erasure-tait.rs: path not resolved: dyn
 implied-bounds/implied-bounds-on-nested-references-plus-variance-2.rs: type check: a type left unknown
 imports/ambiguous-glob-vs-expanded-extern.rs: macro not found: mac!
 imports/ambiguous-import-visibility-globglob-priv-pass.rs: import not resolved: : use crate::one_private::S (as S)
@@ -239,7 +233,6 @@ lint/rfc-2383-lint-reason/expect_tool_lint_rfc_2383.rs: type check: a type left 
 lint/semicolon-in-expressions-from-macros/semicolon-in-expressions-from-macros.rs: error: expanding `foo!`: expected the end of the input, found `;` (semicolon-in-expressions-from-macros.rs:30:13)
 lint/trivial-cast-ice.rs: macro not found: foo!
 lint/unused-parens-pinned-reference-patterns.rs: error: expected `;`, found `const` (unused-parens-pinned-reference-patterns.rs:13:14)
-lint/unused/diverging-path.rs: path not resolved: dyn
 lint/unused/unused-variable-with-raw-identifier-in-struct-pattern.rs: type check: no such field in pattern
 lint/use-redundant/use-redundant-issue-78894.rs: import not resolved: : use bar (as bar)
 macros/cross-crate-pat-span.rs: macro not found: custom_matches!
@@ -249,7 +242,6 @@ macros/expr_2021_implicit_in_2024.rs: macro not found: m!
 macros/issue-34171.rs: error: in `null!`: no rule of the macro matches this input (issue-34171.rs:5:20)
 macros/issue-69838-mods-relative-to-included-path.rs: error: no file for module `bar`: neither `/private/tmp/claude-502/-Users-amy-andy-thomason-epitome/d698d809-bf3b-400b-91f6-effe1b4b32f5/scratchpad/rust/tests/ui/macros/bar.rs` nor `/private/tmp/claude-502/-Users-amy-andy-thomason-epitome/d698d809-bf3b-400b-91f6-effe1b4b32f5/scratchpad/rust/tests/ui/macros/bar/mod.rs` (included.rs:3:9)
 macros/issue-95267.rs: error: in `f!`: no rule of the macro matches this input (issue-95267.rs:13:5)
-macros/macro-expansion-empty-span-147408.rs: path not resolved: dyn
 macros/parse-test.rs: left out: --test
 match/enum-and-break-in-match-issue-41213.rs: type check: mismatched types
 match/postfix-match/no-unused-parens.rs: error: expected a field or method name, found `match` (no-unused-parens.rs:6:10)
@@ -265,7 +257,6 @@ nll/coroutine-distinct-lifetime.rs: type check: unsupported expression
 nll/extra-unused-mut.rs: type check: unsupported expression
 nll/issue-21114-kixunil.rs: type check: a type left unknown
 nll/issue-63154-normalize.rs: type check: a type left unknown
-nll/polonius/nll-legacy-unnecessary-error.rs#polonius: path not resolved: dyn
 nll/polonius/nll-problem-case-3-issue-124254.rs#legacy: type check: mismatched types
 nll/polonius/nll-problem-case-3-issue-124254.rs#polonius: type check: mismatched types
 nll/polonius/nll-problem-case-3-issue-21906.rs#legacy: type check: mismatched types
@@ -312,7 +303,6 @@ resolve/extern-prelude.rs: left out: flags that change the crate
 resolve/open-ns-5.rs: import not resolved: : use my_api::utils::utils_helper (as utils_helper)
 resolve/open-ns-6.rs: import not resolved: : use my_api (as my_api)
 rfcs/rfc-0000-never_patterns/typeck.rs#pass: type check: a type left unknown
-rfcs/rfc-2361-dbg-macro/dbg-macro-ref-impl.rs: path not resolved: dyn
 rfcs/rfc-2457-non-ascii-idents/idents-normalized.rs: error: unexpected character '\u{301}' (idents-normalized.rs:6:15)
 rfcs/rfc-2565-param-attrs/issue-64682-dropping-first-attrs-in-impl-fns.rs: error: proc macro `rename_params`: assertion `left == right` failed (issue-64682-dropping-first-attrs-in-impl-fns.rs:9:1)
 rfcs/rfc-2565-param-attrs/param-attrs-allowed.rs: type check: a type left unknown
@@ -325,7 +315,6 @@ rust-2021/future-prelude-collision-turbofish.rs: type check: a type left unknown
 sanitizer/cfg.rs#leak: path not resolved: main
 sanitizer/cfg.rs#memory: path not resolved: main
 self/self-ctor-nongeneric.rs: path not resolved: Self
-single-use-lifetime/anonymous_lifetime_in_impl_trait.rs#without-gate: path not resolved: dyn
 single-use-lifetime/issue-104440.rs: type check: method not found
 single-use-lifetime/issue-117965.rs: type check: mismatched types
 sized/coinductive-1-gat.rs: type check: a type left unknown
@@ -374,18 +363,6 @@ traits/next-solver/supertrait-alias-4.rs: type check: a type left unknown
 traits/next-solver/typeck/resolve-before-checking-builtin-ptr.rs: type check: mismatched types
 traits/next-solver/typeck/structurally-resolve-in-probe_adt.rs: type check: a type left unknown
 traits/next-solver/typeck/structurally-resolve-in-resolve_for_branch.rs: type check: mismatched types
-traits/non-lifetime-via-dyn-builtin.rs#current: path not resolved: B
-traits/non-lifetime-via-dyn-builtin.rs#next: path not resolved: B
-traits/non_lifetime_binders/basic.rs: path not resolved: T
-traits/non_lifetime_binders/drop-impl-pred.rs#yes: path not resolved: H
-traits/non_lifetime_binders/method-probe.rs: path not resolved: T
-traits/non_lifetime_binders/object-lifetime-default-for-late.rs: path not resolved: U
-traits/non_lifetime_binders/on-rpit.rs: path not resolved: T
-traits/non_lifetime_binders/sized-late-bound-issue-114872.rs: path not resolved: V
-traits/non_lifetime_binders/unifying-placeholders-in-query-response-2.rs#current: path not resolved: T
-traits/non_lifetime_binders/unifying-placeholders-in-query-response-2.rs#next: path not resolved: T
-traits/non_lifetime_binders/unifying-placeholders-in-query-response.rs#current: path not resolved: T
-traits/non_lifetime_binders/unifying-placeholders-in-query-response.rs#next: path not resolved: T
 traits/vtable/issue-91807.rs: type check: call of something that is not a function
 transmute/unnecessary-transmute-path-remap-ice-140277.rs: macro not found: transmute!
 try-block/try-block-heterogeneous.rs: error: expected an expression, found `try` (try-block-heterogeneous.rs:11:5)

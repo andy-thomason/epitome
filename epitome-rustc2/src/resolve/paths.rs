@@ -527,6 +527,33 @@ impl<'w, 's> Walker<'w, 's> {
     // ---- the walk ----
 
     fn walk(&mut self, n: NodeId) {
+        // `for<T> T: Trait`, `dyn for<T> Fn(T)`: the binder's type
+        // parameters are in scope in what it binds.
+        if let Some(f) = self.ast.child(n, Kind::ForLifetimes)
+            && let params = self
+                .ast
+                .children(f)
+                .iter()
+                .copied()
+                .filter(|&p| self.ast.kind(p) == Kind::TypeParam)
+                .collect::<Vec<_>>()
+            && !params.is_empty()
+        {
+            self.push();
+            for p in params {
+                if let Some(name) = self.ast.child(p, Kind::Name) {
+                    let name = self.ast.token(name).ident_name();
+                    self.rib().types.push((name, Res::Generic(p)));
+                }
+            }
+            self.walk_node(n);
+            self.pop();
+            return;
+        }
+        self.walk_node(n);
+    }
+
+    fn walk_node(&mut self, n: NodeId) {
         let kind = self.ast.kind(n);
         match kind {
             Kind::TokenTree

@@ -142,15 +142,9 @@ lazy-type-alias-impl-trait/recursion2.rs: type check: mismatched types
 lexer/ident_normalization.rs: path not resolved: K
 lifetimes/raw/three-tokens.rs: error: expanding `check!`: expected `;`, found the end of the input (three-tokens.rs:14:1)
 lint/expansion-time.rs: error: expanding `include!`: expected `;`, found `2` (expansion-time.rs:21:5)
-lint/expect-future_breakage-crash-issue-126521.rs: error: expanding `foo!`: expected the end of the input, found `;` (expect-future_breakage-crash-issue-126521.rs:19:13)
-lint/forbid-macro-with-deny.rs#deny: error: expanding `emit_deny!`: expected the end of the input, found `;` (forbid-macro-with-deny.rs:31:5)
-lint/forbid-macro-with-deny.rs#forbid: error: expanding `emit_forbid!`: expected the end of the input, found `;` (forbid-macro-with-deny.rs:28:5)
-lint/function-item-references.rs: error: expanding `format_args_nl!`: expected `>`, found `)`
 lint/inert-attr-macro.rs: error: expanding `foo!`: expected an expression, found the end of the input (inert-attr-macro.rs:10:15)
 lint/ptr_null_checks.rs: type check: a type left unknown
-lint/rfc-2383-lint-reason/expect_lint_from_macro.rs: error: expanding `trigger_unused_variables_macro!`: expected the end of the input, found `;` (expect_lint_from_macro.rs:27:5)
 lint/rfc-2383-lint-reason/expect_tool_lint_rfc_2383.rs: type check: a type left unknown
-lint/semicolon-in-expressions-from-macros/semicolon-in-expressions-from-macros.rs: error: expanding `foo!`: expected the end of the input, found `;` (semicolon-in-expressions-from-macros.rs:30:13)
 lint/unused-parens-pinned-reference-patterns.rs: error: expected `;`, found `const` (unused-parens-pinned-reference-patterns.rs:13:14)
 lint/unused/unused-variable-with-raw-identifier-in-struct-pattern.rs: type check: no such field in pattern
 lint/use-redundant/use-redundant-issue-78894.rs: import not resolved: : use bar (as bar)
@@ -191,7 +185,7 @@ pin-ergonomics/reborrow-self.rs: type check: method not found
 pin-ergonomics/user-type-projection.rs: error: expected `;`, found `const` (user-type-projection.rs:18:14)
 privacy/issue-57264-2.rs: type check: method not found
 privacy/use-in-impl-scope-12729.rs: import not resolved: __ui_test_43::bar: use Foo (as Foo)
-proc-macro/allowed-attr-stmt-expr.rs: error: expanding `second_make_stmt!`: expected the end of the input, found `;` (allowed-attr-stmt-expr.rs:64:5)
+proc-macro/allowed-attr-stmt-expr.rs: error: expanding `make_stmt!`: expected an expression, found `struct` (allowed-attr-stmt-expr.rs:43:9)
 proc-macro/attributes-included.rs: error: proc macro `bar`: assertion `left == right` failed (attributes-included.rs:11:1)
 proc-macro/edition-imports-2018.rs: import not resolved: __ui_test_73::check: use import::Path (as Path)
 proc-macro/hygiene_example.rs: macro not found: hello!
@@ -269,7 +263,7 @@ type-alias-impl-trait/cross_inference_rpit.rs: type check: mismatched types
 type-alias-impl-trait/match-unification.rs: type check: mismatched types
 type-alias-impl-trait/method_resolution5.rs#current: type check: method not found
 type-alias-impl-trait/method_resolution5.rs#next: type check: method not found
-type-alias-impl-trait/multiple-def-uses-in-one-fn-pass.rs: error: expanding `format_args_nl!`: expected `>`, found `)`
+type-alias-impl-trait/multiple-def-uses-in-one-fn-pass.rs: type check: a type left unknown
 type-alias-impl-trait/obligation_ice.rs: type check: method not found
 type-alias-impl-trait/tait-param-inference-issue-117310.rs: type check: a type left unknown
 typeck/issue-55810-must-typeck-match-pats-before-guards.rs: type check: method not found

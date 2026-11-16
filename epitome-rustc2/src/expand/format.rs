@@ -329,7 +329,12 @@ pub fn format_args<'s>(
     input: &[Token<'s>],
     newline: bool,
 ) -> Result<Option<Vec<Token<'s>>>, Error<'s>> {
-    let mut parts = args(input);
+    // Split where the parser says each argument ends (a comma may be in
+    // `<X<_, _> as Tr>::f(..)`), or failing that at top-level commas.
+    let mut parts = match crate::parse::expression_list(input, crate::lexer::Edition::E2024) {
+        Some(ranges) => ranges.into_iter().map(|r| &input[r]).collect(),
+        None => args(input),
+    };
     if parts.last().is_some_and(|p| p.is_empty()) {
         parts.pop();
     }

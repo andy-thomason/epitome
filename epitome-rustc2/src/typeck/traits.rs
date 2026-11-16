@@ -349,6 +349,20 @@ impl<'a, 's> FnCtxt<'a, 's> {
         if self.is_builtin_marker(tr, t) {
             return Select::Yes(Source::Builtin(None));
         }
+        // Tuples are `Clone` and `Copy` when their elements are, built in.
+        if let TyKind::Tuple(l) = tcx.kind(t)
+            && ["clone", "copy"].iter().any(|n| tcx.lang.get(n) == Some(&tr))
+        {
+            let mut ambiguous = false;
+            for e in tcx.tys(l) {
+                match self.select(e, tr, &[], depth + 1) {
+                    Select::Yes(_) => {}
+                    Select::No => return Select::No,
+                    Select::Ambiguous => ambiguous = true,
+                }
+            }
+            return if ambiguous { Select::Ambiguous } else { Select::Yes(Source::Builtin(None)) };
+        }
         // Closures, function items and pointers implement the `Fn` traits.
         if ["fn", "fn_mut", "fn_once"].iter().any(|l| tcx.lang.get(l) == Some(&tr)) {
             let sig = match tcx.kind(t) {

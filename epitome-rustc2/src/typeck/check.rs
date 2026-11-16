@@ -1984,7 +1984,14 @@ impl<'a, 's> FnCtxt<'a, 's> {
             };
             let p = self.probe();
             match self.lang(lang).map(|tr| (tr, self.select(sa, tr, &[sb], 0))) {
-                Some((tr, super::traits::Select::Yes(_))) => self.record_trait_method(n, tr, method, sa, &[sb]),
+                Some((tr, super::traits::Select::Yes(_))) => {
+                    self.record_trait_method(n, tr, method, sa, &[sb]);
+                    // Unknowns on the right (`v == []`): the impl's
+                    // `where` clauses may settle them.
+                    if tcx.has_infer(self.infer.resolve(sb)) {
+                        self.pending_traits.push((sa, tr, tcx.list(vec![sb])));
+                    }
+                }
                 _ => {
                     self.rollback(p);
                     self.coerce(kids[2], b, a);

@@ -165,6 +165,7 @@ fn is_item(k: Kind) -> bool {
             | ExternBlock
             | MacroRules
             | MacroDef
+            | Delegation
     )
 }
 
@@ -295,6 +296,13 @@ impl<'c, 'r, 's> Collector<'c, 'r, 's> {
                 let d = self.def(dk, name, m, item, vis, None);
                 self.r.bind(m, name, Ns::Type, Res::Def(d), vis);
             }
+            // `reuse path;`, `reuse m::{a, b as c};`: functions.
+            Kind::Delegation => {
+                for (n, node) in self.delegated(item) {
+                    let d = self.def(DefKind::Fn, n, m, node, vis, None);
+                    self.r.bind(m, n, Ns::Value, Res::Def(d), vis);
+                }
+            }
             Kind::Fn | Kind::Const | Kind::Static => {
                 let dk = match kind {
                     Kind::Fn => DefKind::Fn,
@@ -402,7 +410,19 @@ impl<'c, 'r, 's> Collector<'c, 'r, 's> {
     /// The items of a trait or impl, in `sub`; `m` is the enclosing
     /// module, for blocks in their bodies.
     fn assoc_items(&mut self, item: NodeId, sub: ModId, m: ModId) {
+        // A trait impl's `reuse`s need no items of their own: calls go
+        // through the trait.
+        let trait_impl = self.ast.kind(item) == Kind::Impl && self.ast.child(item, Kind::ImplTrait).is_some();
         for a in self.ast.children(item).to_vec() {
+            if self.ast.kind(a) == Kind::Delegation {
+                if !trait_impl {
+                    for (an, node) in self.delegated(a) {
+                        let d = self.def(DefKind::AssocFn, an, sub, node, Vis::Public, None);
+                        self.r.bind(sub, an, Ns::Value, Res::Def(d), Vis::Public);
+                    }
+                }
+                continue;
+            }
             let (dk, ns) = match self.ast.kind(a) {
                 Kind::Fn => (DefKind::AssocFn, Ns::Value),
                 Kind::Const => (DefKind::AssocConst, Ns::Value),
@@ -414,6 +434,33 @@ impl<'c, 'r, 's> Collector<'c, 'r, 's> {
             self.r.bind(sub, an, ns, Res::Def(d), Vis::Public);
             self.blocks(a, m);
         }
+    }
+
+    /// The functions a `reuse` defines: each name, and the node standing
+    /// for it (the `reuse` itself, or the `UseTree` of a list's entry). A
+    /// glob or `reuse impl` defines none here.
+    fn delegated(&self, item: NodeId) -> Vec<(&'s str, NodeId)> {
+        let ast = self.ast;
+        let renamed = |n: NodeId| ast.child(n, Kind::Rename).and_then(|r| ast.child(r, Kind::Name));
+        let last = |p: NodeId| {
+            ast.children(p).iter().rev().find(|&&c| ast.kind(c) == Kind::Segment).and_then(|&s| ast.child(s, Kind::Name))
+        };
+        let name = |n: NodeId| ast.token(n).ident_name();
+        if let Some(g) = ast.child(item, Kind::UseGroup) {
+            return ast
+                .children(g)
+                .iter()
+                .filter_map(|&t| {
+                    let n = renamed(t).or_else(|| ast.child(t, Kind::Path).and_then(last))?;
+                    Some((name(n), t))
+                })
+                .collect();
+        }
+        if ast.child(item, Kind::UseGlob).is_some() || ast.child(item, Kind::Path).is_none() {
+            return Vec::new();
+        }
+        let n = renamed(item).or_else(|| ast.child(item, Kind::Path).and_then(last));
+        n.map(|n| vec![(name(n), item)]).unwrap_or_default()
     }
 
     /// Finds blocks that hold items under `node` (an item's insides), and

@@ -112,6 +112,10 @@ pub(super) fn check_body<'s>(
     let ast = &crates[k as usize].files[file as usize].ast;
     let kind = r.defs[owner.0 as usize].kind;
     let mut cx = FnCtxt::new(tcx, r, crates, index, owner, k, file);
+    // A function a `reuse` defines has no body of its own.
+    if matches!(ast.kind(item), Kind::Delegation | Kind::UseTree) {
+        return None;
+    }
     match kind {
         DefKind::Fn | DefKind::AssocFn => {
             let body = ast.children(item).iter().copied().find(|&c| ast.kind(c) == Kind::Block)?;

@@ -36,6 +36,10 @@ impl<'a> Parser<'a> {
         } else if mode != PathMode::Simple && self.at("<") {
             // Also `<<T as A>::B as C>::D`, as `<` is always one token.
             self.qself()?;
+            if self.at_op("::") && matches!(self.tok(2).0, "*" | "{") {
+                self.finish(m, Kind::Path);
+                return Ok(());
+            }
         }
         loop {
             self.segment(mode)?;
@@ -61,6 +65,11 @@ impl<'a> Parser<'a> {
         }
         self.expect_close_angle()?;
         self.finish(m, Kind::QSelf);
+        // `<T as Tr>::*` and `<T as Tr>::{a, b}` in `reuse`: the `::` is
+        // left for what follows.
+        if self.at_op("::") && matches!(self.tok(2).0, "*" | "{") {
+            return Ok(());
+        }
         self.expect_op("::")
     }
 

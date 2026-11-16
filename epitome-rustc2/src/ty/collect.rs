@@ -86,6 +86,24 @@ pub(super) fn collect<'s>(crates: &[ParsedCrate<'s>], r: &Resolver<'s>) -> TyCtx
             tcx.sig_errors += out.failed as usize;
         }
     }
+    // A function a `reuse` defines has the signature, generics and bounds
+    // of the function it calls.
+    for &d in &defs {
+        let (at, ast) = node_of(&env, d);
+        let path = match ast.kind(at.2) {
+            Kind::Delegation => ast.child(at.2, Kind::Path),
+            Kind::UseTree => ast.child(at.2, Kind::Path),
+            _ => continue,
+        };
+        let Some(path) = path else { continue };
+        let Some(crate::resolve::Res::Def(target)) = r.res_of(at.0 as usize, at.1 as usize, path).cloned() else { continue };
+        if tcx.fn_sig[target.0 as usize].is_none() {
+            continue;
+        }
+        tcx.fn_sig[d.0 as usize] = tcx.fn_sig[target.0 as usize];
+        tcx.generics[d.0 as usize] = tcx.generics[target.0 as usize].clone();
+        tcx.predicates[d.0 as usize] = tcx.predicates[target.0 as usize].clone();
+    }
     tcx
 }
 

@@ -2667,8 +2667,13 @@ impl<'a, 's> FnCtxt<'a, 's> {
     fn block(&mut self, n: NodeId, expect: Option<Ty>) -> Ty {
         let ast = self.ast;
         let kids = self.kids(n);
-        let stmts: Vec<NodeId> =
-            kids.iter().copied().filter(|&c| !matches!(ast.kind(c), Kind::Lifetime | Kind::Keyword | Kind::InnerAttribute)).collect();
+        let stmts: Vec<NodeId> = kids
+            .iter()
+            .copied()
+            .filter(|&c| {
+                !matches!(ast.kind(c), Kind::Lifetime | Kind::Keyword | Kind::InnerAttribute) && !is_type(ast.kind(c))
+            })
+            .collect();
         if ast.kind(n) == Kind::ConstBlock {
             return self.expr(kids[0], expect);
         }
@@ -2677,9 +2682,12 @@ impl<'a, 's> FnCtxt<'a, 's> {
         // context says.
         if keyword("try") {
             let out = self.stmts(&stmts, None);
-            let r = match expect {
-                Some(e) => e,
-                None => self.infer.fresh(),
+            // `try bikeshed T { .. }`: of type `T`.
+            let written = kids.iter().copied().find(|&c| is_type(ast.kind(c)));
+            let r = match (written, expect) {
+                (Some(w), _) => self.written_ty(w),
+                (None, Some(e)) => e,
+                (None, None) => self.infer.fresh(),
             };
             if let Some(tr) = self.lang("Try")
                 && let Some(o) = self.trait_item(tr, "Output", Ns::Type)
@@ -2842,7 +2850,8 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     self.infer.unify(vt, t);
                     return;
                 }
-                let words: Vec<&str> = kids.iter().filter(|&&c| ast.kind(c) == Kind::Keyword).map(|&c| ast.token(c).0).collect();
+                let words: Vec<&str> =
+                    kids.iter().filter(|&&c| ast.kind(c) == Kind::Keyword).map(|&c| ast.token(c).0).collect();
                 let has_ref = words.contains(&"ref");
                 // `ref mut x`, not `mut ref x` (a mutable binding).
                 let is_mut = words.windows(2).any(|w| w == ["ref", "mut"]) || !has_ref && words.contains(&"mut");

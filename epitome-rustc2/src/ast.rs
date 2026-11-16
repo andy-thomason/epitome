@@ -318,6 +318,11 @@ pub enum Kind {
     UseGroup,
     /// `as name` or `as _`: `Name`.
     Rename,
+    /// `reuse` (function delegation): `attrs vis Keyword(reuse) (Path
+    /// (Rename | UseGroup | UseGlob)? | Keyword(unsafe|const)? Keyword(impl)
+    /// Op(!)? Type Keyword(for) Type) Block?`, the block the expression the first
+    /// argument becomes (with `self` in it).
+    Delegation,
     /// `attrs vis Keyword(default)? Name Generics? Type? WhereClause?
     /// Expr?`. The name may be `_`.
     Const,

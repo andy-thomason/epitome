@@ -727,6 +727,47 @@ impl<'p, 'a> Printer<'p, 'a> {
                 self.s(" as ");
                 self.join(kids, "");
             }
+            Delegation => {
+                let rest = self.attrs_lines(kids);
+                let mut block = false;
+                for (i, &k) in rest.iter().enumerate() {
+                    match self.kind(k) {
+                        Visibility | Keyword => {
+                            self.node(k);
+                            // `impl<'a>`: no space before generics.
+                            if rest.get(i + 1).is_none_or(|&n| self.kind(n) != Generics) {
+                                self.s(" ");
+                            }
+                        }
+                        UseGlob => self.s("::*"),
+                        Generics => {
+                            self.node(k);
+                            self.s(" ");
+                        }
+                        // An expression path: `foo::<T>`.
+                        Path => self.path(k, true),
+                        UseGroup => {
+                            self.s("::");
+                            self.node(k);
+                        }
+                        Block => {
+                            self.s(" ");
+                            self.node(k);
+                            block = true;
+                        }
+                        // `impl Tr for T`: a space before `for`.
+                        _ => {
+                            self.node(k);
+                            if rest.get(i + 1).is_some_and(|&n| self.kind(n) == Keyword) {
+                                self.s(" ");
+                            }
+                        }
+                    }
+                }
+                if !block {
+                    self.s(";");
+                }
+            }
             // `const { ... }` as an item.
             Const if self.ast.child(id, Name).is_none() && self.ast.child(id, ConstBlock).is_some() => {
                 for &k in self.attrs_lines(kids) {
@@ -1551,6 +1592,17 @@ mod tests {
         roundtrip("fn f(x:&pin mut T)->&pin const T{let p=&pin mut v;}impl S{fn m(&pin mut self){}}");
         assert_eq!(roundtrip("pub const{assert!(true)}const{}"), "pub const {\n    assert!(true)\n}\n\nconst {}\n");
         roundtrip("struct S<const N:usize=const{0}>;fn f<T:Tr<const{1}>>(){}");
+    }
+
+    #[test]
+    fn delegation() {
+        assert_eq!(roundtrip("reuse to_reuse::a as x;"), "reuse to_reuse::a as x;\n");
+        roundtrip(
+            "reuse m::{a,b as c};reuse f::<u8>;impl S{reuse Trait::{foo,bar}{&self.0}reuse <u8 as Trait>::*{self.0}}",
+        );
+        roundtrip("reuse unsafe impl<'a,A> Tr<'a,A> for F{self.0}reuse impl !Tr for G;");
+        // `reuse` is a keyword only before a path.
+        roundtrip("mod reuse{}fn f(){reuse::g();reuse!();}");
     }
 
     #[test]

@@ -428,6 +428,50 @@ impl<'w, 's> Walker<'w, 's> {
         self.generic_args_of(path);
     }
 
+    /// `reuse ...`: the function (or a trait or module's functions) it
+    /// calls, and the expression its first argument becomes, which has
+    /// `self` in scope. `reuse impl<A> Tr<A> for T`: the generics, then the
+    /// types.
+    fn delegation(&mut self, n: NodeId) {
+        let kids = self.ast.children(n).to_vec();
+        self.push();
+        self.generics(n);
+        let listed = kids.iter().any(|&c| matches!(self.ast.kind(c), Kind::UseGroup | Kind::UseGlob));
+        let mut prefix = None;
+        for &c in &kids {
+            match self.ast.kind(c) {
+                Kind::Path if listed => {
+                    prefix = Some(c);
+                    self.path(c, Ns::Type);
+                }
+                Kind::Path => self.path(c, Ns::Value),
+                // `Tr::{a, b}`: each a function of `Tr`.
+                Kind::UseGroup => {
+                    let module = prefix.and_then(|p| self.out[p.0 as usize].clone()).and_then(|r| self.r.module_of_res(&r));
+                    for &t in self.ast.children(c) {
+                        let Some(p) = self.ast.child(t, Kind::Path) else { continue };
+                        let name = self.ast.children(p).iter().find_map(|&s| self.ast.child(s, Kind::Name));
+                        let found = module.zip(name).and_then(|(m, name)| {
+                            self.r.lookup(m, self.ast.token(name).ident_name(), Ns::Value, self.module)
+                        });
+                        // Not found (a `<T as Tr>::{..}` the resolver
+                        // does not follow): what the prefix is.
+                        self.out[p.0 as usize] = found.or_else(|| prefix.and_then(|q| self.out[q.0 as usize].clone()));
+                    }
+                }
+                Kind::Block => {
+                    self.push();
+                    self.rib().values.push(("self", ANY_CTX, Res::Local(n)));
+                    self.walk(c);
+                    self.pop();
+                }
+                Kind::Attribute | Kind::DocComment | Kind::Visibility | Kind::Keyword | Kind::Generics | Kind::Rename => {}
+                _ => self.walk(c),
+            }
+        }
+        self.pop();
+    }
+
     /// An `if` or `while` condition: `let` bindings in it are visible in
     /// the rest of the condition and in the body (the caller's rib).
     fn condition(&mut self, e: NodeId) {
@@ -573,6 +617,7 @@ impl<'w, 's> Walker<'w, 's> {
                 }
             }
             _ if is_item(kind) => self.item(n),
+            Kind::Delegation => self.delegation(n),
             Kind::PathExpr => {
                 if let Some(&p) = self.ast.children(n).first() {
                     self.path(p, Ns::Value);

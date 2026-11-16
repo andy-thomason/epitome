@@ -99,22 +99,10 @@ consts/issue-62045.rs: type check: a type left unknown
 consts/issue-67696-const-prop-ice.rs: type check: a type left unknown
 consts/self_normalization2.rs: type check: a type left unknown
 crate-loading/cross-compiled-proc-macro.rs: left out: proc-macro crates rustc cannot build
-delegation/body-identity-glob.rs: error: expected an item, found `reuse` (body-identity-glob.rs:19:5)
-delegation/body-identity-list.rs: error: expected an item, found `reuse` (body-identity-list.rs:19:5)
-delegation/fn-header.rs: error: expected an item, found `reuse` (fn-header.rs:16:1)
-delegation/generics/const-type-ice-154334.rs: error: expected an item, found `reuse` (const-type-ice-154334.rs:12:1)
-delegation/generics/stability-implications-non-local-defid.rs: error: expected an item, found `reuse` (stability-implications-non-local-defid.rs:16:9)
-delegation/generics/unelided-lifetime-in-sig-ice-156848.rs: error: expected an item, found `reuse` (unelided-lifetime-in-sig-ice-156848.rs:15:5)
-delegation/glob-glob.rs: error: expected an item, found `reuse` (glob-glob.rs:27:5)
-delegation/glob-override.rs: error: expected an item, found `reuse` (glob-override.rs:19:5)
-delegation/glob.rs: error: expected an item, found `reuse` (glob.rs:19:5)
-delegation/impl-reuse-pass.rs: error: expected an item, found `reuse` (impl-reuse-pass.rs:18:5)
-delegation/impl-trait.rs: error: expected an item, found `reuse` (impl-trait.rs:9:1)
-delegation/list.rs: error: expected an item, found `reuse` (list.rs:16:5)
-delegation/macro-inside-glob.rs: error: expected an item, found `reuse` (macro-inside-glob.rs:18:5)
-delegation/macro-inside-list.rs: error: expected an item, found `reuse` (macro-inside-list.rs:18:5)
-delegation/parse.rs: error: expected an item, found `reuse` (parse.rs:38:5)
-delegation/rename.rs: error: expected an item, found `reuse` (rename.rs:10:1)
+delegation/body-identity-glob.rs: path not resolved: check
+delegation/body-identity-list.rs: path not resolved: check
+delegation/impl-reuse-pass.rs: path not resolved: F2
+delegation/impl-trait.rs: type check: method not found
 deref/deref-to-dyn-fn-mut-callable.rs: type check: mismatched types
 derives/derive-macro-const-default.rs: type check: method not found
 derives/derive-renamed.rs: import not resolved: : use derive (as my_derive)

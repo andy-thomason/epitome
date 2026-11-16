@@ -1,35 +1,11 @@
 # rust-lang/rust a69a63265cfd9e006d43137f98301b8d274ad4c9 on aarch64-macos
 # The check-pass UI tests that do not pass yet, and why (tests/ui_check_pass.rs).
-abi/compatibility.rs#aarch64: left out: flags that change the crate
-abi/compatibility.rs#aix: left out: flags that change the crate
-abi/compatibility.rs#arm: left out: flags that change the crate
-abi/compatibility.rs#bpf: left out: flags that change the crate
-abi/compatibility.rs#csky: left out: flags that change the crate
-abi/compatibility.rs#i686: left out: flags that change the crate
-abi/compatibility.rs#loongarch32: left out: flags that change the crate
-abi/compatibility.rs#loongarch64: left out: flags that change the crate
-abi/compatibility.rs#m68k: left out: flags that change the crate
-abi/compatibility.rs#mips: left out: flags that change the crate
-abi/compatibility.rs#mips64: left out: flags that change the crate
-abi/compatibility.rs#nvptx64: left out: flags that change the crate
-abi/compatibility.rs#powerpc: left out: flags that change the crate
-abi/compatibility.rs#powerpc64: left out: flags that change the crate
-abi/compatibility.rs#riscv: left out: flags that change the crate
-abi/compatibility.rs#s390x: left out: flags that change the crate
-abi/compatibility.rs#sparc: left out: flags that change the crate
-abi/compatibility.rs#sparc64: left out: flags that change the crate
-abi/compatibility.rs#thumb: left out: flags that change the crate
-abi/compatibility.rs#wasip1: left out: flags that change the crate
-abi/compatibility.rs#wasm: left out: flags that change the crate
-abi/compatibility.rs#x86-64: left out: flags that change the crate
-abi/compatibility.rs#x86-64-win: left out: flags that change the crate
 allow-partial-mitigations/ok-allow-partial-mitigations-minicore.rs#default: left out: edition
 allow-partial-mitigations/ok-allow-partial-mitigations-minicore.rs#deny: left out: edition
 allow-partial-mitigations/ok-allow-partial-mitigations.rs#stack-protector-and-control-flow-guard-explicit-allow: left out: edition
 allow-partial-mitigations/ok-allow-partial-mitigations.rs#stack-protector-deny-then-allow: left out: edition
 allow-partial-mitigations/ok-allow-partial-mitigations.rs#stack-protector-explicit-allow: left out: edition
 array-slice-vec/infer_array_len.rs: type check: a type left unknown
-asm/inline-syntax.rs#x86_64: left out: flags that change the crate
 associated-inherent-types/assoc-inherent-late-bound.rs: type check: a type left unknown
 associated-inherent-types/assoc-inherent-use.rs: type check: a type left unknown
 associated-inherent-types/const-generics.rs: type check: associated type not found
@@ -89,25 +65,6 @@ borrowck/assign-never-type.rs: type check: a type left unknown
 borrowck/issue-103095.rs#current: type check: a type left unknown
 borrowck/issue-103095.rs#next: type check: a type left unknown
 borrowck/static-trait-bound-lost.rs: type check: a type left unknown
-cfg/cfg_target_object_format.rs#aix: left out: flags that change the crate
-cfg/cfg_target_object_format.rs#avr: left out: flags that change the crate
-cfg/cfg_target_object_format.rs#bpfeb: left out: flags that change the crate
-cfg/cfg_target_object_format.rs#bpfel: left out: flags that change the crate
-cfg/cfg_target_object_format.rs#darwin: left out: flags that change the crate
-cfg/cfg_target_object_format.rs#hermit: left out: flags that change the crate
-cfg/cfg_target_object_format.rs#ios: left out: flags that change the crate
-cfg/cfg_target_object_format.rs#linux_gnu: left out: flags that change the crate
-cfg/cfg_target_object_format.rs#linux_musl: left out: flags that change the crate
-cfg/cfg_target_object_format.rs#linux_ohos: left out: flags that change the crate
-cfg/cfg_target_object_format.rs#linux_powerpc: left out: flags that change the crate
-cfg/cfg_target_object_format.rs#msp430: left out: flags that change the crate
-cfg/cfg_target_object_format.rs#sgx: left out: flags that change the crate
-cfg/cfg_target_object_format.rs#thumb: left out: flags that change the crate
-cfg/cfg_target_object_format.rs#uefi: left out: flags that change the crate
-cfg/cfg_target_object_format.rs#wasm32: left out: flags that change the crate
-cfg/cfg_target_object_format.rs#wasm64: left out: flags that change the crate
-cfg/cfg_target_object_format.rs#win_gnu: left out: flags that change the crate
-cfg/cfg_target_object_format.rs#win_msvc: left out: flags that change the crate
 cfg/raw-true-false.rs: error:  (raw-true-false.rs:6:5)
 check-cfg/compact-names.rs: error: unknown `cfg` operator `target` (compact-names.rs:9:7)
 check-cfg/compact-values.rs: error: unknown `cfg` operator `target` (compact-values.rs:9:7)
@@ -115,7 +72,7 @@ check-cfg/raw-keywords.rs#edition2015: path not resolved: bar
 check-cfg/raw-keywords.rs#edition2021: path not resolved: bar
 check-cfg/report-in-external-macros.rs#cargo: macro not found: my_lib_macro!
 check-cfg/report-in-external-macros.rs#rustc: macro not found: my_lib_macro!
-check-cfg/values-target-json.rs: left out: flags that change the crate
+check-cfg/values-target-json.rs: left out: a target rustc does not know
 closures/2229_closure_analysis/issue_88118.rs: type check: a type left unknown
 closures/2229_closure_analysis/migrations/issue-86753.rs: type check: a type left unknown
 closures/2229_closure_analysis/run_pass/issue-88431.rs: type check: mismatched types
@@ -136,7 +93,6 @@ closures/self-supertrait-bounds.rs: type check: a type left unknown
 closures/supertrait-hint-cycle.rs: type check: mismatched types
 closures/supertrait-hint-references-assoc-ty.rs#current: type check: method not found
 closures/supertrait-hint-references-assoc-ty.rs#next: type check: method not found
-codegen/target-cpus.rs: left out: flags that change the crate
 coercion/cast-higher-ranked-unsafe-fn-ptr.rs: type check: mismatched types
 coercion/index-coercion-over-indexmut-72002.rs: type check: indexing something that does not implement `Index`
 coercion/issue-88097.rs#current: type check: mismatched types
@@ -144,20 +100,6 @@ coercion/issue-88097.rs#next: type check: mismatched types
 coinduction/canonicalization-rerun.rs#next: type check: a type left unknown
 coinduction/canonicalization-rerun.rs#old: type check: a type left unknown
 compile-flags/invalid/crate-type-flag.rs#proc_dash_macro: left out: proc-macro crate
-compile-flags/invalid/function-return/requires-x86-or-x86_64.rs#x86: left out: flags that change the crate
-compile-flags/invalid/function-return/requires-x86-or-x86_64.rs#x86_64: left out: flags that change the crate
-compile-flags/invalid/function-return/thunk-extern-requires-non-large-code-model.rs#kernel: left out: flags that change the crate
-compile-flags/invalid/function-return/thunk-extern-requires-non-large-code-model.rs#medium: left out: flags that change the crate
-compile-flags/invalid/function-return/thunk-extern-requires-non-large-code-model.rs#small: left out: flags that change the crate
-compile-flags/invalid/indirect-branch-cs-prefix/requires-x86-or-x86_64.rs#x86: left out: flags that change the crate
-compile-flags/invalid/indirect-branch-cs-prefix/requires-x86-or-x86_64.rs#x86_64: left out: flags that change the crate
-compile-flags/invalid/reg-struct-return/requires-x86.rs#x86: left out: flags that change the crate
-compile-flags/invalid/regparm/regparm-valid-values.rs#regparm0: left out: flags that change the crate
-compile-flags/invalid/regparm/regparm-valid-values.rs#regparm1: left out: flags that change the crate
-compile-flags/invalid/regparm/regparm-valid-values.rs#regparm2: left out: flags that change the crate
-compile-flags/invalid/regparm/regparm-valid-values.rs#regparm3: left out: flags that change the crate
-compile-flags/invalid/regparm/requires-x86.rs#x86: left out: flags that change the crate
-compiletest-self-test/minicore-smoke-test.rs: left out: flags that change the crate
 const-generics/array-impls/alloc-traits-impls-length-32.rs: type check: a type left unknown
 const-generics/associated-const-bindings/equality_bound_with_infer.rs: type check: a type left unknown
 const-generics/generic_const_exprs/cross-crate-2.rs: type check: a type left unknown
@@ -188,17 +130,6 @@ coroutine/gen_fn_lifetime_capture.rs: type check: method not found
 coroutine/return-types-diverge.rs: type check: unsupported expression
 crate-loading/cross-compiled-proc-macro.rs: left out: flags that change the crate
 custom_test_frameworks/test-case-on-use-item-129765.rs: left out: --test
-debuginfo/dwarf-versions.rs#five: left out: flags that change the crate
-debuginfo/dwarf-versions.rs#four: left out: flags that change the crate
-debuginfo/dwarf-versions.rs#three: left out: flags that change the crate
-debuginfo/dwarf-versions.rs#two: left out: flags that change the crate
-debuginfo/windows_gnu_split_debuginfo_off.rs#aarch64_gl: left out: flags that change the crate
-debuginfo/windows_gnu_split_debuginfo_off.rs#i686_g: left out: flags that change the crate
-debuginfo/windows_gnu_split_debuginfo_off.rs#i686_gl: left out: flags that change the crate
-debuginfo/windows_gnu_split_debuginfo_off.rs#i686_uwp_g: left out: flags that change the crate
-debuginfo/windows_gnu_split_debuginfo_off.rs#x86_64_g: left out: flags that change the crate
-debuginfo/windows_gnu_split_debuginfo_off.rs#x86_64_gl: left out: flags that change the crate
-debuginfo/windows_gnu_split_debuginfo_off.rs#x86_64_uwp_g: left out: flags that change the crate
 delegation/body-identity-glob.rs: error: expected an item, found `reuse` (body-identity-glob.rs:19:5)
 delegation/body-identity-list.rs: error: expected an item, found `reuse` (body-identity-list.rs:19:5)
 delegation/fn-header.rs: error: expected an item, found `reuse` (fn-header.rs:16:1)
@@ -304,7 +235,6 @@ inference/inference-variable-behind-raw-pointer.rs: type check: a type left unkn
 inference/iter-ufcs-coercion-type-unification.rs: type check: a type left unknown
 iterators/into-iter-on-boxed-slices-2021.rs: type check: a type left unknown
 keyword/soup.rs: import not resolved: __ui_test_147::x: use Ok (as Ok)
-layout/reprc-power-alignment.rs: left out: flags that change the crate
 lazy-type-alias-impl-trait/freeze_cycle.rs: type check: a type left unknown
 lazy-type-alias-impl-trait/recursion2.rs: type check: mismatched types
 lexer/ident_normalization.rs: path not resolved: K
@@ -323,8 +253,6 @@ lint/forbid-macro-with-deny.rs#deny: macro not found: emit_deny!
 lint/forbid-macro-with-deny.rs#forbid: macro not found: emit_forbid!
 lint/function-item-references.rs: error: expanding `format_args_nl!`: expected `>`, found `)`
 lint/inert-attr-macro.rs: error: expanding `foo!`: expected an expression, found the end of the input (inert-attr-macro.rs:10:15)
-lint/lint-gpu-kernel.rs#amdgpu: left out: flags that change the crate
-lint/lint-gpu-kernel.rs#nvptx: left out: flags that change the crate
 lint/lint-missing-doc-expect.rs#test_: left out: --test
 lint/lint-missing-doc-test.rs: left out: --test
 lint/non-local-defs/cargo-update.rs: macro not found: non_local_impl!
@@ -389,13 +317,8 @@ pattern/slice-patterns-nested.rs: type check: a type left unknown
 pin-ergonomics/pattern-matching-deref-pattern.rs#pin_ergonomics: type check: pattern of another type
 pin-ergonomics/reborrow-self.rs: type check: method not found
 pin-ergonomics/user-type-projection.rs: error: expected `;`, found `const` (user-type-projection.rs:18:14)
-pointer_authentication/enable_pointer_authentication_validation.rs#all_known: left out: flags that change the crate
-pointer_authentication/invalid_target_pointer_authentication.rs: left out: flags that change the crate
-print-request/supported-crate-types.rs#linux: left out: flags that change the crate
-print-request/supported-crate-types.rs#musl: left out: flags that change the crate
-print-request/supported-crate-types.rs#wasm: left out: flags that change the crate
 privacy/issue-57264-2.rs: type check: method not found
-privacy/use-in-impl-scope-12729.rs: import not resolved: __ui_test_38::bar: use Foo (as Foo)
+privacy/use-in-impl-scope-12729.rs: import not resolved: __ui_test_43::bar: use Foo (as Foo)
 proc-macro/allowed-attr-stmt-expr.rs: left out: proc-macro crates
 proc-macro/allowed-signatures.rs: import not resolved: : use proc_macro::TokenStream (as TokenStream)
 proc-macro/attr-complex-fn.rs: left out: proc-macro crates
@@ -509,17 +432,8 @@ rust-2021/future-prelude-collision-turbofish.rs: type check: a type left unknown
 rust-2024/unsafe-attributes/safe-proc-macro-attribute.rs#proc_macro_attr: left out: proc-macro crates
 rust-2024/unsafe-attributes/unsafe-attributes-from-pm.rs#edition2021: left out: proc-macro crates
 rust-2024/unsafe-attributes/unsafe-attributes-from-pm.rs#edition2024: left out: proc-macro crates
-sanitizer/cfg-kasan.rs#aarch64: left out: flags that change the crate
-sanitizer/cfg-kasan.rs#riscv64gc: left out: flags that change the crate
-sanitizer/cfg-kasan.rs#riscv64imac: left out: flags that change the crate
-sanitizer/cfg-kasan.rs#x86_64: left out: flags that change the crate
-sanitizer/cfg-khwasan.rs: left out: flags that change the crate
-sanitizer/cfg.rs#address: path not resolved: main
-sanitizer/cfg.rs#cfi: path not resolved: main
-sanitizer/cfg.rs#kcfi: left out: flags that change the crate
 sanitizer/cfg.rs#leak: path not resolved: main
 sanitizer/cfg.rs#memory: path not resolved: main
-sanitizer/cfg.rs#thread: path not resolved: main
 self/self-ctor-nongeneric.rs: path not resolved: Self
 single-use-lifetime/anonymous_lifetime_in_impl_trait.rs#without-gate: path not resolved: dyn
 single-use-lifetime/issue-104440.rs: type check: method not found
@@ -529,24 +443,6 @@ specialization/source-impl-requires-constraining-predicates-ambig.rs#next: type 
 specialization/spec-influences-inference-issue-36262.rs#next: type check: a type left unknown
 str/str-escape.rs: type check: mismatched types
 suggestions/issue-57672.rs: left out: flags that change the crate
-target-feature/abi-incompatible-target-feature-flag-enable.rs#riscv: left out: flags that change the crate
-target-feature/abi-incompatible-target-feature-flag-enable.rs#x86: left out: flags that change the crate
-target-feature/forbidden-hardfloat-target-feature-cfg.rs: left out: flags that change the crate
-target-feature/forbidden-target-feature-cfg.rs: left out: flags that change the crate
-target-feature/x86-soft-float-cfg.rs#hard: left out: flags that change the crate
-target-feature/x86-soft-float-cfg.rs#soft: left out: flags that change the crate
-target_modifiers/defaults_check.rs#ok: left out: flags that change the crate
-target_modifiers/defaults_check.rs#ok_explicit: left out: flags that change the crate
-target_modifiers/incompatible_fixedx18.rs#allow_match: left out: flags that change the crate
-target_modifiers/incompatible_fixedx18.rs#allow_mismatch: left out: flags that change the crate
-target_modifiers/incompatible_regparm.rs#allow_regparm_mismatch: left out: flags that change the crate
-target_modifiers/no_value_bool.rs#ok: left out: flags that change the crate
-target_modifiers/no_value_bool.rs#ok_explicit: left out: flags that change the crate
-target_modifiers/sanitizer_default.rs#explicit_default: left out: flags that change the crate
-target_modifiers/sanitizer_default.rs#implicit_default: left out: flags that change the crate
-target_modifiers/target_cpu_default.rs#explicit_default: left out: flags that change the crate
-target_modifiers/target_cpu_default.rs#implicit_default: left out: flags that change the crate
-target_modifiers/two_flags.rs#two_allowed: left out: flags that change the crate
 test-attrs/decl-macro-test.rs: left out: --test
 test-attrs/issue-53675-a-test-called-panic.rs: left out: --test
 trait-bounds/issue-94999.rs: type check: method not found

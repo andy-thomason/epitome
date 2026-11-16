@@ -179,7 +179,8 @@ impl<'a> Parser<'a> {
             // `reuse { .. }` struct literal.
             "reuse"
                 if q == 0
-                    && (self.segment_at(1) && !self.at_n(2, "!") || matches!(self.tok(1).0, "<" | "impl" | "unsafe" | "const")) =>
+                    && (self.segment_at(1) && !self.at_n(2, "!")
+                        || matches!(self.tok(1).0, "<" | "impl" | "unsafe" | "const")) =>
             {
                 ItemKind::Delegation
             }

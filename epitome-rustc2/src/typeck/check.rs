@@ -2842,8 +2842,10 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     self.infer.unify(vt, t);
                     return;
                 }
-                let has_ref = kids.iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == "ref");
-                let is_mut = kids.iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == "mut");
+                let words: Vec<&str> = kids.iter().filter(|&&c| ast.kind(c) == Kind::Keyword).map(|&c| ast.token(c).0).collect();
+                let has_ref = words.contains(&"ref");
+                // `ref mut x`, not `mut ref x` (a mutable binding).
+                let is_mut = words.windows(2).any(|w| w == ["ref", "mut"]) || !has_ref && words.contains(&"mut");
                 let mode = if has_ref {
                     BindingMode::Ref(if is_mut { Mutbl::Mut } else { Mutbl::Not })
                 } else if by_ref {
@@ -2889,9 +2891,12 @@ impl<'a, 's> FnCtxt<'a, 's> {
             }
             Kind::RefPat => {
                 let inner = *kids.last().unwrap();
-                let m = if kids.iter().any(|&c| ast.kind(c) == Kind::Keyword) { Mutbl::Mut } else { Mutbl::Not };
+                let keyword = |k: &str| kids.iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == k);
+                let m = if keyword("mut") { Mutbl::Mut } else { Mutbl::Not };
                 let it = self.infer.fresh();
                 let rt = self.mk(TyKind::Ref(m, it));
+                // `&pin mut p`: through a `Pin<&mut T>`.
+                let rt = if keyword("pin") { tcx.pin(rt) } else { rt };
                 if !self.infer.unify(rt, t) {
                     self.err(p, "reference pattern on a value that is not a reference");
                 }

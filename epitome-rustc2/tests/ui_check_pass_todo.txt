@@ -27,7 +27,6 @@ async-await/async-drop/live-dead-storage2.rs: type check: call of something that
 async-await/async-fn/edition-2015-not-async-bound.rs: path not resolved: Foo
 async-await/async-fn/sugar.rs: type check: `.await` on something that is not a future
 async-await/drop-tracking-unresolved-typeck-results.rs#assumptions: type check: a type left unknown
-async-await/for-await-2015.rs: error: expected a pattern, found `in` (for-await-2015.rs:10:15)
 async-await/format-await-send.rs: type check: mismatched types
 async-await/higher-ranked-auto-trait-1.rs#assumptions: type check: a type left unknown
 async-await/higher-ranked-auto-trait-15.rs#assumptions: type check: a type left unknown
@@ -39,11 +38,6 @@ attributes/z-crate-attr/cfg-false.rs: left out: flags that change the crate
 autodiff/flag_nott.rs: path not resolved: d_square
 borrowck/alias-liveness/escaping-bounds.rs: type check: a type left unknown
 borrowck/static-trait-bound-lost.rs: type check: a type left unknown
-cfg/raw-true-false.rs: error:  (raw-true-false.rs:6:5)
-check-cfg/compact-names.rs: error: unknown `cfg` operator `target` (compact-names.rs:9:7)
-check-cfg/compact-values.rs: error: unknown `cfg` operator `target` (compact-values.rs:9:7)
-check-cfg/raw-keywords.rs#edition2015: path not resolved: bar
-check-cfg/raw-keywords.rs#edition2021: path not resolved: bar
 check-cfg/report-in-external-macros.rs#cargo: macro not found: my_lib_macro!
 check-cfg/report-in-external-macros.rs#rustc: macro not found: my_lib_macro!
 check-cfg/values-target-json.rs: left out: a target rustc does not know
@@ -145,7 +139,7 @@ lint/expansion-time.rs: error: expanding `include!`: expected `;`, found `2` (ex
 lint/inert-attr-macro.rs: error: expanding `foo!`: expected an expression, found the end of the input (inert-attr-macro.rs:10:15)
 lint/ptr_null_checks.rs: type check: a type left unknown
 lint/rfc-2383-lint-reason/expect_tool_lint_rfc_2383.rs: type check: a type left unknown
-lint/unused-parens-pinned-reference-patterns.rs: error: expected `;`, found `const` (unused-parens-pinned-reference-patterns.rs:13:14)
+lint/unused-parens-pinned-reference-patterns.rs: error: expected `)`, found `const` (unused-parens-pinned-reference-patterns.rs:28:29)
 lint/unused/unused-variable-with-raw-identifier-in-struct-pattern.rs: type check: no such field in pattern
 lint/use-redundant/use-redundant-issue-78894.rs: import not resolved: : use bar (as bar)
 macros/dollar-crate-nested-encoding.rs: path not resolved: crate
@@ -162,7 +156,6 @@ methods/opaque_param_in_ufc.rs: type check: associated item not found
 methods/self-type-is-sup-no-eq.rs: type check: method not found
 mir/issue-75053.rs: type check: a type left unknown
 mut-restriction/feature-gate-mut-restriction.rs#with_gate: error: expected a name, found `mut` (feature-gate-mut-restriction.rs:8:9)
-mut/mut-ref.rs: error: expected a name, found `ref` (mut-ref.rs:5:13)
 never_type/basic/method-on-never.rs: type check: method not found
 nll/coroutine-distinct-lifetime.rs: type check: unsupported expression
 nll/extra-unused-mut.rs: type check: unsupported expression
@@ -182,7 +175,6 @@ pattern/deref-patterns/const-pats-do-not-mislead-inference.rs#deref_patterns: ty
 pattern/slice-patterns-nested.rs: type check: a type left unknown
 pin-ergonomics/pattern-matching-deref-pattern.rs#pin_ergonomics: type check: pattern of another type
 pin-ergonomics/reborrow-self.rs: type check: method not found
-pin-ergonomics/user-type-projection.rs: error: expected `;`, found `const` (user-type-projection.rs:18:14)
 privacy/issue-57264-2.rs: type check: method not found
 privacy/use-in-impl-scope-12729.rs: import not resolved: __ui_test_43::bar: use Foo (as Foo)
 proc-macro/allowed-attr-stmt-expr.rs: error: expanding `make_stmt!`: expected an expression, found `struct` (allowed-attr-stmt-expr.rs:43:9)

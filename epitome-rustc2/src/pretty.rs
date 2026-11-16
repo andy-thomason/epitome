@@ -1590,6 +1590,7 @@ mod tests {
         // as generic arguments.
         roundtrip("fn f(){match x{(Some(y) if y>0,)=>{}_=>{}}let (_ if c)=();let g=||move(a)||b;}");
         roundtrip("fn f(x:&pin mut T)->&pin const T{let p=&pin mut v;}impl S{fn m(&pin mut self){}}");
+        roundtrip("fn f(){let &pin const (x)=p;let mut ref y=1;let ref mut z=2;}");
         assert_eq!(roundtrip("pub const{assert!(true)}const{}"), "pub const {\n    assert!(true)\n}\n\nconst {}\n");
         roundtrip("struct S<const N:usize=const{0}>;fn f<T:Tr<const{1}>>(){}");
     }

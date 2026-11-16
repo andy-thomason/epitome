@@ -51,7 +51,11 @@ impl<'a> Parser<'a> {
             }
             "&" => {
                 self.bump();
-                if self.at("mut") {
+                // `&pin mut p`, `&pin const p`: through a `Pin<&mut T>`.
+                if self.at("pin") && (self.at_n(1, "mut") || self.at_n(1, "const")) {
+                    self.leaf(Kind::Keyword, 1);
+                    self.leaf(Kind::Keyword, 1);
+                } else if self.at("mut") {
                     self.leaf(Kind::Keyword, 1);
                 }
                 self.pattern_no_range()?;
@@ -159,6 +163,10 @@ impl<'a> Parser<'a> {
     /// path (a constant), not a binding.
     fn ident_pattern(&mut self) -> PResult<'a> {
         let m = self.mark();
+        // `mut ref x` (`mut_ref`): a mutable binding of a reference.
+        if self.at("mut") && self.at_n(1, "ref") {
+            self.leaf(Kind::Keyword, 1);
+        }
         if self.at("ref") {
             self.leaf(Kind::Keyword, 1);
         }

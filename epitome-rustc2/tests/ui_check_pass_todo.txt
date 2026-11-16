@@ -1,10 +1,5 @@
 # rust-lang/rust a69a63265cfd9e006d43137f98301b8d274ad4c9 on aarch64-macos
 # The check-pass UI tests that do not pass yet, and why (tests/ui_check_pass.rs).
-allow-partial-mitigations/ok-allow-partial-mitigations-minicore.rs#default: left out: edition
-allow-partial-mitigations/ok-allow-partial-mitigations-minicore.rs#deny: left out: edition
-allow-partial-mitigations/ok-allow-partial-mitigations.rs#stack-protector-and-control-flow-guard-explicit-allow: left out: edition
-allow-partial-mitigations/ok-allow-partial-mitigations.rs#stack-protector-deny-then-allow: left out: edition
-allow-partial-mitigations/ok-allow-partial-mitigations.rs#stack-protector-explicit-allow: left out: edition
 array-slice-vec/infer_array_len.rs: type check: a type left unknown
 associated-inherent-types/assoc-inherent-late-bound.rs: type check: a type left unknown
 associated-inherent-types/assoc-inherent-use.rs: type check: a type left unknown
@@ -49,13 +44,9 @@ async-await/higher-ranked-auto-trait-1.rs#assumptions: type check: a type left u
 async-await/higher-ranked-auto-trait-15.rs#assumptions: type check: a type left unknown
 async-await/issue-105501.rs: type check: method not found
 attributes/dont-dup-expr-attrs.rs: error: expanding `m2!`: expected `;`, found `}` (dont-dup-expr-attrs.rs:32:9)
-attributes/duplicated-attributes.rs: left out: --test
+attributes/duplicated-attributes.rs: import not resolved: : use test::Bencher (as Bencher)
 attributes/path-inline-module.rs: error: cannot read `/private/tmp/claude-502/-Users-amy-andy-thomason-epitome/d698d809-bf3b-400b-91f6-effe1b4b32f5/scratchpad/rust/tests/ui/attributes/inline_with_inner_path/foo.rs`: No such file or directory (os error 2) (path-inline-module.rs:19:9)
 attributes/z-crate-attr/cfg-false.rs: left out: flags that change the crate
-attributes/z-crate-attr/comments.rs: left out: flags that change the crate
-attributes/z-crate-attr/crate-name.rs: left out: flags that change the crate
-attributes/z-crate-attr/crate-type.rs: left out: flags that change the crate
-attributes/z-crate-attr/shebang.rs: left out: flags that change the crate
 autodiff/flag_nott.rs: path not resolved: d_square
 borrowck/alias-liveness/escaping-bounds.rs: type check: a type left unknown
 borrowck/assign-never-type.rs: type check: a type left unknown
@@ -121,8 +112,7 @@ coroutine/gen_block_is_iter.rs#next: type check: unsupported expression
 coroutine/gen_block_is_iter.rs#old: type check: unsupported expression
 coroutine/gen_fn_lifetime_capture.rs: type check: method not found
 coroutine/return-types-diverge.rs: type check: unsupported expression
-crate-loading/cross-compiled-proc-macro.rs: left out: flags that change the crate
-custom_test_frameworks/test-case-on-use-item-129765.rs: left out: --test
+crate-loading/cross-compiled-proc-macro.rs: left out: proc-macro crates rustc cannot build
 delegation/body-identity-glob.rs: error: expected an item, found `reuse` (body-identity-glob.rs:19:5)
 delegation/body-identity-list.rs: error: expected an item, found `reuse` (body-identity-list.rs:19:5)
 delegation/fn-header.rs: error: expected an item, found `reuse` (fn-header.rs:16:1)
@@ -142,13 +132,11 @@ delegation/rename.rs: error: expected an item, found `reuse` (rename.rs:10:1)
 deref/deref-to-dyn-fn-mut-callable.rs: type check: mismatched types
 derives/derive-macro-const-default.rs: type check: method not found
 derives/derive-renamed.rs: import not resolved: : use derive (as my_derive)
-editions/edition-imports-virtual-2015-ambiguity.rs: left out: flags that change the crate
+editions/edition-imports-virtual-2015-ambiguity.rs: path not resolved: edition_imports_2015
 editions/edition-keywords-2018-2015-expansion.rs: error: expanding `produces_async!`: expected a name, found `async` (edition-keywords-2018-2015-expansion.rs:11:5)
 editions/nested-macro-rules-edition.rs#e2024: error: expanding `macro_inner_input!`: expected a name, found `gen` (nested-macro-rules-edition.rs:30:5)
 ergonomic-clones/async/basic.rs: error: expected `|`, found `{` (basic.rs:12:15)
-extern-flag/noprelude-and-prelude.rs: left out: flags that change the crate
 extern/extern-types-inherent-impl.rs: type check: associated item of something that is not a type
-feature-gates/feature-gate-explicit-extern-abis.rs#future: left out: edition
 generic-associated-types/issue-87750.rs: type check: a type left unknown
 generic-associated-types/issue-89008.rs: type check: a type left unknown
 generic-associated-types/issue-93874.rs: type check: call of something that is not a function
@@ -206,18 +194,12 @@ lazy-type-alias-impl-trait/freeze_cycle.rs: type check: a type left unknown
 lazy-type-alias-impl-trait/recursion2.rs: type check: mismatched types
 lexer/ident_normalization.rs: path not resolved: K
 lifetimes/raw/three-tokens.rs: error: expanding `check!`: expected `;`, found the end of the input (three-tokens.rs:14:1)
-lint/dead-code/imported_main_dead_code_under_test.rs: left out: --test
-lint/dead-code/imported_main_glob_under_test.rs: left out: --test
-lint/dead-code/imported_main_path_under_test.rs: left out: --test
-lint/dead-code/imported_main_renamed_from_mod_under_test.rs: left out: --test
 lint/expansion-time.rs: error: expanding `include!`: expected `;`, found `2` (expansion-time.rs:21:5)
 lint/expect-future_breakage-crash-issue-126521.rs: error: expanding `foo!`: expected the end of the input, found `;` (expect-future_breakage-crash-issue-126521.rs:19:13)
 lint/forbid-macro-with-deny.rs#deny: error: expanding `emit_deny!`: expected the end of the input, found `;` (forbid-macro-with-deny.rs:31:5)
 lint/forbid-macro-with-deny.rs#forbid: error: expanding `emit_forbid!`: expected the end of the input, found `;` (forbid-macro-with-deny.rs:28:5)
 lint/function-item-references.rs: error: expanding `format_args_nl!`: expected `>`, found `)`
 lint/inert-attr-macro.rs: error: expanding `foo!`: expected an expression, found the end of the input (inert-attr-macro.rs:10:15)
-lint/lint-missing-doc-expect.rs#test_: left out: --test
-lint/lint-missing-doc-test.rs: left out: --test
 lint/ptr_null_checks.rs: type check: a type left unknown
 lint/rfc-2383-lint-reason/expect_lint_from_macro.rs: error: expanding `trigger_unused_variables_macro!`: expected the end of the input, found `;` (expect_lint_from_macro.rs:27:5)
 lint/rfc-2383-lint-reason/expect_tool_lint_rfc_2383.rs: type check: a type left unknown
@@ -230,7 +212,7 @@ macros/expand-full-in-format-str.rs: type check: a type left unknown
 macros/issue-34171.rs: error: in `null!`: no rule of the macro matches this input (issue-34171.rs:5:20)
 macros/issue-69838-mods-relative-to-included-path.rs: error: no file for module `bar`: neither `/private/tmp/claude-502/-Users-amy-andy-thomason-epitome/d698d809-bf3b-400b-91f6-effe1b4b32f5/scratchpad/rust/tests/ui/macros/bar.rs` nor `/private/tmp/claude-502/-Users-amy-andy-thomason-epitome/d698d809-bf3b-400b-91f6-effe1b4b32f5/scratchpad/rust/tests/ui/macros/bar/mod.rs` (included.rs:3:9)
 macros/issue-95267.rs: error: in `f!`: no rule of the macro matches this input (issue-95267.rs:13:5)
-macros/parse-test.rs: left out: --test
+macros/parse-test.rs: error: expected a macro matcher in delimiters (parse-test.rs:8:5)
 match/enum-and-break-in-match-issue-41213.rs: type check: mismatched types
 match/postfix-match/no-unused-parens.rs: error: expected a field or method name, found `match` (no-unused-parens.rs:6:10)
 methods/fulfillment-disqualifies-method.rs#current: type check: a type left unknown
@@ -276,15 +258,13 @@ proc-macro/issue-80760-empty-stmt.rs: error: in `empty_stmt!`: no rule of the ma
 proc-macro/meta-macro-hygiene.rs: left out: proc-macro crates rustc cannot build
 proc-macro/modules-in-input.rs: error: proc macro `expect_mod_item`: assertion `left == right` failed (modules-in-input.rs:10:1)
 proc-macro/panic-abort.rs: left out: proc-macro crate
-proc-macro/test-count-attributes.rs: left out: --test
-proc-macro/test-followed-by-attr-macros.rs: left out: --test
-proc-macro/test-re-emit.rs: left out: --test
+proc-macro/test-count-attributes.rs: error: proc macro `assert_no_attributes`: assertion `left == right` failed (test-count-attributes.rs:8:1)
+proc-macro/test-followed-by-attr-macros.rs: error: expected a macro matcher in delimiters (test-followed-by-attr-macros.rs:20:9)
 proc-macro/test.rs: error: proc macro `run`: assertion `left == right` failed (test.rs:14:1)
 reachable/unreachable-question-mark-forbid.rs: type check: a type left unknown
 regions/type-param-outlives-reempty-issue-74429-2.rs: type check: a type left unknown
 repeat-expr/copy-inference-side-effects.rs: type check: a type left unknown
-resolve/extern-prelude-speculative.rs: left out: flags that change the crate
-resolve/extern-prelude.rs: left out: flags that change the crate
+resolve/extern-prelude.rs: type check: wrong number of arguments
 resolve/open-ns-5.rs: import not resolved: : use my_api::utils::utils_helper (as utils_helper)
 resolve/open-ns-6.rs: import not resolved: : use my_api (as my_api)
 rfcs/rfc-0000-never_patterns/typeck.rs#pass: type check: a type left unknown
@@ -293,9 +273,7 @@ rfcs/rfc-2565-param-attrs/issue-64682-dropping-first-attrs-in-impl-fns.rs: error
 rfcs/rfc-2565-param-attrs/param-attrs-allowed.rs: type check: a type left unknown
 rfcs/rfc-2565-param-attrs/param-attrs-pretty.rs: error: proc macro `attr_extern`: assertion `left == right` failed (param-attrs-pretty.rs:15:1)
 rfcs/rfc-3348-c-string-literals/pre-2021-lexing.rs: error: in `parse!`: no rule of the macro matches this input (pre-2021-lexing.rs:26:27)
-rust-2018/remove-extern-crate.rs: left out: flags that change the crate
-rust-2018/suggestions-not-always-applicable.rs: import not resolved: __ui_test_34::test: use crate::foo::foo (as foo)
-rust-2018/uniform-paths/issue-56596-2.rs: left out: flags that change the crate
+rust-2018/suggestions-not-always-applicable.rs: import not resolved: __ui_test_40::test: use crate::foo::foo (as foo)
 rust-2021/future-prelude-collision-turbofish.rs: type check: a type left unknown
 sanitizer/cfg.rs#leak: path not resolved: main
 sanitizer/cfg.rs#memory: path not resolved: main
@@ -306,9 +284,6 @@ sized/coinductive-1-gat.rs: type check: a type left unknown
 specialization/source-impl-requires-constraining-predicates-ambig.rs#next: type check: mismatched types
 specialization/spec-influences-inference-issue-36262.rs#next: type check: a type left unknown
 str/str-escape.rs: type check: mismatched types
-suggestions/issue-57672.rs: left out: flags that change the crate
-test-attrs/decl-macro-test.rs: left out: --test
-test-attrs/issue-53675-a-test-called-panic.rs: left out: --test
 trait-bounds/issue-94999.rs: type check: method not found
 traits/alias/empty.rs: path not resolved: Self
 traits/alias/issue-60755.rs: type check: a type left unknown
@@ -367,8 +342,6 @@ unboxed-closures/arg-constrained-after-closure-inference.rs: type check: a type 
 unpretty/ast-const-trait-bound.rs: path not resolved: Bar
 unpretty/exhaustive.rs#expanded: error: expected an expression, found `try` (exhaustive.rs:246:9)
 unpretty/interpolation-expanded.rs: type check: operator on types that do not implement it
-unused-crate-deps/ignore-pathless-extern.rs: left out: flags that change the crate
-unused-crate-deps/test-use-ok.rs: left out: --test
 use/import_trait_associated_functions.rs: import not resolved: : use Default::default (as default)
 wf/unnormalized-projection-guides-inference.rs: type check: a type left unknown
 where-clauses/cfg-attr-issue-138010-1.rs: error: expected a type, found `#` (cfg-attr-issue-138010-1.rs:9:9)

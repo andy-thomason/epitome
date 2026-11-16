@@ -190,10 +190,12 @@ fn select_one(path: &Path, name: String, directives: &[(&str, &str)], rev: Optio
             }
             "aux-bin" | "aux-codegen-backend" => _ = left_out.get_or_insert("auxiliary binaries"),
             "edition" => {
-                // `2021`, or a range `2018..` / `2015..2021`: its start.
+                // `2021`, or a range `2018..` / `2015..2021`: its start;
+                // `future`, the latest.
                 let start: String = value.chars().take_while(char::is_ascii_digit).collect();
                 match Edition::parse(&start) {
                     Some(e) => edition = e,
+                    None if value == "future" => edition = Edition::E2024,
                     None => _ = left_out.get_or_insert("edition"),
                 }
             }
@@ -216,9 +218,18 @@ fn select_one(path: &Path, name: String, directives: &[(&str, &str)], rev: Optio
                     } else if let Some(c) = arg("--cfg") {
                         cfg.push(c.trim_matches('\'').to_string());
                     } else if f == "--test" {
-                        left_out.get_or_insert("--test");
-                    } else if f.starts_with("--extern") || f.starts_with("-Zcrate-attr") {
-                        left_out.get_or_insert("flags that change the crate");
+                        // The test harness's `main` is not looked at here.
+                        cfg.push("test".into());
+                    } else if let Some(e) = arg("--extern") {
+                        // A test's auxiliary crates are its deps already;
+                        // a name without a crate is not looked for.
+                        let _ = e;
+                    } else if let Some(a) = arg("-Zcrate-attr") {
+                        // `#![feature(..)]`, `#![crate_type = ".."]` change
+                        // nothing here; `#![cfg(..)]` could remove the crate.
+                        if a.contains("cfg(") {
+                            left_out.get_or_insert("flags that change the crate");
+                        }
                     } else if let Some(t) = arg("--target") {
                         if t.ends_with(".json") {
                             left_out.get_or_insert("a target rustc does not know");

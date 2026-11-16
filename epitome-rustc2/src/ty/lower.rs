@@ -329,6 +329,20 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
             },
             Res::Partial(base, rest) if *rest == 1 => {
                 let name = last.map_or("", |s| ast.token(s).0);
+                // `Foo::Bar` (`inherent_associated_types`): a type of one
+                // of `Foo`'s inherent impls.
+                if let Res::Def(d) = &**base
+                    && matches!(self.env.r.defs[d.0 as usize].kind, DefKind::Struct | DefKind::Enum | DefKind::Union)
+                {
+                    let segs: Vec<NodeId> =
+                        ast.children(path).iter().copied().filter(|&s| ast.kind(s) == Kind::Segment).collect();
+                    let prev = segs.len().checked_sub(2).map(|i| segs[i]);
+                    let args = self.args(*d, prev);
+                    let bt = self.tcx.mk(TyKind::Adt(*d, args));
+                    if let Some(t) = self.inherent_assoc(bt, *d, name) {
+                        return t;
+                    }
+                }
                 self.assoc_of(base, name)
             }
             Res::Partial(..) => self.err("associated item path of more than one segment"),
@@ -398,6 +412,28 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
             }
             _ => self.err("associated type of a concrete type"),
         }
+    }
+
+    /// Associated type `name` of an inherent impl of ADT `d` that fits
+    /// `bt`, with the impl's parameters as `bt` makes them.
+    fn inherent_assoc(&mut self, bt: Ty, d: DefId, name: &str) -> Option<Ty> {
+        let tcx = self.tcx;
+        for imp in &tcx.impls {
+            if imp.trait_ref.is_some() || !matches!(tcx.kind(imp.self_ty), TyKind::Adt(e, _) if e == d) {
+                continue;
+            }
+            let Some(m) = self.env.r.defs[imp.def.0 as usize].module.or_else(|| self.impl_module(imp.def)) else { continue };
+            let Some(Res::Def(a)) = self.env.r.lookup(m, name, Ns::Type, m) else { continue };
+            let params = tcx.all_params(imp.def);
+            let mut args: Vec<Option<Ty>> = vec![None; params.len()];
+            if !match_ty(tcx, imp.self_ty, bt, &params, &mut args) {
+                continue;
+            }
+            let args: Vec<Ty> = args.into_iter().zip(&params).map(|(a, &p)| a.unwrap_or_else(|| tcx.mk(TyKind::Param(p)))).collect();
+            let t = super::collect::alias_ty(tcx, self.env, &mut self.expanding, a);
+            return Some(super::collect::subst(tcx, t, &params, &args));
+        }
+        None
     }
 
     fn self_ty_at(&self, at: &At) -> Option<Ty> {
@@ -753,4 +789,31 @@ fn pattern_range(t: TyKind, pat: &str) -> Option<(u128, u128)> {
 /// lexer may have read `0.1` as one number.
 pub(crate) fn field_path(text: &str) -> Vec<String> {
     text.split('.').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+}
+
+/// Whether `actual` is `pattern` with its parameters among `params`
+/// replaced, which go in `args`.
+fn match_ty(tcx: &TyCtxt, pattern: Ty, actual: Ty, params: &[ParamId], args: &mut [Option<Ty>]) -> bool {
+    if let TyKind::Param(p) = tcx.kind(pattern)
+        && let Some(i) = params.iter().position(|&q| q == p)
+    {
+        return match args[i] {
+            Some(t) => t == actual,
+            None => {
+                args[i] = Some(actual);
+                true
+            }
+        };
+    }
+    match (tcx.kind(pattern), tcx.kind(actual)) {
+        (TyKind::Adt(a, x), TyKind::Adt(b, y)) if a == b => {
+            tcx.tys(x).into_iter().zip(tcx.tys(y)).all(|(p, q)| match_ty(tcx, p, q, params, args))
+        }
+        (TyKind::Tuple(x), TyKind::Tuple(y)) => {
+            let (x, y) = (tcx.tys(x), tcx.tys(y));
+            x.len() == y.len() && x.into_iter().zip(y).all(|(p, q)| match_ty(tcx, p, q, params, args))
+        }
+        (TyKind::Ref(m, x), TyKind::Ref(n, y)) if m == n => match_ty(tcx, x, y, params, args),
+        _ => pattern == actual,
+    }
 }

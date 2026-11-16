@@ -1,22 +1,11 @@
 # rust-lang/rust a69a63265cfd9e006d43137f98301b8d274ad4c9 on aarch64-macos
 # The check-pass UI tests that do not pass yet, and why (tests/ui_check_pass.rs).
 array-slice-vec/infer_array_len.rs: type check: a type left unknown
-associated-inherent-types/assoc-inherent-late-bound.rs: type check: a type left unknown
-associated-inherent-types/assoc-inherent-use.rs: type check: a type left unknown
 associated-inherent-types/const-generics.rs: type check: associated type not found
 associated-inherent-types/constrain_opaque_types_during_projection.rs: type check: a type left unknown
-associated-inherent-types/dispatch-on-self-type-0.rs: type check: a type left unknown
-associated-inherent-types/dispatch-on-self-type-1.rs: type check: a type left unknown
-associated-inherent-types/former-subst-ice.rs: type check: a type left unknown
 associated-inherent-types/generic-const-exprs.rs: type check: associated type not found
 associated-inherent-types/inference.rs#current: type check: a type left unknown
 associated-inherent-types/inference.rs#next: type check: a type left unknown
-associated-inherent-types/issue-104260.rs: type check: a type left unknown
-associated-inherent-types/issue-109790.rs: type check: a type left unknown
-associated-inherent-types/issue-111404-0.rs: type check: a type left unknown
-associated-inherent-types/normalize-projection-0.rs: type check: a type left unknown
-associated-inherent-types/normalize-projection-1.rs: type check: a type left unknown
-associated-inherent-types/substitute-params.rs: type check: a type left unknown
 associated-inherent-types/variance-computation-requires-equality.rs: type check: associated type not found
 associated-type-bounds/bad-bounds-on-assoc-in-trait.rs: type check: a type left unknown
 associated-type-bounds/supertrait-referencing.rs: crash: stack overflow

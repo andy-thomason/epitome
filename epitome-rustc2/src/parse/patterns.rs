@@ -62,7 +62,13 @@ impl<'a> Parser<'a> {
                 let mut n = 0;
                 let mut comma = false;
                 while !self.at(")") {
+                    let pm = self.mark();
                     self.pattern()?;
+                    // `(p if e)`: a guard pattern.
+                    if self.eat("if") {
+                        self.expr()?;
+                        self.finish(pm, Kind::GuardPat);
+                    }
                     n += 1;
                     comma = self.eat(",");
                     if !comma {

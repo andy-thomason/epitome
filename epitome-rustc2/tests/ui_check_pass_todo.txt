@@ -5,7 +5,6 @@ abi/compatibility.rs#aix: left out: flags that change the crate
 abi/compatibility.rs#arm: left out: flags that change the crate
 abi/compatibility.rs#bpf: left out: flags that change the crate
 abi/compatibility.rs#csky: left out: flags that change the crate
-abi/compatibility.rs#host: auxiliary crate `minicore`: error: expanding `pattern_type!`: expected the end of the input, found `)` (minicore.rs:174:26)
 abi/compatibility.rs#i686: left out: flags that change the crate
 abi/compatibility.rs#loongarch32: left out: flags that change the crate
 abi/compatibility.rs#loongarch64: left out: flags that change the crate
@@ -31,7 +30,6 @@ allow-partial-mitigations/ok-allow-partial-mitigations.rs#stack-protector-deny-t
 allow-partial-mitigations/ok-allow-partial-mitigations.rs#stack-protector-explicit-allow: left out: edition
 array-slice-vec/infer_array_len.rs: type check: a type left unknown
 asm/inline-syntax.rs#x86_64: left out: flags that change the crate
-associated-consts/issue-110933.rs: error: expected a type, found `const` (issue-110933.rs:12:17)
 associated-inherent-types/assoc-inherent-late-bound.rs: type check: a type left unknown
 associated-inherent-types/assoc-inherent-use.rs: type check: a type left unknown
 associated-inherent-types/const-generics.rs: type check: associated type not found
@@ -161,24 +159,20 @@ compile-flags/invalid/regparm/regparm-valid-values.rs#regparm3: left out: flags 
 compile-flags/invalid/regparm/requires-x86.rs#x86: left out: flags that change the crate
 compiletest-self-test/minicore-smoke-test.rs: left out: flags that change the crate
 const-generics/array-impls/alloc-traits-impls-length-32.rs: type check: a type left unknown
-const-generics/associated-const-bindings/bound-var-in-ty.rs: error: expected a type, found `const` (bound-var-in-ty.rs:23:13)
 const-generics/associated-const-bindings/equality_bound_with_infer.rs: type check: a type left unknown
 const-generics/generic_const_exprs/cross-crate-2.rs: type check: a type left unknown
-const-generics/generic_const_exprs/direct-inline-const-generic-default.rs: error: expected a type, found `const` (direct-inline-const-generic-default.rs:8:27)
 const-generics/generic_const_exprs/issue-80561-incorrect-param-env.rs: type check: a type left unknown
 const-generics/generic_const_exprs/poly-const-uneval-ice-106423.rs: type check: a type left unknown
 const-generics/generic_const_parameter_types/inherent-type-const.rs#next: macro not found: direct_const_arg!
 const-generics/generic_const_parameter_types/inherent-type-const.rs#old: macro not found: direct_const_arg!
 const-generics/infer_arr_len_from_pat.rs: type check: a type left unknown
 const-generics/issues/issue-85031-2.rs: type check: a type left unknown
-const-generics/mgca/adt_expr_infers_from_value.rs: error: expected a type, found `const` (adt_expr_infers_from_value.rs:38:31)
-const-generics/mgca/higher-ranked-lts-good.rs: error: expected a type, found `const` (higher-ranked-lts-good.rs:10:14)
+const-generics/mgca/adt_expr_infers_from_value.rs: type check: a type left unknown
 const-generics/mgca/infer-vars-in-const-args-correct.rs: type check: a type left unknown
 const-generics/mgca/paren.rs: macro not found: direct_const_arg!
 const-generics/mgca/tuple_expr_arg_simple.rs: macro not found: direct_const_arg!
 const-generics/trait-const-args.rs: type check: a type left unknown
 const-generics/where-clauses.rs: type check: a type left unknown
-consts/const-block-items/assert-pass.rs: error: expected an item, found `const` (assert-pass.rs:4:1)
 consts/issue-104396.rs: type check: a type left unknown
 consts/issue-62045.rs: type check: a type left unknown
 consts/issue-67696-const-prop-ice.rs: type check: a type left unknown
@@ -227,7 +221,6 @@ derives/coercepointee/proc-macro-attribute-mixing.rs: left out: proc-macro crate
 derives/derive-macro-const-default.rs: type check: method not found
 derives/derive-marker-tricky.rs: left out: proc-macro crates
 derives/derive-renamed.rs: import not resolved: : use derive (as my_derive)
-derives/deriving-with-helper.rs: auxiliary crate `minicore`: error: expanding `pattern_type!`: expected the end of the input, found `)` (minicore.rs:174:26)
 diagnostic_namespace/existing_proc_macros.rs: left out: proc-macro crates
 editions/edition-imports-virtual-2015-ambiguity.rs: left out: flags that change the crate
 editions/edition-keywords-2018-2015-expansion.rs: error: expanding `produces_async!`: expected a name, found `async` (edition-keywords-2018-2015-expansion.rs:11:5)
@@ -342,12 +335,11 @@ lint/rfc-2383-lint-reason/expect_tool_lint_rfc_2383.rs: type check: a type left 
 lint/semicolon-in-expressions-from-macros/semicolon-in-expressions-from-macros.rs: error: expanding `foo!`: expected the end of the input, found `;` (semicolon-in-expressions-from-macros.rs:30:13)
 lint/trivial-cast-ice.rs: macro not found: foo!
 lint/unsafe_code/forge_unsafe_block.rs: left out: proc-macro crates
-lint/unused-parens-pinned-reference-patterns.rs: error: expected `)`, found `const` (unused-parens-pinned-reference-patterns.rs:9:21)
+lint/unused-parens-pinned-reference-patterns.rs: error: expected `;`, found `const` (unused-parens-pinned-reference-patterns.rs:13:14)
 lint/unused/diverging-path.rs: path not resolved: dyn
 lint/unused/unused-parens-trait-obj-proc-macro-144378.rs: left out: proc-macro crates
 lint/unused/unused-variable-with-raw-identifier-in-struct-pattern.rs: type check: no such field in pattern
 lint/unused/unused_assignment.rs: left out: proc-macro crates
-lint/unused/unused_parens/parens-around-guard-patterns-not-unused.rs: error: expected `)`, found `if` (parens-around-guard-patterns-not-unused.rs:12:12)
 lint/use-redundant/use-redundant-issue-78894.rs: import not resolved: : use bar (as bar)
 liveness/unused-assignments-from-macro-147648.rs: left out: proc-macro crates
 macros/cross-crate-pat-span.rs: macro not found: custom_matches!
@@ -366,13 +358,6 @@ methods/fulfillment-disqualifies-method.rs#next: type check: a type left unknown
 methods/opaque_param_in_ufc.rs: type check: associated item not found
 methods/self-type-is-sup-no-eq.rs: type check: method not found
 mir/issue-75053.rs: type check: a type left unknown
-move-expr/borrow-only.rs: error: expected `|`, found `(` (borrow-only.rs:8:22)
-move-expr/copy-type.rs: error: expected `|`, found `(` (copy-type.rs:8:21)
-move-expr/name-resolution.rs: error: expected `|`, found `(` (name-resolution.rs:11:13)
-move-expr/nested-closures.rs: error: expected `|`, found `(` (nested-closures.rs:13:28)
-move-expr/nested-move-expr.rs: error: expected `|`, found `(` (nested-move-expr.rs:8:17)
-move-expr/parse-ambiguity.rs: error: expected `|`, found `(` (parse-ambiguity.rs:8:20)
-move-expr/plain-closure.rs: error: expected `|`, found `(` (plain-closure.rs:8:21)
 mut-restriction/feature-gate-mut-restriction.rs#with_gate: error: expected a name, found `mut` (feature-gate-mut-restriction.rs:8:9)
 mut/mut-ref.rs: error: expected a name, found `ref` (mut-ref.rs:5:13)
 never_type/basic/method-on-never.rs: type check: method not found
@@ -390,10 +375,6 @@ nll/user-annotations/issue-54570-bootstrapping.rs: type check: no such field in 
 or-patterns/consistent-bindings.rs: type check: a type left unknown
 or-patterns/const-fn.rs: type check: a type left unknown
 or-patterns/or-patterns-default-binding-modes.rs: type check: mismatched types
-parser/const-block-items/attrs.rs: error: expected an item, found `const` (attrs.rs:6:1)
-parser/const-block-items/macro-item.rs: error: in `foo!`: no rule of the macro matches this input (macro-item.rs:10:1)
-parser/const-block-items/mod-in-fn.rs: error: expected an item, found `const` (mod-in-fn.rs:7:9)
-parser/const-block-items/pub.rs: error: expected an item, found `const` (pub.rs:6:5)
 parser/dyn-2015-identifier.rs#pass: error: expected `>`, found `,` (dyn-2015-identifier.rs:13:18)
 parser/fn-header-syntactic-pass.rs: error: expected `|`, found `unsafe` (fn-header-syntactic-pass.rs:14:17)
 parser/generic-param-default-in-binder.rs: error: in `a!`: no rule of the macro matches this input (generic-param-default-in-binder.rs:8:1)
@@ -404,17 +385,9 @@ parser/self-param-syntactic-pass.rs: error: expected a type, found `mut` (self-p
 parser/try-with-nonterminal-block.rs: type check: a type left unknown
 pattern/bindings-after-at/borrowck-pat-by-copy-bindings-in-at.rs: type check: a type left unknown
 pattern/deref-patterns/const-pats-do-not-mislead-inference.rs#deref_patterns: type check: a type left unknown
-pattern/rfc-3637-guard-patterns/liveness-ice-issue-146445.rs: error: expected `)`, found `if` (liveness-ice-issue-146445.rs:18:12)
-pattern/rfc-3637-guard-patterns/only-gather-locals-once.rs: error: expected `)`, found `if` (only-gather-locals-once.rs:12:12)
 pattern/slice-patterns-nested.rs: type check: a type left unknown
-pin-ergonomics/borrow.rs: error: expected `;`, found `mut` (borrow.rs:19:35)
 pin-ergonomics/pattern-matching-deref-pattern.rs#pin_ergonomics: type check: pattern of another type
-pin-ergonomics/pinned-drop-sugar-no-core.rs: error: expected `)`, found `mut` (pinned-drop-sugar-no-core.rs:71:18)
-pin-ergonomics/pinned-drop-sugar.rs: error: expected `)`, found `mut` (pinned-drop-sugar.rs:16:18)
 pin-ergonomics/reborrow-self.rs: type check: method not found
-pin-ergonomics/sugar-self.rs: error: expected `)`, found `mut` (sugar-self.rs:14:17)
-pin-ergonomics/sugar.rs: error: expected `)`, found `mut` (sugar.rs:14:23)
-pin-ergonomics/unused-mut.rs: error: expected `)`, found `mut` (unused-mut.rs:13:17)
 pin-ergonomics/user-type-projection.rs: error: expected `;`, found `const` (user-type-projection.rs:18:14)
 pointer_authentication/enable_pointer_authentication_validation.rs#all_known: left out: flags that change the crate
 pointer_authentication/invalid_target_pointer_authentication.rs: left out: flags that change the crate
@@ -508,7 +481,6 @@ proc-macro/test.rs: left out: proc-macro crates
 proc-macro/trailing-plus.rs: left out: proc-macro crates
 proc-macro/trait-fn-args-2015.rs: left out: proc-macro crates
 proc-macro/weird-braces.rs: left out: proc-macro crates
-reachable/guard_read_for_never.rs: error: expected `)`, found `if` (guard_read_for_never.rs:13:16)
 reachable/never-assign-dead-code.rs: type check: a type left unknown
 reachable/never-pattern-closure-param-array.rs: type check: a type left unknown
 reachable/unreachable-question-mark-forbid.rs: type check: a type left unknown
@@ -542,12 +514,12 @@ sanitizer/cfg-kasan.rs#riscv64gc: left out: flags that change the crate
 sanitizer/cfg-kasan.rs#riscv64imac: left out: flags that change the crate
 sanitizer/cfg-kasan.rs#x86_64: left out: flags that change the crate
 sanitizer/cfg-khwasan.rs: left out: flags that change the crate
-sanitizer/cfg.rs#address: auxiliary crate `minicore`: error: expanding `pattern_type!`: expected the end of the input, found `)` (minicore.rs:174:26)
-sanitizer/cfg.rs#cfi: auxiliary crate `minicore`: error: expanding `pattern_type!`: expected the end of the input, found `)` (minicore.rs:174:26)
+sanitizer/cfg.rs#address: path not resolved: main
+sanitizer/cfg.rs#cfi: path not resolved: main
 sanitizer/cfg.rs#kcfi: left out: flags that change the crate
-sanitizer/cfg.rs#leak: auxiliary crate `minicore`: error: expanding `pattern_type!`: expected the end of the input, found `)` (minicore.rs:174:26)
-sanitizer/cfg.rs#memory: auxiliary crate `minicore`: error: expanding `pattern_type!`: expected the end of the input, found `)` (minicore.rs:174:26)
-sanitizer/cfg.rs#thread: auxiliary crate `minicore`: error: expanding `pattern_type!`: expected the end of the input, found `)` (minicore.rs:174:26)
+sanitizer/cfg.rs#leak: path not resolved: main
+sanitizer/cfg.rs#memory: path not resolved: main
+sanitizer/cfg.rs#thread: path not resolved: main
 self/self-ctor-nongeneric.rs: path not resolved: Self
 single-use-lifetime/anonymous_lifetime_in_impl_trait.rs#without-gate: path not resolved: dyn
 single-use-lifetime/issue-104440.rs: type check: method not found
@@ -555,7 +527,6 @@ single-use-lifetime/issue-117965.rs: type check: mismatched types
 sized/coinductive-1-gat.rs: type check: a type left unknown
 specialization/source-impl-requires-constraining-predicates-ambig.rs#next: type check: mismatched types
 specialization/spec-influences-inference-issue-36262.rs#next: type check: a type left unknown
-static/static_sized_requirement.rs: auxiliary crate `minicore`: error: expanding `pattern_type!`: expected the end of the input, found `)` (minicore.rs:174:26)
 str/str-escape.rs: type check: mismatched types
 suggestions/issue-57672.rs: left out: flags that change the crate
 target-feature/abi-incompatible-target-feature-flag-enable.rs#riscv: left out: flags that change the crate
@@ -581,7 +552,6 @@ test-attrs/issue-53675-a-test-called-panic.rs: left out: --test
 trait-bounds/issue-94999.rs: type check: method not found
 traits/alias/empty.rs: path not resolved: Self
 traits/alias/issue-60755.rs: type check: a type left unknown
-traits/associated_type_bound/generic-const-args-default.rs: error: expected a type, found `const` (generic-const-args-default.rs:6:28)
 traits/const-traits/conditionally-const-trait-bound-syntax.rs: path not resolved: Tr
 traits/const-traits/const-traits-core.rs: type check: method not found
 traits/const-traits/minicore-works.rs: type check: call of something that is not a function

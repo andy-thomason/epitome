@@ -451,6 +451,8 @@ pub enum Kind {
     TuplePat,
     /// `(p)`: `Pattern`.
     ParenPat,
+    /// `p if e`, in brackets (`(Some(x) if x > 0)`): `Pattern Expr`.
+    GuardPat,
     /// `[a, .., b]`: `Pattern*`.
     SlicePat,
     /// `Path`, as a constant, unit struct or variant.
@@ -502,6 +504,8 @@ pub enum Kind {
     Await,
     /// `a.use`: `Expr`.
     UseExpr,
+    /// `move(a)` in a closure: `Expr`, moved into the closure.
+    MoveExpr,
     /// `(a, b)`, `()`: `Expr*`.
     Tuple,
     /// `(a)`: `Expr`.

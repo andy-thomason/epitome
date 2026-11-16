@@ -80,10 +80,12 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
                 None => self.err("empty path type"),
             },
             Kind::RefType => {
-                let mutbl = if kids.iter().any(|&c| ast.kind(c) == Kind::Keyword) { Mutbl::Mut } else { Mutbl::Not };
+                let keyword = |k: &str| kids.iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == k);
+                let mutbl = if keyword("mut") { Mutbl::Mut } else { Mutbl::Not };
                 let inner = *kids.last().unwrap();
                 let t = self.ty(inner);
-                self.tcx.mk(TyKind::Ref(mutbl, t))
+                let r = self.tcx.mk(TyKind::Ref(mutbl, t));
+                if keyword("pin") { self.tcx.pin(r) } else { r }
             }
             Kind::PtrType => {
                 let mutbl = if ast.token(kids[0]).0 == "mut" { Mutbl::Mut } else { Mutbl::Not };

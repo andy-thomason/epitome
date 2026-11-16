@@ -207,6 +207,7 @@ fn is_expr(k: Kind) -> bool {
             | AttrExpr
             | Builtin
             | UseExpr
+            | MoveExpr
             | Yeet
     )
 }
@@ -1414,7 +1415,15 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     _ => None,
                 });
                 let t = self.expr(e, inner_expect);
-                if raw { self.mk(TyKind::Ptr(mutbl, t)) } else { self.mk(TyKind::Ref(mutbl, t)) }
+                if raw {
+                    self.mk(TyKind::Ptr(mutbl, t))
+                } else if kids.iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == "pin") {
+                    // `&pin mut x`: `Pin<&mut T>`.
+                    let r = self.mk(TyKind::Ref(mutbl, t));
+                    tcx.pin(r)
+                } else {
+                    self.mk(TyKind::Ref(mutbl, t))
+                }
             }
             Kind::Cast => {
                 let target = self.written_ty(kids[1]);
@@ -1671,6 +1680,8 @@ impl<'a, 's> FnCtxt<'a, 's> {
             }
             // `x.use`: a clone (or copy) of `x`.
             Kind::UseExpr if kids.len() == 1 && is_expr(ast.kind(kids[0])) => self.expr(kids[0], expect),
+            // `move(x)`: `x`, moved into the closure.
+            Kind::MoveExpr => self.expr(kids[0], expect),
             Kind::Yield | Kind::Become | Kind::Yeet | Kind::UseExpr => {
                 for &c in &kids {
                     if is_expr(ast.kind(c)) {
@@ -2580,8 +2591,16 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let kind = ast.kind(p);
         // A pattern that is not a binding or a reference pattern matches
         // through references, binding by reference.
-        let peels = !matches!(kind, Kind::IdentPat | Kind::WildPat | Kind::RefPat | Kind::RestPat | Kind::OrPat | Kind::ParenPat)
-            || kind == Kind::IdentPat && self.r.res_of(self.k as usize, self.file as usize, p).is_some();
+        let peels = !matches!(
+            kind,
+            Kind::IdentPat
+                | Kind::WildPat
+                | Kind::RefPat
+                | Kind::RestPat
+                | Kind::OrPat
+                | Kind::ParenPat
+                | Kind::GuardPat
+        ) || kind == Kind::IdentPat && self.r.res_of(self.k as usize, self.file as usize, p).is_some();
         let t = if peels || kind == Kind::RefPat { self.norm(t) } else { t };
         if peels && let TyKind::Ref(m, inner) = tcx.kind(self.infer.shallow(t)) {
             let bm = if by_ref && bm == Mutbl::Not { Mutbl::Not } else { m };
@@ -2629,6 +2648,15 @@ impl<'a, 's> FnCtxt<'a, 's> {
             }
             Kind::WildPat | Kind::RestPat | Kind::NeverPat | Kind::PatMacro => {}
             Kind::ParenPat => self.pat(kids[0], t, bm, by_ref),
+            // `p if e`: `e` is a `bool`, checked once `p` binds its names.
+            Kind::GuardPat => {
+                self.pat(kids[0], t, bm, by_ref);
+                let b = self.mk(TyKind::Bool);
+                let g = self.expr(kids[1], Some(b));
+                if !self.infer.unify(g, b) {
+                    self.err(kids[1], "mismatched types");
+                }
+            }
             Kind::OrPat => {
                 for &k in &kids {
                     self.pat(k, t, bm, by_ref);

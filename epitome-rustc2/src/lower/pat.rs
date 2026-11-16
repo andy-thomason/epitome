@@ -27,6 +27,7 @@ pub(crate) fn is_pattern(k: Kind) -> bool {
             | RefPat
             | TuplePat
             | ParenPat
+            | GuardPat
             | SlicePat
             | PathPat
             | TupleStructPat
@@ -80,6 +81,7 @@ pub(crate) fn is_expr(k: Kind) -> bool {
             | Try
             | Await
             | UseExpr
+            | MoveExpr
             | Tuple
             | Paren
             | Array

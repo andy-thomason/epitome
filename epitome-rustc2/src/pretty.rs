@@ -727,6 +727,15 @@ impl<'p, 'a> Printer<'p, 'a> {
                 self.s(" as ");
                 self.join(kids, "");
             }
+            // `const { ... }` as an item.
+            Const if self.ast.child(id, Name).is_none() && self.ast.child(id, ConstBlock).is_some() => {
+                for &k in self.attrs_lines(kids) {
+                    self.node(k);
+                    if self.kind(k) == Visibility {
+                        self.s(" ");
+                    }
+                }
+            }
             Const | Static | TypeAlias => {
                 let rest = self.attrs_lines(kids);
                 let word = match self.kind(id) {
@@ -1072,6 +1081,11 @@ impl<'p, 'a> Printer<'p, 'a> {
                 self.node(kids[0]);
                 self.s(")");
             }
+            GuardPat => {
+                self.node(kids[0]);
+                self.s(" if ");
+                self.node(kids[1]);
+            }
             PatternType => {
                 self.s("(");
                 self.node(kids[0]);
@@ -1289,6 +1303,11 @@ impl<'p, 'a> Printer<'p, 'a> {
             UseExpr => {
                 self.operand(kids[0], PREC_POSTFIX);
                 self.s(".use");
+            }
+            MoveExpr => {
+                self.s("move(");
+                self.node(kids[0]);
+                self.s(")");
             }
             StructBase => {
                 self.s("..");
@@ -1522,6 +1541,16 @@ mod tests {
         roundtrip("unsafe extern \"C\"{safe fn f(x:u8,...);}extern crate std as s;mod m{}mod n;");
         roundtrip("fn f<'a,T:?Sized+'a,const N:usize>(x:&'a mut[T;N],y:*const T)->Box<dyn Fn(&T)->bool+'a>{todo!()}");
         roundtrip("fn f(){match x{S{a,b:1,ref c,..}=>{}[a,..,b]=>{}1..=5|-1=>{}A::B(..)=>{}}}");
+    }
+
+    #[test]
+    fn unstable_syntax() {
+        // Guard patterns, `move(x)`, `&pin`, const blocks as items and
+        // as generic arguments.
+        roundtrip("fn f(){match x{(Some(y) if y>0,)=>{}_=>{}}let (_ if c)=();let g=||move(a)||b;}");
+        roundtrip("fn f(x:&pin mut T)->&pin const T{let p=&pin mut v;}impl S{fn m(&pin mut self){}}");
+        assert_eq!(roundtrip("pub const{assert!(true)}const{}"), "pub const {\n    assert!(true)\n}\n\nconst {}\n");
+        roundtrip("struct S<const N:usize=const{0}>;fn f<T:Tr<const{1}>>(){}");
     }
 
     #[test]

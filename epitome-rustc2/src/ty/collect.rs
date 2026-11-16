@@ -330,8 +330,13 @@ fn self_param_ty(l: &mut Lower, p: NodeId, self_ty: Ty) -> Ty {
         return l.ty(t);
     }
     let by_ref = kids.iter().any(|&c| ast.kind(c) == Kind::Op);
-    let mutbl = kids.iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == "mut");
-    if by_ref { l.tcx.mk(TyKind::Ref(if mutbl { Mutbl::Mut } else { Mutbl::Not }, self_ty)) } else { self_ty }
+    let keyword = |k: &str| kids.iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == k);
+    if !by_ref {
+        return self_ty;
+    }
+    let r = l.tcx.mk(TyKind::Ref(if keyword("mut") { Mutbl::Mut } else { Mutbl::Not }, self_ty));
+    // `&pin mut self`: `self: Pin<&mut Self>`.
+    if keyword("pin") { l.tcx.pin(r) } else { r }
 }
 
 /// What `signature` works out for one item.
@@ -441,6 +446,9 @@ fn signature<'s>(tcx: &TyCtxt<'s>, env: &Env<'_, 's>, d: DefId) -> Option<SigOut
             if let Some(t) = ast.children(node).iter().copied().find(|&c| is_type(ast.kind(c))) {
                 let t = l.ty(t);
                 tcx.set_type_of(d, t);
+            } else if ast.child(node, Kind::Name).is_none() && ast.child(node, Kind::ConstBlock).is_some() {
+                // `const { ... }` as an item.
+                tcx.set_type_of(d, tcx.unit());
             }
         }
         DefKind::Trait | DefKind::TraitAlias => {

@@ -167,6 +167,8 @@ impl<'a> Parser<'a> {
             "type" => ItemKind::Type,
             "crate" if has("extern") => ItemKind::ExternCrate,
             "{" if has("extern") => ItemKind::ExternBlock,
+            // `const { ... }` at item level: an anonymous constant.
+            "{" if q > 0 && self.at_n(q - 1, "const") => ItemKind::Const,
             "union" if self.name_at(q + 1) => ItemKind::Union,
             "macro_rules" if self.at_n(q + 1, "!") && self.name_at(q + 2) => ItemKind::MacroRules,
             "macro" if self.name_at(q + 1) => ItemKind::MacroDef,
@@ -286,6 +288,9 @@ impl<'a> Parser<'a> {
             return false;
         }
         let n = if self.lifetime_at(1) { 2 } else { 1 };
+        if self.at_n(n, "pin") && (self.at_n(n + 1, "mut") || self.at_n(n + 1, "const")) {
+            return is_self(n + 2);
+        }
         is_self(n) || self.at_n(n, "mut") && is_self(n + 1)
     }
 
@@ -294,6 +299,11 @@ impl<'a> Parser<'a> {
             self.leaf(Kind::Op, 1);
             if self.lifetime_at(0) {
                 self.leaf(Kind::Lifetime, 1);
+            }
+            // `&pin mut self`, `&pin const self`.
+            if self.at("pin") {
+                self.leaf(Kind::Keyword, 1);
+                self.leaf(Kind::Keyword, 1);
             }
         }
         if self.at("mut") {
@@ -633,6 +643,16 @@ impl<'a> Parser<'a> {
         }
         if self.at("type") {
             self.leaf(Kind::Keyword, 1);
+        }
+        // `const { ... }`: no name or type, a block of type `()`.
+        if self.at("const") && self.at_n(1, "{") {
+            let b = self.mark();
+            self.bump();
+            self.block_expr()?;
+            self.finish(b, Kind::ConstBlock);
+            self.eat(";");
+            self.finish(m, Kind::Const);
+            return Ok(());
         }
         self.expect("const")?;
         if self.at("_") {

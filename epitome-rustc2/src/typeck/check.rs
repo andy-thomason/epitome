@@ -750,9 +750,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
         match (tcx.kind(g), tcx.kind(w)) {
             (TyKind::Never, TyKind::Never) => return true,
             (TyKind::Never, _) => {
-                if self.infer.var_kind(w) == Some(VarKind::General) {
-                    self.diverging.push(w);
-                }
+                self.diverges_into(w);
                 self.adjust(n, vec![Adjust::NeverToAny], w);
                 return true;
             }
@@ -890,10 +888,14 @@ impl<'a, 's> FnCtxt<'a, 's> {
     /// The common type of two branches (`if`/`else`, match arms).
     fn join(&mut self, n: NodeId, a: Ty, b: Ty) -> Ty {
         let (sa, sb) = (self.infer.shallow(a), self.infer.shallow(b));
+        // A `!` arm: the other's type, which, if nothing else settles it,
+        // falls back as a diverging variable does.
         if self.tcx.kind(sa) == TyKind::Never {
+            self.diverges_into(b);
             return b;
         }
         if self.tcx.kind(sb) == TyKind::Never {
+            self.diverges_into(a);
             return a;
         }
         // `*mut T` and `*const T`: both `*const T`.
@@ -907,6 +909,15 @@ impl<'a, 's> FnCtxt<'a, 's> {
             return self.tcx.error();
         }
         a
+    }
+
+    /// Marks `t`, if a variable not yet known, as one a `!` was coerced to
+    /// (see `diverging`).
+    fn diverges_into(&mut self, t: Ty) {
+        let t = self.infer.shallow(t);
+        if self.infer.var_kind(t) == Some(VarKind::General) {
+            self.diverging.push(t);
+        }
     }
 
     // ---- items as values ----
@@ -1758,6 +1769,8 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 let t = self.expr(kids[0], None);
                 let o = self.try_output(n, t);
                 self.record_try(n, t);
+                // `x?` is a match one of whose arms returns.
+                self.diverges_into(o);
                 o
             }
             Kind::Closure => self.closure(n, &kids, expect),

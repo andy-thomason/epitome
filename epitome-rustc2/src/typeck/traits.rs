@@ -903,6 +903,18 @@ impl<'a, 's> FnCtxt<'a, 's> {
     /// Tries the pending projections again: those whose types are now
     /// known enough give their variable a type.
     pub(super) fn process_pending(&mut self) {
+        // A projection settled may settle a trait obligation's arguments,
+        // and the other way round: until neither changes.
+        loop {
+            let before = (self.pending_traits.len(), self.pending.len());
+            self.process_pending_once();
+            if (self.pending_traits.len(), self.pending.len()) == before {
+                break;
+            }
+        }
+    }
+
+    fn process_pending_once(&mut self) {
         let tcx = self.tcx;
         // Trait predicates whose arguments are variables: one impl
         // matching settles them.
@@ -921,6 +933,26 @@ impl<'a, 's> FnCtxt<'a, 's> {
             }
             match self.select(t, tr, &args, 1) {
                 Select::Ambiguous if !self.settle_by_agreement(t, tr, &args) => i += 1,
+                // The impl chosen: its `where` clauses with unknowns in
+                // them may settle those in turn (`Result<(), ()>:
+                // FromResidual<Result<!, ?E>>` needs `(): From<?E>`).
+                Select::Yes(Source::Impl(imp, iargs)) => {
+                    self.pending_traits.swap_remove(i);
+                    let def = tcx.impls[imp].def;
+                    let params = tcx.all_params(def);
+                    for p in &tcx.predicates[def.0 as usize] {
+                        let Pred::Trait(pt, ptr) = p else { continue };
+                        if Some(&ptr.def) == tcx.lang.get("sized") || self.pending_traits.len() > 64 {
+                            continue;
+                        }
+                        let pt = subst(tcx, *pt, &params, &iargs);
+                        let pa: Vec<Ty> = tcx.tys(ptr.args).into_iter().map(|x| subst(tcx, x, &params, &iargs)).collect();
+                        if !tcx.has_infer(self.infer.resolve(pt)) && pa.iter().any(|&a| tcx.has_infer(self.infer.resolve(a))) {
+                            let pa = self.full_trait_args(ptr.def, pt, pa);
+                            self.pending_traits.push((pt, ptr.def, tcx.list(pa)));
+                        }
+                    }
+                }
                 _ => {
                     self.pending_traits.swap_remove(i);
                 }
@@ -1294,6 +1326,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
         if let Some(fr) = from {
             let ret = self.ret;
             self.implicit_call(n, fr, "from_residual", vec![ret, residual]);
+            // `R: FromResidual<Result<Infallible, E>>`, where the one impl
+            // that fits settles `E` (`Ok(())?` in a `Result<(), ()>`).
+            self.pending_traits.push((ret, fr, tcx.list(vec![residual])));
         }
     }
 

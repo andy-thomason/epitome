@@ -90,16 +90,13 @@ const-generics/mgca/paren.rs: error: expanding `direct_const_arg!`: expected a t
 const-generics/trait-const-args.rs: type check: a type left unknown
 const-generics/where-clauses.rs: type check: a type left unknown
 consts/issue-104396.rs: type check: a type left unknown
-consts/issue-62045.rs: type check: a type left unknown
 consts/issue-67696-const-prop-ice.rs: type check: a type left unknown
 consts/self_normalization2.rs: type check: a type left unknown
 crate-loading/cross-compiled-proc-macro.rs: left out: proc-macro crates rustc cannot build
 delegation/body-identity-glob.rs: path not resolved: check
 delegation/body-identity-list.rs: path not resolved: check
 delegation/impl-reuse-pass.rs: path not resolved: F2
-delegation/impl-trait.rs: type check: method not found
 deref/deref-to-dyn-fn-mut-callable.rs: type check: mismatched types
-derives/derive-macro-const-default.rs: type check: method not found
 derives/derive-renamed.rs: import not resolved: : use derive (as my_derive)
 editions/edition-imports-virtual-2015-ambiguity.rs: path not resolved: edition_imports_2015
 editions/edition-keywords-2018-2015-expansion.rs: error: expanding `produces_async!`: expected a name, found `async` (edition-keywords-2018-2015-expansion.rs:11:5)
@@ -133,7 +130,6 @@ impl-trait/in-trait/late-bound-in-object-assocty.rs: type check: mismatched type
 impl-trait/issues/issue-104815.rs: type check: mismatched types
 impl-trait/issues/issue-49579.rs: type check: a type left unknown
 impl-trait/lifetime-ambiguity-regression.rs: type check: a type left unknown
-impl-trait/mapping-duplicated-lifetimes-issue-114597.rs: type check: method not found
 impl-trait/method/broken-deref-chain.rs#next: type check: mismatched types
 impl-trait/method/method-resolution.rs#current: type check: method not found
 impl-trait/method/method-resolution.rs#next: type check: method not found
@@ -251,7 +247,6 @@ str/str-escape.rs: type check: mismatched types
 trait-bounds/issue-94999.rs: type check: method not found
 traits/alias/empty.rs: path not resolved: Self
 traits/const-traits/conditionally-const-trait-bound-syntax.rs: path not resolved: Tr
-traits/const-traits/const-traits-core.rs: type check: method not found
 traits/const-traits/minicore-works.rs: type check: call of something that is not a function
 traits/issue-59029-2.rs: path not resolved: Self
 traits/issue-66768.rs: type check: method not found

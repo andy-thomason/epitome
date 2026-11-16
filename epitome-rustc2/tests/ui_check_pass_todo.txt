@@ -116,7 +116,6 @@ const-generics/where-clauses.rs: type check: a type left unknown
 consts/issue-104396.rs: type check: a type left unknown
 consts/issue-62045.rs: type check: a type left unknown
 consts/issue-67696-const-prop-ice.rs: type check: a type left unknown
-consts/raw-ptr-const.rs: type check: a type left unknown
 consts/self_normalization2.rs: type check: a type left unknown
 coroutine/async-gen-deduce-yield.rs: type check: unsupported expression
 coroutine/async-gen-yield-ty-is-unit.rs: type check: method not found
@@ -215,8 +214,6 @@ imports/extern-prelude-extern-crate-shadowing.rs: macro not found: m!
 imports/overwrite-different-vis-2.rs: path not resolved: f
 imports/redundant-import-undetected-macro-use-prelude.rs: import not resolved: : use two_macros::n (as n)
 imports/remove-unused-private-import-errors.rs#keep: type check: associated item of something that is not a type
-inference/inference-thread-loop-closure.rs: type check: a type left unknown
-inference/inference-variable-behind-raw-pointer.rs: type check: a type left unknown
 inference/iter-ufcs-coercion-type-unification.rs: type check: a type left unknown
 iterators/into-iter-on-boxed-slices-2021.rs: type check: a type left unknown
 keyword/soup.rs: import not resolved: __ui_test_59::x: use Ok (as Ok)
@@ -228,8 +225,6 @@ lint/dead-code/imported_main_dead_code_under_test.rs: left out: --test
 lint/dead-code/imported_main_glob_under_test.rs: left out: --test
 lint/dead-code/imported_main_path_under_test.rs: left out: --test
 lint/dead-code/imported_main_renamed_from_mod_under_test.rs: left out: --test
-lint/dropping_copy_types.rs: type check: a type left unknown
-lint/dropping_references.rs: type check: a type left unknown
 lint/expansion-time.rs: error: expanding `include!`: expected `;`, found `2` (expansion-time.rs:21:5)
 lint/expect-future_breakage-crash-issue-126521.rs: error: expanding `foo!`: expected the end of the input, found `;` (expect-future_breakage-crash-issue-126521.rs:19:13)
 lint/for-loops-over-fallibles/external-macro-issue-148114.rs: macro not found: do_loop!
@@ -269,7 +264,6 @@ mir/issue-75053.rs: type check: a type left unknown
 mut-restriction/feature-gate-mut-restriction.rs#with_gate: error: expected a name, found `mut` (feature-gate-mut-restriction.rs:8:9)
 mut/mut-ref.rs: error: expected a name, found `ref` (mut-ref.rs:5:13)
 never_type/basic/method-on-never.rs: type check: method not found
-never_type/fallback_change/from_infer_breaking_with_unit_fallback.rs: type check: a type left unknown
 nll/coroutine-distinct-lifetime.rs: type check: unsupported expression
 nll/extra-unused-mut.rs: type check: unsupported expression
 nll/issue-21114-kixunil.rs: type check: a type left unknown
@@ -280,9 +274,6 @@ nll/polonius/nll-problem-case-3-issue-124254.rs#polonius: type check: mismatched
 nll/polonius/nll-problem-case-3-issue-21906.rs#legacy: type check: mismatched types
 nll/polonius/nll-problem-case-3-issue-21906.rs#polonius: type check: mismatched types
 nll/user-annotations/issue-54570-bootstrapping.rs: type check: no such field in pattern
-or-patterns/consistent-bindings.rs: type check: a type left unknown
-or-patterns/const-fn.rs: type check: a type left unknown
-or-patterns/or-patterns-default-binding-modes.rs: type check: mismatched types
 parser/dyn-2015-identifier.rs#pass: error: expected `>`, found `,` (dyn-2015-identifier.rs:13:18)
 parser/fn-header-syntactic-pass.rs: error: expected `|`, found `unsafe` (fn-header-syntactic-pass.rs:14:17)
 parser/generic-param-default-in-binder.rs: error: in `a!`: no rule of the macro matches this input (generic-param-default-in-binder.rs:8:1)
@@ -291,7 +282,6 @@ parser/impls-nested-within-anon-consts-semantic.rs: path not resolved: Type
 parser/macro/macro-braces-dot-question.rs: error: expected an expression, found `.` (macro-braces-dot-question.rs:6:21)
 parser/self-param-syntactic-pass.rs: error: expected a type, found `mut` (self-param-syntactic-pass.rs:59:17)
 parser/try-with-nonterminal-block.rs: type check: a type left unknown
-pattern/bindings-after-at/borrowck-pat-by-copy-bindings-in-at.rs: type check: a type left unknown
 pattern/deref-patterns/const-pats-do-not-mislead-inference.rs#deref_patterns: type check: a type left unknown
 pattern/slice-patterns-nested.rs: type check: a type left unknown
 pin-ergonomics/pattern-matching-deref-pattern.rs#pin_ergonomics: type check: pattern of another type
@@ -316,11 +306,8 @@ proc-macro/test-count-attributes.rs: left out: --test
 proc-macro/test-followed-by-attr-macros.rs: left out: --test
 proc-macro/test-re-emit.rs: left out: --test
 proc-macro/test.rs: error: proc macro `run`: assertion `left == right` failed (test.rs:14:1)
-reachable/never-assign-dead-code.rs: type check: a type left unknown
-reachable/never-pattern-closure-param-array.rs: type check: a type left unknown
 reachable/unreachable-question-mark-forbid.rs: type check: a type left unknown
 regions/type-param-outlives-reempty-issue-74429-2.rs: type check: a type left unknown
-repeat-expr/can-have-side-effects-consider-element.rs: type check: a type left unknown
 repeat-expr/copy-inference-side-effects.rs: type check: a type left unknown
 resolve/const-with-typo-in-pattern-binding-ice-135289.rs: macro not found: assert_matches!
 resolve/extern-prelude-speculative.rs: left out: flags that change the crate
@@ -429,7 +416,6 @@ type-alias-impl-trait/obligation_ice.rs: type check: method not found
 type-alias-impl-trait/tait-normalize.rs#current: type check: mismatched types
 type-alias-impl-trait/tait-normalize.rs#next: type check: mismatched types
 type-alias-impl-trait/tait-param-inference-issue-117310.rs: type check: a type left unknown
-type-alias-impl-trait/type_of_a_let.rs#next: type check: mismatched types
 typeck/issue-55810-must-typeck-match-pats-before-guards.rs: type check: method not found
 unboxed-closures/arg-constrained-after-closure-inference.rs: type check: a type left unknown
 unpretty/ast-const-trait-bound.rs: path not resolved: Bar

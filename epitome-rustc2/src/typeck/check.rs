@@ -256,6 +256,9 @@ pub(super) struct FnCtxt<'a, 's> {
     coroutine: Option<(Ty, Ty)>,
     /// The next closure checked is marked `#[coroutine]`.
     coroutine_attr: bool,
+    /// Variables a `!` was coerced to: unknown at the end, they are `!`
+    /// (2024) or `()` (before), as for rustc's diverging variables.
+    diverging: Vec<Ty>,
     loops: Vec<Loop<'s>>,
     errors: FastMap<String, usize>,
     /// Nodes already counted as errors.
@@ -313,6 +316,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
             ret: tcx.unit(),
             coroutine: None,
             coroutine_attr: false,
+            diverging: Vec::new(),
             loops: Vec::new(),
             errors: FastMap::default(),
             reported: FastSet::default(),
@@ -409,6 +413,13 @@ impl<'a, 's> FnCtxt<'a, 's> {
 
     fn finish(mut self) -> BodyResult {
         self.process_pending();
+        let edition = self.env.crates[self.k as usize].edition;
+        for v in std::mem::take(&mut self.diverging) {
+            if self.infer.var_kind(self.infer.shallow(v)) == Some(VarKind::General) {
+                let t = if edition >= crate::lexer::Edition::E2024 { self.mk(TyKind::Never) } else { self.unit() };
+                self.infer.unify(v, t);
+            }
+        }
         self.infer.fallback();
         self.process_pending();
         let captures: Vec<(crate::ty::ClosureId, Vec<super::Capture>)> =
@@ -649,6 +660,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
         match (tcx.kind(g), tcx.kind(w)) {
             (TyKind::Never, TyKind::Never) => return true,
             (TyKind::Never, _) => {
+                if self.infer.var_kind(w) == Some(VarKind::General) {
+                    self.diverging.push(w);
+                }
                 self.adjust(n, vec![Adjust::NeverToAny], w);
                 return true;
             }
@@ -1439,12 +1453,22 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     if !by_context {
                         self.rollback(p);
                         let s = self.norm(src);
-                        if let (TyKind::Ref(_, x) | TyKind::Ptr(_, x), TyKind::Ptr(_, y)) = (tcx.kind(s), tcx.kind(self.infer.shallow(target))) {
+                        if let (TyKind::Ptr(_, x), TyKind::Ptr(_, y)) = (tcx.kind(s), tcx.kind(self.infer.shallow(target))) {
                             let p = self.probe();
                             if !self.infer.unify(y, x) {
                                 self.rollback(p);
                             }
                         }
+                    }
+                }
+                // `&T as *const T`: a reference becomes a pointer to what
+                // it refers to (unless it is to an array, `&[T; N] as
+                // *const T`), which settles either side's unknowns.
+                let s = self.norm(src);
+                if let (TyKind::Ref(_, x), TyKind::Ptr(_, y)) = (tcx.kind(s), tcx.kind(self.infer.shallow(target))) {
+                    let p = self.probe();
+                    if !self.infer.unify(y, x) {
+                        self.rollback(p);
                     }
                 }
                 target
@@ -2350,6 +2374,22 @@ impl<'a, 's> FnCtxt<'a, 's> {
         self.mk(TyKind::Closure(id, sig, tcx.identity_args(self.owner)))
     }
 
+    /// The names a checked pattern binds, with their types.
+    fn binding_types(&self, pat: NodeId) -> Vec<(&'s str, Ty)> {
+        let mut out = Vec::new();
+        let mut stack = vec![pat];
+        while let Some(p) = stack.pop() {
+            if self.ast.kind(p) == Kind::IdentPat
+                && self.bindings.contains_key(&p)
+                && let (Some(n), Some(&t)) = (self.ast.child(p, Kind::Name), self.types.get(&p))
+            {
+                out.push((self.ast.token(n).ident_name(), t));
+            }
+            stack.extend(self.ast.children(p).iter().copied());
+        }
+        out
+    }
+
     /// `#[coroutine] |arg| body`: a coroutine resumed with `arg` (`()` if
     /// it takes none), yielding what its `yield`s give, and returning the
     /// body's value.
@@ -2660,6 +2700,16 @@ impl<'a, 's> FnCtxt<'a, 's> {
             Kind::OrPat => {
                 for &k in &kids {
                     self.pat(k, t, bm, by_ref);
+                }
+                // A name bound in each alternative has one type
+                // (`Ok(a) | Err(a)`).
+                let first = self.binding_types(kids[0]);
+                for &k in &kids[1..] {
+                    for (name, bt) in self.binding_types(k) {
+                        if let Some(&(_, ft)) = first.iter().find(|f| f.0 == name) {
+                            self.infer.unify(ft, bt);
+                        }
+                    }
                 }
             }
             Kind::RefPat => {

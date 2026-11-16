@@ -418,7 +418,12 @@ fn signature<'s>(tcx: &TyCtxt<'s>, env: &Env<'_, 's>, d: DefId) -> Option<SigOut
             // `async fn`: a call gives a future of its own (as an `async`
             // block, at the function's node) whose output is the declared
             // return type.
-            if ast.children(node).iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == "async") {
+            let keyword = |k: &str| ast.children(node).iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == k);
+            if keyword("gen") {
+                // `gen fn`, `async gen fn`: an iterator of the declared
+                // return type.
+                output = tcx.mk(TyKind::GenBlock(tcx.closure_id(at), output, tcx.identity_args(d), keyword("async")));
+            } else if keyword("async") {
                 output = tcx.mk(TyKind::AsyncBlock(tcx.closure_id(at), output, tcx.identity_args(d)));
             }
             let inputs = tcx.list(inputs);
@@ -601,6 +606,7 @@ pub(crate) fn subst(tcx: &TyCtxt, t: Ty, params: &[ParamId], args: &[Ty]) -> Ty 
         }
         TyKind::AsyncBlock(c, o, l) => tcx.mk(TyKind::AsyncBlock(c, sub(o), sub_list(l))),
         TyKind::Coroutine(c, o, l) => tcx.mk(TyKind::Coroutine(c, sub(o), sub_list(l))),
+        TyKind::GenBlock(c, y, l, a) => tcx.mk(TyKind::GenBlock(c, sub(y), sub_list(l), a)),
         TyKind::Opaque(o, l) => tcx.mk(TyKind::Opaque(o, sub_list(l))),
         TyKind::Dyn(d) => {
             let mut data = tcx.dyn_of(d);

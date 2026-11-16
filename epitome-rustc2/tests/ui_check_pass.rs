@@ -18,6 +18,10 @@
 //! session's, so a test that defines them, or whose auxiliary crates do
 //! (`minicore`), runs in a session of its own.
 //!
+//! Flags that change the configuration (`--target`, `-C panic=abort`,
+//! `-Zsanitizer=...`) are given to `rustc --print cfg`, and the test's
+//! crates get what it prints: so tests for other targets run too.
+//!
 //! Each revision of a test with `//@ revisions` is a test of its own,
 //! `path#rev`, compiled with `--cfg rev` and the directives for it
 //! (`//@[rev] ...`) as well as the file's.
@@ -25,7 +29,7 @@
 //! `tests/ui_check_pass_todo.txt` is the work left: every `check-pass`
 //! test that does not pass yet, with why. Those that fail say at which
 //! stage and the first error; those left out say what they need that the
-//! runner cannot give yet (proc-macro crates, another target, `--test`).
+//! runner cannot give yet (proc-macro crates, `--extern`, `--test`).
 //! Tests for other hosts (`ignore-*`, `only-*`) are not listed. The list
 //! is for one rust-lang/rust commit and one host, named on its first line.
 //!
@@ -43,7 +47,9 @@ use std::process::Command;
 
 /// A test to run: its path under `tests/ui` (with `#revision` for one
 /// revision of a test with several), the edition it asks for, the
-/// options it sets with `--cfg` (`name` or `name="value"`), and its
+/// options it sets with `--cfg` (`name` or `name="value"`; and
+/// `rustc:flag` for a flag that changes the configuration, such as
+/// `--target` or `-C panic=abort`), and its
 /// auxiliary crates: those it uses itself (`deps`) and all those they
 /// need (`aux`).
 struct Test {
@@ -201,8 +207,19 @@ fn select_one(path: &Path, name: String, directives: &[(&str, &str)], rev: Optio
                         cfg.push(c.trim_matches('\'').to_string());
                     } else if f == "--test" {
                         left_out.get_or_insert("--test");
-                    } else if f.starts_with("--extern") || f.starts_with("--target") || f.starts_with("-Zcrate-attr") {
+                    } else if f.starts_with("--extern") || f.starts_with("-Zcrate-attr") {
                         left_out.get_or_insert("flags that change the crate");
+                    } else if let Some(t) = arg("--target") {
+                        if t.ends_with(".json") {
+                            left_out.get_or_insert("a target rustc does not know");
+                        }
+                        cfg.push(format!("rustc:--target={t}"));
+                    } else if f == "-O" {
+                        cfg.push("rustc:-O".into());
+                    } else if let Some(c) = arg("-C") {
+                        cfg.push(format!("rustc:-C{c}"));
+                    } else if let Some(z) = arg("-Z") {
+                        cfg.push(format!("rustc:-Z{z}"));
                     } else if f.starts_with("--crate-type")
                         && (f.contains("proc-macro") || flags.clone().next() == Some("proc-macro"))
                     {
@@ -219,10 +236,20 @@ fn select_one(path: &Path, name: String, directives: &[(&str, &str)], rev: Optio
             }
         }
     }
+    // Flags that change the configuration (`--target`, `-C`, `-Z`) are
+    // given to `rustc --print cfg`. If rustc does not take them, the test
+    // is left out if one names a target, and the host's configuration is
+    // used if not.
+    if cfg.iter().any(|c| c.starts_with("rustc:")) && rustc_cfg(&cfg).is_none() {
+        if cfg.iter().any(|c| c.starts_with("rustc:--target=")) {
+            left_out.get_or_insert("a target rustc does not know");
+        }
+        cfg.retain(|c| !c.starts_with("rustc:"));
+    }
     let aux_dir = path.parent().unwrap().join("auxiliary");
     let mut aux = Vec::new();
     if left_out.is_none()
-        && let Err(why) = aux_crates(&aux_dir, &aux_files, rev, &mut aux, 0)
+        && let Err(why) = aux_crates(&aux_dir, &aux_files, &base_cfg(rev, &cfg), &mut aux, 0)
     {
         left_out = Some(why);
     }
@@ -244,6 +271,34 @@ fn defines_lang_items(text: &str) -> bool {
     text.contains("#[lang =") || text.contains("#[lang=")
 }
 
+/// What a test's auxiliary crates are built with: its revision's `--cfg`
+/// and its target.
+fn base_cfg(rev: Option<&str>, cfg: &[String]) -> Vec<String> {
+    let mut base: Vec<String> = rev.map(str::to_string).into_iter().collect();
+    base.extend(cfg.iter().filter(|c| c.starts_with("rustc:--target=")).cloned());
+    base
+}
+
+/// `rustc --print cfg` with the flags among `options` (`rustc:flag`; run
+/// once for each set), or `None` if rustc does not take them.
+fn rustc_cfg(options: &[String]) -> Option<String> {
+    static CACHE: std::sync::Mutex<BTreeMap<Vec<String>, Option<String>>> = std::sync::Mutex::new(BTreeMap::new());
+    let flags: Vec<String> = options.iter().filter_map(|c| c.strip_prefix("rustc:")).map(str::to_string).collect();
+    let mut cache = CACHE.lock().unwrap();
+    cache
+        .entry(flags.clone())
+        .or_insert_with(|| {
+            let out = Command::new("rustc")
+                .args(["--print", "cfg", "-Zunstable-options"])
+                .args(&flags)
+                .env("RUSTC_BOOTSTRAP", "1")
+                .output()
+                .ok()?;
+            out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+        })
+        .clone()
+}
+
 /// The name and file of `//@ aux-build: file.rs` (the file's name, with
 /// `-` as `_`) or `//@ aux-crate: [options:]name=file.rs`.
 fn aux_spec(directive: &str, value: &str) -> Option<(String, String)> {
@@ -263,7 +318,7 @@ fn aux_spec(directive: &str, value: &str) -> Option<(String, String)> {
 fn aux_crates(
     dir: &Path,
     files: &[(String, String)],
-    rev: Option<&str>,
+    base: &[String],
     out: &mut Vec<Aux>,
     depth: usize,
 ) -> Result<(), &'static str> {
@@ -277,7 +332,7 @@ fn aux_crates(
             return Err("proc-macro crates");
         }
         let mut edition = Edition::E2015;
-        let mut cfg: Vec<String> = rev.map(str::to_string).into_iter().collect();
+        let mut cfg: Vec<String> = base.to_vec();
         let mut nested = Vec::new();
         for line in text.lines() {
             let Some(d) = line.trim_start().strip_prefix("//@") else { continue };
@@ -308,7 +363,7 @@ fn aux_crates(
                 _ => {}
             }
         }
-        aux_crates(dir, &nested, rev, out, depth + 1)?;
+        aux_crates(dir, &nested, base, out, depth + 1)?;
         let deps = nested.into_iter().map(|n| n.0).collect();
         let a = Aux { name: name.clone(), path, edition, cfg, deps, lang: defines_lang_items(&text) };
         match out.iter().find(|x| x.name == a.name) {
@@ -356,13 +411,19 @@ fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// A crate's configuration: the host's with `--cfg` options added.
+/// A crate's configuration: the host's, or with rustc flags among the
+/// options (`rustc:--target=x`, `rustc:-Cpanic=abort`) what `rustc --print
+/// cfg` gives with them, with `--cfg` options added.
 fn cfg_with(options: &[String]) -> Option<CfgSet> {
     if options.is_empty() {
         return None;
     }
-    let mut cfg = CfgSet::host();
-    for c in options {
+    let printed = options.iter().any(|c| c.starts_with("rustc:")).then(|| rustc_cfg(options)).flatten();
+    let mut cfg = match printed {
+        Some(text) => CfgSet::from_print_cfg(&text),
+        None => CfgSet::host(),
+    };
+    for c in options.iter().filter(|c| !c.starts_with("rustc:")) {
         match c.split_once('=') {
             Some((n, v)) => cfg.set_value(n, v.trim_matches('"')),
             None => cfg.set(c),
@@ -382,13 +443,31 @@ fn crate_root(name: String, path: &Path, edition: Edition, cfg: &[String], deps:
     }
 }
 
+/// Whether source text names the crate `core` (`core::`, not as the end
+/// of another name such as `minicore::`).
+fn names_core(text: &str) -> bool {
+    text.match_indices("core::")
+        .any(|(i, _)| !text[..i].chars().next_back().is_some_and(|c| c.is_alphanumeric() || c == '_'))
+}
+
 /// Runs `tests` in one session: for each, `None` if it passed, or why not.
 /// The tests' auxiliary crates are loaded once each, by name (the batch
 /// has no two different crates of one name).
 fn run(library: &Path, tests: &[&Test]) -> Vec<Option<String>> {
     let session = Session::new(Options { cfg: Some(CfgSet::host()), ..Default::default() });
-    let mut roots: Vec<CrateRoot> =
-        STD.iter().map(|n| CrateRoot::new(*n, library.join(n).join("src/lib.rs")).edition(Edition::E2024)).collect();
+    // Tests whose crates are all `#![no_core]` (over `minicore`) need no
+    // standard library, which is most of a session's work: unless they
+    // name `core` or derive (which writes `::core` paths), as rustc finds
+    // `core` in the sysroot even then.
+    let no_core = |p: &Path| {
+        std::fs::read_to_string(p).is_ok_and(|t| t.contains("#![no_core]") && !names_core(&t) && !t.contains("derive"))
+    };
+    let standalone = tests.iter().all(|t| no_core(&t.path) && t.aux.iter().all(|a| no_core(&a.path)));
+    let std_crates: &[&str] = if standalone { &[] } else { &STD };
+    let mut roots: Vec<CrateRoot> = std_crates
+        .iter()
+        .map(|n| CrateRoot::new(*n, library.join(n).join("src/lib.rs")).edition(Edition::E2024))
+        .collect();
     let mut aux_index: BTreeMap<&str, usize> = BTreeMap::new();
     for a in tests.iter().flat_map(|t| &t.aux) {
         if !aux_index.contains_key(a.name.as_str()) {

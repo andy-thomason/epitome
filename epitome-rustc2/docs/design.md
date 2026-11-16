@@ -1453,7 +1453,9 @@ is plain `std` threads.
   submodule: copy it from `rust-src`). `tests/ui_check_pass_todo.txt`
   is the work left, to bring to zero: each test that does not pass yet,
   with the stage and first error where it fails, or what it needs where
-  the runner leaves it out (proc-macro crates, another target). Each
+  the runner leaves it out (proc-macro crates, `--test`). Flags that
+  change the configuration (`--target`, `-C`, `-Z`) go to `rustc --print
+  cfg`, run as a program, and the test gets the configuration it prints. Each
   revision of a test is a test of its own (`path#rev`), with its own
   `--cfg` (`CrateRoot::cfg`); test crates may use only `core`, `alloc`
   and `std` and their own auxiliary crates (`CrateRoot::deps`, which the

@@ -64,7 +64,6 @@ closures/2229_closure_analysis/run_pass/issue-88431.rs: type check: mismatched t
 closures/closure-capture-hrtb-gat-no-ice-120811.rs: type check: a type left unknown
 closures/closure_no_cap_coerce_many_check_pass.rs: type check: mismatched types
 closures/issue-41366.rs: type check: a type left unknown
-closures/issue-46742.rs: type check: call of something that is not a function
 closures/issue-48109.rs: type check: mismatched types
 closures/issue-87814-1.rs: type check: a type left unknown
 closures/issue-87814-2.rs: type check: a type left unknown
@@ -72,8 +71,6 @@ closures/self-supertrait-bounds.rs: type check: a type left unknown
 closures/supertrait-hint-cycle.rs: type check: a type left unknown
 coercion/cast-higher-ranked-unsafe-fn-ptr.rs: type check: mismatched types
 coercion/index-coercion-over-indexmut-72002.rs: type check: indexing something that does not implement `Index`
-coercion/issue-88097.rs#current: type check: mismatched types
-coercion/issue-88097.rs#next: type check: mismatched types
 coinduction/canonicalization-rerun.rs#next: type check: a type left unknown
 coinduction/canonicalization-rerun.rs#old: type check: a type left unknown
 compile-flags/invalid/crate-type-flag.rs#proc_dash_macro: left out: proc-macro crate
@@ -189,8 +186,6 @@ nll/coroutine-distinct-lifetime.rs: type check: unsupported expression
 nll/extra-unused-mut.rs: type check: unsupported expression
 nll/issue-21114-kixunil.rs: type check: a type left unknown
 nll/issue-63154-normalize.rs: type check: a type left unknown
-nll/polonius/nll-problem-case-3-issue-124254.rs#legacy: type check: mismatched types
-nll/polonius/nll-problem-case-3-issue-124254.rs#polonius: type check: mismatched types
 nll/polonius/nll-problem-case-3-issue-21906.rs#legacy: type check: mismatched types
 nll/polonius/nll-problem-case-3-issue-21906.rs#polonius: type check: mismatched types
 nll/user-annotations/issue-54570-bootstrapping.rs: type check: no such field in pattern
@@ -278,7 +273,6 @@ traits/next-solver/rerun-if-any-opaque-or-has-infer-as-hidden-in-codegen.rs: typ
 traits/next-solver/supertrait-alias-4.rs: type check: a type left unknown
 traits/next-solver/typeck/resolve-before-checking-builtin-ptr.rs: type check: mismatched types
 traits/next-solver/typeck/structurally-resolve-in-probe_adt.rs: type check: a type left unknown
-traits/next-solver/typeck/structurally-resolve-in-resolve_for_branch.rs: type check: mismatched types
 traits/vtable/issue-91807.rs: type check: call of something that is not a function
 transmute/unnecessary-transmute-path-remap-ice-140277.rs: macro not found: transmute!
 try-block/try-block-heterogeneous.rs: error: expected an expression, found `try` (try-block-heterogeneous.rs:11:5)

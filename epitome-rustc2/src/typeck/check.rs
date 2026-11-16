@@ -905,10 +905,42 @@ impl<'a, 's> FnCtxt<'a, 's> {
         {
             return self.mk(TyKind::Ptr(Mutbl::Not, x));
         }
+        // Two different functions or non-capturing closures (`if c { f }
+        // else { g }`): both as a function pointer.
+        let fn_like = |k: TyKind| matches!(k, TyKind::FnDef(..) | TyKind::Closure(..) | TyKind::FnPtr(_));
+        if fn_like(self.tcx.kind(sa)) && fn_like(self.tcx.kind(sb)) && sa != sb {
+            let p = self.probe();
+            if !self.infer.unify(sa, sb) {
+                self.rollback(p);
+                if let Some(ptr) = self.fn_pointer_of(sa)
+                    && self.coerce(n, a, ptr)
+                    && self.coerce(n, b, ptr)
+                {
+                    return ptr;
+                }
+            }
+        }
         if !self.coerce(n, b, a) {
             return self.tcx.error();
         }
         a
+    }
+
+    /// The function pointer type a function item, closure or pointer
+    /// coerces to.
+    fn fn_pointer_of(&mut self, t: Ty) -> Option<Ty> {
+        let tcx = self.tcx;
+        match tcx.kind(t) {
+            TyKind::FnPtr(_) => Some(t),
+            TyKind::Closure(_, s, _) => Some(self.mk(TyKind::FnPtr(s))),
+            TyKind::FnDef(d, l) => {
+                let (inputs, output) = self.callable_sig(d, l)?;
+                let base = tcx.sig_of(tcx.fn_sig[d.0 as usize]?);
+                let sig = crate::ty::FnSig { inputs: tcx.list(inputs), output, ..base };
+                Some(self.mk(TyKind::FnPtr(tcx.sig(sig))))
+            }
+            _ => None,
+        }
     }
 
     /// Marks `t`, if a variable not yet known, as one a `!` was coerced to
@@ -2607,7 +2639,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 if noreturn { self.mk(TyKind::Never) } else { self.unit() }
             }
             "assert" | "global_asm" | "naked_asm" | "trace_macros" | "log_syntax" => self.unit(),
-            "core_panic" | "std_panic" | "unreachable_2015" | "unreachable_2021" | "panic" => self.mk(TyKind::Never),
+            "core_panic" | "std_panic" | "unreachable_2015" | "unreachable_2021" | "unreachable" | "panic" => {
+                self.mk(TyKind::Never)
+            }
             _ => self.infer.fresh(),
         }
     }

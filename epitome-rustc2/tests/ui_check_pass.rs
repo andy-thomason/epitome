@@ -486,6 +486,8 @@ fn cfg_with(options: &[String]) -> Option<CfgSet> {
         None => CfgSet::host(),
     };
     for c in options.iter().filter(|c| !c.starts_with("rustc:")) {
+        // `--cfg r#false` sets `false`.
+        let c = c.strip_prefix("r#").unwrap_or(c);
         match c.split_once('=') {
             Some((n, v)) => cfg.set_value(n, v.trim_matches('"')),
             None => cfg.set(c),

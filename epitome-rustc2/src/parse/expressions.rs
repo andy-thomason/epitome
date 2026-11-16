@@ -583,7 +583,9 @@ impl<'a> Parser<'a> {
             }
             _ => {
                 self.expect("for")?;
-                if self.at("await") {
+                // `for await x in s`; in 2015 `await` is a name
+                // (`for await in 0..3`).
+                if self.at("await") && self.edition >= crate::lexer::Edition::E2018 {
                     self.leaf(Kind::Keyword, 1);
                 }
                 self.pattern()?;

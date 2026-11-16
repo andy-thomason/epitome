@@ -50,8 +50,8 @@ attributes/z-crate-attr/cfg-false.rs: left out: flags that change the crate
 autodiff/flag_nott.rs: path not resolved: d_square
 borrowck/alias-liveness/escaping-bounds.rs: type check: a type left unknown
 borrowck/assign-never-type.rs: type check: a type left unknown
-borrowck/issue-103095.rs#current: type check: a type left unknown
-borrowck/issue-103095.rs#next: type check: a type left unknown
+borrowck/issue-103095.rs#current: crash: stack overflow
+borrowck/issue-103095.rs#next: crash: stack overflow
 borrowck/static-trait-bound-lost.rs: type check: a type left unknown
 cfg/raw-true-false.rs: error:  (raw-true-false.rs:6:5)
 check-cfg/compact-names.rs: error: unknown `cfg` operator `target` (compact-names.rs:9:7)
@@ -66,12 +66,6 @@ closures/2229_closure_analysis/migrations/issue-86753.rs: type check: a type lef
 closures/2229_closure_analysis/run_pass/issue-88431.rs: type check: mismatched types
 closures/closure-capture-hrtb-gat-no-ice-120811.rs: type check: a type left unknown
 closures/closure_no_cap_coerce_many_check_pass.rs: type check: mismatched types
-closures/deduce-signature/infer-higher-ranked-signature.rs#current: type check: method not found
-closures/deduce-signature/infer-higher-ranked-signature.rs#next: type check: method not found
-closures/deduce-signature/infer-signature-from-impl.rs#current: type check: method not found
-closures/deduce-signature/infer-signature-from-impl.rs#next: type check: method not found
-closures/deduce-signature/supertrait-signature-inference-issue-23012.rs#current: type check: method not found
-closures/deduce-signature/supertrait-signature-inference-issue-23012.rs#next: type check: method not found
 closures/issue-41366.rs: type check: a type left unknown
 closures/issue-46742.rs: type check: call of something that is not a function
 closures/issue-48109.rs: type check: mismatched types
@@ -79,8 +73,8 @@ closures/issue-87814-1.rs: type check: a type left unknown
 closures/issue-87814-2.rs: type check: a type left unknown
 closures/self-supertrait-bounds.rs: type check: a type left unknown
 closures/supertrait-hint-cycle.rs: type check: a type left unknown
-closures/supertrait-hint-references-assoc-ty.rs#current: type check: method not found
-closures/supertrait-hint-references-assoc-ty.rs#next: type check: method not found
+closures/supertrait-hint-references-assoc-ty.rs#current: crash: stack overflow
+closures/supertrait-hint-references-assoc-ty.rs#next: crash: stack overflow
 coercion/cast-higher-ranked-unsafe-fn-ptr.rs: type check: mismatched types
 coercion/index-coercion-over-indexmut-72002.rs: type check: indexing something that does not implement `Index`
 coercion/issue-88097.rs#current: type check: mismatched types
@@ -286,7 +280,6 @@ specialization/spec-influences-inference-issue-36262.rs#next: type check: a type
 str/str-escape.rs: type check: mismatched types
 trait-bounds/issue-94999.rs: type check: method not found
 traits/alias/empty.rs: path not resolved: Self
-traits/alias/issue-60755.rs: type check: a type left unknown
 traits/const-traits/conditionally-const-trait-bound-syntax.rs: path not resolved: Tr
 traits/const-traits/const-traits-core.rs: type check: method not found
 traits/const-traits/minicore-works.rs: type check: call of something that is not a function
@@ -317,8 +310,8 @@ traits/next-solver/overflow-discards-constraints.rs: type check: a type left unk
 traits/next-solver/overflow/fcw-on-normalization.rs#next: type check: method not found
 traits/next-solver/overflow/fcw-on-normalization.rs#old: type check: method not found
 traits/next-solver/rerun-if-any-opaque-or-has-infer-as-hidden-in-codegen.rs: type check: method not found
-traits/next-solver/self-referential-closure-sig-1.rs#next: type check: method not found
-traits/next-solver/self-referential-closure-sig-1.rs#old: type check: method not found
+traits/next-solver/self-referential-closure-sig-1.rs#next: crash: stack overflow
+traits/next-solver/self-referential-closure-sig-1.rs#old: crash: stack overflow
 traits/next-solver/supertrait-alias-4.rs: type check: a type left unknown
 traits/next-solver/typeck/resolve-before-checking-builtin-ptr.rs: type check: mismatched types
 traits/next-solver/typeck/structurally-resolve-in-probe_adt.rs: type check: a type left unknown

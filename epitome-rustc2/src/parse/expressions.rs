@@ -181,7 +181,8 @@ impl<'a> Parser<'a> {
             }
             "&" => {
                 self.bump();
-                if self.at("raw") && (self.at_n(1, "const") || self.at_n(1, "mut")) {
+                // `&raw const a`, `&raw mut a`, `&pin mut a`, `&pin const a`.
+                if matches!(self.tok(0).0, "raw" | "pin") && (self.at_n(1, "const") || self.at_n(1, "mut")) {
                     self.leaf(Kind::Keyword, 1);
                     self.leaf(Kind::Keyword, 1);
                 } else if self.at("mut") {
@@ -360,6 +361,13 @@ impl<'a> Parser<'a> {
             }
             "try" | "gen" if self.at_n(1, "{") || self.at_n(1, "move") && self.at_n(2, "{") => self.block_expr()?,
             "async" if self.async_block_at() => self.block_expr()?,
+            // `move(x)`: `x` moved into the closure it is written in.
+            "move" if self.at_n(1, "(") => {
+                self.bump_n(2);
+                self.expr()?;
+                self.expect(")")?;
+                self.finish(m, Kind::MoveExpr);
+            }
             "|" | "move" | "async" | "static" | "for" | "gen" | "use" | "const" => self.closure(r)?,
             "return" | "yield" => {
                 self.bump();

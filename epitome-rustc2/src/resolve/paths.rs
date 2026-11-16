@@ -334,6 +334,17 @@ impl<'w, 's> Walker<'w, 's> {
                     }
                 }
             }
+            // `p if e`: `e` sees what `p` binds.
+            Kind::GuardPat => {
+                let kids = self.ast.children(pat).to_vec();
+                let mut inner = Vec::new();
+                self.pattern(kids[0], &mut inner);
+                self.push();
+                self.rib().values.extend(inner.iter().cloned());
+                self.walk(kids[1]);
+                self.pop();
+                binds.extend(inner);
+            }
             Kind::PathPat | Kind::TupleStructPat => {
                 let kids = self.ast.children(pat).to_vec();
                 if let Some(&p) = kids.first() {
@@ -760,6 +771,7 @@ fn is_pattern(k: Kind) -> bool {
             | RefPat
             | TuplePat
             | ParenPat
+            | GuardPat
             | SlicePat
             | PathPat
             | TupleStructPat

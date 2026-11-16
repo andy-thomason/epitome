@@ -413,6 +413,15 @@ impl<'s> TyCtxt<'s> {
         self.mk(TyKind::Tuple(empty))
     }
 
+    /// `Pin<t>`, for `&pin mut T` and `&pin const T` (`t` itself if there
+    /// is no `Pin`).
+    pub fn pin(&self, t: Ty) -> Ty {
+        match self.lang.get("pin") {
+            Some(&d) => self.mk(TyKind::Adt(d, self.list(vec![t]))),
+            None => t,
+        }
+    }
+
     pub fn error(&self) -> Ty {
         self.mk(TyKind::Error)
     }

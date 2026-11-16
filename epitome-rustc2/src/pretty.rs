@@ -362,6 +362,14 @@ impl<'p, 'a> Printer<'p, 'a> {
         let mut rest = kids;
         while let Some((&k, tail)) = rest.split_first() {
             match self.kind(k) {
+                // `try bikeshed T { .. }`: the type after `bikeshed`.
+                k2 if is_type_like(k2)
+                    && rest.len() < kids.len()
+                    && self.ast.token(kids[kids.len() - rest.len() - 1]).0 == "bikeshed" =>
+                {
+                    self.node(k);
+                    self.s(" ");
+                }
                 Kind::Lifetime => {
                     self.leaf(k);
                     self.s(": ");
@@ -1591,6 +1599,7 @@ mod tests {
         roundtrip("fn f(){match x{(Some(y) if y>0,)=>{}_=>{}}let (_ if c)=();let g=||move(a)||b;}");
         roundtrip("fn f(x:&pin mut T)->&pin const T{let p=&pin mut v;}impl S{fn m(&pin mut self){}}");
         roundtrip("fn f(){let &pin const (x)=p;let mut ref y=1;let ref mut z=2;}");
+        roundtrip("fn f()->Result<(),u8>{try bikeshed Result<_,u8>{1}}");
         assert_eq!(roundtrip("pub const{assert!(true)}const{}"), "pub const {\n    assert!(true)\n}\n\nconst {}\n");
         roundtrip("struct S<const N:usize=const{0}>;fn f<T:Tr<const{1}>>(){}");
     }

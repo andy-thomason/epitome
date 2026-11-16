@@ -360,6 +360,13 @@ impl<'a> Parser<'a> {
                 self.finish(m, Kind::ConstBlock);
             }
             "try" | "gen" if self.at_n(1, "{") || self.at_n(1, "move") && self.at_n(2, "{") => self.block_expr()?,
+            // `try bikeshed Result<_, E> { .. }`: a `try` block of that type.
+            "try" if self.at_n(1, "bikeshed") => {
+                self.leaf(Kind::Keyword, 1);
+                self.leaf(Kind::Keyword, 1);
+                self.ty_no_plus()?;
+                self.block_expr_from(m)?;
+            }
             "async" if self.async_block_at() => self.block_expr()?,
             // `move(x)`: `x` moved into the closure it is written in.
             "move" if self.at_n(1, "(") => {

@@ -1306,7 +1306,53 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let output = self.lang("fn_once_output");
         let mut inputs = None;
         let mut ret = None;
-        let bounds = self.type_bounds(t);
+        let mut bounds = self.type_bounds(t);
+        // Bounds of other traits, through their supertraits (`F:
+        // Receive<T, E>` where `Receive<T, E>: FnOnce(Result<T, E>)`).
+        let others: Vec<TraitRef> = self
+            .obligations
+            .iter()
+            .chain(&self.env_preds)
+            .filter_map(|p| match p {
+                Pred::Trait(pt, tr) if !fns.contains(&tr.def) && self.infer.shallow(*pt) == t => Some(tr.clone()),
+                _ => None,
+            })
+            .collect();
+        for tr in others {
+            let mut sup = Vec::new();
+            self.elaborate(t, &tr, &mut sup);
+            bounds.extend(sup);
+        }
+        // Through an impl: `Wrap<F>: Foo` with `impl<T> Foo for Wrap<T>
+        // where T: Fn(i32)`, the one impl that applies.
+        let around: Vec<(Ty, TraitRef)> = self
+            .obligations
+            .iter()
+            .filter_map(|p| match p {
+                Pred::Trait(pt, tr) if self.infer.shallow(*pt) != t && self.mentions(*pt, t) => Some((*pt, tr.clone())),
+                _ => None,
+            })
+            .collect();
+        for (pt, tr) in around {
+            let args = tcx.tys(tr.args);
+            if let Select::Yes(Source::Impl(i, iargs)) = self.select(pt, tr.def, &args, 0) {
+                let params = tcx.all_params(tcx.impls[i].def);
+                for p in &tcx.predicates[tcx.impls[i].def.0 as usize] {
+                    match p {
+                        Pred::Trait(x, ptr) if fns.contains(&ptr.def) => {
+                            let x = subst(tcx, *x, &params, &iargs);
+                            bounds.push(Pred::Trait(x, subst_trait_ref(tcx, ptr, &params, &iargs)));
+                        }
+                        Pred::Projection(x, a, l, ty) if Some(*a) == output => {
+                            let sub = |y: Ty| subst(tcx, y, &params, &iargs);
+                            let l = tcx.list(tcx.tys(*l).into_iter().map(sub).collect());
+                            bounds.push(Pred::Projection(sub(*x), *a, l, sub(*ty)));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
         for p in self.obligations.iter().chain(&self.env_preds).chain(&bounds) {
             match p {
                 Pred::Trait(pt, tr) if fns.contains(&tr.def) && self.infer.shallow(*pt) == t => {
@@ -1321,6 +1367,20 @@ impl<'a, 's> FnCtxt<'a, 's> {
             }
         }
         inputs.map(|i| (i, ret))
+    }
+
+    /// Whether type `t` has `v` (a variable) in it.
+    fn mentions(&self, t: Ty, v: Ty) -> bool {
+        let tcx = self.tcx;
+        let t = self.infer.shallow(t);
+        if t == v {
+            return true;
+        }
+        match tcx.kind(t) {
+            TyKind::Adt(_, l) | TyKind::Tuple(l) => tcx.tys(l).into_iter().any(|x| self.mentions(x, v)),
+            TyKind::Ref(_, x) | TyKind::Ptr(_, x) | TyKind::Slice(x) | TyKind::Array(x, _) => self.mentions(x, v),
+            _ => false,
+        }
     }
 
     /// Whether `t` (a reference's or `Box`'s target) can be coerced to

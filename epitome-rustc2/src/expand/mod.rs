@@ -181,6 +181,7 @@ impl Session {
                     dir: &dirs[k],
                     crate_name: &names[k],
                     edition: editions[k],
+                    editions: &editions,
                     result: FileResult::default(),
                 };
                 x.expand_file(file);
@@ -504,6 +505,8 @@ struct Expander<'x, 's> {
     dir: &'x std::path::Path,
     crate_name: &'x str,
     edition: Edition,
+    /// Every crate's edition, for what other crates' macros write.
+    editions: &'x [Edition],
     result: FileResult<'s>,
 }
 
@@ -729,7 +732,16 @@ impl<'x, 's> Expander<'x, 's> {
                 return None;
             }
         };
-        let nodes = self.splice(file, call, call_tok, &tokens, place, name)?;
+        // What a macro of another crate writes is read in that crate's
+        // edition (`std`'s `dyn ::core::fmt::Debug` in a 2015 crate), or
+        // the calling crate's if later.
+        let edition = match def {
+            Some(d) if self.macros.defs[d].krate != self.krate => {
+                self.editions[self.macros.defs[d].krate].max(self.edition)
+            }
+            _ => self.edition,
+        };
+        let nodes = self.splice(file, call, call_tok, &tokens, place, name, edition)?;
         self.result.expanded += 1;
         self.result.names.push(name);
         Some(nodes)
@@ -813,7 +825,7 @@ impl<'x, 's> Expander<'x, 's> {
             let body = self.item_tokens(file, item, &[a])?;
             let tokens = self.run_proc_macro(file, a, &lib, name, &body, Some(&args))?;
             let call_tok = file.ast.node(item).first as usize;
-            let nodes = self.splice(file, item, call_tok, &tokens, place, name)?;
+            let nodes = self.splice(file, item, call_tok, &tokens, place, name, self.edition)?;
             self.result.expanded += 1;
             self.result.names.push(name);
             return Some(nodes);
@@ -880,7 +892,7 @@ impl<'x, 's> Expander<'x, 's> {
             };
             let Some(tokens) = tokens else { continue };
             let call_tok = file.ast.node(item).first as usize;
-            if let Some(nodes) = self.splice(file, item, call_tok, &tokens, place, name) {
+            if let Some(nodes) = self.splice(file, item, call_tok, &tokens, place, name, self.edition) {
                 self.result.expanded += 1;
                 self.result.names.push(name);
                 out.extend(nodes);
@@ -1052,8 +1064,9 @@ impl<'x, 's> Expander<'x, 's> {
         }
     }
 
-    /// Parses `tokens` as what `place` needs, adds them and their nodes to
-    /// the file, and returns the nodes that replace the call.
+    /// Parses `tokens` as what `place` needs (in `edition`), adds them and
+    /// their nodes to the file, and returns the nodes that replace the call.
+    #[allow(clippy::too_many_arguments)]
     fn splice(
         &mut self,
         file: &mut ParsedFile<'s>,
@@ -1062,6 +1075,7 @@ impl<'x, 's> Expander<'x, 's> {
         tokens: &[Token<'s>],
         place: Place,
         name: &str,
+        edition: Edition,
     ) -> Option<Vec<NodeId>> {
         let fragment = match place {
             Place::Items => Fragment::Items,
@@ -1071,7 +1085,7 @@ impl<'x, 's> Expander<'x, 's> {
             Place::Pattern => Fragment::Pattern,
         };
         let eof = tokens.last().map_or(Token(""), |t| Token(&t.0[t.0.len()..]));
-        let frag = match parse_fragment(tokens.to_vec(), eof, self.edition, fragment) {
+        let frag = match parse_fragment(tokens.to_vec(), eof, edition, fragment) {
             Ok(f) => f,
             Err(e) => {
                 let at = file.ast.token(call).0;

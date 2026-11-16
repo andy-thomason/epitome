@@ -26,6 +26,7 @@ const EXPANDED: &[&str] = &[
     "option_env",
     "compile_error",
     "pattern_type",
+    "direct_const_arg",
     "assert",
     "format_args",
     "format_args_nl",
@@ -256,6 +257,9 @@ pub fn expand<'s>(cx: &Context<'_, 's>, name: &str, input: &[Token<'s>]) -> Resu
         }
         // `pattern_type!(u32 is 1..)`: `(u32 is 1..)`, a type form only
         // this makes, which the parser reads as a `PatternType`.
+        // `direct_const_arg!(N)` (`min_generic_const_args`): the argument
+        // itself, as an expression.
+        "direct_const_arg" => Ok(Some(input.to_vec())),
         "pattern_type" => {
             let mut out = vec![Token("(")];
             out.extend_from_slice(input);

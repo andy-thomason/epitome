@@ -355,15 +355,17 @@ impl<'c, 'r, 's> Collector<'c, 'r, 's> {
             Kind::MacroRules | Kind::MacroDef => {
                 let exported = has_attribute(self.ast, item, "macro_export");
                 let d = self.def(DefKind::Macro, name, m, item, vis, None);
-                if exported {
-                    let root = self.r.roots[self.krate as usize];
-                    self.r.bind(root, name, Ns::Macro, Res::Def(d), Vis::Public);
-                }
                 // A `macro_rules!` can be named by `use` in its module (as
                 // `pub(crate) use m;` does); a macro 2.0 has its own `pub`.
                 let mvis =
                     if kind == Kind::MacroDef { vis } else { Vis::Restricted(self.r.modules[m.0 as usize].normal) };
                 self.r.bind(m, name, Ns::Macro, Res::Def(d), mvis);
+                // Exported, it is public at the crate root (after the binding
+                // above, which it replaces for a macro written at the root).
+                if exported {
+                    let root = self.r.roots[self.krate as usize];
+                    self.r.bind(root, name, Ns::Macro, Res::Def(d), Vis::Public);
+                }
                 // Only macros written in a file have a body of their own:
                 // one a macro made is text of that macro's body, whose
                 // context it shares (and spans of copied tokens would not

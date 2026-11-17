@@ -720,6 +720,15 @@ sets iterated to quiescence, nonblocking updates applied in order, then
 Postponed (`$strobe`, `$monitor`). It is the one the compiled netlist
 joins later.
 
+**Starting values:** variables without an initializer start at their
+type's default (6.8), so 4-state bits are `x` until written. Some test
+benches were written for simulators that hold two states, where such a
+variable reads 0, and a read of storage that is never reset or written then
+passes there and gives `x` here. `Options::zero_init` starts variables at 0
+for them: `epitome-sv --zero-init`, or `EPITOME_ZERO_INIT=1` for a runner
+that starts `epitome-vvp` itself. Nets still start at `z`, and initializers
+still apply. It is off by default, so that such reads show.
+
 **Measures:** the share of `test1800`'s simulation tests that print
 `PASS`, and the time from source to first simulated cycle on a large
 generated design.

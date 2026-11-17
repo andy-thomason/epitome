@@ -41,7 +41,7 @@ fn run() -> ExitCode {
     let plusargs: Vec<String> = args.extra.iter().filter(|a| a.starts_with('+')).cloned().collect();
     let setup = epitome_sv::sim::vpi::Setup { libs: args.libs.clone(), argv: argv.clone() };
     let r = epitome_sv::launch::with_design(&df, |d, tree| {
-        let opts = epitome_sv::sim::Options { plusargs, max_steps: u64::MAX, ..Default::default() };
+        let opts = epitome_sv::sim::Options { plusargs, max_steps: u64::MAX, zero_init: epitome_sv::sim::zero_init_from_env(), ..Default::default() };
         let mut stdout = std::io::stdout();
         epitome_sv::sim::vpi::simulate(d, tree, &mut stdout, &opts, &setup)
     });

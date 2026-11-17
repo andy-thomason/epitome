@@ -109,7 +109,9 @@ fn processes_writing_different_bits_of_an_element() {
                endmodule";
     ok(&src.replace("LANE", "p*8 +: 8"));
     assert!(err(&src.replace("LANE", "7:0")).contains("9.2.2"));
+}
 
+#[test]
 fn top_parameters_from_outside() {
     let text = "module a #(parameter int W = 1, parameter real R = 0.5, localparam L = W) (); logic [W-1:0] x; endmodule
                 module b #(parameter int W = 2) (); logic [W-1:0] y; endmodule";

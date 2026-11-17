@@ -176,3 +176,16 @@ fn bind_adds_an_instance_to_every_instance_of_a_module() {
     );
     assert!(t.contains("a=8 b=10"), "{t}");
 }
+
+#[test]
+fn bind_written_before_the_module_it_targets() {
+    // The bound instance reads the target's local parameter, declared in a
+    // body that comes later in the source.
+    let t = simulate(
+        "module show #(parameter int V = 0) (); initial #1 $display(\"V=%0d\", V); endmodule
+         bind tgt show #(.V(L)) u_s ();
+         module tgt #(parameter int P = 3) (); localparam int L = P * 2; endmodule
+         module top; tgt #(.P(4)) t (); endmodule",
+    );
+    assert!(t.contains("V=8"), "{t}");
+}

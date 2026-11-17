@@ -1188,6 +1188,15 @@ pub(crate) fn declared_before<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, o: ObjId, n
     if lookup::enclosing(e, sc, ScopeKind::Class).is_some() {
         return Ok(());
     }
+    // Nor from a `bind` directive written outside the design element: its
+    // instance counts as written at the end of the body (23.11).
+    if let Some(spec) = lookup::enclosing(e, os, ScopeKind::Spec) {
+        let body = e.ast.node(e.scope(spec).node);
+        let at = e.ast.node(n);
+        if at.first < body.first || at.end > body.end {
+            return Ok(());
+        }
+    }
     if e.ast.node(obj.node).first > e.ast.node(n).first && e.ast.node(obj.node).end > e.ast.node(n).end {
         return Err(e.err(n, format!("`{}` is used before its declaration (6.21)", e.name(obj.name))));
     }

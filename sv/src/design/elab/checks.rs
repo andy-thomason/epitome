@@ -2662,15 +2662,15 @@ enum Step {
 }
 
 /// The part of a variable an assignment writes: the selects from the
-/// outside in, up to four deep; deeper ones are taken to overlap.
+/// outside in, up to eight deep; deeper ones are taken to overlap.
 #[derive(Clone, Copy, PartialEq, Debug)]
 struct Slice {
-    steps: [Step; 4],
+    steps: [Step; 8],
     len: u8,
 }
 
 impl Slice {
-    const WHOLE: Slice = Slice { steps: [Step::Any; 4], len: 0 };
+    const WHOLE: Slice = Slice { steps: [Step::Any; 8], len: 0 };
 
     fn then(mut self, s: Step) -> Slice {
         // Selects after one not known at elaboration are kept: `m[i][3:0]`
@@ -2788,14 +2788,44 @@ fn const_value(e: &Elab, x: ExprId) -> Option<Const> {
     }
 }
 
+/// Whether a condition is known true or false at elaboration: a constant,
+/// or `&&` and `||` that one constant operand decides.
+fn known_truth(e: &Elab, x: ExprId) -> Option<bool> {
+    let ex = e.ex(x);
+    match &ex.kind {
+        ExprKind::Binary(BinOp::LogAnd) => match (known_truth(e, ex.args[0]), known_truth(e, ex.args[1])) {
+            (Some(false), _) | (_, Some(false)) => Some(false),
+            (Some(true), Some(true)) => Some(true),
+            _ => None,
+        },
+        ExprKind::Binary(BinOp::LogOr) => match (known_truth(e, ex.args[0]), known_truth(e, ex.args[1])) {
+            (Some(true), _) | (_, Some(true)) => Some(true),
+            (Some(false), Some(false)) => Some(false),
+            _ => None,
+        },
+        ExprKind::Convert => known_truth(e, ex.args[0]),
+        _ => match const_value(e, x)? {
+            Const::Bits(b) if b.is_known() => Some(!b.is_zero()),
+            _ => None,
+        },
+    }
+}
+
 fn proc_targets(e: &Elab, s: StmtId, out: &mut Vec<(ObjId, Slice)>) {
     let st = e.d.stmts[s.0 as usize].kind.clone();
     match st {
         StmtKind::Assign { lhs, .. } => target_slices(e, lhs, out),
         StmtKind::Block { stmts, .. } => stmts.into_iter().for_each(|x| proc_targets(e, x, out)),
-        StmtKind::If { then, else_, .. } => {
-            proc_targets(e, then, out);
-            if let Some(x) = else_ {
+        StmtKind::If { cond, then, else_, .. } => {
+            // A branch that a condition known at elaboration rules out, such
+            // as one on a generate loop's genvar, writes nothing.
+            let known = known_truth(e, cond);
+            if known != Some(false) {
+                proc_targets(e, then, out);
+            }
+            if let Some(x) = else_
+                && known != Some(true)
+            {
                 proc_targets(e, x, out);
             }
         }

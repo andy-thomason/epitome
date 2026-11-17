@@ -626,7 +626,8 @@ thing to do for memory.
 
 Clause 4's scheduler has regions; the nine that simulation uses are
 Preponed, Active, Inactive, NBA, Observed, Reactive, Re-Inactive, Re-NBA
-and Postponed. The PLI-only regions wait for VPI. Within a region the
+and Postponed. The PLI regions are where VPI applications run (section
+8.8). Within a region the
 order of events is free (clause 4.7), so a fixed order chosen at compile
 time is a correct one; only the region boundaries must be kept.
 
@@ -1148,9 +1149,91 @@ source: Yosys, ABC, nextpnr and IceStorm may be run as black boxes, never
 read. The cut mapping, annealing and PathFinder follow their published
 papers.
 
+### 8.8 VPI, and cocotb
+
+The interpreter serves the C interface of clauses 36–38 to applications
+loaded into a simulation, written from the standard and its `vpi_user.h`
+and `sv_vpi_user.h` listings (`sv/src/sim/vpi.rs`). The point is test
+benches that drive a design from outside it, cocotb's above all.
+
+**Loading.** `vpi::simulate` opens each library, runs the routines of its
+`vlog_startup_routines` array, then its start-of-simulation callbacks,
+then the run, then its end-of-simulation callbacks. The C functions
+(`vpi_get`, `vpi_register_cb` and the rest) must be in the executable
+that loads the library, for the library to find them; `export_vpi!()`
+defines them there, as thin wrappers over the simulation running on that
+thread.
+
+**Objects.** Handles are numbers, an index into a table and a generation,
+so a freed or stale handle is reported (`vpi_chk_error`) rather than
+followed. The objects are module instances, generate blocks (a loop's
+blocks one by one, as `g[0]`, and the loop as a generate scope array),
+nets and variables, their elements and bits, parameters, ranges and
+constants, iterators, callbacks, and system task and function calls with
+their arguments. Their types follow what Icarus reports, since cocotb is
+tested against it: `logic`, packed structs, enums and packed arrays are
+`vpiReg`, `bit` vectors `vpiBitVar`, the integer atoms their own types,
+unpacked arrays `vpiRegArray` or `vpiNetArray`. A signal is a slot and a
+path of selects in the value store, so reads and writes are the
+interpreter's own.
+
+**Values** read and written in the binary, octal, decimal and hex string,
+scalar, int, real, string, vector and time formats.
+`vpiNoDelay` writes at once and wakes what watches the object;
+`vpiInertialDelay` and the transport delays are nonblocking updates at
+their time (this time slot's NBA region for no delay); `vpiForceFlag` and
+`vpiReleaseFlag` act as `force` and `release` (10.6), and a release hands
+back the value the object's drivers give it.
+
+**Callbacks and regions.** With an application loaded, a time slot runs
+as follows:
+
+1. `cbNextSimTime` callbacks, when time has moved on;
+2. `cbAfterDelay` callbacks due now, then the processes the time wheel
+   wakes;
+3. the active, inactive and NBA regions to quiescence, with each
+   `cbValueChange` callback run after the step that changed its object,
+   given the value it changed to;
+4. `cbReadWriteSynch` callbacks, then step 3 again, until none is left;
+5. `cbReadOnlySynch` callbacks, then Postponed.
+
+`vpi_control(vpiFinish)` ends the run as `$finish` does. A system task or
+function the design calls that no built-in knows runs the `calltf` of the
+application that registered it; its arguments are handles that evaluate
+in the caller, and a function's value is what the application puts on the
+call. `EPITOME_VPI_TRACE=1` logs every call.
+
+**Icarus's command lines.** Test runners start `iverilog` to compile and
+`vvp` to run. `epitome-iverilog` takes `iverilog`'s options (`-o`, `-s`,
+`-D`, `-I`, `-P top.name=value`, `-f` command files with `+incdir+`,
+`+define+` and `+timescale+`; others are ignored) and writes a small text
+design file of our own: the tops, parameters, defines, include
+directories, timescale and source files (`sv/src/launch.rs`).
+`epitome-vvp` takes `vvp`'s (`-M dir`, `-m module`, the design file, then
+plusargs and the rest for the design and the libraries), builds the
+design and simulates it with the libraries loaded. A directory with links
+named `iverilog` and `vvp` to the two, first on the `PATH`, makes cocotb's
+Icarus runner use epitome-sv. `epitome-sv` itself takes `-G name=value`
+for top-level parameters, as `--top` chooses the tops.
+
+**Testing.** `sv/tests/vpi.rs` builds `sv/tests/vpi/app.rs`, a VPI
+application in Rust, and runs it on a small design through the two
+binaries: it walks the hierarchy, reads values in each format, drives the
+clock from `cbAfterDelay`, writes with each delay mode, forces and
+releases, uses every callback reason and a registered task and function,
+and its output is compared with what it should print. Run on Icarus too,
+it prints the same timeline wherever Icarus serves the query.
+`sv/examples/cocotb/` is a FIFO and five cocotb tests (edges, timers,
+`ReadWrite`, `ReadOnly`, `NextTimeStep`, value changes, arrays, generate
+blocks, parameters, force and release); `sv/tests/cocotb.rs` runs them
+with cocotb 2 when `COCOTB_PYTHON` (or `python3`) can import it, and
+skips otherwise. They pass on Icarus as well.
+
 ## 9. Clean-room rules
 
-`epitome-sv` is a clean-room build from IEEE 1800-2023 alone. The
+`epitome-sv` is a clean-room build from IEEE 1800-2023 alone. This
+includes its VPI: cocotb, Icarus and other simulators are run as programs,
+and their source (and their copies of `vpi_user.h`) are not read. The
 standard's prose, grammar (Annex A) and keyword list (Annex B) say what
 the compiler must do. We do not read the source code of other
 SystemVerilog tools (Verilator, Icarus, slang, Surelog, sv-parser, Yosys,

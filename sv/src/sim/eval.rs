@@ -1332,7 +1332,9 @@ impl Sim<'_, '_, '_> {
             "release" => pc.force.take().map(|(p, _)| p),
             _ => pc.assign.take(),
         };
-        if let Some(p) = old {
+        if let Some(p) = old
+            && p != vpi::VPI_FORCE
+        {
             self.end_proc(p);
         }
         match kw {
@@ -1353,29 +1355,38 @@ impl Sim<'_, '_, '_> {
                     root = self.d.expr(root).args[0];
                 }
                 let is_net = matches!(self.d.expr(root).kind, ExprKind::Object(o) if matches!(self.d.object(o).kind, ObjKind::Net(_)));
-                if is_net {
-                    // A net goes back to what its drivers drive.
-                    if self.nets.contains_key(&slot) {
-                        self.write_net_pub(slot);
-                    }
-                    for q in 0..self.procs.len() as u32 {
-                        if let Some(dr) = self.procs[q as usize].driver
-                            && !matches!(dr, Driven::Pcont(_))
-                            && self.drives_slot(q, dr, slot)
-                        {
-                            self.wake(q);
-                        }
-                    }
-                } else if let Some(ap) = self.pcont.get(&slot).and_then(|pc| pc.assign) {
-                    // A variable under `assign` goes back to it.
-                    self.wake(ap);
-                }
+                self.released(slot, is_net);
             }
             _ => {}
         }
         if self.pcont.get(&slot).is_some_and(|pc| pc.force.is_none() && pc.assign.is_none()) {
             self.pcont.remove(&slot);
         }
+    }
+
+    /// After a `release` of `slot`: a net, or a variable driven by a
+    /// continuous assignment, goes back to what its drivers drive, and a
+    /// variable under `assign` to that (10.6.2). The drivers it goes back
+    /// to are returned.
+    pub(super) fn released(&mut self, slot: usize, is_net: bool) -> Vec<u32> {
+        if is_net && self.nets.contains_key(&slot) {
+            self.write_net_pub(slot);
+        }
+        let mut drivers = Vec::new();
+        for q in 0..self.procs.len() as u32 {
+            if let Some(dr) = self.procs[q as usize].driver
+                && !matches!(dr, Driven::Pcont(_))
+                && self.drives_slot(q, dr, slot)
+            {
+                self.wake(q);
+                drivers.push(q);
+            }
+        }
+        if let Some(ap) = self.pcont.get(&slot).and_then(|pc| pc.assign) {
+            self.wake(ap);
+            drivers.push(ap);
+        }
+        drivers
     }
 }
 

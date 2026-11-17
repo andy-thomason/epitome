@@ -12,6 +12,9 @@
 //! - `--gaps`: elaborate, and list those gaps by kind of syntax.
 //! - `--top name`: elaborate `name` as a top-level instance (repeatable);
 //!   by default, every design element nothing instantiates.
+//! - `-G name=value`, `-Gname=value`: set a parameter of the top-level
+//!   instances (`top.name=value` for one of them); the value is a literal,
+//!   such as `12`, `8'hff`, `1.5` or `"text"`.
 //! - `+name` or `+name=value`: plusargs for the simulation (21.6).
 //!
 //! Without these, the design is simulated by the interpreter. The exit
@@ -52,6 +55,7 @@ fn run() -> ExitCode {
     let mut netlist = false;
     let mut plusargs = Vec::new();
     let mut tops = Vec::new();
+    let mut params = Vec::new();
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         if arg == "-E" {
@@ -70,6 +74,17 @@ fn run() -> ExitCode {
             (elab_only, gaps) = (true, true);
         } else if arg == "--top" {
             tops.push(args.next().unwrap_or_default());
+        } else if let Some(g) = arg.strip_prefix("-G") {
+            let g = if g.is_empty() { args.next().unwrap_or_default() } else { g.to_string() };
+            let Some((name, text)) = g.split_once('=') else {
+                eprintln!("epitome-sv: -G{g}: expected name=value");
+                return ExitCode::from(2);
+            };
+            let Some(v) = epitome_sv::design::elab::parse_param_value(text) else {
+                eprintln!("epitome-sv: -G{g}: cannot read the value");
+                return ExitCode::from(2);
+            };
+            params.push((name.to_string(), v));
         } else if let Some(dir) = arg.strip_prefix("-I") {
             let dir = if dir.is_empty() { args.next().unwrap_or_default() } else { dir.to_string() };
             options.include_dirs.push(dir.into());
@@ -104,7 +119,7 @@ fn run() -> ExitCode {
                 if parse_only {
                     return ExitCode::SUCCESS;
                 }
-                match epitome_sv::design::elab::elaborate_tops(&tree, &out, &tops) {
+                match epitome_sv::design::elab::elaborate_with(&tree, &out, &tops, &params) {
                     Ok(d) => {
                         if design {
                             print!("{}", print_design(&d));

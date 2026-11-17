@@ -7,6 +7,7 @@ pub mod bdd;
 pub mod design;
 pub mod hash;
 pub mod keywords;
+pub mod launch;
 pub mod lexer;
 pub mod model;
 pub mod netlist;

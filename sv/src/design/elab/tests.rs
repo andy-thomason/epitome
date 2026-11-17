@@ -69,3 +69,24 @@ fn rules_are_checked() {
     assert!(err("module m; initial early = 1; int early; endmodule").contains("used before its declaration"));
     assert!(err("module m #(parameter int N); endmodule module top; m u(); endmodule").contains("has no default"));
 }
+
+#[test]
+fn top_parameters_from_outside() {
+    let text = "module a #(parameter int W = 1, parameter real R = 0.5, localparam L = W) (); logic [W-1:0] x; endmodule
+                module b #(parameter int W = 2) (); logic [W-1:0] y; endmodule";
+    let map = SourceMap::new();
+    map.add(Source::new("t.sv", text));
+    let out = preprocess(&map, &[0], &Options::default()).unwrap();
+    let ast = crate::parse::parse(&out).unwrap();
+    let v = |t: &str| super::parse_param_value(t).unwrap();
+    // `W` alone sets it in both tops; `b.W` only in `b`, and later wins.
+    let params = [("W".to_string(), v("6")), ("b.W".to_string(), v("4'd9")), ("R".to_string(), v("2.5")), ("L".to_string(), v("3"))];
+    let d = super::elaborate_with(&ast, &out, &[], &params).unwrap();
+    let t = crate::design::print::print(&d);
+    assert!(t.contains("var x: logic[5:0]") && t.contains("R = 2.5, L = 32'sd6"), "{t}");
+    assert!(t.contains("var y: logic[8:0]"), "{t}");
+    assert_eq!(super::parse_param_value("-8'sh7f"), Some(crate::design::Const::Bits(crate::design::value::Bits::from_i64(8, true, -0x7f))));
+    assert_eq!(super::parse_param_value("\"hi\""), Some(crate::design::Const::Str(b"hi".to_vec())));
+    assert_eq!(super::parse_param_value("1e3"), Some(crate::design::Const::Real(1000.0)));
+    assert_eq!(super::parse_param_value("abc"), None);
+}

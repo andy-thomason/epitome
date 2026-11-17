@@ -15,3 +15,13 @@ epitome-codegen = { path = "../codegen" }
 [[bin]]
 name = "epitome-sv"
 path = "src/main.rs"
+
+# The pair test runners use in place of Icarus Verilog's `iverilog` and
+# `vvp` (`src/launch.rs`).
+[[bin]]
+name = "epitome-iverilog"
+path = "src/bin/epitome-iverilog.rs"
+
+[[bin]]
+name = "epitome-vvp"
+path = "src/bin/epitome-vvp.rs"

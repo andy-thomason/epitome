@@ -219,3 +219,27 @@ fn constant_functions_write_members_of_packed_unions() {
                 endmodule");
     assert!(t.contains("OK = 1'd1"), "{t}");
 }
+
+#[test]
+fn writers_of_deep_members_and_ruled_out_branches() {
+    // Continuous assignments to different members five selects deep are
+    // different parts; a branch whose condition is false for this generate
+    // block (on its genvar) writes nothing.
+    ok("module m (input logic [1:0] x, input logic b);
+          typedef struct packed { logic next; logic we; } f_t;
+          typedef struct packed { f_t en; f_t idle; } r_t;
+          typedef struct packed { r_t ctrl; } regs_t;
+          struct packed { regs_t [1:0] ch; } hw;
+          for (genvar i = 0; i < 2; i++) begin : g
+            assign hw.ch[i].ctrl.en.next = 1'b0;
+            assign hw.ch[i].ctrl.en.we = x[i];
+          end
+          logic [1:0] v [2];
+          for (genvar i = 0; i < 2; i++) begin : h
+            always_comb begin
+              v[i] = x;
+              if (b && i == 0) v[0] = '0;
+            end
+          end
+        endmodule");
+}

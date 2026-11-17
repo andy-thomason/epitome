@@ -69,3 +69,15 @@ fn rules_are_checked() {
     assert!(err("module m; initial early = 1; int early; endmodule").contains("used before its declaration"));
     assert!(err("module m #(parameter int N); endmodule module top; m u(); endmodule").contains("has no default"));
 }
+
+#[test]
+fn each_specialisation_has_its_own_subroutines() {
+    // A constant function in a parameter's value is the one of the
+    // specialisation being elaborated, reading that one's parameters.
+    let t = ok("module c #(parameter int N = 8) ();
+                  function automatic int half(input int s); half = s / 2 + N; endfunction
+                  localparam int L = half(N);
+                endmodule
+                module top; c #(.N(8)) x(); c #(.N(16)) y(); endmodule");
+    assert!(t.contains("L = 32'sd12") && t.contains("L = 32'sd24"), "{t}");
+}

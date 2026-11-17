@@ -987,8 +987,14 @@ impl<'a, 'x> Elab<'a, 'x> {
     }
 
     /// The subroutine declared for a `Function` or `Task` node in pass 1.
-    pub fn sub_of(&self, _sc: ScopeId, n: NodeId) -> Option<SubId> {
-        self.d.subroutines.iter().position(|s| s.node == n).map(|i| SubId(i as u32))
+    /// The subroutine declared by `n` in scope `sc`: each specialisation of
+    /// a module has its own.
+    pub fn sub_of(&self, sc: ScopeId, n: NodeId) -> Option<SubId> {
+        self.d
+            .subroutines
+            .iter()
+            .position(|s| s.node == n && self.scope(s.scope).parent == Some(sc))
+            .map(|i| SubId(i as u32))
     }
 
     // ---- parameters ----

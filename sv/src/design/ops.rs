@@ -74,6 +74,15 @@ pub fn two_state(b: &Bits) -> Bits {
     b.known_or_zero()
 }
 
+/// A value with its x and z bits made 0, through aggregates.
+pub fn zero_unknowns(c: &Const) -> Const {
+    match c {
+        Const::Bits(b) => Const::Bits(b.known_or_zero()),
+        Const::Aggregate(items) => Const::Aggregate(items.iter().map(zero_unknowns).collect()),
+        c => c.clone(),
+    }
+}
+
 /// Equality for a generate `case` item: bit for bit (27.5).
 pub fn const_eq(a: &Const, b: &Const) -> bool {
     match (a, b) {

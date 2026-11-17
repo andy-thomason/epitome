@@ -36,14 +36,25 @@ pub struct Options {
     pub plusargs: Vec<String>,
     /// Stop after this much wall-clock time.
     pub time_limit: Option<std::time::Duration>,
+    /// Variables without an initializer start at 0 rather than at their
+    /// type's default (6.8, Table 6-7), whose 4-state bits are `x`: as
+    /// simulators that hold two states do, for designs whose tests rely on
+    /// it. Nets still start at `z`.
+    pub zero_init: bool,
     /// Shared libraries with the C functions the design imports (DPI-C,
     /// clause 35), in the order they are searched.
     pub dpi_libs: Vec<std::path::PathBuf>,
 }
 
+/// `EPITOME_ZERO_INIT=1` (or any value but `0` or empty) asks for
+/// [`Options::zero_init`], for runners that start the simulator themselves.
+pub fn zero_init_from_env() -> bool {
+    std::env::var("EPITOME_ZERO_INIT").is_ok_and(|v| !v.is_empty() && v != "0")
+}
+
 impl Default for Options {
     fn default() -> Self {
-        Options { max_steps: 200_000_000, plusargs: vec![], time_limit: None, dpi_libs: vec![] }
+        Options { max_steps: 200_000_000, plusargs: vec![], time_limit: None, zero_init: false, dpi_libs: vec![] }
     }
 }
 
@@ -540,13 +551,19 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
 
     // ---- instances ----
 
+    /// A variable's value before its initializer, if it has one, runs.
+    fn start_value(&self, ty: TypeId) -> Const {
+        let v = crate::design::ops::default_value(self.types(), ty);
+        if self.opts.zero_init { crate::design::ops::zero_unknowns(&v) } else { v }
+    }
+
     fn instantiate(&mut self) {
         // The global part of the store comes first.
         let globals = self.globals as usize;
         self.vals = vec![Const::Null; globals];
         for (i, o) in self.d.objects.iter().enumerate() {
             if let Home::Global(g) = self.homes[i] {
-                self.vals[g as usize] = crate::design::ops::default_value(self.types(), o.ty);
+                self.vals[g as usize] = self.start_value(o.ty);
             }
         }
         for &t in &self.d.tops.clone() {
@@ -595,7 +612,7 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
                 // A net is z until something drives it (6.5).
                 let v = match o.kind {
                     ObjKind::Net(_) => crate::design::ops::net_default(self.types(), o.ty),
-                    _ => crate::design::ops::default_value(self.types(), o.ty),
+                    _ => self.start_value(o.ty),
                 };
                 self.vals[(base + off) as usize] = v;
             }
@@ -1743,7 +1760,7 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
                 let obj = self.d.object(o);
                 let v = match obj.init {
                     Some(i) => self.eval(cx, i),
-                    None => crate::design::ops::default_value(self.types(), obj.ty),
+                    None => self.start_value(obj.ty),
                 };
                 let v = crate::design::ops::convert(self.types(), &v, obj.ty);
                 let mut l = cx.locals.borrow_mut();

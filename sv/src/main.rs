@@ -57,6 +57,7 @@ fn run() -> ExitCode {
     let mut design = false;
     let mut parse_only = false;
     let mut elab_only = false;
+    let mut zero_init = epitome_sv::sim::zero_init_from_env();
     let mut gaps = false;
     let mut netlist = false;
     let mut plusargs = Vec::new();
@@ -83,6 +84,8 @@ fn run() -> ExitCode {
             parse_only = true;
         } else if arg == "--elab-only" {
             elab_only = true;
+        } else if arg == "--zero-init" {
+            zero_init = true;
         } else if arg == "--netlist" {
             netlist = true;
         } else if arg == "--gaps" {
@@ -117,7 +120,7 @@ fn run() -> ExitCode {
         }
     }
     if files.is_empty() {
-        eprintln!("usage: epitome-sv [-E] [--ast] [--design] [--netlist] [-I dir] [-D name[=text]] file.sv...");
+        eprintln!("usage: epitome-sv [-E] [--ast] [--design] [--netlist] [--zero-init] [-I dir] [-D name[=text]] file.sv...");
         return ExitCode::from(2);
     }
     let map = SourceMap::new();
@@ -157,7 +160,7 @@ fn run() -> ExitCode {
                                 return ExitCode::from(2);
                             }
                         };
-                        let opts = epitome_sv::sim::Options { plusargs, dpi_libs, ..Default::default() };
+                        let opts = epitome_sv::sim::Options { plusargs, zero_init, dpi_libs, ..Default::default() };
                         let mut stdout = std::io::stdout();
                         let r = epitome_sv::sim::simulate(&d, &tree, &mut stdout, &opts);
                         for u in &r.unsupported {

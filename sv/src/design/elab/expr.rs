@@ -104,6 +104,16 @@ pub(crate) fn assign_conv(e: &mut Elab, x: ExprId, t: TypeId) -> ExprId {
     if e.d.types.is_integral(t) && is_unsized_fill(e, x) {
         return fill_literal(e, x, t);
     }
+    // An unsized based literal whose top bit is `x` or `z` extends with
+    // that bit to the width it is used at (5.7.1).
+    if e.d.types.is_integral(t) && e.d.types.width(t) > e.d.types.width(xt) {
+        if let Some(b) = unsized_xz_literal(e, x) {
+            let b = b.extend_literal(e.d.types.width(t)).with_signed(e.d.types.is_signed(t));
+            let node = e.ex(x).node;
+            let c = e.new_const(Const::Bits(b));
+            return e.new_expr(ExprKind::Const(c), t, node, vec![]);
+        }
+    }
     // Plain vectors of the same width, signedness and state count are the
     // same value: `int` and `bit signed [31:0]` need no conversion.
     let plain = |e: &Elab, a: TypeId| matches!(e.d.types.get(a), Type::Vector { .. });
@@ -113,6 +123,19 @@ pub(crate) fn assign_conv(e: &mut Elab, x: ExprId, t: TypeId) -> ExprId {
     }
     let node = e.ex(x).node;
     e.new_expr(ExprKind::Convert, t, node, vec![x])
+}
+
+/// The value of an unsized based literal (`'hz`, `'bx1`) whose top bit is
+/// `x` or `z`.
+fn unsized_xz_literal(e: &Elab, x: ExprId) -> Option<Bits> {
+    let ExprKind::Const(c) = e.ex(x).kind else { return None };
+    let n = e.ex(x).node;
+    if e.kind(n) != Kind::Number || e.ast.tokens_of(n).len() != 2 {
+        return None;
+    }
+    let b = e.d.consts[c.0 as usize].as_bits()?;
+    let w = b.width();
+    (w > 0 && matches!(b.bit(w - 1), Logic::X | Logic::Z)).then(|| b.clone())
 }
 
 fn is_unsized_fill(e: &Elab, x: ExprId) -> bool {
@@ -642,9 +665,10 @@ fn number<'a>(e: &mut Elab<'a, '_>, n: NodeId) -> R<'a, ExprId> {
             return Ok(e.new_expr(ExprKind::Const(c), Types::REAL, n, vec![]));
         }
         let b = parse_digits(digits, 10, None, true).map_err(|m| e.err(n, m))?;
-        // An unsized decimal is a 32-bit signed value; a larger one keeps
-        // its width (5.7.1).
-        let w = b.width().max(32);
+        // An unsized decimal is a 32-bit signed value; a larger one is as
+        // wide as its value and a sign bit, so it stays positive (5.7.1).
+        let need = (0..b.width()).rev().find(|&i| b.bit(i) == Logic::One).map_or(0, |i| i + 1);
+        let w = if need > 31 { need + 1 } else { 32 };
         let b = b.resize(w, false).with_signed(true);
         let t = e.d.types.vector(w, true, false);
         let t = if w == 32 { Types::INT } else { t };

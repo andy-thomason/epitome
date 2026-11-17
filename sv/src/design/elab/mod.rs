@@ -1892,9 +1892,15 @@ impl<'a, 'x> Elab<'a, 'x> {
         let r = self.spec_body(sc, n, kind);
         self.pending_overrides.pop();
         r?;
-        // Its time unit and precision: its own, else `` `timescale ``, else
-        // the compilation unit's (3.14.2.3).
-        let (unit, prec) = self.timeunits.get(&sc).copied().unwrap_or((None, None));
+        // Its time unit and precision: its own, else (when nested) the
+        // enclosing module's, else `` `timescale ``, else the compilation
+        // unit's (3.14.2.3).
+        let (mut unit, mut prec) = self.timeunits.get(&sc).copied().unwrap_or((None, None));
+        if let Some(o) = outer {
+            let (ou, op) = self.timeunits.get(&o).copied().unwrap_or((None, None));
+            unit = unit.or(ou);
+            prec = prec.or(op);
+        }
         let ts = self.state(n).timescale;
         let (uu, up) = self.d.unit_time;
         let unit = unit.map(|u| u as i8).or(ts.map(|t| t.unit)).unwrap_or(uu);

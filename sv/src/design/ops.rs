@@ -361,8 +361,8 @@ pub fn binary(tys: &Types, op: BinOp, a: Const, b: Const, ty: TypeId) -> Option<
     if matches!(a, Const::Unbounded) || matches!(b, Const::Unbounded) {
         return None;
     }
-    if matches!((&a, &b), (Const::Type(_), Const::Type(_))) {
-        let same = a == b;
+    if let (Const::Type(x), Const::Type(y)) = (&a, &b) {
+        let same = tys.matching(*x, *y);
         return Some(Const::Bits(Bits::from_bool(if matches!(op, Eq | CaseEq) { same } else { !same })));
     }
     let x = bits_of(&a)?;

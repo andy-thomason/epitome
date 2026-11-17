@@ -16,7 +16,14 @@
 //! incdir /work/rtl
 //! timescale 1ns/1ps
 //! file /work/rtl/counter.sv
+//! svlib /work/c/model
 //! ```
+//!
+//! DPI libraries (clause 35) are named as Annex J suggests, to either
+//! program: `-sv_lib name` (a path without the platform's extension),
+//! `-sv_liblist file` (a bootstrap file of such names) and `-sv_root dir`
+//! (where relative names are found from). A runner that cannot add to a
+//! command line can list paths in `EPITOME_SV_LIBS`, separated by `:`.
 
 use crate::design::Design;
 use crate::preprocess::{Options, Timescale};
@@ -36,6 +43,8 @@ pub struct DesignFile {
     pub incdirs: Vec<PathBuf>,
     pub timescale: Option<String>,
     pub files: Vec<PathBuf>,
+    /// DPI libraries, as `-sv_lib` names them.
+    pub sv_libs: Vec<PathBuf>,
 }
 
 impl DesignFile {
@@ -58,6 +67,9 @@ impl DesignFile {
         }
         for f in &self.files {
             s += &format!("file {}\n", f.display());
+        }
+        for l in &self.sv_libs {
+            s += &format!("svlib {}\n", l.display());
         }
         s
     }
@@ -85,6 +97,7 @@ impl DesignFile {
                 "incdir" => d.incdirs.push(value.into()),
                 "timescale" => d.timescale = Some(value.into()),
                 "file" => d.files.push(value.into()),
+                "svlib" => d.sv_libs.push(value.into()),
                 _ => return Err(format!("unknown setting `{key}` in the design file")),
             }
         }
@@ -101,7 +114,11 @@ impl DesignFile {
         let mut queue: std::collections::VecDeque<(String, PathBuf)> = args.iter().map(|a| (a.clone(), cwd.clone())).collect();
         // Options whose value is the next argument.
         let takes = |a: &str| matches!(a, "-o" | "-s" | "-f" | "-c" | "-y" | "-Y" | "-l" | "-M" | "-m" | "-T" | "-t" | "-p" | "-B" | "-D" | "-I" | "-P");
+        let mut libs = SvLibs::default();
         while let Some((a, base)) = queue.pop_front() {
+            if libs.option(&a, &mut || queue.pop_front().map(|v| v.0))? {
+                continue;
+            }
             let (opt, val) = if a.len() == 2 && takes(&a) {
                 let v = queue.pop_front().map(|v| v.0).ok_or_else(|| format!("{a} needs a value"))?;
                 (a.clone(), v)
@@ -156,6 +173,7 @@ impl DesignFile {
         if d.files.is_empty() {
             return Err("no source files".into());
         }
+        d.sv_libs = libs.names();
         Ok((d, out))
     }
 
@@ -200,6 +218,8 @@ pub struct VvpArgs {
     pub libs: Vec<PathBuf>,
     pub design: PathBuf,
     pub extra: Vec<String>,
+    /// DPI libraries, as `-sv_lib` names them.
+    pub sv_libs: Vec<PathBuf>,
 }
 
 impl VvpArgs {
@@ -208,7 +228,11 @@ impl VvpArgs {
         let mut names = Vec::new();
         let mut it = args.iter();
         let mut design = None;
+        let mut sv = SvLibs::default();
         while let Some(a) = it.next() {
+            if sv.option(a, &mut || it.next().cloned())? {
+                continue;
+            }
             let mut value = |a: &str, flag: &str| -> Result<String, String> {
                 if a.len() > flag.len() { Ok(a[flag.len()..].to_string()) } else { it.next().cloned().ok_or_else(|| format!("{flag} needs a value")) }
             };
@@ -235,8 +259,102 @@ impl VvpArgs {
         for n in names {
             libs.push(find_lib(&n, &dirs).ok_or_else(|| format!("cannot find VPI module `{n}`"))?);
         }
-        Ok(VvpArgs { libs, design, extra })
+        Ok(VvpArgs { libs, design, extra, sv_libs: sv.names() })
     }
+}
+
+/// DPI libraries named by the options of Annex J.
+#[derive(Clone, Debug, Default)]
+pub struct SvLibs {
+    /// `-sv_root`, for the names after it.
+    root: Option<PathBuf>,
+    /// From bootstrap files, which load first (J.4), and from `-sv_lib`.
+    lists: Vec<PathBuf>,
+    libs: Vec<PathBuf>,
+}
+
+impl SvLibs {
+    /// Takes `arg` if it is `-sv_lib`, `-sv_liblist` or `-sv_root`, with
+    /// its value after `=` or from `next`.
+    pub fn option(&mut self, arg: &str, next: &mut dyn FnMut() -> Option<String>) -> Result<bool, String> {
+        let (flag, inline) = match arg.split_once('=') {
+            Some((f, v)) => (f, Some(v.to_string())),
+            None => (arg, None),
+        };
+        if !matches!(flag, "-sv_lib" | "-sv_liblist" | "-sv_root") {
+            return Ok(false);
+        }
+        let value = match inline {
+            Some(v) => v,
+            None => next().ok_or_else(|| format!("{flag} needs a value"))?,
+        };
+        let path = self.place(&value)?;
+        match flag {
+            "-sv_root" => self.root = Some(path),
+            "-sv_lib" => self.libs.push(path),
+            _ => {
+                let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+                let mut lines = text.lines().filter(|l| !l.trim().is_empty());
+                let first: String = lines.next().unwrap_or("").split_whitespace().collect();
+                if first != "#!SV_LIBRARIES" {
+                    return Err(format!("{}: a bootstrap file starts with `#!SV_LIBRARIES` (J.4.1)", path.display()));
+                }
+                for l in lines {
+                    let l = l.trim();
+                    if !l.starts_with('#') {
+                        let p = self.place(l)?;
+                        self.lists.push(p);
+                    }
+                }
+            }
+        }
+        Ok(true)
+    }
+
+    /// A name made absolute: from `-sv_root`, else the working directory.
+    fn place(&self, name: &str) -> Result<PathBuf, String> {
+        let p = Path::new(name);
+        if p.is_absolute() {
+            return Ok(p.to_path_buf());
+        }
+        match &self.root {
+            Some(r) => Ok(r.join(p)),
+            None => Ok(std::env::current_dir().map_err(|e| e.to_string())?.join(p)),
+        }
+    }
+
+    /// The names, bootstrap files' first.
+    pub fn names(&self) -> Vec<PathBuf> {
+        self.lists.iter().chain(&self.libs).cloned().collect()
+    }
+}
+
+/// The DPI library files to load for these names, then those in
+/// `EPITOME_SV_LIBS`, each once.
+pub fn sv_lib_files(names: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
+    let mut all: Vec<PathBuf> = names.to_vec();
+    if let Some(v) = std::env::var_os("EPITOME_SV_LIBS") {
+        all.extend(std::env::split_paths(&v).filter(|p| !p.as_os_str().is_empty()));
+    }
+    let mut out: Vec<PathBuf> = Vec::new();
+    for n in all {
+        let f = find_sv_lib(&n).ok_or_else(|| format!("cannot find DPI library `{}`", n.display()))?;
+        let key = f.canonicalize().unwrap_or_else(|_| f.clone());
+        if !out.iter().any(|o| o.canonicalize().unwrap_or_else(|_| o.clone()) == key) {
+            out.push(f);
+        }
+    }
+    Ok(out)
+}
+
+/// A library's file: the name itself, or with the platform's extension
+/// (J.4).
+fn find_sv_lib(name: &Path) -> Option<PathBuf> {
+    if name.is_file() {
+        return Some(name.to_path_buf());
+    }
+    let exts: &[&str] = if cfg!(target_os = "macos") { &["dylib", "so"] } else if cfg!(windows) { &["dll"] } else { &["so"] };
+    exts.iter().map(|e| PathBuf::from(format!("{}.{e}", name.display()))).find(|p| p.is_file())
 }
 
 /// A VPI module named on the command line: a path, or a name looked for
@@ -294,6 +412,30 @@ mod tests {
         assert_eq!(v.libs, [dir.join("app.vpi")]);
         assert_eq!(v.design, PathBuf::from("sim.vvp"));
         assert_eq!(v.extra, ["+x=1", "-none"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dpi_libraries() {
+        let dir = std::env::temp_dir().join(format!("epitome-svlib-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        let ext = if cfg!(target_os = "macos") { "dylib" } else { "so" };
+        for n in ["a", "sub/b", "sub/c"] {
+            std::fs::write(dir.join(format!("{n}.{ext}")), "").unwrap();
+        }
+        std::fs::write(dir.join("boot"), "#! SV_LIBRARIES\n# a comment\n  sub/c\n").unwrap();
+        let root = dir.to_str().unwrap();
+        let a: Vec<String> = ["-sv_root", root, "-sv_lib", "a", "-sv_lib=sub/b", "-sv_liblist", "boot", "-M.", "sim.vvp", "+x"].iter().map(|s| s.to_string()).collect();
+        let v = VvpArgs::parse(&a).unwrap();
+        assert_eq!(v.design, PathBuf::from("sim.vvp"));
+        assert_eq!(v.sv_libs, [dir.join("sub/c"), dir.join("a"), dir.join("sub/b")]);
+        let files = sv_lib_files(&[v.sv_libs.clone(), v.sv_libs.clone()].concat()).unwrap();
+        assert_eq!(files, [dir.join(format!("sub/c.{ext}")), dir.join(format!("a.{ext}")), dir.join(format!("sub/b.{ext}"))]);
+        let args: Vec<String> = ["-o", "/o/x", "-sv_lib", &format!("{root}/a"), "/src/t.sv"].iter().map(|s| s.to_string()).collect();
+        let (d, _) = DesignFile::from_iverilog_args(&args).unwrap();
+        assert_eq!(d.sv_libs, [dir.join("a")]);
+        assert!(d.tops.is_empty());
+        assert_eq!(DesignFile::parse(&d.write()).unwrap(), d);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

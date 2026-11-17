@@ -1,7 +1,8 @@
 //! `epitome-vvp`: takes the command line test runners give Icarus
 //! Verilog's `vvp`, loads the VPI modules it names (`-M dir`, `-m name`)
-//! and simulates the design file `epitome-iverilog` wrote
-//! (`epitome_sv::launch`). The arguments after the design file, such as
+//! and the DPI libraries (`-sv_lib`, `-sv_liblist`, `-sv_root`,
+//! `EPITOME_SV_LIBS`, and those in the design file), and simulates the
+//! design file `epitome-iverilog` wrote (`epitome_sv::launch`). The arguments after the design file, such as
 //! plusargs, go to the design and to the modules.
 //!
 //! The exit status is non-zero if `$fatal` was called or the run hit a
@@ -10,8 +11,9 @@
 use epitome_sv::launch::{DesignFile, VvpArgs};
 use std::process::ExitCode;
 
-// The VPI functions, for the modules to find in this executable.
+// The VPI and DPI functions, for the libraries to find in this executable.
 epitome_sv::export_vpi!();
+epitome_sv::export_dpi!();
 
 fn main() -> ExitCode {
     // Elaboration recurses as deeply as the design's hierarchy.
@@ -39,9 +41,16 @@ fn run() -> ExitCode {
         }
     };
     let plusargs: Vec<String> = args.extra.iter().filter(|a| a.starts_with('+')).cloned().collect();
+    let dpi_libs = match epitome_sv::launch::sv_lib_files(&[df.sv_libs.clone(), args.sv_libs.clone()].concat()) {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("epitome-vvp: {e}");
+            return ExitCode::from(2);
+        }
+    };
     let setup = epitome_sv::sim::vpi::Setup { libs: args.libs.clone(), argv: argv.clone() };
     let r = epitome_sv::launch::with_design(&df, |d, tree| {
-        let opts = epitome_sv::sim::Options { plusargs, max_steps: u64::MAX, zero_init: epitome_sv::sim::zero_init_from_env(), ..Default::default() };
+        let opts = epitome_sv::sim::Options { plusargs, max_steps: u64::MAX, zero_init: epitome_sv::sim::zero_init_from_env(), dpi_libs, ..Default::default() };
         let mut stdout = std::io::stdout();
         epitome_sv::sim::vpi::simulate(d, tree, &mut stdout, &opts, &setup)
     });

@@ -95,6 +95,9 @@ pub struct Options {
     pub system_include_dirs: Vec<PathBuf>,
     /// Macros defined before the first file, as `(name, text)`.
     pub defines: Vec<(String, String)>,
+    /// The time unit and precision in effect before any `` `timescale ``
+    /// (and after `` `resetall ``), as simulators' command lines set it.
+    pub timescale: Option<Timescale>,
 }
 
 /// The net type of implicit nets (22.8).
@@ -140,6 +143,35 @@ impl NetType {
 pub struct Timescale {
     pub unit: i8,
     pub precision: i8,
+}
+
+impl Timescale {
+    /// `1ns/1ps` or `10 us / 100 ns`, as a command line gives it.
+    pub fn parse(text: &str) -> Option<Timescale> {
+        let value = |t: &str| -> Option<i8> {
+            let t = t.trim();
+            let digits = t.bytes().take_while(u8::is_ascii_digit).count();
+            let magnitude = match &t[..digits] {
+                "1" => 0,
+                "10" => 1,
+                "100" => 2,
+                _ => return None,
+            };
+            let unit = match t[digits..].trim() {
+                "s" => 0,
+                "ms" => -3,
+                "us" => -6,
+                "ns" => -9,
+                "ps" => -12,
+                "fs" => -15,
+                _ => return None,
+            };
+            Some(unit + magnitude)
+        };
+        let (u, p) = text.split_once('/')?;
+        let (unit, precision) = (value(u)?, value(p)?);
+        (precision <= unit).then_some(Timescale { unit, precision })
+    }
 }
 
 /// The settings directives make, in effect at a token.
@@ -318,8 +350,8 @@ impl<'a, 'o> Preprocessor<'a, 'o> {
             frames: Vec::new(),
             conds: Vec::new(),
             keyword_stack: Vec::new(),
-            state: State::default(),
-            states: vec![State::default()],
+            state: State { timescale: options.timescale, ..State::default() },
+            states: vec![State { timescale: options.timescale, ..State::default() }],
             out: Vec::new(),
             design_depth: 0,
             pending_base: None,
@@ -520,7 +552,7 @@ impl<'a, 'o> Preprocessor<'a, 'o> {
             "include" => self.include(d, dir),
             "resetall" => {
                 self.outside_design_element(d)?;
-                self.state = State { keywords: self.state.keywords, ..State::default() };
+                self.state = State { keywords: self.state.keywords, timescale: self.options.timescale, ..State::default() };
                 Ok(())
             }
             "timescale" => {

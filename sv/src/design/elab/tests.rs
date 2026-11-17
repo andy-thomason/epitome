@@ -203,3 +203,19 @@ fn upward_names_through_generate_blocks_above() {
     );
     assert!(t.contains("10 20"), "{t}");
 }
+
+#[test]
+fn constant_functions_write_members_of_packed_unions() {
+    // Every member of a packed union starts at bit 0 (7.3.1): a write
+    // through one view reads back through another, in a constant function
+    // as at run time.
+    let t = ok("module m;
+                  typedef struct packed { logic [3:0] hi; logic [1:0] sel; logic [1:0] lo; } in_t;
+                  typedef struct packed { logic [7:0] pad; in_t in; } a_t;
+                  typedef struct packed { logic [11:0] top; logic [1:0] sel; logic [1:0] rest; } b_t;
+                  typedef union packed { a_t a; b_t b; } u_t;
+                  function automatic logic same(); u_t p; p = '0; p.a.in.sel = 2'd2; return p.b.sel == 2'd2; endfunction
+                  localparam logic OK = same();
+                endmodule");
+    assert!(t.contains("OK = 1'd1"), "{t}");
+}

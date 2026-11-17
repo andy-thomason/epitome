@@ -808,9 +808,10 @@ impl Eval {
                         Const::Aggregate(items)
                     }
                     Const::Bits(mut b) => {
-                        if let Type::Struct { members, .. } = e.d.types.get(bt).clone() {
+                        if let Type::Struct { members, union, .. } = e.d.types.get(bt).clone() {
                             let w = e.d.types.width(members[i as usize].ty);
-                            let below: u32 = members[i as usize + 1..].iter().map(|m| e.d.types.width(m.ty)).sum();
+                            // A packed union's members all start at bit 0.
+                            let below: u32 = if union { 0 } else { members[i as usize + 1..].iter().map(|m| e.d.types.width(m.ty)).sum() };
                             let nv = bits_of(&v).unwrap_or(Bits::x(w));
                             b.set_slice(below, &nv.resize(w, false));
                         }

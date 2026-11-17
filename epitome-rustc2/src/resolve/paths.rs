@@ -334,6 +334,17 @@ impl<'w, 's> Walker<'w, 's> {
                     }
                 }
             }
+            // `p if e`: `e` sees what `p` binds.
+            Kind::GuardPat => {
+                let kids = self.ast.children(pat).to_vec();
+                let mut inner = Vec::new();
+                self.pattern(kids[0], &mut inner);
+                self.push();
+                self.rib().values.extend(inner.iter().cloned());
+                self.walk(kids[1]);
+                self.pop();
+                binds.extend(inner);
+            }
             Kind::PathPat | Kind::TupleStructPat => {
                 let kids = self.ast.children(pat).to_vec();
                 if let Some(&p) = kids.first() {
@@ -417,6 +428,50 @@ impl<'w, 's> Walker<'w, 's> {
         self.generic_args_of(path);
     }
 
+    /// `reuse ...`: the function (or a trait or module's functions) it
+    /// calls, and the expression its first argument becomes, which has
+    /// `self` in scope. `reuse impl<A> Tr<A> for T`: the generics, then the
+    /// types.
+    fn delegation(&mut self, n: NodeId) {
+        let kids = self.ast.children(n).to_vec();
+        self.push();
+        self.generics(n);
+        let listed = kids.iter().any(|&c| matches!(self.ast.kind(c), Kind::UseGroup | Kind::UseGlob));
+        let mut prefix = None;
+        for &c in &kids {
+            match self.ast.kind(c) {
+                Kind::Path if listed => {
+                    prefix = Some(c);
+                    self.path(c, Ns::Type);
+                }
+                Kind::Path => self.path(c, Ns::Value),
+                // `Tr::{a, b}`: each a function of `Tr`.
+                Kind::UseGroup => {
+                    let module = prefix.and_then(|p| self.out[p.0 as usize].clone()).and_then(|r| self.r.module_of_res(&r));
+                    for &t in self.ast.children(c) {
+                        let Some(p) = self.ast.child(t, Kind::Path) else { continue };
+                        let name = self.ast.children(p).iter().find_map(|&s| self.ast.child(s, Kind::Name));
+                        let found = module.zip(name).and_then(|(m, name)| {
+                            self.r.lookup(m, self.ast.token(name).ident_name(), Ns::Value, self.module)
+                        });
+                        // Not found (a `<T as Tr>::{..}` the resolver
+                        // does not follow): what the prefix is.
+                        self.out[p.0 as usize] = found.or_else(|| prefix.and_then(|q| self.out[q.0 as usize].clone()));
+                    }
+                }
+                Kind::Block => {
+                    self.push();
+                    self.rib().values.push(("self", ANY_CTX, Res::Local(n)));
+                    self.walk(c);
+                    self.pop();
+                }
+                Kind::Attribute | Kind::DocComment | Kind::Visibility | Kind::Keyword | Kind::Generics | Kind::Rename => {}
+                _ => self.walk(c),
+            }
+        }
+        self.pop();
+    }
+
     /// An `if` or `while` condition: `let` bindings in it are visible in
     /// the rest of the condition and in the body (the caller's rib).
     fn condition(&mut self, e: NodeId) {
@@ -439,7 +494,15 @@ impl<'w, 's> Walker<'w, 's> {
 
     /// An item: it starts with no locals in scope, and its own generics.
     fn item(&mut self, item: NodeId) {
+        // `Self` of an enclosing impl stays in scope (`fn bar() -> S {
+        // Self(0) }` inside a method), as rustc allows for one that is not
+        // generic; items with a `Self` of their own bind it again.
+        let outer_self = self.ribs.iter().rev().find_map(|r| r.types.iter().rev().find(|t| t.0 == "Self").cloned());
         let saved = std::mem::take(&mut self.ribs);
+        if let Some(s) = outer_self {
+            self.push();
+            self.rib().types.push(s);
+        }
         self.item_body(item);
         self.ribs = saved;
     }
@@ -516,6 +579,33 @@ impl<'w, 's> Walker<'w, 's> {
     // ---- the walk ----
 
     fn walk(&mut self, n: NodeId) {
+        // `for<T> T: Trait`, `dyn for<T> Fn(T)`: the binder's type
+        // parameters are in scope in what it binds.
+        if let Some(f) = self.ast.child(n, Kind::ForLifetimes)
+            && let params = self
+                .ast
+                .children(f)
+                .iter()
+                .copied()
+                .filter(|&p| self.ast.kind(p) == Kind::TypeParam)
+                .collect::<Vec<_>>()
+            && !params.is_empty()
+        {
+            self.push();
+            for p in params {
+                if let Some(name) = self.ast.child(p, Kind::Name) {
+                    let name = self.ast.token(name).ident_name();
+                    self.rib().types.push((name, Res::Generic(p)));
+                }
+            }
+            self.walk_node(n);
+            self.pop();
+            return;
+        }
+        self.walk_node(n);
+    }
+
+    fn walk_node(&mut self, n: NodeId) {
         let kind = self.ast.kind(n);
         match kind {
             Kind::TokenTree
@@ -535,6 +625,7 @@ impl<'w, 's> Walker<'w, 's> {
                 }
             }
             _ if is_item(kind) => self.item(n),
+            Kind::Delegation => self.delegation(n),
             Kind::PathExpr => {
                 if let Some(&p) = self.ast.children(n).first() {
                     self.path(p, Ns::Value);
@@ -760,6 +851,7 @@ fn is_pattern(k: Kind) -> bool {
             | RefPat
             | TuplePat
             | ParenPat
+            | GuardPat
             | SlicePat
             | PathPat
             | TupleStructPat

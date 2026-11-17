@@ -203,7 +203,12 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let params = tcx.all_params(d);
         let mut o = Some(d);
         while let Some(x) = o {
-            if matches!(self.r.defs[x.0 as usize].kind, DefKind::Impl | DefKind::Trait) {
+            // An inherent impl's `where` clauses are its methods' too
+            // (`impl<T, F: FnOnce(T)> DropGuard<T, F>`: what `new`'s closure
+            // takes); a trait's or a trait impl's are not obligations here.
+            let kind = self.r.defs[x.0 as usize].kind;
+            let inherent = kind == DefKind::Impl && tcx.impl_index.get(&x).is_some_and(|&i| tcx.impls[i].trait_ref.is_none());
+            if matches!(kind, DefKind::Impl | DefKind::Trait) && !inherent {
                 break;
             }
             for p in tcx.predicates[x.0 as usize].clone() {
@@ -344,6 +349,20 @@ impl<'a, 's> FnCtxt<'a, 's> {
         if self.is_builtin_marker(tr, t) {
             return Select::Yes(Source::Builtin(None));
         }
+        // Tuples are `Clone` and `Copy` when their elements are, built in.
+        if let TyKind::Tuple(l) = tcx.kind(t)
+            && ["clone", "copy"].iter().any(|n| tcx.lang.get(n) == Some(&tr))
+        {
+            let mut ambiguous = false;
+            for e in tcx.tys(l) {
+                match self.select(e, tr, &[], depth + 1) {
+                    Select::Yes(_) => {}
+                    Select::No => return Select::No,
+                    Select::Ambiguous => ambiguous = true,
+                }
+            }
+            return if ambiguous { Select::Ambiguous } else { Select::Yes(Source::Builtin(None)) };
+        }
         // Closures, function items and pointers implement the `Fn` traits.
         if ["fn", "fn_mut", "fn_once"].iter().any(|l| tcx.lang.get(l) == Some(&tr)) {
             let sig = match tcx.kind(t) {
@@ -361,6 +380,24 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     _ => Select::No,
                 };
             }
+        }
+        // Coroutines implement `Coroutine<R>` for their resume type `R`.
+        if let TyKind::Coroutine(_, parts, _) = tcx.kind(t)
+            && tcx.lang.get("coroutine") == Some(&tr)
+        {
+            let resume = tcx.tys(match tcx.kind(parts) {
+                TyKind::Tuple(l) => l,
+                _ => return Select::No,
+            })[0];
+            let r = targs.first().copied().unwrap_or_else(|| self.unit());
+            return if self.infer.unify(r, resume) { Select::Yes(Source::Builtin(None)) } else { Select::No };
+        }
+        // `gen` blocks implement `Iterator`, `async gen` ones
+        // `AsyncIterator`, their `Item` the type they yield.
+        if let TyKind::GenBlock(_, _, _, a) = tcx.kind(t)
+            && tcx.lang.get(if a { "async_iterator" } else { "iterator" }) == Some(&tr)
+        {
+            return Select::Yes(Source::Builtin(None));
         }
         // `async` blocks implement `Future`, with their value as `Output`.
         if let TyKind::AsyncBlock(_, out, _) = tcx.kind(t)
@@ -655,6 +692,25 @@ impl<'a, 's> FnCtxt<'a, 's> {
         if tcx.lang.get("metadata_type") == Some(&assoc) {
             return self.pointee_metadata(t, 0);
         }
+        // A `gen` block's `Item`.
+        if let TyKind::GenBlock(_, y, _, a) = tcx.kind(t)
+            && let Some(tr) = self.trait_of(assoc)
+            && tcx.lang.get(if a { "async_iterator" } else { "iterator" }) == Some(&tr)
+            && self.r.defs[assoc.0 as usize].name == "Item"
+        {
+            return Some(y);
+        }
+        // A coroutine's `Yield` and `Return`.
+        if let TyKind::Coroutine(_, parts, _) = tcx.kind(t)
+            && let TyKind::Tuple(l) = tcx.kind(parts)
+        {
+            if tcx.lang.get("coroutine_yield") == Some(&assoc) {
+                return Some(tcx.tys(l)[1]);
+            }
+            if tcx.lang.get("coroutine_return") == Some(&assoc) {
+                return Some(tcx.tys(l)[2]);
+            }
+        }
         if tcx.lang.get("discriminant_type") == Some(&assoc) {
             return self.discriminant_type(t);
         }
@@ -840,6 +896,16 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 let v = tcx.tys(l).into_iter().map(|x| self.normalize(x, depth)).collect();
                 self.mk(TyKind::AsyncBlock(c, o, tcx.list(v)))
             }
+            TyKind::Coroutine(c, o, l) => {
+                let o = self.normalize(o, depth);
+                let v = tcx.tys(l).into_iter().map(|x| self.normalize(x, depth)).collect();
+                self.mk(TyKind::Coroutine(c, o, tcx.list(v)))
+            }
+            TyKind::GenBlock(c, y, l, a) => {
+                let y = self.normalize(y, depth);
+                let v = tcx.tys(l).into_iter().map(|x| self.normalize(x, depth)).collect();
+                self.mk(TyKind::GenBlock(c, y, tcx.list(v), a))
+            }
             TyKind::Opaque(o, l) => {
                 let v = tcx.tys(l).into_iter().map(|x| self.normalize(x, depth)).collect();
                 self.mk(TyKind::Opaque(o, tcx.list(v)))
@@ -851,6 +917,18 @@ impl<'a, 's> FnCtxt<'a, 's> {
     /// Tries the pending projections again: those whose types are now
     /// known enough give their variable a type.
     pub(super) fn process_pending(&mut self) {
+        // A projection settled may settle a trait obligation's arguments,
+        // and the other way round: until neither changes.
+        loop {
+            let before = (self.pending_traits.len(), self.pending.len());
+            self.process_pending_once();
+            if (self.pending_traits.len(), self.pending.len()) == before {
+                break;
+            }
+        }
+    }
+
+    fn process_pending_once(&mut self) {
         let tcx = self.tcx;
         // Trait predicates whose arguments are variables: one impl
         // matching settles them.
@@ -869,6 +947,26 @@ impl<'a, 's> FnCtxt<'a, 's> {
             }
             match self.select(t, tr, &args, 1) {
                 Select::Ambiguous if !self.settle_by_agreement(t, tr, &args) => i += 1,
+                // The impl chosen: its `where` clauses with unknowns in
+                // them may settle those in turn (`Result<(), ()>:
+                // FromResidual<Result<!, ?E>>` needs `(): From<?E>`).
+                Select::Yes(Source::Impl(imp, iargs)) => {
+                    self.pending_traits.swap_remove(i);
+                    let def = tcx.impls[imp].def;
+                    let params = tcx.all_params(def);
+                    for p in &tcx.predicates[def.0 as usize] {
+                        let Pred::Trait(pt, ptr) = p else { continue };
+                        if Some(&ptr.def) == tcx.lang.get("sized") || self.pending_traits.len() > 64 {
+                            continue;
+                        }
+                        let pt = subst(tcx, *pt, &params, &iargs);
+                        let pa: Vec<Ty> = tcx.tys(ptr.args).into_iter().map(|x| subst(tcx, x, &params, &iargs)).collect();
+                        if !tcx.has_infer(self.infer.resolve(pt)) && pa.iter().any(|&a| tcx.has_infer(self.infer.resolve(a))) {
+                            let pa = self.full_trait_args(ptr.def, pt, pa);
+                            self.pending_traits.push((pt, ptr.def, tcx.list(pa)));
+                        }
+                    }
+                }
                 _ => {
                     self.pending_traits.swap_remove(i);
                 }
@@ -1007,6 +1105,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
     fn trait_candidates_in(&mut self, name: &str, scoped: bool) -> Vec<(DefId, DefId)> {
         let Some(c) = self.index.trait_items.get(name) else { return Vec::new() };
         let mut c = c.clone();
+        c.retain(|&(tr, _)| self.can_use(tr));
         if c.len() > 1 || scoped {
             let bound: Vec<DefId> = self
                 .env_preds
@@ -1241,6 +1340,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
         if let Some(fr) = from {
             let ret = self.ret;
             self.implicit_call(n, fr, "from_residual", vec![ret, residual]);
+            // `R: FromResidual<Result<Infallible, E>>`, where the one impl
+            // that fits settles `E` (`Ok(())?` in a `Result<(), ()>`).
+            self.pending_traits.push((ret, fr, tcx.list(vec![residual])));
         }
     }
 
@@ -1273,7 +1375,53 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let output = self.lang("fn_once_output");
         let mut inputs = None;
         let mut ret = None;
-        let bounds = self.type_bounds(t);
+        let mut bounds = self.type_bounds(t);
+        // Bounds of other traits, through their supertraits (`F:
+        // Receive<T, E>` where `Receive<T, E>: FnOnce(Result<T, E>)`).
+        let others: Vec<TraitRef> = self
+            .obligations
+            .iter()
+            .chain(&self.env_preds)
+            .filter_map(|p| match p {
+                Pred::Trait(pt, tr) if !fns.contains(&tr.def) && self.infer.shallow(*pt) == t => Some(tr.clone()),
+                _ => None,
+            })
+            .collect();
+        for tr in others {
+            let mut sup = Vec::new();
+            self.elaborate(t, &tr, &mut sup);
+            bounds.extend(sup);
+        }
+        // Through an impl: `Wrap<F>: Foo` with `impl<T> Foo for Wrap<T>
+        // where T: Fn(i32)`, the one impl that applies.
+        let around: Vec<(Ty, TraitRef)> = self
+            .obligations
+            .iter()
+            .filter_map(|p| match p {
+                Pred::Trait(pt, tr) if self.infer.shallow(*pt) != t && self.mentions(*pt, t) => Some((*pt, tr.clone())),
+                _ => None,
+            })
+            .collect();
+        for (pt, tr) in around {
+            let args = tcx.tys(tr.args);
+            if let Select::Yes(Source::Impl(i, iargs)) = self.select(pt, tr.def, &args, 0) {
+                let params = tcx.all_params(tcx.impls[i].def);
+                for p in &tcx.predicates[tcx.impls[i].def.0 as usize] {
+                    match p {
+                        Pred::Trait(x, ptr) if fns.contains(&ptr.def) => {
+                            let x = subst(tcx, *x, &params, &iargs);
+                            bounds.push(Pred::Trait(x, subst_trait_ref(tcx, ptr, &params, &iargs)));
+                        }
+                        Pred::Projection(x, a, l, ty) if Some(*a) == output => {
+                            let sub = |y: Ty| subst(tcx, y, &params, &iargs);
+                            let l = tcx.list(tcx.tys(*l).into_iter().map(sub).collect());
+                            bounds.push(Pred::Projection(sub(*x), *a, l, sub(*ty)));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
         for p in self.obligations.iter().chain(&self.env_preds).chain(&bounds) {
             match p {
                 Pred::Trait(pt, tr) if fns.contains(&tr.def) && self.infer.shallow(*pt) == t => {
@@ -1283,11 +1431,42 @@ impl<'a, 's> FnCtxt<'a, 's> {
                         inputs = Some(tcx.tys(l));
                     }
                 }
-                Pred::Projection(pt, a, _, ty) if Some(*a) == output && self.infer.shallow(*pt) == t => ret = Some(*ty),
+                // Not a projection on the closure's own type (`Fn0: Fn(i32)
+                // -> Self::Out`), whose value would need the closure's.
+                Pred::Projection(pt, a, _, ty)
+                    if Some(*a) == output && self.infer.shallow(*pt) == t && !self.projects_from(*ty, t) =>
+                {
+                    ret = Some(*ty)
+                }
                 _ => {}
             }
         }
         inputs.map(|i| (i, ret))
+    }
+
+    /// Whether `t` has a projection on `v` in it.
+    fn projects_from(&self, t: Ty, v: Ty) -> bool {
+        let tcx = self.tcx;
+        match tcx.kind(self.infer.shallow(t)) {
+            TyKind::Projection(_, l) => tcx.tys(l).first().is_some_and(|&s| self.mentions(s, v)),
+            TyKind::Adt(_, l) | TyKind::Tuple(l) => tcx.tys(l).into_iter().any(|x| self.projects_from(x, v)),
+            TyKind::Ref(_, x) | TyKind::Ptr(_, x) | TyKind::Slice(x) | TyKind::Array(x, _) => self.projects_from(x, v),
+            _ => false,
+        }
+    }
+
+    /// Whether type `t` has `v` (a variable) in it.
+    fn mentions(&self, t: Ty, v: Ty) -> bool {
+        let tcx = self.tcx;
+        let t = self.infer.shallow(t);
+        if t == v {
+            return true;
+        }
+        match tcx.kind(t) {
+            TyKind::Adt(_, l) | TyKind::Tuple(l) => tcx.tys(l).into_iter().any(|x| self.mentions(x, v)),
+            TyKind::Ref(_, x) | TyKind::Ptr(_, x) | TyKind::Slice(x) | TyKind::Array(x, _) => self.mentions(x, v),
+            _ => false,
+        }
     }
 
     /// Whether `t` (a reference's or `Box`'s target) can be coerced to
@@ -1368,8 +1547,16 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 return Some(self.project_or_var(a, &args));
             }
         }
-        // Any trait with such an associated type that `t` implements.
-        let traits: Vec<DefId> = tcx.traits.keys().copied().filter(|&tr| self.trait_item(tr, name, Ns::Type).is_some()).collect();
+        // Any trait with such an associated type that `t` implements, in
+        // the order they are defined (not the map's, which other crates'
+        // traits change).
+        let mut traits: Vec<DefId> = tcx
+            .traits
+            .keys()
+            .copied()
+            .filter(|&tr| self.can_use(tr) && self.trait_item(tr, name, Ns::Type).is_some())
+            .collect();
+        traits.sort();
         for tr in traits {
             let n = tcx.generics[tr.0 as usize].own.len().saturating_sub(1);
             let targs: Vec<Ty> = (0..n).map(|_| self.infer.fresh()).collect();
@@ -1381,6 +1568,15 @@ impl<'a, 's> FnCtxt<'a, 's> {
             }
         }
         None
+    }
+
+    /// Whether the body's crate may use `d`: it is its own, or of a crate
+    /// it depends on (`CrateRoot::deps`).
+    pub(super) fn can_use(&self, d: DefId) -> bool {
+        let crates = self.env.crates;
+        let c = self.r.defs[d.0 as usize].krate;
+        c == self.k
+            || crates[self.k as usize].deps.as_ref().is_none_or(|deps| deps.contains(&crates[c as usize].name))
     }
 
     /// A `&` or `&mut` of `t`.
@@ -1427,7 +1623,9 @@ fn has_projection(tcx: &crate::ty::TyCtxt, t: Ty) -> bool {
                 || tcx.tys(s.inputs).into_iter().any(|x| has_projection(tcx, x))
                 || tcx.tys(l).into_iter().any(|x| has_projection(tcx, x))
         }
-        TyKind::AsyncBlock(_, o, l) => has_projection(tcx, o) || tcx.tys(l).into_iter().any(|x| has_projection(tcx, x)),
+        TyKind::AsyncBlock(_, o, l) | TyKind::Coroutine(_, o, l) | TyKind::GenBlock(_, o, l, _) => {
+            has_projection(tcx, o) || tcx.tys(l).into_iter().any(|x| has_projection(tcx, x))
+        }
         _ => false,
     }
 }

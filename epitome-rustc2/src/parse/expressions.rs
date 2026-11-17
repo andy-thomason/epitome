@@ -181,7 +181,8 @@ impl<'a> Parser<'a> {
             }
             "&" => {
                 self.bump();
-                if self.at("raw") && (self.at_n(1, "const") || self.at_n(1, "mut")) {
+                // `&raw const a`, `&raw mut a`, `&pin mut a`, `&pin const a`.
+                if matches!(self.tok(0).0, "raw" | "pin") && (self.at_n(1, "const") || self.at_n(1, "mut")) {
                     self.leaf(Kind::Keyword, 1);
                     self.leaf(Kind::Keyword, 1);
                 } else if self.at("mut") {
@@ -359,7 +360,21 @@ impl<'a> Parser<'a> {
                 self.finish(m, Kind::ConstBlock);
             }
             "try" | "gen" if self.at_n(1, "{") || self.at_n(1, "move") && self.at_n(2, "{") => self.block_expr()?,
+            // `try bikeshed Result<_, E> { .. }`: a `try` block of that type.
+            "try" if self.at_n(1, "bikeshed") => {
+                self.leaf(Kind::Keyword, 1);
+                self.leaf(Kind::Keyword, 1);
+                self.ty_no_plus()?;
+                self.block_expr_from(m)?;
+            }
             "async" if self.async_block_at() => self.block_expr()?,
+            // `move(x)`: `x` moved into the closure it is written in.
+            "move" if self.at_n(1, "(") => {
+                self.bump_n(2);
+                self.expr()?;
+                self.expect(")")?;
+                self.finish(m, Kind::MoveExpr);
+            }
             "|" | "move" | "async" | "static" | "for" | "gen" | "use" | "const" => self.closure(r)?,
             "return" | "yield" => {
                 self.bump();
@@ -575,7 +590,9 @@ impl<'a> Parser<'a> {
             }
             _ => {
                 self.expect("for")?;
-                if self.at("await") {
+                // `for await x in s`; in 2015 `await` is a name
+                // (`for await in 0..3`).
+                if self.at("await") && self.edition >= crate::lexer::Edition::E2018 {
                     self.leaf(Kind::Keyword, 1);
                 }
                 self.pattern()?;

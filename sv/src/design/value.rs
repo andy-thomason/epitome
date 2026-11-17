@@ -225,6 +225,29 @@ impl Bits {
         self.unk[w] = self.unk[w] & !(1 << b) | (u as u64) << b;
     }
 
+    /// Bits `32k + 31` to `32k` as the value word and the unknown word of
+    /// a VPI or DPI vector chunk (`aval`, `bval`).
+    pub fn chunk32(&self, k: u32) -> (u32, u32) {
+        let lo = k as u64 * 32;
+        (get_bits(&self.val, lo, 32) as u32, get_bits(&self.unk, lo, 32) as u32)
+    }
+
+    /// A vector made of 32-bit chunks (`aval`, `bval`), least significant
+    /// first; bits past `width` are dropped.
+    pub fn from_chunks32(width: u32, signed: bool, chunks: impl IntoIterator<Item = (u32, u32)>) -> Bits {
+        let mut b = Bits::zero(width, signed);
+        for (k, (a, u)) in chunks.into_iter().enumerate() {
+            let lo = k as u64 * 32;
+            if lo >= width as u64 {
+                break;
+            }
+            put_bits(&mut b.val, lo, 32, a as u64);
+            put_bits(&mut b.unk, lo, 32, u as u64);
+        }
+        b.mask();
+        b
+    }
+
     /// x and z bits become 0.
     pub fn known_or_zero(&self) -> Bits {
         let mut r = self.clone();

@@ -303,15 +303,60 @@ fn elaborate_all() {
 /// Runs every simulation test in the interpreter and judges it as the
 /// suite's runner does: a line that is exactly `PASS` and none containing
 /// `FAIL` (or the `:expect:` lines, in order); a should-fail test must
-/// fail. Tests needing DPI or VPI C code are skipped. `SIM_REPORT=<file>`
-/// writes the details. The pass count may not fall below `SIM_FLOOR`.
+/// fail. Tests with DPI C code have it built with `cc` and run in
+/// `epitome-sv` (`dpi_test`); those needing VPI C code are skipped.
+/// `SIM_REPORT=<file>` writes the details. The pass count may not fall
+/// below `SIM_FLOOR`.
 #[test]
 fn simulate_test1800() {
     std::thread::Builder::new().stack_size(512 << 20).spawn(simulate_all).unwrap().join().unwrap();
 }
 
+/// A test with DPI C code (`:dpi:` names the files): the C built into a
+/// shared library with `cc` and the svdpi.h of `include/`, and the test
+/// run by `epitome-sv` with it; whether the run succeeded, and what it
+/// printed. `None` without a C compiler.
+fn dpi_test(name: &str, sources: &[PathBuf], c_files: &str, dir: &Path, plusargs: &str) -> Option<(bool, String)> {
+    let work = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("test1800-dpi").join(name.replace(['/', '.'], "_"));
+    std::fs::create_dir_all(&work).ok()?;
+    let ext = if cfg!(target_os = "macos") { "dylib" } else { "so" };
+    let lib = work.join(format!("dpi.{ext}"));
+    let mut cc = std::process::Command::new(std::env::var("CC").unwrap_or_else(|_| "cc".into()));
+    cc.args(["-shared", "-fPIC", "-O1", "-I"]).arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("include")).arg("-o").arg(&lib);
+    if cfg!(target_os = "macos") {
+        // The svdpi.h functions and the exports are found in the process.
+        cc.args(["-undefined", "dynamic_lookup"]);
+    }
+    cc.args(c_files.split_whitespace().map(|f| dir.join(f)));
+    let r = match cc.output() {
+        Ok(r) => r,
+        Err(_) => return None,
+    };
+    if !r.status.success() {
+        return Some((false, format!("the C does not build: {}", String::from_utf8_lossy(&r.stderr).lines().next().unwrap_or(""))));
+    }
+    let mut sim = std::process::Command::new(env!("CARGO_BIN_EXE_epitome-sv"));
+    sim.current_dir(dir).args(sources).arg("-sv_lib").arg(&lib).args(plusargs.split_whitespace());
+    sim.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+    let mut child = sim.spawn().ok()?;
+    // As long as the in-process runs may take, and a little more.
+    let start = std::time::Instant::now();
+    loop {
+        if child.try_wait().ok()?.is_some() {
+            break;
+        }
+        if start.elapsed() > std::time::Duration::from_secs(5) {
+            let _ = child.kill();
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let out = child.wait_with_output().ok()?;
+    Some((out.status.success(), String::from_utf8_lossy(&out.stdout).into_owned()))
+}
+
 /// The number of simulation tests that pass today.
-const SIM_FLOOR: usize = 510;
+const SIM_FLOOR: usize = 534;
 
 fn simulate_all() {
     let Some(root) = suite() else { return };
@@ -329,7 +374,7 @@ fn simulate_all() {
         if kind != "simulation" {
             continue;
         }
-        if header(&text, "dpi").is_some() || header(&text, "vpi").is_some() {
+        if header(&text, "vpi").is_some() {
             skipped += 1;
             continue;
         }
@@ -346,6 +391,29 @@ fn simulate_all() {
         let name = path.strip_prefix(&root).unwrap().display().to_string();
         if verbose {
             eprintln!("{name}");
+        }
+        if let Some(c_files) = header(&text, "dpi") {
+            match dpi_test(&name, &sources, &c_files, dir, &header(&text, "plusargs").unwrap_or_default()) {
+                None => skipped += 1,
+                Some((ok, output)) => {
+                    let ok = if should_fail {
+                        !ok
+                    } else if let Some(expect) = header(&text, "expect") {
+                        let want: Vec<&str> = expect.split("  ").map(str::trim).filter(|l| !l.is_empty()).collect();
+                        let mut lines = output.lines().map(str::trim);
+                        ok && want.iter().all(|w| lines.any(|l| l == *w))
+                    } else {
+                        ok && output.lines().any(|l| l.trim() == "PASS") && !output.lines().any(|l| l.contains("FAIL"))
+                    };
+                    if ok {
+                        pass += 1;
+                    } else {
+                        let last: Vec<&str> = output.lines().rev().take(3).collect();
+                        fails.push(format!("{name}: {}", last.into_iter().rev().collect::<Vec<_>>().join(" | ")));
+                    }
+                }
+            }
+            continue;
         }
         let map = SourceMap::new();
         let opts = Options { include_dirs: vec![dir.to_path_buf()], ..Default::default() };
@@ -377,7 +445,7 @@ fn simulate_all() {
             }
         };
         let plusargs: Vec<String> = header(&text, "plusargs").map(|p| p.split_whitespace().map(String::from).collect()).unwrap_or_default();
-        let sim_opts = epitome_sv::sim::Options { plusargs, max_steps: 20_000_000, time_limit: Some(std::time::Duration::from_secs(1)) };
+        let sim_opts = epitome_sv::sim::Options { plusargs, max_steps: 20_000_000, time_limit: Some(std::time::Duration::from_secs(1)), ..Default::default() };
         let mut buf: Vec<u8> = Vec::new();
         let _ = std::env::set_current_dir(dir);
         let t0 = std::time::Instant::now();
@@ -411,7 +479,7 @@ fn simulate_all() {
     }
     let total = pass + fails.len();
     eprintln!(
-        "{total} simulation tests: {pass} pass, {} fail, {skipped} skipped (DPI, VPI or separate units); {:.1}s",
+        "{total} simulation tests: {pass} pass, {} fail, {skipped} skipped (VPI, separate units, or DPI without a C compiler); {:.1}s",
         fails.len(),
         start.elapsed().as_secs_f64()
     );

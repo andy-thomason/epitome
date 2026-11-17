@@ -40,10 +40,60 @@ pub fn elaborate<'a>(ast: &Ast<'a>, out: &Output<'a>) -> Result<Design<'a>, Erro
 /// As `elaborate`, with the top-level instances named; none means every
 /// design element nothing instantiates (23.3.1).
 pub fn elaborate_tops<'a>(ast: &Ast<'a>, out: &Output<'a>, tops: &[String]) -> Result<Design<'a>, Error<'a>> {
+    elaborate_with(ast, out, tops, &[])
+}
+
+/// As `elaborate_tops`, with parameters of the top-level instances set
+/// from outside, as simulators' `-G` options do: `(name, value)` sets
+/// `name` in every top that has it as an overridable parameter, and
+/// `(top.name, value)` only in `top`.
+pub fn elaborate_with<'a>(
+    ast: &Ast<'a>,
+    out: &Output<'a>,
+    tops: &[String],
+    params: &[(String, Const)],
+) -> Result<Design<'a>, Error<'a>> {
     let mut e = Elab::new(ast, out);
     e.chosen_tops = tops.to_vec();
+    e.top_params = params.to_vec();
     e.run()?;
     Ok(e.d)
+}
+
+/// A parameter value given as text on a command line: a number as a
+/// literal is written (`12`, `-3`, `8'hff`, `'b101`, `4'sd7`), a real
+/// (`1.5`, `2e-3`) or a quoted string.
+pub fn parse_param_value(text: &str) -> Option<Const> {
+    let t = text.trim();
+    if let Some(s) = t.strip_prefix('"') {
+        return Some(Const::Str(s.strip_suffix('"')?.as_bytes().to_vec()));
+    }
+    let (neg, body) = match t.strip_prefix('-') {
+        Some(b) => (true, b),
+        None => (false, t),
+    };
+    let bits = if let Some(q) = body.find('\'') {
+        let width = if q == 0 { None } else { Some(body[..q].replace('_', "").parse::<u32>().ok()?) };
+        let mut rest = &body[q + 1..];
+        let signed = rest.starts_with(['s', 'S']);
+        if signed {
+            rest = &rest[1..];
+        }
+        let base = match rest.chars().next()?.to_ascii_lowercase() {
+            'b' => 2,
+            'o' => 8,
+            'd' => 10,
+            'h' => 16,
+            _ => return None,
+        };
+        crate::design::value::parse_digits(&rest[1..], base, width, signed).ok()?
+    } else if body.bytes().all(|c| c.is_ascii_digit() || c == b'_') && !body.is_empty() {
+        crate::design::value::parse_digits(body, 10, None, true).ok()?
+    } else {
+        let r: f64 = body.parse().ok()?;
+        return Some(Const::Real(if neg { -r } else { r }));
+    };
+    Some(Const::Bits(if neg { bits.neg() } else { bits }))
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -82,6 +132,8 @@ pub(crate) struct Elab<'a, 'x> {
     pub spec_cache: HashMap<(NodeId, String), SpecId>,
     /// The top-level instances asked for, if any.
     pub chosen_tops: Vec<String>,
+    /// Parameters of the top-level instances set from outside.
+    pub top_params: Vec<(String, Const)>,
     pub work: Vec<(Work, Vec<InstId>)>,
     /// The instances being elaborated, outermost first.
     pub inst_path: Vec<InstId>,
@@ -205,6 +257,7 @@ impl<'a, 'x> Elab<'a, 'x> {
             packages: HashMap::new(),
             spec_cache: HashMap::new(),
             chosen_tops: Vec::new(),
+            top_params: Vec::new(),
             work: Vec::new(),
             inst_path: Vec::new(),
             class_nodes: HashMap::new(),
@@ -498,12 +551,34 @@ impl<'a, 'x> Elab<'a, 'x> {
         }
         for (s, def) in tops {
             let DefKind2::Design(_) = def.kind else { continue };
-            let inst = self.instantiate(None, unit, s, def, &[], def.node, None)?;
+            let overrides = self.top_overrides(s, def);
+            let inst = self.instantiate(None, unit, s, def, &overrides, def.node, None)?;
             self.d.tops.push(inst);
             self.run_work()?;
         }
         checks::after(self)?;
         Ok(())
+    }
+
+    /// The parameters set from outside that apply to top `s`.
+    fn top_overrides(&mut self, s: Sym, def: Def) -> Vec<(Option<Sym>, Over)> {
+        let top = self.name(s).to_string();
+        let order = self.overridable_params(def.node);
+        let mut out: Vec<(Option<Sym>, Over)> = Vec::new();
+        for (name, v) in self.top_params.clone() {
+            let name = match name.split_once('.') {
+                Some((t, n)) if t == top => n.to_string(),
+                Some(_) => continue,
+                None => name,
+            };
+            let p = self.sym_owned(name);
+            if order.contains(&p) {
+                // A later setting of the same parameter wins.
+                out.retain(|(q, _)| *q != Some(p));
+                out.push((Some(p), Over::Value(v)));
+            }
+        }
+        out
     }
 
     fn run_work(&mut self) -> R<'a> {
@@ -987,8 +1062,14 @@ impl<'a, 'x> Elab<'a, 'x> {
     }
 
     /// The subroutine declared for a `Function` or `Task` node in pass 1.
-    pub fn sub_of(&self, _sc: ScopeId, n: NodeId) -> Option<SubId> {
-        self.d.subroutines.iter().position(|s| s.node == n).map(|i| SubId(i as u32))
+    /// The subroutine declared by `n` in scope `sc`: each specialisation of
+    /// a module has its own.
+    pub fn sub_of(&self, sc: ScopeId, n: NodeId) -> Option<SubId> {
+        self.d
+            .subroutines
+            .iter()
+            .position(|s| s.node == n && self.scope(s.scope).parent == Some(sc))
+            .map(|i| SubId(i as u32))
     }
 
     // ---- parameters ----
@@ -1887,8 +1968,39 @@ impl<'a, 'x> Elab<'a, 'x> {
         for k in items {
             self.item(sc, k)?;
         }
+        // Instances bound into every instance of this module (23.11), as if
+        // written at the end of its body: their parameter values and port
+        // connections are names of this scope.
+        if self.has_bind
+            && let Some(me) = self.name_child(n).map(|k| self.sym_of(k))
+        {
+            for b in self.module_binds(me) {
+                self.instantiation(sc, b)?;
+            }
+        }
         checks::spec_done(self, sc, kind)?;
         Ok(())
+    }
+
+    /// The instantiations of `bind` directives that target module `m`
+    /// itself, rather than a list of its instances.
+    fn module_binds(&mut self, m: Sym) -> Vec<NodeId> {
+        let mut out = Vec::new();
+        for i in 0..self.ast.nodes.len() {
+            let n = NodeId(i as u32);
+            if self.kind(n) != Kind::Bind {
+                continue;
+            }
+            let kids = self.kids(n).to_vec();
+            let names = kids.iter().take_while(|&&k| self.kind(k) == Kind::Name).count();
+            if names == 1
+                && self.sym_of(kids[0]) == m
+                && let Some(inst) = kids.iter().copied().find(|&k| self.kind(k) == Kind::Instantiation)
+            {
+                out.push(inst);
+            }
+        }
+        out
     }
 
     /// The parameters an instance may set, in order (23.10.2).

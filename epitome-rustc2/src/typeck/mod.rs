@@ -451,7 +451,9 @@ impl TyCtxt<'_> {
                     || self.tys(s.inputs).into_iter().any(|x| self.has_infer(x))
                     || self.tys(l).into_iter().any(|x| self.has_infer(x))
             }
-            TyKind::AsyncBlock(_, o, l) => self.has_infer(o) || self.tys(l).into_iter().any(|x| self.has_infer(x)),
+            TyKind::AsyncBlock(_, o, l) | TyKind::Coroutine(_, o, l) | TyKind::GenBlock(_, o, l, _) => {
+                self.has_infer(o) || self.tys(l).into_iter().any(|x| self.has_infer(x))
+            }
             _ => false,
         }
     }
@@ -565,6 +567,14 @@ mod tests {
             "b : {async block} -> u16",
             "b.await : u16",
             "async {}.await : ()",
+            // `async fn` calls: functions, methods, trait methods.
+            "halve(4) : {async block} -> u16",
+            "halve(4).await : u16",
+            "c.tick() : {async block} -> u32  [traits::{impl}::tick]",
+            "c.tick().await : u32",
+            "s.read().await : u8",
+            "read_any(&c).await : u8",
+            "c.read().await : u8",
             // A closure's parameter from the `FnOnce` bound, not from the
             // `impl Trait` of the expected result.
             "mut c : Counter",
@@ -574,6 +584,8 @@ mod tests {
         }
         let awaits: Vec<&str> = ours.iter().copied().skip_while(|l| *l != "fn traits::awaits").collect();
         assert!(awaits.len() > 1 && !awaits.iter().any(|l| l.contains(" : ?")), "a type left unknown:\n{}", awaits.join("\n"));
+        let async_fns: Vec<&str> = ours.iter().copied().skip_while(|l| *l != "fn traits::halve").collect();
+        assert!(async_fns.len() > 1 && !async_fns.iter().any(|l| l.contains(" : ?")), "a type left unknown:\n{}", async_fns.join("\n"));
     }
 
     #[test]

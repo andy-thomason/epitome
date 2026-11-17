@@ -402,6 +402,9 @@ impl Sim<'_, '_, '_> {
             }
             _ => {
                 let _ = x;
+                if let Some(v) = self.vpi_systf(cx, name, args) {
+                    return v;
+                }
                 self.unsupported(format!("system task or function `{name}`"));
                 ops::default_value(self.types(), ty)
             }

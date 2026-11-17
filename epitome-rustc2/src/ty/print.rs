@@ -185,6 +185,14 @@ impl TyCtxt<'_> {
                 out.push_str("{async block} -> ");
                 self.write_ty(r, o, out);
             }
+            TyKind::Coroutine(_, o, _) => {
+                out.push_str("{coroutine} ");
+                self.write_ty(r, o, out);
+            }
+            TyKind::GenBlock(_, y, _, a) => {
+                out.push_str(if a { "{async gen block} -> " } else { "{gen block} -> " });
+                self.write_ty(r, y, out);
+            }
             TyKind::Infer(v) => {
                 let _ = write!(out, "?{v}");
             }

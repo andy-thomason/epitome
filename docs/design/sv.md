@@ -626,7 +626,8 @@ thing to do for memory.
 
 Clause 4's scheduler has regions; the nine that simulation uses are
 Preponed, Active, Inactive, NBA, Observed, Reactive, Re-Inactive, Re-NBA
-and Postponed. The PLI-only regions wait for VPI. Within a region the
+and Postponed. The PLI regions are where VPI applications run (section
+8.8). Within a region the
 order of events is free (clause 4.7), so a fixed order chosen at compile
 time is a correct one; only the region boundaries must be kept.
 
@@ -1148,9 +1149,194 @@ source: Yosys, ABC, nextpnr and IceStorm may be run as black boxes, never
 read. The cut mapping, annealing and PathFinder follow their published
 papers.
 
+### 8.8 VPI, and cocotb
+
+The interpreter serves the C interface of clauses 36–38 to applications
+loaded into a simulation, written from the standard and its `vpi_user.h`
+and `sv_vpi_user.h` listings (`sv/src/sim/vpi.rs`). The point is test
+benches that drive a design from outside it, cocotb's above all.
+
+**Loading.** `vpi::simulate` opens each library, runs the routines of its
+`vlog_startup_routines` array, then its start-of-simulation callbacks,
+then the run, then its end-of-simulation callbacks. The C functions
+(`vpi_get`, `vpi_register_cb` and the rest) must be in the executable
+that loads the library, for the library to find them; `export_vpi!()`
+defines them there, as thin wrappers over the simulation running on that
+thread.
+
+**Objects.** Handles are numbers, an index into a table and a generation,
+so a freed or stale handle is reported (`vpi_chk_error`) rather than
+followed. The objects are module instances, generate blocks (a loop's
+blocks one by one, as `g[0]`, and the loop as a generate scope array),
+nets and variables, their elements and bits, parameters, ranges and
+constants, iterators, callbacks, and system task and function calls with
+their arguments. Their types follow what Icarus reports, since cocotb is
+tested against it: `logic`, packed structs, enums and packed arrays are
+`vpiReg`, `bit` vectors `vpiBitVar`, the integer atoms their own types,
+unpacked arrays `vpiRegArray` or `vpiNetArray`. A signal is a slot and a
+path of selects in the value store, so reads and writes are the
+interpreter's own.
+
+**Values** read and written in the binary, octal, decimal and hex string,
+scalar, int, real, string, vector and time formats.
+`vpiNoDelay` writes at once and wakes what watches the object;
+`vpiInertialDelay` and the transport delays are nonblocking updates at
+their time (this time slot's NBA region for no delay); `vpiForceFlag` and
+`vpiReleaseFlag` act as `force` and `release` (10.6), and a release hands
+back the value the object's drivers give it.
+
+**Callbacks and regions.** With an application loaded, a time slot runs
+as follows:
+
+1. `cbNextSimTime` callbacks, when time has moved on;
+2. `cbAfterDelay` callbacks due now, then the processes the time wheel
+   wakes;
+3. the active, inactive and NBA regions to quiescence, with each
+   `cbValueChange` callback run after the step that changed its object,
+   given the value it changed to;
+4. `cbReadWriteSynch` callbacks, then step 3 again, until none is left;
+5. `cbReadOnlySynch` callbacks, then Postponed.
+
+`vpi_control(vpiFinish)` ends the run as `$finish` does. A system task or
+function the design calls that no built-in knows runs the `calltf` of the
+application that registered it; its arguments are handles that evaluate
+in the caller, and a function's value is what the application puts on the
+call. `EPITOME_VPI_TRACE=1` logs every call.
+
+**Icarus's command lines.** Test runners start `iverilog` to compile and
+`vvp` to run. `epitome-iverilog` takes `iverilog`'s options (`-o`, `-s`,
+`-D`, `-I`, `-P top.name=value`, `-f` command files with `+incdir+`,
+`+define+` and `+timescale+`; others are ignored) and writes a small text
+design file of our own: the tops, parameters, defines, include
+directories, timescale and source files (`sv/src/launch.rs`).
+`epitome-vvp` takes `vvp`'s (`-M dir`, `-m module`, the design file, then
+plusargs and the rest for the design and the libraries), builds the
+design and simulates it with the libraries loaded. A directory with links
+named `iverilog` and `vvp` to the two, first on the `PATH`, makes cocotb's
+Icarus runner use epitome-sv. `epitome-sv` itself takes `-G name=value`
+for top-level parameters, as `--top` chooses the tops.
+
+**Testing.** `sv/tests/vpi.rs` builds `sv/tests/vpi/app.rs`, a VPI
+application in Rust, and runs it on a small design through the two
+binaries: it walks the hierarchy, reads values in each format, drives the
+clock from `cbAfterDelay`, writes with each delay mode, forces and
+releases, uses every callback reason and a registered task and function,
+and its output is compared with what it should print. Run on Icarus too,
+it prints the same timeline wherever Icarus serves the query.
+`sv/examples/cocotb/` is a FIFO and five cocotb tests (edges, timers,
+`ReadWrite`, `ReadOnly`, `NextTimeStep`, value changes, arrays, generate
+blocks, parameters, force and release); `sv/tests/cocotb.rs` runs them
+with cocotb 2 when `COCOTB_PYTHON` (or `python3`) can import it, and
+skips otherwise. They pass on Icarus as well.
+
+### 8.9 DPI-C
+
+Designs that import C functions run with them, and C code calls the
+functions and tasks the design exports (clause 35, Annex H;
+`sv/src/sim/dpi.rs`).
+
+**Libraries.** `epitome-sv`, `epitome-iverilog` and `epitome-vvp` take
+the options Annex J suggests: `-sv_lib name` (a path without the
+platform's extension, which is added), `-sv_liblist file` (a bootstrap
+file of such names, loaded first) and `-sv_root dir` (where later
+relative names are found from); `EPITOME_SV_LIBS` adds paths, separated
+by `:`, for runners that cannot add to a command line. A name given to
+`epitome-iverilog` goes in the design file (`svlib`), so the run step
+loads it too. The libraries are opened when the run starts. An import's
+C name, its `c_identifier` or else its SystemVerilog name, is looked up
+in them in order and then in the whole process, so `sin` or `atoi` need
+no library. A name not found stops the run with an error the first time
+it is called, so a package of imports the design never calls costs
+nothing.
+
+**Calls.** An import's arguments go as Annex H says. Small inputs (the
+integer atoms, `real`, `shortreal`, `chandle`, `string`, `bit` and
+`logic` scalars, and enums of those) go by value; everything else by
+reference to its C form: packed values (vectors, `integer`, `time`,
+packed structs and unions) as `svBitVecVal` or `svLogicVecVal` words,
+unpacked structs and fixed arrays laid out as C lays them out, lowest
+index first. Outputs are read back from the C form and assigned to the
+actuals when the call returns. An open array formal (`[]`, unpacked or
+packed) takes its actual as it is, with no conversion, and gets a handle
+to its elements in that layout, with the actual's ranges, which the
+`svdpi.h` query and access functions read and write. Since the signature
+is only known at run time, `dpi/abi.rs` places the arguments by the
+platform's calling convention (System V on x86-64, AAPCS64 with Apple's
+packing of stack arguments on arm64) and calls the function from a few
+lines of assembly. `chandle` values are 64-bit vectors in the value store,
+and `null`.
+
+**svdpi.h.** `sv/include/svdpi.h` is our own header of Annex H's types
+and functions, for building DPI libraries. The functions themselves
+(scopes, user data, bit and part selects, open arrays, time, the disable
+state, `svDpiVersion`) are defined in the executables by `export_dpi!()`
+(`dpi/api.rs`), as the VPI's are; on macOS a library is linked with
+`-undefined dynamic_lookup` to find them there. A scope (`svScope`) is a
+record per instance and generate block, named as `%m` names them; a call
+chain's current scope is the import's own until `svSetScope` changes it,
+and goes back to it when an export returns (35.5.3). The functions with a
+variable number of indices are defined with fixed ones that read where
+the calling convention puts the extra arguments.
+
+**Exports.** C code calls an exported function by its C name, so each
+name must be a symbol before the libraries that call it are loaded.
+`dpi/stub.rs` writes a C function for each, with the signature Annex H
+gives it, that hands pointers to its arguments to the simulation; builds
+them into a library with the C compiler (`EPITOME_SV_CC`, else `CC`, else
+`cc`), kept in the temporary directory by a hash of its text; and loads
+it, before the libraries. (On Linux an exported name that the C library
+also defines, such as `step`, binds to the C library's, which comes first
+in the process.) The export that runs is the one exported from
+the call chain's scope (or a package or the compilation unit), in that
+scope's instance. A design without exports needs no C compiler.
+
+**Tasks that wait.** An exported task may wait, and C code cannot be
+suspended part way, so a `context` imported task, in a design that
+exports tasks, runs on a worker thread. The simulation waits for the
+worker; when the C code calls an exported task, the worker waits while
+the export runs as part of the calling process (a frame on its stack,
+for as long as the export takes, while other processes run), and when the
+export returns the worker carries on. Exported functions called by the
+worker run on the simulation's thread at once. Only one of the two runs at
+a time, so the C code may call the `svdpi.h` and VPI functions as usual.
+A process killed (`disable fork`) while its C code waits in an export has
+the export return 1 and `svIsDisabledState` say so (35.9); the C code is
+waited for. Other imports, and every import in a design without exported
+tasks, run on the simulation's thread.
+
+**Not yet.** `disable` of a named block from another process, which the
+interpreter does not do for SystemVerilog either; `svGetCallerInfo`,
+which reports no source position; the deprecated SV3.1a functions
+(H.14); `ref` arguments of exports, as anything but a copy.
+
+**Testing.** `sv/tests/dpi.rs` builds `sv/tests/dpi/lib.rs`, C functions
+in Rust, and runs `sv/tests/dpi/design.sv` with it through `epitome-sv`
+and through the launcher pair (with `-sv_root`/`-sv_lib`, with
+`EPITOME_SV_LIBS`, and with the library named to `epitome-iverilog`). It
+covers each kind of argument and result in each direction, stack-passed
+arguments of both kinds, open arrays of fixed and dynamic actuals in one
+and two dimensions with the query and access functions, packed open
+arrays, unpacked structs, linkage names, a C library function, context
+imports calling exports in scopes set by name, user data per scope, time,
+imported tasks that wait in exported tasks (two at once, and nested
+C→SV→C chains), and a disabled one; the output is compared with what it
+should be. When `verilator` (5.050 or later) can be run, the same design
+and library are built with it, without what it does not take, and the
+outputs agree but on the lines where Verilator departs from Annex H (it
+passes `shortreal` as `double`, clears the rest of the word in
+`svGetPartselBit`, and gives no scaled real time) or has no x and z. The
+`test1800` harness builds the suite's `:dpi:` C files with `cc` and runs
+those tests in `epitome-sv`; 24 of its 27 DPI tests pass. Two need
+features of the interpreter outside DPI (`%m` naming a function,
+hierarchical calls of an instance's functions), and one `disable` of a
+block from another process.
+
 ## 9. Clean-room rules
 
-`epitome-sv` is a clean-room build from IEEE 1800-2023 alone. The
+`epitome-sv` is a clean-room build from IEEE 1800-2023 alone. This
+includes its VPI and DPI: cocotb, Icarus, Verilator and other simulators
+are run as programs, and their source (and their copies of `vpi_user.h`
+and `svdpi.h`) are not read; our `svdpi.h` is written from Annex H. The
 standard's prose, grammar (Annex A) and keyword list (Annex B) say what
 the compiler must do. We do not read the source code of other
 SystemVerilog tools (Verilator, Icarus, slang, Surelog, sv-parser, Yosys,

@@ -826,7 +826,6 @@ impl Sim<'_, '_, '_> {
     fn bind_args(&mut self, cx: &Cx, sub: SubId, args: &[ExprId]) -> (Locals, Option<u32>, Vec<ExprId>) {
         let s = self.d.sub(sub);
         let formals = s.args.clone();
-        let scope = s.scope;
         let (this, actuals) = if args.len() == formals.len() + 1 {
             let h = match self.eval(cx, args[0]) {
                 Const::Handle(h) => Some(h),
@@ -839,33 +838,18 @@ impl Sim<'_, '_, '_> {
         let locals: Locals = Rc::default();
         for (i, &f) in formals.iter().enumerate() {
             let dir = self.d.object(f).dir.unwrap_or(Dir::Input);
+            // An open array formal of a DPI import takes the actual as it
+            // is (35.5.6.1).
+            let open = self.dpi_open_formal(sub, i);
             let v = match (dir, actuals.get(i)) {
                 (Dir::Output, _) | (_, None) => ops::default_value(self.types(), self.d.object(f).ty),
+                (_, Some(&a)) if open => self.eval(cx, self.dpi_actual(sub, i, a)),
                 (_, Some(&a)) => self.eval(cx, a),
             };
-            let v = ops::convert(self.types(), &v, self.d.object(f).ty);
-            if matches!(self.homes[f.0 as usize], Home::Local) {
-                locals.borrow_mut().push((f, v));
-            } else {
-                // A static subroutine's arguments live in its static
-                // storage (13.3.2).
-                let inst = self.def_inst(cx.inst, scope);
-                if let Some(slot) = self.slot_of_obj(inst, f) {
-                    self.write(&Target { place: Place::Slot(slot), path: vec![], ty: self.d.object(f).ty }, v, false);
-                }
-            }
+            let v = if open { v } else { ops::convert(self.types(), &v, self.d.object(f).ty) };
+            locals.borrow_mut().push((f, v));
         }
         (locals, this, actuals)
-    }
-
-    /// A subroutine variable's value after a call: its local, or for a
-    /// static subroutine its static storage.
-    fn sub_var(&self, cx: &Cx, sub: SubId, locals: &Locals, o: ObjId) -> Option<Const> {
-        if matches!(self.homes[o.0 as usize], Home::Local) {
-            return locals.borrow().iter().rev().find(|(k, _)| *k == o).map(|(_, v)| v.clone());
-        }
-        let inst = self.def_inst(cx.inst, self.d.sub(sub).scope);
-        self.slot_of_obj(inst, o).map(|s| self.read_slot(s))
     }
 
     /// Copies output, inout and ref arguments back to the caller.
@@ -876,7 +860,8 @@ impl Sim<'_, '_, '_> {
             if matches!(dir, Dir::Output | Dir::Inout | Dir::Ref)
                 && let Some(&a) = actuals.get(i)
             {
-                if let Some(v) = self.sub_var(cx, sub, locals, f) {
+                let v = locals.borrow().iter().find(|(k, _)| *k == f).map(|(_, v)| v.clone());
+                if let Some(v) = v {
                     let t = self.target(cx, a);
                     self.write_cx(cx, &t, v, false);
                 }
@@ -933,11 +918,18 @@ impl Sim<'_, '_, '_> {
     pub(super) fn call_function(&mut self, cx: &Cx, sub: SubId, args: &[ExprId], x: ExprId) -> Const {
         let (locals, this, actuals) = self.bind_args(cx, sub, args);
         let sub = self.dispatch(sub, this, x);
-        let s = self.d.sub(sub);
-        if s.qualifiers.iter().any(|&q| self.d.name(q) == "import") {
-            self.unsupported(format!("DPI import `{}`", self.d.name(s.name)));
-            return ops::default_value(self.types(), s.ret);
+        if self.is_dpi_import(sub) {
+            return self.dpi_call(cx, sub, &locals, &actuals);
         }
+        let v = self.invoke_function(cx.inst, sub, &locals, this);
+        self.copy_out(cx, sub, &locals, &actuals);
+        v
+    }
+
+    /// Runs function `sub`, called from instance `inst`, with its arguments
+    /// bound in `locals`, and gives its result.
+    pub(super) fn invoke_function(&mut self, inst: u32, sub: SubId, locals: &Locals, this: Option<u32>) -> Const {
+        let s = self.d.sub(sub);
         let Some(&entry) = self.sub_entry.get(&sub) else {
             return ops::default_value(self.types(), s.ret);
         };
@@ -950,14 +942,13 @@ impl Sim<'_, '_, '_> {
         if let Some(r) = result_obj {
             locals.borrow_mut().push((r, ops::default_value(self.types(), ret_ty)));
         }
-        let inst = self.def_inst(cx.inst, s.scope);
+        let inst = self.def_inst(inst, s.scope);
         let fcx = Cx { inst, locals: locals.clone(), this };
         let v = self.run_call(fcx, entry, sub);
-        self.copy_out(cx, sub, &locals, &actuals);
         let v = match v {
             Some(v) => v,
             None => match result_obj {
-                Some(r) => self.sub_var(cx, sub, &locals, r).unwrap_or(Const::Null),
+                Some(r) => locals.borrow().iter().rev().find(|(k, _)| *k == r).map(|(_, v)| v.clone()).unwrap_or(Const::Null),
                 None => Const::Null,
             },
         };
@@ -966,7 +957,7 @@ impl Sim<'_, '_, '_> {
 
     /// The instance a subroutine runs in: the caller's, or for one
     /// declared in a design element above it, that ancestor.
-    fn def_inst(&self, inst: u32, scope: ScopeId) -> u32 {
+    pub(super) fn def_inst(&self, inst: u32, scope: ScopeId) -> u32 {
         let mut cur = Some(scope);
         while let Some(sc) = cur {
             if self.d.scope(sc).kind == ScopeKind::Spec {
@@ -1034,8 +1025,11 @@ impl Sim<'_, '_, '_> {
     pub(super) fn call_task(&mut self, p: u32, cx: &Cx, x: ExprId) -> Flow {
         let e = self.d.expr(x).clone();
         let ExprKind::Call(sub) = e.kind else { return Flow::Next };
-        let (locals, this, _) = self.bind_args(cx, sub, &e.args);
+        let (locals, this, actuals) = self.bind_args(cx, sub, &e.args);
         let sub = self.dispatch(sub, this, x);
+        if self.is_dpi_import(sub) {
+            return self.dpi_call_task(p, cx, sub, &locals, &actuals);
+        }
         let Some(&entry) = self.sub_entry.get(&sub) else {
             let n = self.d.sub(sub).name;
             self.unsupported(format!("task `{}` has no body here", self.d.name(n)));
@@ -1060,6 +1054,10 @@ impl Sim<'_, '_, '_> {
     /// its evaluation).
     pub(super) fn ret(&mut self, p: u32, cx: &Cx, v: Option<ExprId>) -> Flow {
         let value = v.map(|x| self.eval(cx, x));
+        // The end of an exported task that C code called (35.8).
+        if let Some(f) = self.dpi_task_return(p) {
+            return f;
+        }
         let frames = self.procs[p as usize].frames.len();
         let top = self.procs[p as usize].frames.last().unwrap();
         match top.ret {
@@ -1364,7 +1362,9 @@ impl Sim<'_, '_, '_> {
             "release" => pc.force.take().map(|(p, _)| p),
             _ => pc.assign.take(),
         };
-        if let Some(p) = old {
+        if let Some(p) = old
+            && p != vpi::VPI_FORCE
+        {
             self.end_proc(p);
         }
         match kw {
@@ -1385,29 +1385,38 @@ impl Sim<'_, '_, '_> {
                     root = self.d.expr(root).args[0];
                 }
                 let is_net = matches!(self.d.expr(root).kind, ExprKind::Object(o) if matches!(self.d.object(o).kind, ObjKind::Net(_)));
-                if is_net {
-                    // A net goes back to what its drivers drive.
-                    if self.nets.contains_key(&slot) {
-                        self.write_net_pub(slot);
-                    }
-                    for q in 0..self.procs.len() as u32 {
-                        if let Some(dr) = self.procs[q as usize].driver
-                            && !matches!(dr, Driven::Pcont(_))
-                            && self.drives_slot(q, dr, slot)
-                        {
-                            self.wake(q);
-                        }
-                    }
-                } else if let Some(ap) = self.pcont.get(&slot).and_then(|pc| pc.assign) {
-                    // A variable under `assign` goes back to it.
-                    self.wake(ap);
-                }
+                self.released(slot, is_net);
             }
             _ => {}
         }
         if self.pcont.get(&slot).is_some_and(|pc| pc.force.is_none() && pc.assign.is_none()) {
             self.pcont.remove(&slot);
         }
+    }
+
+    /// After a `release` of `slot`: a net, or a variable driven by a
+    /// continuous assignment, goes back to what its drivers drive, and a
+    /// variable under `assign` to that (10.6.2). The drivers it goes back
+    /// to are returned.
+    pub(super) fn released(&mut self, slot: usize, is_net: bool) -> Vec<u32> {
+        if is_net && self.nets.contains_key(&slot) {
+            self.write_net_pub(slot);
+        }
+        let mut drivers = Vec::new();
+        for q in 0..self.procs.len() as u32 {
+            if let Some(dr) = self.procs[q as usize].driver
+                && !matches!(dr, Driven::Pcont(_))
+                && self.drives_slot(q, dr, slot)
+            {
+                self.wake(q);
+                drivers.push(q);
+            }
+        }
+        if let Some(ap) = self.pcont.get(&slot).and_then(|pc| pc.assign) {
+            self.wake(ap);
+            drivers.push(ap);
+        }
+        drivers
     }
 }
 

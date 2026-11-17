@@ -26,6 +26,7 @@ const EXPANDED: &[&str] = &[
     "option_env",
     "compile_error",
     "pattern_type",
+    "direct_const_arg",
     "assert",
     "format_args",
     "format_args_nl",
@@ -79,6 +80,8 @@ pub struct Context<'c, 's> {
     pub file: &'c ParsedFile<'s>,
     pub call: NodeId,
     pub crate_name: &'c str,
+    /// The crate's index in the session.
+    pub krate: usize,
 }
 
 impl<'c, 's> Context<'c, 's> {
@@ -167,7 +170,7 @@ pub fn expand<'s>(cx: &Context<'_, 's>, name: &str, input: &[Token<'s>]) -> Resu
     match name {
         "cfg_select" => cfg_select(cx, input),
         "cfg" => {
-            let Some(cfg) = &cx.session.options.cfg else { return Ok(None) };
+            let Some(cfg) = cx.session.cfg_of(cx.krate) else { return Ok(None) };
             let v = cfg.eval(input, cx.site())?;
             Ok(Some(vec![Token(if v { "true" } else { "false" })]))
         }
@@ -254,6 +257,9 @@ pub fn expand<'s>(cx: &Context<'_, 's>, name: &str, input: &[Token<'s>]) -> Resu
         }
         // `pattern_type!(u32 is 1..)`: `(u32 is 1..)`, a type form only
         // this makes, which the parser reads as a `PatternType`.
+        // `direct_const_arg!(N)` (`min_generic_const_args`): the argument
+        // itself, as an expression.
+        "direct_const_arg" => Ok(Some(input.to_vec())),
         "pattern_type" => {
             let mut out = vec![Token("(")];
             out.extend_from_slice(input);
@@ -268,7 +274,7 @@ pub fn expand<'s>(cx: &Context<'_, 's>, name: &str, input: &[Token<'s>]) -> Resu
 /// the first arm whose predicate holds. An arm may also be `pred =>
 /// expression,`.
 fn cfg_select<'s>(cx: &Context<'_, 's>, input: &[Token<'s>]) -> Result<Option<Vec<Token<'s>>>, Error<'s>> {
-    let Some(cfg) = &cx.session.options.cfg else { return Ok(None) };
+    let Some(cfg) = cx.session.cfg_of(cx.krate) else { return Ok(None) };
     let close = super::mbe_delims(input);
     let mut i = 0;
     while i < input.len() {

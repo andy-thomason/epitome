@@ -362,6 +362,14 @@ impl<'p, 'a> Printer<'p, 'a> {
         let mut rest = kids;
         while let Some((&k, tail)) = rest.split_first() {
             match self.kind(k) {
+                // `try bikeshed T { .. }`: the type after `bikeshed`.
+                k2 if is_type_like(k2)
+                    && rest.len() < kids.len()
+                    && self.ast.token(kids[kids.len() - rest.len() - 1]).0 == "bikeshed" =>
+                {
+                    self.node(k);
+                    self.s(" ");
+                }
                 Kind::Lifetime => {
                     self.leaf(k);
                     self.s(": ");
@@ -727,6 +735,56 @@ impl<'p, 'a> Printer<'p, 'a> {
                 self.s(" as ");
                 self.join(kids, "");
             }
+            Delegation => {
+                let rest = self.attrs_lines(kids);
+                let mut block = false;
+                for (i, &k) in rest.iter().enumerate() {
+                    match self.kind(k) {
+                        Visibility | Keyword => {
+                            self.node(k);
+                            // `impl<'a>`: no space before generics.
+                            if rest.get(i + 1).is_none_or(|&n| self.kind(n) != Generics) {
+                                self.s(" ");
+                            }
+                        }
+                        UseGlob => self.s("::*"),
+                        Generics => {
+                            self.node(k);
+                            self.s(" ");
+                        }
+                        // An expression path: `foo::<T>`.
+                        Path => self.path(k, true),
+                        UseGroup => {
+                            self.s("::");
+                            self.node(k);
+                        }
+                        Block => {
+                            self.s(" ");
+                            self.node(k);
+                            block = true;
+                        }
+                        // `impl Tr for T`: a space before `for`.
+                        _ => {
+                            self.node(k);
+                            if rest.get(i + 1).is_some_and(|&n| self.kind(n) == Keyword) {
+                                self.s(" ");
+                            }
+                        }
+                    }
+                }
+                if !block {
+                    self.s(";");
+                }
+            }
+            // `const { ... }` as an item.
+            Const if self.ast.child(id, Name).is_none() && self.ast.child(id, ConstBlock).is_some() => {
+                for &k in self.attrs_lines(kids) {
+                    self.node(k);
+                    if self.kind(k) == Visibility {
+                        self.s(" ");
+                    }
+                }
+            }
             Const | Static | TypeAlias => {
                 let rest = self.attrs_lines(kids);
                 let word = match self.kind(id) {
@@ -1072,6 +1130,11 @@ impl<'p, 'a> Printer<'p, 'a> {
                 self.node(kids[0]);
                 self.s(")");
             }
+            GuardPat => {
+                self.node(kids[0]);
+                self.s(" if ");
+                self.node(kids[1]);
+            }
             PatternType => {
                 self.s("(");
                 self.node(kids[0]);
@@ -1289,6 +1352,11 @@ impl<'p, 'a> Printer<'p, 'a> {
             UseExpr => {
                 self.operand(kids[0], PREC_POSTFIX);
                 self.s(".use");
+            }
+            MoveExpr => {
+                self.s("move(");
+                self.node(kids[0]);
+                self.s(")");
             }
             StructBase => {
                 self.s("..");
@@ -1522,6 +1590,29 @@ mod tests {
         roundtrip("unsafe extern \"C\"{safe fn f(x:u8,...);}extern crate std as s;mod m{}mod n;");
         roundtrip("fn f<'a,T:?Sized+'a,const N:usize>(x:&'a mut[T;N],y:*const T)->Box<dyn Fn(&T)->bool+'a>{todo!()}");
         roundtrip("fn f(){match x{S{a,b:1,ref c,..}=>{}[a,..,b]=>{}1..=5|-1=>{}A::B(..)=>{}}}");
+    }
+
+    #[test]
+    fn unstable_syntax() {
+        // Guard patterns, `move(x)`, `&pin`, const blocks as items and
+        // as generic arguments.
+        roundtrip("fn f(){match x{(Some(y) if y>0,)=>{}_=>{}}let (_ if c)=();let g=||move(a)||b;}");
+        roundtrip("fn f(x:&pin mut T)->&pin const T{let p=&pin mut v;}impl S{fn m(&pin mut self){}}");
+        roundtrip("fn f(){let &pin const (x)=p;let mut ref y=1;let ref mut z=2;}");
+        roundtrip("fn f()->Result<(),u8>{try bikeshed Result<_,u8>{1}}");
+        assert_eq!(roundtrip("pub const{assert!(true)}const{}"), "pub const {\n    assert!(true)\n}\n\nconst {}\n");
+        roundtrip("struct S<const N:usize=const{0}>;fn f<T:Tr<const{1}>>(){}");
+    }
+
+    #[test]
+    fn delegation() {
+        assert_eq!(roundtrip("reuse to_reuse::a as x;"), "reuse to_reuse::a as x;\n");
+        roundtrip(
+            "reuse m::{a,b as c};reuse f::<u8>;impl S{reuse Trait::{foo,bar}{&self.0}reuse <u8 as Trait>::*{self.0}}",
+        );
+        roundtrip("reuse unsafe impl<'a,A> Tr<'a,A> for F{self.0}reuse impl !Tr for G;");
+        // `reuse` is a keyword only before a path.
+        roundtrip("mod reuse{}fn f(){reuse::g();reuse!();}");
     }
 
     #[test]

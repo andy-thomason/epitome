@@ -36,6 +36,10 @@ impl<'a> Parser<'a> {
         } else if mode != PathMode::Simple && self.at("<") {
             // Also `<<T as A>::B as C>::D`, as `<` is always one token.
             self.qself()?;
+            if self.at_op("::") && matches!(self.tok(2).0, "*" | "{") {
+                self.finish(m, Kind::Path);
+                return Ok(());
+            }
         }
         loop {
             self.segment(mode)?;
@@ -61,6 +65,11 @@ impl<'a> Parser<'a> {
         }
         self.expect_close_angle()?;
         self.finish(m, Kind::QSelf);
+        // `<T as Tr>::*` and `<T as Tr>::{a, b}` in `reuse`: the `::` is
+        // left for what follows.
+        if self.at_op("::") && matches!(self.tok(2).0, "*" | "{") {
+            return Ok(());
+        }
         self.expect_op("::")
     }
 
@@ -161,6 +170,13 @@ impl<'a> Parser<'a> {
     fn generic_arg_value(&mut self) -> PResult<'a> {
         if self.at("{") {
             self.block_expr()
+        } else if self.at("const") && self.at_n(1, "{") {
+            // `const { N + 1 }`, an inline constant.
+            let m = self.mark();
+            self.bump();
+            self.block_expr()?;
+            self.finish(m, Kind::ConstBlock);
+            Ok(())
         } else if self.literal_at(0) {
             self.leaf(Kind::Literal, 1);
             Ok(())
@@ -471,7 +487,15 @@ impl<'a> Parser<'a> {
                     if n == 1 && self.at("is") {
                         self.bump();
                         let tt = self.mark();
-                        while !self.at(")") && !self.tok(0).is_eof() {
+                        // Up to the `)` that closes the type: the pattern
+                        // may have brackets of its own (`(1..=5 | 9)`).
+                        let mut depth = 0;
+                        while !(depth == 0 && self.at(")")) && !self.tok(0).is_eof() {
+                            match self.tok(0).0 {
+                                "(" | "[" | "{" => depth += 1,
+                                ")" | "]" | "}" => depth -= 1,
+                                _ => {}
+                            }
                             self.bump();
                         }
                         self.finish(tt, Kind::TokenTree);
@@ -505,7 +529,11 @@ impl<'a> Parser<'a> {
                 if self.lifetime_at(0) {
                     self.leaf(Kind::Lifetime, 1);
                 }
-                if self.at("mut") {
+                // `&pin mut T`, `&pin const T`: `Pin<&mut T>`, `Pin<&T>`.
+                if self.at("pin") && (self.at_n(1, "mut") || self.at_n(1, "const")) {
+                    self.leaf(Kind::Keyword, 1);
+                    self.leaf(Kind::Keyword, 1);
+                } else if self.at("mut") {
                     self.leaf(Kind::Keyword, 1);
                 }
                 self.ty_no_plus()?;

@@ -1083,7 +1083,11 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 Resolved::Builtin => match tcx.kind(t) {
                     TyKind::Closure(c, _, l) => {
                         let owner = cx.typeck.closure_owners.get(&c).copied();
-                        owner.and_then(|o| cx.fns.get(&Item::Closure(c, o, l))).map(|d| d.g)
+                        let it = owner.map(|o| Item::Closure(c, o, l));
+                        // `call_once`: the closure's shim, which drops its
+                        // captures after it.
+                        let once = (cx.r.defs[method.0 as usize].name == "call_once").then(|| it.and_then(|i| cx.once.get(&i))).flatten();
+                        once.or_else(|| it.and_then(|i| cx.fns.get(&i))).map(|d| d.g)
                     }
                     _ => None,
                 },
@@ -2784,9 +2788,13 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 args.push(self.operand(a)?);
             }
             let callee = if once { Pv::Place(self.place_of(callee)?) } else { callee };
-            let r = self.call_value(callee, margs, args)?;
+            let r = self.call_value(callee, margs, args, Some(m))?;
+            // A closure that does not drop its own captures is dropped by
+            // its caller; anything else taken by value is consumed by its
+            // own `call_once`.
             if once
                 && let Pv::Place(p) = callee
+                && matches!(tcx.kind(p.ty), TyKind::Closure(..))
                 && !self.closure_owns_env(p.ty)
             {
                 let r = self.keep(r)?;
@@ -2797,7 +2805,21 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         }
         let ct = self.ty(kids[0])?;
         let mut args = Vec::new();
-        for &a in &arg_nodes {
+        for (i, &a) in arg_nodes.iter().enumerate() {
+            // A `dyn` taken by value (`call_once(*self, args)` in `Box<dyn
+            // FnOnce>`'s): moved out of where it is, and passed by address,
+            // as its vtable's method takes it.
+            if i == 0
+                && let TyKind::FnDef(_, l) = tcx.kind(ct)
+                && tcx.tys(l).first().is_some_and(|&t| matches!(tcx.kind(t), TyKind::Dyn(_)))
+                && let at = self.ty(a)?
+                && matches!(tcx.kind(at), TyKind::Dyn(_))
+            {
+                let p = self.place(a)?;
+                self.move_out(a, p)?;
+                args.push(self.addr_of(p, tcx.mk(TyKind::Ref(Mutbl::Mut, at)))?);
+                continue;
+            }
             args.push(self.operand(a)?);
         }
         match tcx.kind(ct) {
@@ -2825,16 +2847,17 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             // an `FnMut` changes stays changed.
             TyKind::Closure(..) | TyKind::Ref(..) => {
                 let callee = self.expr(kids[0])?;
-                self.call_value(callee, Vec::new(), args)
+                self.call_value(callee, Vec::new(), args, None)
             }
             _ => Err(format!("call of {}", tcx.display(self.cx.r, ct))),
         }
     }
 
     /// A call through the `Fn` traits of a value of type `callee.ty`.
-    fn call_value(&mut self, callee: Pv, margs: Vec<Ty>, args: Vec<Operand>) -> R<Pv> {
+    /// `method` is the `Fn` trait's method the call is (if known), for a
+    /// callee with an impl of its own (`AssertUnwindSafe<F>`, `Box<F>`).
+    fn call_value(&mut self, callee: Pv, margs: Vec<Ty>, args: Vec<Operand>, method: Option<DefId>) -> R<Pv> {
         let tcx = self.cx.tcx;
-        let _ = margs;
         let mut place = self.place_of(callee)?;
         while let TyKind::Ref(..) = tcx.kind(place.ty) {
             let o = self.load(place)?;
@@ -2899,6 +2922,30 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 let recv = self.addr_of(place, rt)?;
                 let t = self.load(tuple)?;
                 self.dyn_call(d, vec![place.ty, tuple_t], vec![recv, t])
+            }
+            // Anything else with an impl of the trait (`AssertUnwindSafe<F>`,
+            // `Box<F>`): its method, the arguments as a tuple.
+            _ if let Some(m) = method
+                && margs.len() == 2
+                && matches!(
+                    crate::mono::instance(self.cx.r, self.cx.crates, tcx, &mut self.solver, m, vec![place.ty, margs[1]]),
+                    Resolved::Item(Item::Fn(..))
+                ) =>
+            {
+                let name = self.cx.r.defs[m.0 as usize].name;
+                let tuple_t = margs[1];
+                let tuple = self.temp(tuple_t)?;
+                for (i, o) in args.into_iter().enumerate() {
+                    let fp = self.field(tuple, 0, i)?;
+                    self.store(Operand { ty: fp.ty, v: o.v }, fp)?;
+                }
+                let recv = match name {
+                    "call" => self.addr_of(place, tcx.mk(TyKind::Ref(Mutbl::Not, place.ty)))?,
+                    "call_mut" => self.addr_of(place, tcx.mk(TyKind::Ref(Mutbl::Mut, place.ty)))?,
+                    _ => self.load(place)?,
+                };
+                let t = self.load(tuple)?;
+                self.call_def(m, vec![place.ty, tuple_t], vec![recv, t], None)
             }
             _ => Err(format!("call of {}", tcx.display(self.cx.r, place.ty))),
         }
@@ -3001,15 +3048,19 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 let fp = self.field(tuple, 0, i)?;
                 inner.push(self.load(fp)?);
             }
-            if name == "call_once" && self.needs_drop(args[0].ty) && !self.closure_owns_env(args[0].ty) {
+            if name == "call_once"
+                && matches!(tcx.kind(args[0].ty), TyKind::Closure(..))
+                && self.needs_drop(args[0].ty)
+                && !self.closure_owns_env(args[0].ty)
+            {
                 // The callee, taken by value, is dropped after the call.
                 let p = self.place_of(Pv::Val(args[0]))?;
-                let r = self.call_value(Pv::Place(p), targs, inner)?;
+                let r = self.call_value(Pv::Place(p), targs, inner, Some(d))?;
                 let r = self.keep(r)?;
                 self.drop_place(p)?;
                 return Ok(r);
             }
-            return self.call_value(Pv::Val(args[0]), targs, inner);
+            return self.call_value(Pv::Val(args[0]), targs, inner, Some(d));
         }
         Err(format!("built-in `{}` on {}", self.cx.r.def_path(d), targs.first().map(|&t| tcx.display(self.cx.r, t)).unwrap_or_default()))
     }

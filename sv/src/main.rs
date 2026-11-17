@@ -12,6 +12,9 @@
 //! - `--gaps`: elaborate, and list those gaps by kind of syntax.
 //! - `--top name`: elaborate `name` as a top-level instance (repeatable);
 //!   by default, every design element nothing instantiates.
+//! - `-G name=value`, `-Gname=value`: set a parameter of the top-level
+//!   instances (`top.name=value` for one of them); the value is a literal,
+//!   such as `12`, `8'hff`, `1.5` or `"text"`.
 //! - `+name` or `+name=value`: plusargs for the simulation (21.6).
 //!
 //! Without these, the design is simulated by the interpreter. The exit
@@ -20,6 +23,9 @@
 //!   `` `include `` files.
 //! - `-D name[=text]`, `-Dname[=text]`, `+define+name[=text][+...]`: define
 //!   a macro.
+//! - `-sv_lib name`, `-sv_liblist file`, `-sv_root dir`: shared libraries
+//!   with the C functions the design imports (DPI-C, clause 35), named as
+//!   Annex J suggests; `EPITOME_SV_LIBS` adds more (`epitome_sv::launch`).
 //!
 //! Other options are ignored, so that test runners can pass their own.
 
@@ -29,6 +35,9 @@ use epitome_sv::preprocess::{Options, preprocess_files};
 use epitome_sv::source::SourceMap;
 use std::path::PathBuf;
 use std::process::ExitCode;
+
+// The DPI functions, for the libraries to find in this executable.
+epitome_sv::export_dpi!();
 
 fn define(options: &mut Options, d: &str) {
     let (name, text) = d.split_once('=').unwrap_or((d, ""));
@@ -52,8 +61,18 @@ fn run() -> ExitCode {
     let mut netlist = false;
     let mut plusargs = Vec::new();
     let mut tops = Vec::new();
+    let mut params = Vec::new();
     let mut args = std::env::args().skip(1);
+    let mut sv_libs = epitome_sv::launch::SvLibs::default();
     while let Some(arg) = args.next() {
+        match sv_libs.option(&arg, &mut || args.next()) {
+            Ok(true) => continue,
+            Ok(false) => {}
+            Err(e) => {
+                eprintln!("epitome-sv: {e}");
+                return ExitCode::from(2);
+            }
+        }
         if arg == "-E" {
             print = true;
         } else if arg == "--ast" {
@@ -70,6 +89,17 @@ fn run() -> ExitCode {
             (elab_only, gaps) = (true, true);
         } else if arg == "--top" {
             tops.push(args.next().unwrap_or_default());
+        } else if let Some(g) = arg.strip_prefix("-G") {
+            let g = if g.is_empty() { args.next().unwrap_or_default() } else { g.to_string() };
+            let Some((name, text)) = g.split_once('=') else {
+                eprintln!("epitome-sv: -G{g}: expected name=value");
+                return ExitCode::from(2);
+            };
+            let Some(v) = epitome_sv::design::elab::parse_param_value(text) else {
+                eprintln!("epitome-sv: -G{g}: cannot read the value");
+                return ExitCode::from(2);
+            };
+            params.push((name.to_string(), v));
         } else if let Some(dir) = arg.strip_prefix("-I") {
             let dir = if dir.is_empty() { args.next().unwrap_or_default() } else { dir.to_string() };
             options.include_dirs.push(dir.into());
@@ -104,7 +134,7 @@ fn run() -> ExitCode {
                 if parse_only {
                     return ExitCode::SUCCESS;
                 }
-                match epitome_sv::design::elab::elaborate_tops(&tree, &out, &tops) {
+                match epitome_sv::design::elab::elaborate_with(&tree, &out, &tops, &params) {
                     Ok(d) => {
                         if design {
                             print!("{}", print_design(&d));
@@ -120,7 +150,14 @@ fn run() -> ExitCode {
                             }
                             return ExitCode::SUCCESS;
                         }
-                        let opts = epitome_sv::sim::Options { plusargs, ..Default::default() };
+                        let dpi_libs = match epitome_sv::launch::sv_lib_files(&sv_libs.names()) {
+                            Ok(l) => l,
+                            Err(e) => {
+                                eprintln!("epitome-sv: {e}");
+                                return ExitCode::from(2);
+                            }
+                        };
+                        let opts = epitome_sv::sim::Options { plusargs, dpi_libs, ..Default::default() };
                         let mut stdout = std::io::stdout();
                         let r = epitome_sv::sim::simulate(&d, &tree, &mut stdout, &opts);
                         for u in &r.unsupported {

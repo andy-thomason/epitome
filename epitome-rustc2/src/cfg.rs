@@ -238,6 +238,10 @@ impl<'t, 'a> Pred<'t, 'a> {
         self.toks.get(self.pos).copied().unwrap_or(self.eof)
     }
 
+    fn at(&self, s: &str) -> bool {
+        self.tok().0 == s
+    }
+
     fn eat(&mut self, s: &str) -> bool {
         if self.tok().0 == s {
             self.pos += 1;
@@ -254,6 +258,24 @@ impl<'t, 'a> Pred<'t, 'a> {
         }
         self.pos += 1;
         let name = t.ident_name();
+        // `target(os = "linux", arch = "arm")` (`cfg_target_compact`):
+        // each `target_os = "linux"`, all of them.
+        if name == "target" && self.eat("(") {
+            let mut all = true;
+            while !self.eat(")") {
+                let k = self.tok();
+                self.pos += 1;
+                if !self.eat("=") || !self.tok().is_string() {
+                    return Err(Error::new(self.tok().0, "expected `name = \"value\"`"));
+                }
+                all &= set.has_value(&format!("target_{}", k.ident_name()), string_value(self.tok().0));
+                self.pos += 1;
+                if !self.eat(",") && !self.at(")") {
+                    return Err(Error::new(self.tok().0, "expected `,` or `)`"));
+                }
+            }
+            return Ok(all);
+        }
         if self.eat("(") {
             let mut values = Vec::new();
             while !self.eat(")") {

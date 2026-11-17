@@ -7,13 +7,16 @@
 //!
 //! The scheduler follows clause 4.5 with the regions that matter without
 //! PLI: Active, Inactive, NBA and Postponed, with the reactive set run as
-//! the active one for now.
+//! the active one for now. With VPI applications loaded (`vpi`), it also
+//! runs their callbacks where the PLI regions are.
 
 mod code;
 mod builtin;
+pub mod dpi;
 mod eval;
 mod net;
 mod sys;
+pub mod vpi;
 
 use crate::ast::Ast;
 use crate::design::types::{Type, TypeId, Types, UDim};
@@ -33,11 +36,14 @@ pub struct Options {
     pub plusargs: Vec<String>,
     /// Stop after this much wall-clock time.
     pub time_limit: Option<std::time::Duration>,
+    /// Shared libraries with the C functions the design imports (DPI-C,
+    /// clause 35), in the order they are searched.
+    pub dpi_libs: Vec<std::path::PathBuf>,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { max_steps: 200_000_000, plusargs: vec![], time_limit: None }
+        Options { max_steps: 200_000_000, plusargs: vec![], time_limit: None, dpi_libs: vec![] }
     }
 }
 
@@ -59,6 +65,11 @@ pub struct Outcome {
 /// Runs a design until it finishes or runs out of events.
 pub fn simulate(d: &Design, ast: &Ast, out: &mut dyn Write, opts: &Options) -> Outcome {
     let mut s = Sim::new(d, ast, out, opts);
+    if let Err(e) = s.dpi_start(&opts.dpi_libs) {
+        eprintln!("epitome-sv: {e}");
+        s.outcome.failed = true;
+        return s.outcome;
+    }
     s.run();
     s.outcome
 }
@@ -237,6 +248,8 @@ enum Timed {
     Drive(u32, u32, Vec<(Const, Vec<net::Sig>)>),
     /// A trireg's charge decays, unless it was driven since.
     Decay(usize, u32),
+    /// A VPI callback due now, by its place and generation.
+    Vpi((u32, u32)),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -340,6 +353,10 @@ pub(crate) struct Sim<'d, 'a, 'o> {
     pending: HashMap<u32, (Target, Const, Cx)>,
     /// The index of each array-method iterator in use (7.12.4).
     iter_index: HashMap<ObjId, i64>,
+    /// The VPI applications' callbacks and handles, when there are any.
+    vpi: Option<Box<vpi::Vpi>>,
+    /// The design's DPI imports and exports, when there are any.
+    dpi: Option<Box<dpi::Dpi>>,
 }
 
 impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
@@ -401,6 +418,8 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
             next_fd: 3,
             pending: HashMap::new(),
             iter_index: HashMap::new(),
+            vpi: None,
+            dpi: dpi::Dpi::for_design(d, ast),
         };
         for sp in &d.specs {
             s.precision = s.precision.min(sp.time_precision);
@@ -428,8 +447,12 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
             self.fields_of(ClassId(i as u32));
         }
         for (i, o) in d.objects.iter().enumerate() {
+            let sc = d.scope(o.scope);
             let home = match o.kind {
                 ObjKind::Param { .. } | ObjKind::EnumConst | ObjKind::Genvar => Home::Const,
+                // A subroutine's arguments and result are bound for each
+                // call, in the call's frame, static subroutine or not.
+                _ if sc.kind == ScopeKind::Subroutine && (o.dir.is_some() || sc.name == Some(o.name)) => Home::Local,
                 _ => {
                     // The nearest class or specialisation above it.
                     let mut cur = Some(o.scope);
@@ -1006,6 +1029,9 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
 
     /// Wakes what watches slot `s`, or element `elem` of it.
     fn changed_elem(&mut self, s: usize, elem: Option<u32>) {
+        if self.vpi.is_some() {
+            self.vpi_changed(s);
+        }
         for i in 0..self.fixed[s].len() {
             let p = self.fixed[s][i];
             self.wake(p);
@@ -1233,6 +1259,10 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
     fn run(&mut self) {
         loop {
             self.slot();
+            // The applications' read-write and read-only synchronisation.
+            if self.vpi.is_some() && !self.finishing {
+                self.vpi_sync();
+            }
             if self.finishing {
                 break;
             }
@@ -1242,6 +1272,13 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
                 break;
             }
             let Some((&t, _)) = self.wheel.iter().next() else { break };
+            if self.vpi.is_some() && t != self.time {
+                self.time = t;
+                self.vpi_next_time();
+                if self.finishing {
+                    break;
+                }
+            }
             let entries = self.wheel.remove(&t).unwrap();
             self.time = t;
             for e in entries {
@@ -1258,6 +1295,7 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
                         }
                     }
                     Timed::Decay(s, epoch) => self.decay(s, epoch),
+                    Timed::Vpi(id) => self.vpi_timed(id),
                 }
             }
         }
@@ -1277,6 +1315,12 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
         let start = self.steps;
         let mut counts: HashMap<u32, u64> = HashMap::new();
         loop {
+            if self.vpi.is_some() {
+                self.vpi_deliver();
+                if self.finishing {
+                    return;
+                }
+            }
             while let Some(p) = self.active.pop_front() {
                 // A time step that will not settle: say which processes
                 // keep running, once (a zero-delay loop).
@@ -1292,6 +1336,12 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
                 if self.finishing {
                     return;
                 }
+                if self.vpi.is_some() {
+                    self.vpi_deliver();
+                    if self.finishing {
+                        return;
+                    }
+                }
             }
             if !self.inactive.is_empty() {
                 for p in std::mem::take(&mut self.inactive) {
@@ -1305,6 +1355,9 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
                 for (t, v, cx) in std::mem::take(&mut self.nba) {
                     self.write_cx(&cx, &t, v, false);
                 }
+                continue;
+            }
+            if self.vpi.as_ref().is_some_and(|v| !v.dirty.is_empty()) {
                 continue;
             }
             break;
@@ -1676,6 +1729,7 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
             self.procs[p as usize].state = State::Done;
             self.procs[p as usize].epoch = self.procs[p as usize].epoch.wrapping_add(1);
             self.killed.insert(p);
+            self.dpi_killed(p);
             self.ended(p);
         }
     }

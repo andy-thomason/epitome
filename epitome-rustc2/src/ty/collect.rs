@@ -86,6 +86,24 @@ pub(super) fn collect<'s>(crates: &[ParsedCrate<'s>], r: &Resolver<'s>) -> TyCtx
             tcx.sig_errors += out.failed as usize;
         }
     }
+    // A function a `reuse` defines has the signature, generics and bounds
+    // of the function it calls.
+    for &d in &defs {
+        let (at, ast) = node_of(&env, d);
+        let path = match ast.kind(at.2) {
+            Kind::Delegation => ast.child(at.2, Kind::Path),
+            Kind::UseTree => ast.child(at.2, Kind::Path),
+            _ => continue,
+        };
+        let Some(path) = path else { continue };
+        let Some(crate::resolve::Res::Def(target)) = r.res_of(at.0 as usize, at.1 as usize, path).cloned() else { continue };
+        if tcx.fn_sig[target.0 as usize].is_none() {
+            continue;
+        }
+        tcx.fn_sig[d.0 as usize] = tcx.fn_sig[target.0 as usize];
+        tcx.generics[d.0 as usize] = tcx.generics[target.0 as usize].clone();
+        tcx.predicates[d.0 as usize] = tcx.predicates[target.0 as usize].clone();
+    }
     tcx
 }
 
@@ -330,8 +348,13 @@ fn self_param_ty(l: &mut Lower, p: NodeId, self_ty: Ty) -> Ty {
         return l.ty(t);
     }
     let by_ref = kids.iter().any(|&c| ast.kind(c) == Kind::Op);
-    let mutbl = kids.iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == "mut");
-    if by_ref { l.tcx.mk(TyKind::Ref(if mutbl { Mutbl::Mut } else { Mutbl::Not }, self_ty)) } else { self_ty }
+    let keyword = |k: &str| kids.iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == k);
+    if !by_ref {
+        return self_ty;
+    }
+    let r = l.tcx.mk(TyKind::Ref(if keyword("mut") { Mutbl::Mut } else { Mutbl::Not }, self_ty));
+    // `&pin mut self`: `self: Pin<&mut Self>`.
+    if keyword("pin") { l.tcx.pin(r) } else { r }
 }
 
 /// What `signature` works out for one item.
@@ -409,7 +432,18 @@ fn signature<'s>(tcx: &TyCtxt<'s>, env: &Env<'_, 's>, d: DefId) -> Option<SigOut
                     _ => {}
                 }
             }
-            let output = output.unwrap_or_else(|| tcx.unit());
+            let mut output = output.unwrap_or_else(|| tcx.unit());
+            // `async fn`: a call gives a future of its own (as an `async`
+            // block, at the function's node) whose output is the declared
+            // return type.
+            let keyword = |k: &str| ast.children(node).iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == k);
+            if keyword("gen") {
+                // `gen fn`, `async gen fn`: an iterator of the declared
+                // return type.
+                output = tcx.mk(TyKind::GenBlock(tcx.closure_id(at), output, tcx.identity_args(d), keyword("async")));
+            } else if keyword("async") {
+                output = tcx.mk(TyKind::AsyncBlock(tcx.closure_id(at), output, tcx.identity_args(d)));
+            }
             let inputs = tcx.list(inputs);
             out.fn_sig = Some(tcx.sig(FnSig { inputs, output, unsafety, variadic, abi }));
         }
@@ -435,6 +469,9 @@ fn signature<'s>(tcx: &TyCtxt<'s>, env: &Env<'_, 's>, d: DefId) -> Option<SigOut
             if let Some(t) = ast.children(node).iter().copied().find(|&c| is_type(ast.kind(c))) {
                 let t = l.ty(t);
                 tcx.set_type_of(d, t);
+            } else if ast.child(node, Kind::Name).is_none() && ast.child(node, Kind::ConstBlock).is_some() {
+                // `const { ... }` as an item.
+                tcx.set_type_of(d, tcx.unit());
             }
         }
         DefKind::Trait | DefKind::TraitAlias => {
@@ -586,6 +623,8 @@ pub(crate) fn subst(tcx: &TyCtxt, t: Ty, params: &[ParamId], args: &[Ty]) -> Ty 
             tcx.mk(TyKind::Closure(c, tcx.sig(sig), sub_list(l)))
         }
         TyKind::AsyncBlock(c, o, l) => tcx.mk(TyKind::AsyncBlock(c, sub(o), sub_list(l))),
+        TyKind::Coroutine(c, o, l) => tcx.mk(TyKind::Coroutine(c, sub(o), sub_list(l))),
+        TyKind::GenBlock(c, y, l, a) => tcx.mk(TyKind::GenBlock(c, sub(y), sub_list(l), a)),
         TyKind::Opaque(o, l) => tcx.mk(TyKind::Opaque(o, sub_list(l))),
         TyKind::Dyn(d) => {
             let mut data = tcx.dyn_of(d);

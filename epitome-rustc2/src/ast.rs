@@ -318,6 +318,11 @@ pub enum Kind {
     UseGroup,
     /// `as name` or `as _`: `Name`.
     Rename,
+    /// `reuse` (function delegation): `attrs vis Keyword(reuse) (Path
+    /// (Rename | UseGroup | UseGlob)? | Keyword(unsafe|const)? Keyword(impl)
+    /// Op(!)? Type Keyword(for) Type) Block?`, the block the expression the first
+    /// argument becomes (with `self` in it).
+    Delegation,
     /// `attrs vis Keyword(default)? Name Generics? Type? WhereClause?
     /// Expr?`. The name may be `_`.
     Const,
@@ -451,6 +456,8 @@ pub enum Kind {
     TuplePat,
     /// `(p)`: `Pattern`.
     ParenPat,
+    /// `p if e`, in brackets (`(Some(x) if x > 0)`): `Pattern Expr`.
+    GuardPat,
     /// `[a, .., b]`: `Pattern*`.
     SlicePat,
     /// `Path`, as a constant, unit struct or variant.
@@ -502,6 +509,8 @@ pub enum Kind {
     Await,
     /// `a.use`: `Expr`.
     UseExpr,
+    /// `move(a)` in a closure: `Expr`, moved into the closure.
+    MoveExpr,
     /// `(a, b)`, `()`: `Expr*`.
     Tuple,
     /// `(a)`: `Expr`.

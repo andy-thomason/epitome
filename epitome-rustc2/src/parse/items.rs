@@ -30,6 +30,7 @@ enum ItemKind {
     MacroRules,
     MacroDef,
     MacroCall,
+    Delegation,
 }
 
 impl<'a> Parser<'a> {
@@ -90,6 +91,7 @@ impl<'a> Parser<'a> {
             ItemKind::MacroRules => self.macro_rules(m),
             ItemKind::MacroDef => self.macro_def(m),
             ItemKind::MacroCall => self.item_macro_call(m),
+            ItemKind::Delegation => self.delegation(m),
         }
     }
 
@@ -167,9 +169,21 @@ impl<'a> Parser<'a> {
             "type" => ItemKind::Type,
             "crate" if has("extern") => ItemKind::ExternCrate,
             "{" if has("extern") => ItemKind::ExternBlock,
+            // `const { ... }` at item level: an anonymous constant.
+            "{" if q > 0 && self.at_n(q - 1, "const") => ItemKind::Const,
             "union" if self.name_at(q + 1) => ItemKind::Union,
             "macro_rules" if self.at_n(q + 1, "!") && self.name_at(q + 2) => ItemKind::MacroRules,
             "macro" if self.name_at(q + 1) => ItemKind::MacroDef,
+            // `reuse path;`, `reuse Trait::{a, b} { .. }`, `reuse impl Tr
+            // for T { .. }`: a contextual keyword, so not `reuse!()` or a
+            // `reuse { .. }` struct literal.
+            "reuse"
+                if q == 0
+                    && (self.segment_at(1) && !self.at_n(2, "!")
+                        || matches!(self.tok(1).0, "<" | "impl" | "unsafe" | "const")) =>
+            {
+                ItemKind::Delegation
+            }
             _ if q > 0 && self.at_n(q - 1, "const") && (self.name_at(q) || self.at_n(q, "_")) => ItemKind::Const,
             _ if q == 0 && self.path_start_at(0) => {
                 // `path! (...)` or `path! { }`.
@@ -286,6 +300,9 @@ impl<'a> Parser<'a> {
             return false;
         }
         let n = if self.lifetime_at(1) { 2 } else { 1 };
+        if self.at_n(n, "pin") && (self.at_n(n + 1, "mut") || self.at_n(n + 1, "const")) {
+            return is_self(n + 2);
+        }
         is_self(n) || self.at_n(n, "mut") && is_self(n + 1)
     }
 
@@ -294,6 +311,11 @@ impl<'a> Parser<'a> {
             self.leaf(Kind::Op, 1);
             if self.lifetime_at(0) {
                 self.leaf(Kind::Lifetime, 1);
+            }
+            // `&pin mut self`, `&pin const self`.
+            if self.at("pin") {
+                self.leaf(Kind::Keyword, 1);
+                self.leaf(Kind::Keyword, 1);
             }
         }
         if self.at("mut") {
@@ -522,6 +544,62 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
+    /// `reuse ...` (function delegation): a path, perhaps with `as name`,
+    /// `::{a, b as c}` or `::*`, or `[unsafe] impl Tr for T`; then the
+    /// expression the first argument becomes, in braces, or `;`.
+    fn delegation(&mut self, m: Mark) -> PResult<'a> {
+        self.leaf(Kind::Keyword, 1);
+        if self.at("impl") || matches!(self.tok(0).0, "unsafe" | "const") && self.at_n(1, "impl") {
+            if !self.at("impl") {
+                self.leaf(Kind::Keyword, 1);
+            }
+            self.leaf(Kind::Keyword, 1);
+            // `reuse impl<'a> Tr<'a> for T<'a>`.
+            if self.at("<") {
+                self.generics()?;
+            }
+            // `reuse impl !Tr for T`.
+            if self.at("!") {
+                self.leaf(Kind::Op, 1);
+            }
+            self.ty_no_plus()?;
+            if self.at("for") {
+                self.leaf(Kind::Keyword, 1);
+                self.ty()?;
+            }
+        } else {
+            self.path(PathMode::Expr)?;
+            if self.at_op("::") && self.at_n(2, "*") {
+                self.bump_n(2);
+                self.leaf(Kind::UseGlob, 1);
+            } else if self.at_op("::") && self.at_n(2, "{") {
+                self.bump_n(2);
+                let gm = self.mark();
+                self.bump();
+                while !self.at("}") {
+                    self.use_tree()?;
+                    if !self.eat(",") {
+                        break;
+                    }
+                }
+                self.expect("}")?;
+                self.finish(gm, Kind::UseGroup);
+            } else if self.at("as") {
+                let rm = self.mark();
+                self.bump();
+                self.name()?;
+                self.finish(rm, Kind::Rename);
+            }
+        }
+        if self.at("{") {
+            self.block_expr()?;
+        } else {
+            self.expect(";")?;
+        }
+        self.finish(m, Kind::Delegation);
+        Ok(())
+    }
+
     fn use_item(&mut self, m: Mark) -> PResult<'a> {
         self.expect("use")?;
         self.use_tree()?;
@@ -633,6 +711,16 @@ impl<'a> Parser<'a> {
         }
         if self.at("type") {
             self.leaf(Kind::Keyword, 1);
+        }
+        // `const { ... }`: no name or type, a block of type `()`.
+        if self.at("const") && self.at_n(1, "{") {
+            let b = self.mark();
+            self.bump();
+            self.block_expr()?;
+            self.finish(b, Kind::ConstBlock);
+            self.eat(";");
+            self.finish(m, Kind::Const);
+            return Ok(());
         }
         self.expect("const")?;
         if self.at("_") {

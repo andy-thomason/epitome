@@ -170,6 +170,11 @@ pub struct Resolver<'s> {
     pub roots: Vec<ModId>,
     /// Crate names, for the extern prelude.
     pub crate_names: Vec<String>,
+    /// The crates each crate may name (`CrateRoot::deps`); all if `None`.
+    pub crate_deps: Vec<Option<Vec<String>>>,
+    /// The names of each crate's proc-macro libraries
+    /// (`CrateRoot::proc_macro`), which are not crates of the session.
+    pub crate_proc_macros: Vec<Vec<String>>,
     pub editions: Vec<Edition>,
     /// Each crate's std prelude module, if it has one.
     pub preludes: Vec<Option<ModId>>,
@@ -560,6 +565,8 @@ mod tests {
     /// 2015's paths start at the crate root, where `std` is the injected
     /// `extern crate std`; `$crate` from another crate, and `::core` that
     /// built-in macros and derives write, name the crate in any edition.
+    /// A `#[macro_export]` macro written at a crate's root is public there
+    /// (`std::sm!()`).
     #[test]
     fn edition_2015_root_paths() {
         let dir = std::env::temp_dir().join(format!("epitome-rustc2-2015-{}", std::process::id()));
@@ -585,9 +592,9 @@ mod tests {
         let t = write(
             "t.rs",
             "use std::y::g;\n\
-             mod inner { use std::y::Tr; pub fn k<T: Tr>(_: T) { cm!(); } }\n\
+             mod inner { use std::y::Tr; pub fn k<T: Tr>(_: T) { cm!(); ::std::sm!(); } }\n\
              #[derive(Clone)] struct S;\n\
-             fn h<T: ::std::y::Tr>(_: T) { g(); cm!(); sm!(); assert!(true); }",
+             fn h<T: ::std::y::Tr>(_: T) { g(); cm!(); sm!(); std::sm!(); assert!(true); }",
         );
         let session = Session::new(Options { threads: 1, ..Default::default() });
         let mut crates = session.parse_crates(vec![

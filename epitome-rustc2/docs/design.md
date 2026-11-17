@@ -651,8 +651,11 @@ Traits (`traits.rs`):
   arguments are checked after the others, so that those settle `A`.
 - **`async` blocks** have a type of their own (`TyKind::AsyncBlock`,
   by where the block is written, as for a closure), whose `Output` is
-  the block's value, or what a `return` in it gives. `async fn`s are not
-  yet: a call gives the declared result type, as for a plain `fn`.
+  the block's value, or what a `return` in it gives. An `async fn`'s
+  signature returns the same kind of future, written at the function's
+  node, with the declared result type as its `Output` and the function's
+  own generic parameters as its arguments; its body is checked against
+  the declared result type. Lowering supports neither yet.
 
 What lowering is told (`TypeckResults::tables`, per file, by node):
 
@@ -1269,11 +1272,38 @@ Type checking needed these for `std`:
   on them (`SpecExtend`'s family), and a `Box`'s allocator is unified in
   coercion.
 
-Not yet: `std::thread::spawn` (which calls a `Box<dyn FnOnce()>`, a
-`dyn` method taking `self` by value, and `AssertUnwindSafe<F>` through its
-`FnOnce` impl); unwinding and panic messages; and the rest of what `std`
-reaches. Threads made with `pthread_create` work, each with its own
-thread locals (`tests/run/tls.rs`, on x86-64 Linux and on macOS). On
+Threads: `std::thread::spawn` and `join` work (`tests/run/std_threads.rs`:
+`thread_local!` per thread, `Arc<Mutex<_>>`, results from `join`), as do
+threads made with `pthread_create` (`tests/run/tls.rs`). What spawning
+needed:
+
+- **Calls of things with `Fn` impls of their own** (`AssertUnwindSafe<F>`,
+  `Box<F>`): the impl's method, the arguments as a tuple.
+- **A `dyn` taken by value.** `Box<dyn FnOnce()>`'s `call_once` is
+  `<dyn FnOnce() as FnOnce<()>>::call_once(*self, args)`: the `dyn` is
+  moved out of the box (which is then freed without dropping it) and
+  passed by address to its vtable's `call_once`. For a closure that is a
+  shim: the closure's function, then the closure's drop glue unless the
+  closure drops its own captures.
+- **Moves out of what a box holds through autoderef** (`self.rust_start`
+  of a `self: Box<Self>`): a path through the box.
+- **Type checking**: a `dyn` type's auto traits in one order (`dyn Send +
+  FnOnce()` is `dyn FnOnce() + Send`); an inherent impl's `where` clauses
+  as its methods' obligations (`DropGuard::new`'s closure takes what `F:
+  FnOnce(T)` says); and a method's receiver taken by value (`hooks.run()`
+  in a closure) captured by value.
+
+On macOS (Apple silicon) every function is compiled for the `apple-m1`
+CPU (`"target-cpu"`, as rustc's `aarch64-apple-darwin` target has it), so
+atomics are LSE instructions (`ldadd`, `swp`, `cas`), not calls of the
+outlined helpers (`__aarch64_ldadd8_relax`) that macOS's C library does
+not have; `std_hello` and `std_threads` run there as rustc's builds do.
+macOS's `std` also needed the `ptr_mask` intrinsic, and an `if` whose
+branches are two different functions (`RwLock`'s `write_lock` and
+`read_lock`) made a function pointer.
+
+Not yet: unwinding and panic messages, and the rest of what `std`
+reaches. On
 mandelbrot, `tests/run/std_hello.rs` (formatting, `Vec`, iterators,
 `String`, `Box<dyn Trait>`, drops and `env::args`) prints what rustc's
 build prints, optimised and not.
@@ -1419,16 +1449,26 @@ is plain `std` threads.
   tests of rust-lang/rust's `tests/ui` (programs rustc accepts; used as
   input, like the standard library) and checks that they parse, expand,
   resolve and type check without errors. Set `EPITOME_RUST` to a
-  checkout with `tests/ui` and `library` (`library/backtrace` is a
+  checkout with `tests/ui`, `tests/auxiliary` and `library` (`library/backtrace` is a
   submodule: copy it from `rust-src`). `tests/ui_check_pass_todo.txt`
   is the work left, to bring to zero: each test that does not pass yet,
   with the stage and first error where it fails, or what it needs where
-  the runner leaves it out (auxiliary crates, revisions, `--cfg`). Its
+  the runner leaves it out (`--test`, `--extern`). Proc-macro crates are
+  built by rustc and run through its proc-macro server. Flags that
+  change the configuration (`--target`, `-C`, `-Z`) go to `rustc --print
+  cfg`, run as a program, and the test gets the configuration it prints. Each
+  revision of a test is a test of its own (`path#rev`), with its own
+  `--cfg` (`CrateRoot::cfg`); test crates may use only `core`, `alloc`
+  and `std` and their own auxiliary crates (`CrateRoot::deps`, which the
+  extern prelude follows), so that they cannot see each other. A test
+  that defines lang items, or whose auxiliary crates do (`minicore`),
+  runs in a session of its own, since lang items are the session's. Its
   first line names the commit and host. A test that stops passing, or
   one on the list that passes, fails the test; `EPITOME_UI_BLESS=1`
   writes the list again, in the same commit as the change. On 2026-11-15,
   of the 3,800 check-pass tests for aarch64-macos, 2,539 pass, 435 fail
-  and 826 are left out; a run takes a minute on 12 cores.
+  and 826 are left out; with revisions counted one by one, 3,357 of
+  4,296 pass. A run takes about a minute on 12 cores.
 - **Crates:** `cargo test` of crates with `RUSTC=epitome-rustc2`,
   compared with `RUSTC_WRAPPER=epitome-rustc`.
 

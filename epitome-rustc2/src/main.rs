@@ -209,6 +209,15 @@ fn main() -> ExitCode {
         }))
         .collect();
     let mut crates = session.parse_crates(roots);
+    // A crate whose root file could not be read or parsed has no files,
+    // and what comes after parsing needs every crate's root (the first
+    // crate's is where trait selection starts): report and stop.
+    if crates.iter().any(|c| c.files.is_empty()) {
+        for e in crates.iter().flat_map(|c| &c.errors) {
+            eprint!("{}", e.render_in(&session.sources));
+        }
+        return ExitCode::FAILURE;
+    }
     if !no_expand {
         let stats = session.expand(&mut crates);
         if expand_stats {

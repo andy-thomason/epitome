@@ -112,13 +112,31 @@ pub(super) fn check_body<'s>(
     let ast = &crates[k as usize].files[file as usize].ast;
     let kind = r.defs[owner.0 as usize].kind;
     let mut cx = FnCtxt::new(tcx, r, crates, index, owner, k, file);
+    // A function a `reuse` defines has no body of its own.
+    if matches!(ast.kind(item), Kind::Delegation | Kind::UseTree) {
+        return None;
+    }
     match kind {
         DefKind::Fn | DefKind::AssocFn => {
             let body = ast.children(item).iter().copied().find(|&c| ast.kind(c) == Kind::Block)?;
             let sig = tcx.sig_of(tcx.fn_sig[owner.0 as usize]?);
             let inputs = tcx.tys(sig.inputs);
             let inputs: Vec<Ty> = inputs.into_iter().map(|t| cx.fill_holes(t)).collect();
-            let out = cx.fill_holes(sig.output);
+            let inputs: Vec<Ty> = inputs.into_iter().map(|t| cx.reveal_defined(t)).collect();
+            // An `async fn`'s body is checked against the declared return
+            // type, the output of the future a call gives.
+            let out = match tcx.kind(sig.output) {
+                TyKind::AsyncBlock(c, o, _) if tcx.closure_at(c) == (k, file, item) => o,
+                // A `gen fn`'s body yields the declared type and returns
+                // `()`.
+                TyKind::GenBlock(c, y, _, _) if tcx.closure_at(c) == (k, file, item) => {
+                    let unit = tcx.unit();
+                    cx.coroutine = Some((unit, y));
+                    unit
+                }
+                _ => sig.output,
+            };
+            let out = cx.fill_holes(out);
             // `impl Trait`: a variable bound by its bounds, so that a
             // closure returned gets its signature from them.
             cx.ret = cx.opaque_vars(out, true);
@@ -201,6 +219,7 @@ fn is_expr(k: Kind) -> bool {
             | AttrExpr
             | Builtin
             | UseExpr
+            | MoveExpr
             | Yeet
     )
 }
@@ -245,6 +264,16 @@ pub(super) struct FnCtxt<'a, 's> {
     /// The closures written in this body.
     closures: Vec<crate::ty::ClosureId>,
     pub(super) ret: Ty,
+    /// In a coroutine: its resume and yield types, for `yield`.
+    coroutine: Option<(Ty, Ty)>,
+    /// The next closure checked is marked `#[coroutine]`.
+    coroutine_attr: bool,
+    /// The variable standing for each opaque type this body defines (its
+    /// hidden type), one for all its uses, and the opaque type.
+    defined: FastMap<crate::ty::OpaqueId, (Ty, Ty)>,
+    /// Variables a `!` was coerced to: unknown at the end, they are `!`
+    /// (2024) or `()` (before), as for rustc's diverging variables.
+    diverging: Vec<Ty>,
     loops: Vec<Loop<'s>>,
     errors: FastMap<String, usize>,
     /// Nodes already counted as errors.
@@ -300,6 +329,10 @@ impl<'a, 's> FnCtxt<'a, 's> {
             closures: Vec::new(),
             where_depth: 2,
             ret: tcx.unit(),
+            coroutine: None,
+            coroutine_attr: false,
+            diverging: Vec::new(),
+            defined: FastMap::default(),
             loops: Vec::new(),
             errors: FastMap::default(),
             reported: FastSet::default(),
@@ -366,7 +399,10 @@ impl<'a, 's> FnCtxt<'a, 's> {
             let place_use = borrowed
                 || match ast.kind(up) {
                     Kind::Borrow | Kind::Unary => true,
-                    Kind::Field | Kind::Index | Kind::Match | Kind::MethodCall => first,
+                    // A method's receiver is a place only if it is
+                    // borrowed (`borrowed`, from its adjustments): one taken
+                    // by value (`hooks.run()`) is moved.
+                    Kind::Field | Kind::Index | Kind::Match => first,
                     Kind::Let => !first,
                     Kind::Binary => first && ast.children(up).get(1).is_some_and(|&o| ast.text(o).ends_with('=') && !matches!(ast.text(o).as_str(), "==" | "!=" | "<=" | ">=")),
                     _ => false,
@@ -393,6 +429,21 @@ impl<'a, 's> FnCtxt<'a, 's> {
 
     fn finish(mut self) -> BodyResult {
         self.process_pending();
+        // An opaque type this body could define but did not settle: a use
+        // of it, not a definition.
+        let defined: Vec<(Ty, Ty)> = self.defined.values().copied().collect();
+        for (v, t) in defined {
+            if self.infer.var_kind(self.infer.shallow(v)) == Some(VarKind::General) {
+                self.infer.unify(v, t);
+            }
+        }
+        let edition = self.env.crates[self.k as usize].edition;
+        for v in std::mem::take(&mut self.diverging) {
+            if self.infer.var_kind(self.infer.shallow(v)) == Some(VarKind::General) {
+                let t = if edition >= crate::lexer::Edition::E2024 { self.mk(TyKind::Never) } else { self.unit() };
+                self.infer.unify(v, t);
+            }
+        }
         self.infer.fallback();
         self.process_pending();
         let captures: Vec<(crate::ty::ClosureId, Vec<super::Capture>)> =
@@ -409,6 +460,14 @@ impl<'a, 's> FnCtxt<'a, 's> {
             if self.tcx.has_error(t) {
                 error_nodes += 1;
             } else if self.tcx.has_infer(t) {
+                // With `EPITOME_TYPECK_WHY` set to a reason with
+                // "unknown" in it, the first node in each body whose type
+                // was left unknown.
+                if unknown_nodes == 0 && why_filter().is_some_and(|w| "a type left unknown".contains(w)) {
+                    let mut text = self.ast.text(n).replace('\n', " ");
+                    text.truncate((0..=80.min(text.len())).rev().find(|&i| text.is_char_boundary(i)).unwrap_or(0));
+                    eprintln!("a type left unknown: {text} in {}", self.r.def_path(self.owner));
+                }
                 unknown_nodes += 1;
             }
             types.push((n, t));
@@ -496,9 +555,8 @@ impl<'a, 's> FnCtxt<'a, 's> {
             *self.errors.entry(why.to_string()).or_default() += 1;
             // `EPITOME_TYPECK_WHY=text`: print the errors whose reason
             // has `text` in it, with where they are.
-            static WHY: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
-            if let Some(w) = WHY.get_or_init(|| std::env::var("EPITOME_TYPECK_WHY").ok())
-                && why.contains(w.as_str())
+            if let Some(w) = why_filter()
+                && why.contains(w)
             {
                 let mut text = self.ast.text(n).replace('\n', " ");
                 text.truncate((0..=80.min(text.len())).rev().find(|&i| text.is_char_boundary(i)).unwrap_or(0));
@@ -540,7 +598,73 @@ impl<'a, 's> FnCtxt<'a, 's> {
             failed: false,
         };
         let t = l.ty(n);
-        self.fill_holes(t)
+        let t = self.fill_holes(t);
+        self.reveal_defined(t)
+    }
+
+    /// `t` with each type-alias `impl Trait` this body defines replaced by
+    /// its hidden type's variable.
+    fn reveal_defined(&mut self, t: Ty) -> Ty {
+        let tcx = self.tcx;
+        let map = |cx: &mut Self, l: crate::ty::List| -> crate::ty::List {
+            let v: Vec<Ty> = tcx.tys(l).into_iter().map(|x| cx.reveal_defined(x)).collect();
+            tcx.list(v)
+        };
+        match tcx.kind(t) {
+            TyKind::Opaque(o, _) if self.defines(o) => self.opaque_vars(t, true),
+            TyKind::Ref(m, x) => {
+                let x = self.reveal_defined(x);
+                self.mk(TyKind::Ref(m, x))
+            }
+            TyKind::Ptr(m, x) => {
+                let x = self.reveal_defined(x);
+                self.mk(TyKind::Ptr(m, x))
+            }
+            TyKind::Slice(x) => {
+                let x = self.reveal_defined(x);
+                self.mk(TyKind::Slice(x))
+            }
+            TyKind::Array(x, c) => {
+                let x = self.reveal_defined(x);
+                self.mk(TyKind::Array(x, c))
+            }
+            TyKind::Adt(d, l) if tcx.tys(l).iter().any(|&x| has_opaque(tcx, x)) => {
+                let l = map(self, l);
+                self.mk(TyKind::Adt(d, l))
+            }
+            TyKind::Tuple(l) if tcx.tys(l).iter().any(|&x| has_opaque(tcx, x)) => {
+                let l = map(self, l);
+                self.mk(TyKind::Tuple(l))
+            }
+            _ => t,
+        }
+    }
+
+    /// Whether this body defines type-alias `impl Trait` `o`: it lists the
+    /// alias in `#[define_opaque(..)]`, or the alias is declared inside it.
+    fn defines(&self, o: crate::ty::OpaqueId) -> bool {
+        let alias = self.tcx.opaque(o).owner;
+        let a = &self.r.defs[alias.0 as usize];
+        if a.kind != DefKind::TypeAlias {
+            return false;
+        }
+        let me = &self.r.defs[self.owner.0 as usize];
+        let ast = self.ast;
+        let item = ast.node(me.node);
+        if a.krate == me.krate && a.file == me.file {
+            let n = ast.node(a.node);
+            if n.first >= item.first && n.end <= item.end && a.node != me.node {
+                return true;
+            }
+        }
+        // `#[define_opaque(Tait, other::Tait2)]`, by the aliases' names.
+        ast.children(me.node).iter().any(|&c| {
+            ast.kind(c) == Kind::Attribute && {
+                let text = ast.text(c);
+                text.trim_start_matches("#[").starts_with("define_opaque")
+                    && text.split(|ch: char| !(ch.is_alphanumeric() || ch == '_')).any(|w| w == a.name)
+            }
+        })
     }
 
     /// A written generic argument: a type, or a constant (`4`, `{ N + 1
@@ -626,6 +750,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
         match (tcx.kind(g), tcx.kind(w)) {
             (TyKind::Never, TyKind::Never) => return true,
             (TyKind::Never, _) => {
+                self.diverges_into(w);
                 self.adjust(n, vec![Adjust::NeverToAny], w);
                 return true;
             }
@@ -763,10 +888,14 @@ impl<'a, 's> FnCtxt<'a, 's> {
     /// The common type of two branches (`if`/`else`, match arms).
     fn join(&mut self, n: NodeId, a: Ty, b: Ty) -> Ty {
         let (sa, sb) = (self.infer.shallow(a), self.infer.shallow(b));
+        // A `!` arm: the other's type, which, if nothing else settles it,
+        // falls back as a diverging variable does.
         if self.tcx.kind(sa) == TyKind::Never {
+            self.diverges_into(b);
             return b;
         }
         if self.tcx.kind(sb) == TyKind::Never {
+            self.diverges_into(a);
             return a;
         }
         // `*mut T` and `*const T`: both `*const T`.
@@ -776,10 +905,51 @@ impl<'a, 's> FnCtxt<'a, 's> {
         {
             return self.mk(TyKind::Ptr(Mutbl::Not, x));
         }
+        // Two different functions or non-capturing closures (`if c { f }
+        // else { g }`): both as a function pointer.
+        let fn_like = |k: TyKind| matches!(k, TyKind::FnDef(..) | TyKind::Closure(..) | TyKind::FnPtr(_));
+        if fn_like(self.tcx.kind(sa)) && fn_like(self.tcx.kind(sb)) && sa != sb {
+            let p = self.probe();
+            if !self.infer.unify(sa, sb) {
+                self.rollback(p);
+                if let Some(ptr) = self.fn_pointer_of(sa)
+                    && self.coerce(n, a, ptr)
+                    && self.coerce(n, b, ptr)
+                {
+                    return ptr;
+                }
+            }
+        }
         if !self.coerce(n, b, a) {
             return self.tcx.error();
         }
         a
+    }
+
+    /// The function pointer type a function item, closure or pointer
+    /// coerces to.
+    fn fn_pointer_of(&mut self, t: Ty) -> Option<Ty> {
+        let tcx = self.tcx;
+        match tcx.kind(t) {
+            TyKind::FnPtr(_) => Some(t),
+            TyKind::Closure(_, s, _) => Some(self.mk(TyKind::FnPtr(s))),
+            TyKind::FnDef(d, l) => {
+                let (inputs, output) = self.callable_sig(d, l)?;
+                let base = tcx.sig_of(tcx.fn_sig[d.0 as usize]?);
+                let sig = crate::ty::FnSig { inputs: tcx.list(inputs), output, ..base };
+                Some(self.mk(TyKind::FnPtr(tcx.sig(sig))))
+            }
+            _ => None,
+        }
+    }
+
+    /// Marks `t`, if a variable not yet known, as one a `!` was coerced to
+    /// (see `diverging`).
+    fn diverges_into(&mut self, t: Ty) {
+        let t = self.infer.shallow(t);
+        if self.infer.var_kind(t) == Some(VarKind::General) {
+            self.diverging.push(t);
+        }
     }
 
     // ---- items as values ----
@@ -838,6 +1008,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let tcx = self.tcx;
         match tcx.kind(t) {
             TyKind::Opaque(o, l) => {
+                if defining && let Some(&(v, _)) = self.defined.get(&o) {
+                    return v;
+                }
                 let v = self.infer.fresh();
                 let def = tcx.opaque(o);
                 let (params, args) = (tcx.all_params(def.owner), tcx.tys(l));
@@ -851,6 +1024,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 }
                 if defining {
                     self.hidden.push((o, v));
+                    self.defined.insert(o, (v, t));
                 }
                 v
             }
@@ -992,7 +1166,26 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 let mid = self.ast.token(segs[segs.len() - 2]).0;
                 let name = self.last_segment_name(path);
                 let Some(bt) = self.base_ty(path, &base) else { return self.err(n, "path through an associated item") };
-                let Some(at) = self.assoc_type_of(bt, mid) else { return self.err(n, "associated type not found") };
+                // `<T as Trait>::Assoc::item`: `Assoc` of that trait.
+                let at = if let Some(q) = self.ast.child(path, Kind::QSelf)
+                    && let Some(&tr) = self.ast.children(q).get(1)
+                    && let Some(&tp) = self.ast.children(tr).first()
+                {
+                    let Some((self_ty, trait_ref)) = self.qualified_trait_ref(q, tp) else {
+                        return self.err(n, "trait in qualified path not found");
+                    };
+                    let Some(a) = self.trait_item(trait_ref.def, mid, Ns::Type) else {
+                        return self.err(n, "associated type not found");
+                    };
+                    let mut args = vec![self_ty];
+                    for t in tcx.tys(trait_ref.args) {
+                        args.push(self.fill_holes(t));
+                    }
+                    self.project_or_var(a, &args)
+                } else {
+                    let Some(at) = self.assoc_type_of(bt, mid) else { return self.err(n, "associated type not found") };
+                    at
+                };
                 let at = self.norm(at);
                 if let Some((item, impl_args)) = self.inherent_item(at, name, Ns::Value) {
                     let own = tcx.generics[item.0 as usize].own.len();
@@ -1040,21 +1233,10 @@ impl<'a, 's> FnCtxt<'a, 's> {
     /// `<T as Trait>::name` as a value.
     fn qualified_trait_value(&mut self, n: NodeId, q: NodeId, tr: NodeId, name: &str) -> Ty {
         let tcx = self.tcx;
-        let qk = self.ast.children(q).to_vec();
-        let self_ty = self.written_ty(qk[0]);
         let Some(&tp) = self.ast.children(tr).first() else { return self.err(n, "bad qualified path") };
-        let mut l = Lower {
-            tcx,
-            env: &self.env,
-            expanding: FastSet::default(),
-            impl_self: None,
-            holes: true,
-            k: self.k,
-            file: self.file,
-            owner: self.owner,
-            failed: false,
+        let Some((self_ty, trait_ref)) = self.qualified_trait_ref(q, tp) else {
+            return self.err(n, "trait in qualified path not found");
         };
-        let Some(trait_ref) = l.trait_ref(tp) else { return self.err(n, "trait in qualified path not found") };
         let Some(item) = self.trait_item(trait_ref.def, name, Ns::Value) else {
             return self.err(n, "no such item in the trait of a qualified path");
         };
@@ -1080,6 +1262,24 @@ impl<'a, 's> FnCtxt<'a, 's> {
             },
             _ => self.err(n, "qualified path to something that is not a value"),
         }
+    }
+
+    /// The self type and trait of a qualified path's `<T as Trait>` (`tp`
+    /// the trait's path).
+    fn qualified_trait_ref(&mut self, q: NodeId, tp: NodeId) -> Option<(Ty, crate::ty::TraitRef)> {
+        let self_ty = self.written_ty(self.ast.children(q)[0]);
+        let mut l = Lower {
+            tcx: self.tcx,
+            env: &self.env,
+            expanding: FastSet::default(),
+            impl_self: None,
+            holes: true,
+            k: self.k,
+            file: self.file,
+            owner: self.owner,
+            failed: false,
+        };
+        Some((self_ty, l.trait_ref(tp)?))
     }
 
     /// The type a path's base names, for `Type::item`.
@@ -1300,6 +1500,12 @@ impl<'a, 's> FnCtxt<'a, 's> {
             Kind::PathExpr => self.path_value(n, kids[0]),
             Kind::Paren | Kind::AttrExpr => {
                 let e = *kids.last().unwrap();
+                // `#[coroutine] || ...`.
+                self.coroutine_attr = ast.kind(n) == Kind::AttrExpr
+                    && ast.kind(e) == Kind::Closure
+                    && ast.children(n).iter().any(|&a| {
+                        ast.kind(a) == Kind::Attribute && ast.text(a).trim_start_matches("#[").starts_with("coroutine")
+                    });
                 self.expr(e, expect)
             }
             Kind::Tuple => {
@@ -1360,7 +1566,15 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     _ => None,
                 });
                 let t = self.expr(e, inner_expect);
-                if raw { self.mk(TyKind::Ptr(mutbl, t)) } else { self.mk(TyKind::Ref(mutbl, t)) }
+                if raw {
+                    self.mk(TyKind::Ptr(mutbl, t))
+                } else if kids.iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == "pin") {
+                    // `&pin mut x`: `Pin<&mut T>`.
+                    let r = self.mk(TyKind::Ref(mutbl, t));
+                    tcx.pin(r)
+                } else {
+                    self.mk(TyKind::Ref(mutbl, t))
+                }
             }
             Kind::Cast => {
                 let target = self.written_ty(kids[1]);
@@ -1376,12 +1590,22 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     if !by_context {
                         self.rollback(p);
                         let s = self.norm(src);
-                        if let (TyKind::Ref(_, x) | TyKind::Ptr(_, x), TyKind::Ptr(_, y)) = (tcx.kind(s), tcx.kind(self.infer.shallow(target))) {
+                        if let (TyKind::Ptr(_, x), TyKind::Ptr(_, y)) = (tcx.kind(s), tcx.kind(self.infer.shallow(target))) {
                             let p = self.probe();
                             if !self.infer.unify(y, x) {
                                 self.rollback(p);
                             }
                         }
+                    }
+                }
+                // `&T as *const T`: a reference becomes a pointer to what
+                // it refers to (unless it is to an array, `&[T; N] as
+                // *const T`), which settles either side's unknowns.
+                let s = self.norm(src);
+                if let (TyKind::Ref(_, x), TyKind::Ptr(_, y)) = (tcx.kind(s), tcx.kind(self.infer.shallow(target))) {
+                    let p = self.probe();
+                    if !self.infer.unify(y, x) {
+                        self.rollback(p);
                     }
                 }
                 target
@@ -1428,14 +1652,26 @@ impl<'a, 's> FnCtxt<'a, 's> {
                         let et = self.expr(e, expect.or(Some(then)));
                         // Two closures (or functions) where a function
                         // pointer is wanted: each made one.
-                        if let Some(want) = expect
-                            && let TyKind::FnPtr(_) = tcx.kind(self.infer.shallow(want))
-                            && [then, et].iter().all(|&t| matches!(tcx.kind(self.infer.shallow(t)), TyKind::Closure(..) | TyKind::FnDef(..)))
-                            && self.infer.shallow(then) != self.infer.shallow(et)
-                        {
-                            self.coerce(kids[1], then, want);
-                            self.coerce(e, et, want);
-                            return want;
+                        let callable = |t: Ty| matches!(tcx.kind(t), TyKind::Closure(..) | TyKind::FnDef(..));
+                        let (st, se) = (self.infer.shallow(then), self.infer.shallow(et));
+                        if callable(st) && callable(se) && st != se {
+                            // The pointer wanted, or with no expectation two
+                            // function items' signature as one.
+                            let want = match expect.map(|w| self.infer.shallow(w)) {
+                                Some(w) if matches!(tcx.kind(w), TyKind::FnPtr(_)) => Some(w),
+                                _ => match tcx.kind(st) {
+                                    TyKind::FnDef(d, l) if matches!(tcx.kind(se), TyKind::FnDef(..)) => self.callable_sig(d, l).and_then(|(inputs, output)| {
+                                        let base = tcx.sig_of(tcx.fn_sig[d.0 as usize]?);
+                                        Some(self.mk(TyKind::FnPtr(tcx.sig(crate::ty::FnSig { inputs: tcx.list(inputs), output, ..base }))))
+                                    }),
+                                    _ => None,
+                                },
+                            };
+                            if let Some(want) = want {
+                                self.coerce(kids[1], then, want);
+                                self.coerce(e, et, want);
+                                return want;
+                            }
                         }
                         self.join(n, then, et)
                     }
@@ -1565,6 +1801,8 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 let t = self.expr(kids[0], None);
                 let o = self.try_output(n, t);
                 self.record_try(n, t);
+                // `x?` is a match one of whose arms returns.
+                self.diverges_into(o);
                 o
             }
             Kind::Closure => self.closure(n, &kids, expect),
@@ -1578,6 +1816,35 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 }
             }
             Kind::Builtin => self.builtin_expr(n, &kids, expect),
+            // `yield e`: `e` is what the coroutine yields, and the value is
+            // what it is resumed with.
+            Kind::Yield if self.coroutine.is_some() => {
+                let (resume, yields) = self.coroutine.unwrap();
+                match kids.iter().copied().find(|&c| is_expr(ast.kind(c))) {
+                    Some(e) => {
+                        let t = self.expr(e, Some(yields));
+                        self.coerce(e, t, yields);
+                    }
+                    None => {
+                        let u = self.unit();
+                        if !self.infer.unify(u, yields) {
+                            self.err(n, "mismatched types");
+                        }
+                    }
+                }
+                resume
+            }
+            // `become f(x)`: a tail call, which returns its value.
+            Kind::Become if kids.len() == 1 && is_expr(ast.kind(kids[0])) => {
+                let ret = self.ret;
+                let t = self.expr(kids[0], Some(ret));
+                self.coerce(kids[0], t, ret);
+                self.mk(TyKind::Never)
+            }
+            // `x.use`: a clone (or copy) of `x`.
+            Kind::UseExpr if kids.len() == 1 && is_expr(ast.kind(kids[0])) => self.expr(kids[0], expect),
+            // `move(x)`: `x`, moved into the closure.
+            Kind::MoveExpr => self.expr(kids[0], expect),
             Kind::Yield | Kind::Become | Kind::Yeet | Kind::UseExpr => {
                 for &c in &kids {
                     if is_expr(ast.kind(c)) {
@@ -1749,7 +2016,14 @@ impl<'a, 's> FnCtxt<'a, 's> {
             };
             let p = self.probe();
             match self.lang(lang).map(|tr| (tr, self.select(sa, tr, &[sb], 0))) {
-                Some((tr, super::traits::Select::Yes(_))) => self.record_trait_method(n, tr, method, sa, &[sb]),
+                Some((tr, super::traits::Select::Yes(_))) => {
+                    self.record_trait_method(n, tr, method, sa, &[sb]);
+                    // Unknowns on the right (`v == []`): the impl's
+                    // `where` clauses may settle them.
+                    if tcx.has_infer(self.infer.resolve(sb)) {
+                        self.pending_traits.push((sa, tr, tcx.list(vec![sb])));
+                    }
+                }
                 _ => {
                     self.rollback(p);
                     self.coerce(kids[2], b, a);
@@ -1897,7 +2171,23 @@ impl<'a, 's> FnCtxt<'a, 's> {
         };
         let sig = match sig {
             Some(x) => Some(x),
-            None if self.infer.var_kind(s).is_none() => self.call_fn_traits(n, s, args.len()),
+            None if self.infer.var_kind(s).is_none() => self.call_fn_traits(n, s, args.len()).or_else(|| {
+                // Through `Deref` (`Box<dyn Fn()>`, `impl Deref<Target =
+                // fn()>`): the first type on the way that can be called.
+                let steps = self.autoderef(s);
+                steps.into_iter().skip(1).find_map(|(t, _)| {
+                    let t = self.norm(t);
+                    match tcx.kind(t) {
+                        TyKind::FnDef(d, l) => self.callable_sig(d, l),
+                        TyKind::FnPtr(sig) | TyKind::Closure(_, sig, _) => {
+                            let sig = tcx.sig_of(sig);
+                            Some((tcx.tys(sig.inputs), sig.output))
+                        }
+                        _ if self.infer.var_kind(t).is_none() => self.call_fn_traits(n, t, args.len()),
+                        _ => None,
+                    }
+                })
+            }),
             None => None,
         };
         match sig {
@@ -2197,6 +2487,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
     fn closure(&mut self, n: NodeId, kids: &[NodeId], expect: Option<Ty>) -> Ty {
         let tcx = self.tcx;
         let ast = self.ast;
+        if std::mem::take(&mut self.coroutine_attr) {
+            return self.coroutine_closure(n, kids);
+        }
         // Parameter types written, or taken from an expected closure or
         // function pointer type.
         let mut expected_ret = None;
@@ -2230,15 +2523,72 @@ impl<'a, 's> FnCtxt<'a, 's> {
         };
         let body = *kids.last().unwrap();
         let saved_ret = std::mem::replace(&mut self.ret, ret);
+        let saved_co = self.coroutine.take();
         let saved_loops = std::mem::take(&mut self.loops);
         let bt = self.expr(body, Some(ret));
         self.coerce(body, bt, ret);
         self.ret = saved_ret;
+        self.coroutine = saved_co;
         self.loops = saved_loops;
         let id = tcx.closure_id((self.k, self.file, n));
         self.closures.push(id);
         let sig = tcx.sig(crate::ty::FnSig { inputs: tcx.list(inputs), output: ret, unsafety: false, variadic: false, abi: crate::ty::Abi::Rust });
         self.mk(TyKind::Closure(id, sig, tcx.identity_args(self.owner)))
+    }
+
+    /// The names a checked pattern binds, with their types.
+    fn binding_types(&self, pat: NodeId) -> Vec<(&'s str, Ty)> {
+        let mut out = Vec::new();
+        let mut stack = vec![pat];
+        while let Some(p) = stack.pop() {
+            if self.ast.kind(p) == Kind::IdentPat
+                && self.bindings.contains_key(&p)
+                && let (Some(n), Some(&t)) = (self.ast.child(p, Kind::Name), self.types.get(&p))
+            {
+                out.push((self.ast.token(n).ident_name(), t));
+            }
+            stack.extend(self.ast.children(p).iter().copied());
+        }
+        out
+    }
+
+    /// `#[coroutine] |arg| body`: a coroutine resumed with `arg` (`()` if
+    /// it takes none), yielding what its `yield`s give, and returning the
+    /// body's value.
+    fn coroutine_closure(&mut self, n: NodeId, kids: &[NodeId]) -> Ty {
+        let tcx = self.tcx;
+        let ast = self.ast;
+        let params = kids.iter().copied().find(|&c| ast.kind(c) == Kind::ClosureParams).map(|p| self.kids(p)).unwrap_or_default();
+        let resume = match params.first() {
+            Some(&p) => {
+                let pk = self.kids(p);
+                let t = match pk.get(1) {
+                    Some(&ty) => self.written_ty(ty),
+                    None => self.infer.fresh(),
+                };
+                self.pat(pk[0], t, Mutbl::Not, false);
+                t
+            }
+            None => self.unit(),
+        };
+        let ret = match kids.iter().copied().find(|&c| ast.kind(c) == Kind::RetType) {
+            Some(r) => self.written_ty(self.ast.children(r)[0]),
+            None => self.infer.fresh(),
+        };
+        let yields = self.infer.fresh();
+        let body = *kids.last().unwrap();
+        let saved_ret = std::mem::replace(&mut self.ret, ret);
+        let saved_co = self.coroutine.replace((resume, yields));
+        let saved_loops = std::mem::take(&mut self.loops);
+        let bt = self.expr(body, Some(ret));
+        self.coerce(body, bt, ret);
+        self.ret = saved_ret;
+        self.coroutine = saved_co;
+        self.loops = saved_loops;
+        let id = tcx.closure_id((self.k, self.file, n));
+        self.closures.push(id);
+        let parts = self.mk(TyKind::Tuple(tcx.list(vec![resume, yields, ret])));
+        self.mk(TyKind::Coroutine(id, parts, tcx.identity_args(self.owner)))
     }
 
     /// `builtin # name(..)`: `offset_of` is a `usize` (its container's
@@ -2305,7 +2655,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 if noreturn { self.mk(TyKind::Never) } else { self.unit() }
             }
             "assert" | "global_asm" | "naked_asm" | "trace_macros" | "log_syntax" => self.unit(),
-            "core_panic" | "std_panic" | "unreachable_2015" | "unreachable_2021" | "panic" => self.mk(TyKind::Never),
+            "core_panic" | "std_panic" | "unreachable_2015" | "unreachable_2021" | "unreachable" | "panic" => {
+                self.mk(TyKind::Never)
+            }
             _ => self.infer.fresh(),
         }
     }
@@ -2315,8 +2667,13 @@ impl<'a, 's> FnCtxt<'a, 's> {
     fn block(&mut self, n: NodeId, expect: Option<Ty>) -> Ty {
         let ast = self.ast;
         let kids = self.kids(n);
-        let stmts: Vec<NodeId> =
-            kids.iter().copied().filter(|&c| !matches!(ast.kind(c), Kind::Lifetime | Kind::Keyword | Kind::InnerAttribute)).collect();
+        let stmts: Vec<NodeId> = kids
+            .iter()
+            .copied()
+            .filter(|&c| {
+                !matches!(ast.kind(c), Kind::Lifetime | Kind::Keyword | Kind::InnerAttribute) && !is_type(ast.kind(c))
+            })
+            .collect();
         if ast.kind(n) == Kind::ConstBlock {
             return self.expr(kids[0], expect);
         }
@@ -2325,9 +2682,12 @@ impl<'a, 's> FnCtxt<'a, 's> {
         // context says.
         if keyword("try") {
             let out = self.stmts(&stmts, None);
-            let r = match expect {
-                Some(e) => e,
-                None => self.infer.fresh(),
+            // `try bikeshed T { .. }`: of type `T`.
+            let written = kids.iter().copied().find(|&c| is_type(ast.kind(c)));
+            let r = match (written, expect) {
+                (Some(w), _) => self.written_ty(w),
+                (None, Some(e)) => e,
+                (None, None) => self.infer.fresh(),
             };
             if let Some(tr) = self.lang("Try")
                 && let Some(o) = self.trait_item(tr, "Output", Ns::Type)
@@ -2349,9 +2709,11 @@ impl<'a, 's> FnCtxt<'a, 's> {
             let tcx = self.tcx;
             let out = self.infer.fresh();
             let saved_ret = std::mem::replace(&mut self.ret, out);
+            let saved_co = self.coroutine.take();
             let saved_loops = std::mem::take(&mut self.loops);
             let bt = self.stmts(&stmts, Some(out));
             self.ret = saved_ret;
+            self.coroutine = saved_co;
             self.loops = saved_loops;
             if tcx.kind(self.infer.shallow(bt)) != TyKind::Never && !self.infer.unify(bt, out) {
                 self.err(n, "mismatched types");
@@ -2359,10 +2721,21 @@ impl<'a, 's> FnCtxt<'a, 's> {
             let id = tcx.closure_id((self.k, self.file, n));
             return self.mk(TyKind::AsyncBlock(id, out, tcx.identity_args(self.owner)));
         }
-        // `gen` blocks: an iterator of their own.
+        // `gen` blocks (and `async gen`): an iterator of their own, of
+        // what their `yield`s give.
         if keyword("gen") {
-            self.stmts(&stmts, None);
-            return self.infer.fresh();
+            let tcx = self.tcx;
+            let yields = self.infer.fresh();
+            let unit = self.unit();
+            let saved_ret = std::mem::replace(&mut self.ret, unit);
+            let saved_co = self.coroutine.replace((unit, yields));
+            let saved_loops = std::mem::take(&mut self.loops);
+            self.stmts(&stmts, Some(unit));
+            self.ret = saved_ret;
+            self.coroutine = saved_co;
+            self.loops = saved_loops;
+            let id = tcx.closure_id((self.k, self.file, n));
+            return self.mk(TyKind::GenBlock(id, yields, tcx.identity_args(self.owner), keyword("async")));
         }
         self.stmts(&stmts, expect)
     }
@@ -2441,8 +2814,16 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let kind = ast.kind(p);
         // A pattern that is not a binding or a reference pattern matches
         // through references, binding by reference.
-        let peels = !matches!(kind, Kind::IdentPat | Kind::WildPat | Kind::RefPat | Kind::RestPat | Kind::OrPat | Kind::ParenPat)
-            || kind == Kind::IdentPat && self.r.res_of(self.k as usize, self.file as usize, p).is_some();
+        let peels = !matches!(
+            kind,
+            Kind::IdentPat
+                | Kind::WildPat
+                | Kind::RefPat
+                | Kind::RestPat
+                | Kind::OrPat
+                | Kind::ParenPat
+                | Kind::GuardPat
+        ) || kind == Kind::IdentPat && self.r.res_of(self.k as usize, self.file as usize, p).is_some();
         let t = if peels || kind == Kind::RefPat { self.norm(t) } else { t };
         if peels && let TyKind::Ref(m, inner) = tcx.kind(self.infer.shallow(t)) {
             let bm = if by_ref && bm == Mutbl::Not { Mutbl::Not } else { m };
@@ -2469,8 +2850,11 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     self.infer.unify(vt, t);
                     return;
                 }
-                let has_ref = kids.iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == "ref");
-                let is_mut = kids.iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == "mut");
+                let words: Vec<&str> =
+                    kids.iter().filter(|&&c| ast.kind(c) == Kind::Keyword).map(|&c| ast.token(c).0).collect();
+                let has_ref = words.contains(&"ref");
+                // `ref mut x`, not `mut ref x` (a mutable binding).
+                let is_mut = words.windows(2).any(|w| w == ["ref", "mut"]) || !has_ref && words.contains(&"mut");
                 let mode = if has_ref {
                     BindingMode::Ref(if is_mut { Mutbl::Mut } else { Mutbl::Not })
                 } else if by_ref {
@@ -2490,16 +2874,38 @@ impl<'a, 's> FnCtxt<'a, 's> {
             }
             Kind::WildPat | Kind::RestPat | Kind::NeverPat | Kind::PatMacro => {}
             Kind::ParenPat => self.pat(kids[0], t, bm, by_ref),
+            // `p if e`: `e` is a `bool`, checked once `p` binds its names.
+            Kind::GuardPat => {
+                self.pat(kids[0], t, bm, by_ref);
+                let b = self.mk(TyKind::Bool);
+                let g = self.expr(kids[1], Some(b));
+                if !self.infer.unify(g, b) {
+                    self.err(kids[1], "mismatched types");
+                }
+            }
             Kind::OrPat => {
                 for &k in &kids {
                     self.pat(k, t, bm, by_ref);
                 }
+                // A name bound in each alternative has one type
+                // (`Ok(a) | Err(a)`).
+                let first = self.binding_types(kids[0]);
+                for &k in &kids[1..] {
+                    for (name, bt) in self.binding_types(k) {
+                        if let Some(&(_, ft)) = first.iter().find(|f| f.0 == name) {
+                            self.infer.unify(ft, bt);
+                        }
+                    }
+                }
             }
             Kind::RefPat => {
                 let inner = *kids.last().unwrap();
-                let m = if kids.iter().any(|&c| ast.kind(c) == Kind::Keyword) { Mutbl::Mut } else { Mutbl::Not };
+                let keyword = |k: &str| kids.iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == k);
+                let m = if keyword("mut") { Mutbl::Mut } else { Mutbl::Not };
                 let it = self.infer.fresh();
                 let rt = self.mk(TyKind::Ref(m, it));
+                // `&pin mut p`: through a `Pin<&mut T>`.
+                let rt = if keyword("pin") { tcx.pin(rt) } else { rt };
                 if !self.infer.unify(rt, t) {
                     self.err(p, "reference pattern on a value that is not a reference");
                 }
@@ -2711,4 +3117,10 @@ fn has_opaque(tcx: &crate::ty::TyCtxt, t: Ty) -> bool {
         TyKind::Adt(_, l) | TyKind::Tuple(l) => tcx.tys(l).into_iter().any(|x| has_opaque(tcx, x)),
         _ => false,
     }
+}
+
+/// `EPITOME_TYPECK_WHY`: print the errors whose reason has this in it.
+fn why_filter() -> Option<&'static str> {
+    static WHY: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    WHY.get_or_init(|| std::env::var("EPITOME_TYPECK_WHY").ok()).as_deref()
 }

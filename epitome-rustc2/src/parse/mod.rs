@@ -64,6 +64,24 @@ pub enum Fragment {
     Meta,
 }
 
+/// The token ranges of the comma-separated expressions `tokens` is (a
+/// macro's arguments, `a, <T as Tr>::f(b, c)`), as the parser reads them;
+/// `None` if they are not.
+pub fn expression_list(tokens: &[Token<'_>], edition: Edition) -> Option<Vec<std::ops::Range<usize>>> {
+    let eof = tokens.last().map_or(Token(""), |t| Token(&t.0[t.0.len()..]));
+    let mut p = Parser::new(tokens.to_vec(), eof, edition);
+    let mut out = Vec::new();
+    while !p.at_eof() {
+        let start = p.pos;
+        p.expr().ok()?;
+        out.push(start..p.pos);
+        if !p.eat(",") {
+            break;
+        }
+    }
+    p.at_eof().then_some(out)
+}
+
 /// Parses all of `tokens` as one fragment; the node is the AST's root.
 pub fn parse_fragment<'a>(
     tokens: Vec<Token<'a>>,
@@ -75,6 +93,11 @@ pub fn parse_fragment<'a>(
     let root = match what {
         Fragment::Expr => {
             p.expr()?;
+            // `true;` from a macro used as an expression: the `;` is
+            // passed over, as rustc does (with a lint).
+            if p.at(";") && p.tok(1).is_eof() {
+                p.bump();
+            }
             p.top()
         }
         Fragment::Type => {

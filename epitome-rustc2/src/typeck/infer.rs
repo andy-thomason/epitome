@@ -105,6 +105,8 @@ impl<'t, 's> Infer<'t, 's> {
                 tcx.mk(TyKind::Closure(c, tcx.sig(sig), list(l)))
             }
             TyKind::AsyncBlock(c, o, l) => tcx.mk(TyKind::AsyncBlock(c, self.resolve(o), list(l))),
+            TyKind::Coroutine(c, o, l) => tcx.mk(TyKind::Coroutine(c, self.resolve(o), list(l))),
+            TyKind::GenBlock(c, y, l, a) => tcx.mk(TyKind::GenBlock(c, self.resolve(y), list(l), a)),
             TyKind::Opaque(o, l) => tcx.mk(TyKind::Opaque(o, list(l))),
             TyKind::Ref(m, x) => tcx.mk(TyKind::Ref(m, self.resolve(x))),
             TyKind::Ptr(m, x) => tcx.mk(TyKind::Ptr(m, self.resolve(x))),
@@ -224,7 +226,11 @@ impl<'t, 's> Infer<'t, 's> {
                 let (s, t) = (tcx.sig_of(s), tcx.sig_of(t));
                 c == d && self.unify_lists(s.inputs, t.inputs) && self.unify(s.output, t.output) && self.unify_lists(x, y)
             }
-            (TyKind::AsyncBlock(c, s, x), TyKind::AsyncBlock(d, t, y)) => c == d && self.unify(s, t) && self.unify_lists(x, y),
+            (TyKind::AsyncBlock(c, s, x), TyKind::AsyncBlock(d, t, y))
+            | (TyKind::Coroutine(c, s, x), TyKind::Coroutine(d, t, y))
+            | (TyKind::GenBlock(c, s, x, _), TyKind::GenBlock(d, t, y, _)) => {
+                c == d && self.unify(s, t) && self.unify_lists(x, y)
+            }
             (TyKind::Opaque(o, x), TyKind::Opaque(p, y)) => o == p && self.unify_lists(x, y),
             (TyKind::Projection(d, x), TyKind::Projection(e, y)) => d == e && self.unify_lists(x, y),
             (TyKind::Ref(m, x), TyKind::Ref(n, y)) | (TyKind::Ptr(m, x), TyKind::Ptr(n, y)) => m == n && self.unify(x, y),

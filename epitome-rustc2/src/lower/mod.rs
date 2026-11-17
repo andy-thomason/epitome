@@ -59,6 +59,9 @@ pub struct Target {
     pub data_layout: &'static str,
     /// The size of a pointer, in bytes.
     pub ptr_size: u64,
+    /// The CPU every function is compiled for (`"target-cpu"`), as
+    /// rustc's target gives it; none for the code generator's default.
+    pub cpu: Option<&'static str>,
 }
 
 impl Target {
@@ -67,11 +70,20 @@ impl Target {
             triple: "x86_64-unknown-linux-gnu",
             data_layout: "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128",
             ptr_size: 8,
+            cpu: None,
         }
     }
 
+    /// macOS on Apple silicon: every Mac with it has the M1's features
+    /// (LSE atomics among them, so atomics are instructions, not calls of
+    /// helpers macOS does not have).
     pub fn aarch64_darwin() -> Target {
-        Target { triple: "arm64-apple-macosx14.0.0", data_layout: "e-m:o-i64:64-i128:128-n32:64-S128-Fn32", ptr_size: 8 }
+        Target {
+            triple: "arm64-apple-macosx14.0.0",
+            data_layout: "e-m:o-i64:64-i128:128-n32:64-S128-Fn32",
+            ptr_size: 8,
+            cpu: Some("apple-m1"),
+        }
     }
 
     /// The machine this compiler runs on.
@@ -202,6 +214,10 @@ pub(crate) struct Cx<'a, 's> {
     /// For each closure that captures nothing, a function of its
     /// signature that calls it (what it is as a function pointer).
     pub fnptr: FastMap<Item, Decl>,
+    /// For each closure in a vtable of the `Fn` traits, its `call_once`
+    /// there: it calls the closure, then drops its captures (unless the
+    /// closure does).
+    pub once: FastMap<Item, Decl>,
 }
 
 impl<'a, 's> Cx<'a, 's> {
@@ -451,7 +467,7 @@ impl Session {
         };
         let drops = crate::drops::DropInfo::new(tcx);
         let mut cx =
-            Cx { tcx, r, crates, typeck, index, lcx, fns: FastMap::default(), statics: FastMap::default(), drops, owning: Default::default(), fnptr: FastMap::default() };
+            Cx { tcx, r, crates, typeck, index, lcx, fns: FastMap::default(), statics: FastMap::default(), drops, owning: Default::default(), fnptr: FastMap::default(), once: FastMap::default() };
         let mut failures = Vec::new();
         let mut solver = cx.solver();
 
@@ -598,6 +614,29 @@ impl Session {
                 cx.fns.insert(it, d);
             }
         }
+        // Each closure in a vtable of the `Fn` traits: its `call_once`.
+        let fn_traits: Vec<DefId> = ["fn", "fn_mut", "fn_once"].iter().filter_map(|l| tcx.lang.get(l).copied()).collect();
+        for &it in &mono.items {
+            let Item::VTable(t, tr, _) = it else { continue };
+            let TyKind::Closure(c, _, l) = tcx.kind(t) else { continue };
+            if !fn_traits.contains(&tr) {
+                continue;
+            }
+            let Some(&owner) = typeck.closure_owners.get(&c) else { continue };
+            let closure = Item::Closure(c, owner, l);
+            if cx.once.contains_key(&closure) {
+                continue;
+            }
+            let Some(decl) = cx.fns.get(&closure).cloned() else { continue };
+            let name = format!("{}.once", decl.name);
+            let (ret, params) = Cx::ir_fn_type(&mut m, &decl.abi);
+            let mut spec = IrFunction::builder(&name).returns(ret).linkage(Linkage::Internal);
+            for p in params {
+                spec = spec.param("", p);
+            }
+            let g = spec.declare(&mut m);
+            cx.once.insert(closure, Decl { g, abi: decl.abi.clone(), name });
+        }
 
         let mut notes = FastMap::default();
         let mut titles = FastMap::default();
@@ -628,6 +667,22 @@ impl Session {
             failures.retain(|f| f.item != it);
             partial.retain(|f| f.item != it);
             lower_item(&cx, &mut m, it, &decl, &name, owns, &mut notes, &mut partial, &mut failures);
+        }
+        // Closures' `call_once` in vtables.
+        let mut once: Vec<(Item, Decl)> = cx.once.iter().map(|(&i, d)| (i, d.clone())).collect();
+        once.sort_by(|a, b| a.1.name.cmp(&b.1.name));
+        for (it, shim) in once {
+            let Some(closure) = cx.fns.get(&it).cloned() else { continue };
+            let owns = cx.owning.borrow().get(&it).copied().unwrap_or(false);
+            let drop = match (owns, it) {
+                (false, Item::Closure(c, d, l)) => cx
+                    .closure_ty(&mut solver, c, d, l)
+                    .ok()
+                    .filter(|&t| cx.drops.needs_drop(tcx, typeck, &mut solver, t))
+                    .and_then(|t| cx.fns.get(&Item::DropGlue(t)).cloned()),
+                _ => None,
+            };
+            once_shim(&mut m, &shim, &closure, drop.as_ref());
         }
         // Closures as function pointers: each calls its closure, with no
         // captures.
@@ -705,9 +760,45 @@ impl Session {
                 add_target_features(&mut m, decl.g, fs);
             }
         }
+        // Every function defined: the target's CPU.
+        if let Some(cpu) = target.cpu {
+            for g in &mut m.globals {
+                if let epitome_ir::module::GlobalKind::Function(f) = &mut g.kind
+                    && f.has_body
+                    && !f.fn_attrs.iter().any(|a| matches!(a, epitome_ir::module::Attr::Str { key, .. } if key.as_slice() == b"target-cpu"))
+                {
+                    f.fn_attrs.push(epitome_ir::module::Attr::Str { key: b"target-cpu".to_vec(), value: Some(cpu.as_bytes().to_vec()) });
+                }
+            }
+        }
         let decls = cx.fns.iter().map(|(&it, d)| (it, d.g)).collect();
         Lowered { module: m, functions, failures, partial, notes, titles, decls }
     }
+}
+
+/// Defines `shim`, closure `closure`'s `call_once` in a vtable: it calls
+/// the closure with its own arguments, then drops the captures (through
+/// `drop`, the closure's drop glue, if it does not drop them itself).
+fn once_shim(m: &mut Module, shim: &Decl, closure: &Decl, drop: Option<&Decl>) {
+    let (ret, params) = Cx::ir_fn_type(m, &shim.abi);
+    let mut spec = IrFunction::builder(&shim.name).returns(ret).linkage(Linkage::Internal);
+    for &p in &params {
+        spec = spec.param("", p);
+    }
+    let mut b = spec.begin(m);
+    b.block("start");
+    let args: Vec<_> = (0..params.len()).map(|i| b.param(i)).collect();
+    let r = b.call(closure.g, &args);
+    if let Some(d) = drop {
+        // The captures' address: the first argument after the result's.
+        let env = args[(shim.abi.ret == Repr::Mem) as usize];
+        b.call(d.g, &[env]);
+    }
+    match r {
+        Some(v) if matches!(shim.abi.ret, Repr::Imm(_)) => b.ret(v),
+        _ => b.ret_void(),
+    }
+    let _ = b.finish();
 }
 
 /// Defines `thunk`, a closure that captures nothing as a function: it calls

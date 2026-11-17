@@ -830,11 +830,15 @@ impl Sim<'_, '_, '_> {
         let locals: Locals = Rc::default();
         for (i, &f) in formals.iter().enumerate() {
             let dir = self.d.object(f).dir.unwrap_or(Dir::Input);
+            // An open array formal of a DPI import takes the actual as it
+            // is (35.5.6.1).
+            let open = self.dpi_open_formal(sub, i);
             let v = match (dir, actuals.get(i)) {
                 (Dir::Output, _) | (_, None) => ops::default_value(self.types(), self.d.object(f).ty),
+                (_, Some(&a)) if open => self.eval(cx, self.dpi_actual(sub, i, a)),
                 (_, Some(&a)) => self.eval(cx, a),
             };
-            let v = ops::convert(self.types(), &v, self.d.object(f).ty);
+            let v = if open { v } else { ops::convert(self.types(), &v, self.d.object(f).ty) };
             locals.borrow_mut().push((f, v));
         }
         (locals, this, actuals)
@@ -906,11 +910,18 @@ impl Sim<'_, '_, '_> {
     pub(super) fn call_function(&mut self, cx: &Cx, sub: SubId, args: &[ExprId], x: ExprId) -> Const {
         let (locals, this, actuals) = self.bind_args(cx, sub, args);
         let sub = self.dispatch(sub, this, x);
-        let s = self.d.sub(sub);
-        if s.qualifiers.iter().any(|&q| self.d.name(q) == "import") {
-            self.unsupported(format!("DPI import `{}`", self.d.name(s.name)));
-            return ops::default_value(self.types(), s.ret);
+        if self.is_dpi_import(sub) {
+            return self.dpi_call(cx, sub, &locals, &actuals);
         }
+        let v = self.invoke_function(cx.inst, sub, &locals, this);
+        self.copy_out(cx, sub, &locals, &actuals);
+        v
+    }
+
+    /// Runs function `sub`, called from instance `inst`, with its arguments
+    /// bound in `locals`, and gives its result.
+    pub(super) fn invoke_function(&mut self, inst: u32, sub: SubId, locals: &Locals, this: Option<u32>) -> Const {
+        let s = self.d.sub(sub);
         let Some(&entry) = self.sub_entry.get(&sub) else {
             return ops::default_value(self.types(), s.ret);
         };
@@ -923,10 +934,9 @@ impl Sim<'_, '_, '_> {
         if let Some(r) = result_obj {
             locals.borrow_mut().push((r, ops::default_value(self.types(), ret_ty)));
         }
-        let inst = self.def_inst(cx.inst, s.scope);
+        let inst = self.def_inst(inst, s.scope);
         let fcx = Cx { inst, locals: locals.clone(), this };
         let v = self.run_call(fcx, entry, sub);
-        self.copy_out(cx, sub, &locals, &actuals);
         let v = match v {
             Some(v) => v,
             None => match result_obj {
@@ -939,7 +949,7 @@ impl Sim<'_, '_, '_> {
 
     /// The instance a subroutine runs in: the caller's, or for one
     /// declared in a design element above it, that ancestor.
-    fn def_inst(&self, inst: u32, scope: ScopeId) -> u32 {
+    pub(super) fn def_inst(&self, inst: u32, scope: ScopeId) -> u32 {
         let mut cur = Some(scope);
         while let Some(sc) = cur {
             if self.d.scope(sc).kind == ScopeKind::Spec {
@@ -1007,8 +1017,11 @@ impl Sim<'_, '_, '_> {
     pub(super) fn call_task(&mut self, p: u32, cx: &Cx, x: ExprId) -> Flow {
         let e = self.d.expr(x).clone();
         let ExprKind::Call(sub) = e.kind else { return Flow::Next };
-        let (locals, this, _) = self.bind_args(cx, sub, &e.args);
+        let (locals, this, actuals) = self.bind_args(cx, sub, &e.args);
         let sub = self.dispatch(sub, this, x);
+        if self.is_dpi_import(sub) {
+            return self.dpi_call_task(p, cx, sub, &locals, &actuals);
+        }
         let Some(&entry) = self.sub_entry.get(&sub) else {
             let n = self.d.sub(sub).name;
             self.unsupported(format!("task `{}` has no body here", self.d.name(n)));
@@ -1033,6 +1046,10 @@ impl Sim<'_, '_, '_> {
     /// its evaluation).
     pub(super) fn ret(&mut self, p: u32, cx: &Cx, v: Option<ExprId>) -> Flow {
         let value = v.map(|x| self.eval(cx, x));
+        // The end of an exported task that C code called (35.8).
+        if let Some(f) = self.dpi_task_return(p) {
+            return f;
+        }
         let frames = self.procs[p as usize].frames.len();
         let top = self.procs[p as usize].frames.last().unwrap();
         match top.ret {

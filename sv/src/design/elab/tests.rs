@@ -96,3 +96,17 @@ fn drivers_of_elements_chosen_by_a_constant_array() {
     ok(&src.replace("WHERE[J]", "WHERE[3]"));
     assert!(err(&src.replace("WHERE[J]", "WHERE[0] + 1")).contains("two continuous drivers"));
 }
+
+#[test]
+fn processes_writing_different_bits_of_an_element() {
+    // Byte lanes of a memory word, each written by its own `always_ff`,
+    // never share a bit; the same lane twice does.
+    let src = "module mem (input logic clk, input logic [1:0] we, input logic [2:0] a, input logic [15:0] d);
+                 logic [15:0] ram [8];
+                 for (genvar p = 0; p < 2; p++) begin : g
+                   always_ff @(posedge clk) if (we[p]) ram[a][LANE] <= d[p*8 +: 8];
+                 end
+               endmodule";
+    ok(&src.replace("LANE", "p*8 +: 8"));
+    assert!(err(&src.replace("LANE", "7:0")).contains("9.2.2"));
+}

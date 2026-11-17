@@ -2664,10 +2664,12 @@ impl Slice {
     const WHOLE: Slice = Slice { steps: [Step::Any; 4], len: 0 };
 
     fn then(mut self, s: Step) -> Slice {
-        // A select not known at elaboration ends the longest static
-        // prefix (11.5.3).
-        let ended = self.len > 0 && self.steps[self.len as usize - 1] == Step::Any;
-        if !ended && (self.len as usize) < self.steps.len() {
+        // Selects after one not known at elaboration are kept: `m[i][3:0]`
+        // and `m[j][7:4]` never write the same bit. This is finer than the
+        // longest static prefix (11.5.3), under which both write all of
+        // `m`; other tools accept such writes, and only parts that can
+        // share bits are reported.
+        if (self.len as usize) < self.steps.len() {
             self.steps[self.len as usize] = s;
             self.len += 1;
         }

@@ -81,3 +81,18 @@ fn each_specialisation_has_its_own_subroutines() {
                 module top; c #(.N(8)) x(); c #(.N(16)) y(); endmodule");
     assert!(t.contains("L = 32'sd12") && t.contains("L = 32'sd24"), "{t}");
 }
+
+#[test]
+fn drivers_of_elements_chosen_by_a_constant_array() {
+    // Outputs connected to elements picked by a parameter array's elements
+    // drive distinct parts (6.5); the same element twice is two drivers.
+    let src = "module s (output logic [3:0] o); assign o = 4'h5; endmodule
+               module top;
+                 localparam int WHERE [4] = '{0, 2, 1, 3};
+                 logic [3:0][3:0] v;
+                 s a (.o(v[WHERE[2]]));
+                 s b (.o(v[WHERE[J]]));
+               endmodule";
+    ok(&src.replace("WHERE[J]", "WHERE[3]"));
+    assert!(err(&src.replace("WHERE[J]", "WHERE[0] + 1")).contains("two continuous drivers"));
+}

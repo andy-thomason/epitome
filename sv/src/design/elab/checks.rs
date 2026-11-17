@@ -2754,6 +2754,11 @@ fn const_value(e: &Elab, x: ExprId) -> Option<Const> {
             crate::design::ops::binary(tys, *op, a, b, ex.ty)
         }
         ExprKind::Unary(op) => crate::design::ops::unary(tys, *op, const_value(e, ex.args[0])?, ex.ty),
+        // An element of a constant array, such as a parameter's.
+        ExprKind::Index => {
+            let (base, i) = (const_value(e, ex.args[0])?, const_value(e, *ex.args.get(1)?)?);
+            crate::design::ops::index(tys, &base, e.ex(ex.args[0]).ty, &i, ex.ty)
+        }
         ExprKind::Member(i) => {
             let base = const_value(e, ex.args[0])?;
             let bt = e.ex(ex.args[0]).ty;

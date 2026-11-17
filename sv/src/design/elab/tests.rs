@@ -189,3 +189,17 @@ fn bind_written_before_the_module_it_targets() {
     );
     assert!(t.contains("V=8"), "{t}");
 }
+
+#[test]
+fn upward_names_through_generate_blocks_above() {
+    // A bound instance reads into its target's generate blocks: the loop's
+    // blocks, and a variable of an instance inside one.
+    let t = simulate(
+        "module leaf #(parameter int K = 0) (); logic [7:0] v; initial v = 8'(K * 10); endmodule
+         module tgt (); for (genvar i = 0; i < 3; i++) begin : g leaf #(.K(i)) u (); end endmodule
+         module look (); initial #1 $display(\"%0d %0d\", g[1].u.v, g[2].u.v); endmodule
+         bind tgt look u_l ();
+         module top; tgt t (); endmodule",
+    );
+    assert!(t.contains("10 20"), "{t}");
+}

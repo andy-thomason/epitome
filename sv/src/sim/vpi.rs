@@ -284,6 +284,7 @@ pub struct Setup {
 /// Simulates `d` with the VPI applications in `setup` loaded.
 pub fn simulate(d: &Design, ast: &Ast, out: &mut dyn Write, opts: &Options, setup: &Setup) -> Result<Outcome, String> {
     let mut s = Sim::new(d, ast, out, opts);
+    s.dpi_start(&opts.dpi_libs)?;
     s.vpi = Some(Box::new(Vpi::new(&setup.argv)));
     let me = &mut s as *mut Sim as *mut c_void;
     let saved = CURRENT.with(|c| c.replace(me));
@@ -299,6 +300,17 @@ pub fn simulate(d: &Design, ast: &Ast, out: &mut dyn Write, opts: &Options, setu
 thread_local! {
     /// The simulation the C functions work on.
     static CURRENT: Cell<*mut c_void> = const { Cell::new(null_mut()) };
+}
+
+/// Makes `p` the simulation the C functions on this thread work on, for C
+/// code that runs on another thread while the simulation waits for it
+/// (`dpi`); returns the one before.
+pub(crate) fn swap_thread_current(p: *mut c_void) -> *mut c_void {
+    CURRENT.with(|c| c.replace(p))
+}
+
+pub(crate) fn set_thread_current(p: *mut c_void) {
+    CURRENT.with(|c| c.set(p));
 }
 
 /// The state of the interface, kept by the simulation.
@@ -1584,7 +1596,7 @@ impl Sim<'_, '_, '_> {
     }
 
     /// The full name of the scope `sc` of instance `inst`.
-    fn scope_full(&self, inst: u32, sc: ScopeId) -> String {
+    pub(super) fn scope_full(&self, inst: u32, sc: ScopeId) -> String {
         let spec_scope = self.d.spec(self.insts[inst as usize].spec).scope;
         let mut parts = Vec::new();
         let mut cur = Some(sc);

@@ -23,6 +23,9 @@
 //!   `` `include `` files.
 //! - `-D name[=text]`, `-Dname[=text]`, `+define+name[=text][+...]`: define
 //!   a macro.
+//! - `-sv_lib name`, `-sv_liblist file`, `-sv_root dir`: shared libraries
+//!   with the C functions the design imports (DPI-C, clause 35), named as
+//!   Annex J suggests; `EPITOME_SV_LIBS` adds more (`epitome_sv::launch`).
 //!
 //! Other options are ignored, so that test runners can pass their own.
 
@@ -32,6 +35,9 @@ use epitome_sv::preprocess::{Options, preprocess_files};
 use epitome_sv::source::SourceMap;
 use std::path::PathBuf;
 use std::process::ExitCode;
+
+// The DPI functions, for the libraries to find in this executable.
+epitome_sv::export_dpi!();
 
 fn define(options: &mut Options, d: &str) {
     let (name, text) = d.split_once('=').unwrap_or((d, ""));
@@ -51,13 +57,23 @@ fn run() -> ExitCode {
     let mut design = false;
     let mut parse_only = false;
     let mut elab_only = false;
+    let mut zero_init = epitome_sv::sim::zero_init_from_env();
     let mut gaps = false;
     let mut netlist = false;
     let mut plusargs = Vec::new();
     let mut tops = Vec::new();
     let mut params = Vec::new();
     let mut args = std::env::args().skip(1);
+    let mut sv_libs = epitome_sv::launch::SvLibs::default();
     while let Some(arg) = args.next() {
+        match sv_libs.option(&arg, &mut || args.next()) {
+            Ok(true) => continue,
+            Ok(false) => {}
+            Err(e) => {
+                eprintln!("epitome-sv: {e}");
+                return ExitCode::from(2);
+            }
+        }
         if arg == "-E" {
             print = true;
         } else if arg == "--ast" {
@@ -68,6 +84,8 @@ fn run() -> ExitCode {
             parse_only = true;
         } else if arg == "--elab-only" {
             elab_only = true;
+        } else if arg == "--zero-init" {
+            zero_init = true;
         } else if arg == "--netlist" {
             netlist = true;
         } else if arg == "--gaps" {
@@ -102,7 +120,7 @@ fn run() -> ExitCode {
         }
     }
     if files.is_empty() {
-        eprintln!("usage: epitome-sv [-E] [--ast] [--design] [--netlist] [-I dir] [-D name[=text]] file.sv...");
+        eprintln!("usage: epitome-sv [-E] [--ast] [--design] [--netlist] [--zero-init] [-I dir] [-D name[=text]] file.sv...");
         return ExitCode::from(2);
     }
     let map = SourceMap::new();
@@ -135,7 +153,14 @@ fn run() -> ExitCode {
                             }
                             return ExitCode::SUCCESS;
                         }
-                        let opts = epitome_sv::sim::Options { plusargs, ..Default::default() };
+                        let dpi_libs = match epitome_sv::launch::sv_lib_files(&sv_libs.names()) {
+                            Ok(l) => l,
+                            Err(e) => {
+                                eprintln!("epitome-sv: {e}");
+                                return ExitCode::from(2);
+                            }
+                        };
+                        let opts = epitome_sv::sim::Options { plusargs, zero_init, dpi_libs, ..Default::default() };
                         let mut stdout = std::io::stdout();
                         let r = epitome_sv::sim::simulate(&d, &tree, &mut stdout, &opts);
                         for u in &r.unsupported {

@@ -74,6 +74,15 @@ pub fn two_state(b: &Bits) -> Bits {
     b.known_or_zero()
 }
 
+/// A value with its x and z bits made 0, through aggregates.
+pub fn zero_unknowns(c: &Const) -> Const {
+    match c {
+        Const::Bits(b) => Const::Bits(b.known_or_zero()),
+        Const::Aggregate(items) => Const::Aggregate(items.iter().map(zero_unknowns).collect()),
+        c => c.clone(),
+    }
+}
+
 /// Equality for a generate `case` item: bit for bit (27.5).
 pub fn const_eq(a: &Const, b: &Const) -> bool {
     match (a, b) {
@@ -264,6 +273,10 @@ pub fn bits_total(tys: &Types, t: TypeId) -> Option<u64> {
 }
 
 pub fn unary(tys: &Types, op: UnOp, v: Const, ty: TypeId) -> Option<Const> {
+    // `!h` of a handle or chandle: whether it is null (6.14, 8.4).
+    if op == UnOp::LogNot && matches!(v, Const::Null | Const::Handle(_) | Const::Inst(_)) {
+        return Some(Const::Bits(Bits::from_bool(matches!(v, Const::Null))));
+    }
     if let Const::Real(r) = v {
         return Some(match op {
             UnOp::Plus => Const::Real(r),

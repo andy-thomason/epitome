@@ -243,3 +243,27 @@ fn writers_of_deep_members_and_ruled_out_branches() {
           end
         endmodule");
 }
+
+#[test]
+fn variables_may_start_at_zero() {
+    // With `zero_init`, variables without an initializer start at 0 (bits,
+    // arrays, structs, automatics); nets stay z and initializers still
+    // apply. Without it they start at x.
+    let text = "module top;
+                  logic [7:0] a; logic [3:0] m [2]; struct packed { logic [3:0] x; bit y; } s;
+                  wire [3:0] w; logic [7:0] b = 8'h5a;
+                  initial begin automatic logic [3:0] l; #1 $display(\"%h %h %b %h %h %h\", a, m[1], s, w, b, l); end
+                endmodule";
+    let run = |zero_init: bool| {
+        let map = SourceMap::new();
+        map.add(Source::new("t.sv", text));
+        let out = preprocess(&map, &[0], &Options::default()).unwrap();
+        let ast = crate::parse::parse(&out).unwrap();
+        let d = super::elaborate(&ast, &out).unwrap();
+        let mut buf = Vec::new();
+        crate::sim::simulate(&d, &ast, &mut buf, &crate::sim::Options { zero_init, ..Default::default() });
+        String::from_utf8(buf).unwrap()
+    };
+    assert!(run(false).contains("xx x xxxxx z 5a x"), "{}", run(false));
+    assert!(run(true).contains("00 0 00000 z 5a 0"), "{}", run(true));
+}

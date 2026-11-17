@@ -12,6 +12,7 @@
 
 mod code;
 mod builtin;
+pub mod dpi;
 mod eval;
 mod net;
 mod sys;
@@ -35,11 +36,25 @@ pub struct Options {
     pub plusargs: Vec<String>,
     /// Stop after this much wall-clock time.
     pub time_limit: Option<std::time::Duration>,
+    /// Variables without an initializer start at 0 rather than at their
+    /// type's default (6.8, Table 6-7), whose 4-state bits are `x`: as
+    /// simulators that hold two states do, for designs whose tests rely on
+    /// it. Nets still start at `z`.
+    pub zero_init: bool,
+    /// Shared libraries with the C functions the design imports (DPI-C,
+    /// clause 35), in the order they are searched.
+    pub dpi_libs: Vec<std::path::PathBuf>,
+}
+
+/// `EPITOME_ZERO_INIT=1` (or any value but `0` or empty) asks for
+/// [`Options::zero_init`], for runners that start the simulator themselves.
+pub fn zero_init_from_env() -> bool {
+    std::env::var("EPITOME_ZERO_INIT").is_ok_and(|v| !v.is_empty() && v != "0")
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { max_steps: 200_000_000, plusargs: vec![], time_limit: None }
+        Options { max_steps: 200_000_000, plusargs: vec![], time_limit: None, zero_init: false, dpi_libs: vec![] }
     }
 }
 
@@ -61,6 +76,11 @@ pub struct Outcome {
 /// Runs a design until it finishes or runs out of events.
 pub fn simulate(d: &Design, ast: &Ast, out: &mut dyn Write, opts: &Options) -> Outcome {
     let mut s = Sim::new(d, ast, out, opts);
+    if let Err(e) = s.dpi_start(&opts.dpi_libs) {
+        eprintln!("epitome-sv: {e}");
+        s.outcome.failed = true;
+        return s.outcome;
+    }
     s.run();
     s.outcome
 }
@@ -346,6 +366,8 @@ pub(crate) struct Sim<'d, 'a, 'o> {
     iter_index: HashMap<ObjId, i64>,
     /// The VPI applications' callbacks and handles, when there are any.
     vpi: Option<Box<vpi::Vpi>>,
+    /// The design's DPI imports and exports, when there are any.
+    dpi: Option<Box<dpi::Dpi>>,
 }
 
 impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
@@ -408,6 +430,7 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
             pending: HashMap::new(),
             iter_index: HashMap::new(),
             vpi: None,
+            dpi: dpi::Dpi::for_design(d, ast),
         };
         for sp in &d.specs {
             s.precision = s.precision.min(sp.time_precision);
@@ -435,8 +458,12 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
             self.fields_of(ClassId(i as u32));
         }
         for (i, o) in d.objects.iter().enumerate() {
+            let sc = d.scope(o.scope);
             let home = match o.kind {
                 ObjKind::Param { .. } | ObjKind::EnumConst | ObjKind::Genvar => Home::Const,
+                // A subroutine's arguments and result are bound for each
+                // call, in the call's frame, static subroutine or not.
+                _ if sc.kind == ScopeKind::Subroutine && (o.dir.is_some() || sc.name == Some(o.name)) => Home::Local,
                 _ => {
                     // The nearest class or specialisation above it.
                     let mut cur = Some(o.scope);
@@ -524,13 +551,19 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
 
     // ---- instances ----
 
+    /// A variable's value before its initializer, if it has one, runs.
+    fn start_value(&self, ty: TypeId) -> Const {
+        let v = crate::design::ops::default_value(self.types(), ty);
+        if self.opts.zero_init { crate::design::ops::zero_unknowns(&v) } else { v }
+    }
+
     fn instantiate(&mut self) {
         // The global part of the store comes first.
         let globals = self.globals as usize;
         self.vals = vec![Const::Null; globals];
         for (i, o) in self.d.objects.iter().enumerate() {
             if let Home::Global(g) = self.homes[i] {
-                self.vals[g as usize] = crate::design::ops::default_value(self.types(), o.ty);
+                self.vals[g as usize] = self.start_value(o.ty);
             }
         }
         for &t in &self.d.tops.clone() {
@@ -579,7 +612,7 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
                 // A net is z until something drives it (6.5).
                 let v = match o.kind {
                     ObjKind::Net(_) => crate::design::ops::net_default(self.types(), o.ty),
-                    _ => crate::design::ops::default_value(self.types(), o.ty),
+                    _ => self.start_value(o.ty),
                 };
                 self.vals[(base + off) as usize] = v;
             }
@@ -1705,6 +1738,7 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
             self.procs[p as usize].state = State::Done;
             self.procs[p as usize].epoch = self.procs[p as usize].epoch.wrapping_add(1);
             self.killed.insert(p);
+            self.dpi_killed(p);
             self.ended(p);
         }
     }
@@ -1718,7 +1752,7 @@ impl<'d, 'a, 'o> Sim<'d, 'a, 'o> {
                 let obj = self.d.object(o);
                 let v = match obj.init {
                     Some(i) => self.eval(cx, i),
-                    None => crate::design::ops::default_value(self.types(), obj.ty),
+                    None => self.start_value(obj.ty),
                 };
                 let v = crate::design::ops::convert(self.types(), &v, obj.ty);
                 let mut l = cx.locals.borrow_mut();

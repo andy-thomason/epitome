@@ -1962,8 +1962,39 @@ impl<'a, 'x> Elab<'a, 'x> {
         for k in items {
             self.item(sc, k)?;
         }
+        // Instances bound into every instance of this module (23.11), as if
+        // written at the end of its body: their parameter values and port
+        // connections are names of this scope.
+        if self.has_bind
+            && let Some(me) = self.name_child(n).map(|k| self.sym_of(k))
+        {
+            for b in self.module_binds(me) {
+                self.instantiation(sc, b)?;
+            }
+        }
         checks::spec_done(self, sc, kind)?;
         Ok(())
+    }
+
+    /// The instantiations of `bind` directives that target module `m`
+    /// itself, rather than a list of its instances.
+    fn module_binds(&mut self, m: Sym) -> Vec<NodeId> {
+        let mut out = Vec::new();
+        for i in 0..self.ast.nodes.len() {
+            let n = NodeId(i as u32);
+            if self.kind(n) != Kind::Bind {
+                continue;
+            }
+            let kids = self.kids(n).to_vec();
+            let names = kids.iter().take_while(|&&k| self.kind(k) == Kind::Name).count();
+            if names == 1
+                && self.sym_of(kids[0]) == m
+                && let Some(inst) = kids.iter().copied().find(|&k| self.kind(k) == Kind::Instantiation)
+            {
+                out.push(inst);
+            }
+        }
+        out
     }
 
     /// The parameters an instance may set, in order (23.10.2).

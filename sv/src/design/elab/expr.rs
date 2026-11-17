@@ -1521,6 +1521,16 @@ pub(crate) fn hier<'a>(e: &mut Elab<'a, '_>, sc: ScopeId, n: NodeId) -> R<'a, Op
                 return Ok(Some(x));
             }
             Some(_) => return Ok(None),
+            None if upward_child(e, head.name).is_some() => {
+                // Upward: an instance declared in a module above (23.8),
+                // such as a sibling of an instance `bind` added (23.11).
+                let (owner, child) = upward_child(e, head.name).unwrap();
+                e.upward = true;
+                note_upward(e);
+                at = Location::Instance(child);
+                hops.push(Hop::Up(e.d.instances[owner.0 as usize].name));
+                hops.push(Hop::Down(child));
+            }
             None => {
                 // Upward: an instance or module name above (23.8).
                 match upward(e, head.name) {
@@ -1708,6 +1718,27 @@ fn upward_sub(e: &Elab, s: Sym) -> Option<SubId> {
         let Some(sp) = e.d.specs.get(spec.0 as usize) else { continue };
         if let Some(Binding::Subroutine(sub)) = e.scope(sp.scope).names.get(&s) {
             return Some(*sub);
+        }
+    }
+    None
+}
+
+/// An instance named `s` declared in the module of an instance above the
+/// one being elaborated, the nearest first (23.8): the instance above, and
+/// that child of it.
+fn upward_child(e: &Elab, s: Sym) -> Option<(InstId, InstId)> {
+    let path = &e.inst_path;
+    for k in (1..path.len()).rev() {
+        // The scopes of `path[k - 1]`'s module that `path[k]` is declared in.
+        let mut cur = Some(e.d.instances[path[k].0 as usize].scope);
+        while let Some(sc) = cur {
+            if let Some(Binding::Instance(c)) = e.scope(sc).names.get(&s) {
+                return Some((path[k - 1], *c));
+            }
+            if e.scope(sc).kind == ScopeKind::Spec {
+                break;
+            }
+            cur = e.scope(sc).parent;
         }
     }
     None

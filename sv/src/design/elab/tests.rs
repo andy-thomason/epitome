@@ -131,3 +131,48 @@ fn top_parameters_from_outside() {
     assert_eq!(super::parse_param_value("1e3"), Some(crate::design::Const::Real(1000.0)));
     assert_eq!(super::parse_param_value("abc"), None);
 }
+
+/// Elaborates and simulates `text`, and returns what it printed.
+fn simulate(text: &str) -> String {
+    let map = SourceMap::new();
+    map.add(Source::new("t.sv", text));
+    let out = preprocess(&map, &[0], &Options::default()).map_err(|e| map.render(&e)).unwrap();
+    let ast = crate::parse::parse(&out).map_err(|e| map.render(&e)).unwrap();
+    let d = super::elaborate(&ast, &out).unwrap_or_else(|e| panic!("{}", map.render(&e)));
+    let mut buf = Vec::new();
+    let opts = crate::sim::Options { max_steps: 1_000_000, ..Default::default() };
+    crate::sim::simulate(&d, &ast, &mut buf, &opts);
+    String::from_utf8(buf).unwrap()
+}
+
+#[test]
+fn bind_adds_an_instance_to_every_instance_of_a_module() {
+    // The bound instance takes the target's parameter and connects its
+    // ports by name in the target (`.*`); it reads a sibling instance by an
+    // upward name (23.8, 23.11).
+    let t = simulate(
+        "module count (input logic clk, rst, output logic [3:0] q);
+           always_ff @(posedge clk) q <= rst ? 4'd0 : q + 4'd1;
+         endmodule
+         module dut #(parameter int N = 2) (input logic clk, rst);
+           count u_c (.clk(clk), .rst(rst), .q());
+         endmodule
+         module watch #(parameter int N = 1) (input logic clk);
+           logic [3:0] seen;
+           assign seen = u_c.q + 4'(N);
+         endmodule
+         bind dut watch #(.N(N)) u_w (.*);
+         module top;
+           logic clk = 0, rst = 1;
+           dut #(.N(5)) a (.clk(clk), .rst(rst));
+           dut #(.N(7)) b (.clk(clk), .rst(rst));
+           always #1 clk = ~clk;
+           initial begin
+             #2 rst = 0;
+             #6 $display(\"a=%0d b=%0d\", a.u_w.seen, b.u_w.seen);
+             $finish;
+           end
+         endmodule",
+    );
+    assert!(t.contains("a=8 b=10"), "{t}");
+}

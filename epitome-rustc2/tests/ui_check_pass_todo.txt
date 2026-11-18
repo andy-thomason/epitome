@@ -117,7 +117,6 @@ macros/dollar-crate-nested-encoding.rs: path not resolved: crate
 macros/expand-full-in-format-str.rs: type check: a type left unknown
 macros/issue-34171.rs: error: in `null!`: no rule of the macro matches this input (issue-34171.rs:5:20)
 macros/issue-69838-mods-relative-to-included-path.rs: error: no file for module `bar`: neither `/private/tmp/claude-502/-Users-amy-andy-thomason-epitome/d698d809-bf3b-400b-91f6-effe1b4b32f5/scratchpad/rust/tests/ui/macros/bar.rs` nor `/private/tmp/claude-502/-Users-amy-andy-thomason-epitome/d698d809-bf3b-400b-91f6-effe1b4b32f5/scratchpad/rust/tests/ui/macros/bar/mod.rs` (included.rs:3:9)
-macros/issue-95267.rs: error: in `f!`: no rule of the macro matches this input (issue-95267.rs:13:5)
 macros/parse-test.rs: error: expected a macro matcher in delimiters (parse-test.rs:8:5)
 match/postfix-match/no-unused-parens.rs: error: expected a field or method name, found `match` (no-unused-parens.rs:6:10)
 methods/fulfillment-disqualifies-method.rs#current: type check: a type left unknown
@@ -133,13 +132,9 @@ nll/issue-63154-normalize.rs: type check: a type left unknown
 nll/polonius/nll-problem-case-3-issue-21906.rs#legacy: type check: mismatched types
 nll/polonius/nll-problem-case-3-issue-21906.rs#polonius: type check: mismatched types
 nll/user-annotations/issue-54570-bootstrapping.rs: type check: no such field in pattern
-parser/dyn-2015-identifier.rs#pass: error: expected `>`, found `,` (dyn-2015-identifier.rs:13:18)
-parser/fn-header-syntactic-pass.rs: error: expected `|`, found `unsafe` (fn-header-syntactic-pass.rs:14:17)
 parser/generic-param-default-in-binder.rs: error: in `a!`: no rule of the macro matches this input (generic-param-default-in-binder.rs:8:1)
 parser/impl-qpath.rs: error: expected `>`, found `+` (impl-qpath.rs:6:10)
 parser/impls-nested-within-anon-consts-semantic.rs: path not resolved: Type
-parser/macro/macro-braces-dot-question.rs: error: expected an expression, found `.` (macro-braces-dot-question.rs:6:21)
-parser/self-param-syntactic-pass.rs: error: expected a type, found `mut` (self-param-syntactic-pass.rs:59:17)
 pattern/deref-patterns/const-pats-do-not-mislead-inference.rs#deref_patterns: type check: a type left unknown
 pin-ergonomics/pattern-matching-deref-pattern.rs#pin_ergonomics: type check: pattern of another type
 pin-ergonomics/reborrow-self.rs: type check: method not found

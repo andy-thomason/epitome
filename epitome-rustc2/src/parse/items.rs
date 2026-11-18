@@ -105,7 +105,11 @@ impl<'a> Parser<'a> {
             "unsafe" | "const" if self.at_n(1, "{") => return false,
             "static" if matches!(self.tok(1).0, "|" | "move" | "async") => return false,
             "async" if !matches!(self.tok(1).0, "fn" | "unsafe" | "extern") => return false,
-            "const" if matches!(self.tok(1).0, "|" | "move" | "async") && !self.at_n(2, "fn") => return false,
+            // `const async || ..` is a closure; `const async unsafe fn f()`
+            // an item.
+            "const" if matches!(self.tok(1).0, "|" | "move" | "async") && !self.at_n(self.qualifiers_len(0), "fn") => {
+                return false;
+            }
             _ => {}
         }
         // A macro call in statement position is an expression (or a

@@ -710,6 +710,12 @@ impl<'a> Parser<'a> {
             self.expect("!")?;
             self.token_tree()?;
             self.finish(m, Kind::MacroCall);
+            // `vec! { 1, 2 }.len()`, `write! { .. }?`: an expression goes on.
+            if self.at("?") || self.at(".") && !self.at_prefix_n(0, "..") {
+                self.postfix(m)?;
+                self.binary_rest(m, PREC_ASSIGN, Restrict::default())?;
+                return Ok(false);
+            }
             return Ok(true);
         }
         if !self.block_like_at() {

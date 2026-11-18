@@ -566,7 +566,11 @@ impl<'a> Parser<'a> {
                 self.bounds(plus)?;
                 self.finish(m, Kind::ImplTraitType);
             }
-            "dyn" if self.edition >= crate::lexer::Edition::E2018 || self.bound_at(1) && !self.at_op_n(1, "::") => {
+            // In 2015 `dyn` is a name before `::` or `<` (`dyn<dyn, dyn>`).
+            "dyn"
+                if self.edition >= crate::lexer::Edition::E2018
+                    || self.bound_at(1) && !self.at_op_n(1, "::") && !self.at_n(1, "<") =>
+            {
                 self.leaf(Kind::Keyword, 1);
                 self.bounds(plus)?;
                 self.finish(m, Kind::DynTraitType);
@@ -664,7 +668,8 @@ impl<'a> Parser<'a> {
             }
         }
         self.expect("fn")?;
-        self.params(false)?;
+        // `fn(self)`, `fn(mut self)`: accepted, as rustc's parser does.
+        self.params(true)?;
         if self.at_op("->") {
             self.ret_type(false)?;
         }

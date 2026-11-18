@@ -24,7 +24,6 @@ higher-ranked/leak-check/leak-check-in-selection-4-hr-nested.rs#old: type check:
 higher-ranked/leak-check/leak-check-in-selection-5-ambig.rs#next: type check: a type left unknown
 higher-ranked/leak-check/leak-check-in-selection-5-ambig.rs#old: type check: a type left unknown
 hygiene/cross-crate-define-and-use.rs: type check: struct literal of something that is not a struct or variant
-hygiene/dollar-crate-modern.rs: path not resolved: crate
 hygiene/issue-32922.rs: error: expanding `foo!`: expected the end of the input, found `;` (eager-from-opaque.rs:14:9)
 impl-trait/defining-use-uncaptured-non-universal-region-2.rs: type check: mismatched types
 impl-trait/method/broken-deref-chain.rs#next: type check: method not found

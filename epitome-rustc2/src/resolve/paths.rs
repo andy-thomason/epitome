@@ -272,9 +272,13 @@ impl<'w, 's> Walker<'w, 's> {
         let saved = self.module;
         let mut res = None;
         if let Some(m) = self.r.def_site_module(self.ast.token(path).0) {
+            // (Its `crate` is the macro's crate.)
+            let saved_krate = self.krate;
             self.module = m;
+            self.krate = self.r.modules[m.0 as usize].krate;
             res = self.resolve_path(path, ns);
             self.module = saved;
+            self.krate = saved_krate;
         }
         let res = res.or_else(|| self.resolve_path(path, ns));
         if let Some(res) = res {

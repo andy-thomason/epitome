@@ -459,6 +459,18 @@ fn tw(tys: &crate::design::types::Types, t: TypeId) -> u32 {
     match tys.get(t) {
         Type::Unpacked { elem, dim: UDim::Range(l, r) } => tw(tys, *elem) * ((l - r).unsigned_abs() as u32 + 1),
         _ if tys.is_integral(t) => tys.width(t),
+        // An unpacked struct of such values is kept as a packed one is: its
+        // members concatenated, the first the most significant.
+        Type::Struct { packed: false, members, union, .. } => {
+            let ws: Vec<u32> = members.iter().map(|m| tw(tys, m.ty)).collect();
+            if ws.is_empty() || ws.contains(&0) {
+                0
+            } else if *union {
+                ws.into_iter().max().unwrap_or(0)
+            } else {
+                ws.into_iter().sum()
+            }
+        }
         _ => 0,
     }
 }
@@ -500,6 +512,20 @@ fn sel_start(tys: &crate::design::types::Types, t: TypeId, lo: i64, hi: i64) -> 
 /// A constant's bits in `w` bits: an unpacked one's elements side by side,
 /// the first the most significant.
 fn const_bits(c: &Const, w: u32) -> Option<Bits> {
+    // An aggregate whose items are packed values that together fill `w`
+    // (a struct's members, of different widths): those, in order.
+    fn natural(c: &Const) -> Option<Bits> {
+        match c {
+            Const::Aggregate(items) if !items.is_empty() => Some(Bits::concat(&items.iter().map(natural).collect::<Option<Vec<_>>>()?)),
+            Const::Aggregate(_) => None,
+            c => ops::bits_of(c),
+        }
+    }
+    if let Const::Aggregate(_) = c
+        && let Some(b) = natural(c).filter(|b| b.width() == w)
+    {
+        return Some(b);
+    }
     match c {
         Const::Aggregate(items) if !items.is_empty() && w % items.len() as u32 == 0 => {
             let ew = w / items.len() as u32;
@@ -3441,7 +3467,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 Some(Some((start * ew as i64, *width * ew)))
             }
             ExprKind::Member(i) => match tys.get(bt) {
-                Type::Struct { packed: true, members, union, .. } => {
+                Type::Struct { members, union, .. } if tw(tys, bt) > 0 => {
                     let w = tw(tys, members[*i as usize].ty);
                     let below: u32 = if *union { 0 } else { members[*i as usize + 1..].iter().map(|m| tw(tys, m.ty)).sum() };
                     Some(Some((below as i64, w)))
@@ -3542,7 +3568,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 let b = self.fold(x.args[0])?;
                 let bt = d.expr(x.args[0]).ty;
                 match (tys.get(bt), &b) {
-                    (Type::Struct { packed: true, members, union, .. }, Const::Bits(bits)) => {
+                    (Type::Struct { members, union, .. }, Const::Bits(bits)) if tw(tys, bt) > 0 => {
                         let w = tw(tys, members[*i as usize].ty);
                         let below: u32 = if *union { 0 } else { members[*i as usize + 1..].iter().map(|m| tw(tys, m.ty)).sum() };
                         Some(Const::Bits(bits.slice(below, w).with_signed(tys.is_signed(x.ty))))
@@ -7210,7 +7236,7 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
             // first the most significant (10.9).
             ExprKind::Pattern if tw(tys, x.ty) > 0 && !x.args.is_empty() => {
                 let widths: Vec<u32> = match tys.get(x.ty) {
-                    Type::Struct { packed: true, union: false, members, .. } => members.iter().map(|m| tw(tys, m.ty)).collect(),
+                    Type::Struct { union: false, members, .. } => members.iter().map(|m| tw(tys, m.ty)).collect(),
                     Type::Unpacked { elem, .. } => vec![tw(tys, *elem); x.args.len()],
                     Type::Struct { .. } => return Err("an assignment pattern for a packed union is not supported yet".into()),
                     _ => vec![w / x.args.len() as u32; x.args.len()],

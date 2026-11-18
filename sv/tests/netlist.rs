@@ -321,3 +321,64 @@ fn lzc_recognised_matches_its_logic() {
         eprintln!("{name}: recognised and its logic agree on {GROUP} inputs; code {} bytes against {}", built[0].code_bytes(), built[1].code_bytes());
     }
 }
+
+const UNPACKED: &str = r#"
+module recs (
+    input  logic [7:0]  a,
+    input  logic [12:0] b,
+    input  logic [1:0]  k,
+    output logic [7:0]  first,
+    output logic [12:0] second,
+    output logic [20:0] whole,
+    output logic [7:0]  picked,
+    output logic        flag
+);
+  typedef struct { logic [2:0] tag; logic flag; } inner_t;
+  typedef struct { logic [7:0] x; inner_t in; logic [12:0] y; } rec_t;
+  rec_t r;
+  rec_t rs [4];
+  always_comb begin
+    r = '{x: a, in: '{tag: a[2:0], flag: b[0]}, y: b};
+    r.x = r.x ^ 8'h0f;
+    for (int i = 0; i < 4; i++) begin
+      rs[i] = r;
+      rs[i].x = r.x + 8'(i);
+    end
+  end
+  assign first = r.x;
+  assign second = r.y;
+  assign whole = {r.x, r.y};
+  assign picked = rs[k].x;
+  assign flag = r.in.flag;
+endmodule
+"#;
+
+#[test]
+fn unpacked_structs_lane_by_lane() {
+    // Unpacked structs, nested, in an array, built by a pattern and written
+    // member by member, are kept as their members concatenated.
+    let Some(host) = host() else {
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
+        return;
+    };
+    let b = build("recs", netlist_of(&text("recs.sv", UNPACKED), "recs"), &host);
+    report("recs", &b);
+    let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
+    by_states(
+        &b,
+        4 * b.net.lanes,
+        |st, k, _| {
+            let (a, bb, kk) = (rng.next() & 0xFF, rng.next() & 0x1FFF, rng.next() & 3);
+            for (p, v) in [("a", a), ("b", bb), ("k", kk)] {
+                st.put(&b.net, p, k, v);
+            }
+            (a, bb, kk)
+        },
+        |st, k, &(a, bb, kk)| {
+            let x = a ^ 0x0F;
+            for (port, w) in [("first", x), ("second", bb), ("whole", x << 13 | bb), ("picked", (x + kk) & 0xFF), ("flag", bb & 1)] {
+                assert_eq!(st.get(&b.net, port, k), w, "{port}: a {a:x} b {bb:x} k {kk}");
+            }
+        },
+    );
+}

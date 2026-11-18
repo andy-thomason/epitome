@@ -1777,7 +1777,18 @@ impl<'a, 's> FnCtxt<'a, 's> {
             (_, TyKind::Dyn(d)) => match tcx.dyn_of(d).traits.first() {
                 Some(tr) => {
                     let args = tcx.tys(tr.args);
-                    self.select(t, tr.def, &args, 0).holds()
+                    if !self.select(t, tr.def, &args, 0).holds() {
+                        return false;
+                    }
+                    // Its bindings are the type's (`async { vec![] }` as a
+                    // `dyn Future<Output = Vec<u32>>`).
+                    for &(assoc, b) in &tr.bindings {
+                        let mut pa = vec![t];
+                        pa.extend(args.iter().copied());
+                        let p = self.project_or_var(assoc, &pa);
+                        self.infer.unify(p, b);
+                    }
+                    true
                 }
                 None => true,
             },

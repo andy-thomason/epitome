@@ -1187,6 +1187,16 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 let args: Vec<Ty> = tcx.tys(l).into_iter().map(|x| self.opaque_vars(x, defining)).collect();
                 self.mk(TyKind::Tuple(tcx.list(args)))
             }
+            // `dyn Future<Output = impl IntoIterator<Item = u32>>`.
+            TyKind::Dyn(d) if has_opaque(tcx, t) => {
+                let mut data = tcx.dyn_of(d);
+                for tr in &mut data.traits {
+                    for b in &mut tr.bindings {
+                        b.1 = self.opaque_vars(b.1, defining);
+                    }
+                }
+                self.mk(TyKind::Dyn(tcx.dyn_(data)))
+            }
             _ => t,
         }
     }
@@ -2507,9 +2517,15 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     // A parameter that is still a variable (`Some(run)`'s)
                     // takes the hint's type, coerced to (a function item
                     // made the pointer wanted), as rustc does.
+                    // (Not an unsized one, `dyn Future` of `Box::new(async {
+                    // .. })` as a `Box<dyn Future>`: no argument is that.)
                     if hint != want
                         && self.infer.var_kind(self.infer.shallow(want)).is_some()
                         && !self.tcx.has_infer(self.infer.resolve(hint))
+                        && !matches!(
+                            self.tcx.kind(self.infer.shallow(hint)),
+                            TyKind::Dyn(_) | TyKind::Slice(_) | TyKind::Str
+                        )
                     {
                         let p = self.probe();
                         if self.coerce(a, t, hint) && self.infer.unify(want, hint) {
@@ -3667,6 +3683,7 @@ fn has_opaque(tcx: &crate::ty::TyCtxt, t: Ty) -> bool {
         TyKind::Opaque(..) => true,
         TyKind::Ref(_, x) => has_opaque(tcx, x),
         TyKind::Adt(_, l) | TyKind::Tuple(l) => tcx.tys(l).into_iter().any(|x| has_opaque(tcx, x)),
+        TyKind::Dyn(d) => tcx.dyn_of(d).traits.iter().any(|tr| tr.bindings.iter().any(|b| has_opaque(tcx, b.1))),
         _ => false,
     }
 }

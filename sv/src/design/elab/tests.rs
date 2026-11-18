@@ -267,3 +267,29 @@ fn variables_may_start_at_zero() {
     assert!(run(false).contains("xx x xxxxx z 5a x"), "{}", run(false));
     assert!(run(true).contains("00 0 00000 z 5a 0"), "{}", run(true));
 }
+
+#[test]
+fn a_configuration_as_the_top() {
+    // A configuration chosen as the top elaborates its design cells, with a
+    // cell rule replacing a module everywhere and an instance rule at one
+    // path (33.4).
+    let text = "module real_top; sub u1(); sub u2(); endmodule
+                module sub; initial $display(\"%m sub\"); endmodule
+                module alt; initial $display(\"%m alt\"); endmodule
+                module other; initial $display(\"%m other\"); endmodule
+                config cfg;
+                  design work.real_top;
+                  default liblist work;
+                  cell sub use work.alt;
+                  instance real_top.u2 use work.other;
+                endconfig";
+    let map = SourceMap::new();
+    map.add(Source::new("t.sv", text));
+    let out = preprocess(&map, &[0], &Options::default()).unwrap();
+    let ast = crate::parse::parse(&out).unwrap();
+    let d = super::elaborate_tops(&ast, &out, &["cfg".to_string()]).unwrap_or_else(|e| panic!("{}", map.render(&e)));
+    let mut buf = Vec::new();
+    crate::sim::simulate(&d, &ast, &mut buf, &crate::sim::Options::default());
+    let t = String::from_utf8(buf).unwrap();
+    assert!(t.contains("real_top.u1 alt") && t.contains("real_top.u2 other") && !t.contains(" sub"), "{t}");
+}

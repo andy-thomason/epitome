@@ -14,7 +14,6 @@ borrowck/alias-liveness/escaping-bounds.rs: type check: a type left unknown
 check-cfg/report-in-external-macros.rs#cargo: macro not found: my_lib_macro!
 check-cfg/report-in-external-macros.rs#rustc: macro not found: my_lib_macro!
 check-cfg/values-target-json.rs: left out: a target rustc does not know
-closures/2229_closure_analysis/migrations/issue-86753.rs: type check: a type left unknown
 closures/supertrait-hint-cycle.rs: type check: a type left unknown
 coinduction/canonicalization-rerun.rs#next: type check: a type left unknown
 coinduction/canonicalization-rerun.rs#old: type check: a type left unknown

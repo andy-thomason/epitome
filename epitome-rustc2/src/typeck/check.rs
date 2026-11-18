@@ -3132,7 +3132,10 @@ impl<'a, 's> FnCtxt<'a, 's> {
             self.coroutine = saved_co;
             self.try_blocks = saved_try;
             self.loops = saved_loops;
-            if tcx.kind(self.infer.shallow(bt)) != TyKind::Never && !self.infer.unify(bt, out) {
+            if tcx.kind(self.infer.shallow(bt)) == TyKind::Never {
+                // (`async { unimplemented!() }`: falls back as `!` does.)
+                self.diverges_into(out);
+            } else if !self.infer.unify(bt, out) {
                 self.err(n, "mismatched types");
             }
             let id = tcx.closure_id((self.k, self.file, n));

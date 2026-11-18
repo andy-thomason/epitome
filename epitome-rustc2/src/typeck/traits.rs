@@ -232,6 +232,15 @@ impl<'a, 's> FnCtxt<'a, 's> {
                         Pred::Projection(sub(self, t), a, tcx.list(l2), sub(self, b))
                     }
                 };
+                // Unknowns in it (`C<?N>: Foo<3>`): the one impl that fits
+                // may settle them.
+                if let Pred::Trait(t, tr) = &p
+                    && Some(&tr.def) != tcx.lang.get("sized")
+                    && (tcx.has_infer(self.infer.resolve(*t))
+                        || tcx.tys(tr.args).iter().any(|&a| tcx.has_infer(self.infer.resolve(a))))
+                {
+                    self.pending_traits.push((*t, tr.def, tr.args));
+                }
                 self.oblige(p);
             }
             o = tcx.generics[x.0 as usize].parent;
@@ -936,12 +945,19 @@ impl<'a, 's> FnCtxt<'a, 's> {
         while i < self.pending_traits.len() {
             let (t, tr, l) = self.pending_traits[i];
             let args: Vec<Ty> = tcx.tys(l).into_iter().map(|x| self.infer.resolve(x)).collect();
-            if !args.iter().any(|&a| tcx.has_infer(a)) {
+            let rt = self.infer.resolve(t);
+            if !args.iter().any(|&a| tcx.has_infer(a)) && !tcx.has_infer(rt) {
                 self.pending_traits.swap_remove(i);
                 continue;
             }
-            // Its type not known yet: later.
-            if tcx.has_infer(self.infer.resolve(t)) {
+            // Its type not known yet (not even what type it is): later.
+            // One known at the top with unknowns inside (`C<?N>: Foo<3>`)
+            // is tried: the impl that fits may settle them.
+            if self.infer.var_kind(self.infer.shallow(t)).is_some() {
+                i += 1;
+                continue;
+            }
+            if tcx.has_infer(rt) && args.iter().any(|&a| tcx.has_infer(a)) {
                 i += 1;
                 continue;
             }

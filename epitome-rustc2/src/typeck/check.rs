@@ -1301,10 +1301,20 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     if segs.len() >= 2
                         && let Some(g) = self.ast.child(segs[segs.len() - 2], Kind::GenericArgs)
                     {
-                        let written: Vec<NodeId> = self.ast.children(g).iter().copied().filter(|&a| is_type(self.ast.kind(a))).collect();
+                        // Types and constants (`F::<3>::t()`), not lifetimes.
+                        let written: Vec<NodeId> = self
+                            .ast
+                            .children(g)
+                            .iter()
+                            .copied()
+                            .filter(|&a| {
+                                is_type(self.ast.kind(a))
+                                    || matches!(self.ast.kind(a), Kind::Literal | Kind::Unary | Kind::Block)
+                            })
+                            .collect();
                         for (i, a) in written.into_iter().enumerate() {
                             if i < args.len() {
-                                args[i] = self.written_ty(a);
+                                args[i] = self.written_arg(a);
                             }
                         }
                     }
@@ -2536,6 +2546,12 @@ impl<'a, 's> FnCtxt<'a, 's> {
         self.mk(TyKind::Closure(id, sig, tcx.identity_args(self.owner)))
     }
 
+    /// Whether a slice pattern's element is `..` (or `rest @ ..`).
+    fn has_rest(&self, k: NodeId) -> bool {
+        let ast = self.ast;
+        ast.kind(k) == Kind::RestPat || ast.kind(k) == Kind::IdentPat && self.kids(k).iter().any(|&c| ast.kind(c) == Kind::RestPat)
+    }
+
     /// The names a checked pattern binds, with their types.
     fn binding_types(&self, pat: NodeId) -> Vec<(&'s str, Ty)> {
         let mut out = Vec::new();
@@ -2977,7 +2993,15 @@ impl<'a, 's> FnCtxt<'a, 's> {
             Kind::SlicePat => {
                 let st = self.infer.shallow(t);
                 let elem = match tcx.kind(st) {
-                    TyKind::Array(e, _) | TyKind::Slice(e) => e,
+                    // `[_, _]` with no `..`: an array of that many.
+                    TyKind::Array(e, _) => {
+                        if !kids.iter().any(|&k| self.has_rest(k)) {
+                            let len = self.mk(TyKind::Array(e, tcx.konst(crate::ty::Const::Value(kids.len() as u128))));
+                            self.infer.unify(st, len);
+                        }
+                        e
+                    }
+                    TyKind::Slice(e) => e,
                     _ => {
                         let e = self.infer.fresh();
                         let sl = self.mk(TyKind::Slice(e));

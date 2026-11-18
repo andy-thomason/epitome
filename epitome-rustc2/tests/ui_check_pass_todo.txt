@@ -28,7 +28,6 @@ async-await/async-fn/edition-2015-not-async-bound.rs: path not resolved: Foo
 async-await/async-fn/sugar.rs: type check: `.await` on something that is not a future
 async-await/drop-tracking-unresolved-typeck-results.rs#assumptions: type check: a type left unknown
 async-await/format-await-send.rs: type check: mismatched types
-async-await/higher-ranked-auto-trait-1.rs#assumptions: type check: a type left unknown
 async-await/higher-ranked-auto-trait-15.rs#assumptions: type check: a type left unknown
 async-await/issue-105501.rs: type check: method not found
 attributes/dont-dup-expr-attrs.rs: error: expanding `m2!`: expected `;`, found `}` (dont-dup-expr-attrs.rs:32:9)
@@ -37,14 +36,11 @@ attributes/path-inline-module.rs: error: cannot read `/private/tmp/claude-502/-U
 attributes/z-crate-attr/cfg-false.rs: left out: flags that change the crate
 autodiff/flag_nott.rs: path not resolved: d_square
 borrowck/alias-liveness/escaping-bounds.rs: type check: a type left unknown
-borrowck/static-trait-bound-lost.rs: type check: a type left unknown
 check-cfg/report-in-external-macros.rs#cargo: macro not found: my_lib_macro!
 check-cfg/report-in-external-macros.rs#rustc: macro not found: my_lib_macro!
 check-cfg/values-target-json.rs: left out: a target rustc does not know
 closures/2229_closure_analysis/issue_88118.rs: type check: a type left unknown
 closures/2229_closure_analysis/migrations/issue-86753.rs: type check: a type left unknown
-closures/2229_closure_analysis/run_pass/issue-88431.rs: type check: mismatched types
-closures/closure-capture-hrtb-gat-no-ice-120811.rs: type check: a type left unknown
 closures/closure_no_cap_coerce_many_check_pass.rs: type check: mismatched types
 closures/issue-41366.rs: type check: a type left unknown
 closures/issue-48109.rs: type check: mismatched types
@@ -57,19 +53,11 @@ coercion/index-coercion-over-indexmut-72002.rs: type check: indexing something t
 coinduction/canonicalization-rerun.rs#next: type check: a type left unknown
 coinduction/canonicalization-rerun.rs#old: type check: a type left unknown
 compile-flags/invalid/crate-type-flag.rs#proc_dash_macro: left out: proc-macro crate
-const-generics/array-impls/alloc-traits-impls-length-32.rs: type check: a type left unknown
 const-generics/associated-const-bindings/equality_bound_with_infer.rs: type check: a type left unknown
-const-generics/generic_const_exprs/cross-crate-2.rs: type check: a type left unknown
-const-generics/generic_const_exprs/issue-80561-incorrect-param-env.rs: type check: a type left unknown
-const-generics/generic_const_exprs/poly-const-uneval-ice-106423.rs: type check: a type left unknown
-const-generics/infer_arr_len_from_pat.rs: type check: a type left unknown
 const-generics/issues/issue-85031-2.rs: type check: a type left unknown
 const-generics/mgca/adt_expr_infers_from_value.rs: type check: a type left unknown
 const-generics/mgca/infer-vars-in-const-args-correct.rs: type check: a type left unknown
 const-generics/mgca/paren.rs: error: expanding `direct_const_arg!`: expected a type, found `{` (paren.rs:24:18)
-const-generics/trait-const-args.rs: type check: a type left unknown
-const-generics/where-clauses.rs: type check: a type left unknown
-consts/issue-104396.rs: type check: a type left unknown
 consts/issue-67696-const-prop-ice.rs: type check: a type left unknown
 consts/self_normalization2.rs: type check: a type left unknown
 crate-loading/cross-compiled-proc-macro.rs: left out: proc-macro crates rustc cannot build
@@ -106,8 +94,6 @@ hygiene/transparent-basic.rs: path not resolved: x
 hygiene/unpretty-debug.rs: type check: operator on types that do not implement it
 impl-trait/defining-use-uncaptured-non-universal-region-2.rs: type check: mismatched types
 impl-trait/in-trait/late-bound-in-object-assocty.rs: type check: mismatched types
-impl-trait/issues/issue-104815.rs: type check: mismatched types
-impl-trait/issues/issue-49579.rs: type check: a type left unknown
 impl-trait/lifetime-ambiguity-regression.rs: type check: a type left unknown
 impl-trait/method/broken-deref-chain.rs#next: type check: mismatched types
 impl-trait/method/method-resolution.rs#current: type check: method not found
@@ -122,7 +108,6 @@ impl-trait/non-defining-uses/multiple-opaques-ok.rs: type check: mismatched type
 impl-trait/precise-capturing/external-macro.rs: path not resolved: element
 impl-trait/recursive-bound-eval.rs#current: type check: a type left unknown
 impl-trait/recursive-bound-eval.rs#next: type check: a type left unknown
-impl-trait/trait_resolution.rs: type check: a type left unknown
 implied-bounds/implied-bounds-on-nested-references-plus-variance-2.rs: type check: a type left unknown
 imports/ambiguous-glob-vs-expanded-extern.rs: macro not found: mac!
 imports/ambiguous-import-visibility-globglob-priv-pass.rs: import not resolved: : use crate::one_private::S (as S)
@@ -131,7 +116,6 @@ imports/remove-unused-private-import-errors.rs#keep: type check: associated item
 inference/iter-ufcs-coercion-type-unification.rs: type check: a type left unknown
 iterators/into-iter-on-boxed-slices-2021.rs: type check: a type left unknown
 keyword/soup.rs: import not resolved: __ui_test_59::x: use Ok (as Ok)
-lazy-type-alias-impl-trait/freeze_cycle.rs: type check: a type left unknown
 lazy-type-alias-impl-trait/recursion2.rs: type check: mismatched types
 lexer/ident_normalization.rs: path not resolved: K
 lifetimes/raw/three-tokens.rs: error: expanding `check!`: expected `;`, found the end of the input (three-tokens.rs:14:1)
@@ -154,7 +138,6 @@ methods/fulfillment-disqualifies-method.rs#current: type check: a type left unkn
 methods/fulfillment-disqualifies-method.rs#next: type check: a type left unknown
 methods/opaque_param_in_ufc.rs: type check: associated item not found
 methods/self-type-is-sup-no-eq.rs: type check: method not found
-mir/issue-75053.rs: type check: a type left unknown
 mut-restriction/feature-gate-mut-restriction.rs#with_gate: error: expected a name, found `mut` (feature-gate-mut-restriction.rs:8:9)
 never_type/basic/method-on-never.rs: type check: method not found
 nll/coroutine-distinct-lifetime.rs: type check: unsupported expression
@@ -218,7 +201,6 @@ traits/const-traits/conditionally-const-trait-bound-syntax.rs: path not resolved
 traits/issue-59029-2.rs: path not resolved: Self
 traits/issue-66768.rs: type check: method not found
 traits/issue-84399-bad-fresh-caching.rs: type check: method not found
-traits/next-solver/alias-sub.rs: type check: a type left unknown
 traits/next-solver/assembly/ambiguity-due-to-uniquification-3.rs#current: type check: mismatched types
 traits/next-solver/assembly/ambiguity-due-to-uniquification-3.rs#next: type check: mismatched types
 traits/next-solver/closure-signature-inference-hr-ambig-alias-naming-self.rs#current: type check: method not found
@@ -236,8 +218,6 @@ traits/next-solver/generalize/generalize-proj-new-universe-index-1.rs: type chec
 traits/next-solver/generalize/generalize-proj-new-universe-index-2.rs: type check: a type left unknown
 traits/next-solver/lazy-nested-obligations-3.rs: type check: a type left unknown
 traits/next-solver/method/path_lookup_wf_constraints.rs: type check: a type left unknown
-traits/next-solver/normalize/normalize-self-type-constrains-trait-args.rs#current: type check: a type left unknown
-traits/next-solver/normalize/normalize-self-type-constrains-trait-args.rs#next: type check: a type left unknown
 traits/next-solver/overflow-discards-constraints.rs: type check: a type left unknown
 traits/next-solver/overflow/fcw-on-normalization.rs#next: type check: method not found
 traits/next-solver/overflow/fcw-on-normalization.rs#old: type check: method not found
@@ -256,9 +236,7 @@ type-alias-impl-trait/method_resolution5.rs#current: type check: method not foun
 type-alias-impl-trait/method_resolution5.rs#next: type check: method not found
 type-alias-impl-trait/multiple-def-uses-in-one-fn-pass.rs: type check: a type left unknown
 type-alias-impl-trait/obligation_ice.rs: type check: method not found
-type-alias-impl-trait/tait-param-inference-issue-117310.rs: type check: a type left unknown
 typeck/issue-55810-must-typeck-match-pats-before-guards.rs: type check: method not found
-unboxed-closures/arg-constrained-after-closure-inference.rs: type check: a type left unknown
 unpretty/ast-const-trait-bound.rs: path not resolved: Bar
 unpretty/exhaustive.rs#expanded: error: expected `;`, found `try` (exhaustive.rs:247:9)
 unpretty/interpolation-expanded.rs: type check: operator on types that do not implement it

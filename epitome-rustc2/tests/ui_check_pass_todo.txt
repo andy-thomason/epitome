@@ -68,7 +68,5 @@ traits/next-solver/method/path_lookup_wf_constraints.rs: type check: a type left
 traits/next-solver/overflow-discards-constraints.rs: type check: a type left unknown
 traits/next-solver/overflow/fcw-on-normalization.rs#next: type check: method not found
 traits/next-solver/overflow/fcw-on-normalization.rs#old: type check: method not found
-traits/next-solver/typeck/resolve-before-checking-builtin-ptr.rs: type check: mismatched types
-traits/next-solver/typeck/structurally-resolve-in-probe_adt.rs: type check: a type left unknown
 type-alias-impl-trait/match-unification.rs: type check: mismatched types
 wf/unnormalized-projection-guides-inference.rs: type check: a type left unknown

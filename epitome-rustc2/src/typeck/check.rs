@@ -1528,7 +1528,24 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 DefKind::TypeAlias => {
                     let t = tcx.type_of(*d)?;
                     let all = tcx.all_params(*d);
-                    let args = self.infer.instantiate(&all);
+                    let mut args = self.infer.instantiate(&all);
+                    // `Foo::<i32>::None`: the alias's written arguments.
+                    let ast = self.ast;
+                    let segs: Vec<NodeId> =
+                        ast.children(path).iter().copied().filter(|&s| ast.kind(s) == Kind::Segment).collect();
+                    if segs.len() >= 2
+                        && let Some(g) = ast.child(segs[segs.len() - 2], Kind::GenericArgs)
+                    {
+                        let arg = |a: NodeId| {
+                            is_type(ast.kind(a)) || matches!(ast.kind(a), Kind::Literal | Kind::Unary | Kind::Block)
+                        };
+                        let written: Vec<NodeId> = ast.children(g).iter().copied().filter(|&a| arg(a)).collect();
+                        for (i, a) in written.into_iter().enumerate() {
+                            if i < args.len() {
+                                args[i] = self.written_arg(a);
+                            }
+                        }
+                    }
                     subst(tcx, t, &all, &args)
                 }
                 // `extern { type Local; }`: `Local::foo(x)`.
@@ -2874,6 +2891,8 @@ impl<'a, 's> FnCtxt<'a, 's> {
                         let params = d.map(|d| tcx.all_params(d)).unwrap_or_default();
                         subst(tcx, x.ty, &params, &args)
                     });
+                    // (A field declared through a projection: what it is.)
+                    let want = want.map(|w| if has_projection_ty(tcx, w) { self.normalize(w, 0) } else { w });
                     let value = fk.get(1).copied();
                     match (value, want) {
                         (Some(v), Some(w)) => {
@@ -3689,6 +3708,15 @@ fn is_generic_arg(k: Kind) -> bool {
 
 /// Whether `t` has an `impl Trait` in it (at the top, behind references,
 /// or among type arguments).
+fn has_projection_ty(tcx: &crate::ty::TyCtxt, t: Ty) -> bool {
+    match tcx.kind(t) {
+        TyKind::Projection(..) => true,
+        TyKind::Ref(_, x) | TyKind::Ptr(_, x) | TyKind::Slice(x) | TyKind::Array(x, _) => has_projection_ty(tcx, x),
+        TyKind::Adt(_, l) | TyKind::Tuple(l) => tcx.tys(l).into_iter().any(|x| has_projection_ty(tcx, x)),
+        _ => false,
+    }
+}
+
 fn has_opaque(tcx: &crate::ty::TyCtxt, t: Ty) -> bool {
     match tcx.kind(t) {
         TyKind::Opaque(..) => true,

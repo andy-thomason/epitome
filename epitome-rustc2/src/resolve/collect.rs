@@ -380,7 +380,16 @@ impl<'c, 'r, 's> Collector<'c, 'r, 's> {
                 // context it shares (and spans of copied tokens would not
                 // be one piece of text).
                 let written = self.ast.is_original(item);
-                for &tt in self.ast.children(item).iter().filter(|&&c| written && self.ast.kind(c) == Kind::TokenTree) {
+                // `#[rustc_macro_transparency = "transparent"]`: its locals
+                // are the call site's.
+                let transparent = crate::session::attribute_value(self.ast, item, "rustc_macro_transparency")
+                    .is_some_and(|v| v == "transparent");
+                for &tt in self
+                    .ast
+                    .children(item)
+                    .iter()
+                    .filter(|&&c| written && !transparent && self.ast.kind(c) == Kind::TokenTree)
+                {
                     let toks = self.ast.tokens_of(tt);
                     if let (Some(a), Some(b)) = (toks.first(), toks.last()) {
                         let (start, end) = (a.0.as_ptr() as usize, b.0.as_ptr() as usize + b.0.len());

@@ -41,7 +41,6 @@ hygiene/cross-crate-define-and-use.rs: type check: struct literal of something t
 hygiene/dollar-crate-modern.rs: path not resolved: crate
 hygiene/generic_params.rs: type check: method not found
 hygiene/issue-32922.rs: error: expanding `foo!`: expected the end of the input, found `;` (eager-from-opaque.rs:14:9)
-hygiene/transparent-basic.rs: path not resolved: x
 impl-trait/defining-use-uncaptured-non-universal-region-2.rs: type check: mismatched types
 impl-trait/in-trait/late-bound-in-object-assocty.rs: type check: mismatched types
 impl-trait/lifetime-ambiguity-regression.rs: type check: a type left unknown

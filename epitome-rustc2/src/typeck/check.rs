@@ -732,6 +732,11 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 let v = tcx.tys(l).into_iter().map(|x| self.fill_holes(x)).collect();
                 self.mk(TyKind::Projection(d, tcx.list(v)))
             }
+            // `<X<_, _> as Tr>` with `type X<A, B> = impl Tr`.
+            TyKind::Opaque(o, l) => {
+                let v = tcx.tys(l).into_iter().map(|x| self.fill_holes(x)).collect();
+                self.mk(TyKind::Opaque(o, tcx.list(v)))
+            }
             // `fn(_) -> _`.
             TyKind::FnPtr(sig) => {
                 let mut sig = tcx.sig_of(sig);
@@ -1104,6 +1109,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 // `impl Trait` for a parameter: a variable, with the bounds
                 // as obligations. For the result, the opaque type itself.
                 let inst = |cx: &mut Self, t: Ty, input: bool| -> Ty {
+                    // (Only the signature's own: an `impl Trait` that came
+                    // in through `Self` is a type like any other.)
+                    let input = input && has_opaque(tcx, t);
                     let t = subst(tcx, t, &params, &args);
                     let t = if input { cx.opaque_vars(t, false) } else { t };
                     cx.normalize(t, 0)

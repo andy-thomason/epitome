@@ -99,5 +99,4 @@ transmute/unnecessary-transmute-path-remap-ice-140277.rs: macro not found: trans
 tuple/indexing-in-macro.rs: error: in `m!`: no rule of the macro matches this input (indexing-in-macro.rs:7:1)
 type-alias-impl-trait/broken_mir.rs: type check: a type left unknown
 type-alias-impl-trait/match-unification.rs: type check: mismatched types
-type-alias-impl-trait/multiple-def-uses-in-one-fn-pass.rs: type check: a type left unknown
 wf/unnormalized-projection-guides-inference.rs: type check: a type left unknown

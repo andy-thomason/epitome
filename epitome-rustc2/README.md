@@ -37,7 +37,9 @@ The plan is in [`docs/design.md`](docs/design.md).
 | Compiling and running | Working | The nineteen programs in `tests/run/` compile through Epitome's optimiser and code generator, run, and print what rustc's builds print, two of them with `std` (`--std`, from rust-src), one of those spawning threads. |
 
 Everything up to and including type checking `core`, `alloc` and `std`
-together takes 1.3 s of wall time.
+together takes 1.3 s of wall time. A build checks only the bodies
+monomorphisation reaches: 2,040 for a `std` hello world, which builds,
+optimised, in 2.9 s on a Mac.
 
 ## Trying it
 

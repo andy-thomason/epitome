@@ -854,13 +854,22 @@ impl<'a, 's> FnCtxt<'a, 's> {
         // `where` clauses checked deeper may rule one out (`u8:
         // TryFrom<u16>` has core's impl, and the blanket one through `u16:
         // Into<u8>`, which needs `u8: From<u16>`, which does not hold).
-        if matches!(sel, Select::Ambiguous)
-            && self.where_depth < DEEP_WHERE
-            && !args.iter().any(|&x| tcx.has_infer(self.infer.resolve(x)))
-        {
-            let saved = std::mem::replace(&mut self.where_depth, DEEP_WHERE);
-            sel = self.select(t, tr, &args[1..], depth);
-            self.where_depth = saved;
+        // With unknowns in them too, when the self type is known at the
+        // top (`Vec<?X>: IntoIterator`, not the blanket impl for
+        // iterators), if that leaves one.
+        if matches!(sel, Select::Ambiguous) && self.where_depth < DEEP_WHERE {
+            let known = !args.iter().any(|&x| tcx.has_infer(self.infer.resolve(x)));
+            if known || self.infer.var_kind(t).is_none() {
+                let s = self.probe();
+                let saved = std::mem::replace(&mut self.where_depth, DEEP_WHERE);
+                let deeper = self.select(t, tr, &args[1..], depth);
+                self.where_depth = saved;
+                match deeper {
+                    Select::Yes(_) => sel = deeper,
+                    _ if known => sel = deeper,
+                    _ => self.rollback(s),
+                }
+            }
         }
         match sel {
             Select::Yes(Source::Impl(i, iargs)) => {

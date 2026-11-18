@@ -2,7 +2,6 @@
 # The check-pass UI tests that do not pass yet, and why (tests/ui_check_pass.rs).
 attributes/duplicated-attributes.rs: import not resolved: : use test::Bencher (as Bencher)
 attributes/z-crate-attr/cfg-false.rs: left out: flags that change the crate
-autodiff/flag_nott.rs: path not resolved: d_square
 borrowck/alias-liveness/escaping-bounds.rs: type check: a type left unknown
 check-cfg/values-target-json.rs: left out: a target rustc does not know
 closures/supertrait-hint-cycle.rs: type check: a type left unknown

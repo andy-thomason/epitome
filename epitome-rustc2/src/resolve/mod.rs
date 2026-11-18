@@ -452,9 +452,9 @@ impl<'s> Resolver<'s> {
             match by_path(start, used) {
                 Some(r) => r,
                 // `krate::mac!()` in 2015 with `krate` an extern crate given
-                // on the command line (not `extern crate`d): the extern
-                // prelude, as for other paths.
-                None if !rooted && edition < crate::lexer::Edition::E2018 => {
+                // on the command line (not `extern crate`d), or with a module
+                // `krate` here that has no such macro: the extern prelude.
+                None if !rooted => {
                     by_path(self.extern_prelude(krate, segs[0])?, 1)?
                 }
                 None => return None,

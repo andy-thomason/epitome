@@ -756,6 +756,16 @@ impl<'x, 's> Expander<'x, 's> {
             Some(d) if self.macros.defs[d].krate != self.krate => self.editions[self.macros.defs[d].krate],
             _ => self.edition,
         };
+        // `include!` where an expression or statement goes: the file's
+        // first expression, the rest left (`incomplete_include`).
+        let mut tokens = tokens;
+        if builtin_name == Some("include")
+            && !matches!(place, Place::Items)
+            && let Some(eof) = tokens.last().map(|t| Token(&t.0[t.0.len()..]))
+            && let Some(n) = crate::parse::expr_prefix_len(tokens.clone(), eof, edition)
+        {
+            tokens.truncate(n);
+        }
         let nodes = self.splice(file, call, call_tok, &tokens, place, name, edition)?;
         self.result.expanded += 1;
         self.result.names.push(name);

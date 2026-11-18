@@ -638,7 +638,12 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     }
                 }
             }
-            // `where I: Iterator<Item = &'a T>`: what settles `T`.
+        }
+        // `where I: Iterator<Item = &'a T>`: what settles `T`; deeper than
+        // the other `where` clauses are checked, as a parameter only these
+        // name (`B` of `Map<I, F>`'s `F: FnMut(I::Item) -> B`) would be
+        // left unknown.
+        if depth < MAX_DEPTH {
             for p in &tcx.predicates[imp.def.0 as usize] {
                 if let Pred::Projection(_, a, l, ty) = p {
                     let pl: Vec<Ty> = tcx.tys(*l).into_iter().map(|x| subst(tcx, x, &params, &args)).collect();

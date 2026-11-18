@@ -58,7 +58,6 @@ proc-macro/panic-abort.rs: left out: proc-macro crate
 proc-macro/test-count-attributes.rs: error: proc macro `assert_no_attributes`: assertion `left == right` failed (test-count-attributes.rs:8:1)
 proc-macro/test-followed-by-attr-macros.rs: error: expected a macro matcher in delimiters (test-followed-by-attr-macros.rs:20:9)
 proc-macro/test.rs: error: proc macro `run`: assertion `left == right` failed (test.rs:14:1)
-resolve/extern-prelude.rs: type check: wrong number of arguments
 resolve/open-ns-5.rs: import not resolved: : use my_api::utils::utils_helper (as utils_helper)
 resolve/open-ns-6.rs: import not resolved: : use my_api (as my_api)
 rfcs/rfc-2457-non-ascii-idents/idents-normalized.rs: error: unexpected character '\u{301}' (idents-normalized.rs:6:15)

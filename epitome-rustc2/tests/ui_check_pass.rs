@@ -180,7 +180,14 @@ fn select_one(path: &Path, name: String, directives: &[(&str, &str)], rev: Optio
     for &(name, value) in directives {
         match name {
             "aux-build" | "aux-crate" | "proc-macro" => match aux_spec(name, value) {
-                Some((n, f)) => aux_files.push((n, f, name == "proc-macro")),
+                Some((n, f)) => {
+                    // `#![crate_name = "Vec"]` names an `aux-build` crate.
+                    let n = match name {
+                        "aux-build" => crate_name_attr(&path.parent().unwrap().join("auxiliary").join(&f)).unwrap_or(n),
+                        _ => n,
+                    };
+                    aux_files.push((n, f, name == "proc-macro"))
+                }
                 None => _ = left_out.get_or_insert("auxiliary crates"),
             },
             // `tests/auxiliary/minicore.rs`, a `core` of lang items.
@@ -341,6 +348,14 @@ fn aux_spec(directive: &str, value: &str) -> Option<(String, String)> {
     Some((stem, file.to_string()))
 }
 
+/// The name a crate gives itself, `#![crate_name = "name"]`.
+fn crate_name_attr(path: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let rest = text.split("#![crate_name").nth(1)?;
+    let value = rest.trim_start().strip_prefix('=')?.trim_start().strip_prefix('"')?;
+    Some(value.split('"').next()?.to_string())
+}
+
 /// Adds the auxiliary crates `files` (from `dir`) to `out`, with those
 /// they use in turn, each once, and gives the proc-macro crates among
 /// `files`, built by rustc. A crate name used for two different crates
@@ -373,6 +388,7 @@ fn aux_crates(
                 }
                 "aux-build" | "aux-crate" | "proc-macro" => {
                     let (nn, nf) = aux_spec(n, v).ok_or("auxiliary crates")?;
+                    let nn = if n == "aux-build" { crate_name_attr(&dir.join(&nf)).unwrap_or(nn) } else { nn };
                     nested.push((nn, nf, n == "proc-macro"));
                 }
                 "compile-flags" => {

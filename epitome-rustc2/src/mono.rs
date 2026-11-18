@@ -146,7 +146,21 @@ pub fn roots(r: &Resolver, tcx: &TyCtxt, crates: &[ParsedCrate], k: u32, lib: bo
                 v.push(Item::Fn(start, tcx.list(vec![tcx.sig_of(sig).output])));
                 // What the standard library's crates define for each other
                 // by name (`#[rustc_std_internal_symbol]`: `std`'s own
-                // allocator, `__rust_start_panic` and the rest).
+                // allocator, `__rust_start_panic` and the rest), where
+                // something declares it or the allocator shim calls it. One
+                // nothing names is left out, as a linker would leave it:
+                // `std`'s `__isPlatformVersionAtLeast`, for C code's
+                // `@available`.
+                let mut named: FastSet<String> = crate::lower::DEFAULT_ALLOCATOR.iter().map(|&(_, t)| t.to_string()).collect();
+                for def in &r.defs {
+                    if matches!(def.kind, DefKind::ForeignFn | DefKind::ForeignStatic) {
+                        named.insert(def.name.to_string());
+                        let ast = &crates[def.krate as usize].files[def.file as usize].ast;
+                        if let Some(l) = crate::session::attribute_value(ast, def.node, "link_name") {
+                            named.insert(l);
+                        }
+                    }
+                }
                 v.extend(
                     (0..r.defs.len() as u32)
                         .map(DefId)
@@ -154,6 +168,7 @@ pub fn roots(r: &Resolver, tcx: &TyCtxt, crates: &[ParsedCrate], k: u32, lib: bo
                             let def = &r.defs[d.0 as usize];
                             def.krate != k
                                 && def.kind == DefKind::Fn
+                                && named.contains(def.name)
                                 && defined(d)
                                 && crate::session::has_attribute(&crates[def.krate as usize].files[def.file as usize].ast, def.node, "rustc_std_internal_symbol")
                         })

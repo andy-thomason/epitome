@@ -236,7 +236,8 @@ impl<'a> Parser<'a> {
         t.0 == ">"
             || t.0 == "#"
             || t.0 == "const"
-            || t.is_lifetime()
+            // Not `impl <'a + Trait>::Assoc`.
+            || t.is_lifetime() && matches!(self.tok(n + 2).0, ">" | "," | ":")
             || self.name_at(n + 1) && matches!(self.tok(n + 2).0, ">" | "," | ":" | "=")
     }
 
@@ -360,6 +361,8 @@ impl<'a> Parser<'a> {
         self.bump();
         while !(self.at("{") || self.at(";") || self.at("=") || self.at_eof()) {
             let pm = self.mark();
+            // `#[cfg(..)] T: Tr` (`where_clause_attrs`).
+            self.outer_attributes()?;
             if self.lifetime_at(0) {
                 self.leaf(Kind::Lifetime, 1);
                 self.expect(":")?;
@@ -614,6 +617,11 @@ impl<'a> Parser<'a> {
             }
             "?" => {
                 // `?Sized` as a bare bound list in old code.
+                self.bounds(plus)?;
+                self.finish(m, Kind::DynTraitType);
+            }
+            // `'a + Trait`, a bare trait object led by its lifetime.
+            _ if plus && self.lifetime_at(0) && self.at_n(1, "+") => {
                 self.bounds(plus)?;
                 self.finish(m, Kind::DynTraitType);
             }

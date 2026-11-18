@@ -169,6 +169,13 @@ impl<'a> Parser<'a> {
         }
         if self.at("ref") {
             self.leaf(Kind::Keyword, 1);
+            // `ref pin const x`, `ref pin mut x` (`pin_ergonomics`).
+            if self.at("pin") && matches!(self.tok(1).0, "const" | "mut") {
+                self.leaf(Kind::Keyword, 1);
+                if self.at("const") {
+                    self.bump();
+                }
+            }
         }
         if self.at("mut") {
             self.leaf(Kind::Keyword, 1);

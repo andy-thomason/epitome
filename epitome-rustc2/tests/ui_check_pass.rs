@@ -572,6 +572,11 @@ fn run(library: &Path, tests: &[&Test]) -> Vec<Option<String>> {
             .map(|(i, t)| crate_root(format!("__ui_test_{i}"), &t.path, t.edition, &t.cfg, &t.deps, &t.pm)),
     );
     let mut crates = session.parse_crates(roots);
+    // `-Zparse-crate-root-only`: the test is of the parser only.
+    let parse_errors: Vec<Option<String>> = crates
+        .iter()
+        .map(|c| c.errors.first().map(|e| e.render_in(&session.sources).lines().next().unwrap_or("").to_string()))
+        .collect();
     let expanded = session.expand(&mut crates);
     let r = session.resolve(&crates);
     let tcx = session.collect_types(&crates, &r);
@@ -612,6 +617,9 @@ fn run(library: &Path, tests: &[&Test]) -> Vec<Option<String>> {
                 if let Some(why) = verdict(aux_index[a.name.as_str()]) {
                     return Some(format!("auxiliary crate `{}`: {why}", a.name));
                 }
+            }
+            if t.cfg.iter().any(|c| c == "rustc:-Zparse-crate-root-only") {
+                return parse_errors[first + i].clone();
             }
             verdict(first + i)
         })

@@ -227,6 +227,10 @@ impl<'a> Parser<'a> {
                 } else if self.at("use") {
                     self.bump();
                     self.finish(m, Kind::UseExpr);
+                } else if self.at("match") && self.at_n(1, "{") {
+                    // `e.match { .. }` (`postfix_match`).
+                    self.bump();
+                    self.match_arms(m)?;
                 } else if self.tok(0).is_number() {
                     self.leaf(Kind::Literal, 1);
                     self.finish(m, Kind::Field);
@@ -460,13 +464,14 @@ impl<'a> Parser<'a> {
         self.expr_start() && !(r.no_struct && self.at("{"))
     }
 
-    /// `async {`, `async move {`, `async gen {`.
+    /// `async {`, `async move {`, `async gen {`, `async use {`
+    /// (`ergonomic_clones`).
     fn async_block_at(&self) -> bool {
         let mut n = 1;
         if self.at_n(n, "gen") {
             n += 1;
         }
-        if self.at_n(n, "move") {
+        if self.at_n(n, "move") || self.at_n(n, "use") {
             n += 1;
         }
         self.at_n(n, "{")
@@ -542,6 +547,11 @@ impl<'a> Parser<'a> {
         let m = self.mark();
         self.expect("match")?;
         self.expr_no_struct()?;
+        self.match_arms(m)
+    }
+
+    /// `{ arms }` of a match whose scrutinee starts at `m`.
+    fn match_arms(&mut self, m: Mark) -> PResult<'a> {
         self.expect("{")?;
         self.inner_attributes()?;
         while !self.at("}") {
@@ -650,7 +660,9 @@ impl<'a> Parser<'a> {
     }
 
     fn block_expr_from(&mut self, m: Mark) -> PResult<'a> {
-        while matches!(self.tok(0).0, "unsafe" | "async" | "move" | "try" | "gen") {
+        while matches!(self.tok(0).0, "unsafe" | "async" | "move" | "try" | "gen")
+            || self.at("use") && self.at_n(1, "{")
+        {
             self.leaf(Kind::Keyword, 1);
         }
         self.expect("{")?;

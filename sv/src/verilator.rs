@@ -24,6 +24,9 @@ pub struct Verilator {
     pub path: PathBuf,
     /// What `--version` says, as `Verilator 5.053 devel rev ...`.
     pub version: String,
+    /// The threads its models run on (`--threads`): 1, the default, for
+    /// none of their own.
+    pub threads: usize,
 }
 
 /// The oldest Verilator the driver is written for (`VerilatedContext`, a
@@ -44,7 +47,7 @@ impl Verilator {
         tries.push("verilator".into());
         tries.into_iter().find_map(|path| {
             let out = Command::new(&path).arg("--version").output().ok().filter(|o| o.status.success())?;
-            Some(Verilator { path, version: String::from_utf8_lossy(&out.stdout).trim().to_string() })
+            Some(Verilator { path, version: String::from_utf8_lossy(&out.stdout).trim().to_string(), threads: 1 })
         })
     }
 
@@ -86,6 +89,9 @@ impl Verilator {
             .iter()
             .map(|s| s.to_string())
             .collect();
+        if self.threads > 1 {
+            cmd.extend(["--threads".to_string(), self.threads.to_string()]);
+        }
         cmd.extend(["-Wno-fatal", "-Wno-lint", "-Wno-style", "-CFLAGS", "-O3", "--top-module", top, "-o", "vmodel"].iter().map(|s| s.to_string()));
         // No ccache, so that the build time is the compiler's.
         cmd.extend(["-MAKEFLAGS", "OBJCACHE="].iter().map(|s| s.to_string()));

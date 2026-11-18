@@ -268,6 +268,9 @@ pub(super) struct FnCtxt<'a, 's> {
     coroutine: Option<(Ty, Ty)>,
     /// The next closure checked is marked `#[coroutine]`.
     coroutine_attr: bool,
+    /// The types of the `try` blocks being checked, innermost last: where
+    /// a `?` in them goes.
+    pub(super) try_blocks: Vec<Ty>,
     /// The variable standing for each opaque type this body defines (its
     /// hidden type), one for all its uses, and the opaque type.
     defined: FastMap<crate::ty::OpaqueId, (Ty, Ty)>,
@@ -332,6 +335,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
             coroutine: None,
             coroutine_attr: false,
             diverging: Vec::new(),
+            try_blocks: Vec::new(),
             defined: FastMap::default(),
             loops: Vec::new(),
             errors: FastMap::default(),
@@ -1720,12 +1724,19 @@ impl<'a, 's> FnCtxt<'a, 's> {
             Kind::Match => {
                 let scrut = self.expr(kids[0], None);
                 let mut result: Option<Ty> = None;
+                // Every arm's pattern first, then guards and bodies, as
+                // rustc does: a later arm's `&S` says what the value is.
+                for &arm in &kids[1..] {
+                    if ast.kind(arm) == Kind::MatchArm {
+                        let ak = self.kids(arm);
+                        self.pat(ak[0], scrut, Mutbl::Not, false);
+                    }
+                }
                 for &arm in &kids[1..] {
                     if ast.kind(arm) != Kind::MatchArm {
                         continue;
                     }
                     let ak = self.kids(arm);
-                    self.pat(ak[0], scrut, Mutbl::Not, false);
                     let mut i = 1;
                     if let Some(&g) = ak.get(1)
                         && ast.kind(g) == Kind::Guard
@@ -1829,6 +1840,19 @@ impl<'a, 's> FnCtxt<'a, 's> {
             Kind::Underscore => self.infer.fresh(),
             Kind::Try => {
                 let t = self.expr(kids[0], None);
+                // In a `try` block of a type not yet known: the same kind
+                // as this operand's (homogeneous `try` blocks).
+                if let Some(&r) = self.try_blocks.last()
+                    && self.infer.var_kind(self.infer.shallow(r)).is_some()
+                    && let TyKind::Adt(d, l) = tcx.kind(self.norm(t))
+                {
+                    let mut args = tcx.tys(l);
+                    if let Some(first) = args.first_mut() {
+                        *first = self.infer.fresh();
+                    }
+                    let same = self.mk(TyKind::Adt(d, tcx.list(args)));
+                    self.infer.unify(r, same);
+                }
                 let o = self.try_output(n, t);
                 self.record_try(n, t);
                 // `x?` is a match one of whose arms returns.
@@ -2571,11 +2595,13 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let body = *kids.last().unwrap();
         let saved_ret = std::mem::replace(&mut self.ret, ret);
         let saved_co = self.coroutine.take();
+        let saved_try = std::mem::take(&mut self.try_blocks);
         let saved_loops = std::mem::take(&mut self.loops);
         let bt = self.expr(body, Some(ret));
         self.coerce(body, bt, ret);
         self.ret = saved_ret;
         self.coroutine = saved_co;
+        self.try_blocks = saved_try;
         self.loops = saved_loops;
         let id = tcx.closure_id((self.k, self.file, n));
         self.closures.push(id);
@@ -2632,11 +2658,13 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let body = *kids.last().unwrap();
         let saved_ret = std::mem::replace(&mut self.ret, ret);
         let saved_co = self.coroutine.replace((resume, yields));
+        let saved_try = std::mem::take(&mut self.try_blocks);
         let saved_loops = std::mem::take(&mut self.loops);
         let bt = self.expr(body, Some(ret));
         self.coerce(body, bt, ret);
         self.ret = saved_ret;
         self.coroutine = saved_co;
+        self.try_blocks = saved_try;
         self.loops = saved_loops;
         let id = tcx.closure_id((self.k, self.file, n));
         self.closures.push(id);
@@ -2734,14 +2762,18 @@ impl<'a, 's> FnCtxt<'a, 's> {
         // `try { e }`: some `R: Try<Output = typeof e>`, which the
         // context says.
         if keyword("try") {
-            let out = self.stmts(&stmts, None);
-            // `try bikeshed T { .. }`: of type `T`.
+            // `try bikeshed T { .. }`: of type `T`; otherwise what the
+            // context says, or the first `?` in it (`Option<_>` for an
+            // `Option`'s).
             let written = kids.iter().copied().find(|&c| is_type(ast.kind(c)));
             let r = match (written, expect) {
                 (Some(w), _) => self.written_ty(w),
                 (None, Some(e)) => e,
                 (None, None) => self.infer.fresh(),
             };
+            self.try_blocks.push(r);
+            let out = self.stmts(&stmts, None);
+            self.try_blocks.pop();
             if let Some(tr) = self.lang("Try")
                 && let Some(o) = self.trait_item(tr, "Output", Ns::Type)
             {
@@ -2763,10 +2795,12 @@ impl<'a, 's> FnCtxt<'a, 's> {
             let out = self.infer.fresh();
             let saved_ret = std::mem::replace(&mut self.ret, out);
             let saved_co = self.coroutine.take();
+            let saved_try = std::mem::take(&mut self.try_blocks);
             let saved_loops = std::mem::take(&mut self.loops);
             let bt = self.stmts(&stmts, Some(out));
             self.ret = saved_ret;
             self.coroutine = saved_co;
+            self.try_blocks = saved_try;
             self.loops = saved_loops;
             if tcx.kind(self.infer.shallow(bt)) != TyKind::Never && !self.infer.unify(bt, out) {
                 self.err(n, "mismatched types");
@@ -2782,10 +2816,12 @@ impl<'a, 's> FnCtxt<'a, 's> {
             let unit = self.unit();
             let saved_ret = std::mem::replace(&mut self.ret, unit);
             let saved_co = self.coroutine.replace((unit, yields));
+            let saved_try = std::mem::take(&mut self.try_blocks);
             let saved_loops = std::mem::take(&mut self.loops);
             self.stmts(&stmts, Some(unit));
             self.ret = saved_ret;
             self.coroutine = saved_co;
+            self.try_blocks = saved_try;
             self.loops = saved_loops;
             let id = tcx.closure_id((self.k, self.file, n));
             return self.mk(TyKind::GenBlock(id, yields, tcx.identity_args(self.owner), keyword("async")));

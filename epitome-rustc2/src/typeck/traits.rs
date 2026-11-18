@@ -1354,7 +1354,8 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let residual = self.project_or_var(res, &[t]);
         let from = tcx.traits.get(&tr).and_then(|d| d.supertraits.iter().find(|s| self.trait_item(s.def, "from_residual", Ns::Value).is_some()).map(|s| s.def));
         if let Some(fr) = from {
-            let ret = self.ret;
+            // In a `try` block, the `?` goes to it, not out of the function.
+            let ret = self.try_blocks.last().copied().unwrap_or(self.ret);
             self.implicit_call(n, fr, "from_residual", vec![ret, residual]);
             // `R: FromResidual<Result<Infallible, E>>`, where the one impl
             // that fits settles `E` (`Ok(())?` in a `Result<(), ()>`).

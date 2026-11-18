@@ -216,7 +216,6 @@ traits/next-solver/supertrait-alias-4.rs: type check: a type left unknown
 traits/next-solver/typeck/resolve-before-checking-builtin-ptr.rs: type check: mismatched types
 traits/next-solver/typeck/structurally-resolve-in-probe_adt.rs: type check: a type left unknown
 transmute/unnecessary-transmute-path-remap-ice-140277.rs: macro not found: transmute!
-try-block/try-block-homogeneous.rs: type check: method not found
 try-block/try-block-unused-delims.rs: type check: a type left unknown
 tuple/indexing-in-macro.rs: error: in `m!`: no rule of the macro matches this input (indexing-in-macro.rs:7:1)
 type-alias-impl-trait/broken_mir.rs: type check: a type left unknown
@@ -226,7 +225,6 @@ type-alias-impl-trait/method_resolution5.rs#current: type check: method not foun
 type-alias-impl-trait/method_resolution5.rs#next: type check: method not found
 type-alias-impl-trait/multiple-def-uses-in-one-fn-pass.rs: type check: a type left unknown
 type-alias-impl-trait/obligation_ice.rs: type check: method not found
-typeck/issue-55810-must-typeck-match-pats-before-guards.rs: type check: method not found
 unpretty/ast-const-trait-bound.rs: path not resolved: Bar
 unpretty/exhaustive.rs#expanded: error: expected `;`, found `try` (exhaustive.rs:247:9)
 unpretty/interpolation-expanded.rs: type check: operator on types that do not implement it

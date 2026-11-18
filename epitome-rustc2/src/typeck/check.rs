@@ -1588,7 +1588,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
             }
             Kind::Cast => {
                 let target = self.written_ty(kids[1]);
-                let src = self.expr(kids[0], None);
+                // A cast to `&dyn Fn(A)`: what a closure in it takes.
+                let src_expect = has_dyn(tcx, target).then_some(target);
+                let src = self.expr(kids[0], src_expect);
                 // A `_` in the target: a pointer cast keeps the pointee
                 // (`r as *const _`); otherwise the context says (`n as _`).
                 if tcx.has_infer(self.infer.resolve(target)) {
@@ -1608,9 +1610,20 @@ impl<'a, 's> FnCtxt<'a, 's> {
                         }
                     }
                 }
-                // `&[T; N] as &[U]`: `T` is `U`.
+                // `&[T; N] as &[U]`, `Box<[T; N]> as Box<[U]>`: `T` is `U`.
                 let s = self.norm(src);
-                if let (TyKind::Ref(_, x), TyKind::Ref(_, y)) = (tcx.kind(s), tcx.kind(self.infer.shallow(target)))
+                let pointee = |k: TyKind| match k {
+                    TyKind::Ref(_, x) | TyKind::Ptr(_, x) => Some(x),
+                    TyKind::Adt(_, l) => tcx.tys(l).first().copied(),
+                    _ => None,
+                };
+                let same_ctor = match (tcx.kind(s), tcx.kind(self.infer.shallow(target))) {
+                    (TyKind::Ref(..), TyKind::Ref(..)) | (TyKind::Ptr(..), TyKind::Ptr(..)) => true,
+                    (TyKind::Adt(a, _), TyKind::Adt(b, _)) => a == b,
+                    _ => false,
+                };
+                if same_ctor
+                    && let (Some(x), Some(y)) = (pointee(tcx.kind(s)), pointee(tcx.kind(self.infer.shallow(target))))
                     && let (TyKind::Array(e, _), TyKind::Slice(f)) =
                         (tcx.kind(self.infer.shallow(x)), tcx.kind(self.infer.shallow(y)))
                 {
@@ -2517,6 +2530,23 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 Some(tcx.tys(s.inputs))
             }
             // A variable or parameter with `Fn` bounds on it.
+            // `dyn Fn(A) -> B` (a closure cast to `&dyn Fn(A)`); a `dyn` of
+            // another trait through its bounds, as for a variable.
+            Some((e, TyKind::Dyn(d))) => {
+                let fns: Vec<DefId> = ["fn", "fn_mut", "fn_once"].iter().filter_map(|l| self.lang(l)).collect();
+                let direct = tcx.dyn_of(d).traits.iter().find_map(|tr| {
+                    let a = *tcx.tys(tr.args).first().filter(|_| fns.contains(&tr.def))?;
+                    let TyKind::Tuple(l) = tcx.kind(a) else { return None };
+                    Some((tcx.tys(l), tr.bindings.first().map(|b| b.1)))
+                });
+                match direct.or_else(|| self.closure_expectation(e)) {
+                    Some((i, r)) => {
+                        expected_ret = r;
+                        Some(i)
+                    }
+                    None => None,
+                }
+            }
             Some((e, _)) => self.closure_expectation(e).map(|(i, r)| {
                 expected_ret = r;
                 i
@@ -3160,4 +3190,14 @@ fn has_opaque(tcx: &crate::ty::TyCtxt, t: Ty) -> bool {
 fn why_filter() -> Option<&'static str> {
     static WHY: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
     WHY.get_or_init(|| std::env::var("EPITOME_TYPECK_WHY").ok()).as_deref()
+}
+
+/// Whether a type has a `dyn` in it.
+fn has_dyn(tcx: &TyCtxt, t: Ty) -> bool {
+    match tcx.kind(t) {
+        TyKind::Dyn(_) => true,
+        TyKind::Ref(_, x) | TyKind::Ptr(_, x) => has_dyn(tcx, x),
+        TyKind::Adt(_, l) => tcx.tys(l).into_iter().any(|x| has_dyn(tcx, x)),
+        _ => false,
+    }
 }

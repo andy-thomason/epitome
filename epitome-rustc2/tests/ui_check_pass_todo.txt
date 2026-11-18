@@ -38,10 +38,8 @@ borrowck/alias-liveness/escaping-bounds.rs: type check: a type left unknown
 check-cfg/report-in-external-macros.rs#cargo: macro not found: my_lib_macro!
 check-cfg/report-in-external-macros.rs#rustc: macro not found: my_lib_macro!
 check-cfg/values-target-json.rs: left out: a target rustc does not know
-closures/2229_closure_analysis/issue_88118.rs: type check: a type left unknown
 closures/2229_closure_analysis/migrations/issue-86753.rs: type check: a type left unknown
 closures/closure_no_cap_coerce_many_check_pass.rs: type check: mismatched types
-closures/issue-41366.rs: type check: a type left unknown
 closures/issue-48109.rs: type check: mismatched types
 closures/issue-87814-1.rs: type check: a type left unknown
 closures/issue-87814-2.rs: type check: a type left unknown
@@ -111,7 +109,6 @@ imports/ambiguous-import-visibility-globglob-priv-pass.rs: import not resolved: 
 imports/overwrite-different-vis-2.rs: path not resolved: f
 imports/remove-unused-private-import-errors.rs#keep: type check: associated item of something that is not a type
 inference/iter-ufcs-coercion-type-unification.rs: type check: a type left unknown
-iterators/into-iter-on-boxed-slices-2021.rs: type check: a type left unknown
 keyword/soup.rs: import not resolved: __ui_test_59::x: use Ok (as Ok)
 lazy-type-alias-impl-trait/recursion2.rs: type check: mismatched types
 lexer/ident_normalization.rs: path not resolved: K

@@ -62,7 +62,6 @@ impl-trait/recursive-bound-eval.rs#next: type check: a type left unknown
 implied-bounds/implied-bounds-on-nested-references-plus-variance-2.rs: type check: a type left unknown
 imports/ambiguous-glob-vs-expanded-extern.rs: macro not found: mac!
 lexer/ident_normalization.rs: path not resolved: K
-lint/rfc-2383-lint-reason/expect_tool_lint_rfc_2383.rs: type check: a type left unknown
 lint/use-redundant/use-redundant-issue-78894.rs: import not resolved: : use bar (as bar)
 macros/issue-34171.rs: error: in `null!`: no rule of the macro matches this input (issue-34171.rs:5:20)
 macros/parse-test.rs: error: expected a macro matcher in delimiters (parse-test.rs:8:5)

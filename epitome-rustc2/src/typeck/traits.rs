@@ -838,6 +838,15 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let ntr = tcx.all_params(tr).len().min(args.len());
         let (args, own_args) = args.split_at(ntr);
         let mut sel = self.select(t, tr, &args[1..], depth);
+        // An integer variable's own obligation (`{integer}: SliceIndex<[u8]>`)
+        // says nothing of the impl: that is looked for.
+        if matches!(sel, Select::Yes(Source::Bound))
+            && matches!(self.infer.var_kind(t), Some(VarKind::Int | VarKind::Float))
+        {
+            let saved = std::mem::take(&mut self.obligations);
+            sel = self.select(t, tr, &args[1..], depth);
+            self.obligations = saved;
+        }
         // Two impls that both seem to apply, with every type known: their
         // `where` clauses checked deeper may rule one out (`u8:
         // TryFrom<u16>` has core's impl, and the blanket one through `u16:

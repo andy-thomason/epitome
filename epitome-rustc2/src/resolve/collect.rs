@@ -30,6 +30,7 @@ pub(super) fn collect<'s>(session: &Session, crates: &[ParsedCrate<'s>]) -> Reso
         def_site: Vec::new(),
         macro_bodies: Vec::new(),
         opaque_bodies: Vec::new(),
+        crate_namespaces: Vec::new(),
         builtin_texts,
     };
     // Crate roots first, so that `extern crate` can name any of them.
@@ -47,6 +48,34 @@ pub(super) fn collect<'s>(session: &Session, crates: &[ParsedCrate<'s>]) -> Reso
             };
             r.no_core[k] = inner("no_core");
             r.no_std[k] = inner("no_std");
+        }
+    }
+    // `my_api::utils`: a module `my_api` whose `utils` is that crate.
+    for k in 0..crates.len() {
+        let name = r.crate_names[k].clone();
+        let parts: Vec<&str> = name.split("::").collect();
+        for i in 1..parts.len() {
+            let prefix = parts[..i].join("::");
+            let module = match r.crate_namespaces.iter().find(|n| n.0 == prefix) {
+                Some(&(_, m)) => m,
+                None => {
+                    let m = r.new_module(k as u32, None, false);
+                    let def = r.new_def(DefKind::Mod, "", k as u32, None, 0, NodeId(0), Vis::Public, Some(m));
+                    r.modules[m.0 as usize].def = Some(def);
+                    r.crate_namespaces.push((prefix, m));
+                    m
+                }
+            };
+            let next = if i + 1 == parts.len() {
+                r.modules[r.roots[k].0 as usize].def
+            } else {
+                let p2 = parts[..i + 1].join("::");
+                r.crate_namespaces.iter().find(|n| n.0 == p2).and_then(|&(_, m)| r.modules[m.0 as usize].def)
+            };
+            if let Some(d) = next {
+                let seg: &'static str = Box::leak(parts[i].to_string().into_boxed_str());
+                r.bind(module, seg, Ns::Type, Res::Def(d), Vis::Public);
+            }
         }
     }
     for (k, c) in crates.iter().enumerate() {

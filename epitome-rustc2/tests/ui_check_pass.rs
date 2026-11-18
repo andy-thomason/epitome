@@ -342,7 +342,15 @@ fn rustc_cfg(options: &[String]) -> Option<String> {
 fn aux_spec(directive: &str, value: &str) -> Option<(String, String)> {
     if directive == "aux-crate" {
         let (name, file) = value.split_once('=')?;
-        let name = name.rsplit(':').next()?.trim();
+        // Options before a single `:` (`noprelude:name`); a namespaced
+        // crate's name has `::` in it (`my_api::utils`).
+        let mut name = name.trim();
+        while let Some(i) = name.find(':') {
+            if name[i + 1..].starts_with(':') {
+                break;
+            }
+            name = &name[i + 1..];
+        }
         return Some((name.to_string(), file.trim().to_string()));
     }
     let file = value.trim();

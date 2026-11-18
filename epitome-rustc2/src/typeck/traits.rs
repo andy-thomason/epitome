@@ -225,9 +225,12 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let self_ty = match &pred {
             Pred::Trait(t, _) | Pred::Projection(t, ..) => *t,
         };
+        // Checked against impls once known: the arguments' unknowns, or
+        // the type's (an opaque type's hidden type, bound by its bounds).
         if let Pred::Trait(t, tr) = &pred
             && self.pending_traits.len() < 4096
-            && self.tcx.tys(tr.args).into_iter().any(|a| self.tcx.has_infer(self.infer.resolve(a)))
+            && (self.tcx.tys(tr.args).into_iter().any(|a| self.tcx.has_infer(self.infer.resolve(a)))
+                || self.infer.var_kind(self.infer.shallow(*t)) == Some(VarKind::General))
         {
             self.pending_traits.push((*t, tr.def, tr.args));
         }
@@ -1022,6 +1025,18 @@ impl<'a, 's> FnCtxt<'a, 's> {
             TyKind::Array(x, c) => {
                 let x = self.normalize(x, depth);
                 self.mk(TyKind::Array(x, c))
+            }
+            // `dyn HttpService<F, S = <F as Framing>::F>`.
+            TyKind::Dyn(d) => {
+                let mut data = tcx.dyn_of(d);
+                for tr in &mut data.traits {
+                    let v = tcx.tys(tr.args).into_iter().map(|x| self.normalize(x, depth)).collect();
+                    tr.args = tcx.list(v);
+                    for b in &mut tr.bindings {
+                        b.1 = self.normalize(b.1, depth);
+                    }
+                }
+                self.mk(TyKind::Dyn(tcx.dyn_(data)))
             }
             TyKind::FnPtr(s) | TyKind::Closure(_, s, _) => {
                 let mut sig = tcx.sig_of(s);
@@ -1870,6 +1885,10 @@ fn has_projection(tcx: &crate::ty::TyCtxt, t: Ty) -> bool {
                 || tcx.tys(s.inputs).into_iter().any(|x| has_projection(tcx, x))
                 || tcx.tys(l).into_iter().any(|x| has_projection(tcx, x))
         }
+        TyKind::Dyn(d) => tcx.dyn_of(d).traits.iter().any(|tr| {
+            tcx.tys(tr.args).into_iter().any(|x| has_projection(tcx, x))
+                || tr.bindings.iter().any(|b| has_projection(tcx, b.1))
+        }),
         TyKind::AsyncBlock(_, o, l) | TyKind::Coroutine(_, o, l) | TyKind::GenBlock(_, o, l, _) => {
             has_projection(tcx, o) || tcx.tys(l).into_iter().any(|x| has_projection(tcx, x))
         }

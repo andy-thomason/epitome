@@ -6,7 +6,6 @@ associated-inherent-types/generic-const-exprs.rs: type check: associated type no
 associated-inherent-types/inference.rs#current: type check: a type left unknown
 associated-inherent-types/inference.rs#next: type check: a type left unknown
 associated-inherent-types/variance-computation-requires-equality.rs: type check: associated type not found
-associated-types/duplicate-associated-type-resolution-59326.rs: type check: a type left unknown
 assumptions_on_binders/test-infra-works.rs: macro not found: test_binder_constraints!
 attributes/duplicated-attributes.rs: import not resolved: : use test::Bencher (as Bencher)
 attributes/z-crate-attr/cfg-false.rs: left out: flags that change the crate
@@ -57,8 +56,6 @@ impl-trait/non-defining-uses/impl-deref-function-call.rs#current: type check: a 
 impl-trait/non-defining-uses/impl-deref-function-call.rs#next: type check: a type left unknown
 impl-trait/non-defining-uses/multiple-opaques-ok.rs: type check: mismatched types
 impl-trait/precise-capturing/external-macro.rs: path not resolved: element
-impl-trait/recursive-bound-eval.rs#current: type check: a type left unknown
-impl-trait/recursive-bound-eval.rs#next: type check: a type left unknown
 implied-bounds/implied-bounds-on-nested-references-plus-variance-2.rs: type check: a type left unknown
 imports/ambiguous-glob-vs-expanded-extern.rs: macro not found: mac!
 lexer/ident_normalization.rs: path not resolved: K
@@ -104,7 +101,6 @@ traits/next-solver/deduce-ty-from-object.rs: type check: mismatched types
 traits/next-solver/generalize/alias-with-bound-vars-incomplete-generalization.rs#next: type check: mismatched types
 traits/next-solver/generalize/alias-with-bound-vars-incomplete-generalization.rs#old: type check: mismatched types
 traits/next-solver/generalize/constrain-inference-during-normalize.rs: type check: a type left unknown
-traits/next-solver/lazy-nested-obligations-3.rs: type check: a type left unknown
 traits/next-solver/method/path_lookup_wf_constraints.rs: type check: a type left unknown
 traits/next-solver/overflow-discards-constraints.rs: type check: a type left unknown
 traits/next-solver/overflow/fcw-on-normalization.rs#next: type check: method not found

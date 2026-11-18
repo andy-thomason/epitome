@@ -3211,7 +3211,8 @@ pub(crate) fn parse_str(tok: &str) -> Option<Vec<u8>> {
             let mut s = body;
             while !s.is_empty() {
                 if let Some(rest) = s.strip_prefix("\\\n").or_else(|| s.strip_prefix("\\\r\n")) {
-                    s = rest.trim_start();
+                    // Only these, not a form feed, as rustc skips.
+                    s = rest.trim_start_matches([' ', '\t', '\n', '\r']);
                     continue;
                 }
                 let hex = s.starts_with("\\x");
@@ -3245,7 +3246,7 @@ pub(crate) fn parse_str(tok: &str) -> Option<Vec<u8>> {
         if let Some(rest) = s.strip_prefix("\\\n").or_else(|| s.strip_prefix("\\\r\n")) {
             // A line continuation: the newline and the next line's
             // leading whitespace go.
-            s = rest.trim_start();
+            s = rest.trim_start_matches([' ', '\t', '\n', '\r']);
             continue;
         }
         let (c, rest) = unescape_one(s)?;

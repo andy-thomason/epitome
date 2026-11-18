@@ -939,8 +939,13 @@ impl<'a, 's> FnCtxt<'a, 's> {
             TyKind::Closure(_, s, _) => Some(self.mk(TyKind::FnPtr(s))),
             TyKind::FnDef(d, l) => {
                 let (inputs, output) = self.callable_sig(d, l)?;
-                let base = tcx.sig_of(tcx.fn_sig[d.0 as usize]?);
-                let sig = crate::ty::FnSig { inputs: tcx.list(inputs), output, ..base };
+                // A tuple struct's or variant's constructor has no
+                // signature of its own: a safe Rust one.
+                let (unsafety, abi) = match tcx.fn_sig[d.0 as usize] {
+                    Some(s) => (tcx.sig_of(s).unsafety, tcx.sig_of(s).abi),
+                    None => (false, crate::ty::Abi::Rust),
+                };
+                let sig = crate::ty::FnSig { inputs: tcx.list(inputs), output, unsafety, variadic: false, abi };
                 Some(self.mk(TyKind::FnPtr(tcx.sig(sig))))
             }
             _ => None,
@@ -1548,13 +1553,27 @@ impl<'a, 's> FnCtxt<'a, 's> {
             }
             Kind::Array => {
                 let elem = match expect.map(|e| tcx.kind(self.infer.shallow(e))) {
-                    Some(TyKind::Array(t, _) | TyKind::Slice(t)) => t,
-                    _ => self.infer.fresh(),
+                    Some(TyKind::Array(t, _) | TyKind::Slice(t)) => {
+                        for &e in &kids {
+                            let et = self.expr(e, Some(t));
+                            self.coerce(e, et, t);
+                        }
+                        t
+                    }
+                    // The elements' common type, as match arms have
+                    // (`[foo, |a| 2]`: function pointers).
+                    _ => {
+                        let mut acc: Option<Ty> = None;
+                        for &e in &kids {
+                            let et = self.expr(e, acc);
+                            acc = Some(match acc {
+                                None => et,
+                                Some(a) => self.join(e, a, et),
+                            });
+                        }
+                        acc.unwrap_or_else(|| self.infer.fresh())
+                    }
                 };
-                for &e in &kids {
-                    let t = self.expr(e, Some(elem));
-                    self.coerce(e, t, elem);
-                }
                 let c = tcx.konst(Const::Value(kids.len() as u128));
                 self.mk(TyKind::Array(elem, c))
             }

@@ -39,8 +39,7 @@ check-cfg/report-in-external-macros.rs#cargo: macro not found: my_lib_macro!
 check-cfg/report-in-external-macros.rs#rustc: macro not found: my_lib_macro!
 check-cfg/values-target-json.rs: left out: a target rustc does not know
 closures/2229_closure_analysis/migrations/issue-86753.rs: type check: a type left unknown
-closures/closure_no_cap_coerce_many_check_pass.rs: type check: mismatched types
-closures/issue-48109.rs: type check: mismatched types
+closures/closure_no_cap_coerce_many_check_pass.rs: type check: a type left unknown
 closures/issue-87814-1.rs: type check: a type left unknown
 closures/issue-87814-2.rs: type check: a type left unknown
 closures/self-supertrait-bounds.rs: type check: a type left unknown
@@ -126,7 +125,6 @@ macros/issue-34171.rs: error: in `null!`: no rule of the macro matches this inpu
 macros/issue-69838-mods-relative-to-included-path.rs: error: no file for module `bar`: neither `/private/tmp/claude-502/-Users-amy-andy-thomason-epitome/d698d809-bf3b-400b-91f6-effe1b4b32f5/scratchpad/rust/tests/ui/macros/bar.rs` nor `/private/tmp/claude-502/-Users-amy-andy-thomason-epitome/d698d809-bf3b-400b-91f6-effe1b4b32f5/scratchpad/rust/tests/ui/macros/bar/mod.rs` (included.rs:3:9)
 macros/issue-95267.rs: error: in `f!`: no rule of the macro matches this input (issue-95267.rs:13:5)
 macros/parse-test.rs: error: expected a macro matcher in delimiters (parse-test.rs:8:5)
-match/enum-and-break-in-match-issue-41213.rs: type check: mismatched types
 match/postfix-match/no-unused-parens.rs: error: expected a field or method name, found `match` (no-unused-parens.rs:6:10)
 methods/fulfillment-disqualifies-method.rs#current: type check: a type left unknown
 methods/fulfillment-disqualifies-method.rs#next: type check: a type left unknown
@@ -186,7 +184,7 @@ single-use-lifetime/issue-117965.rs: type check: mismatched types
 sized/coinductive-1-gat.rs: type check: a type left unknown
 specialization/source-impl-requires-constraining-predicates-ambig.rs#next: type check: mismatched types
 specialization/spec-influences-inference-issue-36262.rs#next: type check: a type left unknown
-str/str-escape.rs: type check: mismatched types
+str/str-escape.rs: type check: a type left unknown
 trait-bounds/issue-94999.rs: type check: method not found
 traits/const-traits/conditionally-const-trait-bound-syntax.rs: path not resolved: Tr
 traits/issue-66768.rs: type check: method not found

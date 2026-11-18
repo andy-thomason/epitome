@@ -132,6 +132,11 @@ pub(crate) struct Elab<'a, 'x> {
     pub spec_cache: HashMap<(NodeId, String), SpecId>,
     /// The top-level instances asked for, if any.
     pub chosen_tops: Vec<String>,
+    /// From a configuration chosen as the top (33.4): the cells it puts
+    /// in place of others everywhere (`cell x use y`), and at instance
+    /// paths from the top (`instance top.a.b use y`).
+    pub cell_use: HashMap<Sym, Sym>,
+    pub inst_use: Vec<(Vec<Sym>, Sym)>,
     /// Parameters of the top-level instances set from outside.
     pub top_params: Vec<(String, Const)>,
     pub work: Vec<(Work, Vec<InstId>)>,
@@ -257,6 +262,8 @@ impl<'a, 'x> Elab<'a, 'x> {
             packages: HashMap::new(),
             spec_cache: HashMap::new(),
             chosen_tops: Vec::new(),
+            cell_use: HashMap::new(),
+            inst_use: Vec::new(),
             top_params: Vec::new(),
             work: Vec::new(),
             inst_path: Vec::new(),
@@ -543,8 +550,20 @@ impl<'a, 'x> Elab<'a, 'x> {
             tops.clear();
             for name in self.chosen_tops.clone() {
                 let s = self.sym_owned(name.clone());
-                match self.defs.get(&s) {
-                    Some(&def) => tops.push((s, def)),
+                match self.defs.get(&s).copied() {
+                    // A configuration: the cells of its design statement,
+                    // with its rules for what is used in place of what.
+                    Some(def) if def.kind == DefKind2::Config => {
+                        for c in self.config(def.node)? {
+                            match self.defs.get(&c) {
+                                Some(&d) => tops.push((c, d)),
+                                None => {
+                                    return Err(self.err(def.node, format!("there is no design element `{}` for configuration `{name}`", self.name(c))));
+                                }
+                            }
+                        }
+                    }
+                    Some(def) => tops.push((s, def)),
                     None => return Err(self.err(self.ast.root, format!("there is no design element `{name}` to be the top"))),
                 }
             }
@@ -558,6 +577,49 @@ impl<'a, 'x> Elab<'a, 'x> {
         }
         checks::after(self)?;
         Ok(())
+    }
+
+    /// A configuration's design cells, noting its `use` rules (33.4.1). A
+    /// library name before a cell is passed over: there is one library.
+    fn config(&mut self, n: NodeId) -> R<'a, Vec<Sym>> {
+        let mut design = Vec::new();
+        for k in self.kids(n).to_vec() {
+            match self.kind(k) {
+                Kind::ConfigDesign => {
+                    for c in self.kids(k).to_vec() {
+                        if let Some(&last) = self.leaf_names(c).last() {
+                            design.push(last);
+                        }
+                    }
+                }
+                Kind::ConfigRule => {
+                    let kids = self.kids(k).to_vec();
+                    let kw = self.text(kids[0]);
+                    let Some(u) = kids.iter().position(|&x| self.kind(x) == Kind::Keyword && self.text(x) == "use") else { continue };
+                    let Some(with) = kids.get(u + 1).and_then(|&x| self.leaf_names(x).last().copied()) else { continue };
+                    let target: Vec<Sym> = kids[1..u].iter().flat_map(|&x| self.leaf_names(x)).collect();
+                    match kw {
+                        "cell" => {
+                            if let Some(&c) = target.last() {
+                                self.cell_use.insert(c, with);
+                            }
+                        }
+                        "instance" => self.inst_use.push((target, with)),
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(design)
+    }
+
+    /// The names in a name or a dotted chain of them, in order.
+    fn leaf_names(&mut self, n: NodeId) -> Vec<Sym> {
+        if self.kind(n) == Kind::Name {
+            return vec![self.sym_of(n)];
+        }
+        self.kids(n).to_vec().into_iter().flat_map(|k| self.leaf_names(k)).collect()
     }
 
     /// The parameters set from outside that apply to top `s`.
@@ -1642,6 +1704,8 @@ impl<'a, 'x> Elab<'a, 'x> {
         let kids = self.kids(n);
         let name = kids[0];
         let s = self.sym_of(name);
+        // A configuration's cell rule puts another cell in its place.
+        let s = self.cell_use.get(&s).copied().unwrap_or(s);
         let Some(def) = self.defs.get(&s).copied() else {
             // A class or a type used as `T x(...)` is not an instance.
             return Err(
@@ -1695,6 +1759,20 @@ impl<'a, 'x> Elab<'a, 'x> {
             let range = match dims.first() {
                 Some(&dim) => Some(ty::const_range(self, sc, dim)?),
                 None => None,
+            };
+            // A configuration's instance rule for this path.
+            let def = if self.inst_use.is_empty() {
+                def
+            } else {
+                let mut path: Vec<Sym> = self.inst_path.iter().map(|&i| self.d.instances[i.0 as usize].name).collect();
+                path.push(is);
+                match self.inst_use.iter().find(|(p, _)| *p == path).map(|r| r.1) {
+                    Some(with) => match self.defs.get(&with) {
+                        Some(&d) => d,
+                        None => return Err(self.err(inst, format!("there is no design element `{}` to use here", self.name(with)))),
+                    },
+                    None => def,
+                }
             };
             match range {
                 None => {

@@ -145,7 +145,10 @@ pub fn elaborate_with_ast<R: Send>(
 /// Elaborates `src` with `top` as the top-level module and lowers its
 /// netlist.
 pub fn netlist(src: &Sources, top: &str, opts: &netlist::Options) -> Result<Netlist, String> {
-    elaborate(src, &[top], |d| netlist::compile_with(d, d.tops[0], opts))?
+    elaborate(src, &[top], |d| match d.tops.first() {
+        Some(&t) => netlist::compile_with(d, t, opts),
+        None => Err(format!("there is no top-level module `{top}`")),
+    })?
 }
 
 /// What the netlist makes of one specialisation of a design.

@@ -896,8 +896,8 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     let s = tcx.sig_of(s);
                     let want_in = tcx.tys(s.inputs);
                     let ok = inputs.len() == want_in.len()
-                        && inputs.iter().zip(&want_in).all(|(&a, &b)| self.infer.unify(a, b))
-                        && self.infer.unify(output, s.output);
+                        && inputs.iter().zip(&want_in).all(|(&a, &b)| self.unify_alias(a, b))
+                        && self.unify_alias(output, s.output);
                     if ok {
                         self.adjust(n, vec![Adjust::ReifyFnPointer], w);
                     }
@@ -1067,6 +1067,28 @@ impl<'a, 's> FnCtxt<'a, 's> {
             return self.tcx.error();
         }
         a
+    }
+
+    /// `a` and `b` made the same, where `a` may be a variable standing for
+    /// a projection not yet worked out (`<?T as Foo>::Assoc`) and `b` that
+    /// projection with other arguments (`<T as Foo>::Assoc`): the
+    /// arguments are made the same too.
+    fn unify_alias(&mut self, a: Ty, b: Ty) -> bool {
+        let tcx = self.tcx;
+        let va = self.infer.shallow(a);
+        if self.infer.var_kind(va).is_some()
+            && let TyKind::Projection(item, l) = tcx.kind(self.infer.shallow(b))
+            && let Some(&(_, pl, _)) =
+                self.pending.iter().find(|p| p.0 == item && self.infer.shallow(p.2) == va)
+        {
+            let (xs, ys) = (tcx.tys(pl), tcx.tys(l));
+            let p = self.probe();
+            if xs.len() == ys.len() && xs.iter().zip(&ys).all(|(&x, &y)| self.infer.unify(x, y)) {
+                return self.infer.unify(a, b);
+            }
+            self.rollback(p);
+        }
+        self.infer.unify(a, b)
     }
 
     /// The function pointer type a function item, closure or pointer

@@ -911,11 +911,10 @@ impl<'a, 's> FnCtxt<'a, 's> {
             }
             _ => {}
         }
-        if self.infer.unify(g, w) {
-            return true;
-        }
         // An `impl Trait` this body defines, met as another type (`let x:
-        // Vec<i32> = foo(false)` in `foo`): that is its hidden type.
+        // Vec<i32> = foo(false)` in `foo`, or the hidden type itself, as in
+        // `match b { true => baz(false), false => Some(bar()) }`): its
+        // hidden type, rather than the opaque type standing for itself.
         let revealed = self.reveal_own(g);
         if revealed != g {
             let p = self.probe();
@@ -923,6 +922,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 return true;
             }
             self.rollback(p);
+        }
+        if self.infer.unify(g, w) {
+            return true;
         }
         self.err(n, "mismatched types");
         false

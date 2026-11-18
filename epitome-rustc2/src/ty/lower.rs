@@ -467,7 +467,15 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
             if !match_ty(tcx, imp.self_ty, bt, &params, &mut args) {
                 continue;
             }
-            let args: Vec<Ty> = args.into_iter().zip(&params).map(|(a, &p)| a.unwrap_or_else(|| tcx.mk(TyKind::Param(p)))).collect();
+            // A parameter a hole stood for is a hole too.
+            let holes = self.holes;
+            let args: Vec<Ty> = args
+                .into_iter()
+                .zip(&params)
+                .map(|(a, &p)| {
+                    a.unwrap_or_else(|| tcx.mk(if holes { TyKind::Infer(u32::MAX) } else { TyKind::Param(p) }))
+                })
+                .collect();
             let t = super::collect::alias_ty(tcx, self.env, &mut self.expanding, a);
             return Some(super::collect::subst(tcx, t, &params, &args));
         }
@@ -905,6 +913,8 @@ fn match_ty(tcx: &TyCtxt, pattern: Ty, actual: Ty, params: &[ParamId], args: &mu
             x.len() == y.len() && x.into_iter().zip(y).all(|(p, q)| match_ty(tcx, p, q, params, args))
         }
         (TyKind::Ref(m, x), TyKind::Ref(n, y)) if m == n => match_ty(tcx, x, y, params, args),
+        // A hole (`Container<_>::Sink`) may be anything.
+        (_, TyKind::Infer(_)) => true,
         _ => pattern == actual,
     }
 }

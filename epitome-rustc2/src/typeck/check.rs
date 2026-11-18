@@ -1341,8 +1341,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     }
                     // `Foo::Bar::<10>::new()`: its own arguments.
                     if let Some(g) = self.ast.child(segs[segs.len() - 2], Kind::GenericArgs) {
+                        let ast = self.ast;
                         let written: Vec<NodeId> =
-                            self.ast.children(g).iter().copied().filter(|&a| is_generic_arg(self.ast.kind(a))).collect();
+                            ast.children(g).iter().copied().filter(|&a| is_generic_arg(ast.kind(a))).collect();
                         for (i, a) in written.into_iter().enumerate() {
                             if let Some(&v) = args.get(start + i) {
                                 let w = self.written_arg(a);

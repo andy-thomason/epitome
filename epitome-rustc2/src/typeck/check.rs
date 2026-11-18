@@ -927,9 +927,10 @@ impl<'a, 's> FnCtxt<'a, 's> {
         // `match b { true => baz(false), false => Some(bar()) }`): its
         // hidden type, rather than the opaque type standing for itself.
         let revealed = self.reveal_own(g);
-        if revealed != g {
+        let wanted = self.reveal_own(w);
+        if revealed != g || wanted != w {
             let p = self.probe();
-            if self.infer.unify(revealed, w) {
+            if self.infer.unify(revealed, wanted) {
                 return true;
             }
             self.rollback(p);

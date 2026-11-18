@@ -516,3 +516,52 @@ fn bit_counts_lane_by_lane() {
         },
     );
 }
+
+const LATCH: &str = r#"
+module lat (
+    input  logic       en,
+    input  logic [7:0] d,
+    output logic [7:0] q,
+    output logic [7:0] q2
+);
+  always_latch begin
+    if (en) q = d;
+  end
+  always_latch begin
+    if (!en) q2 = d + 8'd1;
+  end
+endmodule
+"#;
+
+#[test]
+fn latches_hold() {
+    // An always_latch writes its values while enabled and holds them when
+    // not.
+    let Some(host) = host() else {
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
+        return;
+    };
+    let b = build("lat", netlist_of(&text("lat.sv", LATCH), "lat"), &host);
+    report("lat", &b);
+    let net = &b.net;
+    let mut st = b.state();
+    let mut rng = Rng(0x3C6E_F372_FE94_F82B);
+    let (mut q, mut q2) = (vec![0u64; net.lanes], vec![0u64; net.lanes]);
+    for _ in 0..12 {
+        let ins: Vec<(u64, u64)> = (0..net.lanes).map(|_| (rng.next() & 1, rng.next() & 0xFF)).collect();
+        for (k, &(en, d)) in ins.iter().enumerate() {
+            st.put(net, "en", k, en);
+            st.put(net, "d", k, d);
+        }
+        b.eval_state(&mut st);
+        for (k, &(en, d)) in ins.iter().enumerate() {
+            if en == 1 {
+                q[k] = d;
+            } else {
+                q2[k] = (d + 1) & 0xFF;
+            }
+            assert_eq!(st.get(net, "q", k), q[k], "q, lane {k}: en {en} d {d}");
+            assert_eq!(st.get(net, "q2", k), q2[k], "q2, lane {k}: en {en} d {d}");
+        }
+    }
+}

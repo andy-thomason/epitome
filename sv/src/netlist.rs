@@ -1917,7 +1917,9 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 Item::Process(p) => {
                     let pr = &d.processes[p.0 as usize];
                     match pr.kind {
-                        ProcKind::AlwaysComb => {
+                        // A latch is combinational code whose values hold where
+                        // it does not write them: they are kept in the state.
+                        ProcKind::AlwaysComb | ProcKind::AlwaysLatch => {
                             self.process_statics(pr.body, objs);
                             code.push(Node::Proc(p));
                         }

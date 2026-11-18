@@ -528,6 +528,42 @@ fn names_core(text: &str) -> bool {
         .any(|(i, _)| !text[..i].chars().next_back().is_some_and(|c| c.is_alphanumeric() || c == '_'))
 }
 
+/// How far rustc gets with a test's flags: the stages after it are not
+/// checked.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Stage {
+    /// `-Zparse-crate-root-only`, `-Zunpretty=normal` and the like.
+    Parse,
+    /// `-Zunpretty=expanded`.
+    Expand,
+    /// `-Zunpretty=hir`.
+    Resolve,
+    Check,
+}
+
+impl Stage {
+    fn of(cfg: &[String]) -> Stage {
+        let mut stage = Stage::Check;
+        for c in cfg {
+            if c == "rustc:-Zparse-crate-root-only" {
+                stage = stage.min(Stage::Parse);
+            } else if let Some(u) = c.strip_prefix("rustc:-Zunpretty=") {
+                let s = if u.contains("expanded") {
+                    Stage::Expand
+                } else if matches!(u, "normal" | "identified" | "ast-tree") {
+                    Stage::Parse
+                } else if matches!(u, "hir" | "hir-tree" | "hir,identified") {
+                    Stage::Resolve
+                } else {
+                    Stage::Check
+                };
+                stage = stage.min(s);
+            }
+        }
+        stage
+    }
+}
+
 /// Runs `tests` in one session: for each, `None` if it passed, or why not.
 /// The tests' auxiliary crates are loaded once each, by name (the batch
 /// has no two different crates of one name).
@@ -581,7 +617,12 @@ fn run(library: &Path, tests: &[&Test]) -> Vec<Option<String>> {
     let r = session.resolve(&crates);
     let tcx = session.collect_types(&crates, &r);
     let res = session.typeck(&crates, &r, &tcx);
-    let verdict = |k: usize| {
+    // How far rustc goes: `-Zunpretty=expanded` stops after expansion,
+    // `-Zunpretty=hir` after name resolution (see `Stage`).
+    let verdict = |k: usize, stage: Stage| {
+        if stage == Stage::Parse {
+            return parse_errors[k].clone();
+        }
         let c = &crates[k];
         if let Some(e) = c.errors.first() {
             // `file:line:col: error: message`: the message, then where.
@@ -594,12 +635,18 @@ fn run(library: &Path, tests: &[&Test]) -> Vec<Option<String>> {
         if let Some(m) = expanded.unresolved_by_crate.get(&k) {
             return Some(format!("macro not found: {}!", m.keys().next().unwrap()));
         }
+        if stage == Stage::Expand {
+            return None;
+        }
         if let Some(i) = r.failed_import_lines_of(k as u32).first() {
             return Some(format!("import not resolved: {i}"));
         }
         let s = r.crate_stats(&crates, k);
         if s.unresolved > 0 {
             return Some(format!("path not resolved: {}", s.unresolved_names[0].0));
+        }
+        if stage == Stage::Resolve {
+            return None;
         }
         let t = &res.crate_stats[k];
         if t.clean_bodies < t.bodies {
@@ -613,15 +660,13 @@ fn run(library: &Path, tests: &[&Test]) -> Vec<Option<String>> {
         .enumerate()
         .map(|(i, t)| {
             // An auxiliary crate that fails fails the test.
+            let stage = Stage::of(&t.cfg);
             for a in &t.aux {
-                if let Some(why) = verdict(aux_index[a.name.as_str()]) {
+                if let Some(why) = verdict(aux_index[a.name.as_str()], Stage::Check) {
                     return Some(format!("auxiliary crate `{}`: {why}", a.name));
                 }
             }
-            if t.cfg.iter().any(|c| c == "rustc:-Zparse-crate-root-only") {
-                return parse_errors[first + i].clone();
-            }
-            verdict(first + i)
+            verdict(first + i, stage)
         })
         .collect()
 }

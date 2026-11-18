@@ -1335,6 +1335,8 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     let args = self.infer.instantiate(&all);
                     subst(tcx, t, &all, &args)
                 }
+                // `extern { type Local; }`: `Local::foo(x)`.
+                DefKind::ForeignType => self.mk(TyKind::Foreign(*d)),
                 _ => return None,
             },
             Res::PrimTy(p) => crate::ty::lower::prim(tcx, p),
@@ -1612,7 +1614,13 @@ impl<'a, 's> FnCtxt<'a, 's> {
             Kind::Cast => {
                 let target = self.written_ty(kids[1]);
                 // A cast to `&dyn Fn(A)`: what a closure in it takes.
-                let src_expect = has_dyn(tcx, target).then_some(target);
+                // So does `(|x| x) as fn(usize) -> usize`.
+                let mut op = kids[0];
+                while ast.kind(op) == Kind::Paren {
+                    op = *ast.children(op).last().unwrap();
+                }
+                let fn_ptr = ast.kind(op) == Kind::Closure && matches!(tcx.kind(target), TyKind::FnPtr(_));
+                let src_expect = (fn_ptr || has_dyn(tcx, target)).then_some(target);
                 let src = self.expr(kids[0], src_expect);
                 // A `_` in the target: a pointer cast keeps the pointee
                 // (`r as *const _`); otherwise the context says (`n as _`).

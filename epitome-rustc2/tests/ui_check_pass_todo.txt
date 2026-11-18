@@ -1,6 +1,5 @@
 # rust-lang/rust a69a63265cfd9e006d43137f98301b8d274ad4c9 on aarch64-macos
 # The check-pass UI tests that do not pass yet, and why (tests/ui_check_pass.rs).
-associated-inherent-types/constrain_opaque_types_during_projection.rs: type check: a type left unknown
 assumptions_on_binders/test-infra-works.rs: macro not found: test_binder_constraints!
 attributes/duplicated-attributes.rs: import not resolved: : use test::Bencher (as Bencher)
 attributes/z-crate-attr/cfg-false.rs: left out: flags that change the crate
@@ -36,11 +35,10 @@ hygiene/issue-32922.rs: error: expanding `foo!`: expected the end of the input, 
 impl-trait/defining-use-uncaptured-non-universal-region-2.rs: type check: mismatched types
 impl-trait/in-trait/late-bound-in-object-assocty.rs: type check: mismatched types
 impl-trait/lifetime-ambiguity-regression.rs: type check: a type left unknown
-impl-trait/method/broken-deref-chain.rs#next: type check: mismatched types
+impl-trait/method/broken-deref-chain.rs#next: type check: method not found
 impl-trait/nested-hkl-lifetime.rs: type check: a type left unknown
 impl-trait/non-defining-uses/ambiguous-ops.rs#next: type check: mismatched types
-impl-trait/non-defining-uses/deref-constrains-self-ty.rs#next: type check: method not found
-impl-trait/non-defining-uses/multiple-opaques-ok.rs: type check: mismatched types
+impl-trait/non-defining-uses/multiple-opaques-ok.rs: type check: method not found
 impl-trait/precise-capturing/external-macro.rs: path not resolved: element
 imports/ambiguous-glob-vs-expanded-extern.rs: macro not found: mac!
 lexer/ident_normalization.rs: path not resolved: K

@@ -913,8 +913,9 @@ fn match_ty(tcx: &TyCtxt, pattern: Ty, actual: Ty, params: &[ParamId], args: &mu
             x.len() == y.len() && x.into_iter().zip(y).all(|(p, q)| match_ty(tcx, p, q, params, args))
         }
         (TyKind::Ref(m, x), TyKind::Ref(n, y)) if m == n => match_ty(tcx, x, y, params, args),
-        // A hole (`Container<_>::Sink`) may be anything.
-        (_, TyKind::Infer(_)) => true,
+        // A hole (`Container<_>::Sink`) may be anything; so may an opaque
+        // type, in the body that finds what it is (`Foo<Tait>::Assoc`).
+        (_, TyKind::Infer(_) | TyKind::Opaque(..)) => true,
         _ => pattern == actual,
     }
 }

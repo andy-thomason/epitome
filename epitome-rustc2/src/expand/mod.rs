@@ -52,10 +52,28 @@ const RECURSION_LIMIT: usize = 128;
 const MAX_ROUNDS: usize = 64;
 
 /// Text that synthetic tokens are slices of.
-static SYNTH: &str = "():::crate";
+static SYNTH: &str = "():::$crate";
 
 fn synth(range: std::ops::Range<usize>) -> Token<'static> {
     Token(&SYNTH[range])
+}
+
+/// A local macro's `$crate` is `crate`; but in a macro that the expansion
+/// defines (`macro_rules! inner { () => { $crate::S } }`) it stays
+/// `$crate`, to mean this crate wherever that macro is used.
+fn keep_dollar_crate(tokens: Vec<Token<'_>>) -> Vec<Token<'_>> {
+    if !tokens.iter().any(|t| t.0 == "macro_rules") {
+        return tokens;
+    }
+    let dollar_crate = synth(6..11);
+    let mut out = Vec::with_capacity(tokens.len());
+    for t in tokens {
+        if std::ptr::eq(t.0, dollar_crate.0) {
+            out.push(synth(5..6));
+        }
+        out.push(t);
+    }
+    out
 }
 
 /// Whether a token is one expansion made up (a parenthesis around a
@@ -718,13 +736,13 @@ impl<'x, 's> Expander<'x, 's> {
                 MacroKind::Rules(rules) => {
                     let make = |s: String| Token(self.session.add_text("<macro>", s));
                     let dollar_crate = if self.macros.defs[d].krate == self.krate {
-                        vec![synth(5..10)]
+                        vec![synth(6..11)]
                     } else {
                         self.macros.crate_path[self.macros.defs[d].krate].clone()
                     };
                     let mut cx = Transcribe { dollar_crate, make: &make, parens: (synth(0..1), synth(1..2)) };
                     match rules.expand(&input, eof, &mut cx) {
-                        Ok(t) => t,
+                        Ok(t) => keep_dollar_crate(t),
                         Err(msg) => {
                             let at = ast.token(path).0;
                             self.result.errors.push(Error::new(at, format!("in `{name}!`: {msg}")));
@@ -1051,7 +1069,7 @@ impl<'x, 's> Expander<'x, 's> {
                 MacroKind::Rules(rules) => {
                     let make = |s: String| Token(self.session.add_text("<macro>", s));
                     let dollar_crate = if self.macros.defs[d].krate == self.krate {
-                        vec![synth(5..10)]
+                        vec![synth(6..11)]
                     } else {
                         self.macros.crate_path[self.macros.defs[d].krate].clone()
                     };

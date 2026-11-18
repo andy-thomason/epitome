@@ -391,6 +391,13 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
                 let Some(&d) = self.tcx.def_at.get(&at) else { return self.err("`Self` of nothing") };
                 match self.env.r.defs[d.0 as usize].kind {
                     DefKind::Trait => {
+                        // The trait's own, or one a `where Self: Tr` on
+                        // the item gives.
+                        if super::collect::find_assoc(self.env, d, name).is_none()
+                            && let TyKind::Param(p) = self.tcx.kind(self_ty)
+                        {
+                            return self.assoc_of_param(p, self_ty, name);
+                        }
                         let t = TraitRef { def: d, args: self.tcx.list(Vec::new()), bindings: Vec::new(), assoc_bounds: Vec::new() };
                         let t = TraitRef { args: self.trait_identity(d), ..t };
                         self.projection(self_ty, &t, name)
@@ -452,11 +459,14 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
     fn assoc_of_param(&mut self, p: ParamId, self_ty: Ty, name: &str) -> Ty {
         let owner = self.tcx.params[p.0 as usize].owner;
         // `Self` of a trait: that trait.
-        if self.tcx.params[p.0 as usize].name == "Self" && self.env.r.defs[owner.0 as usize].kind == DefKind::Trait {
+        if self.tcx.params[p.0 as usize].name == "Self"
+            && self.env.r.defs[owner.0 as usize].kind == DefKind::Trait
+            && super::collect::find_assoc(self.env, owner, name).is_some()
+        {
             let t = TraitRef { def: owner, args: self.trait_identity(owner), bindings: Vec::new(), assoc_bounds: Vec::new() };
             return self.projection(self_ty, &t, name);
         }
-        for t in self.param_bound_traits(p) {
+        for t in self.param_bound_traits(p, name) {
             if super::collect::find_assoc(self.env, t.def, name).is_some() {
                 return self.projection(self_ty, &t, name);
             }
@@ -465,8 +475,10 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
     }
 
     /// The trait refs written as bounds on parameter `p` (on it and in
-    /// `where` clauses of its owner and the owner's parents).
-    fn param_bound_traits(&mut self, p: ParamId) -> Vec<TraitRef> {
+    /// `where` clauses of its owner and the owner's parents) that have
+    /// an associated type `name`. Others are not lowered: `where Self:
+    /// AsRef<Self::Bar>` names `Bar` itself.
+    fn param_bound_traits(&mut self, p: ParamId, name: &str) -> Vec<TraitRef> {
         let pd = self.tcx.params[p.0 as usize].clone();
         let mut out = Vec::new();
         // The item being lowered and its parents (which include the
@@ -483,7 +495,7 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
                 && let Some(b) = ast.child(pd.at.2, Kind::Bounds)
                 && pd.at.0 == k
             {
-                out.extend(self.bounds(b));
+                out.extend(self.bounds_having(b, name));
             }
             // `where T: Bound`.
             if let Some(w) = ast.child(node, Kind::WhereClause) {
@@ -495,11 +507,16 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
                     ) else {
                         continue;
                     };
-                    let is_p = ast.children(t).first().and_then(|&path| self.res(path)).is_some_and(
-                        |r| matches!(r, Res::Generic(n) if self.tcx.param_at.get(&(k, f, *n)) == Some(&p)),
-                    );
+                    let is_p = ast.children(t).first().and_then(|&path| self.res(path)).is_some_and(|r| match r {
+                        Res::Generic(n) => self.tcx.param_at.get(&(k, f, *n)) == Some(&p),
+                        // `where Self: Tr` in a trait.
+                        Res::SelfTy(sf, sn) => {
+                            pd.name == "Self" && self.tcx.def_at.get(&(k, *sf, *sn)) == Some(&pd.owner)
+                        }
+                        _ => false,
+                    });
                     if is_p {
-                        out.extend(self.bounds(b));
+                        out.extend(self.bounds_having(b, name));
                     }
                 }
             }
@@ -640,6 +657,23 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
             }
         }
         Some(TraitRef { def, args: self.tcx.list(tys), bindings, assoc_bounds })
+    }
+
+    /// The trait bounds in a `Bounds` node whose trait has an associated
+    /// type `name`.
+    fn bounds_having(&mut self, b: NodeId, name: &str) -> Vec<TraitRef> {
+        let ast = self.ast();
+        let mut out = Vec::new();
+        for &tb in ast.children(b) {
+            let Some(path) = ast.child(tb, Kind::Path).filter(|_| ast.kind(tb) == Kind::TraitBound) else { continue };
+            if let Some(Res::Def(d)) = self.res(path)
+                && super::collect::find_assoc(self.env, *d, name).is_none()
+            {
+                continue;
+            }
+            out.extend(self.trait_ref(path));
+        }
+        out
     }
 
     /// The trait bounds in a `Bounds` node (lifetimes, `?Sized` and

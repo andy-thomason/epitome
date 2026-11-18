@@ -750,6 +750,8 @@ pub(crate) fn instance(r: &Resolver, crates: &[ParsedCrate], tcx: &TyCtxt, solve
     match kind {
         DefKind::ForeignFn => Resolved::Item(Item::Foreign(d)),
         DefKind::Const => Resolved::Item(Item::Const(d, tcx.list(args))),
+        // An inherent impl's constant is itself; a trait's, the impl's.
+        DefKind::AssocConst if trait_of(r, d).is_none() => Resolved::Item(Item::Const(d, tcx.list(args))),
         DefKind::AssocConst => match solver.resolve_method(d, &args) {
             Some((c, a)) => Resolved::Item(Item::Const(c, tcx.list(a))),
             None => Resolved::NoImpl,

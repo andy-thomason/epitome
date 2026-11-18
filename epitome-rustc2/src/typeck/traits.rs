@@ -1483,10 +1483,21 @@ impl<'a, 's> FnCtxt<'a, 's> {
     /// What a closure expected as `t` (a variable a generic function's
     /// `F: Fn(A) -> B` bound is on) should take and give.
     pub(super) fn closure_expectation(&mut self, t: Ty) -> Option<(Vec<Ty>, Option<Ty>)> {
+        self.closure_expectation_of(t, false)
+    }
+
+    /// The same through `AsyncFn` bounds (`asyncness`): what an async
+    /// closure takes, and the output of the future it gives.
+    pub(super) fn closure_expectation_of(&mut self, t: Ty, asyncness: bool) -> Option<(Vec<Ty>, Option<Ty>)> {
         let tcx = self.tcx;
         let t = self.infer.shallow(t);
-        let fns: Vec<DefId> = ["fn", "fn_mut", "fn_once"].iter().filter_map(|l| self.lang(l)).collect();
-        let output = self.lang("fn_once_output");
+        let (traits, out) = if asyncness {
+            (["async_fn", "async_fn_mut", "async_fn_once"], "async_fn_once_output")
+        } else {
+            (["fn", "fn_mut", "fn_once"], "fn_once_output")
+        };
+        let fns: Vec<DefId> = traits.iter().filter_map(|l| self.lang(l)).collect();
+        let output = self.lang(out);
         let mut inputs = None;
         let mut ret = None;
         let mut bounds = self.type_bounds(t);

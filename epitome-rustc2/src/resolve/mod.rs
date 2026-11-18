@@ -441,12 +441,24 @@ impl<'s> Resolver<'s> {
                 .or_else(|| self.roots.iter().find_map(|&root| self.lookup(root, name, Ns::Macro, root)))?
         } else {
             let edition = self.path_edition(krate, root);
+            let by_path = |start: ModId, used: usize| {
+                if used >= segs.len() {
+                    return None;
+                }
+                let target = self.follow(start, &segs[used..segs.len() - 1], m)?;
+                self.lookup(target, segs[segs.len() - 1], Ns::Macro, m)
+            };
             let (start, used) = self.path_start(segs, rooted, m, krate, edition)?;
-            if used >= segs.len() {
-                return None;
+            match by_path(start, used) {
+                Some(r) => r,
+                // `krate::mac!()` in 2015 with `krate` an extern crate given
+                // on the command line (not `extern crate`d): the extern
+                // prelude, as for other paths.
+                None if !rooted && edition < crate::lexer::Edition::E2018 => {
+                    by_path(self.extern_prelude(krate, segs[0])?, 1)?
+                }
+                None => return None,
             }
-            let target = self.follow(start, &segs[used..segs.len() - 1], m)?;
-            self.lookup(target, segs[segs.len() - 1], Ns::Macro, m)?
         };
         match res {
             Res::Def(d) if self.defs[d.0 as usize].kind == DefKind::Macro => Some(d),

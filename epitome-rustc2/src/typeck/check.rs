@@ -268,6 +268,9 @@ pub(super) struct FnCtxt<'a, 's> {
     coroutine: Option<(Ty, Ty)>,
     /// The next closure checked is marked `#[coroutine]`.
     coroutine_attr: bool,
+    /// The expression a call being checked calls (its path's `where`
+    /// clauses are the call's to oblige).
+    callee: Option<NodeId>,
     /// The types of the `try` blocks being checked, innermost last: where
     /// a `?` in them goes.
     pub(super) try_blocks: Vec<Ty>,
@@ -334,6 +337,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
             ret: tcx.unit(),
             coroutine: None,
             coroutine_attr: false,
+            callee: None,
             diverging: Vec::new(),
             try_blocks: Vec::new(),
             defined: FastMap::default(),
@@ -727,6 +731,14 @@ impl<'a, 's> FnCtxt<'a, 's> {
             TyKind::Projection(d, l) => {
                 let v = tcx.tys(l).into_iter().map(|x| self.fill_holes(x)).collect();
                 self.mk(TyKind::Projection(d, tcx.list(v)))
+            }
+            // `fn(_) -> _`.
+            TyKind::FnPtr(sig) => {
+                let mut sig = tcx.sig_of(sig);
+                let v = tcx.tys(sig.inputs).into_iter().map(|x| self.fill_holes(x)).collect();
+                sig.inputs = tcx.list(v);
+                sig.output = self.fill_holes(sig.output);
+                self.mk(TyKind::FnPtr(tcx.sig(sig)))
             }
             // `dyn Iterator<Item = _>`.
             TyKind::Dyn(d) => {
@@ -1210,6 +1222,11 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 match self.r.defs[d.0 as usize].kind {
                     DefKind::Fn | DefKind::AssocFn | DefKind::ForeignFn => {
                         let args = self.item_args(d, path);
+                        // Not called (`f::<T, fn(_)>;`): its `where` clauses
+                        // still say what unknowns in its arguments are.
+                        if self.callee != Some(n) && args.iter().any(|&a| tcx.has_infer(self.infer.resolve(a))) {
+                            self.oblige_item(d, &args);
+                        }
                         self.mk(TyKind::FnDef(d, tcx.list(args)))
                     }
                     DefKind::Struct => {
@@ -2472,7 +2489,13 @@ impl<'a, 's> FnCtxt<'a, 's> {
 
     fn call(&mut self, n: NodeId, kids: &[NodeId], expect: Option<Ty>) -> Ty {
         let tcx = self.tcx;
+        let mut c = kids[0];
+        while self.ast.kind(c) == Kind::Paren {
+            c = *self.ast.children(c).last().unwrap();
+        }
+        self.callee = Some(c);
         let callee = self.expr(kids[0], None);
+        self.callee = None;
         let args = self.kids(kids[1]);
         let s = self.norm(callee);
         let sig = match tcx.kind(s) {

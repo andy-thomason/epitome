@@ -1572,6 +1572,44 @@ impl<'a, 's> FnCtxt<'a, 's> {
             self.elaborate(t, &tr, &mut sup);
             bounds.extend(sup);
         }
+        // A trait alias's `where` clauses on its parameters (`T:
+        // Confusing<F>` with `trait Confusing<F> = Fn(i32) where F:
+        // Fn(u32)`).
+        let aliases: Vec<(Ty, TraitRef)> = self
+            .obligations
+            .iter()
+            .chain(&self.env_preds)
+            .filter_map(|p| match p {
+                Pred::Trait(pt, tr) if self.r.defs[tr.def.0 as usize].kind == DefKind::TraitAlias => {
+                    Some((*pt, tr.clone()))
+                }
+                _ => None,
+            })
+            .collect();
+        for (pt, tr) in aliases {
+            let params = tcx.all_params(tr.def);
+            let mut args = vec![pt];
+            args.extend(tcx.tys(tr.args));
+            if args.len() != params.len() {
+                continue;
+            }
+            for q in &tcx.predicates[tr.def.0 as usize] {
+                match q {
+                    Pred::Trait(x, qtr) if fns.contains(&qtr.def) => {
+                        let x = subst(tcx, *x, &params, &args);
+                        if self.infer.shallow(x) == t {
+                            bounds.push(Pred::Trait(x, subst_trait_ref(tcx, qtr, &params, &args)));
+                        }
+                    }
+                    Pred::Projection(x, a, l, ty) if Some(*a) == output => {
+                        let sub = |y: Ty| subst(tcx, y, &params, &args);
+                        let l = tcx.list(tcx.tys(*l).into_iter().map(sub).collect());
+                        bounds.push(Pred::Projection(sub(*x), *a, l, sub(*ty)));
+                    }
+                    _ => {}
+                }
+            }
+        }
         // Through an impl: `Wrap<F>: Foo` with `impl<T> Foo for Wrap<T>
         // where T: Fn(i32)`, the one impl that applies.
         let around: Vec<(Ty, TraitRef)> = self

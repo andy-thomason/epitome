@@ -361,10 +361,10 @@ impl<'s> Resolver<'s> {
         }
         seen.push(m);
         let module = &self.modules[m.0 as usize];
-        if let Some(b) = module.names.get(&(name, ns))
-            && self.visible(b.vis, from)
-        {
-            return Some(b.res.clone());
+        if let Some(b) = module.names.get(&(name, ns)) {
+            // A name of its own shadows its globs' even where it cannot be
+            // seen (a private `use` hiding a glob re-export's name).
+            return self.visible(b.vis, from).then(|| b.res.clone());
         }
         for &(g, vis) in &module.globs {
             if !self.visible(vis, from) {

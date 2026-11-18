@@ -705,7 +705,8 @@ impl<'a> Parser<'a> {
             "{" | "if" | "match" | "loop" | "while" | "unsafe" => true,
             "for" => !self.at_n(1, "<"),
             "const" => self.at_n(1, "{"),
-            "try" | "gen" => self.at_n(1, "{"),
+            "try" => self.at_n(1, "{") || self.at_n(1, "bikeshed"),
+            "gen" => self.at_n(1, "{"),
             "async" => self.async_block_at(),
             _ => self.lifetime_at(0) && self.at_n(1, ":"),
         }
@@ -775,7 +776,12 @@ impl<'a> Parser<'a> {
                     self.block_expr()?;
                 }
             }
-            self.expect(";")?;
+            // A `stmt` fragment transcribed into `{ $s }` ends the block
+            // without its `;`.
+            let ends = self.at_eof() || close.is_some_and(|c| self.at(c));
+            if !self.eat(";") && !ends {
+                return self.error("expected `;`");
+            }
             self.finish(m, Kind::LetStmt);
             return Ok(());
         }

@@ -812,6 +812,19 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 }
                 self.rollback(p);
             }
+            // `Pin<&mut T>` as `Pin<&T>` (`pin_ergonomics`).
+            (TyKind::Adt(a, x), TyKind::Adt(b, y))
+                if a == b
+                    && Some(a) == self.lang("pin")
+                    && let (TyKind::Ref(Mutbl::Mut, p), TyKind::Ref(Mutbl::Not, q)) =
+                        (tcx.kind(self.infer.shallow(tcx.tys(x)[0])), tcx.kind(self.infer.shallow(tcx.tys(y)[0]))) =>
+            {
+                let s = self.probe();
+                if self.infer.unify(p, q) {
+                    return true;
+                }
+                self.rollback(s);
+            }
             (TyKind::Adt(a, x), TyKind::Adt(b, y)) if a == b && Some(a) == self.lang("owned_box") => {
                 // The allocators are the same; the pointees the same, or
                 // the one unsizing to the other.
@@ -940,10 +953,16 @@ impl<'a, 's> FnCtxt<'a, 's> {
         if let TyKind::Ref(m, y) = tcx.kind(self.infer.shallow(t))
             && let TyKind::Ref(m2, _) = tcx.kind(e)
             && (m == m2 || m == Mutbl::Mut)
-            && let Some(adj) = self.deref_coerces(y, x, m2)
         {
-            self.adjust(n, adj, e);
-            return e;
+            // `&mut T` as `&T`.
+            if m != m2 && self.infer.unify(y, x) {
+                return e;
+            }
+            self.rollback(p);
+            if let Some(adj) = self.deref_coerces(y, x, m2) {
+                self.adjust(n, adj, e);
+                return e;
+            }
         }
         self.rollback(p);
         t
@@ -1523,11 +1542,23 @@ impl<'a, 's> FnCtxt<'a, 's> {
             if self.infer.var_kind(t) == Some(VarKind::General) {
                 return None;
             }
-            for form in 0..3 {
+            // `Pin<&mut T>` also as `Pin<&T>` (`pin_ergonomics`).
+            let pin_shared = match tcx.kind(t) {
+                TyKind::Adt(d, l) if Some(d) == self.lang("pin") => match tcx.kind(self.infer.shallow(tcx.tys(l)[0])) {
+                    TyKind::Ref(Mutbl::Mut, x) => Some(tcx.pin(self.mk_ref(Mutbl::Not, x))),
+                    _ => None,
+                },
+                _ => None,
+            };
+            for form in 0..4 {
                 let (recv, borrow) = match form {
                     0 => (t, None),
                     1 => (self.mk_ref(Mutbl::Not, t), Some(Mutbl::Not)),
-                    _ => (self.mk_ref(Mutbl::Mut, t), Some(Mutbl::Mut)),
+                    2 => (self.mk_ref(Mutbl::Mut, t), Some(Mutbl::Mut)),
+                    _ => match pin_shared {
+                        Some(p) => (p, None),
+                        None => continue,
+                    },
                 };
                 // An unsized slice is only reached through a borrow.
                 if borrow.is_none() && steps[k].1 == Some(Adjust::Unsize) {

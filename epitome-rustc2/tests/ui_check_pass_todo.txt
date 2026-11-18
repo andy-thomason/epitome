@@ -70,12 +70,9 @@ macros/issue-34171.rs: error: in `null!`: no rule of the macro matches this inpu
 macros/parse-test.rs: error: expected a macro matcher in delimiters (parse-test.rs:8:5)
 methods/opaque_param_in_ufc.rs: type check: associated item not found
 nll/issue-63154-normalize.rs: type check: a type left unknown
-nll/polonius/nll-problem-case-3-issue-21906.rs#legacy: type check: mismatched types
-nll/polonius/nll-problem-case-3-issue-21906.rs#polonius: type check: mismatched types
 parser/impls-nested-within-anon-consts-semantic.rs: path not resolved: Type
 pattern/deref-patterns/const-pats-do-not-mislead-inference.rs#deref_patterns: type check: a type left unknown
 pin-ergonomics/pattern-matching-deref-pattern.rs#pin_ergonomics: type check: pattern of another type
-pin-ergonomics/reborrow-self.rs: type check: method not found
 proc-macro/attributes-included.rs: error: proc macro `bar`: assertion `left == right` failed (attributes-included.rs:11:1)
 proc-macro/edition-imports-2018.rs: import not resolved: __ui_test_73::check: use import::Path (as Path)
 proc-macro/hygiene_example.rs: macro not found: hello!

@@ -343,7 +343,8 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
                         return t;
                     }
                 }
-                self.assoc_of(base, name)
+                let t = self.assoc_of(base, name, last);
+                self.gat_args(t, last)
             }
             Res::Partial(..) => self.err("associated item path of more than one segment"),
             Res::Local(_) => self.err("a local variable in a type"),
@@ -355,10 +356,18 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
         let ast = self.ast();
         let qk = ast.children(q).to_vec();
         let self_ty = self.ty(qk[0]);
-        let name = ast.children(path).iter().find(|&&s| ast.kind(s) == Kind::Segment).map_or("", |&s| ast.token(s).0);
+        let seg = ast.children(path).iter().copied().find(|&s| ast.kind(s) == Kind::Segment);
+        let name = seg.map_or("", |s| ast.token(s).0);
         if ast.children(path).iter().filter(|&&s| ast.kind(s) == Kind::Segment).count() != 1 {
             return self.err("qualified path of more than one segment");
         }
+        let t = self.qualified_assoc(self_ty, &qk, name);
+        self.gat_args(t, seg)
+    }
+
+    /// `<self_ty as qk[1]>::name`, or `<self_ty>::name`.
+    fn qualified_assoc(&mut self, self_ty: Ty, qk: &[NodeId], name: &str) -> Ty {
+        let ast = self.ast();
         match qk.get(1) {
             Some(&tr) => {
                 let Some(&tp) = ast.children(tr).first() else { return self.err("bad trait in qualified path") };
@@ -375,8 +384,23 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
         }
     }
 
-    /// `base::name` for an associated type.
-    fn assoc_of(&mut self, base: &Res, name: &str) -> Ty {
+    /// A generic associated type's own arguments, written on `seg`
+    /// (`<T as Tr>::Assoc<u8>`), added to projection `t`.
+    fn gat_args(&mut self, t: Ty, seg: Option<NodeId>) -> Ty {
+        let TyKind::Projection(assoc, l) = self.tcx.kind(t) else { return t };
+        if self.tcx.generics[assoc.0 as usize].own.is_empty()
+            || seg.and_then(|s| self.ast().child(s, Kind::GenericArgs)).is_none()
+        {
+            return t;
+        }
+        let mut args = self.tcx.tys(l);
+        args.extend(self.tcx.tys(self.args(assoc, seg)));
+        let l = self.tcx.list(args);
+        self.tcx.mk(TyKind::Projection(assoc, l))
+    }
+
+    /// `base::name` for an associated type (`seg` its segment).
+    fn assoc_of(&mut self, base: &Res, name: &str, seg: Option<NodeId>) -> Ty {
         match base {
             Res::Generic(n) => match self.tcx.param_at.get(&(self.k, self.file, *n)) {
                 Some(&p) => {
@@ -407,7 +431,14 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
                         if let Some(m) = self.env.r.defs[d.0 as usize].module.or_else(|| self.impl_module(d))
                             && let Some(Res::Def(a)) = self.env.r.lookup(m, name, Ns::Type, m)
                         {
-                            return super::collect::alias_ty(self.tcx, self.env, &mut self.expanding, a);
+                            let t = super::collect::alias_ty(self.tcx, self.env, &mut self.expanding, a);
+                            // `Self::Assoc<u8>`: its own parameters too.
+                            let own = self.tcx.generics[a.0 as usize].own.clone();
+                            if own.is_empty() || seg.and_then(|s| self.ast().child(s, Kind::GenericArgs)).is_none() {
+                                return t;
+                            }
+                            let args = self.tcx.tys(self.args(a, seg));
+                            return super::collect::subst(self.tcx, t, &own, &args);
                         }
                         match self.tcx.impl_index.get(&d).map(|&i| self.tcx.impls[i].trait_ref.clone()) {
                             Some(Some(t)) => self.projection(self_ty, &t, name),

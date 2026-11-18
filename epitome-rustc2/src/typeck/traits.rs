@@ -711,9 +711,17 @@ impl<'a, 's> FnCtxt<'a, 's> {
             }
             let s = self.probe();
             let pl = tcx.tys(l);
+            // A binding written without a generic associated type's own
+            // arguments (`Tr<Gat<u8> = X>` keeps none): the trait's only.
+            let (pl, al) = if pl.len() == args.len() {
+                (&pl[1..], &args[1..])
+            } else {
+                let ntr = self.trait_of(assoc).map_or(1, |tr| tcx.all_params(tr).len());
+                (&pl[1..ntr.min(pl.len()).max(1)], &args[1..ntr.min(args.len()).max(1)])
+            };
             let (pa, aa) = match self.trait_of(assoc) {
-                Some(tr) => (self.full_trait_args(tr, pt, pl[1..].to_vec()), self.full_trait_args(tr, t, args[1..].to_vec())),
-                None => (pl[1..].to_vec(), args[1..].to_vec()),
+                Some(tr) => (self.full_trait_args(tr, pt, pl.to_vec()), self.full_trait_args(tr, t, al.to_vec())),
+                None => (pl.to_vec(), al.to_vec()),
             };
             if self.self_matches(pt, t) && self.args_unify(&pa, &aa) {
                 return Some(ty);
@@ -746,6 +754,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
             return self.discriminant_type(t);
         }
         let tr = self.trait_of(assoc)?;
+        // A generic associated type's own arguments follow the trait's.
+        let ntr = tcx.all_params(tr).len().min(args.len());
+        let (args, own_args) = args.split_at(ntr);
         let mut sel = self.select(t, tr, &args[1..], depth);
         // Two impls that both seem to apply, with every type known: their
         // `where` clauses checked deeper may rule one out (`u8:
@@ -766,6 +777,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 let it = tcx.type_of(item)?;
                 let params = tcx.all_params(item);
                 let mut a = iargs;
+                if own_args.len() == tcx.generics[item.0 as usize].own.len() {
+                    a.extend_from_slice(own_args);
+                }
                 while a.len() < params.len() {
                     a.push(self.infer.fresh());
                 }
@@ -797,6 +811,12 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let tcx = self.tcx;
         let p = self.mk(TyKind::Projection(assoc, tcx.list(args.to_vec())));
         if !tcx.has_infer(self.infer.resolve(p)) {
+            return p;
+        }
+        // Unknowns only in a generic associated type's own arguments
+        // (`T::Assoc<_>`): a rigid projection, whose arguments unify.
+        let ntr = self.trait_of(assoc).map_or(args.len(), |tr| tcx.all_params(tr).len());
+        if ntr < args.len() && !args[..ntr].iter().any(|&a| tcx.has_infer(self.infer.resolve(a))) {
             return p;
         }
         let v = self.infer.fresh();

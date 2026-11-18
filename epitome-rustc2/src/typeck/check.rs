@@ -705,6 +705,10 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 let v = tcx.tys(l).into_iter().map(|x| self.fill_holes(x)).collect();
                 self.mk(TyKind::Adt(d, tcx.list(v)))
             }
+            TyKind::Projection(d, l) => {
+                let v = tcx.tys(l).into_iter().map(|x| self.fill_holes(x)).collect();
+                self.mk(TyKind::Projection(d, tcx.list(v)))
+            }
             TyKind::Ref(m, x) => {
                 let x = self.fill_holes(x);
                 self.mk(TyKind::Ref(m, x))
@@ -818,6 +822,14 @@ impl<'a, 's> FnCtxt<'a, 's> {
                         self.adjust(n, vec![Adjust::ReifyFnPointer], w);
                     }
                     return ok;
+                }
+            }
+            // `fn(T)` to `unsafe fn(T)`: the same pointer.
+            (TyKind::FnPtr(a), TyKind::FnPtr(b)) if !tcx.sig_of(a).unsafety && tcx.sig_of(b).unsafety => {
+                let s = crate::ty::FnSig { unsafety: true, ..tcx.sig_of(a) };
+                let unsafe_ptr = self.mk(TyKind::FnPtr(tcx.sig(s)));
+                if self.infer.unify(unsafe_ptr, w) {
+                    return true;
                 }
             }
             (TyKind::Closure(_, cs, _), TyKind::FnPtr(s)) => {
@@ -1166,6 +1178,12 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 } else {
                     self.assoc_value(n, path, &base, name)
                 };
+                // `<T as Tr>::C::<u8>` (a generic const item).
+                if let Some((m, item, args)) = self.consts.last().cloned()
+                    && m == n
+                {
+                    self.own_turbofish(path, item, &args);
+                }
                 self.path_turbofish(path, t)
             }
             Res::Partial(base, 2) => {
@@ -1219,19 +1237,24 @@ impl<'a, 's> FnCtxt<'a, 's> {
     /// arguments), which the lookup left as variables.
     fn path_turbofish(&mut self, path: NodeId, t: Ty) -> Ty {
         let tcx = self.tcx;
-        let ast = self.ast;
         let TyKind::FnDef(item, l) = tcx.kind(t) else { return t };
-        let Some(&seg) = ast.children(path).iter().rev().find(|&&s| ast.kind(s) == Kind::Segment) else { return t };
-        let Some(g) = ast.child(seg, Kind::GenericArgs) else { return t };
+        self.own_turbofish(path, item, &tcx.tys(l));
+        t
+    }
+
+    /// The written arguments of `path`'s last segment made `item`'s own
+    /// parameters (the last ones of `args`).
+    fn own_turbofish(&mut self, path: NodeId, item: DefId, args: &[Ty]) {
+        let ast = self.ast;
+        let Some(&seg) = ast.children(path).iter().rev().find(|&&s| ast.kind(s) == Kind::Segment) else { return };
+        let Some(g) = ast.child(seg, Kind::GenericArgs) else { return };
         let written: Vec<NodeId> = ast.children(g).iter().copied().filter(|&a| is_generic_arg(ast.kind(a))).collect();
-        let args = tcx.tys(l);
-        let own = tcx.generics[item.0 as usize].own.len();
+        let own = self.tcx.generics[item.0 as usize].own.len();
         let start = args.len().saturating_sub(own);
         for (i, a) in written.into_iter().enumerate().take(own) {
             let w = self.written_arg(a);
             self.infer.unify(args[start + i], w);
         }
-        t
     }
 
     fn last_segment_name(&self, path: NodeId) -> &'s str {
@@ -1678,6 +1701,20 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 let recv = self.expr(kids[0], None);
                 let name = ast.token(kids[1]).0;
                 let args = self.kids(kids[2]);
+                // A method of a variable a `!` was coerced to (`let x =
+                // loop {}; x.m()`) is looked up on `!`, as rustc does.
+                // An unknown receiver may be settled by what is pending (`T:
+                // Tr` with one impl for `Option<_>`).
+                if self.infer.var_kind(self.infer.shallow(recv)) == Some(VarKind::General) {
+                    self.process_pending();
+                }
+                let r = self.infer.shallow(recv);
+                if self.infer.var_kind(r) == Some(VarKind::General)
+                    && self.diverging.iter().any(|&v| self.infer.shallow(v) == r)
+                {
+                    let never = self.mk(TyKind::Never);
+                    self.infer.unify(r, never);
+                }
                 match self.method_call(n, kids[0], recv, name) {
                     Some((item, inputs, output)) => {
                         self.method_turbofish(n, item, kids[1]);

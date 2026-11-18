@@ -644,6 +644,25 @@ impl<'a, 's> FnCtxt<'a, 's> {
         }
     }
 
+    /// `t` with the `impl Trait`s whose hidden types this body is finding
+    /// replaced by their variables (inside a type's arguments too).
+    fn reveal_own(&self, t: Ty) -> Ty {
+        let tcx = self.tcx;
+        match tcx.kind(t) {
+            TyKind::Opaque(o, _) => self.defined.get(&o).map_or(t, |&(v, _)| v),
+            TyKind::Ref(m, x) => self.mk(TyKind::Ref(m, self.reveal_own(x))),
+            TyKind::Adt(d, l) if tcx.tys(l).iter().any(|&x| has_opaque(tcx, x)) => {
+                let v: Vec<Ty> = tcx.tys(l).into_iter().map(|x| self.reveal_own(x)).collect();
+                self.mk(TyKind::Adt(d, tcx.list(v)))
+            }
+            TyKind::Tuple(l) if tcx.tys(l).iter().any(|&x| has_opaque(tcx, x)) => {
+                let v: Vec<Ty> = tcx.tys(l).into_iter().map(|x| self.reveal_own(x)).collect();
+                self.mk(TyKind::Tuple(tcx.list(v)))
+            }
+            _ => t,
+        }
+    }
+
     /// Whether this body defines type-alias `impl Trait` `o`: it lists the
     /// alias in `#[define_opaque(..)]`, or the alias is declared inside it.
     fn defines(&self, o: crate::ty::OpaqueId) -> bool {
@@ -877,6 +896,16 @@ impl<'a, 's> FnCtxt<'a, 's> {
         }
         if self.infer.unify(g, w) {
             return true;
+        }
+        // An `impl Trait` this body defines, met as another type (`let x:
+        // Vec<i32> = foo(false)` in `foo`): that is its hidden type.
+        let revealed = self.reveal_own(g);
+        if revealed != g {
+            let p = self.probe();
+            if self.infer.unify(revealed, w) {
+                return true;
+            }
+            self.rollback(p);
         }
         self.err(n, "mismatched types");
         false

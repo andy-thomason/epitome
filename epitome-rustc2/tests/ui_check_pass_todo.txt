@@ -53,7 +53,6 @@ impl-trait/method/method-resolution.rs#next: type check: method not found
 impl-trait/nested-hkl-lifetime.rs: type check: a type left unknown
 impl-trait/non-defining-uses/ambiguous-ops.rs#next: type check: mismatched types
 impl-trait/non-defining-uses/deref-constrains-self-ty.rs#next: type check: method not found
-impl-trait/non-defining-uses/double-wrap-with-defining-use.rs#next: type check: mismatched types
 impl-trait/non-defining-uses/impl-deref-function-call.rs#current: type check: a type left unknown
 impl-trait/non-defining-uses/impl-deref-function-call.rs#next: type check: a type left unknown
 impl-trait/non-defining-uses/multiple-opaques-ok.rs: type check: mismatched types
@@ -62,7 +61,6 @@ impl-trait/recursive-bound-eval.rs#current: type check: a type left unknown
 impl-trait/recursive-bound-eval.rs#next: type check: a type left unknown
 implied-bounds/implied-bounds-on-nested-references-plus-variance-2.rs: type check: a type left unknown
 imports/ambiguous-glob-vs-expanded-extern.rs: macro not found: mac!
-lazy-type-alias-impl-trait/recursion2.rs: type check: mismatched types
 lexer/ident_normalization.rs: path not resolved: K
 lint/rfc-2383-lint-reason/expect_tool_lint_rfc_2383.rs: type check: a type left unknown
 lint/use-redundant/use-redundant-issue-78894.rs: import not resolved: : use bar (as bar)
@@ -117,7 +115,6 @@ traits/next-solver/typeck/structurally-resolve-in-probe_adt.rs: type check: a ty
 transmute/unnecessary-transmute-path-remap-ice-140277.rs: macro not found: transmute!
 tuple/indexing-in-macro.rs: error: in `m!`: no rule of the macro matches this input (indexing-in-macro.rs:7:1)
 type-alias-impl-trait/broken_mir.rs: type check: a type left unknown
-type-alias-impl-trait/cross_inference_rpit.rs: type check: mismatched types
 type-alias-impl-trait/match-unification.rs: type check: mismatched types
 type-alias-impl-trait/method_resolution5.rs#current: type check: method not found
 type-alias-impl-trait/method_resolution5.rs#next: type check: method not found

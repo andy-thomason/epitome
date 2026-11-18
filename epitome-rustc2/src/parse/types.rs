@@ -76,7 +76,9 @@ impl<'a> Parser<'a> {
     fn segment(&mut self, mode: PathMode) -> PResult<'a> {
         let m = self.mark();
         if self.at("$") {
-            self.leaf(Kind::Name, 2);
+            // `$crate` (from a local macro): `crate`, its name.
+            self.bump();
+            self.leaf(Kind::Name, 1);
         } else if self.segment_at(0) {
             self.leaf(Kind::Name, 1);
         } else {

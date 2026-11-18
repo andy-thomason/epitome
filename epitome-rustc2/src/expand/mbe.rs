@@ -489,7 +489,18 @@ impl<'s, 't, 'a> MatchState<'s, 't, 'a> {
             Frag::Lifetime => t.is_lifetime().then_some((i + 1, None)),
             Frag::Literal => {
                 let lit = |t: Token| t.is_literal() || t.0 == "true" || t.0 == "false";
-                if lit(t) {
+                // `0.0` after a `.` was lexed as tuple indices, `0` `.` `0`:
+                // one float literal here (`m!(.0.0)` with `(.$l:literal)`).
+                let next = |k: usize| self.input.get(i + k).copied().filter(|_| i + k < end);
+                if t.is_number()
+                    && let (Some(d), Some(f)) = (next(1), next(2))
+                    && d.0 == "."
+                    && f.is_number()
+                    && t.touches(d)
+                    && d.touches(f)
+                {
+                    Some((i + 3, None))
+                } else if lit(t) {
                     Some((i + 1, None))
                 } else if t.0 == "-" && self.input.get(i + 1).is_some_and(|n| i + 1 < end && n.is_literal()) {
                     Some((i + 2, None))

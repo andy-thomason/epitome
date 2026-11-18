@@ -155,8 +155,22 @@ fn try_import(r: &mut Resolver, i: usize) -> Outcome {
                 let n = path[0];
                 let mut found: Vec<(Ns, Res)> = Vec::new();
                 for ns in [Ns::Type, Ns::Value, Ns::Macro] {
+                    // The enclosing blocks first (`use bar;` of a
+                    // `macro_rules! bar` in the same function), then the
+                    // module.
+                    let mut cur = m;
+                    let res = loop {
+                        if let Some(res) = r.lookup(cur, n, ns, m) {
+                            break Some(res);
+                        }
+                        let module = &r.modules[cur.0 as usize];
+                        match module.parent {
+                            Some(p) if module.block => cur = p,
+                            _ => break None,
+                        }
+                    };
                     let normal = r.modules[m.0 as usize].normal;
-                    if let Some(res) = r.lookup(normal, n, ns, m) {
+                    if let Some(res) = res.or_else(|| r.lookup(normal, n, ns, m)) {
                         found.push((ns, res));
                     }
                 }

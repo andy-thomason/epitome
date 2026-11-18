@@ -34,7 +34,6 @@ impl-trait/non-defining-uses/ambiguous-ops.rs#next: type check: mismatched types
 impl-trait/non-defining-uses/multiple-opaques-ok.rs: type check: method not found
 impl-trait/precise-capturing/external-macro.rs: path not resolved: element
 lexer/ident_normalization.rs: path not resolved: K
-lint/use-redundant/use-redundant-issue-78894.rs: import not resolved: : use bar (as bar)
 macros/issue-34171.rs: error: in `null!`: no rule of the macro matches this input (issue-34171.rs:5:20)
 macros/parse-test.rs: error: expected a macro matcher in delimiters (parse-test.rs:8:5)
 parser/impls-nested-within-anon-consts-semantic.rs: path not resolved: Type

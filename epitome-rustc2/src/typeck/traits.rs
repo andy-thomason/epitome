@@ -102,6 +102,26 @@ impl<'a, 's> FnCtxt<'a, 's> {
             }
         }
         self.env_preds = out;
+        // `where <S as Identity<Q>>::T: Clone` is `S: Clone` when the
+        // projection can be worked out: that too.
+        let n = self.env_preds.len();
+        for i in 0..n {
+            let Pred::Trait(t, tr) = self.env_preds[i].clone() else { continue };
+            if !matches!(self.tcx.kind(t), TyKind::Projection(..)) {
+                continue;
+            }
+            let nt = self.normalize(t, 1);
+            let nt = self.infer.resolve(nt);
+            if nt != t && !self.tcx.has_infer(nt) && !matches!(self.tcx.kind(nt), TyKind::Projection(..)) {
+                let mut more = Vec::new();
+                self.elaborate(nt, &tr, &mut more);
+                for p in more {
+                    if !self.env_preds.contains(&p) {
+                        self.env_preds.push(p);
+                    }
+                }
+            }
+        }
     }
 
     /// `t: tr`, its bindings as projections, and the same for each

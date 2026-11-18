@@ -6540,17 +6540,17 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
     }
 
     /// Whether a select of one of `count` elements, `stride` bits apart, of
-    /// kept value `o` is made by its address: in scalar code, unpadded, of
-    /// elements a whole number of words apart, and worth it (more than a
-    /// few elements, which selects between serve as well).
-    fn direct_kept(&self, o: ObjId, stride: u32, count: u32) -> bool {
-        self.sc() && !self.lay().pads.contains_key(&o) && stride % 64 == 0 && count > 4
+    /// kept value `o` (as kept: padded, if it is) is made by its address:
+    /// in scalar code, of elements a whole number of words apart, and worth
+    /// it (more than a few elements, which selects between serve as well).
+    fn direct_kept(&self, _o: ObjId, stride: u32, count: u32) -> bool {
+        self.sc() && stride % 64 == 0 && count > 4
     }
 
-    /// The same for elements any number of bits apart: in scalar code,
-    /// unpadded, and worth it.
-    fn direct_kept_any(&self, o: ObjId, count: u32) -> bool {
-        self.sc() && !self.lay().pads.contains_key(&o) && count > 4
+    /// The same for elements any number of bits apart: in scalar code, and
+    /// worth it.
+    fn direct_kept_any(&self, _o: ObjId, count: u32) -> bool {
+        self.sc() && count > 4
     }
 
     /// For element `i` (clamped into range) of kept value `o`, `stride`
@@ -6571,6 +6571,27 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
         let word = self.b.lshr(bit, six);
         let m63 = self.i64k(63);
         let sh = self.b.and(bit, m63);
+        let eight = self.i64k(8);
+        let bytes = self.b.mul(word, eight);
+        let base = self.base();
+        let p = self.off(base, self.lay().objs[&o]);
+        (self.offv(p, bytes), P::V(self.reg(sh)), span)
+    }
+
+    /// For the `w` bits at bit offset `bit` (clamped into range: out of
+    /// range, nothing read is used and nothing is written) of kept value
+    /// `o`: the address of the word they start in, their offset in it, and
+    /// how many words hold them wherever they start.
+    fn kept_off_addr(&mut self, o: ObjId, bit: P, w: u32) -> (Value, P, usize) {
+        let span = (63 + w).div_ceil(64) as usize;
+        let b = self.lane0(bit);
+        let last = self.i64k(self.width(o).saturating_sub(w) as i64);
+        let big = self.b.icmp(ICmpPred::Ugt, b, last);
+        let b = self.b.select(big, last, b);
+        let six = self.i64k(6);
+        let word = self.b.lshr(b, six);
+        let m63 = self.i64k(63);
+        let sh = self.b.and(b, m63);
         let eight = self.i64k(8);
         let bytes = self.b.mul(word, eight);
         let base = self.base();
@@ -6602,6 +6623,7 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
         match (self.lay().pads.get(&o), off) {
             (Some(&p), off) => self.padded_off(p, off, w),
             (None, off @ (Off::K(_) | Off::Dec { .. })) => Some(off),
+            (None, off @ Off::V(..)) if self.sc() => Some(off),
             _ => None,
         }
     }
@@ -6642,6 +6664,23 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
             // the bits, by the address of the first, shifted down.
             Some(Off::Dec { i, n: count, stride, add, ok }) if self.direct_kept_any(o, count) => {
                 let (ptr, sh, span) = self.kept_bit_addr(o, i, count, stride, add, w);
+                let p: Vec<P> = (0..span)
+                    .map(|j| {
+                        let a = self.off(ptr, 8 * j as u64);
+                        let x = self.ld(self.t.i64, a, 8);
+                        P::V(self.reg(x))
+                    })
+                    .collect();
+                let v = Val { w: 64 * span as u32, p };
+                let v = self.lshr_var(&v, sh, None);
+                let x = self.extract(&v, 0, w);
+                let z = self.zero(w);
+                self.select(ok, &x, &z)
+            }
+            // A bit offset known only at run time: the words around the bits,
+            // by the address of the first, shifted down.
+            Some(Off::V(bit, ok)) => {
+                let (ptr, sh, span) = self.kept_off_addr(o, bit, w);
                 let p: Vec<P> = (0..span)
                     .map(|j| {
                         let a = self.off(ptr, 8 * j as u64);
@@ -6727,10 +6766,26 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
                     self.st(y, a, 8);
                 }
             }
-            // Not a whole number of words apart: the words around the bits,
-            // with the new bits put in under a mask shifted up to them.
-            Some(Off::Dec { i, n: count, stride, add, ok }) if self.direct_kept_any(o, count) => {
-                let (ptr, sh, span) = self.kept_bit_addr(o, i, count, stride, add, w);
+            // Not a whole number of words apart, or a bit offset known only
+            // at run time: the words around the bits, with the new bits put
+            // in under a mask shifted up to them.
+            Some(off @ (Off::Dec { .. } | Off::V(..)))
+                if match off {
+                    Off::Dec { n: count, .. } => self.direct_kept_any(o, count),
+                    _ => true,
+                } =>
+            {
+                let (ptr, sh, span, ok) = match off {
+                    Off::Dec { i, n: count, stride, add, ok } => {
+                        let (ptr, sh, span) = self.kept_bit_addr(o, i, count, stride, add, w);
+                        (ptr, sh, span, ok)
+                    }
+                    Off::V(bit, ok) => {
+                        let (ptr, sh, span) = self.kept_off_addr(o, bit, w);
+                        (ptr, sh, span, ok)
+                    }
+                    _ => unreachable!(),
+                };
                 let ww = 64 * span as u32;
                 let old: Vec<P> = (0..span)
                     .map(|j| {

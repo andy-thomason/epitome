@@ -199,6 +199,10 @@ pub struct Resolver<'s> {
     /// The text of every macro body (`macro_rules!` and macro 2.0), sorted:
     /// a token's syntax context for local variables is the body it is in.
     pub macro_bodies: Vec<(usize, usize)>,
+    /// The bodies of opaque macros 2.0 (`macro m`, not marked transparent
+    /// or semi-opaque), sorted: their generic parameters are hygienic
+    /// too, not just their locals.
+    pub opaque_bodies: Vec<(usize, usize)>,
     /// The text built-in macros and derives wrote, sorted
     /// (`Session::builtin_texts`).
     pub builtin_texts: Vec<(usize, usize)>,
@@ -384,6 +388,13 @@ impl<'s> Resolver<'s> {
         let i = self.def_site.partition_point(|r| r.0 <= p);
         let (s, e, m) = *self.def_site.get(i.checked_sub(1)?)?;
         (p >= s && p < e).then_some(m)
+    }
+
+    /// Whether a token is in an opaque macro 2.0's body.
+    pub fn in_opaque_body(&self, t: &str) -> bool {
+        let p = t.as_ptr() as usize;
+        let i = self.opaque_bodies.partition_point(|r| r.0 <= p);
+        i.checked_sub(1).is_some_and(|j| p < self.opaque_bodies[j].1)
     }
 
     /// The syntax context of a token for local variables: 0 for code

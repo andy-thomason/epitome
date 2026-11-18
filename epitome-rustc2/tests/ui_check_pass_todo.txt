@@ -25,7 +25,6 @@ higher-ranked/leak-check/leak-check-in-selection-5-ambig.rs#next: type check: a 
 higher-ranked/leak-check/leak-check-in-selection-5-ambig.rs#old: type check: a type left unknown
 hygiene/cross-crate-define-and-use.rs: type check: struct literal of something that is not a struct or variant
 hygiene/dollar-crate-modern.rs: path not resolved: crate
-hygiene/generic_params.rs: type check: method not found
 hygiene/issue-32922.rs: error: expanding `foo!`: expected the end of the input, found `;` (eager-from-opaque.rs:14:9)
 impl-trait/defining-use-uncaptured-non-universal-region-2.rs: type check: mismatched types
 impl-trait/method/broken-deref-chain.rs#next: type check: method not found
@@ -58,7 +57,6 @@ rfcs/rfc-2457-non-ascii-idents/idents-normalized.rs: error: unexpected character
 rfcs/rfc-2565-param-attrs/issue-64682-dropping-first-attrs-in-impl-fns.rs: error: proc macro `rename_params`: assertion `left == right` failed (issue-64682-dropping-first-attrs-in-impl-fns.rs:9:1)
 rfcs/rfc-2565-param-attrs/param-attrs-pretty.rs: error: proc macro `attr_extern`: assertion `left == right` failed (param-attrs-pretty.rs:15:1)
 rust-2018/suggestions-not-always-applicable.rs: import not resolved: __ui_test_40::test: use crate::foo::foo (as foo)
-single-use-lifetime/issue-104440.rs: type check: method not found
 specialization/source-impl-requires-constraining-predicates-ambig.rs#next: type check: mismatched types
 specialization/spec-influences-inference-issue-36262.rs#next: type check: a type left unknown
 traits/issue-66768.rs: type check: method not found

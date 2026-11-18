@@ -29,6 +29,7 @@ pub(super) fn collect<'s>(session: &Session, crates: &[ParsedCrate<'s>]) -> Reso
         res: Vec::new(),
         def_site: Vec::new(),
         macro_bodies: Vec::new(),
+        opaque_bodies: Vec::new(),
         builtin_texts,
     };
     // Crate roots first, so that `extern crate` can name any of them.
@@ -84,6 +85,7 @@ pub(super) fn collect<'s>(session: &Session, crates: &[ParsedCrate<'s>]) -> Reso
     }
     r.def_site.sort_by_key(|x| x.0);
     r.macro_bodies.sort();
+    r.opaque_bodies.sort();
     r
 }
 
@@ -382,8 +384,9 @@ impl<'c, 'r, 's> Collector<'c, 'r, 's> {
                 let written = self.ast.is_original(item);
                 // `#[rustc_macro_transparency = "transparent"]`: its locals
                 // are the call site's.
-                let transparent = crate::session::attribute_value(self.ast, item, "rustc_macro_transparency")
-                    .is_some_and(|v| v == "transparent");
+                let transparency = crate::session::attribute_value(self.ast, item, "rustc_macro_transparency");
+                let transparent = transparency.as_deref() == Some("transparent");
+                let opaque = kind == Kind::MacroDef && transparency.is_none();
                 for &tt in self
                     .ast
                     .children(item)
@@ -395,6 +398,9 @@ impl<'c, 'r, 's> Collector<'c, 'r, 's> {
                         let (start, end) = (a.0.as_ptr() as usize, b.0.as_ptr() as usize + b.0.len());
                         if end > start {
                             self.r.macro_bodies.push((start, end));
+                            if opaque {
+                                self.r.opaque_bodies.push((start, end));
+                            }
                         }
                     }
                 }

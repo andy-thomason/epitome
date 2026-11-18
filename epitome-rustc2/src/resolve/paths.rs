@@ -115,8 +115,16 @@ impl<'w, 's> Walker<'w, 's> {
                     return Some(res);
                 }
             } else if ns == Ns::Type {
+                // A generic parameter written in an opaque macro's body is
+                // seen only by names written there, and one written
+                // outside only by names written outside
+                // (`fn f<$T: Clone, T: PartialEq>(t1: $T, t2: T)`).
+                let r = self.r;
+                let ctx = r.ctx_of(name);
+                let opaque = r.in_opaque_body(name);
+                let sees = |n: &str| n == "Self" || r.ctx_of(n) == ctx || !(opaque || r.in_opaque_body(n));
                 for rib in self.ribs.iter().rev() {
-                    if let Some((_, res)) = rib.types.iter().rev().find(|(n, _)| *n == name) {
+                    if let Some((_, res)) = rib.types.iter().rev().find(|(n, _)| *n == name && sees(n)) {
                         return Some(res.clone());
                     }
                 }

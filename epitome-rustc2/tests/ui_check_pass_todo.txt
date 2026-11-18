@@ -1,8 +1,6 @@
 # rust-lang/rust a69a63265cfd9e006d43137f98301b8d274ad4c9 on aarch64-macos
 # The check-pass UI tests that do not pass yet, and why (tests/ui_check_pass.rs).
 associated-inherent-types/constrain_opaque_types_during_projection.rs: type check: a type left unknown
-associated-inherent-types/inference.rs#current: type check: a type left unknown
-associated-inherent-types/inference.rs#next: type check: a type left unknown
 assumptions_on_binders/test-infra-works.rs: macro not found: test_binder_constraints!
 attributes/duplicated-attributes.rs: import not resolved: : use test::Bencher (as Bencher)
 attributes/z-crate-attr/cfg-false.rs: left out: flags that change the crate

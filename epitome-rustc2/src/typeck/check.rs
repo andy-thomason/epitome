@@ -764,6 +764,14 @@ impl<'a, 's> FnCtxt<'a, 's> {
         {
             self.process_pending();
         }
+        // An unknown made a pointer (`ptr::read(x)`, `x` waiting on a
+        // projection) may be a reference once it is known.
+        if !self.pending.is_empty()
+            && self.infer.var_kind(self.infer.shallow(got)) == Some(VarKind::General)
+            && matches!(self.tcx.kind(self.infer.shallow(want)), TyKind::Ptr(..))
+        {
+            self.process_pending();
+        }
         let g = self.infer.shallow(got);
         let w = self.infer.shallow(want);
         let tcx = self.tcx;
@@ -1546,6 +1554,10 @@ impl<'a, 's> FnCtxt<'a, 's> {
                             && let Some(&sp) = inputs.first()
                             && self.infer.unify(sp, recv)
                         {
+                            // The impl's `where` clauses may settle its
+                            // parameters (`impl<A, S> B<S> where S: R<E =
+                            // A>`).
+                            self.oblige_item(item, &args);
                             self.methods.push((n, item, args));
                             let adj = Self::step_adjustments(steps, k, borrow);
                             self.adjust(recv_node, adj, recv);

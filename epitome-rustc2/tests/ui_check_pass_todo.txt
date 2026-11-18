@@ -6,10 +6,7 @@ associated-inherent-types/generic-const-exprs.rs: type check: associated type no
 associated-inherent-types/inference.rs#current: type check: a type left unknown
 associated-inherent-types/inference.rs#next: type check: a type left unknown
 associated-inherent-types/variance-computation-requires-equality.rs: type check: associated type not found
-associated-type-bounds/bad-bounds-on-assoc-in-trait.rs: type check: a type left unknown
 associated-types/duplicate-associated-type-resolution-59326.rs: type check: a type left unknown
-associated-types/issue-82079.rs#default: type check: a type left unknown
-associated-types/issue-82079.rs#miropt: type check: a type left unknown
 assumptions_on_binders/test-infra-works.rs: macro not found: test_binder_constraints!
 async-await/async-fn/edition-2015-not-async-bound.rs: path not resolved: Foo
 async-await/async-fn/sugar.rs: type check: `.await` on something that is not a future
@@ -48,7 +45,6 @@ higher-ranked/leak-check/leak-check-in-selection-5-ambig.rs#next: type check: a 
 higher-ranked/leak-check/leak-check-in-selection-5-ambig.rs#old: type check: a type left unknown
 higher-ranked/subtype/return-static.rs: type check: a type left unknown
 higher-ranked/trait-bounds/issue-43623.rs: type check: a type left unknown
-higher-ranked/trait-bounds/normalize-under-binder/issue-56556.rs: type check: a type left unknown
 higher-ranked/trait-bounds/rigid-equate-projections-in-higher-ranked-fn-signature.rs#current: type check: a type left unknown
 hygiene/cross-crate-define-and-use.rs: type check: struct literal of something that is not a struct or variant
 hygiene/dollar-crate-modern.rs: path not resolved: crate
@@ -76,7 +72,6 @@ imports/ambiguous-glob-vs-expanded-extern.rs: macro not found: mac!
 imports/ambiguous-import-visibility-globglob-priv-pass.rs: import not resolved: : use crate::one_private::S (as S)
 imports/overwrite-different-vis-2.rs: path not resolved: f
 imports/remove-unused-private-import-errors.rs#keep: type check: associated item of something that is not a type
-inference/iter-ufcs-coercion-type-unification.rs: type check: a type left unknown
 lazy-type-alias-impl-trait/recursion2.rs: type check: mismatched types
 lexer/ident_normalization.rs: path not resolved: K
 lint/rfc-2383-lint-reason/expect_tool_lint_rfc_2383.rs: type check: a type left unknown
@@ -85,8 +80,6 @@ macros/dollar-crate-nested-encoding.rs: path not resolved: crate
 macros/issue-34171.rs: error: in `null!`: no rule of the macro matches this input (issue-34171.rs:5:20)
 macros/issue-69838-mods-relative-to-included-path.rs: error: no file for module `bar`: neither `/private/tmp/claude-502/-Users-amy-andy-thomason-epitome/d698d809-bf3b-400b-91f6-effe1b4b32f5/scratchpad/rust/tests/ui/macros/bar.rs` nor `/private/tmp/claude-502/-Users-amy-andy-thomason-epitome/d698d809-bf3b-400b-91f6-effe1b4b32f5/scratchpad/rust/tests/ui/macros/bar/mod.rs` (included.rs:3:9)
 macros/parse-test.rs: error: expected a macro matcher in delimiters (parse-test.rs:8:5)
-methods/fulfillment-disqualifies-method.rs#current: type check: a type left unknown
-methods/fulfillment-disqualifies-method.rs#next: type check: a type left unknown
 methods/opaque_param_in_ufc.rs: type check: associated item not found
 nll/coroutine-distinct-lifetime.rs: type check: unsupported expression
 nll/extra-unused-mut.rs: type check: unsupported expression
@@ -111,7 +104,6 @@ proc-macro/panic-abort.rs: left out: proc-macro crate
 proc-macro/test-count-attributes.rs: error: proc macro `assert_no_attributes`: assertion `left == right` failed (test-count-attributes.rs:8:1)
 proc-macro/test-followed-by-attr-macros.rs: error: expected a macro matcher in delimiters (test-followed-by-attr-macros.rs:20:9)
 proc-macro/test.rs: error: proc macro `run`: assertion `left == right` failed (test.rs:14:1)
-regions/type-param-outlives-reempty-issue-74429-2.rs: type check: a type left unknown
 resolve/extern-prelude.rs: type check: wrong number of arguments
 resolve/open-ns-5.rs: import not resolved: : use my_api::utils::utils_helper (as utils_helper)
 resolve/open-ns-6.rs: import not resolved: : use my_api (as my_api)
@@ -134,8 +126,6 @@ traits/next-solver/deduce-ty-from-object.rs: type check: mismatched types
 traits/next-solver/generalize/alias-with-bound-vars-incomplete-generalization.rs#next: type check: mismatched types
 traits/next-solver/generalize/alias-with-bound-vars-incomplete-generalization.rs#old: type check: mismatched types
 traits/next-solver/generalize/constrain-inference-during-normalize.rs: type check: a type left unknown
-traits/next-solver/generalize/generalize-proj-new-universe-index-1.rs: type check: a type left unknown
-traits/next-solver/generalize/generalize-proj-new-universe-index-2.rs: type check: a type left unknown
 traits/next-solver/lazy-nested-obligations-3.rs: type check: a type left unknown
 traits/next-solver/method/path_lookup_wf_constraints.rs: type check: a type left unknown
 traits/next-solver/overflow-discards-constraints.rs: type check: a type left unknown

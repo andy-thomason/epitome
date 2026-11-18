@@ -34,9 +34,6 @@ higher-ranked/leak-check/leak-check-in-selection-4-hr-nested.rs#next: type check
 higher-ranked/leak-check/leak-check-in-selection-4-hr-nested.rs#old: type check: a type left unknown
 higher-ranked/leak-check/leak-check-in-selection-5-ambig.rs#next: type check: a type left unknown
 higher-ranked/leak-check/leak-check-in-selection-5-ambig.rs#old: type check: a type left unknown
-higher-ranked/subtype/return-static.rs: type check: a type left unknown
-higher-ranked/trait-bounds/issue-43623.rs: type check: a type left unknown
-higher-ranked/trait-bounds/rigid-equate-projections-in-higher-ranked-fn-signature.rs#current: type check: a type left unknown
 hygiene/cross-crate-define-and-use.rs: type check: struct literal of something that is not a struct or variant
 hygiene/dollar-crate-modern.rs: path not resolved: crate
 hygiene/generic_params.rs: type check: method not found
@@ -48,11 +45,8 @@ impl-trait/method/broken-deref-chain.rs#next: type check: mismatched types
 impl-trait/nested-hkl-lifetime.rs: type check: a type left unknown
 impl-trait/non-defining-uses/ambiguous-ops.rs#next: type check: mismatched types
 impl-trait/non-defining-uses/deref-constrains-self-ty.rs#next: type check: method not found
-impl-trait/non-defining-uses/impl-deref-function-call.rs#current: type check: a type left unknown
-impl-trait/non-defining-uses/impl-deref-function-call.rs#next: type check: a type left unknown
 impl-trait/non-defining-uses/multiple-opaques-ok.rs: type check: mismatched types
 impl-trait/precise-capturing/external-macro.rs: path not resolved: element
-implied-bounds/implied-bounds-on-nested-references-plus-variance-2.rs: type check: a type left unknown
 imports/ambiguous-glob-vs-expanded-extern.rs: macro not found: mac!
 lexer/ident_normalization.rs: path not resolved: K
 lint/use-redundant/use-redundant-issue-78894.rs: import not resolved: : use bar (as bar)
@@ -80,7 +74,6 @@ resolve/open-ns-5.rs: import not resolved: : use my_api::utils::utils_helper (as
 resolve/open-ns-6.rs: import not resolved: : use my_api (as my_api)
 rfcs/rfc-2457-non-ascii-idents/idents-normalized.rs: error: unexpected character '\u{301}' (idents-normalized.rs:6:15)
 rfcs/rfc-2565-param-attrs/issue-64682-dropping-first-attrs-in-impl-fns.rs: error: proc macro `rename_params`: assertion `left == right` failed (issue-64682-dropping-first-attrs-in-impl-fns.rs:9:1)
-rfcs/rfc-2565-param-attrs/param-attrs-allowed.rs: type check: a type left unknown
 rfcs/rfc-2565-param-attrs/param-attrs-pretty.rs: error: proc macro `attr_extern`: assertion `left == right` failed (param-attrs-pretty.rs:15:1)
 rust-2018/suggestions-not-always-applicable.rs: import not resolved: __ui_test_40::test: use crate::foo::foo (as foo)
 single-use-lifetime/issue-104440.rs: type check: method not found

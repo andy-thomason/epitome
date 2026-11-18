@@ -1063,3 +1063,76 @@ fn arrays_of_memories() {
         assert_eq!(&words[..9], &all[..], "cycle {c}");
     }
 }
+
+const PROFILED: &str = r#"
+module leaf (input logic clk, input logic [31:0] a, output logic [31:0] q);
+  always_ff @(posedge clk) q <= a * 3 + 1;
+endmodule
+
+module mid (input logic clk, input logic [31:0] a, output logic [31:0] q);
+  logic [31:0] t;
+  leaf l0 (.clk, .a, .q(t));
+  leaf l1 (.clk, .a(t ^ 32'h55), .q);
+endmodule
+
+module ptop (input logic clk, input logic [31:0] a, output logic [127:0] q);
+  for (genvar k = 0; k < 4; k++) begin : g
+    mid m (.clk, .a(a + 32'(k)), .q(q[k*32 +: 32]));
+  end
+endmodule
+"#;
+
+#[test]
+fn profiled_by_instance() {
+    // Each instance's calls counted in its own state: a counter for each
+    // instance and function, within its caller's, and the same outputs as
+    // without a profile.
+    let Some(host) = host() else {
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
+        return;
+    };
+    let src = text("ptop.sv", PROFILED);
+    let mut opts = host.options(1);
+    opts.profile = Some(epitome_sv::model::TICKS);
+    let b = build("ptop", netlist_with(&src, "ptop", opts), &host);
+    let plain = build("ptop_plain", netlist_with(&src, "ptop", host.options(1)), &host);
+    let io = Io::new(&b.net, Some("clk")).unwrap();
+    let mut rng = Rng(0x3C6E_F372_FE94_F82B);
+    let cycles = 50;
+    let stim: Vec<u32> = (0..cycles).map(|_| rng.next() as u32).collect();
+    let out = b.run(&io, cycles, 1, &stim);
+    assert_eq!(out, plain.run(&io, cycles, 1, &stim));
+    // The model: the inputs reach the leaves' registers though only they
+    // read them (copied before the clocked processes, not when settling).
+    let (mut t, mut q) = ([0u32; 4], [0u32; 4]);
+    for (c, &a) in stim.iter().enumerate() {
+        for k in 0..4 {
+            (t[k], q[k]) = (a.wrapping_add(k as u32).wrapping_mul(3).wrapping_add(1), (t[k] ^ 0x55).wrapping_mul(3).wrapping_add(1));
+        }
+        assert_eq!(&out[c * 4..c * 4 + 4], &q[..], "cycle {c}");
+    }
+    let t = b.time(&io, cycles, 1, &stim, 2);
+    for p in &t.profile {
+        eprintln!("{:8.1} {:8.1} {:5.2}  {}", p.ticks, p.own, p.calls, p.what);
+    }
+    let has = |what: &str| t.profile.iter().find(|p| p.what == what).unwrap_or_else(|| panic!("no counter {what}"));
+    for what in ["step ff", "step commit", "step settle again"] {
+        assert!(has(what).calls > 0.0, "{what} is called");
+    }
+    // Only clocked processes read the input and the clock: neither a new
+    // input nor an edge needs settling, only a commit does.
+    assert!(has("step settle").calls < 0.5, "settles {} times a cycle", has("step settle").calls);
+    // The array may be called as one or an instance at a time.
+    let leaves: Vec<_> = t.profile.iter().filter(|p| p.counter.func == "ff" && p.counter.spec == "leaf").collect();
+    assert!(leaves.len() == 2 || leaves.len() == 8, "{} leaves' ff counters", leaves.len());
+    for p in &leaves {
+        assert!(p.counter.path.starts_with("g[") && p.counter.path.contains(".m.l"), "{}", p.counter.path);
+        let within = &t.profile[p.counter.within.expect("a leaf's ff is within its parent's")];
+        assert_eq!(within.counter.func, "ff");
+        assert_eq!(within.counter.spec, "mid");
+        assert!(p.calls > 0.0);
+    }
+    for p in &t.profile {
+        assert!(p.own >= 0.0, "{}: own {} of {}", p.what, p.own, p.ticks);
+    }
+}

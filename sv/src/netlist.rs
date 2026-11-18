@@ -258,8 +258,29 @@ pub struct Netlist {
     pub ports: Vec<Field>,
     /// Assertions and assertion-only `initial` blocks left out.
     pub dropped: usize,
-    /// With `Options::profile`, what each counter of `sv_prof` times.
-    pub profile: Vec<String>,
+    /// With `Options::profile`, the counters in the state.
+    pub profile: Vec<Counter>,
+}
+
+/// A profile counter (see [`Options::profile`]): two `i64`s in the state,
+/// the cycles a function of an instance took and the times it was called,
+/// added to at each call.
+#[derive(Clone, Debug)]
+pub struct Counter {
+    /// The instance, a path of names from the top (the top itself is
+    /// empty); an array of instances called as one is `name[*]`.
+    pub path: String,
+    /// Its specialisation's name.
+    pub spec: String,
+    /// The function: `settle` (or its parts `settle_a` and `settle_b`),
+    /// `ff` or `commit`; at the top, `step settle`, `step ff`, `step
+    /// commit` and `step settle again` time the step's own calls.
+    pub func: String,
+    /// The byte offset of its two `i64`s in the state.
+    pub at: usize,
+    /// The counter of the call this one's calls are made within: its
+    /// cycles include this one's.
+    pub within: Option<usize>,
 }
 
 /// Where a value is in the state.
@@ -575,10 +596,10 @@ pub struct Options {
     /// specialisation (more than 16 are rounded up to a multiple of 16, and
     /// fewer are held where their state would pass [`STATE_MAX`]).
     pub sims: usize,
-    /// For profiling: the intrinsic that reads a cycle counter
-    /// (`llvm.x86.rdtsc`), and each call of a child's function and each
-    /// part of the top's step adds the cycles it took to an `i64` of the
-    /// global `sv_prof`, and one to the next, named in [`Netlist::profile`].
+    /// For profiling: the function that reads a cycle counter, and each
+    /// call of a child's function and each part of the top's step adds the
+    /// cycles it took to an `i64` of the caller's state, and one to the
+    /// next (see [`Netlist::profile`]): each instance's calls counted apart.
     pub profile: Option<&'static str>,
     /// Lanes as vectors ([`Shape::vector_of`]), not side by side in an
     /// `i64` ([`Shape::of`]).
@@ -644,16 +665,11 @@ struct Ops {
     widest: u32,
 }
 
-/// `call`, written by `b`, timed into a counter for `what` where
-/// profiling: the cycles it took added to an `i64` of the global `sv_prof`,
-/// and one to the next.
-fn timed(l: &Lowering, b: &mut FunctionBuilder, what: String, call: impl FnOnce(&mut FunctionBuilder) -> Option<Value>) -> Option<Value> {
-    let (Some(counter), Some(prof)) = (l.opts.profile, l.prof.get()) else { return call(b) };
-    let k = {
-        let mut names = l.profile.borrow_mut();
-        names.push(what);
-        names.len() as i64 - 1
-    };
+/// `call`, written by `b`, timed where profiling into the counter at byte
+/// `at` of the state `s`: the cycles it took added to its first `i64`, and
+/// one to the second.
+fn timed(l: &Lowering, b: &mut FunctionBuilder, s: Value, at: Option<u64>, call: impl FnOnce(&mut FunctionBuilder) -> Option<Value>) -> Option<Value> {
+    let (Some(counter), Some(at)) = (l.opts.profile, at) else { return call(b) };
     let (i8t, i64t) = (b.module().types.int(8), b.module().types.int(64));
     let ctr = b.module().declare(counter, i64t, &[], false);
     let t0 = b.call(ctr, &[]).unwrap();
@@ -661,10 +677,9 @@ fn timed(l: &Lowering, b: &mut FunctionBuilder, what: String, call: impl FnOnce(
     let t1 = b.call(ctr, &[]).unwrap();
     let dt = b.sub(t1, t0);
     let one = b.const_int(i64t, 1);
-    let g = b.module().global_value(prof);
-    for (off, add) in [(16 * k, dt), (16 * k + 8, one)] {
-        let o = b.const_int(i64t, off);
-        let at = b.gep(i8t, g, &[o]);
+    for (off, add) in [(at, dt), (at + 8, one)] {
+        let o = b.const_int(i64t, off as i64);
+        let at = b.gep(i8t, s, &[o]);
         let was = b.build_load(i64t, at).align(8).build();
         let now = b.add(was, add);
         b.build_store(now, at).align(8).build();
@@ -714,11 +729,6 @@ pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, 
         n.settled = lay.room(1, 1);
     }
     let mut module = Module::default();
-    // The profile's counters: their number is known at the end.
-    if opts.profile.is_some() {
-        let i64t = module.types.int(64);
-        n.prof.set(Some(module.add_global(epitome_ir::module::Global::variable("sv_prof", i64t, None, false))));
-    }
     n.function(&mut module, key)?;
     let lay = &n.layouts[&key];
     let mut ports = Vec::new();
@@ -738,14 +748,9 @@ pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, 
     let dropped = n.dropped.get() + n.asserts.borrow().len();
     let entry = if lay.clocked { format!("{}_step", fn_name(key)) } else { fn_name(key) };
     let size = lay.size as usize;
-    let profile = n.profile.take();
-    if let Some(g) = n.prof.get() {
-        let i64t = module.types.int(64);
-        let ty = module.types.array(2 * profile.len().max(1) as u64, i64t);
-        let Value::Const(init) = module.const_zero(ty) else { unreachable!() };
-        if let epitome_ir::module::GlobalKind::Variable(v) = &mut module.globals[g.index()].kind {
-            (v.ty, v.init, v.align) = (ty, Some(init), Some(8));
-        }
+    let mut profile = Vec::new();
+    if opts.profile.is_some() {
+        n.counters(key, 0, String::new(), &mut profile);
     }
     let mut functions: Vec<Lowered> = n
         .done
@@ -765,7 +770,6 @@ impl<'d, 'a> Lowering<'d, 'a> {
             layouts: HashMap::new(),
             done: HashSet::new(),
             lane_widths: HashMap::new(),
-            prof: Cell::new(None),
             folds: RefCell::default(),
             dropped: Cell::new(0),
             asserts: RefCell::default(),
@@ -780,7 +784,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
             comb_reads: RefCell::default(),
             watch: Vec::new(),
             settled: 0,
-            profile: RefCell::default(),
+            called: RefCell::default(),
             codes: HashMap::new(),
             arrays: HashMap::new(),
             memories: HashMap::new(),
@@ -845,6 +849,10 @@ struct Layout {
     clocked: bool,
     /// Where its `_ff` function notes whether an edge came.
     fired: u64,
+    /// With `Options::profile`, the counters of its calls of each child's
+    /// functions (by suffix), and at the top of the step's (by name).
+    prof: HashMap<(InstId, &'static str), u64>,
+    steps: HashMap<&'static str, u64>,
     /// The values only continuous assignments write, all in one loop:
     /// each starts there from zero, not from its last value, as every bit
     /// it has is one they drive or zero.
@@ -972,6 +980,8 @@ impl Layout {
             prev: HashMap::new(),
             clocked: false,
             fired: 0,
+            prof: HashMap::new(),
+            steps: HashMap::new(),
             fresh: HashSet::new(),
             splits: HashMap::new(),
             pads: HashMap::new(),
@@ -1133,6 +1143,9 @@ struct Rolled {
 const ROLL_MIN: usize = 4;
 /// Fewest pieces of a value worth keeping in the state (`Layout::kept`).
 const KEPT_MIN: usize = 8;
+
+/// The top's step's calls, each with a counter when profiling.
+const STEPS: [&str; 4] = ["step settle", "step ff", "step commit", "step settle again"];
 /// Fewest instructions, for one register of lanes, of an arm of an `if` or
 /// `case` (or a clocked process's body) worth a branch around it, taken only
 /// when some lane needs the arm. The test is a few instructions (the mask's
@@ -1173,8 +1186,6 @@ struct Lowering<'d, 'a> {
     /// In vector code, the lanes' width for each number of lanes, chosen
     /// where that number first comes (see [`Lowering::shape_for`]).
     lane_widths: HashMap<u32, u32>,
-    /// With `Options::profile`, the global `sv_prof` of the counters.
-    prof: Cell<Option<GlobalId>>,
     folds: RefCell<HashMap<ExprId, Option<Const>>>,
     /// `initial` blocks and kept syntax left out.
     dropped: Cell<usize>,
@@ -1201,8 +1212,10 @@ struct Lowering<'d, 'a> {
     watch: Vec<(u64, Lane, u32, u64)>,
     /// Where the top notes that it has settled.
     settled: u64,
-    /// With `Options::profile`, what each counter times.
-    profile: RefCell<Vec<String>>,
+    /// With `Options::profile`, for each specialisation's call of a
+    /// child's function (by its suffix), the suffix of the function the
+    /// call is in.
+    called: RefCell<HashMap<(Key, InstId, &'static str), &'static str>>,
     /// Each specialisation's static values and code, as `collect` finds
     /// them.
     codes: HashMap<SpecId, (Vec<ObjId>, Vec<Node>)>,
@@ -1215,6 +1228,91 @@ struct Lowering<'d, 'a> {
 }
 
 impl<'d, 'a> Lowering<'d, 'a> {
+    /// The profile's counters of instance `key` at byte `base` of the
+    /// state, named `path`, and below it (see [`Counter`]).
+    fn counters(&self, key: Key, base: u64, path: String, out: &mut Vec<Counter>) {
+        let d = self.d;
+        let lay = &self.layouts[&key];
+        let spec = d.name(d.spec(key.0).name).to_string();
+        // This instance's functions' counters, by suffix.
+        let mut own: HashMap<&str, usize> = HashMap::new();
+        if self.top == Some(key) {
+            for f in STEPS {
+                let Some(&at) = lay.steps.get(f) else { continue };
+                let suffix = match f {
+                    "step ff" => "_ff",
+                    "step commit" => "_commit",
+                    "step settle" => "",
+                    _ => "again",
+                };
+                own.insert(suffix, out.len());
+                out.push(Counter { path: path.clone(), spec: spec.clone(), func: f.to_string(), at: (base + at) as usize, within: None });
+            }
+        }
+        self.counters_below(key, base, &path, &own, out);
+    }
+
+    fn counters_below(&self, key: Key, base: u64, path: &str, own: &HashMap<&str, usize>, out: &mut Vec<Counter>) {
+        let d = self.d;
+        let lay = &self.layouts[&key];
+        let mut kids: Vec<InstId> = lay.kid_keys.keys().copied().collect();
+        kids.sort_unstable_by_key(|i| i.0);
+        let called = self.called.borrow();
+        for i in kids {
+            let ck = lay.kid_keys[&i];
+            let name = self.inst_name(key.0, i, lay.groups.contains_key(&i));
+            let cpath = if path.is_empty() { name } else { format!("{path}.{name}") };
+            let cspec = d.name(d.spec(ck.0).name).to_string();
+            let mut theirs: HashMap<&str, usize> = HashMap::new();
+            for f in ["", "_a", "_b", "_ff", "_commit"] {
+                let Some(&within) = called.get(&(key, i, f)) else { continue };
+                let func = match f {
+                    "" => "settle",
+                    "_a" => "settle_a",
+                    "_b" => "settle_b",
+                    "_ff" => "ff",
+                    _ => "commit",
+                };
+                // (A part is within the whole where the whole has no
+                // counter of its own: it was called whole.)
+                let within = own.get(within).or_else(|| own.get("")).copied();
+                theirs.insert(f, out.len());
+                let at = (base + lay.prof[&(i, f)]) as usize;
+                out.push(Counter { path: cpath.clone(), spec: cspec.clone(), func: func.into(), at, within });
+            }
+            self.counters_below(ck, base + lay.kids[&i], &cpath, &theirs, out);
+        }
+    }
+
+    /// Instance `i`'s name in specialisation `spec`, with the generate
+    /// blocks between: `g[2].u`, or `g[*].u` for an array called as one.
+    fn inst_name(&self, spec: SpecId, i: InstId, array: bool) -> String {
+        let d = self.d;
+        let root = d.spec(spec).scope;
+        let inst = d.instance(i);
+        let ix = |k: Option<i64>| match k {
+            Some(_) if array => "[*]".to_string(),
+            Some(k) => format!("[{k}]"),
+            None => String::new(),
+        };
+        let mut parts = vec![format!("{}{}", d.name(inst.name), ix(inst.index))];
+        let mut sc = Some(inst.scope);
+        while let Some(s) = sc
+            && s != root
+        {
+            // (A generate loop's name is its iterations' too.)
+            let x = d.scope(s);
+            if let Some(n) = x.name
+                && !(x.index.is_none() && parts.last().is_some_and(|p| p.strip_prefix(d.name(n)).is_some_and(|r| r.starts_with('['))))
+            {
+                parts.push(format!("{}{}", d.name(n), ix(x.index)));
+            }
+            sc = x.parent;
+        }
+        parts.reverse();
+        parts.join(".")
+    }
+
     /// Whether a specialisation, or one below it, holds a memory: an array
     /// of more than a few elements, wide enough to keep in the state, that
     /// some select indexes by a value.
@@ -1733,6 +1831,22 @@ impl<'d, 'a> Lowering<'d, 'a> {
         }
         if !lay.ff.is_empty() {
             lay.fired = lay.room(1, 1);
+        }
+        if self.opts.profile.is_some() {
+            let mut kids: Vec<InstId> = lay.kid_keys.keys().copied().collect();
+            kids.sort_unstable_by_key(|i| i.0);
+            for i in kids {
+                for f in ["", "_a", "_b", "_ff", "_commit"] {
+                    let at = lay.room(16, 8);
+                    lay.prof.insert((i, f), at);
+                }
+            }
+            if !below_top {
+                for f in STEPS {
+                    let at = lay.room(16, 8);
+                    lay.steps.insert(f, at);
+                }
+            }
         }
         for p in lay.ff.clone() {
             for t in self.clocked(p).unwrap().0 {
@@ -2847,16 +2961,17 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let (settle_b, sample_b, commit_b, done_b) = (b.new_block("settle"), b.new_block("sample"), b.new_block("commit"), b.new_block("done"));
         b.cond_br(skip, sample_b, settle_b);
         b.at(settle_b);
-        timed(self, &mut b, "step settle".into(), |b| b.call(settle, &[s]));
+        let at = |f: &str| self.layouts[&key].steps.get(f).copied();
+        timed(self, &mut b, s, at("step settle"), |b| b.call(settle, &[s]));
         let one = b.const_int(t.i8, 1);
         b.build_store(one, sp).align(1).build();
         b.br(sample_b);
         b.at(sample_b);
-        let fired = timed(self, &mut b, "step ff".into(), |b| b.call(ff, &[s])).unwrap();
+        let fired = timed(self, &mut b, s, at("step ff"), |b| b.call(ff, &[s])).unwrap();
         b.cond_br(fired, commit_b, done_b);
         b.at(commit_b);
-        timed(self, &mut b, "step commit".into(), |b| b.call(commit, &[s]));
-        timed(self, &mut b, "step settle again".into(), |b| b.call(settle, &[s]));
+        timed(self, &mut b, s, at("step commit"), |b| b.call(commit, &[s]));
+        timed(self, &mut b, s, at("step settle again"), |b| b.call(settle, &[s]));
         b.br(done_b);
         b.at(done_b);
         b.ret_void();
@@ -3157,7 +3272,8 @@ impl<'d, 'a> Lowering<'d, 'a> {
                         self.reads(e, &mut rs);
                         let k = self.d.spec(child.0).ports.iter().position(|q| q.name == p.name);
                         let copied = !matches!(args.zip(k).map(|(a, k)| a[k]), Some(Arg::Alias(_)));
-                        if p.dir == Dir::Input && rs.iter().any(|t| t.0 == o) && (copied || p.object.is_some_and(|q| self.comb_reads(child, q))) {
+                        let at_ff = copied && self.ff_input(child, p);
+                        if p.dir == Dir::Input && rs.iter().any(|t| t.0 == o) && (copied && !at_ff || p.object.is_some_and(|q| self.comb_reads(child, q))) {
                             r = true;
                         }
                     }
@@ -3168,6 +3284,13 @@ impl<'d, 'a> Lowering<'d, 'a> {
         }
         self.comb_reads.borrow_mut().insert((key, o), r);
         r
+    }
+
+    /// Whether a clocked child's input, copied to a slot, is copied only
+    /// before its clocked processes run, not where it settles: only they
+    /// read it (a clock, say), so a change of it alone needs no settling.
+    fn ff_input(&self, child: Key, port: &crate::design::Port) -> bool {
+        port.dir == Dir::Input && self.layouts[&child].clocked && port.object.is_some_and(|q| !self.comb_reads(child, q))
     }
 
     /// The pieces of a specialisation's combinational code (see [`Dep`]).
@@ -3981,6 +4104,8 @@ struct Func<'l, 'd, 'a, 'm> {
     /// The lanes running the code being written: those taking every arm
     /// it is in.
     path: M,
+    /// The function's name.
+    name: String,
 }
 
 /// A binary operator by its IR keyword.
@@ -4030,6 +4155,7 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
             bit_of: HashMap::new(),
             trial: false,
             path: M::K(true),
+            name: name.to_string(),
         }
     }
 
@@ -4084,6 +4210,16 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
     /// The state, the function's first parameter.
     fn state(&self) -> Value {
         self.b.param(0)
+    }
+
+    /// With a profile, the counter of this specialisation's call of child
+    /// `i`'s function `f` (by suffix), noting which of its own functions
+    /// the call is in.
+    fn counter(&self, i: InstId, f: &'static str) -> Option<u64> {
+        let at = self.lay().prof.get(&(i, f)).copied()?;
+        let within = ["_a", "_b", "_ff", "_commit"].into_iter().find(|x| self.name == format!("{}{x}", fn_name(self.key))).unwrap_or("");
+        self.l.called.borrow_mut().insert((self.key, i, f), within);
+        Some(at)
     }
 
     /// Port `k`'s pointer.
@@ -4211,10 +4347,9 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
                     Node::Early(_) => "_a",
                     _ => "_b",
                 };
-                let what = format!("{} {}{part}", self.d().name(self.d().spec(self.key.0).name), self.d().name(self.d().spec(child.0).name));
                 let g = self.callee(&format!("{}{part}", fn_name(child)), None, args.len());
-                let l = self.l;
-                timed(l, &mut self.b, what, |b| b.call(g, &args));
+                let (l, s, at) = (self.l, self.state(), self.counter(i, part));
+                timed(l, &mut self.b, s, at, |b| b.call(g, &args));
                 seg = vec![n];
             } else {
                 seg.push(n);
@@ -4570,56 +4705,7 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
                 self.env.vals.retain(|o, _| d.object(*o).lifetime == Lifetime::Static);
                 Ok(())
             }
-            Node::In(i) | Node::Pre(i) => {
-                let ck = self.lay().kid_keys[&i];
-                let child = &self.l.layouts[&ck];
-                let members = self.l.members(self.key, i);
-                let args = self.lay().args[&i].clone();
-                let pre = if let Node::Pre(_) = n { self.lay().splits.get(&i) } else { None };
-                for (port, arg) in d.spec(ck.0).ports.iter().zip(args) {
-                    // Values connected whole are where the child reads them;
-                    // an unconnected input's slot stays zero.
-                    let (Dir::Input, Arg::Slot(at)) = (port.dir, arg) else { continue };
-                    if pre.is_some_and(|s| port.object.is_none_or(|o| !s.ins.contains(&o))) {
-                        continue;
-                    }
-                    let o = port.object.ok_or("interface ports are not supported yet")?;
-                    let w = tw(&d.types, d.object(o).ty);
-                    let mut vals = Vec::with_capacity(members.len());
-                    for &m in &members {
-                        vals.push(match d.instance(m).connections.iter().find(|c| c.port == port.name).and_then(|c| c.expr) {
-                            Some(e) => {
-                                let v = self.expr(e)?;
-                                Some(self.resize(&v, w, false))
-                            }
-                            None => None,
-                        });
-                    }
-                    // (A port the child keeps an element to a slot: each
-                    // element as a value of its own.)
-                    let parts: Vec<(u64, Lane, u32, Vec<Option<Val>>)> = match child.elems.get(&o) {
-                        Some(e) => (0..e.n)
-                            .map(|j| {
-                                let vs =
-                                    vals.iter().map(|v| v.as_ref().map(|v| self.extract(v, j * e.ew, e.ew))).collect();
-                                (at + j as u64 * e.stride(), e.lane, e.ew, vs)
-                            })
-                            .collect(),
-                        None => vec![(at, child.lane(o), w, vals)],
-                    };
-                    for (at, lane, w, vals) in parts {
-                        match &vals[..] {
-                            [v] => {
-                                if let Some(v) = v {
-                                    self.store(Base::State(at), lane, v);
-                                }
-                            }
-                            _ => self.to_lanes(at, lane, w, child.shape, &vals),
-                        }
-                    }
-                }
-                Ok(())
-            }
+            Node::In(_) | Node::Pre(_) => self.inputs(n, false),
             Node::Call(i) | Node::Early(i) => {
                 let ck = self.lay().kid_keys[&i];
                 let child = &self.l.layouts[&ck];
@@ -4657,6 +4743,62 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
                 Ok(())
             }
         }
+    }
+
+    /// The child's inputs copied to their slots, for `Node::In` or
+    /// `Node::Pre` `n`: where it settles those it reads there, or before
+    /// its clocked processes run (`ff`) those only they read.
+    fn inputs(&mut self, n: Node, ff: bool) -> Result<(), String> {
+        let d = self.d();
+        let (Node::In(i) | Node::Pre(i)) = n else { unreachable!() };
+        let ck = self.lay().kid_keys[&i];
+        let child = &self.l.layouts[&ck];
+        let members = self.l.members(self.key, i);
+        let args = self.lay().args[&i].clone();
+        let pre = if let Node::Pre(_) = n { self.lay().splits.get(&i) } else { None };
+        for (port, arg) in d.spec(ck.0).ports.iter().zip(args) {
+            // Values connected whole are where the child reads them;
+            // an unconnected input's slot stays zero.
+            let (Dir::Input, Arg::Slot(at)) = (port.dir, arg) else { continue };
+            if pre.is_some_and(|s| port.object.is_none_or(|o| !s.ins.contains(&o))) || self.l.ff_input(ck, port) != ff {
+                continue;
+            }
+            let o = port.object.ok_or("interface ports are not supported yet")?;
+            let w = tw(&d.types, d.object(o).ty);
+            let mut vals = Vec::with_capacity(members.len());
+            for &m in &members {
+                vals.push(match d.instance(m).connections.iter().find(|c| c.port == port.name).and_then(|c| c.expr) {
+                    Some(e) => {
+                        let v = self.expr(e)?;
+                        Some(self.resize(&v, w, false))
+                    }
+                    None => None,
+                });
+            }
+            // (A port the child keeps an element to a slot: each
+            // element as a value of its own.)
+            let parts: Vec<(u64, Lane, u32, Vec<Option<Val>>)> = match child.elems.get(&o) {
+                Some(e) => (0..e.n)
+                    .map(|j| {
+                        let vs =
+                            vals.iter().map(|v| v.as_ref().map(|v| self.extract(v, j * e.ew, e.ew))).collect();
+                        (at + j as u64 * e.stride(), e.lane, e.ew, vs)
+                    })
+                    .collect(),
+                None => vec![(at, child.lane(o), w, vals)],
+            };
+            for (at, lane, w, vals) in parts {
+                match &vals[..] {
+                    [v] => {
+                        if let Some(v) = v {
+                            self.store(Base::State(at), lane, v);
+                        }
+                    }
+                    _ => self.to_lanes(at, lane, w, child.shape, &vals),
+                }
+            }
+        }
+        Ok(())
     }
 
     /// An address in the state, `off` bytes in.
@@ -6000,13 +6142,15 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
             if let Node::Call(i) = n
                 && self.l.layouts[&self.lay().kid_keys[&i]].clocked
             {
-                let args = self.child_args(i);
                 let ck = self.lay().kid_keys[&i];
-                let what = format!("{} {}{}", d.name(d.spec(self.key.0).name), d.name(d.spec(ck.0).name), phase.suffix());
+                if phase == Phase::Ff && d.spec(ck.0).ports.iter().zip(&self.lay().args[&i]).any(|(p, a)| matches!(a, Arg::Slot(_)) && self.l.ff_input(ck, p)) {
+                    self.run_loop_with(|f| f.inputs(Node::In(i), true))?;
+                }
+                let args = self.child_args(i);
                 let ret = (phase == Phase::Ff).then_some(self.t.i1);
                 let g = self.callee(&format!("{}{}", fn_name(ck), phase.suffix()), ret, args.len());
-                let l = self.l;
-                let r = timed(l, &mut self.b, what, |b| b.call(g, &args));
+                let (l, s, at) = (self.l, self.state(), self.counter(i, phase.suffix()));
+                let r = timed(l, &mut self.b, s, at, |b| b.call(g, &args));
                 if let Some(r) = r {
                     any = self.b.or(any, r);
                 }

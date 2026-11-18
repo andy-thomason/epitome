@@ -2222,14 +2222,51 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     self.record_trait_method(n, tr, &name, sa, &[sb]);
                     true
                 }
+                Some(tr) => match self.op_rhs_by_coercion(kids[2], tr, sa, b) {
+                    Some(w) => {
+                        self.record_trait_method(n, tr, &name, sa, &[w]);
+                        true
+                    }
+                    None => false,
+                },
                 _ => false,
             };
             return if ok { self.unit() } else { self.err(n, "operator on types that do not implement it") };
         }
-        match self.op_trait(n, lang, lang, sa, Some(sb)) {
-            Some(o) => o,
-            None => self.err(n, "operator on types that do not implement it"),
+        if let Some(o) = self.op_trait(n, lang, lang, sa, Some(sb)) {
+            return o;
         }
+        if let Some(tr) = self.lang(lang)
+            && let Some(w) = self.op_rhs_by_coercion(kids[2], tr, sa, b)
+            && let Some(o) = self.op_trait(n, lang, lang, sa, Some(w))
+        {
+            return o;
+        }
+        self.err(n, "operator on types that do not implement it")
+    }
+
+    /// `s += &string`, `s + &string`: the right operand, a reference,
+    /// deref-coerced to the right side of the one impl of `tr` for `a`
+    /// (`String: AddAssign<&str>`).
+    fn op_rhs_by_coercion(&mut self, rhs: NodeId, tr: DefId, a: Ty, b: Ty) -> Option<Ty> {
+        let tcx = self.tcx;
+        if !matches!(tcx.kind(self.norm(b)), TyKind::Ref(..)) {
+            return None;
+        }
+        let p = self.probe();
+        let v = self.infer.fresh();
+        let want = match self.select(a, tr, &[v], 0) {
+            super::traits::Select::Yes(super::traits::Source::Impl(..)) => self.infer.resolve(v),
+            _ => {
+                self.rollback(p);
+                return None;
+            }
+        };
+        if !matches!(tcx.kind(want), TyKind::Ref(..)) || tcx.has_infer(want) {
+            self.rollback(p);
+            return None;
+        }
+        self.coerce(rhs, b, want).then_some(want)
     }
 
     fn range(&mut self, n: NodeId, kids: &[NodeId]) -> Ty {

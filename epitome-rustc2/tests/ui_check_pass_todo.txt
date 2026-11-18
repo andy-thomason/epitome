@@ -17,7 +17,6 @@ assumptions_on_binders/resolve-infer-var-wf.rs: type check: a type left unknown
 assumptions_on_binders/test-infra-works.rs: macro not found: test_binder_constraints!
 async-await/async-fn/edition-2015-not-async-bound.rs: path not resolved: Foo
 async-await/async-fn/sugar.rs: type check: `.await` on something that is not a future
-async-await/format-await-send.rs: type check: mismatched types
 async-await/higher-ranked-auto-trait-15.rs#assumptions: type check: iterating needs `IntoIterator`
 attributes/dont-dup-expr-attrs.rs: error: expanding `m2!`: expected `;`, found `}` (dont-dup-expr-attrs.rs:32:9)
 attributes/duplicated-attributes.rs: import not resolved: : use test::Bencher (as Bencher)
@@ -60,7 +59,6 @@ hygiene/dollar-crate-modern.rs: path not resolved: crate
 hygiene/generic_params.rs: type check: method not found
 hygiene/issue-32922.rs: error: expanding `foo!`: expected the end of the input, found `;` (eager-from-opaque.rs:14:9)
 hygiene/transparent-basic.rs: path not resolved: x
-hygiene/unpretty-debug.rs: type check: operator on types that do not implement it
 impl-trait/defining-use-uncaptured-non-universal-region-2.rs: type check: mismatched types
 impl-trait/in-trait/late-bound-in-object-assocty.rs: type check: mismatched types
 impl-trait/lifetime-ambiguity-regression.rs: type check: a type left unknown
@@ -165,7 +163,5 @@ type-alias-impl-trait/method_resolution5.rs#current: type check: method not foun
 type-alias-impl-trait/method_resolution5.rs#next: type check: method not found
 type-alias-impl-trait/multiple-def-uses-in-one-fn-pass.rs: type check: a type left unknown
 type-alias-impl-trait/obligation_ice.rs: type check: method not found
-unpretty/ast-const-trait-bound.rs: path not resolved: Bar
 unpretty/exhaustive.rs#expanded: error: expected `;`, found `try` (exhaustive.rs:247:9)
-unpretty/interpolation-expanded.rs: type check: operator on types that do not implement it
 wf/unnormalized-projection-guides-inference.rs: type check: a type left unknown

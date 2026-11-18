@@ -40,7 +40,6 @@ lexer/ident_normalization.rs: path not resolved: K
 lint/use-redundant/use-redundant-issue-78894.rs: import not resolved: : use bar (as bar)
 macros/issue-34171.rs: error: in `null!`: no rule of the macro matches this input (issue-34171.rs:5:20)
 macros/parse-test.rs: error: expected a macro matcher in delimiters (parse-test.rs:8:5)
-nll/issue-63154-normalize.rs: type check: a type left unknown
 parser/impls-nested-within-anon-consts-semantic.rs: path not resolved: Type
 pattern/deref-patterns/const-pats-do-not-mislead-inference.rs#deref_patterns: type check: a type left unknown
 pin-ergonomics/pattern-matching-deref-pattern.rs#pin_ergonomics: type check: pattern of another type

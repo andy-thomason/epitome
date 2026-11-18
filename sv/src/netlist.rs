@@ -260,6 +260,9 @@ pub struct Netlist {
     pub dropped: usize,
     /// With `Options::profile`, the counters in the state.
     pub profile: Vec<Counter>,
+    /// The top's inputs its settling reads: a change of any other (a
+    /// clock, say) needs no settling.
+    pub watched: Vec<String>,
 }
 
 /// A profile counter (see [`Options::profile`]): two `i64`s in the state,
@@ -707,12 +710,14 @@ pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, 
     n.layout(key)?;
     // The inputs the top's settling reads, each with a copy of its value
     // at the last settling, and whether there has been one.
+    let mut watched = Vec::new();
     if n.layouts[&key].clocked {
         for p in &d.spec(spec).ports {
             let Some(o) = p.object.filter(|_| p.dir == Dir::Input) else { continue };
             if !n.comb_reads(key, o) {
                 continue;
             }
+            watched.push(d.name(p.name).to_string());
             let lay = n.layouts.get_mut(&key).unwrap();
             // (Kept an element to a slot: each element as a value.)
             let (at, lane, w) = (lay.objs[&o], lay.lane(o), tw(&d.types, d.object(o).ty));
@@ -758,7 +763,7 @@ pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, 
         .map(|&k| Lowered { spec: d.name(d.spec(k.0).name).to_string(), lanes: k.1, name: fn_name(k), shape: n.layouts[&k].shape })
         .collect();
     functions.sort_by(|a, b| a.name.cmp(&b.name));
-    Ok(Netlist { module, entry, size, lanes: sims, ports, dropped, profile, functions })
+    Ok(Netlist { module, entry, size, lanes: sims, ports, dropped, profile, functions, watched })
 }
 
 impl<'d, 'a> Lowering<'d, 'a> {

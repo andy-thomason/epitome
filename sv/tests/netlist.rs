@@ -1095,6 +1095,7 @@ fn profiled_by_instance() {
     let mut opts = host.options(1);
     opts.profile = Some(epitome_sv::model::TICKS);
     let b = build("ptop", netlist_with(&src, "ptop", opts), &host);
+    assert!(b.net.watched.is_empty(), "settling reads {:?}", b.net.watched);
     let plain = build("ptop_plain", netlist_with(&src, "ptop", host.options(1)), &host);
     let io = Io::new(&b.net, Some("clk")).unwrap();
     let mut rng = Rng(0x3C6E_F372_FE94_F82B);

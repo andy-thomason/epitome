@@ -1109,7 +1109,11 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 i += 1;
                 continue;
             }
-            if tcx.has_infer(rt) && args.iter().any(|&a| tcx.has_infer(a)) {
+            // (An opaque or `dyn` type's bounds may settle both sides.)
+            if tcx.has_infer(rt)
+                && args.iter().any(|&a| tcx.has_infer(a))
+                && !matches!(tcx.kind(rt), TyKind::Opaque(..) | TyKind::Dyn(_))
+            {
                 i += 1;
                 continue;
             }

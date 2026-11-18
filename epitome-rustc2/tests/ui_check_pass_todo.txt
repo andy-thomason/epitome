@@ -9,7 +9,6 @@ associated-inherent-types/variance-computation-requires-equality.rs: type check:
 associated-type-bounds/bad-bounds-on-assoc-in-trait.rs: type check: a type left unknown
 associated-type-bounds/supertrait-referencing.rs: crash: stack overflow
 associated-type-bounds/trait-params.rs: type check: a type left unknown
-associated-types/associated-type-struct-construction.rs: type check: no such field in pattern
 associated-types/duplicate-associated-type-resolution-59326.rs: type check: a type left unknown
 associated-types/imply-relevant-nested-item-bounds.rs#current: type check: method not found
 associated-types/imply-relevant-nested-item-bounds.rs#next: type check: method not found
@@ -55,7 +54,6 @@ const-generics/mgca/paren.rs: error: expanding `direct_const_arg!`: expected a t
 crate-loading/cross-compiled-proc-macro.rs: left out: proc-macro crates rustc cannot build
 delegation/impl-reuse-pass.rs: type check: method not found
 editions/edition-imports-virtual-2015-ambiguity.rs: path not resolved: edition_imports_2015
-editions/edition-keywords-2018-2015-expansion.rs: error: expanding `produces_async!`: expected a name, found `async` (edition-keywords-2018-2015-expansion.rs:11:5)
 editions/nested-macro-rules-edition.rs#e2024: error: expanding `macro_inner_input!`: expected a name, found `gen` (nested-macro-rules-edition.rs:30:5)
 ergonomic-clones/async/basic.rs: error: expected `|`, found `{` (basic.rs:12:15)
 extern/extern-types-inherent-impl.rs: type check: associated item of something that is not a type
@@ -111,7 +109,6 @@ lint/inert-attr-macro.rs: error: expanding `foo!`: expected an expression, found
 lint/ptr_null_checks.rs: type check: a type left unknown
 lint/rfc-2383-lint-reason/expect_tool_lint_rfc_2383.rs: type check: a type left unknown
 lint/unused-parens-pinned-reference-patterns.rs: error: expected `)`, found `const` (unused-parens-pinned-reference-patterns.rs:28:29)
-lint/unused/unused-variable-with-raw-identifier-in-struct-pattern.rs: type check: no such field in pattern
 lint/use-redundant/use-redundant-issue-78894.rs: import not resolved: : use bar (as bar)
 macros/dollar-crate-nested-encoding.rs: path not resolved: crate
 macros/expand-full-in-format-str.rs: type check: a type left unknown
@@ -131,7 +128,6 @@ nll/issue-21114-kixunil.rs: type check: a type left unknown
 nll/issue-63154-normalize.rs: type check: a type left unknown
 nll/polonius/nll-problem-case-3-issue-21906.rs#legacy: type check: mismatched types
 nll/polonius/nll-problem-case-3-issue-21906.rs#polonius: type check: mismatched types
-nll/user-annotations/issue-54570-bootstrapping.rs: type check: no such field in pattern
 parser/generic-param-default-in-binder.rs: error: in `a!`: no rule of the macro matches this input (generic-param-default-in-binder.rs:8:1)
 parser/impl-qpath.rs: error: expected `>`, found `+` (impl-qpath.rs:6:10)
 parser/impls-nested-within-anon-consts-semantic.rs: path not resolved: Type

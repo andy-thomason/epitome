@@ -733,12 +733,11 @@ impl<'x, 's> Expander<'x, 's> {
             }
         };
         // What a macro of another crate writes is read in that crate's
-        // edition (`std`'s `dyn ::core::fmt::Debug` in a 2015 crate), or
-        // the calling crate's if later.
+        // edition: `std`'s `dyn ::core::fmt::Debug` in a 2015 crate, a 2015
+        // crate's `async` (a name) in a 2018 one. (rustc keeps an edition
+        // per token; the arguments' tokens are read in it too.)
         let edition = match def {
-            Some(d) if self.macros.defs[d].krate != self.krate => {
-                self.editions[self.macros.defs[d].krate].max(self.edition)
-            }
+            Some(d) if self.macros.defs[d].krate != self.krate => self.editions[self.macros.defs[d].krate],
             _ => self.edition,
         };
         let nodes = self.splice(file, call, call_tok, &tokens, place, name, edition)?;

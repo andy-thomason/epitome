@@ -2419,62 +2419,97 @@ impl<'a, 's> FnCtxt<'a, 's> {
     fn struct_expr(&mut self, n: NodeId, kids: &[NodeId]) -> Ty {
         let tcx = self.tcx;
         let path = kids[0];
-        let (adt_ty, variant) = match self.res(path) {
-            Some(Res::Def(d)) => {
-                let d = *d;
-                match self.r.defs[d.0 as usize].kind {
-                    DefKind::Struct | DefKind::Union => {
-                        let args = self.item_args(d, path);
-                        (self.mk(TyKind::Adt(d, tcx.list(args))), tcx.adts.get(&d).and_then(|a| a.variants.first().cloned()))
-                    }
-                    DefKind::Variant => {
-                        let args = self.item_args(d, path);
-                        let e = tcx.generics[d.0 as usize].parent;
-                        let v = e.and_then(|e| tcx.adts.get(&e)).and_then(|a| a.variants.iter().find(|v| v.def == Some(d)).cloned());
-                        match e {
-                            Some(e) => (self.mk(TyKind::Adt(e, tcx.list(args))), v),
-                            None => (self.tcx.error(), None),
-                        }
-                    }
-                    DefKind::TypeAlias => match tcx.type_of(d) {
-                        Some(t) => {
-                            let all = tcx.all_params(d);
-                            let args = self.infer.instantiate(&all);
-                            let t = subst(tcx, t, &all, &args);
-                            let v = match tcx.kind(t) {
-                                TyKind::Adt(a, _) => tcx.adts.get(&a).and_then(|x| x.variants.first().cloned()),
-                                _ => None,
-                            };
-                            (t, v)
-                        }
-                        None => (self.tcx.error(), None),
-                    },
-                    _ => (self.tcx.error(), None),
-                }
+        // `<Foo as A>::Assoc { br: 2 }`: the struct the type is (failing
+        // that, as below: `<T as Tr>::Variant { .. }`).
+        let qualified = if matches!(self.res(path), Some(Res::Partial(..)))
+            && self.ast.child(path, Kind::QSelf).is_some()
+        {
+            let mut l = Lower {
+                tcx,
+                env: &self.env,
+                expanding: FastSet::default(),
+                impl_self: None,
+                holes: true,
+                k: self.k,
+                file: self.file,
+                owner: self.owner,
+                failed: false,
+            };
+            let pt = l.path_ty(path);
+            let pt = self.fill_holes(pt);
+            let pt = self.norm(pt);
+            match tcx.kind(pt) {
+                TyKind::Adt(a, _) => tcx.adts.get(&a).and_then(|x| x.variants.first().cloned()).map(|v| (pt, Some(v))),
+                _ => None,
             }
-            Some(Res::SelfTy(f, s)) => match tcx.self_ty.get(&(self.k, *f, *s)) {
-                Some(&t) => {
-                    let v = match tcx.kind(t) {
-                        TyKind::Adt(a, _) => tcx.adts.get(&a).and_then(|x| x.variants.first().cloned()),
-                        _ => None,
-                    };
-                    (t, v)
+        } else {
+            None
+        };
+        let (adt_ty, variant) = if let Some(q) = qualified {
+            q
+        } else {
+            match self.res(path) {
+                Some(Res::Def(d)) => {
+                    let d = *d;
+                    match self.r.defs[d.0 as usize].kind {
+                        DefKind::Struct | DefKind::Union => {
+                            let args = self.item_args(d, path);
+                            (
+                                self.mk(TyKind::Adt(d, tcx.list(args))),
+                                tcx.adts.get(&d).and_then(|a| a.variants.first().cloned()),
+                            )
+                        }
+                        DefKind::Variant => {
+                            let args = self.item_args(d, path);
+                            let e = tcx.generics[d.0 as usize].parent;
+                            let v = e
+                                .and_then(|e| tcx.adts.get(&e))
+                                .and_then(|a| a.variants.iter().find(|v| v.def == Some(d)).cloned());
+                            match e {
+                                Some(e) => (self.mk(TyKind::Adt(e, tcx.list(args))), v),
+                                None => (self.tcx.error(), None),
+                            }
+                        }
+                        DefKind::TypeAlias => match tcx.type_of(d) {
+                            Some(t) => {
+                                let all = tcx.all_params(d);
+                                let args = self.infer.instantiate(&all);
+                                let t = subst(tcx, t, &all, &args);
+                                let v = match tcx.kind(t) {
+                                    TyKind::Adt(a, _) => tcx.adts.get(&a).and_then(|x| x.variants.first().cloned()),
+                                    _ => None,
+                                };
+                                (t, v)
+                            }
+                            None => (self.tcx.error(), None),
+                        },
+                        _ => (self.tcx.error(), None),
+                    }
                 }
-                None => (self.tcx.error(), None),
-            },
-            Some(Res::Partial(base, 1)) => {
-                // `Self::Variant { .. }` and `Alias::Variant { .. }`.
-                let name = self.last_segment_name(path);
-                let base = (**base).clone();
-                match self.base_ty(path, &base).map(|t| self.infer.shallow(t)).map(|t| (t, tcx.kind(t))) {
-                    Some((t, TyKind::Adt(e, _))) => {
-                        let v = tcx.adts.get(&e).and_then(|a| a.variants.iter().find(|v| v.name == name).cloned());
+                Some(Res::SelfTy(f, s)) => match tcx.self_ty.get(&(self.k, *f, *s)) {
+                    Some(&t) => {
+                        let v = match tcx.kind(t) {
+                            TyKind::Adt(a, _) => tcx.adts.get(&a).and_then(|x| x.variants.first().cloned()),
+                            _ => None,
+                        };
                         (t, v)
                     }
-                    _ => (self.tcx.error(), None),
+                    None => (self.tcx.error(), None),
+                },
+                Some(Res::Partial(base, 1)) => {
+                    // `Self::Variant { .. }` and `Alias::Variant { .. }`.
+                    let name = self.last_segment_name(path);
+                    let base = (**base).clone();
+                    match self.base_ty(path, &base).map(|t| self.infer.shallow(t)).map(|t| (t, tcx.kind(t))) {
+                        Some((t, TyKind::Adt(e, _))) => {
+                            let v = tcx.adts.get(&e).and_then(|a| a.variants.iter().find(|v| v.name == name).cloned());
+                            (t, v)
+                        }
+                        _ => (self.tcx.error(), None),
+                    }
                 }
+                _ => (self.tcx.error(), None),
             }
-            _ => (self.tcx.error(), None),
         };
         let (d, args) = match tcx.kind(adt_ty) {
             TyKind::Adt(d, l) => (Some(d), tcx.tys(l)),
@@ -3051,11 +3086,12 @@ impl<'a, 's> FnCtxt<'a, 's> {
                         continue;
                     }
                     let fk = self.kids(f);
+                    // `r#move` names the field `move`.
                     let (name, sub) = if fk.len() == 2 {
-                        (ast.token(fk[0]).0, fk[1])
+                        (ast.token(fk[0]).ident_name(), fk[1])
                     } else {
                         let sub = fk[0];
-                        (ast.child(sub, Kind::Name).map_or("", |n| ast.token(n).0), sub)
+                        (ast.child(sub, Kind::Name).map_or("", |n| ast.token(n).ident_name()), sub)
                     };
                     let ft = fields.iter().find(|x| x.0 == name).map(|x| x.1).unwrap_or_else(|| self.err(f, "no such field in pattern"));
                     self.pat(sub, ft, bm, by_ref);
@@ -3191,6 +3227,38 @@ impl<'a, 's> FnCtxt<'a, 's> {
     /// match `t`.
     fn named_fields(&mut self, path: NodeId, t: Ty) -> (Ty, Vec<(&'s str, Ty)>) {
         let tcx = self.tcx;
+        // Through a type alias (`Variant { span, .. }`) or an associated
+        // type (`<Foo as A>::Assoc { br }`): the struct it names, with its
+        // arguments.
+        let aliased = match self.res(path) {
+            Some(Res::Def(d)) => self.r.defs[d.0 as usize].kind == DefKind::TypeAlias,
+            Some(Res::Partial(..)) => self.ast.child(path, Kind::QSelf).is_some(),
+            _ => false,
+        };
+        if aliased {
+            let mut l = Lower {
+                tcx,
+                env: &self.env,
+                expanding: FastSet::default(),
+                impl_self: None,
+                holes: true,
+                k: self.k,
+                file: self.file,
+                owner: self.owner,
+                failed: false,
+            };
+            let pt = l.path_ty(path);
+            let pt = self.fill_holes(pt);
+            let pt = self.norm(pt);
+            if let TyKind::Adt(d, l) = tcx.kind(pt)
+                && let Some(v) = tcx.adts.get(&d).and_then(|a| a.variants.first().cloned())
+            {
+                self.infer.unify(pt, t);
+                let (params, args) = (tcx.all_params(d), tcx.tys(l));
+                let fields = v.fields.iter().map(|f| (f.name, subst(tcx, f.ty, &params, &args))).collect();
+                return (pt, fields);
+            }
+        }
         let (owner, variant) = match self.res(path) {
             Some(Res::Def(d)) => match self.r.defs[d.0 as usize].kind {
                 DefKind::Struct | DefKind::Union => (Some(*d), tcx.adts.get(d).and_then(|a| a.variants.first().cloned())),

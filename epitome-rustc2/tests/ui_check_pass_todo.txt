@@ -18,7 +18,6 @@ check-cfg/report-in-external-macros.rs#cargo: macro not found: my_lib_macro!
 check-cfg/report-in-external-macros.rs#rustc: macro not found: my_lib_macro!
 check-cfg/values-target-json.rs: left out: a target rustc does not know
 closures/2229_closure_analysis/migrations/issue-86753.rs: type check: a type left unknown
-closures/self-supertrait-bounds.rs: type check: a type left unknown
 closures/supertrait-hint-cycle.rs: type check: a type left unknown
 coinduction/canonicalization-rerun.rs#next: type check: a type left unknown
 coinduction/canonicalization-rerun.rs#old: type check: a type left unknown
@@ -67,7 +66,6 @@ implied-bounds/implied-bounds-on-nested-references-plus-variance-2.rs: type chec
 imports/ambiguous-glob-vs-expanded-extern.rs: macro not found: mac!
 imports/ambiguous-import-visibility-globglob-priv-pass.rs: import not resolved: : use crate::one_private::S (as S)
 imports/overwrite-different-vis-2.rs: path not resolved: f
-imports/remove-unused-private-import-errors.rs#keep: type check: associated item of something that is not a type
 lazy-type-alias-impl-trait/recursion2.rs: type check: mismatched types
 lexer/ident_normalization.rs: path not resolved: K
 lint/rfc-2383-lint-reason/expect_tool_lint_rfc_2383.rs: type check: a type left unknown

@@ -169,6 +169,30 @@ impl<'a, 's> FnCtxt<'a, 's> {
                         _ => {}
                     }
                 }
+                // And the `where` clauses on it of the trait it, or a
+                // projection it is of, belongs to (`where Self::Iter:
+                // Iterator, <Self::Iter as Iterator>::Item: Bar`), which
+                // hold as its bounds do.
+                let mut cur = t;
+                while let TyKind::Projection(a, l) = tcx.kind(cur) {
+                    let args = tcx.tys(l);
+                    if let Some(tr) = self.trait_of(a) {
+                        let tparams = tcx.all_params(tr);
+                        if args.len() >= tparams.len() {
+                            let targs = &args[..tparams.len()];
+                            for p in &tcx.predicates[tr.0 as usize] {
+                                if let Pred::Trait(pt, ptr) = p
+                                    && subst(tcx, *pt, &tparams, targs) == t
+                                {
+                                    let ptr = subst_trait_ref(tcx, ptr, &tparams, targs);
+                                    self.elaborate(t, &ptr, &mut out);
+                                }
+                            }
+                        }
+                    }
+                    let Some(&base) = args.first() else { break };
+                    cur = base;
+                }
             }
             _ => {}
         }
@@ -304,6 +328,16 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 return true;
             }
             self.rollback(s);
+            // A supertrait's arguments may name the bound's own
+            // projections (`Module: Mul<<Self as Module>::Ring>` with
+            // `Ring = R`): worked out, shallowly.
+            if pargs.iter().any(|&x| has_projection(tcx, x)) {
+                let pargs: Vec<Ty> = pargs.iter().map(|&x| self.normalize(x, MAX_DEPTH - 1)).collect();
+                if self.self_matches(pt, t) && self.args_unify(&pargs, targs) {
+                    return true;
+                }
+                self.rollback(s);
+            }
         }
         false
     }

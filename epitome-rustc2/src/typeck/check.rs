@@ -901,6 +901,34 @@ impl<'a, 's> FnCtxt<'a, 's> {
         }
     }
 
+    /// A branch (an `if`'s, a match arm) whose type is a reference that is
+    /// not the expected reference type: deref-coerced to it, as each
+    /// branch is coerced to what is wanted (`Owned(s) => &s` as a
+    /// `&str`).
+    fn branch_to_expected(&mut self, n: NodeId, t: Ty, expect: Option<Ty>) -> Ty {
+        let tcx = self.tcx;
+        let Some(e) = expect.map(|e| self.infer.shallow(e)) else { return t };
+        let (TyKind::Ref(..), TyKind::Ref(_, x)) = (tcx.kind(self.infer.shallow(t)), tcx.kind(e)) else { return t };
+        if tcx.has_infer(self.infer.resolve(x)) {
+            return t;
+        }
+        let p = self.probe();
+        if self.infer.unify(t, e) {
+            return e;
+        }
+        self.rollback(p);
+        if let TyKind::Ref(m, y) = tcx.kind(self.infer.shallow(t))
+            && let TyKind::Ref(m2, _) = tcx.kind(e)
+            && (m == m2 || m == Mutbl::Mut)
+            && let Some(adj) = self.deref_coerces(y, x, m2)
+        {
+            self.adjust(n, adj, e);
+            return e;
+        }
+        self.rollback(p);
+        t
+    }
+
     /// The common type of two branches (`if`/`else`, match arms).
     fn join(&mut self, n: NodeId, a: Ty, b: Ty) -> Ty {
         let (sa, sb) = (self.infer.shallow(a), self.infer.shallow(b));
@@ -1799,6 +1827,8 @@ impl<'a, 's> FnCtxt<'a, 's> {
                                 return want;
                             }
                         }
+                        let then = self.branch_to_expected(kids[1], then, expect);
+                        let et = self.branch_to_expected(e, et, expect);
                         self.join(n, then, et)
                     }
                     None => {
@@ -1841,6 +1871,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     }
                     if let Some(&body) = ak.get(i) {
                         let t = self.expr(body, expect.or(result));
+                        let t = self.branch_to_expected(body, t, expect);
                         result = Some(match result {
                             None => t,
                             Some(r) => self.join(body, r, t),

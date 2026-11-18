@@ -256,6 +256,8 @@ fn select_one(path: &Path, name: String, directives: &[(&str, &str)], rev: Optio
                     }
                 }
             }
+            // Enzyme (`-Zautodiff`) is not in a rustc built without it.
+            "needs-enzyme" => ignored = true,
             _ => {
                 if let Some(x) = name.strip_prefix("ignore-") {
                     ignored |= x == "test" || host_is(x);

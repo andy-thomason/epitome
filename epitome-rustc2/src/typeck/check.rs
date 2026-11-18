@@ -1529,6 +1529,16 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 return Some((item, args));
             }
             self.infer.rollback(fresh);
+            // `Bar<impl Sized>` in the body finding that type: `Bar<?hidden>`
+            // (`impl Bar<u32>` settles it).
+            let revealed = self.reveal_own(t);
+            let st_revealed = if has_opaque(tcx, st) { self.reveal_defined(st) } else { st };
+            if revealed != t || st_revealed != st {
+                if self.infer.unify(st_revealed, revealed) {
+                    return Some((item, args));
+                }
+                self.infer.rollback(fresh);
+            }
             // A self type with a projection among its arguments
             // (`ControlFlow<R, R::Output>`): the other arguments first, which
             // settle the projection's, then the projection, normalised.
@@ -1612,7 +1622,11 @@ impl<'a, 's> FnCtxt<'a, 's> {
                         args.extend(fresh);
                         if let Some((inputs, output)) = self.callable_sig(item, tcx.list(args.clone()))
                             && let Some(&sp) = inputs.first()
-                            && self.infer.unify(sp, recv)
+                            && (self.infer.unify(sp, recv) || {
+                                let r = self.reveal_own(recv);
+                                let sr = if has_opaque(tcx, sp) { self.reveal_defined(sp) } else { sp };
+                                (r != recv || sr != sp) && self.infer.unify(sr, r)
+                            })
                         {
                             // The impl's `where` clauses may settle its
                             // parameters (`impl<A, S> B<S> where S: R<E =

@@ -45,8 +45,6 @@ impl-trait/defining-use-uncaptured-non-universal-region-2.rs: type check: mismat
 impl-trait/in-trait/late-bound-in-object-assocty.rs: type check: mismatched types
 impl-trait/lifetime-ambiguity-regression.rs: type check: a type left unknown
 impl-trait/method/broken-deref-chain.rs#next: type check: mismatched types
-impl-trait/method/method-resolution.rs#current: type check: method not found
-impl-trait/method/method-resolution.rs#next: type check: method not found
 impl-trait/nested-hkl-lifetime.rs: type check: a type left unknown
 impl-trait/non-defining-uses/ambiguous-ops.rs#next: type check: mismatched types
 impl-trait/non-defining-uses/deref-constrains-self-ty.rs#next: type check: method not found
@@ -60,7 +58,6 @@ lexer/ident_normalization.rs: path not resolved: K
 lint/use-redundant/use-redundant-issue-78894.rs: import not resolved: : use bar (as bar)
 macros/issue-34171.rs: error: in `null!`: no rule of the macro matches this input (issue-34171.rs:5:20)
 macros/parse-test.rs: error: expected a macro matcher in delimiters (parse-test.rs:8:5)
-methods/opaque_param_in_ufc.rs: type check: associated item not found
 nll/issue-63154-normalize.rs: type check: a type left unknown
 parser/impls-nested-within-anon-consts-semantic.rs: path not resolved: Type
 pattern/deref-patterns/const-pats-do-not-mislead-inference.rs#deref_patterns: type check: a type left unknown
@@ -109,7 +106,5 @@ transmute/unnecessary-transmute-path-remap-ice-140277.rs: macro not found: trans
 tuple/indexing-in-macro.rs: error: in `m!`: no rule of the macro matches this input (indexing-in-macro.rs:7:1)
 type-alias-impl-trait/broken_mir.rs: type check: a type left unknown
 type-alias-impl-trait/match-unification.rs: type check: mismatched types
-type-alias-impl-trait/method_resolution5.rs#current: type check: method not found
-type-alias-impl-trait/method_resolution5.rs#next: type check: method not found
 type-alias-impl-trait/multiple-def-uses-in-one-fn-pass.rs: type check: a type left unknown
 wf/unnormalized-projection-guides-inference.rs: type check: a type left unknown

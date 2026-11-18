@@ -564,6 +564,11 @@ impl<'a> Parser<'a> {
     /// expression.
     fn stmt_fragment(&mut self) -> PResult<'a> {
         let m = self.mark();
+        // `;`, an empty statement.
+        if self.eat(";") {
+            self.finish(m, Kind::EmptyStmt);
+            return Ok(());
+        }
         self.outer_attributes()?;
         if self.at("let") {
             self.bump();

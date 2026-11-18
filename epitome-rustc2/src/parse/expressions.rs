@@ -761,6 +761,11 @@ impl<'a> Parser<'a> {
             return Ok(());
         }
         let attrs = self.outer_attributes()?;
+        // `#[attr] ;`: attributes on an empty statement.
+        if attrs > 0 && self.eat(";") {
+            self.finish(m, Kind::EmptyStmt);
+            return Ok(());
+        }
         if self.at("let") || self.at("super") && self.at_n(1, "let") {
             if self.at("super") {
                 self.leaf(Kind::Keyword, 1);

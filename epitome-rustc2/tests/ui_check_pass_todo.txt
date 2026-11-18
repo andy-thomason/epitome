@@ -42,7 +42,6 @@ proc-macro/hygiene_example.rs: macro not found: hello!
 proc-macro/inert-attribute-order.rs: error: expanding `print_attr!`: expected an item, found `/` (inert-attribute-order.rs:13:1)
 proc-macro/invalid-punct-ident-4.rs: error: proc macro `lexer_failure`: assertion `left == right` failed (invalid-punct-ident-4.rs:7:1)
 proc-macro/issue-79825.rs: error: proc macro `assert_input`: assertion `left == right` failed (issue-79825.rs:7:1)
-proc-macro/issue-80760-empty-stmt.rs: error: in `empty_stmt!`: no rule of the macro matches this input (issue-80760-empty-stmt.rs:25:5)
 proc-macro/meta-macro-hygiene.rs: left out: proc-macro crates rustc cannot build
 proc-macro/modules-in-input.rs: error: proc macro `expect_mod_item`: assertion `left == right` failed (modules-in-input.rs:10:1)
 proc-macro/panic-abort.rs: left out: proc-macro crate

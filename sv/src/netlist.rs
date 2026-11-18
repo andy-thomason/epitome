@@ -260,9 +260,10 @@ pub struct Netlist {
     pub dropped: usize,
     /// With `Options::profile`, the counters in the state.
     pub profile: Vec<Counter>,
-    /// The top's inputs its settling reads: a change of any other (a
-    /// clock, say) needs no settling.
-    pub watched: Vec<String>,
+    /// The top's inputs its settling reads, each with where it first does
+    /// (an instance path, and what reads it there): a change of any other
+    /// input (a clock, say) needs no settling.
+    pub watched: Vec<(String, String)>,
 }
 
 /// A profile counter (see [`Options::profile`]): two `i64`s in the state,
@@ -717,7 +718,7 @@ pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, 
             if !n.comb_reads(key, o) {
                 continue;
             }
-            watched.push(d.name(p.name).to_string());
+            watched.push((d.name(p.name).to_string(), n.comb_reader(key, o).unwrap_or_default()));
             let lay = n.layouts.get_mut(&key).unwrap();
             // (Kept an element to a slot: each element as a value.)
             let (at, lane, w) = (lay.objs[&o], lay.lane(o), tw(&d.types, d.object(o).ty));
@@ -3289,6 +3290,59 @@ impl<'d, 'a> Lowering<'d, 'a> {
         }
         self.comb_reads.borrow_mut().insert((key, o), r);
         r
+    }
+
+    /// Where a specialisation's settling first reads input `o` (as
+    /// [`Self::comb_reads`] finds it), for [`Netlist::watched`].
+    fn comb_reader(&self, key: Key, o: ObjId) -> Option<String> {
+        let d = self.d;
+        let lay = &self.layouts[&key];
+        if lay.known.is_some() {
+            return Some("a block recognised whole".into());
+        }
+        for &node in &lay.code {
+            match node {
+                Node::In(i) | Node::Pre(i) => {
+                    let child = lay.kid_keys[&i];
+                    let args = lay.args.get(&i);
+                    let name = self.inst_name(key.0, i, lay.groups.contains_key(&i));
+                    for (p, e) in self.member_connections(key, i) {
+                        let mut rs = Vec::new();
+                        self.reads(e, &mut rs);
+                        if p.dir != Dir::Input || !rs.iter().any(|t| t.0 == o) {
+                            continue;
+                        }
+                        let k = d.spec(child.0).ports.iter().position(|q| q.name == p.name);
+                        let copied = !matches!(args.zip(k).map(|(a, k)| a[k]), Some(Arg::Alias(_)));
+                        let q = p.object;
+                        if q.is_some_and(|q| self.comb_reads(child, q)) {
+                            let why = self.comb_reader(child, q.unwrap()).unwrap_or_default();
+                            return Some(format!("{name}.{why}"));
+                        }
+                        if copied && !self.ff_input(child, p) {
+                            return Some(format!("{name}: copied to port {} of a child with no clocked processes", d.name(p.name)));
+                        }
+                    }
+                }
+                Node::Call(_) | Node::Early(_) => {}
+                _ => {
+                    let (r, w) = self.access(key, node);
+                    if r.iter().any(|t| t.0 == o) {
+                        let mut names: Vec<&str> = w.iter().map(|t| d.name(d.object(t.0).name)).collect();
+                        names.dedup();
+                        names.truncate(4);
+                        let what = match node {
+                            Node::Proc(p) => format!("{:?}", d.processes[p.0 as usize].kind),
+                            Node::Driver(_) => "assign".into(),
+                            Node::Loop(_) => "rolled assigns".into(),
+                            _ => format!("{node:?}"),
+                        };
+                        return Some(format!(" {what} writing {}", names.join(", ")));
+                    }
+                }
+            }
+        }
+        None
     }
 
     /// Whether a clocked child's input, copied to a slot, is copied only

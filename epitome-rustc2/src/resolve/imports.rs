@@ -1,7 +1,7 @@
 //! Resolving `use` declarations to a fixed point, and finding each crate's
 //! prelude.
 
-use super::{ImportKind, ModId, Ns, Res, Resolver};
+use super::{ImportKind, ModId, Ns, Res, Resolver, Vis};
 use crate::lexer::Edition;
 
 /// What trying an import gave.
@@ -136,8 +136,16 @@ fn try_import(r: &mut Resolver, i: usize) -> Outcome {
             let Some((start, used)) = r.path_start(&path, rooted, m, krate, edition) else { return Outcome::Wait };
             let Some(target) = r.follow(start, &path[used..], m) else { return Outcome::Wait };
             let globs = &mut r.modules[m.0 as usize].globs;
-            if target != m && !globs.iter().any(|g| g.0 == target) {
-                globs.push((target, vis));
+            if target != m {
+                match globs.iter_mut().find(|g| g.0 == target) {
+                    // `use inner::*; pub use inner::*;`: the wider one.
+                    Some(g) => {
+                        if vis == Vis::Public {
+                            g.1 = vis;
+                        }
+                    }
+                    None => globs.push((target, vis)),
+                }
             }
             Outcome::Done
         }

@@ -460,7 +460,7 @@ impl<'a> Parser<'a> {
                 self.leaf(Kind::Keyword, 3);
             } else if self.at("?") || self.at("!") {
                 self.leaf(Kind::Op, 1);
-            } else if self.at("const") || self.at("async") {
+            } else if self.at("const") || self.at("async") && self.edition >= crate::lexer::Edition::E2018 {
                 self.leaf(Kind::Keyword, 1);
             } else {
                 break;

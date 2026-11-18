@@ -8,7 +8,6 @@ associated-inherent-types/inference.rs#next: type check: a type left unknown
 associated-inherent-types/variance-computation-requires-equality.rs: type check: associated type not found
 associated-types/duplicate-associated-type-resolution-59326.rs: type check: a type left unknown
 assumptions_on_binders/test-infra-works.rs: macro not found: test_binder_constraints!
-async-await/async-fn/edition-2015-not-async-bound.rs: path not resolved: Foo
 attributes/duplicated-attributes.rs: import not resolved: : use test::Bencher (as Bencher)
 attributes/z-crate-attr/cfg-false.rs: left out: flags that change the crate
 autodiff/flag_nott.rs: path not resolved: d_square
@@ -63,8 +62,6 @@ impl-trait/recursive-bound-eval.rs#current: type check: a type left unknown
 impl-trait/recursive-bound-eval.rs#next: type check: a type left unknown
 implied-bounds/implied-bounds-on-nested-references-plus-variance-2.rs: type check: a type left unknown
 imports/ambiguous-glob-vs-expanded-extern.rs: macro not found: mac!
-imports/ambiguous-import-visibility-globglob-priv-pass.rs: import not resolved: : use crate::one_private::S (as S)
-imports/overwrite-different-vis-2.rs: path not resolved: f
 lazy-type-alias-impl-trait/recursion2.rs: type check: mismatched types
 lexer/ident_normalization.rs: path not resolved: K
 lint/rfc-2383-lint-reason/expect_tool_lint_rfc_2383.rs: type check: a type left unknown

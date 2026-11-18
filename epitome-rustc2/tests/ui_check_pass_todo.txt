@@ -20,9 +20,7 @@ assumptions_on_binders/resolve-infer-var-wf.rs: type check: a type left unknown
 assumptions_on_binders/test-infra-works.rs: macro not found: test_binder_constraints!
 async-await/async-closures/by-move-body-inlined-attrs.rs: type check: method not found
 async-await/async-closures/call-once-deduction.rs: type check: a type left unknown
-async-await/async-closures/no-borrow-from-env.rs: type check: call of something that is not a function
 async-await/async-closures/sig-from-bare-fn.rs: type check: a type left unknown
-async-await/async-drop/live-dead-storage2.rs: type check: call of something that is not a function
 async-await/async-fn/edition-2015-not-async-bound.rs: path not resolved: Foo
 async-await/async-fn/sugar.rs: type check: `.await` on something that is not a future
 async-await/drop-tracking-unresolved-typeck-results.rs#assumptions: type check: a type left unknown
@@ -191,7 +189,6 @@ traits/next-solver/cycles/inductive-cycle-discarded-coinductive-constraints.rs: 
 traits/next-solver/cycles/leak-check-coinductive-cycle.rs: type check: a type left unknown
 traits/next-solver/cycles/provisional-result-done.rs: type check: a type left unknown
 traits/next-solver/deduce-ty-from-object.rs: type check: mismatched types
-traits/next-solver/deeply-nested-stalled-on-coroutines.rs: type check: call of something that is not a function
 traits/next-solver/generalize/alias-with-bound-vars-incomplete-generalization.rs#next: type check: mismatched types
 traits/next-solver/generalize/alias-with-bound-vars-incomplete-generalization.rs#old: type check: mismatched types
 traits/next-solver/generalize/constrain-inference-during-normalize.rs: type check: a type left unknown
@@ -219,6 +216,5 @@ type-alias-impl-trait/obligation_ice.rs: type check: method not found
 unpretty/ast-const-trait-bound.rs: path not resolved: Bar
 unpretty/exhaustive.rs#expanded: error: expected `;`, found `try` (exhaustive.rs:247:9)
 unpretty/interpolation-expanded.rs: type check: operator on types that do not implement it
-use/import_trait_associated_functions.rs: import not resolved: : use Default::default (as default)
 wf/unnormalized-projection-guides-inference.rs: type check: a type left unknown
 where-clauses/cfg-attr-issue-138010-1.rs: error: expected a type, found `#` (cfg-attr-issue-138010-1.rs:9:9)

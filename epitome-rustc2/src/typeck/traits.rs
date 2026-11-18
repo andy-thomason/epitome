@@ -390,6 +390,28 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 };
             }
         }
+        // Closures, function items and pointers whose result is a future
+        // implement the `AsyncFn` traits, with that future as what a call
+        // gives (`async || {}`).
+        if ["async_fn", "async_fn_mut", "async_fn_once"].iter().any(|l| tcx.lang.get(l) == Some(&tr)) {
+            let sig = match tcx.kind(t) {
+                TyKind::FnDef(d, l) => self.callable_sig(d, l),
+                TyKind::FnPtr(s) | TyKind::Closure(_, s, _) => {
+                    let s = tcx.sig_of(s);
+                    Some((tcx.tys(s.inputs), s.output))
+                }
+                _ => None,
+            };
+            if let Some((inputs, output)) = sig {
+                let fut = self.lang("future_trait");
+                let is_future = fut.is_some_and(|f| self.select(self.infer.shallow(output), f, &[], depth + 1).holds());
+                let tuple = self.mk(TyKind::Tuple(tcx.list(inputs)));
+                return match targs.first() {
+                    Some(&a) if is_future && self.infer.unify(a, tuple) => Select::Yes(Source::Builtin(Some(output))),
+                    _ => Select::No,
+                };
+            }
+        }
         // Coroutines implement `Coroutine<R>` for their resume type `R`.
         if let TyKind::Coroutine(_, parts, _) = tcx.kind(t)
             && tcx.lang.get("coroutine") == Some(&tr)
@@ -751,9 +773,15 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 Some(self.normalize(it, depth + 1))
             }
             Select::Yes(Source::Builtin(Some(out)))
-                if tcx.lang.get("fn_once_output") == Some(&assoc) || tcx.lang.get("future_output") == Some(&assoc) =>
+                if ["fn_once_output", "future_output", "call_once_future", "call_ref_future"]
+                    .iter()
+                    .any(|l| tcx.lang.get(l) == Some(&assoc)) =>
             {
                 Some(out)
+            }
+            // An async closure's `Output`: its future's.
+            Select::Yes(Source::Builtin(Some(out))) if tcx.lang.get("async_fn_once_output") == Some(&assoc) => {
+                self.await_output(out)
             }
             _ => None,
         }
@@ -1293,6 +1321,42 @@ impl<'a, 's> FnCtxt<'a, 's> {
     pub(super) fn call_fn_traits(&mut self, call: crate::ast::NodeId, t: Ty, n: usize) -> Option<(Vec<Ty>, Ty)> {
         let tcx = self.tcx;
         let output = self.lang("fn_once_output")?;
+        if let Some(sig) = self.call_fn_traits_sync(call, t, n, output) {
+            return Some(sig);
+        }
+        // `f()` with `f: impl AsyncFnOnce()`: a call gives its future.
+        let fut = self.lang("call_once_future")?;
+        for (l, method) in
+            [("async_fn", "async_call"), ("async_fn_mut", "async_call_mut"), ("async_fn_once", "async_call_once")]
+        {
+            let Some(tr) = self.lang(l) else { continue };
+            let s = self.probe();
+            let inputs: Vec<Ty> = (0..n).map(|_| self.infer.fresh()).collect();
+            let tuple = self.mk(TyKind::Tuple(tcx.list(inputs.clone())));
+            match self.select(t, tr, &[tuple], 0) {
+                Select::Yes(Source::Builtin(Some(out))) => {
+                    self.record_trait_method(call, tr, method, t, &[tuple]);
+                    return Some((inputs, out));
+                }
+                Select::Yes(_) => {
+                    self.record_trait_method(call, tr, method, t, &[tuple]);
+                    let out = self.project_or_var(fut, &[t, tuple]);
+                    return Some((inputs, out));
+                }
+                _ => self.rollback(s),
+            }
+        }
+        None
+    }
+
+    fn call_fn_traits_sync(
+        &mut self,
+        call: crate::ast::NodeId,
+        t: Ty,
+        n: usize,
+        output: DefId,
+    ) -> Option<(Vec<Ty>, Ty)> {
+        let tcx = self.tcx;
         for l in ["fn", "fn_mut", "fn_once"] {
             let Some(tr) = self.lang(l) else { continue };
             let s = self.probe();

@@ -105,7 +105,13 @@ impl<'s> Resolver<'s> {
                 {
                     return Some((md, 1));
                 }
-                Some((self.extern_prelude(krate, first)?, 1))
+                if let Some(c) = self.extern_prelude(krate, first) {
+                    return Some((c, 1));
+                }
+                // A name of the standard prelude (`use Default::default;`).
+                let p = prelude_module(self, krate as usize)?;
+                let res = self.lookup(p, first, Ns::Type, m)?;
+                Some((self.module_of_res(&res)?, 1))
             }
         }
     }

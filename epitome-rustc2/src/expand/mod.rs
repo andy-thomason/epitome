@@ -109,6 +109,9 @@ pub struct MacroDef<'s> {
     pub exported: bool,
     /// A macro 2.0 (`macro m`), found by path, not by text order.
     pub item: bool,
+    /// `#[rustc_macro_transparency = "transparent"]`: its `$crate` is the
+    /// call site's crate.
+    pub transparent: bool,
     pub kind: MacroKind<'s>,
 }
 
@@ -315,6 +318,7 @@ impl<'s> Macros<'s> {
                     scope: Vec::new(),
                     exported: false,
                     item: true,
+                    transparent: false,
                     kind: MacroKind::Proc(lib.clone(), *kind),
                 });
                 self.by_name[k].entry(name).or_default().push(i);
@@ -455,6 +459,8 @@ fn collect_defs<'s>(
                     scope: effective_scope(scope),
                     exported: has_attribute(ast, k, "macro_export"),
                     item,
+                    transparent: crate::session::attribute_value(ast, k, "rustc_macro_transparency")
+                        .is_some_and(|v| v == "transparent"),
                     kind,
                 });
             }
@@ -735,7 +741,7 @@ impl<'x, 's> Expander<'x, 's> {
             Some(d) => match &self.macros.defs[d].kind {
                 MacroKind::Rules(rules) => {
                     let make = |s: String| Token(self.session.add_text("<macro>", s));
-                    let dollar_crate = if self.macros.defs[d].krate == self.krate {
+                    let dollar_crate = if self.macros.defs[d].krate == self.krate || self.macros.defs[d].transparent {
                         vec![synth(6..11)]
                     } else {
                         self.macros.crate_path[self.macros.defs[d].krate].clone()
@@ -1068,7 +1074,7 @@ impl<'x, 's> Expander<'x, 's> {
             Some(d) => match &self.macros.defs[d].kind {
                 MacroKind::Rules(rules) => {
                     let make = |s: String| Token(self.session.add_text("<macro>", s));
-                    let dollar_crate = if self.macros.defs[d].krate == self.krate {
+                    let dollar_crate = if self.macros.defs[d].krate == self.krate || self.macros.defs[d].transparent {
                         vec![synth(6..11)]
                     } else {
                         self.macros.crate_path[self.macros.defs[d].krate].clone()

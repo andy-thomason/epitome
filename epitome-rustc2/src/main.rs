@@ -268,10 +268,18 @@ fn main() -> ExitCode {
         }
         if dump_mono || mono_stats || dump_ir || lower_stats || output.is_some() {
             let index = epitome_rustc2::typeck::Index::new(&tcx, &r);
-            let res = session.typeck_with(&crates, &r, &tcx, &index);
+            // Only the bodies the program reaches are type checked, as
+            // monomorphisation finds them.
+            // (`EPITOME_TYPECK_ALL` checks every body first, as before.)
+            let mut res = epitome_rustc2::typeck::TypeckResults::empty(&crates);
             let t = std::time::Instant::now();
             let roots = epitome_rustc2::mono::roots(&r, &tcx, &crates, crates.len() as u32 - 1, lib);
-            let mono = session.collect_mono_items(&crates, &r, &tcx, &index, &res, roots.clone());
+            let mono = if std::env::var_os("EPITOME_TYPECK_ALL").is_some() {
+                res = session.typeck_with(&crates, &r, &tcx, &index);
+                session.collect_mono_items(&crates, &r, &tcx, &index, &res, roots.clone())
+            } else {
+                session.collect_mono_items_lazily(&crates, &r, &tcx, &index, &mut res, roots.clone())
+            };
             let elapsed = t.elapsed();
             if dump_mono {
                 print!("{}", mono.dump(&r, &tcx));
@@ -279,9 +287,10 @@ fn main() -> ExitCode {
             if mono_stats {
                 let missed: usize = mono.unresolved.iter().map(|x| x.1).sum();
                 eprintln!(
-                    "mono: {} items from {} uses ({missed} not resolved), in {:.3} s",
+                    "mono: {} items from {} uses ({missed} not resolved), {} bodies type checked, in {:.3} s",
                     mono.items.len(),
                     mono.uses,
+                    res.stats.bodies,
                     elapsed.as_secs_f64()
                 );
                 // All of them with EPITOME_MONO_ALL set.

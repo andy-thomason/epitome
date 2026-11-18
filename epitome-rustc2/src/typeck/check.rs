@@ -538,6 +538,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let hidden_vars = std::mem::take(&mut self.hidden);
         let hidden: Vec<(crate::ty::OpaqueId, Ty)> = hidden_vars.into_iter().map(|(o, v)| (o, fin(&mut self, v))).collect();
         BodyResult {
+            owner: self.owner,
             hidden,
             closures: std::mem::take(&mut self.closures).into_iter().map(|c| (c, self.owner)).collect(),
             captures,

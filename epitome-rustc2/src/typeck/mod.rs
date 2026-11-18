@@ -18,7 +18,7 @@ pub mod infer;
 mod traits;
 
 use crate::ast::NodeId;
-use crate::hash::FastMap;
+use crate::hash::{FastMap, FastSet};
 use crate::pool;
 use crate::resolve::{DefId, DefKind, Resolver};
 use crate::session::{ParsedCrate, Session};
@@ -44,6 +44,12 @@ pub struct TypeckResults {
     pub stats: TypeckStats,
     /// The same counts for each crate's bodies.
     pub crate_stats: Vec<TypeckStats>,
+    /// The bodies checked (or found to have none), for checking more on
+    /// demand (`Session::typeck_owners`).
+    pub checked: FastSet<DefId>,
+    /// The counts behind `stats.reasons` and each crate's.
+    reasons: FastMap<String, usize>,
+    crate_reasons: Vec<FastMap<String, usize>>,
 }
 
 #[derive(Default, Debug)]
@@ -153,6 +159,7 @@ struct Body {
 
 /// What one body's check gives.
 struct BodyResult {
+    owner: DefId,
     k: u32,
     file: u32,
     types: Vec<(NodeId, Ty)>,
@@ -271,81 +278,115 @@ impl Session {
     /// `typeck`, with an index of impls already made (to share with
     /// later stages).
     pub fn typeck_with<'s>(&'s self, crates: &[ParsedCrate<'s>], r: &Resolver<'s>, tcx: &TyCtxt<'s>, index: &Index<'s>) -> TypeckResults {
-        let bodies: Vec<Body> = (0..r.defs.len() as u32)
-            .map(DefId)
-            .filter(|&d| {
-                let def = &r.defs[d.0 as usize];
-                def.parent.is_some()
-                    && matches!(
-                        def.kind,
-                        DefKind::Fn | DefKind::AssocFn | DefKind::Const | DefKind::Static | DefKind::AssocConst
-                    )
-            })
-            .map(|d| {
-                let def = &r.defs[d.0 as usize];
-                Body { owner: d, k: def.krate, file: def.file, item: def.node }
-            })
-            .collect();
+        let owners: Vec<DefId> = (0..r.defs.len() as u32).map(DefId).filter(|&d| body_of(r, d).is_some()).collect();
+        let mut res = TypeckResults::empty(crates);
+        self.typeck_owners(crates, r, tcx, index, &owners, &mut res);
+        res
+    }
+
+    /// Type checks the bodies of `owners` not checked yet, in parallel,
+    /// adding what is found to `res`: for checking only the bodies a
+    /// program reaches, as monomorphisation finds them
+    /// (`collect_mono_items_lazily`).
+    pub fn typeck_owners<'s>(
+        &'s self,
+        crates: &[ParsedCrate<'s>],
+        r: &Resolver<'s>,
+        tcx: &TyCtxt<'s>,
+        index: &Index<'s>,
+        owners: &[DefId],
+        res: &mut TypeckResults,
+    ) {
+        let mut bodies = Vec::new();
+        for &d in owners {
+            if res.checked.insert(d)
+                && let Some(b) = body_of(r, d)
+            {
+                bodies.push(b);
+            }
+        }
         let out: Mutex<Vec<BodyResult>> = Mutex::new(Vec::new());
-        let checked: Mutex<Vec<DefId>> = Mutex::new(Vec::new());
         pool::run(self.threads(), bodies, |b, _| {
             if let Some(res) = check::check_body(tcx, r, crates, index, b.owner, b.k, b.file, b.item) {
-                checked.lock().unwrap().push(b.owner);
                 out.lock().unwrap().push(res);
             }
         });
-        let mut types: Vec<Vec<Vec<Option<Ty>>>> =
-            crates.iter().map(|c| c.files.iter().map(|f| vec![None; f.ast.nodes.len()]).collect()).collect();
-        let mut tables: Vec<Vec<Tables>> =
-            crates.iter().map(|c| c.files.iter().map(|_| Tables::default()).collect()).collect();
-        let mut stats = TypeckStats::default();
-        let mut reasons: FastMap<String, usize> = FastMap::default();
-        let mut crate_stats: Vec<TypeckStats> = crates.iter().map(|_| TypeckStats::default()).collect();
-        let mut crate_reasons: Vec<FastMap<String, usize>> = crates.iter().map(|_| FastMap::default()).collect();
-        let mut hidden = FastMap::default();
-        let mut closure_owners = FastMap::default();
-        let mut captures = FastMap::default();
-        for res in out.into_inner().unwrap() {
-            hidden.extend(res.hidden);
-            closure_owners.extend(res.closures);
-            captures.extend(res.captures);
-            for s in [&mut stats, &mut crate_stats[res.k as usize]] {
-                s.bodies += 1;
-                if res.error_nodes == 0 && res.unknown_nodes == 0 {
-                    s.clean_bodies += 1;
-                }
-                s.nodes += res.types.len();
-                s.error_nodes += res.error_nodes;
-                s.unknown_nodes += res.unknown_nodes;
+        let mut out = out.into_inner().unwrap();
+        // The same order whatever the threads did.
+        out.sort_by_key(|b| b.owner);
+        for b in out {
+            res.add(b);
+        }
+        res.stats.reasons = most_common(res.reasons.clone());
+        for (s, r) in res.crate_stats.iter_mut().zip(&res.crate_reasons) {
+            s.reasons = most_common(r.clone());
+        }
+        res.bodies.sort();
+    }
+}
+
+/// The body to check of item `d`, if it has one: a function's, a
+/// constant's or a static's.
+fn body_of(r: &Resolver, d: DefId) -> Option<Body> {
+    let def = &r.defs[d.0 as usize];
+    let has = def.parent.is_some() && matches!(def.kind, DefKind::Fn | DefKind::AssocFn | DefKind::Const | DefKind::Static | DefKind::AssocConst);
+    has.then_some(Body { owner: d, k: def.krate, file: def.file, item: def.node })
+}
+
+impl TypeckResults {
+    /// Results with no bodies checked yet, with room for every file of
+    /// `crates`.
+    pub fn empty(crates: &[ParsedCrate]) -> TypeckResults {
+        TypeckResults {
+            types: crates.iter().map(|c| c.files.iter().map(|f| vec![None; f.ast.nodes.len()]).collect()).collect(),
+            tables: crates.iter().map(|c| c.files.iter().map(|_| Tables::default()).collect()).collect(),
+            bodies: Vec::new(),
+            hidden: FastMap::default(),
+            closure_owners: FastMap::default(),
+            captures: FastMap::default(),
+            stats: TypeckStats::default(),
+            crate_stats: crates.iter().map(|_| TypeckStats::default()).collect(),
+            checked: FastSet::default(),
+            reasons: FastMap::default(),
+            crate_reasons: crates.iter().map(|_| FastMap::default()).collect(),
+        }
+    }
+
+    /// Adds what checking one body found.
+    fn add(&mut self, res: BodyResult) {
+        self.bodies.push(res.owner);
+        self.hidden.extend(res.hidden);
+        self.closure_owners.extend(res.closures);
+        self.captures.extend(res.captures);
+        for s in [&mut self.stats, &mut self.crate_stats[res.k as usize]] {
+            s.bodies += 1;
+            if res.error_nodes == 0 && res.unknown_nodes == 0 {
+                s.clean_bodies += 1;
             }
-            let file = &mut types[res.k as usize][res.file as usize];
-            for (n, t) in res.types {
-                if let Some(slot) = file.get_mut(n.0 as usize) {
-                    *slot = Some(t);
-                }
-            }
-            let t = &mut tables[res.k as usize][res.file as usize];
-            t.methods.extend(res.methods.into_iter().map(|(n, d, l)| (n, (d, l))));
-            t.consts.extend(res.consts.into_iter().map(|(n, d, l)| (n, (d, l))));
-            t.adjustments.extend(res.adjustments);
-            t.pat_derefs.extend(res.pat_derefs);
-            t.bindings.extend(res.bindings);
-            t.adjusted.extend(res.adjusted);
-            for (n, d, l) in res.implicit {
-                t.implicit.entry(n).or_default().push((d, l));
-            }
-            for (why, n) in res.errors {
-                *crate_reasons[res.k as usize].entry(why.clone()).or_default() += n;
-                *reasons.entry(why).or_default() += n;
+            s.nodes += res.types.len();
+            s.error_nodes += res.error_nodes;
+            s.unknown_nodes += res.unknown_nodes;
+        }
+        let file = &mut self.types[res.k as usize][res.file as usize];
+        for (n, t) in res.types {
+            if let Some(slot) = file.get_mut(n.0 as usize) {
+                *slot = Some(t);
             }
         }
-        stats.reasons = most_common(reasons);
-        for (s, r) in crate_stats.iter_mut().zip(crate_reasons) {
-            s.reasons = most_common(r);
+        let t = &mut self.tables[res.k as usize][res.file as usize];
+        t.methods.extend(res.methods.into_iter().map(|(n, d, l)| (n, (d, l))));
+        t.consts.extend(res.consts.into_iter().map(|(n, d, l)| (n, (d, l))));
+        t.adjustments.extend(res.adjustments);
+        t.pat_derefs.extend(res.pat_derefs);
+        t.bindings.extend(res.bindings);
+        t.adjusted.extend(res.adjusted);
+        for (n, d, l) in res.implicit {
+            t.implicit.entry(n).or_default().push((d, l));
         }
-        let mut bodies = checked.into_inner().unwrap();
-        bodies.sort();
-        TypeckResults { types, tables, bodies, hidden, closure_owners, captures, stats, crate_stats }
+        for (why, n) in res.errors {
+            *self.crate_reasons[res.k as usize].entry(why.clone()).or_default() += n;
+            *self.reasons.entry(why).or_default() += n;
+        }
     }
 }
 

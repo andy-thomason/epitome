@@ -365,7 +365,7 @@ impl Session {
             parent: None,
         };
         if job.follow {
-            let (jobs, errors) = module_jobs(job.krate, &file, job.edition, &FastSet::default());
+            let (jobs, errors) = module_jobs(job.krate, &file, job.edition, &FastSet::default(), &|_| None);
             done.errors.extend(errors);
             for j in jobs {
                 done.loaded.push((file.pos.clone(), j.decl.as_ref().unwrap().1));
@@ -384,8 +384,13 @@ impl Session {
             if !c.follow_modules {
                 continue;
             }
+            let included = self.included.lock().unwrap().clone();
+            let included_dir = |t: &str| {
+                let p = PathBuf::from(&self.sources.find(t)?.name);
+                included.contains(&p).then(|| p.parent().unwrap_or(Path::new("")).to_path_buf())
+            };
             for f in &c.files {
-                let (js, errors) = module_jobs(k, f, c.edition, &c.loaded);
+                let (js, errors) = module_jobs(k, f, c.edition, &c.loaded, &included_dir);
                 c.errors.extend(errors);
                 jobs.extend(js);
             }
@@ -433,13 +438,14 @@ fn module_jobs<'s>(
     file: &ParsedFile<'s>,
     edition: Edition,
     loaded: &FastSet<(Vec<u32>, NodeId)>,
+    included_dir: &dyn Fn(&str) -> Option<PathBuf>,
 ) -> (Vec<Job<'s>>, Vec<Error<'s>>) {
     let ast = &file.ast;
     let file_dir = file.path.parent().unwrap_or(Path::new("")).to_path_buf();
     let children_dir =
         if file.mod_rs { file_dir.clone() } else { file_dir.join(file.path.file_stem().unwrap_or_default()) };
     let mut found = Vec::new();
-    scan_modules(ast, ast.root, &file_dir, &children_dir, true, &mut found);
+    scan_modules(ast, ast.root, &file_dir, &children_dir, true, included_dir, &mut found);
     let mut jobs = Vec::new();
     let mut errors = Vec::new();
     for m in found {
@@ -493,17 +499,20 @@ fn scan_modules<'s>(
     file_dir: &Path,
     dir: &Path,
     top: bool,
+    included_dir: &dyn Fn(&str) -> Option<PathBuf>,
     out: &mut Vec<FoundModule<'s>>,
 ) {
-    scan_into(ast, node, file_dir, dir, top, &mut Vec::new(), out);
+    scan_into(ast, node, file_dir, dir, top, included_dir, &mut Vec::new(), out);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn scan_into<'s>(
     ast: &Ast<'s>,
     node: NodeId,
     file_dir: &Path,
     dir: &Path,
     top: bool,
+    included_dir: &dyn Fn(&str) -> Option<PathBuf>,
     inline: &mut Vec<ScopeStep>,
     out: &mut Vec<FoundModule<'s>>,
 ) {
@@ -517,15 +526,23 @@ fn scan_into<'s>(
         let configured = has_attribute(ast, item, "cfg") || has_attribute(ast, item, "cfg_attr");
         let is_inline = ast.tokens_of(item).last().is_some_and(|t| t.0 == "}");
         if is_inline {
-            let sub = match &path_attr {
+            // `#[path]` on it, or `#![path]` in it.
+            let sub = match path_attr.or_else(|| inner_attribute_value(ast, item, "path")) {
                 Some(p) => dir.join(p),
                 None => dir.join(name),
             };
             inline.push(ScopeStep { name: name.to_string(), macro_use: has_attribute(ast, item, "macro_use") });
-            scan_into(ast, item, file_dir, &sub, false, inline, out);
+            scan_into(ast, item, file_dir, &sub, false, included_dir, inline, out);
             inline.pop();
             continue;
         }
+        // A `mod` written in a file `include!` brought in: beside that
+        // file.
+        let included = if top { included_dir(name) } else { None };
+        let (file_dir, dir) = match &included {
+            Some(d) => (d.as_path(), d.as_path()),
+            None => (file_dir, dir),
+        };
         let file = if let Some(p) = path_attr {
             let path = if top { file_dir.join(p) } else { dir.join(p) };
             if path.exists() || !configured { Ok((path, true)) } else { Err(None) }
@@ -563,6 +580,20 @@ pub(crate) fn has_attribute(ast: &Ast, item: NodeId, name: &str) -> bool {
 }
 
 /// The string in `#[name = "value"]`, without quotes.
+/// `#![name = "value"]` among `item`'s inner attributes: the value.
+fn inner_attribute_value(ast: &Ast, item: NodeId, name: &str) -> Option<String> {
+    let a = ast.children(item).iter().copied().find(|&a| {
+        ast.kind(a) == Kind::InnerAttribute && ast.child(a, Kind::Path).is_some_and(|p| ast.text(p) == name)
+    })?;
+    let value = *ast.children(a).last()?;
+    if ast.kind(value) != Kind::Literal {
+        return None;
+    }
+    let t = ast.token(value).0;
+    let body = t.trim_start_matches('r').trim_matches('#');
+    Some(body.strip_prefix('"')?.strip_suffix('"')?.to_string())
+}
+
 pub(crate) fn attribute_value(ast: &Ast, item: NodeId, name: &str) -> Option<String> {
     let (_, a) = attributes(ast, item).find(|(n, _)| n == name)?;
     let value = *ast.children(a).last()?;

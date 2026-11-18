@@ -1076,6 +1076,12 @@ enum Node {
     /// A run of a generate loop's iterations that reverses the bits of a
     /// field, one an iteration (`Lowering::revs`).
     Rev(usize),
+    /// Nodes that wait on each other (a combinational loop through the
+    /// nodes, though not through any bit, as when a handshake goes through
+    /// a child both ways): those up to `RepeatEnd`, run this many times
+    /// over, which settles any loop that is not one through bits.
+    Repeat(u32),
+    RepeatEnd,
 }
 
 /// Iterations of a generate loop each assigning one bit of a value from one
@@ -1306,6 +1312,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let mut kids = Vec::new();
         for node in &code {
             match *node {
+                Node::Repeat(_) | Node::RepeatEnd => {}
                 Node::Driver(dr) => exprs.extend([d.drivers[dr.0 as usize].lhs, d.drivers[dr.0 as usize].rhs]),
                 Node::Loop(l) => {
                     for &dr in &self.loops[l].all {
@@ -1839,6 +1846,11 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     seg += 1;
                     seg
                 }
+                // (A repeated group's passes are loops of their own.)
+                Node::Repeat(_) | Node::RepeatEnd => {
+                    seg += 2;
+                    seg
+                }
                 _ => seg,
             };
             let (r, w) = self.access(key, node);
@@ -1882,7 +1894,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 seg += 1;
             }
             match node {
-                Node::Loop(_) => seg += 2,
+                Node::Loop(_) | Node::Repeat(_) | Node::RepeatEnd => seg += 2,
                 Node::Call(_) | Node::Early(_) => seg += 1,
                 _ => {}
             }
@@ -2065,6 +2077,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let mut uses: HashMap<ObjId, Option<u32>> = HashMap::new();
         for node in code {
             match *node {
+                Node::Repeat(_) | Node::RepeatEnd => {}
                 Node::Driver(dr) => {
                     let drv = &d.drivers[dr.0 as usize];
                     self.expr_uses(drv.lhs, &mut uses);
@@ -2772,6 +2785,12 @@ impl<'d, 'a> Lowering<'d, 'a> {
     /// out before it is read: a topological sort on the bits each node
     /// reads and writes.
     fn order(&self, key: Key) -> Result<Vec<Node>, String> {
+        if let Ok(o) = self.order_of(key) {
+            return Ok(o);
+        }
+        if let Some(o) = self.order_repeating(key) {
+            return Ok(o);
+        }
         self.order_of(key).map_err(|stuck| {
             let nodes = &self.layouts[&key].code;
             let some: Vec<String> = stuck.iter().take(4).map(|&n| format!("{:?}", nodes[n])).collect();
@@ -2785,7 +2804,155 @@ impl<'d, 'a> Lowering<'d, 'a> {
     }
 
     /// [`Self::order`], or the nodes left waiting on each other.
+    /// The nodes that wait on each other, as `order_of` finds them: each
+    /// strongly connected group is run as a loop of its own (`Node::Repeat`),
+    /// in an order that breaks its cycles, as many times as it has nodes and
+    /// once more; the groups, and the nodes in no loop, in an order that
+    /// keeps every dependency between them.
+    fn order_repeating(&self, key: Key) -> Option<Vec<Node>> {
+        let nodes = &self.layouts[&key].code;
+        let (succ, _) = self.graph(key);
+        let n = nodes.len();
+        // Tarjan's strongly connected components, iteratively.
+        let (mut index, mut low, mut on) = (vec![usize::MAX; n], vec![0; n], vec![false; n]);
+        let (mut comp, mut stack, mut next, mut ncomp) = (vec![usize::MAX; n], Vec::new(), 0usize, 0usize);
+        for root in 0..n {
+            if index[root] != usize::MAX {
+                continue;
+            }
+            let mut work: Vec<(usize, usize)> = vec![(root, 0)];
+            index[root] = next;
+            low[root] = next;
+            next += 1;
+            stack.push(root);
+            on[root] = true;
+            while let Some(&mut (v, ref mut i)) = work.last_mut() {
+                if *i < succ[v].len() {
+                    let w = succ[v][*i];
+                    *i += 1;
+                    if index[w] == usize::MAX {
+                        index[w] = next;
+                        low[w] = next;
+                        next += 1;
+                        stack.push(w);
+                        on[w] = true;
+                        work.push((w, 0));
+                    } else if on[w] {
+                        low[v] = low[v].min(index[w]);
+                    }
+                } else {
+                    work.pop();
+                    if let Some(&(u, _)) = work.last() {
+                        low[u] = low[u].min(low[v]);
+                    }
+                    if low[v] == index[v] {
+                        while let Some(w) = stack.pop() {
+                            on[w] = false;
+                            comp[w] = ncomp;
+                            if w == v {
+                                break;
+                            }
+                        }
+                        ncomp += 1;
+                    }
+                }
+            }
+        }
+        let mut members: Vec<Vec<usize>> = vec![Vec::new(); ncomp];
+        for v in 0..n {
+            members[comp[v]].push(v);
+        }
+        // The groups in an order that keeps their dependencies, the one
+        // holding the lowest node first among those ready.
+        let mut cpreds = vec![0usize; ncomp];
+        let mut csucc: Vec<HashSet<usize>> = vec![HashSet::new(); ncomp];
+        for v in 0..n {
+            for &w in &succ[v] {
+                if comp[v] != comp[w] && csucc[comp[v]].insert(comp[w]) {
+                    cpreds[comp[w]] += 1;
+                }
+            }
+        }
+        let mut ready: BinaryHeap<std::cmp::Reverse<(usize, usize)>> =
+            (0..ncomp).filter(|&c| cpreds[c] == 0).map(|c| std::cmp::Reverse((members[c][0], c))).collect();
+        let mut order = Vec::with_capacity(n + 2 * ncomp);
+        while let Some(std::cmp::Reverse((_, c))) = ready.pop() {
+            let ms = &members[c];
+            if ms.len() == 1 {
+                order.push(nodes[ms[0]]);
+            } else {
+                // Within the group: its own dependencies, a cycle broken at
+                // its lowest node where none is ready.
+                let inside: HashSet<usize> = ms.iter().copied().collect();
+                let mut ip: HashMap<usize, usize> = ms.iter().map(|&v| (v, 0)).collect();
+                for &v in ms {
+                    for &w in &succ[v] {
+                        if inside.contains(&w) {
+                            *ip.get_mut(&w).unwrap() += 1;
+                        }
+                    }
+                }
+                let mut done = HashSet::new();
+                order.push(Node::Repeat(ms.len() as u32 + 1));
+                while done.len() < ms.len() {
+                    let v = ms.iter().copied().filter(|v| !done.contains(v)).min_by_key(|v| (ip[v], *v)).unwrap();
+                    done.insert(v);
+                    order.push(nodes[v]);
+                    for &w in &succ[v] {
+                        if let Some(c) = ip.get_mut(&w) {
+                            *c = c.saturating_sub(1);
+                        }
+                    }
+                }
+                order.push(Node::RepeatEnd);
+            }
+            for &s in &csucc[c] {
+                cpreds[s] -= 1;
+                if cpreds[s] == 0 {
+                    ready.push(std::cmp::Reverse((members[s][0], s)));
+                }
+            }
+        }
+        (order.iter().filter(|x| !matches!(x, Node::Repeat(_) | Node::RepeatEnd)).count() == n).then_some(order)
+    }
+
+    /// The order of a specialisation's nodes, each after those whose
+    /// writes it reads; or the nodes on a loop.
     fn order_of(&self, key: Key) -> Result<Vec<Node>, Vec<usize>> {
+        let nodes = &self.layouts[&key].code;
+        let (succ, mut preds) = self.graph(key);
+        let mut ready: BinaryHeap<std::cmp::Reverse<usize>> =
+            (0..nodes.len()).filter(|&n| preds[n] == 0).map(std::cmp::Reverse).collect();
+        let mut order = Vec::with_capacity(nodes.len());
+        while let Some(std::cmp::Reverse(n)) = ready.pop() {
+            order.push(nodes[n]);
+            for &s in &succ[n] {
+                preds[s] -= 1;
+                if preds[s] == 0 {
+                    ready.push(std::cmp::Reverse(s));
+                }
+            }
+        }
+        if order.len() < nodes.len() {
+            // Those left wait on a loop or are on one: the loops, with what
+            // only waits on them taken off, a node no other left waits on
+            // at a time.
+            let mut left: Vec<bool> = (0..nodes.len()).map(|n| preds[n] > 0).collect();
+            loop {
+                let sinks: Vec<usize> = (0..nodes.len()).filter(|&n| left[n] && !succ[n].iter().any(|&s| left[s])).collect();
+                if sinks.is_empty() {
+                    break;
+                }
+                sinks.into_iter().for_each(|n| left[n] = false);
+            }
+            return Err((0..nodes.len()).filter(|&n| left[n]).collect());
+        }
+        Ok(order)
+    }
+
+    /// Which nodes wait on which: each node's successors, and how many
+    /// predecessors it has.
+    fn graph(&self, key: Key) -> (Vec<Vec<usize>>, Vec<usize>) {
         let lay = &self.layouts[&key];
         let nodes = &lay.code;
         let mut reads = Vec::with_capacity(nodes.len());
@@ -2824,33 +2991,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 succ[w].push(n);
             }
         }
-        let mut ready: BinaryHeap<std::cmp::Reverse<usize>> =
-            (0..nodes.len()).filter(|&n| preds[n] == 0).map(std::cmp::Reverse).collect();
-        let mut order = Vec::with_capacity(nodes.len());
-        while let Some(std::cmp::Reverse(n)) = ready.pop() {
-            order.push(nodes[n]);
-            for &s in &succ[n] {
-                preds[s] -= 1;
-                if preds[s] == 0 {
-                    ready.push(std::cmp::Reverse(s));
-                }
-            }
-        }
-        if order.len() < nodes.len() {
-            // Those left wait on a loop or are on one: the loops, with what
-            // only waits on them taken off, a node no other left waits on
-            // at a time.
-            let mut left: Vec<bool> = (0..nodes.len()).map(|n| preds[n] > 0).collect();
-            loop {
-                let sinks: Vec<usize> = (0..nodes.len()).filter(|&n| left[n] && !succ[n].iter().any(|&s| left[s])).collect();
-                if sinks.is_empty() {
-                    break;
-                }
-                sinks.into_iter().for_each(|n| left[n] = false);
-            }
-            return Err((0..nodes.len()).filter(|&n| left[n]).collect());
-        }
-        Ok(order)
+        (succ, preds)
     }
 
     /// The bits a node reads and writes: (object, from, to) with `to`
@@ -2862,6 +3003,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let mut w = Vec::new();
         let whole = |o: ObjId| (o, 0, tw(&d.types, d.object(o).ty).max(1));
         match node {
+            Node::Repeat(_) | Node::RepeatEnd => {}
             Node::Proc(p) => {
                 // The bits it reads and writes, as its statements select
                 // them, so that processes that each work out some fields
@@ -2953,6 +3095,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let mut out = Vec::new();
         for (n, &node) in lay.code.iter().enumerate() {
             match node {
+                Node::Repeat(_) | Node::RepeatEnd => {}
                 Node::Proc(p) => self.stmt_deps(d.processes[p.0 as usize].body, n, &mut Vec::new(), &mut out),
                 // Each output from the inputs it depends on in the child.
                 // (An array's outputs, each from any iteration's inputs.)
@@ -3218,7 +3361,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
     fn part_of(&self, key: Key, split: &Split) -> Option<(Vec<Node>, Vec<Node>)> {
         let d = self.d;
         let lay = &self.layouts[&key];
-        let order = self.order(key).ok()?;
+        let order = self.order_of(key).ok()?;
         let acc: Vec<(Vec<Span>, Vec<Span>)> = order.iter().map(|&n| self.access(key, n)).collect();
         let overlaps = |a: &[Span], b: &[Span]| a.iter().any(|&(o, lo, hi)| b.iter().any(|&(p, plo, phi)| o == p && plo < hi && lo < phi));
         // The nodes a node waits on besides what it reads.
@@ -3946,7 +4089,19 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
     /// Splits the nodes into loops at the children's calls, and writes them.
     fn body(&mut self, order: &[Node]) -> Result<(), String> {
         let mut seg: Vec<Node> = Vec::new();
-        for &n in order {
+        let mut at = 0;
+        while at < order.len() {
+            let n = order[at];
+            at += 1;
+            if let Node::Repeat(times) = n {
+                self.run_loop(&seg)?;
+                seg.clear();
+                let end = order[at..].iter().position(|&x| x == Node::RepeatEnd).map_or(order.len(), |k| at + k);
+                let inner = order[at..end].to_vec();
+                at = end + 1;
+                self.repeat(times, &inner)?;
+                continue;
+            }
             if let Node::Loop(l) = n {
                 self.run_loop(&seg)?;
                 seg.clear();
@@ -3970,6 +4125,29 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
             }
         }
         self.run_loop(&seg)
+    }
+
+    /// A group of nodes that wait on each other, run `times` times over in
+    /// a loop of its own. Each pass starts and ends with every value in the
+    /// state, so the passes need nothing but the count carried between
+    /// them; the body runs at least once, so what it makes stays in reach
+    /// after it.
+    fn repeat(&mut self, times: u32, inner: &[Node]) -> Result<(), String> {
+        let (prev, lp) = (self.block, self.new_block("repeat"));
+        self.b.br(lp);
+        self.enter(lp);
+        let zero = self.i64k(0);
+        let c = self.b.phi(self.t.i64, &[(zero, prev)]);
+        self.body(inner)?;
+        let one = self.i64k(1);
+        let next = self.b.add(c, one);
+        let n = self.i64k(times as i64);
+        let end = self.b.icmp(ICmpPred::Eq, next, n);
+        self.b.add_incoming(c, next, self.block);
+        let exit = self.new_block("repeat.end");
+        self.b.cond_br(end, exit, lp);
+        self.enter(exit);
+        Ok(())
     }
 
     /// The arguments of a call of child `i`'s functions: its state, and
@@ -4257,6 +4435,7 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
     fn node(&mut self, n: Node) -> Result<(), String> {
         let d = self.d();
         match n {
+            Node::Repeat(_) | Node::RepeatEnd => unreachable!("repeated groups are loops of their own"),
             Node::Loop(_) => unreachable!("rolled loops are loops of their own"),
             Node::Rev(r) => {
                 let v = self.l.revs[r].clone();
@@ -8834,7 +9013,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         if !(2..=64).contains(&w) || outs.is_empty() {
             return None;
         }
-        let order = self.order(key).ok()?;
+        let order = self.order_of(key).ok()?;
         self.sym_orders.borrow_mut().insert(key, order.clone());
         self.sym_kids.borrow_mut().insert(key, (lay.kid_keys.clone(), lay.groups.clone()));
         let mut s = Sym { l: self, m: Manager::new(1 << 20), env: FxMap::default(), key };
@@ -8960,6 +9139,7 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
         let d = self.d();
         for &node in order {
             match node {
+                Node::Repeat(_) | Node::RepeatEnd => {}
                 Node::Driver(dr) => self.driver(dr)?,
                 Node::Loop(l) => self.l.loops[l].all.iter().try_for_each(|&dr| self.driver(dr))?,
                 Node::Rev(r) => self.l.revs[r].all.iter().try_for_each(|&dr| self.driver(dr))?,
@@ -8980,7 +9160,7 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
         let key = self.l.kid_key(self.key, i).ok_or(Unproved)?;
         let order = match self.l.sym_orders.borrow().get(&key) {
             Some(o) => o.clone(),
-            None => self.l.order(key).map_err(|_| Unproved)?,
+            None => self.l.order_of(key).map_err(|_| Unproved)?,
         };
         let mut env = FxMap::default();
         let conn = |p: &crate::design::Port| inst.connections.iter().find(|c| c.port == p.name).and_then(|c| c.expr);

@@ -565,3 +565,64 @@ fn latches_hold() {
         }
     }
 }
+
+const FALSE_LOOP: &str = r#"
+module inc (input logic [7:0] a, input logic [7:0] b, output logic [7:0] ya, output logic [7:0] yb);
+  assign ya = a + 8'd1;
+  assign yb = b ^ 8'h5a;
+endmodule
+module floop (
+    input  logic [7:0] x,
+    output logic [7:0] w,
+    output logic [7:0] z
+);
+  logic [7:0] u, v, cb, ca, cya, cyb;
+  // Each process waits on the other, though no bit does: u -> v -> w.
+  always_comb begin
+    u = x + 8'd3;
+    w = v ^ 8'hff;
+  end
+  always_comb begin
+    v = u + 8'd7;
+  end
+  // Through a child: its b input is made from its ya output.
+  inc c (.a(ca), .b(cb), .ya(cya), .yb(cyb));
+  always_comb begin
+    ca = x;
+    cb = cya + w;
+    z = cyb;
+  end
+endmodule
+"#;
+
+#[test]
+fn false_loops_settle() {
+    // Code that waits on itself as whole processes or calls, though not
+    // through any bit, is run over until it settles.
+    let Some(host) = host() else {
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
+        return;
+    };
+    let b = build("floop", netlist_of(&text("floop.sv", FALSE_LOOP), "floop"), &host);
+    report("floop", &b);
+    let mut rng = Rng(0xA54F_F53A_5F1D_36F1);
+    by_states(
+        &b,
+        4 * b.net.lanes,
+        |st, k, _| {
+            let x = rng.next() & 0xFF;
+            st.put(&b.net, "x", k, x);
+            x
+        },
+        |st, k, &x| {
+            let u = (x + 3) & 0xFF;
+            let v = (u + 7) & 0xFF;
+            let w = v ^ 0xFF;
+            let cya = (x + 1) & 0xFF;
+            let cb = (cya + w) & 0xFF;
+            let z = cb ^ 0x5A;
+            assert_eq!(st.get(&b.net, "w", k), w, "w: x {x}");
+            assert_eq!(st.get(&b.net, "z", k), z, "z: x {x}");
+        },
+    );
+}

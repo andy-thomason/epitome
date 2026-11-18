@@ -241,6 +241,12 @@ fn compile_matcher<'a>(
                 continue;
             }
         }
+        // A doc comment in a matcher matches nothing (rustc warns that it
+        // is unused).
+        if t.is_doc_comment() {
+            i += 1;
+            continue;
+        }
         if is_open(t.0) && close[i] != usize::MAX {
             let c = close[i];
             out.push(M::Group(t.0, compile_matcher(toks, close, i + 1, c, edition)?));

@@ -455,3 +455,64 @@ fn division_lane_by_lane() {
         },
     );
 }
+
+const COUNTS: &str = r#"
+module counts (
+    input  logic [6:0]  n,
+    input  logic [44:0] v,
+    output logic [5:0]  ones,
+    output logic [3:0]  few,
+    output logic        hot,
+    output logic        hot0,
+    output logic        unk
+);
+  assign ones = $countones(v);
+  assign few = $countones(n);
+  assign hot = $onehot(v);
+  assign hot0 = $onehot0(n);
+  assign unk = $isunknown(v);
+endmodule
+"#;
+
+#[test]
+fn bit_counts_lane_by_lane() {
+    // $countones, $onehot and $onehot0 on values in one piece and across
+    // pieces; $isunknown is 0, as the netlist holds no x.
+    let Some(host) = host() else {
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
+        return;
+    };
+    let b = build("counts", netlist_of(&text("counts.sv", COUNTS), "counts"), &host);
+    report("counts", &b);
+    let mut rng = Rng(0xBB67_AE85_84CA_A73B);
+    let m45 = (1u64 << 45) - 1;
+    by_states(
+        &b,
+        16 * b.net.lanes,
+        |st, k, i| {
+            let mut v = rng.next() & m45;
+            let mut n = rng.next() & 0x7F;
+            match i % 4 {
+                0 => v = 1 << (rng.next() % 45),
+                1 => n = 0,
+                2 => n = 1 << (rng.next() % 7),
+                _ => {}
+            }
+            st.put(&b.net, "v", k, v);
+            st.put(&b.net, "n", k, n);
+            (v, n)
+        },
+        |st, k, &(v, n)| {
+            let want = [
+                ("ones", v.count_ones() as u64),
+                ("few", n.count_ones() as u64),
+                ("hot", (v.count_ones() == 1) as u64),
+                ("hot0", (n.count_ones() <= 1) as u64),
+                ("unk", 0),
+            ];
+            for (port, w) in want {
+                assert_eq!(st.get(&b.net, port, k), w, "{port}: v {v:x} n {n:x}");
+            }
+        },
+    );
+}

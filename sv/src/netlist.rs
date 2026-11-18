@@ -1332,12 +1332,20 @@ impl<'d, 'a> Lowering<'d, 'a> {
             if let ExprKind::Cond = x.kind {
                 ops.selects += 1;
             }
+            // Bit counts are sums and a product.
+            if let ExprKind::SysCall(f) = x.kind
+                && matches!(d.name(f), "$countones" | "$onehot" | "$onehot0")
+            {
+                ops.narrow += 1;
+            }
             if let ExprKind::Binary(op) = x.kind
                 && matches!(
                     op,
                     BinOp::Add
                         | BinOp::Sub
                         | BinOp::Mul
+                        | BinOp::Div
+                        | BinOp::Mod
                         | BinOp::Shl
                         | BinOp::Shr
                         | BinOp::AShl
@@ -7085,6 +7093,32 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
         Ok(())
     }
 
+    /// The number of set bits in `v`, in one piece: each piece counted
+    /// with shifts, masks, sums and a multiply, which every shape has.
+    fn popcount(&mut self, v: &Val) -> P {
+        let pb = self.pb as u64;
+        let rep = |byte: u64| (0..pb / 8).fold(0u64, |a, i| a | byte << (8 * i));
+        let mut total = P::K(0);
+        for (j, &p) in v.p.iter().enumerate() {
+            // (The top piece's bits past the width are already zero.)
+            let _ = j;
+            let h = self.bin("lshr", p, P::K(1));
+            let h = self.bin("and", h, P::K(rep(0x55)));
+            let x = self.bin("sub", p, h);
+            let lo = self.bin("and", x, P::K(rep(0x33)));
+            let h = self.bin("lshr", x, P::K(2));
+            let h = self.bin("and", h, P::K(rep(0x33)));
+            let x = self.bin("add", lo, h);
+            let h = self.bin("lshr", x, P::K(4));
+            let x = self.bin("add", x, h);
+            let x = self.bin("and", x, P::K(rep(0x0F)));
+            let x = self.bin("mul", x, P::K(rep(0x01)));
+            let x = self.bin("lshr", x, P::K(pb - 8));
+            total = self.bin("add", total, x);
+        }
+        total
+    }
+
     fn ctlz(&mut self, p: P) -> P {
         if let P::K(k) = p {
             return P::K((k.leading_zeros() - (64 - self.pb)) as u64);
@@ -7230,6 +7264,23 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
                     let v = self.expr(x.args[0])?;
                     Ok(self.resize(&v, w, tys.is_signed(d.expr(x.args[0]).ty)))
                 }
+                // Bit counts (20.9). The netlist holds no x or z, so
+                // `$isunknown` is 0.
+                "$countones" | "$onehot" | "$onehot0" if x.args.len() == 1 => {
+                    let v = self.expr(x.args[0])?;
+                    let n = self.popcount(&v);
+                    let n = self.norm(Val { w: 32.min(self.pb), p: vec![n] });
+                    let n = self.resize(&n, 32, false);
+                    Ok(match d.name(*f) {
+                        "$countones" => self.resize(&n, w, false),
+                        name => {
+                            let one = self.konst(&Bits::from_u64(32, false, 1));
+                            let m = if name == "$onehot" { self.eq(&n, &one) } else { let gt = self.lt(&one, &n, false); self.mnot(gt) };
+                            self.bit(m, w)
+                        }
+                    })
+                }
+                "$isunknown" if x.args.len() == 1 => Ok(self.zero(w)),
                 name => Err(format!("{name} is not supported yet")),
             },
             // A packed target's pattern is its elements concatenated, the

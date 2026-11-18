@@ -708,8 +708,9 @@ impl<'x, 's> Expander<'x, 's> {
         };
         let input = match builtin_name {
             Some("env" | "option_env" | "include" | "include_bytes" | "include_str") => {
-                self.eager_first_arg(file, call, input, &pos, &module)
+                self.eager_args(file, call, input, &pos, &module, false, 0)
             }
+            Some("concat") => self.eager_args(file, call, input, &pos, &module, true, 0),
             _ => input,
         };
         let tokens = match def {
@@ -1027,6 +1028,13 @@ impl<'x, 's> Expander<'x, 's> {
                 v.to_string()
             });
         }
+        // A number or `true` (`concat!(1, m!())` with `m!()` giving `2`):
+        // its text.
+        if let [t] = tokens
+            && (t.is_number() && !t.0.contains(['e', 'E', '_']) || matches!(t.0, "true" | "false"))
+        {
+            return Some(t.0.to_string());
+        }
         // `path!(..)`.
         let bang = tokens.iter().position(|t| t.0 == "!")?;
         let (open, close) = (tokens.get(bang + 1)?.0, tokens.last()?.0);
@@ -1051,49 +1059,74 @@ impl<'x, 's> Expander<'x, 's> {
                     rules.expand(inner, eof, &mut cx).ok()?
                 }
                 MacroKind::Builtin(b) => {
+                    let b: &str = b;
+                    let inner = if b == "concat" {
+                        self.eager_args(file, call, inner.to_vec(), pos, module, true, depth + 1)
+                    } else {
+                        inner.to_vec()
+                    };
                     let cx = builtin::Context { session: self.session, file, call, crate_name: self.crate_name, krate: self.krate };
-                    builtin::expand(&cx, b, inner).ok()??
+                    builtin::expand(&cx, b, &inner).ok()??
                 }
                 MacroKind::Proc(..) => return None,
             },
             None if builtin::is_builtin(name) => {
+                let inner = if name == "concat" {
+                    self.eager_args(file, call, inner.to_vec(), pos, module, true, depth + 1)
+                } else {
+                    inner.to_vec()
+                };
                 let cx = builtin::Context { session: self.session, file, call, crate_name: self.crate_name, krate: self.krate };
-                builtin::expand(&cx, name, inner).ok()??
+                builtin::expand(&cx, name, &inner).ok()??
             }
             None => return None,
         };
         self.eager_string(file, call, &out, pos, module, depth + 1)
     }
 
-    /// `env!(m!())`: the first argument, if a macro's call that gives a
-    /// string literal, replaced by the literal, as rustc expands it
-    /// eagerly.
-    fn eager_first_arg(
+    /// `env!(m!())`: the first argument (each, with `all`: `concat!(a,
+    /// m!())`), if a macro's call that gives a string literal, replaced
+    /// by the literal, as rustc expands it eagerly.
+    #[allow(clippy::too_many_arguments)]
+    fn eager_args(
         &mut self,
         file: &ParsedFile<'s>,
         call: NodeId,
         input: Vec<Token<'s>>,
         pos: &[u32],
         module: &[String],
+        all: bool,
+        depth: u32,
     ) -> Vec<Token<'s>> {
-        let mut depth = 0;
-        let end = input
-            .iter()
-            .position(|t| {
+        let mut out = Vec::with_capacity(input.len());
+        let mut start = 0;
+        let mut nest = 0;
+        for i in 0..=input.len() {
+            if let Some(t) = input.get(i) {
                 match t.0 {
-                    "(" | "[" | "{" => depth += 1,
-                    ")" | "]" | "}" => depth -= 1,
+                    "(" | "[" | "{" => nest += 1,
+                    ")" | "]" | "}" => nest -= 1,
                     _ => {}
                 }
-                depth == 0 && t.0 == ","
-            })
-            .unwrap_or(input.len());
-        if !input[..end].iter().any(|t| t.0 == "!") {
-            return input;
+                if nest != 0 || t.0 != "," {
+                    continue;
+                }
+            }
+            let arg = &input[start..i];
+            let first = start == 0;
+            let lit = if (all || first) && arg.iter().any(|t| t.0 == "!") {
+                self.eager_string(file, call, arg, pos, module, depth)
+                    .and_then(|s| lex_text(self.session, "<eager>", format!("\"{s}\"")).ok())
+            } else {
+                None
+            };
+            out.extend(lit.unwrap_or_else(|| arg.to_vec()));
+            if let Some(&comma) = input.get(i) {
+                out.push(comma);
+            }
+            start = i + 1;
         }
-        let Some(s) = self.eager_string(file, call, &input[..end], pos, module, 0) else { return input };
-        let Ok(lit) = lex_text(self.session, "<eager>", format!("\"{s}\"")) else { return input };
-        lit.into_iter().chain(input[end..].iter().copied()).collect()
+        out
     }
 
     /// Runs a built-in; `None` leaves the call as it is.

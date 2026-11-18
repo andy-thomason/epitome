@@ -302,6 +302,7 @@ impl<'c, 'r, 's> Collector<'c, 'r, 's> {
                     let d = self.def(DefKind::Fn, n, m, node, vis, None);
                     self.r.bind(m, n, Ns::Value, Res::Def(d), vis);
                 }
+                self.blocks(item, m);
             }
             Kind::Fn | Kind::Const | Kind::Static => {
                 let dk = match kind {
@@ -421,6 +422,8 @@ impl<'c, 'r, 's> Collector<'c, 'r, 's> {
                         self.r.bind(sub, an, Ns::Value, Res::Def(d), Vis::Public);
                     }
                 }
+                // Items in its target expression (`use to_import::check;`).
+                self.blocks(a, m);
                 continue;
             }
             let (dk, ns) = match self.ast.kind(a) {

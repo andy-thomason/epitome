@@ -146,10 +146,29 @@ fn try_import(r: &mut Resolver, i: usize) -> Outcome {
                         found.push((ns, res));
                     }
                 }
+                // 2015: a name at the crate root (`use Foo;` in a module).
+                if found.is_empty() && edition < Edition::E2018 {
+                    let root = r.roots[krate as usize];
+                    for ns in [Ns::Type, Ns::Value, Ns::Macro] {
+                        if let Some(res) = r.lookup(root, n, ns, m) {
+                            found.push((ns, res));
+                        }
+                    }
+                }
                 if found.is_empty()
                     && let Some(root) = r.extern_prelude(krate, n)
                 {
                     found.push((Ns::Type, Res::Def(r.modules[root.0 as usize].def.unwrap())));
+                }
+                // The standard prelude (`use Ok;`).
+                if found.is_empty()
+                    && let Some(p) = prelude_module(r, krate as usize)
+                {
+                    for ns in [Ns::Type, Ns::Value, Ns::Macro] {
+                        if let Some(res) = r.lookup(p, n, ns, m) {
+                            found.push((ns, res));
+                        }
+                    }
                 }
                 // `use bool;` (as `core::primitive` does).
                 if found.is_empty()
@@ -192,26 +211,28 @@ fn try_import(r: &mut Resolver, i: usize) -> Outcome {
 /// `std::prelude::rust_20xx` (`core`'s with `no_std`).
 fn find_preludes(r: &mut Resolver) {
     for k in 0..r.roots.len() {
-        if let Some(i) = r.prelude_imports[k] {
-            let imp = &r.imports[i];
-            if let Some((start, used)) = r.path_start(&imp.path, imp.rooted, imp.module, imp.krate, imp.edition)
-                && let Some(m) = r.follow(start, &imp.path[used..], imp.module)
-            {
-                r.preludes[k] = Some(m);
-            }
-            continue;
-        }
-        if r.no_core[k] {
-            continue;
-        }
-        let from = if r.no_std[k] { "core" } else { "std" };
-        let Some(root) = r.crate_root(from).or_else(|| r.crate_root("core")) else { continue };
-        let edition = match r.editions[k] {
-            Edition::E2015 => "rust_2015",
-            Edition::E2018 => "rust_2018",
-            Edition::E2021 => "rust_2021",
-            Edition::E2024 => "rust_2024",
-        };
-        r.preludes[k] = r.follow(root, &["prelude", edition], root);
+        r.preludes[k] = prelude_module(r, k);
     }
+}
+
+/// Crate `k`'s prelude module: its `#[prelude_import]`'s, or
+/// `std::prelude::rust_20xx` (`core`'s with `no_std`).
+fn prelude_module(r: &Resolver, k: usize) -> Option<ModId> {
+    if let Some(i) = r.prelude_imports[k] {
+        let imp = &r.imports[i];
+        let (start, used) = r.path_start(&imp.path, imp.rooted, imp.module, imp.krate, imp.edition)?;
+        return r.follow(start, &imp.path[used..], imp.module);
+    }
+    if r.no_core[k] {
+        return None;
+    }
+    let from = if r.no_std[k] { "core" } else { "std" };
+    let root = r.crate_root(from).or_else(|| r.crate_root("core"))?;
+    let edition = match r.editions[k] {
+        Edition::E2015 => "rust_2015",
+        Edition::E2018 => "rust_2018",
+        Edition::E2021 => "rust_2021",
+        Edition::E2024 => "rust_2024",
+    };
+    r.follow(root, &["prelude", edition], root)
 }

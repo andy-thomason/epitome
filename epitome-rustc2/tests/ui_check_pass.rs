@@ -266,6 +266,10 @@ fn select_one(path: &Path, name: String, directives: &[(&str, &str)], rev: Optio
         if cfg.iter().any(|c| c.starts_with("rustc:--target=")) {
             left_out.get_or_insert("a target rustc does not know");
         }
+        // A sanitizer this host does not have (`needs-sanitizer-leak`).
+        if cfg.iter().any(|c| c.starts_with("rustc:-Zsanitizer")) {
+            ignored = true;
+        }
         cfg.retain(|c| !c.starts_with("rustc:"));
     }
     let aux_dir = path.parent().unwrap().join("auxiliary");

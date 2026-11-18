@@ -1155,7 +1155,14 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 let (params, args) = (tcx.all_params(def.owner), tcx.tys(l));
                 let mut preds = Vec::new();
                 for tr in def.bounds {
-                    let tr = super::traits::subst_trait_ref(tcx, &tr, &params, &args);
+                    let mut tr = super::traits::subst_trait_ref(tcx, &tr, &params, &args);
+                    // `impl IntoIterator<Item = (u8, impl Into<T>)>`: the
+                    // inner one's hidden type too, where it is found.
+                    if defining {
+                        for b in &mut tr.bindings {
+                            b.1 = self.opaque_vars(b.1, true);
+                        }
+                    }
                     self.elaborate(v, &tr, &mut preds);
                 }
                 for p in preds {

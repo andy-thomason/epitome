@@ -1078,8 +1078,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let va = self.infer.shallow(a);
         if self.infer.var_kind(va).is_some()
             && let TyKind::Projection(item, l) = tcx.kind(self.infer.shallow(b))
-            && let Some(&(_, pl, _)) =
-                self.pending.iter().find(|p| p.0 == item && self.infer.shallow(p.2) == va)
+            && let Some(&(_, pl, _)) = self.pending.iter().find(|p| p.0 == item && self.infer.shallow(p.2) == va)
         {
             let (xs, ys) = (tcx.tys(pl), tcx.tys(l));
             let p = self.probe();

@@ -2118,10 +2118,11 @@ impl<'d, 'a> Lowering<'d, 'a> {
         for &o in objs {
             let ob = d.object(o);
             let w = tw(&d.types, ob.ty);
-            // (Elements wider than a piece only in scalar code, and not of
-            // ports: each is then several words.)
+            // (Elements wider than a piece are not kept so: on real designs
+            // that cost more than it saved. `Elems::k` and the loads and
+            // stores of several words are kept for when it is worth it.)
             if let (None | Some(Dir::Input), Some(Some(ew))) = (ob.dir, uses.get(&o))
-                && (*ew <= sh.pb() || (sh.scalar() && ob.dir.is_none()))
+                && *ew <= sh.pb()
                 && w % ew == 0
                 && w / ew >= 2
                 && (d.types.packed_range(ob.ty).is_some() || d.types.is_unpacked_array(ob.ty))

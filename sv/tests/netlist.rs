@@ -382,3 +382,76 @@ fn unpacked_structs_lane_by_lane() {
         },
     );
 }
+
+const DIVMOD: &str = r#"
+module divmod (
+    input  logic [15:0] a,
+    input  logic [15:0] b,
+    input  logic [39:0] c,
+    input  logic [39:0] d,
+    output logic [15:0] q,
+    output logic [15:0] r,
+    output logic signed [15:0] sq,
+    output logic signed [15:0] sr,
+    output logic [39:0] wq,
+    output logic [39:0] wr
+);
+  assign q = a / b;
+  assign r = a % b;
+  assign sq = $signed(a) / $signed(b);
+  assign sr = $signed(a) % $signed(b);
+  assign wq = c / d;
+  assign wr = c % d;
+endmodule
+"#;
+
+#[test]
+fn division_lane_by_lane() {
+    // Division and modulo of values not known at compile time, unsigned and
+    // signed, in one piece and across pieces; by zero, 0.
+    let Some(host) = host() else {
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
+        return;
+    };
+    let b = build("divmod", netlist_of(&text("divmod.sv", DIVMOD), "divmod"), &host);
+    report("divmod", &b);
+    let mut rng = Rng(0x6A09_E667_F3BC_C908);
+    let m40 = (1u64 << 40) - 1;
+    by_states(
+        &b,
+        16 * b.net.lanes,
+        |st, k, i| {
+            let (a, mut bb) = (rng.next() & 0xFFFF, rng.next() & 0xFFFF);
+            let (c, mut d) = (rng.next() & m40, rng.next() & m40);
+            match i % 4 {
+                0 => bb = 0,
+                1 => bb &= 0xF,
+                2 => d &= 0xFFFFF,
+                _ => {}
+            }
+            if i % 7 == 0 {
+                d = 0;
+            }
+            for (p, v) in [("a", a), ("b", bb), ("c", c), ("d", d)] {
+                st.put(&b.net, p, k, v);
+            }
+            (a, bb, c, d)
+        },
+        |st, k, &(a, bb, c, d)| {
+            let (sa, sb) = (a as u16 as i16, bb as u16 as i16);
+            let sdiv = |x: i16, y: i16| if y == 0 { 0 } else { x.wrapping_div(y) as u16 as u64 };
+            let srem = |x: i16, y: i16| if y == 0 { 0 } else { x.wrapping_rem(y) as u16 as u64 };
+            let want = [
+                ("q", if bb == 0 { 0 } else { a / bb }),
+                ("r", if bb == 0 { 0 } else { a % bb }),
+                ("sq", sdiv(sa, sb)),
+                ("sr", srem(sa, sb)),
+                ("wq", if d == 0 { 0 } else { c / d }),
+                ("wr", if d == 0 { 0 } else { c % d }),
+            ];
+            for (port, w) in want {
+                assert_eq!(st.get(&b.net, port, k), w, "{port}: a {a} b {bb} c {c} d {d}");
+            }
+        },
+    );
+}

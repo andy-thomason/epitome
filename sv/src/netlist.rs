@@ -7448,8 +7448,68 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
                 };
                 self.bit(m, w)
             }
+            BinOp::Div | BinOp::Mod => {
+                let (a, b) = (self.resize(&a, w, signed), self.resize(&b, w, signed));
+                let (q, r) = self.divmod(&a, &b, signed);
+                if op == BinOp::Div { q } else { r }
+            }
             _ => return Err(format!("{op:?} on values that are not constant is not supported yet")),
         })
+    }
+
+    /// `a / b` and `a % b` (11.4.2), by restoring division a bit at a time,
+    /// so that it is made of the operations every shape has. Signed, on the
+    /// magnitudes, the quotient negated when the signs differ and the
+    /// remainder taking the dividend's sign. Division by zero gives 0 for
+    /// both: the netlist holds no `x`.
+    fn divmod(&mut self, a: &Val, b: &Val, signed: bool) -> (Val, Val) {
+        let w = a.w;
+        let (mut n, mut dv) = (a.clone(), b.clone());
+        let (mut sa, mut sb) = (M::K(false), M::K(false));
+        if signed {
+            sa = self.truth_bit(a, w - 1);
+            sb = self.truth_bit(b, w - 1);
+            let zero = self.zero(w);
+            let na = self.add(&zero, a, true);
+            let nb = self.add(&zero, b, true);
+            n = self.select(sa, &na, a);
+            dv = self.select(sb, &nb, b);
+        }
+        // The remainder has a bit more than the divisor, for the shift in.
+        let d1 = self.resize(&dv, w + 1, false);
+        let mut r = self.zero(w + 1);
+        let mut q = self.zero(w);
+        for i in (0..w).rev() {
+            let r2 = self.shl_const(&r, 1);
+            let r2 = self.resize(&r2, w + 1, false);
+            let nb = self.extract(&n, i, 1);
+            let r2 = self.insert(&r2, 0, 1, &nb);
+            let lt = self.lt(&r2, &d1, false);
+            let ge = self.mnot(lt);
+            let diff = self.add(&r2, &d1, true);
+            r = self.select(ge, &diff, &r2);
+            let gb = self.bit(ge, 1);
+            q = self.insert(&q, i, 1, &gb);
+        }
+        let mut r = self.resize(&r, w, false);
+        if signed {
+            let zero = self.zero(w);
+            let qs = self.mxor(sa, sb);
+            let nq = self.add(&zero, &q, true);
+            q = self.select(qs, &nq, &q);
+            let nr = self.add(&zero, &r, true);
+            r = self.select(sa, &nr, &r);
+        }
+        let zero = self.zero(w);
+        let z = self.eq(b, &zero);
+        (self.select(z, &zero, &q), self.select(z, &zero, &r))
+    }
+
+    /// Bit `i` of `v` as a mask.
+    fn truth_bit(&mut self, v: &Val, i: u32) -> M {
+        let b = self.extract(v, i, 1);
+        let one = self.konst(&Bits::from_u64(1, false, 1));
+        self.eq(&b, &one)
     }
 
     // ---- values ----

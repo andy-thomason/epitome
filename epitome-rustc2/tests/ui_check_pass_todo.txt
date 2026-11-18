@@ -9,7 +9,6 @@ associated-inherent-types/variance-computation-requires-equality.rs: type check:
 associated-types/duplicate-associated-type-resolution-59326.rs: type check: a type left unknown
 assumptions_on_binders/test-infra-works.rs: macro not found: test_binder_constraints!
 async-await/async-fn/edition-2015-not-async-bound.rs: path not resolved: Foo
-async-await/async-fn/sugar.rs: type check: `.await` on something that is not a future
 async-await/higher-ranked-auto-trait-15.rs#assumptions: type check: iterating needs `IntoIterator`
 attributes/dont-dup-expr-attrs.rs: error: expanding `m2!`: expected `;`, found `}` (dont-dup-expr-attrs.rs:32:9)
 attributes/duplicated-attributes.rs: import not resolved: : use test::Bencher (as Bencher)
@@ -23,7 +22,6 @@ check-cfg/values-target-json.rs: left out: a target rustc does not know
 closures/2229_closure_analysis/migrations/issue-86753.rs: type check: a type left unknown
 closures/self-supertrait-bounds.rs: type check: a type left unknown
 closures/supertrait-hint-cycle.rs: type check: a type left unknown
-coercion/index-coercion-over-indexmut-72002.rs: type check: indexing something that does not implement `Index`
 coinduction/canonicalization-rerun.rs#next: type check: a type left unknown
 coinduction/canonicalization-rerun.rs#old: type check: a type left unknown
 compile-flags/invalid/crate-type-flag.rs#proc_dash_macro: left out: proc-macro crate
@@ -81,8 +79,6 @@ macros/issue-34171.rs: error: in `null!`: no rule of the macro matches this inpu
 macros/issue-69838-mods-relative-to-included-path.rs: error: no file for module `bar`: neither `/private/tmp/claude-502/-Users-amy-andy-thomason-epitome/d698d809-bf3b-400b-91f6-effe1b4b32f5/scratchpad/rust/tests/ui/macros/bar.rs` nor `/private/tmp/claude-502/-Users-amy-andy-thomason-epitome/d698d809-bf3b-400b-91f6-effe1b4b32f5/scratchpad/rust/tests/ui/macros/bar/mod.rs` (included.rs:3:9)
 macros/parse-test.rs: error: expected a macro matcher in delimiters (parse-test.rs:8:5)
 methods/opaque_param_in_ufc.rs: type check: associated item not found
-nll/coroutine-distinct-lifetime.rs: type check: unsupported expression
-nll/extra-unused-mut.rs: type check: unsupported expression
 nll/issue-63154-normalize.rs: type check: a type left unknown
 nll/polonius/nll-problem-case-3-issue-21906.rs#legacy: type check: mismatched types
 nll/polonius/nll-problem-case-3-issue-21906.rs#polonius: type check: mismatched types

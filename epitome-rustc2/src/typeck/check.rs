@@ -1330,6 +1330,27 @@ impl<'a, 's> FnCtxt<'a, 's> {
                         args.push(self.fill_holes(t));
                     }
                     self.project_or_var(a, &args)
+                } else if let Some((item, mut args)) = self.inherent_item(bt, mid, Ns::Type)
+                    && let Some(ty) = tcx.type_of(item)
+                {
+                    // `Self::Item::default()` with an inherent `type Item`.
+                    let params = tcx.all_params(item);
+                    let start = args.len();
+                    while args.len() < params.len() {
+                        args.push(self.infer.fresh());
+                    }
+                    // `Foo::Bar::<10>::new()`: its own arguments.
+                    if let Some(g) = self.ast.child(segs[segs.len() - 2], Kind::GenericArgs) {
+                        let written: Vec<NodeId> =
+                            self.ast.children(g).iter().copied().filter(|&a| is_generic_arg(self.ast.kind(a))).collect();
+                        for (i, a) in written.into_iter().enumerate() {
+                            if let Some(&v) = args.get(start + i) {
+                                let w = self.written_arg(a);
+                                self.infer.unify(v, w);
+                            }
+                        }
+                    }
+                    subst(tcx, ty, &params, &args)
                 } else {
                     let Some(at) = self.assoc_type_of(bt, mid) else { return self.err(n, "associated type not found") };
                     at

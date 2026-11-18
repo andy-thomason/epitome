@@ -709,6 +709,18 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 let v = tcx.tys(l).into_iter().map(|x| self.fill_holes(x)).collect();
                 self.mk(TyKind::Projection(d, tcx.list(v)))
             }
+            // `dyn Iterator<Item = _>`.
+            TyKind::Dyn(d) => {
+                let mut data = tcx.dyn_of(d);
+                for tr in &mut data.traits {
+                    let v = tcx.tys(tr.args).into_iter().map(|x| self.fill_holes(x)).collect();
+                    tr.args = tcx.list(v);
+                    for b in &mut tr.bindings {
+                        b.1 = self.fill_holes(b.1);
+                    }
+                }
+                self.mk(TyKind::Dyn(tcx.dyn_(data)))
+            }
             TyKind::Ref(m, x) => {
                 let x = self.fill_holes(x);
                 self.mk(TyKind::Ref(m, x))

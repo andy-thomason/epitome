@@ -642,7 +642,12 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let imp = &tcx.impls[i];
         let params = tcx.all_params(imp.def);
         let args = self.infer.instantiate(&params);
-        let st = subst(tcx, imp.self_ty, &params, &args);
+        let mut st = subst(tcx, imp.self_ty, &params, &args);
+        // A self type through a projection (`Matrix<R, <A as Alloc<R>>::
+        // Buffer>`): worked out where it can be.
+        if has_projection(tcx, st) && depth < MAX_DEPTH {
+            st = self.normalize(st, depth + 1);
+        }
         if !self.infer.unify(st, t) {
             return None;
         }

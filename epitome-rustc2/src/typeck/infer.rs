@@ -108,6 +108,16 @@ impl<'t, 's> Infer<'t, 's> {
             TyKind::Coroutine(c, o, l) => tcx.mk(TyKind::Coroutine(c, self.resolve(o), list(l))),
             TyKind::GenBlock(c, y, l, a) => tcx.mk(TyKind::GenBlock(c, self.resolve(y), list(l), a)),
             TyKind::Opaque(o, l) => tcx.mk(TyKind::Opaque(o, list(l))),
+            TyKind::Dyn(d) => {
+                let mut data = tcx.dyn_of(d);
+                for tr in &mut data.traits {
+                    tr.args = list(tr.args);
+                    for b in &mut tr.bindings {
+                        b.1 = self.resolve(b.1);
+                    }
+                }
+                tcx.mk(TyKind::Dyn(tcx.dyn_(data)))
+            }
             TyKind::Ref(m, x) => tcx.mk(TyKind::Ref(m, self.resolve(x))),
             TyKind::Ptr(m, x) => tcx.mk(TyKind::Ptr(m, self.resolve(x))),
             TyKind::Slice(x) => tcx.mk(TyKind::Slice(self.resolve(x))),
@@ -233,6 +243,20 @@ impl<'t, 's> Infer<'t, 's> {
             }
             (TyKind::Opaque(o, x), TyKind::Opaque(p, y)) => o == p && self.unify_lists(x, y),
             (TyKind::Projection(d, x), TyKind::Projection(e, y)) => d == e && self.unify_lists(x, y),
+            // `dyn Fn(T)` and `dyn Fn(u8)`: trait by trait (auto traits in
+            // any order).
+            (TyKind::Dyn(d), TyKind::Dyn(e)) => {
+                let (x, y) = (tcx.dyn_of(d), tcx.dyn_of(e));
+                x.traits.len() == y.traits.len()
+                    && x.traits.iter().all(|a| {
+                        y.traits.iter().any(|b| {
+                            a.def == b.def
+                                && a.bindings.len() == b.bindings.len()
+                                && self.unify_lists(a.args, b.args)
+                                && a.bindings.iter().zip(&b.bindings).all(|(p, q)| p.0 == q.0 && self.unify(p.1, q.1))
+                        })
+                    })
+            }
             (TyKind::Ref(m, x), TyKind::Ref(n, y)) | (TyKind::Ptr(m, x), TyKind::Ptr(n, y)) => m == n && self.unify(x, y),
             (TyKind::Slice(x), TyKind::Slice(y)) => self.unify(x, y),
             (TyKind::Pat(x, a, b), TyKind::Pat(y, c, d)) => a == c && b == d && self.unify(x, y),

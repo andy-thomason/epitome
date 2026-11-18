@@ -1047,6 +1047,9 @@ struct Elems {
     lane: Lane,
     /// Bytes from one element's slot to the next.
     stride: u64,
+    /// Pieces an element (one but for an element wider than a piece, in
+    /// scalar code: consecutive 64-bit words, the least significant first).
+    k: u32,
 }
 
 impl Elems {
@@ -2113,8 +2116,10 @@ impl<'d, 'a> Lowering<'d, 'a> {
         for &o in objs {
             let ob = d.object(o);
             let w = tw(&d.types, ob.ty);
+            // (Elements wider than a piece only in scalar code, and not of
+            // ports: each is then several words.)
             if let (None | Some(Dir::Input), Some(Some(ew))) = (ob.dir, uses.get(&o))
-                && *ew <= sh.pb()
+                && (*ew <= sh.pb() || (sh.scalar() && ob.dir.is_none()))
                 && w % ew == 0
                 && w / ew >= 2
                 && (d.types.packed_range(ob.ty).is_some() || d.types.is_unpacked_array(ob.ty))
@@ -2123,7 +2128,8 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     Lane::B8 | Lane::B16 if !sh.scalar() => Lane::W32,
                     l => l,
                 };
-                out.insert(o, Elems { ew: *ew, n: w / ew, lane, stride: lane.piece_bytes(sh) });
+                let k = if *ew > sh.pb() { ew.div_ceil(64) } else { 1 };
+                out.insert(o, Elems { ew: *ew, n: w / ew, lane, stride: lane.piece_bytes(sh) * k as u64, k });
             }
         }
         out
@@ -6194,6 +6200,17 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
 
     fn load_slot(&mut self, o: ObjId, addr: Value) -> Val {
         let e = self.lay().elems[&o];
+        if e.k > 1 {
+            // A wide element: its words, the top one's bits past the width
+            // known to be zero.
+            let mut p = Vec::with_capacity(e.k as usize);
+            for j in 0..e.k {
+                let a = self.off(addr, 8 * j as u64);
+                let x = self.ld(self.t.i64, a, 8);
+                p.push(P::V(self.reg(x)));
+            }
+            return self.norm(Val { w: e.ew, p });
+        }
         let (ty, align) = self.slot_ty(e);
         let x = self.ld(ty, addr, align);
         if e.planes() && self.sh.swar {
@@ -6216,6 +6233,15 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
 
     fn store_slot(&mut self, o: ObjId, addr: Value, v: &Val) {
         let e = self.lay().elems[&o];
+        if e.k > 1 {
+            let v = self.resize(v, e.ew, false);
+            for j in 0..e.k {
+                let a = self.off(addr, 8 * j as u64);
+                let x = self.pv(v.p[j as usize]);
+                self.st(x, a, 8);
+            }
+            return;
+        }
         let (ty, align) = self.slot_ty(e);
         if e.planes() && self.sh.swar {
             let x = self.plane_byte(v);
@@ -6511,6 +6537,32 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
         self.store_piece_over(o, j, x, m, None)
     }
 
+    /// Whether a select of one of `count` elements, `stride` bits apart, of
+    /// kept value `o` is made by its address: in scalar code, unpadded, of
+    /// elements a whole number of words apart, and worth it (more than a
+    /// few elements, which selects between serve as well).
+    fn direct_kept(&self, o: ObjId, stride: u32, count: u32) -> bool {
+        self.sc() && !self.lay().pads.contains_key(&o) && stride % 64 == 0 && count > 4
+    }
+
+    /// The address of the first word holding element `i` (clamped into
+    /// range: out of range, the value read is not used and nothing is
+    /// written) of kept value `o`, and how many words its `w` bits from
+    /// bit `add` of the element span.
+    fn kept_elem_addr(&mut self, o: ObjId, i: P, count: u32, stride: u32, add: u32, w: u32) -> (Value, usize) {
+        let span = ((add % 64) + w).div_ceil(64) as usize;
+        let ix = self.lane0(i);
+        let last = self.i64k(count as i64 - 1);
+        let big = self.b.icmp(ICmpPred::Ugt, ix, last);
+        let ix = self.b.select(big, last, ix);
+        let bytes = self.i64k((stride / 64 * 8) as i64);
+        let x = self.b.mul(ix, bytes);
+        let base = self.base();
+        let at = self.lay().objs[&o] + (add / 64) as u64 * 8;
+        let p = self.off(base, at);
+        (self.offv(p, x), span)
+    }
+
     /// Where a select of a value kept in the state is there (see
     /// [`Self::padded_off`]), if it is a constant or one of few elements.
     fn kept_off(&self, o: ObjId, off: Off, w: u32) -> Option<Off> {
@@ -6538,6 +6590,21 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
         let pb = self.pb;
         let n = self.width(o).div_ceil(pb);
         match self.kept_off(o, off, w) {
+            // In scalar code, the element's words by their address.
+            Some(Off::Dec { i, n: count, stride, add, ok }) if self.direct_kept(o, stride, count) => {
+                let (ptr, span) = self.kept_elem_addr(o, i, count, stride, add, w);
+                let p: Vec<P> = (0..span)
+                    .map(|j| {
+                        let a = self.off(ptr, 8 * j as u64);
+                        let x = self.ld(self.t.i64, a, 8);
+                        P::V(self.reg(x))
+                    })
+                    .collect();
+                let v = Val { w: pb * span as u32, p };
+                let x = self.extract(&v, add % pb, w);
+                let z = self.zero(w);
+                self.select(ok, &x, &z)
+            }
             // The pieces the bits are in, of each element they may be in.
             Some(Off::K(k)) => {
                 let (q, r) = ((k / pb) as usize, k % pb);
@@ -6590,6 +6657,26 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
             }
         };
         match self.kept_off(o, off, w) {
+            // In scalar code, the element's words by their address, stored
+            // where in range and on this path (else what was there).
+            Some(Off::Dec { i, n: count, stride, add, ok }) if self.direct_kept(o, stride, count) => {
+                let (ptr, span) = self.kept_elem_addr(o, i, count, stride, add, w);
+                let old: Vec<P> = (0..span)
+                    .map(|j| {
+                        let a = self.off(ptr, 8 * j as u64);
+                        let x = self.ld(self.t.i64, a, 8);
+                        P::V(self.reg(x))
+                    })
+                    .collect();
+                let v = self.insert(&Val { w: pb * span as u32, p: old.clone() }, add % pb, w, x);
+                let m = self.mand(ok, self.path);
+                for j in 0..span {
+                    let y = self.sel(m, v.p[j], old[j]);
+                    let a = self.off(ptr, 8 * j as u64);
+                    let y = self.pv(y);
+                    self.st(y, a, 8);
+                }
+            }
             Some(Off::K(k)) => put(self, (k / pb) as usize, k % pb, M::K(true)),
             Some(Off::Dec { i, n: count, stride, add, ok }) if stride % pb == 0 => {
                 for k in 0..count {

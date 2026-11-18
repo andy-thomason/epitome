@@ -665,3 +665,145 @@ fn reports_are_left_out() {
         |st, k, &a| assert_eq!(st.get(&b.net, "y", k), (a + 4) & 0xFF, "a {a}"),
     );
 }
+
+const WIDE_MEM: &str = r#"
+module wmem (
+    input  logic         clk,
+    input  logic         we,
+    input  logic         wb,
+    input  logic [3:0]   wa,
+    input  logic [3:0]   ra,
+    input  logic [63:0]  d,
+    output logic [199:0] q,
+    output logic [7:0]   qb
+);
+  logic [199:0] mem [16];
+  always_ff @(posedge clk) begin
+    if (we) mem[wa] <= {d[7:0], d, d, d};
+    if (wb) mem[wa][15:8] <= d[15:8];
+  end
+  assign q = mem[ra];
+  assign qb = mem[ra][15:8];
+endmodule
+"#;
+
+#[test]
+fn wide_memories_by_element() {
+    // A memory of words wider than a machine word is kept a word to a slot
+    // in scalar code: written whole and in part, read, by addresses known
+    // only at run time.
+    let Some(host) = host() else {
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
+        return;
+    };
+    let net = netlist_with(&text("wmem.sv", WIDE_MEM), "wmem", host.options(1));
+    let b = build("wmem", net, &host);
+    report("wmem", &b);
+    let io = Io::new(&b.net, Some("clk")).unwrap();
+    let mut rng = Rng(0x1F83_D9AB_FB41_BD6B);
+    let cycles = 400;
+    let mut stim = Vec::new();
+    let mut ins = Vec::new();
+    for _ in 0..cycles {
+        let (we, wb, wa, ra, d) = (rng.next() & 1, rng.next() % 3 == 0, rng.next() & 15, rng.next() & 15, rng.next());
+        for p in &io.ins {
+            match p.name.as_str() {
+                "we" => stim.push(we as u32),
+                "wb" => stim.push(wb as u32),
+                "wa" => stim.push(wa as u32),
+                "ra" => stim.push(ra as u32),
+                "d" => stim.extend([d as u32, (d >> 32) as u32]),
+                n => panic!("{n}"),
+            }
+        }
+        ins.push((we == 1, wb, wa as usize, ra as usize, d));
+    }
+    let out = b.run(&io, cycles, 1, &stim);
+    // The model: 200-bit words as four u64s, the least significant first.
+    let mut mem = [[0u64; 4]; 16];
+    let ow = io.out_words();
+    for (c, &(we, wb, wa, ra, d)) in ins.iter().enumerate() {
+        if we {
+            mem[wa] = [d, d, d, d & 0xFF];
+        }
+        if wb {
+            mem[wa][0] = mem[wa][0] & !0xFF00 | d & 0xFF00;
+        }
+        let words = &out[c * ow..(c + 1) * ow];
+        let want = mem[ra];
+        let q: Vec<u32> = (0..7).map(|k| (want[k / 2] >> (32 * (k % 2))) as u32 & if k == 6 { 0xFF } else { !0 }).collect();
+        assert_eq!(&words[..7], &q[..], "cycle {c}: q of {ra}");
+        assert_eq!(words[7], ((want[0] >> 8) & 0xFF) as u32, "cycle {c}: qb of {ra}");
+    }
+}
+
+const ADDR_MEM: &str = r#"
+module amem (
+    input  logic         clk,
+    input  logic         we,
+    input  logic         wb,
+    input  logic [5:0]   wa,
+    input  logic [5:0]   ra,
+    input  logic [63:0]  d,
+    output logic [127:0] q,
+    output logic [15:0]  qh
+);
+  logic [127:0] mem [40];
+  always_ff @(posedge clk) begin
+    if (we) mem[wa] <= {d ^ 64'h5555, d};
+    if (wb) mem[wa][79:64] <= d[15:0];
+  end
+  assign q = mem[ra];
+  assign qh = mem[ra][79:64];
+endmodule
+"#;
+
+#[test]
+fn memories_by_address() {
+    // A memory kept in the state, of words a whole number of machine words
+    // wide, read and written (whole and in part) by its address in scalar
+    // code; out of range, a read gives 0 and a write changes nothing.
+    let Some(host) = host() else {
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
+        return;
+    };
+    let net = netlist_with(&text("amem.sv", ADDR_MEM), "amem", host.options(1));
+    let b = build("amem", net, &host);
+    report("amem", &b);
+    let io = Io::new(&b.net, Some("clk")).unwrap();
+    let mut rng = Rng(0x5BE0_CD19_137E_2179);
+    let cycles = 600;
+    let (mut stim, mut ins) = (Vec::new(), Vec::new());
+    for _ in 0..cycles {
+        let (we, wb, wa, ra, d) = (rng.next() & 1 == 1, rng.next() % 3 == 0, rng.next() % 48, rng.next() % 48, rng.next());
+        for p in &io.ins {
+            match p.name.as_str() {
+                "we" => stim.push(we as u32),
+                "wb" => stim.push(wb as u32),
+                "wa" => stim.push(wa as u32),
+                "ra" => stim.push(ra as u32),
+                "d" => stim.extend([d as u32, (d >> 32) as u32]),
+                n => panic!("{n}"),
+            }
+        }
+        ins.push((we, wb, wa as usize, ra as usize, d));
+    }
+    let out = b.run(&io, cycles, 1, &stim);
+    let mut mem = [[0u64; 2]; 40];
+    let ow = io.out_words();
+    for (c, &(we, wb, wa, ra, d)) in ins.iter().enumerate() {
+        if wa < 40 {
+            if we {
+                mem[wa] = [d, d ^ 0x5555];
+            }
+            if wb {
+                mem[wa][1] = mem[wa][1] & !0xFFFF | d & 0xFFFF;
+            }
+        }
+        let want = if ra < 40 { mem[ra] } else { [0, 0] };
+        let words = &out[c * ow..(c + 1) * ow];
+        let q: Vec<u32> = (0..4).map(|k| (want[k / 2] >> (32 * (k % 2))) as u32).collect();
+        assert_eq!(&words[..4], &q[..], "cycle {c}: q of {ra}");
+        assert_eq!(words[4], (want[1] & 0xFFFF) as u32, "cycle {c}: qh of {ra}");
+    }
+}

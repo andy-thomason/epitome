@@ -459,6 +459,18 @@ fn tw(tys: &crate::design::types::Types, t: TypeId) -> u32 {
     match tys.get(t) {
         Type::Unpacked { elem, dim: UDim::Range(l, r) } => tw(tys, *elem) * ((l - r).unsigned_abs() as u32 + 1),
         _ if tys.is_integral(t) => tys.width(t),
+        // An unpacked struct of such values is kept as a packed one is: its
+        // members concatenated, the first the most significant.
+        Type::Struct { packed: false, members, union, .. } => {
+            let ws: Vec<u32> = members.iter().map(|m| tw(tys, m.ty)).collect();
+            if ws.is_empty() || ws.contains(&0) {
+                0
+            } else if *union {
+                ws.into_iter().max().unwrap_or(0)
+            } else {
+                ws.into_iter().sum()
+            }
+        }
         _ => 0,
     }
 }
@@ -500,6 +512,20 @@ fn sel_start(tys: &crate::design::types::Types, t: TypeId, lo: i64, hi: i64) -> 
 /// A constant's bits in `w` bits: an unpacked one's elements side by side,
 /// the first the most significant.
 fn const_bits(c: &Const, w: u32) -> Option<Bits> {
+    // An aggregate whose items are packed values that together fill `w`
+    // (a struct's members, of different widths): those, in order.
+    fn natural(c: &Const) -> Option<Bits> {
+        match c {
+            Const::Aggregate(items) if !items.is_empty() => Some(Bits::concat(&items.iter().map(natural).collect::<Option<Vec<_>>>()?)),
+            Const::Aggregate(_) => None,
+            c => ops::bits_of(c),
+        }
+    }
+    if let Const::Aggregate(_) = c
+        && let Some(b) = natural(c).filter(|b| b.width() == w)
+    {
+        return Some(b);
+    }
     match c {
         Const::Aggregate(items) if !items.is_empty() && w % items.len() as u32 == 0 => {
             let ew = w / items.len() as u32;
@@ -1021,6 +1047,9 @@ struct Elems {
     lane: Lane,
     /// Bytes from one element's slot to the next.
     stride: u64,
+    /// Pieces an element (one but for an element wider than a piece, in
+    /// scalar code: consecutive 64-bit words, the least significant first).
+    k: u32,
 }
 
 impl Elems {
@@ -1050,6 +1079,12 @@ enum Node {
     /// A run of a generate loop's iterations that reverses the bits of a
     /// field, one an iteration (`Lowering::revs`).
     Rev(usize),
+    /// Nodes that wait on each other (a combinational loop through the
+    /// nodes, though not through any bit, as when a handshake goes through
+    /// a child both ways): those up to `RepeatEnd`, run this many times
+    /// over, which settles any loop that is not one through bits.
+    Repeat(u32),
+    RepeatEnd,
 }
 
 /// Iterations of a generate loop each assigning one bit of a value from one
@@ -1280,6 +1315,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let mut kids = Vec::new();
         for node in &code {
             match *node {
+                Node::Repeat(_) | Node::RepeatEnd => {}
                 Node::Driver(dr) => exprs.extend([d.drivers[dr.0 as usize].lhs, d.drivers[dr.0 as usize].rhs]),
                 Node::Loop(l) => {
                     for &dr in &self.loops[l].all {
@@ -1306,12 +1342,20 @@ impl<'d, 'a> Lowering<'d, 'a> {
             if let ExprKind::Cond = x.kind {
                 ops.selects += 1;
             }
+            // Bit counts are sums and a product.
+            if let ExprKind::SysCall(f) = x.kind
+                && matches!(d.name(f), "$countones" | "$onehot" | "$onehot0")
+            {
+                ops.narrow += 1;
+            }
             if let ExprKind::Binary(op) = x.kind
                 && matches!(
                     op,
                     BinOp::Add
                         | BinOp::Sub
                         | BinOp::Mul
+                        | BinOp::Div
+                        | BinOp::Mod
                         | BinOp::Shl
                         | BinOp::Shr
                         | BinOp::AShl
@@ -1615,8 +1659,10 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     lay.objs.insert(o, at);
                 }
                 (None, Some(p)) => lay.place(o, p.width(), piece),
-                // (Kept in the state: in whole pieces.)
-                (None, None) if lay.kept.contains(&o) => lay.place(o, w, piece),
+                // (Kept in the state: in whole pieces, and in scalar code a
+                // word to spare, which a select by address may load and
+                // store back unchanged after the last element.)
+                (None, None) if lay.kept.contains(&o) => lay.place(o, if sh.scalar() { w + 64 } else { w }, piece),
                 (None, None) => lay.place(o, w, Lane::of(w, sh, planes)),
             }
         }
@@ -1805,6 +1851,11 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     seg += 1;
                     seg
                 }
+                // (A repeated group's passes are loops of their own.)
+                Node::Repeat(_) | Node::RepeatEnd => {
+                    seg += 2;
+                    seg
+                }
                 _ => seg,
             };
             let (r, w) = self.access(key, node);
@@ -1848,7 +1899,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 seg += 1;
             }
             match node {
-                Node::Loop(_) => seg += 2,
+                Node::Loop(_) | Node::Repeat(_) | Node::RepeatEnd => seg += 2,
                 Node::Call(_) | Node::Early(_) => seg += 1,
                 _ => {}
             }
@@ -1883,7 +1934,9 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 Item::Process(p) => {
                     let pr = &d.processes[p.0 as usize];
                     match pr.kind {
-                        ProcKind::AlwaysComb => {
+                        // A latch is combinational code whose values hold where
+                        // it does not write them: they are kept in the state.
+                        ProcKind::AlwaysComb | ProcKind::AlwaysLatch => {
                             self.process_statics(pr.body, objs);
                             code.push(Node::Proc(p));
                         }
@@ -2029,6 +2082,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let mut uses: HashMap<ObjId, Option<u32>> = HashMap::new();
         for node in code {
             match *node {
+                Node::Repeat(_) | Node::RepeatEnd => {}
                 Node::Driver(dr) => {
                     let drv = &d.drivers[dr.0 as usize];
                     self.expr_uses(drv.lhs, &mut uses);
@@ -2064,6 +2118,9 @@ impl<'d, 'a> Lowering<'d, 'a> {
         for &o in objs {
             let ob = d.object(o);
             let w = tw(&d.types, ob.ty);
+            // (Elements wider than a piece are not kept so: on real designs
+            // that cost more than it saved. `Elems::k` and the loads and
+            // stores of several words are kept for when it is worth it.)
             if let (None | Some(Dir::Input), Some(Some(ew))) = (ob.dir, uses.get(&o))
                 && *ew <= sh.pb()
                 && w % ew == 0
@@ -2074,7 +2131,8 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     Lane::B8 | Lane::B16 if !sh.scalar() => Lane::W32,
                     l => l,
                 };
-                out.insert(o, Elems { ew: *ew, n: w / ew, lane, stride: lane.piece_bytes(sh) });
+                let k = if *ew > sh.pb() { ew.div_ceil(64) } else { 1 };
+                out.insert(o, Elems { ew: *ew, n: w / ew, lane, stride: lane.piece_bytes(sh) * k as u64, k });
             }
         }
         out
@@ -2565,8 +2623,29 @@ impl<'d, 'a> Lowering<'d, 'a> {
             StmtKind::Case { items, default, .. } => all(&mut items.iter().map(|i| i.1).chain(*default)),
             // The loop variable is the loop's own.
             StmtKind::For { scope: Some(_), body, .. } => self.only_asserts(*body),
+            // A report (20.10, 21.2), whose arguments change nothing.
+            StmtKind::Expr(x) => match &d.expr(*x).kind {
+                ExprKind::SysCall(f) => {
+                    matches!(
+                        d.name(*f),
+                        "$error" | "$warning" | "$info" | "$fatal" | "$display" | "$write" | "$strobe" | "$monitor"
+                    ) && d.expr(*x).args.iter().all(|&a| self.pure(a))
+                }
+                _ => false,
+            },
             _ => false,
         }
+    }
+
+    /// Whether working out an expression changes nothing: no calls, no
+    /// assignments, no increments.
+    fn pure(&self, e: ExprId) -> bool {
+        let x = self.d.expr(e);
+        !matches!(
+            x.kind,
+            ExprKind::Call(_) | ExprKind::Assign | ExprKind::Unary(UnOp::PreInc | UnOp::PostInc | UnOp::PreDec | UnOp::PostDec)
+        ) && !matches!(&x.kind, ExprKind::SysCall(f) if matches!(self.d.name(*f), "$random" | "$urandom" | "$urandom_range" | "$fopen" | "$fgetc" | "$fscanf" | "$sscanf" | "$value$plusargs"))
+            && x.args.iter().all(|&a| self.pure(a))
     }
 
     /// The function for `key`, after its children's.
@@ -2736,6 +2815,12 @@ impl<'d, 'a> Lowering<'d, 'a> {
     /// out before it is read: a topological sort on the bits each node
     /// reads and writes.
     fn order(&self, key: Key) -> Result<Vec<Node>, String> {
+        if let Ok(o) = self.order_of(key) {
+            return Ok(o);
+        }
+        if let Some(o) = self.order_repeating(key) {
+            return Ok(o);
+        }
         self.order_of(key).map_err(|stuck| {
             let nodes = &self.layouts[&key].code;
             let some: Vec<String> = stuck.iter().take(4).map(|&n| format!("{:?}", nodes[n])).collect();
@@ -2749,7 +2834,155 @@ impl<'d, 'a> Lowering<'d, 'a> {
     }
 
     /// [`Self::order`], or the nodes left waiting on each other.
+    /// The nodes that wait on each other, as `order_of` finds them: each
+    /// strongly connected group is run as a loop of its own (`Node::Repeat`),
+    /// in an order that breaks its cycles, as many times as it has nodes and
+    /// once more; the groups, and the nodes in no loop, in an order that
+    /// keeps every dependency between them.
+    fn order_repeating(&self, key: Key) -> Option<Vec<Node>> {
+        let nodes = &self.layouts[&key].code;
+        let (succ, _) = self.graph(key);
+        let n = nodes.len();
+        // Tarjan's strongly connected components, iteratively.
+        let (mut index, mut low, mut on) = (vec![usize::MAX; n], vec![0; n], vec![false; n]);
+        let (mut comp, mut stack, mut next, mut ncomp) = (vec![usize::MAX; n], Vec::new(), 0usize, 0usize);
+        for root in 0..n {
+            if index[root] != usize::MAX {
+                continue;
+            }
+            let mut work: Vec<(usize, usize)> = vec![(root, 0)];
+            index[root] = next;
+            low[root] = next;
+            next += 1;
+            stack.push(root);
+            on[root] = true;
+            while let Some(&mut (v, ref mut i)) = work.last_mut() {
+                if *i < succ[v].len() {
+                    let w = succ[v][*i];
+                    *i += 1;
+                    if index[w] == usize::MAX {
+                        index[w] = next;
+                        low[w] = next;
+                        next += 1;
+                        stack.push(w);
+                        on[w] = true;
+                        work.push((w, 0));
+                    } else if on[w] {
+                        low[v] = low[v].min(index[w]);
+                    }
+                } else {
+                    work.pop();
+                    if let Some(&(u, _)) = work.last() {
+                        low[u] = low[u].min(low[v]);
+                    }
+                    if low[v] == index[v] {
+                        while let Some(w) = stack.pop() {
+                            on[w] = false;
+                            comp[w] = ncomp;
+                            if w == v {
+                                break;
+                            }
+                        }
+                        ncomp += 1;
+                    }
+                }
+            }
+        }
+        let mut members: Vec<Vec<usize>> = vec![Vec::new(); ncomp];
+        for v in 0..n {
+            members[comp[v]].push(v);
+        }
+        // The groups in an order that keeps their dependencies, the one
+        // holding the lowest node first among those ready.
+        let mut cpreds = vec![0usize; ncomp];
+        let mut csucc: Vec<HashSet<usize>> = vec![HashSet::new(); ncomp];
+        for v in 0..n {
+            for &w in &succ[v] {
+                if comp[v] != comp[w] && csucc[comp[v]].insert(comp[w]) {
+                    cpreds[comp[w]] += 1;
+                }
+            }
+        }
+        let mut ready: BinaryHeap<std::cmp::Reverse<(usize, usize)>> =
+            (0..ncomp).filter(|&c| cpreds[c] == 0).map(|c| std::cmp::Reverse((members[c][0], c))).collect();
+        let mut order = Vec::with_capacity(n + 2 * ncomp);
+        while let Some(std::cmp::Reverse((_, c))) = ready.pop() {
+            let ms = &members[c];
+            if ms.len() == 1 {
+                order.push(nodes[ms[0]]);
+            } else {
+                // Within the group: its own dependencies, a cycle broken at
+                // its lowest node where none is ready.
+                let inside: HashSet<usize> = ms.iter().copied().collect();
+                let mut ip: HashMap<usize, usize> = ms.iter().map(|&v| (v, 0)).collect();
+                for &v in ms {
+                    for &w in &succ[v] {
+                        if inside.contains(&w) {
+                            *ip.get_mut(&w).unwrap() += 1;
+                        }
+                    }
+                }
+                let mut done = HashSet::new();
+                order.push(Node::Repeat(ms.len() as u32 + 1));
+                while done.len() < ms.len() {
+                    let v = ms.iter().copied().filter(|v| !done.contains(v)).min_by_key(|v| (ip[v], *v)).unwrap();
+                    done.insert(v);
+                    order.push(nodes[v]);
+                    for &w in &succ[v] {
+                        if let Some(c) = ip.get_mut(&w) {
+                            *c = c.saturating_sub(1);
+                        }
+                    }
+                }
+                order.push(Node::RepeatEnd);
+            }
+            for &s in &csucc[c] {
+                cpreds[s] -= 1;
+                if cpreds[s] == 0 {
+                    ready.push(std::cmp::Reverse((members[s][0], s)));
+                }
+            }
+        }
+        (order.iter().filter(|x| !matches!(x, Node::Repeat(_) | Node::RepeatEnd)).count() == n).then_some(order)
+    }
+
+    /// The order of a specialisation's nodes, each after those whose
+    /// writes it reads; or the nodes on a loop.
     fn order_of(&self, key: Key) -> Result<Vec<Node>, Vec<usize>> {
+        let nodes = &self.layouts[&key].code;
+        let (succ, mut preds) = self.graph(key);
+        let mut ready: BinaryHeap<std::cmp::Reverse<usize>> =
+            (0..nodes.len()).filter(|&n| preds[n] == 0).map(std::cmp::Reverse).collect();
+        let mut order = Vec::with_capacity(nodes.len());
+        while let Some(std::cmp::Reverse(n)) = ready.pop() {
+            order.push(nodes[n]);
+            for &s in &succ[n] {
+                preds[s] -= 1;
+                if preds[s] == 0 {
+                    ready.push(std::cmp::Reverse(s));
+                }
+            }
+        }
+        if order.len() < nodes.len() {
+            // Those left wait on a loop or are on one: the loops, with what
+            // only waits on them taken off, a node no other left waits on
+            // at a time.
+            let mut left: Vec<bool> = (0..nodes.len()).map(|n| preds[n] > 0).collect();
+            loop {
+                let sinks: Vec<usize> = (0..nodes.len()).filter(|&n| left[n] && !succ[n].iter().any(|&s| left[s])).collect();
+                if sinks.is_empty() {
+                    break;
+                }
+                sinks.into_iter().for_each(|n| left[n] = false);
+            }
+            return Err((0..nodes.len()).filter(|&n| left[n]).collect());
+        }
+        Ok(order)
+    }
+
+    /// Which nodes wait on which: each node's successors, and how many
+    /// predecessors it has.
+    fn graph(&self, key: Key) -> (Vec<Vec<usize>>, Vec<usize>) {
         let lay = &self.layouts[&key];
         let nodes = &lay.code;
         let mut reads = Vec::with_capacity(nodes.len());
@@ -2788,33 +3021,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 succ[w].push(n);
             }
         }
-        let mut ready: BinaryHeap<std::cmp::Reverse<usize>> =
-            (0..nodes.len()).filter(|&n| preds[n] == 0).map(std::cmp::Reverse).collect();
-        let mut order = Vec::with_capacity(nodes.len());
-        while let Some(std::cmp::Reverse(n)) = ready.pop() {
-            order.push(nodes[n]);
-            for &s in &succ[n] {
-                preds[s] -= 1;
-                if preds[s] == 0 {
-                    ready.push(std::cmp::Reverse(s));
-                }
-            }
-        }
-        if order.len() < nodes.len() {
-            // Those left wait on a loop or are on one: the loops, with what
-            // only waits on them taken off, a node no other left waits on
-            // at a time.
-            let mut left: Vec<bool> = (0..nodes.len()).map(|n| preds[n] > 0).collect();
-            loop {
-                let sinks: Vec<usize> = (0..nodes.len()).filter(|&n| left[n] && !succ[n].iter().any(|&s| left[s])).collect();
-                if sinks.is_empty() {
-                    break;
-                }
-                sinks.into_iter().for_each(|n| left[n] = false);
-            }
-            return Err((0..nodes.len()).filter(|&n| left[n]).collect());
-        }
-        Ok(order)
+        (succ, preds)
     }
 
     /// The bits a node reads and writes: (object, from, to) with `to`
@@ -2826,6 +3033,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let mut w = Vec::new();
         let whole = |o: ObjId| (o, 0, tw(&d.types, d.object(o).ty).max(1));
         match node {
+            Node::Repeat(_) | Node::RepeatEnd => {}
             Node::Proc(p) => {
                 // The bits it reads and writes, as its statements select
                 // them, so that processes that each work out some fields
@@ -2917,6 +3125,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let mut out = Vec::new();
         for (n, &node) in lay.code.iter().enumerate() {
             match node {
+                Node::Repeat(_) | Node::RepeatEnd => {}
                 Node::Proc(p) => self.stmt_deps(d.processes[p.0 as usize].body, n, &mut Vec::new(), &mut out),
                 // Each output from the inputs it depends on in the child.
                 // (An array's outputs, each from any iteration's inputs.)
@@ -3182,7 +3391,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
     fn part_of(&self, key: Key, split: &Split) -> Option<(Vec<Node>, Vec<Node>)> {
         let d = self.d;
         let lay = &self.layouts[&key];
-        let order = self.order(key).ok()?;
+        let order = self.order_of(key).ok()?;
         let acc: Vec<(Vec<Span>, Vec<Span>)> = order.iter().map(|&n| self.access(key, n)).collect();
         let overlaps = |a: &[Span], b: &[Span]| a.iter().any(|&(o, lo, hi)| b.iter().any(|&(p, plo, phi)| o == p && plo < hi && lo < phi));
         // The nodes a node waits on besides what it reads.
@@ -3441,7 +3650,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 Some(Some((start * ew as i64, *width * ew)))
             }
             ExprKind::Member(i) => match tys.get(bt) {
-                Type::Struct { packed: true, members, union, .. } => {
+                Type::Struct { members, union, .. } if tw(tys, bt) > 0 => {
                     let w = tw(tys, members[*i as usize].ty);
                     let below: u32 = if *union { 0 } else { members[*i as usize + 1..].iter().map(|m| tw(tys, m.ty)).sum() };
                     Some(Some((below as i64, w)))
@@ -3542,7 +3751,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 let b = self.fold(x.args[0])?;
                 let bt = d.expr(x.args[0]).ty;
                 match (tys.get(bt), &b) {
-                    (Type::Struct { packed: true, members, union, .. }, Const::Bits(bits)) => {
+                    (Type::Struct { members, union, .. }, Const::Bits(bits)) if tw(tys, bt) > 0 => {
                         let w = tw(tys, members[*i as usize].ty);
                         let below: u32 = if *union { 0 } else { members[*i as usize + 1..].iter().map(|m| tw(tys, m.ty)).sum() };
                         Some(Const::Bits(bits.slice(below, w).with_signed(tys.is_signed(x.ty))))
@@ -3910,7 +4119,19 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
     /// Splits the nodes into loops at the children's calls, and writes them.
     fn body(&mut self, order: &[Node]) -> Result<(), String> {
         let mut seg: Vec<Node> = Vec::new();
-        for &n in order {
+        let mut at = 0;
+        while at < order.len() {
+            let n = order[at];
+            at += 1;
+            if let Node::Repeat(times) = n {
+                self.run_loop(&seg)?;
+                seg.clear();
+                let end = order[at..].iter().position(|&x| x == Node::RepeatEnd).map_or(order.len(), |k| at + k);
+                let inner = order[at..end].to_vec();
+                at = end + 1;
+                self.repeat(times, &inner)?;
+                continue;
+            }
             if let Node::Loop(l) = n {
                 self.run_loop(&seg)?;
                 seg.clear();
@@ -3934,6 +4155,29 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
             }
         }
         self.run_loop(&seg)
+    }
+
+    /// A group of nodes that wait on each other, run `times` times over in
+    /// a loop of its own. Each pass starts and ends with every value in the
+    /// state, so the passes need nothing but the count carried between
+    /// them; the body runs at least once, so what it makes stays in reach
+    /// after it.
+    fn repeat(&mut self, times: u32, inner: &[Node]) -> Result<(), String> {
+        let (prev, lp) = (self.block, self.new_block("repeat"));
+        self.b.br(lp);
+        self.enter(lp);
+        let zero = self.i64k(0);
+        let c = self.b.phi(self.t.i64, &[(zero, prev)]);
+        self.body(inner)?;
+        let one = self.i64k(1);
+        let next = self.b.add(c, one);
+        let n = self.i64k(times as i64);
+        let end = self.b.icmp(ICmpPred::Eq, next, n);
+        self.b.add_incoming(c, next, self.block);
+        let exit = self.new_block("repeat.end");
+        self.b.cond_br(end, exit, lp);
+        self.enter(exit);
+        Ok(())
     }
 
     /// The arguments of a call of child `i`'s functions: its state, and
@@ -4221,6 +4465,7 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
     fn node(&mut self, n: Node) -> Result<(), String> {
         let d = self.d();
         match n {
+            Node::Repeat(_) | Node::RepeatEnd => unreachable!("repeated groups are loops of their own"),
             Node::Loop(_) => unreachable!("rolled loops are loops of their own"),
             Node::Rev(r) => {
                 let v = self.l.revs[r].clone();
@@ -5958,6 +6203,17 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
 
     fn load_slot(&mut self, o: ObjId, addr: Value) -> Val {
         let e = self.lay().elems[&o];
+        if e.k > 1 {
+            // A wide element: its words, the top one's bits past the width
+            // known to be zero.
+            let mut p = Vec::with_capacity(e.k as usize);
+            for j in 0..e.k {
+                let a = self.off(addr, 8 * j as u64);
+                let x = self.ld(self.t.i64, a, 8);
+                p.push(P::V(self.reg(x)));
+            }
+            return self.norm(Val { w: e.ew, p });
+        }
         let (ty, align) = self.slot_ty(e);
         let x = self.ld(ty, addr, align);
         if e.planes() && self.sh.swar {
@@ -5980,6 +6236,15 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
 
     fn store_slot(&mut self, o: ObjId, addr: Value, v: &Val) {
         let e = self.lay().elems[&o];
+        if e.k > 1 {
+            let v = self.resize(v, e.ew, false);
+            for j in 0..e.k {
+                let a = self.off(addr, 8 * j as u64);
+                let x = self.pv(v.p[j as usize]);
+                self.st(x, a, 8);
+            }
+            return;
+        }
         let (ty, align) = self.slot_ty(e);
         if e.planes() && self.sh.swar {
             let x = self.plane_byte(v);
@@ -6275,12 +6540,91 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
         self.store_piece_over(o, j, x, m, None)
     }
 
+    /// Whether a select of one of `count` elements, `stride` bits apart, of
+    /// kept value `o` (as kept: padded, if it is) is made by its address:
+    /// in scalar code, of elements a whole number of words apart, and worth
+    /// it (more than a few elements, which selects between serve as well).
+    fn direct_kept(&self, _o: ObjId, stride: u32, count: u32) -> bool {
+        self.sc() && stride % 64 == 0 && count > 4
+    }
+
+    /// The same for elements any number of bits apart: in scalar code, and
+    /// worth it.
+    fn direct_kept_any(&self, _o: ObjId, count: u32) -> bool {
+        self.sc() && count > 4
+    }
+
+    /// For element `i` (clamped into range) of kept value `o`, `stride`
+    /// bits apart, the bits at `add` in it: the address of the word they
+    /// start in, their offset in it, and how many words to load to hold
+    /// them wherever in the word they start.
+    fn kept_bit_addr(&mut self, o: ObjId, i: P, count: u32, stride: u32, add: u32, w: u32) -> (Value, P, usize) {
+        let span = (63 + w).div_ceil(64) as usize;
+        let ix = self.lane0(i);
+        let last = self.i64k(count as i64 - 1);
+        let big = self.b.icmp(ICmpPred::Ugt, ix, last);
+        let ix = self.b.select(big, last, ix);
+        let st = self.i64k(stride as i64);
+        let bit = self.b.mul(ix, st);
+        let ad = self.i64k(add as i64);
+        let bit = self.b.add(bit, ad);
+        let six = self.i64k(6);
+        let word = self.b.lshr(bit, six);
+        let m63 = self.i64k(63);
+        let sh = self.b.and(bit, m63);
+        let eight = self.i64k(8);
+        let bytes = self.b.mul(word, eight);
+        let base = self.base();
+        let p = self.off(base, self.lay().objs[&o]);
+        (self.offv(p, bytes), P::V(self.reg(sh)), span)
+    }
+
+    /// For the `w` bits at bit offset `bit` (clamped into range: out of
+    /// range, nothing read is used and nothing is written) of kept value
+    /// `o`: the address of the word they start in, their offset in it, and
+    /// how many words hold them wherever they start.
+    fn kept_off_addr(&mut self, o: ObjId, bit: P, w: u32) -> (Value, P, usize) {
+        let span = (63 + w).div_ceil(64) as usize;
+        let b = self.lane0(bit);
+        let last = self.i64k(self.width(o).saturating_sub(w) as i64);
+        let big = self.b.icmp(ICmpPred::Ugt, b, last);
+        let b = self.b.select(big, last, b);
+        let six = self.i64k(6);
+        let word = self.b.lshr(b, six);
+        let m63 = self.i64k(63);
+        let sh = self.b.and(b, m63);
+        let eight = self.i64k(8);
+        let bytes = self.b.mul(word, eight);
+        let base = self.base();
+        let p = self.off(base, self.lay().objs[&o]);
+        (self.offv(p, bytes), P::V(self.reg(sh)), span)
+    }
+
+    /// The address of the first word holding element `i` (clamped into
+    /// range: out of range, the value read is not used and nothing is
+    /// written) of kept value `o`, and how many words its `w` bits from
+    /// bit `add` of the element span.
+    fn kept_elem_addr(&mut self, o: ObjId, i: P, count: u32, stride: u32, add: u32, w: u32) -> (Value, usize) {
+        let span = ((add % 64) + w).div_ceil(64) as usize;
+        let ix = self.lane0(i);
+        let last = self.i64k(count as i64 - 1);
+        let big = self.b.icmp(ICmpPred::Ugt, ix, last);
+        let ix = self.b.select(big, last, ix);
+        let bytes = self.i64k((stride / 64 * 8) as i64);
+        let x = self.b.mul(ix, bytes);
+        let base = self.base();
+        let at = self.lay().objs[&o] + (add / 64) as u64 * 8;
+        let p = self.off(base, at);
+        (self.offv(p, x), span)
+    }
+
     /// Where a select of a value kept in the state is there (see
     /// [`Self::padded_off`]), if it is a constant or one of few elements.
     fn kept_off(&self, o: ObjId, off: Off, w: u32) -> Option<Off> {
         match (self.lay().pads.get(&o), off) {
             (Some(&p), off) => self.padded_off(p, off, w),
             (None, off @ (Off::K(_) | Off::Dec { .. })) => Some(off),
+            (None, off @ Off::V(..)) if self.sc() => Some(off),
             _ => None,
         }
     }
@@ -6302,6 +6646,55 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
         let pb = self.pb;
         let n = self.width(o).div_ceil(pb);
         match self.kept_off(o, off, w) {
+            // In scalar code, the element's words by their address.
+            Some(Off::Dec { i, n: count, stride, add, ok }) if self.direct_kept(o, stride, count) => {
+                let (ptr, span) = self.kept_elem_addr(o, i, count, stride, add, w);
+                let p: Vec<P> = (0..span)
+                    .map(|j| {
+                        let a = self.off(ptr, 8 * j as u64);
+                        let x = self.ld(self.t.i64, a, 8);
+                        P::V(self.reg(x))
+                    })
+                    .collect();
+                let v = Val { w: pb * span as u32, p };
+                let x = self.extract(&v, add % pb, w);
+                let z = self.zero(w);
+                self.select(ok, &x, &z)
+            }
+            // Elements not a whole number of words apart: the words around
+            // the bits, by the address of the first, shifted down.
+            Some(Off::Dec { i, n: count, stride, add, ok }) if self.direct_kept_any(o, count) => {
+                let (ptr, sh, span) = self.kept_bit_addr(o, i, count, stride, add, w);
+                let p: Vec<P> = (0..span)
+                    .map(|j| {
+                        let a = self.off(ptr, 8 * j as u64);
+                        let x = self.ld(self.t.i64, a, 8);
+                        P::V(self.reg(x))
+                    })
+                    .collect();
+                let v = Val { w: 64 * span as u32, p };
+                let v = self.lshr_var(&v, sh, None);
+                let x = self.extract(&v, 0, w);
+                let z = self.zero(w);
+                self.select(ok, &x, &z)
+            }
+            // A bit offset known only at run time: the words around the bits,
+            // by the address of the first, shifted down.
+            Some(Off::V(bit, ok)) => {
+                let (ptr, sh, span) = self.kept_off_addr(o, bit, w);
+                let p: Vec<P> = (0..span)
+                    .map(|j| {
+                        let a = self.off(ptr, 8 * j as u64);
+                        let x = self.ld(self.t.i64, a, 8);
+                        P::V(self.reg(x))
+                    })
+                    .collect();
+                let v = Val { w: 64 * span as u32, p };
+                let v = self.lshr_var(&v, sh, None);
+                let x = self.extract(&v, 0, w);
+                let z = self.zero(w);
+                self.select(ok, &x, &z)
+            }
             // The pieces the bits are in, of each element they may be in.
             Some(Off::K(k)) => {
                 let (q, r) = ((k / pb) as usize, k % pb);
@@ -6354,6 +6747,72 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
             }
         };
         match self.kept_off(o, off, w) {
+            // In scalar code, the element's words by their address, stored
+            // where in range and on this path (else what was there).
+            Some(Off::Dec { i, n: count, stride, add, ok }) if self.direct_kept(o, stride, count) => {
+                let (ptr, span) = self.kept_elem_addr(o, i, count, stride, add, w);
+                let old: Vec<P> = (0..span)
+                    .map(|j| {
+                        let a = self.off(ptr, 8 * j as u64);
+                        let x = self.ld(self.t.i64, a, 8);
+                        P::V(self.reg(x))
+                    })
+                    .collect();
+                let v = self.insert(&Val { w: pb * span as u32, p: old.clone() }, add % pb, w, x);
+                let m = self.mand(ok, self.path);
+                for j in 0..span {
+                    let y = self.sel(m, v.p[j], old[j]);
+                    let a = self.off(ptr, 8 * j as u64);
+                    let y = self.pv(y);
+                    self.st(y, a, 8);
+                }
+            }
+            // Not a whole number of words apart, or a bit offset known only
+            // at run time: the words around the bits, with the new bits put
+            // in under a mask shifted up to them.
+            Some(off @ (Off::Dec { .. } | Off::V(..)))
+                if match off {
+                    Off::Dec { n: count, .. } => self.direct_kept_any(o, count),
+                    _ => true,
+                } =>
+            {
+                let (ptr, sh, span, ok) = match off {
+                    Off::Dec { i, n: count, stride, add, ok } => {
+                        let (ptr, sh, span) = self.kept_bit_addr(o, i, count, stride, add, w);
+                        (ptr, sh, span, ok)
+                    }
+                    Off::V(bit, ok) => {
+                        let (ptr, sh, span) = self.kept_off_addr(o, bit, w);
+                        (ptr, sh, span, ok)
+                    }
+                    _ => unreachable!(),
+                };
+                let ww = 64 * span as u32;
+                let old: Vec<P> = (0..span)
+                    .map(|j| {
+                        let a = self.off(ptr, 8 * j as u64);
+                        let x = self.ld(self.t.i64, a, 8);
+                        P::V(self.reg(x))
+                    })
+                    .collect();
+                let oldv = Val { w: ww, p: old.clone() };
+                let ones = self.konst(&Bits::fill(w, false, crate::design::value::Logic::One));
+                let ones = self.resize(&ones, ww, false);
+                let mask = self.shl_var(&ones, sh);
+                let xs = self.resize(x, ww, false);
+                let xs = self.shl_var(&xs, sh);
+                let keep = self.not(&mask);
+                let keep = self.bitwise("and", &oldv, &keep);
+                let put = self.bitwise("and", &xs, &mask);
+                let v = self.bitwise("or", &keep, &put);
+                let m = self.mand(ok, self.path);
+                for j in 0..span {
+                    let y = self.sel(m, v.p[j], old[j]);
+                    let a = self.off(ptr, 8 * j as u64);
+                    let y = self.pv(y);
+                    self.st(y, a, 8);
+                }
+            }
             Some(Off::K(k)) => put(self, (k / pb) as usize, k % pb, M::K(true)),
             Some(Off::Dec { i, n: count, stride, add, ok }) if stride % pb == 0 => {
                 for k in 0..count {
@@ -7059,6 +7518,32 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
         Ok(())
     }
 
+    /// The number of set bits in `v`, in one piece: each piece counted
+    /// with shifts, masks, sums and a multiply, which every shape has.
+    fn popcount(&mut self, v: &Val) -> P {
+        let pb = self.pb as u64;
+        let rep = |byte: u64| (0..pb / 8).fold(0u64, |a, i| a | byte << (8 * i));
+        let mut total = P::K(0);
+        for (j, &p) in v.p.iter().enumerate() {
+            // (The top piece's bits past the width are already zero.)
+            let _ = j;
+            let h = self.bin("lshr", p, P::K(1));
+            let h = self.bin("and", h, P::K(rep(0x55)));
+            let x = self.bin("sub", p, h);
+            let lo = self.bin("and", x, P::K(rep(0x33)));
+            let h = self.bin("lshr", x, P::K(2));
+            let h = self.bin("and", h, P::K(rep(0x33)));
+            let x = self.bin("add", lo, h);
+            let h = self.bin("lshr", x, P::K(4));
+            let x = self.bin("add", x, h);
+            let x = self.bin("and", x, P::K(rep(0x0F)));
+            let x = self.bin("mul", x, P::K(rep(0x01)));
+            let x = self.bin("lshr", x, P::K(pb - 8));
+            total = self.bin("add", total, x);
+        }
+        total
+    }
+
     fn ctlz(&mut self, p: P) -> P {
         if let P::K(k) = p {
             return P::K((k.leading_zeros() - (64 - self.pb)) as u64);
@@ -7204,13 +7689,30 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
                     let v = self.expr(x.args[0])?;
                     Ok(self.resize(&v, w, tys.is_signed(d.expr(x.args[0]).ty)))
                 }
+                // Bit counts (20.9). The netlist holds no x or z, so
+                // `$isunknown` is 0.
+                "$countones" | "$onehot" | "$onehot0" if x.args.len() == 1 => {
+                    let v = self.expr(x.args[0])?;
+                    let n = self.popcount(&v);
+                    let n = self.norm(Val { w: 32.min(self.pb), p: vec![n] });
+                    let n = self.resize(&n, 32, false);
+                    Ok(match d.name(*f) {
+                        "$countones" => self.resize(&n, w, false),
+                        name => {
+                            let one = self.konst(&Bits::from_u64(32, false, 1));
+                            let m = if name == "$onehot" { self.eq(&n, &one) } else { let gt = self.lt(&one, &n, false); self.mnot(gt) };
+                            self.bit(m, w)
+                        }
+                    })
+                }
+                "$isunknown" if x.args.len() == 1 => Ok(self.zero(w)),
                 name => Err(format!("{name} is not supported yet")),
             },
             // A packed target's pattern is its elements concatenated, the
             // first the most significant (10.9).
             ExprKind::Pattern if tw(tys, x.ty) > 0 && !x.args.is_empty() => {
                 let widths: Vec<u32> = match tys.get(x.ty) {
-                    Type::Struct { packed: true, union: false, members, .. } => members.iter().map(|m| tw(tys, m.ty)).collect(),
+                    Type::Struct { union: false, members, .. } => members.iter().map(|m| tw(tys, m.ty)).collect(),
                     Type::Unpacked { elem, .. } => vec![tw(tys, *elem); x.args.len()],
                     Type::Struct { .. } => return Err("an assignment pattern for a packed union is not supported yet".into()),
                     _ => vec![w / x.args.len() as u32; x.args.len()],
@@ -7422,8 +7924,68 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
                 };
                 self.bit(m, w)
             }
+            BinOp::Div | BinOp::Mod => {
+                let (a, b) = (self.resize(&a, w, signed), self.resize(&b, w, signed));
+                let (q, r) = self.divmod(&a, &b, signed);
+                if op == BinOp::Div { q } else { r }
+            }
             _ => return Err(format!("{op:?} on values that are not constant is not supported yet")),
         })
+    }
+
+    /// `a / b` and `a % b` (11.4.2), by restoring division a bit at a time,
+    /// so that it is made of the operations every shape has. Signed, on the
+    /// magnitudes, the quotient negated when the signs differ and the
+    /// remainder taking the dividend's sign. Division by zero gives 0 for
+    /// both: the netlist holds no `x`.
+    fn divmod(&mut self, a: &Val, b: &Val, signed: bool) -> (Val, Val) {
+        let w = a.w;
+        let (mut n, mut dv) = (a.clone(), b.clone());
+        let (mut sa, mut sb) = (M::K(false), M::K(false));
+        if signed {
+            sa = self.truth_bit(a, w - 1);
+            sb = self.truth_bit(b, w - 1);
+            let zero = self.zero(w);
+            let na = self.add(&zero, a, true);
+            let nb = self.add(&zero, b, true);
+            n = self.select(sa, &na, a);
+            dv = self.select(sb, &nb, b);
+        }
+        // The remainder has a bit more than the divisor, for the shift in.
+        let d1 = self.resize(&dv, w + 1, false);
+        let mut r = self.zero(w + 1);
+        let mut q = self.zero(w);
+        for i in (0..w).rev() {
+            let r2 = self.shl_const(&r, 1);
+            let r2 = self.resize(&r2, w + 1, false);
+            let nb = self.extract(&n, i, 1);
+            let r2 = self.insert(&r2, 0, 1, &nb);
+            let lt = self.lt(&r2, &d1, false);
+            let ge = self.mnot(lt);
+            let diff = self.add(&r2, &d1, true);
+            r = self.select(ge, &diff, &r2);
+            let gb = self.bit(ge, 1);
+            q = self.insert(&q, i, 1, &gb);
+        }
+        let mut r = self.resize(&r, w, false);
+        if signed {
+            let zero = self.zero(w);
+            let qs = self.mxor(sa, sb);
+            let nq = self.add(&zero, &q, true);
+            q = self.select(qs, &nq, &q);
+            let nr = self.add(&zero, &r, true);
+            r = self.select(sa, &nr, &r);
+        }
+        let zero = self.zero(w);
+        let z = self.eq(b, &zero);
+        (self.select(z, &zero, &q), self.select(z, &zero, &r))
+    }
+
+    /// Bit `i` of `v` as a mask.
+    fn truth_bit(&mut self, v: &Val, i: u32) -> M {
+        let b = self.extract(v, i, 1);
+        let one = self.konst(&Bits::from_u64(1, false, 1));
+        self.eq(&b, &one)
     }
 
     // ---- values ----
@@ -8695,7 +9257,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         if !(2..=64).contains(&w) || outs.is_empty() {
             return None;
         }
-        let order = self.order(key).ok()?;
+        let order = self.order_of(key).ok()?;
         self.sym_orders.borrow_mut().insert(key, order.clone());
         self.sym_kids.borrow_mut().insert(key, (lay.kid_keys.clone(), lay.groups.clone()));
         let mut s = Sym { l: self, m: Manager::new(1 << 20), env: FxMap::default(), key };
@@ -8821,6 +9383,7 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
         let d = self.d();
         for &node in order {
             match node {
+                Node::Repeat(_) | Node::RepeatEnd => {}
                 Node::Driver(dr) => self.driver(dr)?,
                 Node::Loop(l) => self.l.loops[l].all.iter().try_for_each(|&dr| self.driver(dr))?,
                 Node::Rev(r) => self.l.revs[r].all.iter().try_for_each(|&dr| self.driver(dr))?,
@@ -8841,7 +9404,7 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
         let key = self.l.kid_key(self.key, i).ok_or(Unproved)?;
         let order = match self.l.sym_orders.borrow().get(&key) {
             Some(o) => o.clone(),
-            None => self.l.order(key).map_err(|_| Unproved)?,
+            None => self.l.order_of(key).map_err(|_| Unproved)?,
         };
         let mut env = FxMap::default();
         let conn = |p: &crate::design::Port| inst.connections.iter().find(|c| c.port == p.name).and_then(|c| c.expr);

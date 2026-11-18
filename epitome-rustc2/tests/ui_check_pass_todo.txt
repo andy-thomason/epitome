@@ -28,7 +28,6 @@ hygiene/dollar-crate-modern.rs: path not resolved: crate
 hygiene/generic_params.rs: type check: method not found
 hygiene/issue-32922.rs: error: expanding `foo!`: expected the end of the input, found `;` (eager-from-opaque.rs:14:9)
 impl-trait/defining-use-uncaptured-non-universal-region-2.rs: type check: mismatched types
-impl-trait/in-trait/late-bound-in-object-assocty.rs: type check: mismatched types
 impl-trait/method/broken-deref-chain.rs#next: type check: method not found
 impl-trait/nested-hkl-lifetime.rs: type check: a type left unknown
 impl-trait/non-defining-uses/ambiguous-ops.rs#next: type check: mismatched types
@@ -69,7 +68,6 @@ traits/next-solver/closure-signature-inference-hr-ambig-alias-naming-self.rs#nex
 traits/next-solver/cycles/inductive-cycle-discarded-coinductive-constraints.rs: type check: a type left unknown
 traits/next-solver/cycles/leak-check-coinductive-cycle.rs: type check: a type left unknown
 traits/next-solver/cycles/provisional-result-done.rs: type check: a type left unknown
-traits/next-solver/deduce-ty-from-object.rs: type check: mismatched types
 traits/next-solver/generalize/alias-with-bound-vars-incomplete-generalization.rs#next: type check: mismatched types
 traits/next-solver/generalize/alias-with-bound-vars-incomplete-generalization.rs#old: type check: mismatched types
 traits/next-solver/generalize/constrain-inference-during-normalize.rs: type check: a type left unknown

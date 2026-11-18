@@ -170,6 +170,10 @@ pub struct Resolver<'s> {
     pub roots: Vec<ModId>,
     /// Crate names, for the extern prelude.
     pub crate_names: Vec<String>,
+    /// For namespaced crates (`my_api::utils`, `-Z namespaced-crates`):
+    /// the modules standing for their leading names (`my_api`), each
+    /// holding the next.
+    pub crate_namespaces: Vec<(String, ModId)>,
     /// The crates each crate may name (`CrateRoot::deps`); all if `None`.
     pub crate_deps: Vec<Option<Vec<String>>>,
     /// The names of each crate's proc-macro libraries

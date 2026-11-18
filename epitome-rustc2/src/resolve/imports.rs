@@ -40,7 +40,11 @@ pub(super) fn resolve_imports(r: &mut Resolver) {
 impl<'s> Resolver<'s> {
     /// The crate root module of a crate named `name` in the session.
     pub(super) fn crate_root(&self, name: &str) -> Option<ModId> {
-        self.crate_names.iter().position(|c| c == name).map(|k| self.roots[k])
+        self.crate_names
+            .iter()
+            .position(|c| c == name)
+            .map(|k| self.roots[k])
+            .or_else(|| self.crate_namespaces.iter().find(|n| n.0 == name).map(|n| n.1))
     }
 
     /// A crate in crate `krate`'s extern prelude: a crate of the session by
@@ -55,7 +59,7 @@ impl<'s> Resolver<'s> {
             return self.defs[d.0 as usize].module;
         }
         if let Some(deps) = &self.crate_deps[krate as usize]
-            && !deps.iter().any(|d| d == name)
+            && !deps.iter().any(|d| d == name || d.strip_prefix(name).is_some_and(|r| r.starts_with("::")))
         {
             return None;
         }

@@ -38,7 +38,6 @@ closures/issue-87814-1.rs: type check: a type left unknown
 closures/issue-87814-2.rs: type check: a type left unknown
 closures/self-supertrait-bounds.rs: type check: a type left unknown
 closures/supertrait-hint-cycle.rs: type check: a type left unknown
-coercion/cast-higher-ranked-unsafe-fn-ptr.rs: type check: mismatched types
 coercion/index-coercion-over-indexmut-72002.rs: type check: indexing something that does not implement `Index`
 coinduction/canonicalization-rerun.rs#next: type check: a type left unknown
 coinduction/canonicalization-rerun.rs#old: type check: a type left unknown
@@ -53,11 +52,8 @@ delegation/impl-reuse-pass.rs: type check: method not found
 editions/edition-imports-virtual-2015-ambiguity.rs: path not resolved: edition_imports_2015
 editions/nested-macro-rules-edition.rs#e2024: error: expanding `macro_inner_input!`: expected a name, found `gen` (nested-macro-rules-edition.rs:30:5)
 ergonomic-clones/async/basic.rs: error: expected `|`, found `{` (basic.rs:12:15)
-generic-associated-types/issue-87750.rs: type check: a type left unknown
 generic-associated-types/issue-89008.rs: type check: a type left unknown
-generic-associated-types/issue-93874.rs: type check: call of something that is not a function
 generic-associated-types/parse/in-trait-impl.rs: path not resolved: Foo
-generic-const-items/basic.rs: type check: mismatched types
 higher-ranked/leak-check/leak-check-in-selection-2.rs#next: type check: a type left unknown
 higher-ranked/leak-check/leak-check-in-selection-2.rs#old: type check: a type left unknown
 higher-ranked/leak-check/leak-check-in-selection-4-hr-nested.rs#next: type check: a type left unknown
@@ -116,7 +112,6 @@ methods/fulfillment-disqualifies-method.rs#next: type check: a type left unknown
 methods/opaque_param_in_ufc.rs: type check: associated item not found
 methods/self-type-is-sup-no-eq.rs: type check: method not found
 mut-restriction/feature-gate-mut-restriction.rs#with_gate: error: expected a name, found `mut` (feature-gate-mut-restriction.rs:8:9)
-never_type/basic/method-on-never.rs: type check: method not found
 nll/coroutine-distinct-lifetime.rs: type check: unsupported expression
 nll/extra-unused-mut.rs: type check: unsupported expression
 nll/issue-21114-kixunil.rs: type check: a type left unknown
@@ -129,7 +124,6 @@ parser/impls-nested-within-anon-consts-semantic.rs: path not resolved: Type
 pattern/deref-patterns/const-pats-do-not-mislead-inference.rs#deref_patterns: type check: a type left unknown
 pin-ergonomics/pattern-matching-deref-pattern.rs#pin_ergonomics: type check: pattern of another type
 pin-ergonomics/reborrow-self.rs: type check: method not found
-privacy/issue-57264-2.rs: type check: method not found
 proc-macro/allowed-attr-stmt-expr.rs: error: expanding `make_stmt!`: expected an expression, found `struct` (allowed-attr-stmt-expr.rs:43:9)
 proc-macro/attributes-included.rs: error: proc macro `bar`: assertion `left == right` failed (attributes-included.rs:11:1)
 proc-macro/edition-imports-2018.rs: import not resolved: __ui_test_73::check: use import::Path (as Path)
@@ -157,7 +151,6 @@ rfcs/rfc-3348-c-string-literals/pre-2021-lexing.rs: error: in `parse!`: no rule 
 rust-2018/suggestions-not-always-applicable.rs: import not resolved: __ui_test_40::test: use crate::foo::foo (as foo)
 single-use-lifetime/issue-104440.rs: type check: method not found
 single-use-lifetime/issue-117965.rs: type check: mismatched types
-sized/coinductive-1-gat.rs: type check: a type left unknown
 specialization/source-impl-requires-constraining-predicates-ambig.rs#next: type check: mismatched types
 specialization/spec-influences-inference-issue-36262.rs#next: type check: a type left unknown
 trait-bounds/issue-94999.rs: type check: method not found

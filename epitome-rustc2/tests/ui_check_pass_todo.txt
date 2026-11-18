@@ -8,9 +8,6 @@ associated-inherent-types/inference.rs#next: type check: a type left unknown
 associated-inherent-types/variance-computation-requires-equality.rs: type check: associated type not found
 associated-type-bounds/bad-bounds-on-assoc-in-trait.rs: type check: a type left unknown
 associated-types/duplicate-associated-type-resolution-59326.rs: type check: a type left unknown
-associated-types/imply-relevant-nested-item-bounds.rs#current: type check: method not found
-associated-types/imply-relevant-nested-item-bounds.rs#next: type check: method not found
-associated-types/issue-37883.rs: type check: operator on types that do not implement it
 associated-types/issue-82079.rs#default: type check: a type left unknown
 associated-types/issue-82079.rs#miropt: type check: a type left unknown
 assumptions_on_binders/resolve-infer-var-wf.rs: type check: a type left unknown
@@ -126,7 +123,6 @@ rfcs/rfc-2565-param-attrs/param-attrs-allowed.rs: type check: a type left unknow
 rfcs/rfc-2565-param-attrs/param-attrs-pretty.rs: error: proc macro `attr_extern`: assertion `left == right` failed (param-attrs-pretty.rs:15:1)
 rust-2018/suggestions-not-always-applicable.rs: import not resolved: __ui_test_40::test: use crate::foo::foo (as foo)
 single-use-lifetime/issue-104440.rs: type check: method not found
-single-use-lifetime/issue-117965.rs: type check: mismatched types
 specialization/source-impl-requires-constraining-predicates-ambig.rs#next: type check: mismatched types
 specialization/spec-influences-inference-issue-36262.rs#next: type check: a type left unknown
 trait-bounds/issue-94999.rs: type check: method not found

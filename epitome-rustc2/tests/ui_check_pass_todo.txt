@@ -60,7 +60,6 @@ higher-ranked/trait-bounds/normalize-under-binder/issue-56556.rs: type check: a 
 higher-ranked/trait-bounds/rigid-equate-projections-in-higher-ranked-fn-signature.rs#current: type check: a type left unknown
 hygiene/cross-crate-define-and-use.rs: type check: struct literal of something that is not a struct or variant
 hygiene/dollar-crate-modern.rs: path not resolved: crate
-hygiene/eager-from-opaque-2.rs: type check: a type left unknown
 hygiene/generic_params.rs: type check: method not found
 hygiene/issue-32922.rs: error: expanding `foo!`: expected the end of the input, found `;` (eager-from-opaque.rs:14:9)
 hygiene/transparent-basic.rs: path not resolved: x
@@ -89,7 +88,6 @@ imports/remove-unused-private-import-errors.rs#keep: type check: associated item
 inference/iter-ufcs-coercion-type-unification.rs: type check: a type left unknown
 lazy-type-alias-impl-trait/recursion2.rs: type check: mismatched types
 lexer/ident_normalization.rs: path not resolved: K
-lint/ptr_null_checks.rs: type check: a type left unknown
 lint/rfc-2383-lint-reason/expect_tool_lint_rfc_2383.rs: type check: a type left unknown
 lint/use-redundant/use-redundant-issue-78894.rs: import not resolved: : use bar (as bar)
 macros/dollar-crate-nested-encoding.rs: path not resolved: crate
@@ -102,7 +100,6 @@ methods/opaque_param_in_ufc.rs: type check: associated item not found
 methods/self-type-is-sup-no-eq.rs: type check: method not found
 nll/coroutine-distinct-lifetime.rs: type check: unsupported expression
 nll/extra-unused-mut.rs: type check: unsupported expression
-nll/issue-21114-kixunil.rs: type check: a type left unknown
 nll/issue-63154-normalize.rs: type check: a type left unknown
 nll/polonius/nll-problem-case-3-issue-21906.rs#legacy: type check: mismatched types
 nll/polonius/nll-problem-case-3-issue-21906.rs#polonius: type check: mismatched types
@@ -125,7 +122,6 @@ proc-macro/test-count-attributes.rs: error: proc macro `assert_no_attributes`: a
 proc-macro/test-followed-by-attr-macros.rs: error: expected a macro matcher in delimiters (test-followed-by-attr-macros.rs:20:9)
 proc-macro/test.rs: error: proc macro `run`: assertion `left == right` failed (test.rs:14:1)
 regions/type-param-outlives-reempty-issue-74429-2.rs: type check: a type left unknown
-repeat-expr/copy-inference-side-effects.rs: type check: a type left unknown
 resolve/extern-prelude.rs: type check: wrong number of arguments
 resolve/open-ns-5.rs: import not resolved: : use my_api::utils::utils_helper (as utils_helper)
 resolve/open-ns-6.rs: import not resolved: : use my_api (as my_api)

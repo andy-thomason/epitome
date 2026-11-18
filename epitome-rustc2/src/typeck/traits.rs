@@ -1049,7 +1049,15 @@ impl<'a, 's> FnCtxt<'a, 's> {
             // FnMut` result's, say): not from this one itself.
             let v = self.infer.shallow(v);
             let saved = self.obligations.clone();
-            self.obligations.retain(|p| !matches!(p, Pred::Projection(.., t) if *t == v));
+            // (The obligation's variable may since have been made the
+            // same as another: compared as resolved.)
+            let infer = &self.infer;
+            let others: Vec<Pred> = saved
+                .iter()
+                .filter(|p| !matches!(p, Pred::Projection(.., t) if infer.shallow(*t) == v))
+                .cloned()
+                .collect();
+            self.obligations = others;
             let got = self.project(a, &args, 1);
             self.obligations = saved;
             match got {

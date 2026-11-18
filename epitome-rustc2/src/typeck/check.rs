@@ -1611,6 +1611,15 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 self.coerce(kids[1], lt, usize_);
                 let mut l = Lower { tcx, env: &self.env, expanding: FastSet::default(), impl_self: None, holes: true, k: self.k, file: self.file, owner: self.owner, failed: false };
                 let c = l.konst(kids[1]);
+                // `[e; n]` copies `e` (unless it is a constant, or `n` is 0
+                // or 1): `T: Copy` may settle unknowns in it.
+                if !matches!(ast.text(kids[1]).trim(), "0" | "1")
+                    && !matches!(ast.kind(kids[0]), Kind::PathExpr | Kind::ConstBlock)
+                    && tcx.has_infer(self.infer.resolve(elem))
+                    && let Some(copy) = self.lang("copy")
+                {
+                    self.pending_traits.push((elem, copy, tcx.list(vec![])));
+                }
                 self.mk(TyKind::Array(elem, c))
             }
             Kind::Block | Kind::ConstBlock => self.block(n, expect),
@@ -1689,6 +1698,17 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 if let (TyKind::Ref(_, x), TyKind::Ptr(_, y)) = (tcx.kind(s), tcx.kind(self.infer.shallow(target))) {
                     let p = self.probe();
                     if !self.infer.unify(y, x) {
+                        self.rollback(p);
+                    }
+                }
+                // A pointer to an unknown cast to a pointer is tried as a
+                // coercion first: `p.cast() as *const T` makes it `T`.
+                if let (TyKind::Ptr(_, x), TyKind::Ptr(_, y)) =
+                    (tcx.kind(self.norm(src)), tcx.kind(self.infer.shallow(target)))
+                    && self.infer.var_kind(self.infer.shallow(x)) == Some(VarKind::General)
+                {
+                    let p = self.probe();
+                    if !self.infer.unify(x, y) {
                         self.rollback(p);
                     }
                 }

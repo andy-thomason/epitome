@@ -690,6 +690,32 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
         Some(TraitRef { def, args: self.tcx.list(tys), bindings, assoc_bounds })
     }
 
+    /// `async Fn(A) -> B` (`async_trait_bounds`): `AsyncFn(A) -> B`, and
+    /// so for `FnMut` and `FnOnce`.
+    fn async_bound(&self, tb: NodeId, mut t: TraitRef) -> TraitRef {
+        let ast = self.ast();
+        if !ast.children(tb).iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == "async") {
+            return t;
+        }
+        let lang = |n: &str| self.tcx.lang.get(n).copied();
+        for (sync, asy) in [("fn", "async_fn"), ("fn_mut", "async_fn_mut"), ("fn_once", "async_fn_once")] {
+            if lang(sync) == Some(t.def)
+                && let Some(a) = lang(asy)
+            {
+                t.def = a;
+                let (out, aout) = (lang("fn_once_output"), lang("async_fn_once_output"));
+                for b in &mut t.bindings {
+                    if Some(b.0) == out
+                        && let Some(o) = aout
+                    {
+                        b.0 = o;
+                    }
+                }
+            }
+        }
+        t
+    }
+
     /// The trait bounds in a `Bounds` node whose trait has an associated
     /// type `name`.
     fn bounds_having(&mut self, b: NodeId, name: &str) -> Vec<TraitRef> {
@@ -721,7 +747,7 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
             }
             let Some(path) = ast.child(tb, Kind::Path) else { continue };
             match self.trait_ref(path) {
-                Some(t) => out.push(t),
+                Some(t) => out.push(self.async_bound(tb, t)),
                 None => {
                     self.err("bound is not a trait");
                 }

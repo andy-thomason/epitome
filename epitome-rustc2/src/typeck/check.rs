@@ -1817,7 +1817,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
             Kind::Index => {
                 let base = self.expr(kids[0], None);
                 let idx = self.expr(kids[1], None);
-                self.index(n, kids[0], base, idx)
+                self.index(n, kids[0], kids[1], base, idx)
             }
             Kind::StructExpr => self.struct_expr(n, &kids),
             Kind::If => {
@@ -2560,7 +2560,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
     /// The dereferences (and an array's unsizing, for `Index` on a slice)
     /// are adjustments of `base_node`; an overloaded index records
     /// `Index::index` on `n`.
-    fn index(&mut self, n: NodeId, base_node: NodeId, base: Ty, idx: Ty) -> Ty {
+    fn index(&mut self, n: NodeId, base_node: NodeId, idx_node: NodeId, base: Ty, idx: Ty) -> Ty {
         let tcx = self.tcx;
         let steps = self.autoderef(base);
         let i = self.norm(idx);
@@ -2585,6 +2585,19 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 self.adjust(base_node, Self::step_adjustments(&steps, k, None), steps[k].0);
                 self.record_trait_method(n, tr, "index", t, &[i]);
                 return self.project_or_var(out, &[t, i]);
+            }
+        }
+        // `v[&string]` with `Index<&str>`: the index deref-coerced.
+        if let Some(tr) = self.lang("index")
+            && let Some(out) = self.trait_item(tr, "Output", Ns::Type)
+        {
+            for k in 0..steps.len() {
+                let t = steps[k].0;
+                if let Some(w) = self.op_rhs_by_coercion(idx_node, tr, t, idx) {
+                    self.adjust(base_node, Self::step_adjustments(&steps, k, None), steps[k].0);
+                    self.record_trait_method(n, tr, "index", t, &[w]);
+                    return self.project_or_var(out, &[t, w]);
+                }
             }
         }
         self.err(n, "indexing something that does not implement `Index`")
@@ -3126,6 +3139,13 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 }
                 Kind::ExprStmt => {
                     let Some(&e) = self.kids(s).last() else { continue };
+                    // `#[coroutine] || { .. };` as a statement.
+                    let ast = self.ast;
+                    self.coroutine_attr = ast.kind(e) == Kind::Closure
+                        && ast.children(s).iter().any(|&a| {
+                            ast.kind(a) == Kind::Attribute
+                                && ast.text(a).trim_start_matches("#[").starts_with("coroutine")
+                        });
                     let t = self.expr(e, None);
                     if self.tcx.kind(self.infer.shallow(t)) == TyKind::Never {
                         diverges = true;

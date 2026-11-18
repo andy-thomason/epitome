@@ -626,3 +626,42 @@ fn false_loops_settle() {
         },
     );
 }
+
+const REPORTS: &str = r#"
+module reps #(parameter int N = 4) (
+    input  logic       clk,
+    input  logic [7:0] a,
+    output logic [7:0] y
+);
+  // Checks that only report change nothing, and are left out.
+  initial begin
+    if (N * 2 != 8) $error("N = %0d", N);
+  end
+  always_comb begin
+    y = a + 8'(N);
+    if (a == 8'hff) $warning("a is %0d", a);
+  end
+  always_ff @(posedge clk) if (a == 8'h00) $display("zero at %0d", a);
+endmodule
+"#;
+
+#[test]
+fn reports_are_left_out() {
+    let Some(host) = host() else {
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
+        return;
+    };
+    let b = build("reps", netlist_of(&text("reps.sv", REPORTS), "reps"), &host);
+    report("reps", &b);
+    let mut rng = Rng(0x510E_527F_ADE6_82D1);
+    by_states(
+        &b,
+        2 * b.net.lanes,
+        |st, k, _| {
+            let a = rng.next() & 0xFF;
+            st.put(&b.net, "a", k, a);
+            a
+        },
+        |st, k, &a| assert_eq!(st.get(&b.net, "y", k), (a + 4) & 0xFF, "a {a}"),
+    );
+}

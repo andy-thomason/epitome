@@ -2614,8 +2614,29 @@ impl<'d, 'a> Lowering<'d, 'a> {
             StmtKind::Case { items, default, .. } => all(&mut items.iter().map(|i| i.1).chain(*default)),
             // The loop variable is the loop's own.
             StmtKind::For { scope: Some(_), body, .. } => self.only_asserts(*body),
+            // A report (20.10, 21.2), whose arguments change nothing.
+            StmtKind::Expr(x) => match &d.expr(*x).kind {
+                ExprKind::SysCall(f) => {
+                    matches!(
+                        d.name(*f),
+                        "$error" | "$warning" | "$info" | "$fatal" | "$display" | "$write" | "$strobe" | "$monitor"
+                    ) && d.expr(*x).args.iter().all(|&a| self.pure(a))
+                }
+                _ => false,
+            },
             _ => false,
         }
+    }
+
+    /// Whether working out an expression changes nothing: no calls, no
+    /// assignments, no increments.
+    fn pure(&self, e: ExprId) -> bool {
+        let x = self.d.expr(e);
+        !matches!(
+            x.kind,
+            ExprKind::Call(_) | ExprKind::Assign | ExprKind::Unary(UnOp::PreInc | UnOp::PostInc | UnOp::PreDec | UnOp::PostDec)
+        ) && !matches!(&x.kind, ExprKind::SysCall(f) if matches!(self.d.name(*f), "$random" | "$urandom" | "$urandom_range" | "$fopen" | "$fgetc" | "$fscanf" | "$sscanf" | "$value$plusargs"))
+            && x.args.iter().all(|&a| self.pure(a))
     }
 
     /// The function for `key`, after its children's.

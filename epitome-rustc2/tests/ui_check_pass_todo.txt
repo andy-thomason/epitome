@@ -77,6 +77,5 @@ traits/next-solver/overflow/fcw-on-normalization.rs#next: type check: method not
 traits/next-solver/overflow/fcw-on-normalization.rs#old: type check: method not found
 traits/next-solver/typeck/resolve-before-checking-builtin-ptr.rs: type check: mismatched types
 traits/next-solver/typeck/structurally-resolve-in-probe_adt.rs: type check: a type left unknown
-tuple/indexing-in-macro.rs: error: in `m!`: no rule of the macro matches this input (indexing-in-macro.rs:7:1)
 type-alias-impl-trait/match-unification.rs: type check: mismatched types
 wf/unnormalized-projection-guides-inference.rs: type check: a type left unknown

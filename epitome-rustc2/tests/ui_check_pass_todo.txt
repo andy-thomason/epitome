@@ -10,7 +10,6 @@ associated-types/duplicate-associated-type-resolution-59326.rs: type check: a ty
 assumptions_on_binders/test-infra-works.rs: macro not found: test_binder_constraints!
 async-await/async-fn/edition-2015-not-async-bound.rs: path not resolved: Foo
 attributes/duplicated-attributes.rs: import not resolved: : use test::Bencher (as Bencher)
-attributes/path-inline-module.rs: error: cannot read `/private/tmp/claude-502/-Users-amy-andy-thomason-epitome/d698d809-bf3b-400b-91f6-effe1b4b32f5/scratchpad/rust/tests/ui/attributes/inline_with_inner_path/foo.rs`: No such file or directory (os error 2) (path-inline-module.rs:19:9)
 attributes/z-crate-attr/cfg-false.rs: left out: flags that change the crate
 autodiff/flag_nott.rs: path not resolved: d_square
 borrowck/alias-liveness/escaping-bounds.rs: type check: a type left unknown
@@ -71,7 +70,6 @@ lexer/ident_normalization.rs: path not resolved: K
 lint/rfc-2383-lint-reason/expect_tool_lint_rfc_2383.rs: type check: a type left unknown
 lint/use-redundant/use-redundant-issue-78894.rs: import not resolved: : use bar (as bar)
 macros/issue-34171.rs: error: in `null!`: no rule of the macro matches this input (issue-34171.rs:5:20)
-macros/issue-69838-mods-relative-to-included-path.rs: error: no file for module `bar`: neither `/private/tmp/claude-502/-Users-amy-andy-thomason-epitome/d698d809-bf3b-400b-91f6-effe1b4b32f5/scratchpad/rust/tests/ui/macros/bar.rs` nor `/private/tmp/claude-502/-Users-amy-andy-thomason-epitome/d698d809-bf3b-400b-91f6-effe1b4b32f5/scratchpad/rust/tests/ui/macros/bar/mod.rs` (included.rs:3:9)
 macros/parse-test.rs: error: expected a macro matcher in delimiters (parse-test.rs:8:5)
 methods/opaque_param_in_ufc.rs: type check: associated item not found
 nll/issue-63154-normalize.rs: type check: a type left unknown

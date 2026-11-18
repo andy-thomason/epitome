@@ -162,6 +162,30 @@ impl<'a> Token<'a> {
 }
 
 /// Splits `src` into tokens. The end-of-file token is not included.
+/// Tokens lexed as 2021 split as editions before it lex them: `c"x"`
+/// and `cr"x"` are a name then a string, `'r#a` is `'r`, `#`, `a`.
+pub fn split_pre_2021(tokens: Vec<Token<'_>>) -> Vec<Token<'_>> {
+    let mut out = Vec::with_capacity(tokens.len());
+    for t in tokens {
+        let s = t.0;
+        let prefix = if s.starts_with("c\"") {
+            1
+        } else if s.starts_with("cr\"") || s.starts_with("cr#") || s.starts_with("'r#") {
+            2
+        } else {
+            0
+        };
+        match lex(&s[prefix..]) {
+            Ok(rest) if prefix > 0 => {
+                out.push(Token(&s[..prefix]));
+                out.extend(rest);
+            }
+            _ => out.push(t),
+        }
+    }
+    out
+}
+
 pub fn lex(src: &str) -> Result<Vec<Token<'_>>, Error<'_>> {
     let mut lexer = Lexer::new(src);
     let mut tokens = Vec::new();

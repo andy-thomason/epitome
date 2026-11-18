@@ -1692,6 +1692,14 @@ impl<'a, 's> FnCtxt<'a, 's> {
                         self.rollback(p);
                     }
                 }
+                // A cast to a struct or enum is a coercion: `Err(()) as
+                // Result<(), _>` settles both sides.
+                if let TyKind::Adt(..) = tcx.kind(self.infer.shallow(target)) {
+                    let p = self.probe();
+                    if !self.infer.unify(src, target) {
+                        self.rollback(p);
+                    }
+                }
                 target
             }
             Kind::Binary => self.binary(n, &kids),

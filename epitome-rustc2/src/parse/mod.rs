@@ -45,7 +45,10 @@ pub fn parse<'a>(tokens: Vec<Token<'a>>, eof: Token<'a>, edition: Edition) -> Re
 
 /// Lexes and parses `src`.
 pub fn parse_str(src: &str, edition: Edition) -> Result<Ast<'_>, Error<'_>> {
-    let tokens = crate::lexer::lex(src)?;
+    let mut tokens = crate::lexer::lex(src)?;
+    if edition < Edition::E2021 {
+        tokens = crate::lexer::split_pre_2021(tokens);
+    }
     parse(tokens, Token(&src[src.len()..]), edition)
 }
 
@@ -135,6 +138,15 @@ pub fn parse_fragment<'a>(
     }
     p.ast.root = root;
     Ok(p.ast)
+}
+
+/// How many of `tokens` the expression at their start takes, if one is
+/// there: what `include!` in an expression or statement keeps of a file
+/// (rustc warns of the rest).
+pub fn expr_prefix_len(tokens: Vec<Token<'_>>, eof: Token<'_>, edition: Edition) -> Option<usize> {
+    let mut p = Parser::new(tokens, eof, edition);
+    p.expr().ok()?;
+    Some(p.pos)
 }
 
 /// Where a node starts: the token position and the depth of the stack.

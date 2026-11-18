@@ -800,6 +800,17 @@ impl<'a, 's> FnCtxt<'a, 's> {
         {
             self.process_pending();
         }
+        // So may a box's (`Box::new(v.into_iter())` as a `Box<dyn Iterator>`).
+        if !self.pending.is_empty()
+            && let (TyKind::Adt(a, x), TyKind::Adt(b, y)) =
+                (self.tcx.kind(self.infer.shallow(got)), self.tcx.kind(self.infer.shallow(want)))
+            && a == b
+            && Some(a) == self.lang("owned_box")
+            && self.infer.var_kind(self.infer.shallow(self.tcx.tys(x)[0])).is_some()
+            && self.may_be_unsized(self.tcx.tys(y)[0])
+        {
+            self.process_pending();
+        }
         // An unknown made a pointer (`ptr::read(x)`, `x` waiting on a
         // projection) may be a reference once it is known.
         if !self.pending.is_empty()

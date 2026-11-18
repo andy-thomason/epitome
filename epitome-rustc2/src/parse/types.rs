@@ -98,8 +98,9 @@ impl<'a> Parser<'a> {
                 if self.at_op("::") && self.at_n(2, "<") {
                     self.bump_n(2);
                     self.generic_args()?;
-                } else if self.at_op("::") && self.at_n(2, "(") && self.at_n(3, ".") {
-                    // Return type notation: `method(..)`.
+                } else if self.at_op("::") && self.at_n(2, "(") {
+                    // Return type notation, `method::(..)`; `x::(T) -> U`
+                    // parses (lowering rejects it).
                     self.bump_n(2);
                     self.fn_sugar()?;
                 }
@@ -337,9 +338,16 @@ impl<'a> Parser<'a> {
             } else {
                 // `for<T>` binders of types and constants are unstable;
                 // read them as type parameters.
+                if self.at("const") {
+                    self.leaf(Kind::Keyword, 1);
+                }
                 self.name()?;
                 if self.eat(":") {
                     self.bounds(true)?;
+                }
+                // (A default is an error rustc reports later.)
+                if self.eat("=") {
+                    self.ty()?;
                 }
                 self.finish(pm, Kind::TypeParam);
             }

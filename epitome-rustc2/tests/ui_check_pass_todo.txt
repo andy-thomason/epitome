@@ -9,7 +9,6 @@ associated-inherent-types/variance-computation-requires-equality.rs: type check:
 associated-types/duplicate-associated-type-resolution-59326.rs: type check: a type left unknown
 assumptions_on_binders/test-infra-works.rs: macro not found: test_binder_constraints!
 async-await/async-fn/edition-2015-not-async-bound.rs: path not resolved: Foo
-attributes/dont-dup-expr-attrs.rs: error: expanding `m2!`: expected `;`, found `}` (dont-dup-expr-attrs.rs:32:9)
 attributes/duplicated-attributes.rs: import not resolved: : use test::Bencher (as Bencher)
 attributes/path-inline-module.rs: error: cannot read `/private/tmp/claude-502/-Users-amy-andy-thomason-epitome/d698d809-bf3b-400b-91f6-effe1b4b32f5/scratchpad/rust/tests/ui/attributes/inline_with_inner_path/foo.rs`: No such file or directory (os error 2) (path-inline-module.rs:19:9)
 attributes/z-crate-attr/cfg-false.rs: left out: flags that change the crate
@@ -81,7 +80,6 @@ methods/opaque_param_in_ufc.rs: type check: associated item not found
 nll/issue-63154-normalize.rs: type check: a type left unknown
 nll/polonius/nll-problem-case-3-issue-21906.rs#legacy: type check: mismatched types
 nll/polonius/nll-problem-case-3-issue-21906.rs#polonius: type check: mismatched types
-parser/generic-param-default-in-binder.rs: error: in `a!`: no rule of the macro matches this input (generic-param-default-in-binder.rs:8:1)
 parser/impls-nested-within-anon-consts-semantic.rs: path not resolved: Type
 pattern/deref-patterns/const-pats-do-not-mislead-inference.rs#deref_patterns: type check: a type left unknown
 pin-ergonomics/pattern-matching-deref-pattern.rs#pin_ergonomics: type check: pattern of another type
@@ -136,5 +134,4 @@ type-alias-impl-trait/match-unification.rs: type check: mismatched types
 type-alias-impl-trait/method_resolution5.rs#current: type check: method not found
 type-alias-impl-trait/method_resolution5.rs#next: type check: method not found
 type-alias-impl-trait/multiple-def-uses-in-one-fn-pass.rs: type check: a type left unknown
-unpretty/exhaustive.rs#expanded: error: expected `;`, found `try` (exhaustive.rs:247:9)
 wf/unnormalized-projection-guides-inference.rs: type check: a type left unknown

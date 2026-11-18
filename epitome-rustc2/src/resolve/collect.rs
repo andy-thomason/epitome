@@ -445,6 +445,12 @@ impl<'c, 'r, 's> Collector<'c, 'r, 's> {
                 Kind::Fn => (DefKind::AssocFn, Ns::Value),
                 Kind::Const => (DefKind::AssocConst, Ns::Value),
                 Kind::TypeAlias => (DefKind::AssocType, Ns::Type),
+                // Items in blocks of the header (`impl T for () where [();
+                // { struct Type; 0 }]:`).
+                k if !k.is_leaf() && !is_item(k) => {
+                    self.blocks(a, m);
+                    continue;
+                }
                 _ => continue,
             };
             let an = self.name(a);

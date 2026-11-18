@@ -211,6 +211,16 @@ impl<'a, 's> FnCtxt<'a, 's> {
         {
             self.pending_traits.push((*t, tr.def, tr.args));
         }
+        // `S: R<E = A>` with `S` known and `A` not: `A` is `S`'s `E`.
+        if let Pred::Projection(_, a, l, t) = &pred
+            && !self.tcx.has_infer(self.infer.resolve(self_ty))
+            && self.tcx.has_infer(self.infer.resolve(*t))
+        {
+            let args = self.tcx.tys(*l);
+            let v = self.project_or_var(*a, &args);
+            self.infer.unify(v, *t);
+            return;
+        }
         if !self.tcx.has_infer(self.infer.resolve(self_ty)) || self.obligations.len() > 4096 {
             return;
         }

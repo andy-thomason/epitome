@@ -55,10 +55,7 @@ const-generics/mgca/adt_expr_infers_from_value.rs: type check: a type left unkno
 const-generics/mgca/infer-vars-in-const-args-correct.rs: type check: a type left unknown
 const-generics/mgca/paren.rs: error: expanding `direct_const_arg!`: expected a type, found `{` (paren.rs:24:18)
 crate-loading/cross-compiled-proc-macro.rs: left out: proc-macro crates rustc cannot build
-delegation/body-identity-glob.rs: path not resolved: check
-delegation/body-identity-list.rs: path not resolved: check
-delegation/impl-reuse-pass.rs: path not resolved: F2
-derives/derive-renamed.rs: import not resolved: : use derive (as my_derive)
+delegation/impl-reuse-pass.rs: type check: method not found
 editions/edition-imports-virtual-2015-ambiguity.rs: path not resolved: edition_imports_2015
 editions/edition-keywords-2018-2015-expansion.rs: error: expanding `produces_async!`: expected a name, found `async` (edition-keywords-2018-2015-expansion.rs:11:5)
 editions/nested-macro-rules-edition.rs#e2024: error: expanding `macro_inner_input!`: expected a name, found `gen` (nested-macro-rules-edition.rs:30:5)
@@ -108,7 +105,6 @@ imports/ambiguous-import-visibility-globglob-priv-pass.rs: import not resolved: 
 imports/overwrite-different-vis-2.rs: path not resolved: f
 imports/remove-unused-private-import-errors.rs#keep: type check: associated item of something that is not a type
 inference/iter-ufcs-coercion-type-unification.rs: type check: a type left unknown
-keyword/soup.rs: import not resolved: __ui_test_59::x: use Ok (as Ok)
 lazy-type-alias-impl-trait/recursion2.rs: type check: mismatched types
 lexer/ident_normalization.rs: path not resolved: K
 lifetimes/raw/three-tokens.rs: error: expanding `check!`: expected `;`, found the end of the input (three-tokens.rs:14:1)
@@ -150,7 +146,6 @@ pattern/deref-patterns/const-pats-do-not-mislead-inference.rs#deref_patterns: ty
 pin-ergonomics/pattern-matching-deref-pattern.rs#pin_ergonomics: type check: pattern of another type
 pin-ergonomics/reborrow-self.rs: type check: method not found
 privacy/issue-57264-2.rs: type check: method not found
-privacy/use-in-impl-scope-12729.rs: import not resolved: __ui_test_43::bar: use Foo (as Foo)
 proc-macro/allowed-attr-stmt-expr.rs: error: expanding `make_stmt!`: expected an expression, found `struct` (allowed-attr-stmt-expr.rs:43:9)
 proc-macro/attributes-included.rs: error: proc macro `bar`: assertion `left == right` failed (attributes-included.rs:11:1)
 proc-macro/edition-imports-2018.rs: import not resolved: __ui_test_73::check: use import::Path (as Path)
@@ -177,8 +172,6 @@ rfcs/rfc-2565-param-attrs/param-attrs-pretty.rs: error: proc macro `attr_extern`
 rfcs/rfc-3348-c-string-literals/pre-2021-lexing.rs: error: in `parse!`: no rule of the macro matches this input (pre-2021-lexing.rs:26:27)
 rust-2018/suggestions-not-always-applicable.rs: import not resolved: __ui_test_40::test: use crate::foo::foo (as foo)
 rust-2021/future-prelude-collision-turbofish.rs: type check: a type left unknown
-sanitizer/cfg.rs#leak: path not resolved: main
-sanitizer/cfg.rs#memory: path not resolved: main
 single-use-lifetime/issue-104440.rs: type check: method not found
 single-use-lifetime/issue-117965.rs: type check: mismatched types
 sized/coinductive-1-gat.rs: type check: a type left unknown

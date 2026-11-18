@@ -807,3 +807,74 @@ fn memories_by_address() {
         assert_eq!(words[4], (want[1] & 0xFFFF) as u32, "cycle {c}: qh of {ra}");
     }
 }
+
+const ODD_MEM: &str = r#"
+module omem (
+    input  logic         clk,
+    input  logic         we,
+    input  logic         wb,
+    input  logic [5:0]   wa,
+    input  logic [5:0]   ra,
+    input  logic [63:0]  d,
+    output logic [72:0]  q,
+    output logic [7:0]   qb
+);
+  // Words 73 bits wide: not a whole number of machine words apart.
+  logic [72:0] mem [37];
+  always_ff @(posedge clk) begin
+    if (we) mem[wa] <= {d[8:0], d};
+    if (wb) mem[wa][67:60] <= d[7:0];
+  end
+  assign q = mem[ra];
+  assign qb = mem[ra][67:60];
+endmodule
+"#;
+
+#[test]
+fn memories_of_odd_widths_by_address() {
+    let Some(host) = host() else {
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
+        return;
+    };
+    let net = netlist_with(&text("omem.sv", ODD_MEM), "omem", host.options(1));
+    let b = build("omem", net, &host);
+    report("omem", &b);
+    let io = Io::new(&b.net, Some("clk")).unwrap();
+    let mut rng = Rng(0xCBBB_9D5D_C105_9ED8);
+    let cycles = 600;
+    let (mut stim, mut ins) = (Vec::new(), Vec::new());
+    for _ in 0..cycles {
+        let (we, wb, wa, ra, d) = (rng.next() & 1 == 1, rng.next() % 3 == 0, rng.next() % 44, rng.next() % 44, rng.next());
+        for p in &io.ins {
+            match p.name.as_str() {
+                "we" => stim.push(we as u32),
+                "wb" => stim.push(wb as u32),
+                "wa" => stim.push(wa as u32),
+                "ra" => stim.push(ra as u32),
+                "d" => stim.extend([d as u32, (d >> 32) as u32]),
+                n => panic!("{n}"),
+            }
+        }
+        ins.push((we, wb, wa as usize, ra as usize, d));
+    }
+    let out = b.run(&io, cycles, 1, &stim);
+    // 73-bit words as u128s.
+    let mut mem = [0u128; 37];
+    let m73 = (1u128 << 73) - 1;
+    let ow = io.out_words();
+    for (c, &(we, wb, wa, ra, d)) in ins.iter().enumerate() {
+        if wa < 37 {
+            if we {
+                mem[wa] = ((d as u128 & 0x1FF) << 64 | d as u128) & m73;
+            }
+            if wb {
+                mem[wa] = mem[wa] & !(0xFFu128 << 60) | ((d as u128 & 0xFF) << 60);
+            }
+        }
+        let want = if ra < 37 { mem[ra] } else { 0 };
+        let words = &out[c * ow..(c + 1) * ow];
+        let q: Vec<u32> = (0..3).map(|k| (want >> (32 * k)) as u32 & if k == 2 { 0x1FF } else { !0 }).collect();
+        assert_eq!(&words[..3], &q[..], "cycle {c}: q of {ra}");
+        assert_eq!(words[3], ((want >> 60) & 0xFF) as u32, "cycle {c}: qb of {ra}");
+    }
+}

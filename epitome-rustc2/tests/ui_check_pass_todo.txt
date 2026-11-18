@@ -15,9 +15,6 @@ associated-types/issue-82079.rs#default: type check: a type left unknown
 associated-types/issue-82079.rs#miropt: type check: a type left unknown
 assumptions_on_binders/resolve-infer-var-wf.rs: type check: a type left unknown
 assumptions_on_binders/test-infra-works.rs: macro not found: test_binder_constraints!
-async-await/async-closures/by-move-body-inlined-attrs.rs: type check: method not found
-async-await/async-closures/call-once-deduction.rs: type check: a type left unknown
-async-await/async-closures/sig-from-bare-fn.rs: type check: a type left unknown
 async-await/async-fn/edition-2015-not-async-bound.rs: path not resolved: Foo
 async-await/async-fn/sugar.rs: type check: `.await` on something that is not a future
 async-await/format-await-send.rs: type check: mismatched types

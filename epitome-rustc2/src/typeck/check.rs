@@ -2724,6 +2724,22 @@ impl<'a, 's> FnCtxt<'a, 's> {
             self.pat(pk[0], t, Mutbl::Not, false);
             inputs.push(t);
         }
+        // `async |x| body`: a call gives a future of the body's value.
+        // What it takes and that value may come from `AsyncFn` bounds;
+        // `Fn() -> Fut` ones say the future.
+        let is_async = kids.iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == "async");
+        let mut expected_fut = None;
+        if is_async {
+            expected_fut = expected_ret.take();
+            if let Some(e) = expect
+                && let Some((i, r)) = self.closure_expectation_of(e, true)
+            {
+                for (&t, &w) in inputs.iter().zip(&i) {
+                    self.infer.unify(t, w);
+                }
+                expected_ret = r;
+            }
+        }
         let ret = match kids.iter().copied().find(|&c| ast.kind(c) == Kind::RetType) {
             Some(r) => self.written_ty(self.ast.children(r)[0]),
             None => expected_ret.unwrap_or_else(|| self.infer.fresh()),
@@ -2741,6 +2757,16 @@ impl<'a, 's> FnCtxt<'a, 's> {
         self.loops = saved_loops;
         let id = tcx.closure_id((self.k, self.file, n));
         self.closures.push(id);
+        let ret = if is_async {
+            let body_id = tcx.closure_id((self.k, self.file, body));
+            let fut = self.mk(TyKind::AsyncBlock(body_id, ret, tcx.identity_args(self.owner)));
+            if let Some(e) = expected_fut {
+                self.infer.unify(fut, e);
+            }
+            fut
+        } else {
+            ret
+        };
         let sig = tcx.sig(crate::ty::FnSig { inputs: tcx.list(inputs), output: ret, unsafety: false, variadic: false, abi: crate::ty::Abi::Rust });
         self.mk(TyKind::Closure(id, sig, tcx.identity_args(self.owner)))
     }

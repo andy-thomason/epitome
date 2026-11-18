@@ -651,6 +651,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let tcx = self.tcx;
         let imp = &tcx.impls[i];
         let params = tcx.all_params(imp.def);
+        let preds = expand_assoc_bounds(tcx, &tcx.predicates[imp.def.0 as usize]);
         let args = self.infer.instantiate(&params);
         let mut st = subst(tcx, imp.self_ty, &params, &args);
         // A self type through a projection (`Matrix<R, <A as Alloc<R>>::
@@ -670,8 +671,31 @@ impl<'a, 's> FnCtxt<'a, 's> {
         if !self.args_unify(&iargs, targs) {
             return None;
         }
+        // `where I: Iterator<Item = &'a T>`: what settles `T`; deeper than
+        // the other `where` clauses are checked, as a parameter only these
+        // name (`B` of `Map<I, F>`'s `F: FnMut(I::Item) -> B`) would be
+        // left unknown.
+        if depth < MAX_DEPTH {
+            for p in &preds {
+                if let Pred::Projection(_, a, l, ty) = p {
+                    let pl: Vec<Ty> = tcx.tys(*l).into_iter().map(|x| subst(tcx, x, &params, &args)).collect();
+                    let pl: Vec<Ty> = pl.into_iter().map(|x| self.normalize(x, depth + 1)).collect();
+                    let ty = subst(tcx, *ty, &params, &args);
+                    if let Some(got) = self.project(*a, &pl, depth + 1)
+                        && !self.infer.unify(got, ty)
+                    {
+                        // `Item = U::Item`: `U` may be known by now; while
+                        // it cannot be worked out it says nothing.
+                        let n = self.normalize(ty, depth + 1);
+                        if !has_projection(tcx, self.infer.resolve(n)) && !self.infer.unify(got, n) {
+                            return None;
+                        }
+                    }
+                }
+            }
+        }
         if depth < self.where_depth {
-            for p in &tcx.predicates[imp.def.0 as usize] {
+            for p in &preds {
                 if let Pred::Trait(pt, ptr) = p {
                     if Some(&ptr.def) == tcx.lang.get("sized") {
                         continue;
@@ -683,24 +707,6 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     // `T: PartialEq` is `T: PartialEq<T>`.
                     let pa = self.full_trait_args(ptr.def, pt, pa);
                     if !self.select(pt, ptr.def, &pa, depth + 1).holds() {
-                        return None;
-                    }
-                }
-            }
-        }
-        // `where I: Iterator<Item = &'a T>`: what settles `T`; deeper than
-        // the other `where` clauses are checked, as a parameter only these
-        // name (`B` of `Map<I, F>`'s `F: FnMut(I::Item) -> B`) would be
-        // left unknown.
-        if depth < MAX_DEPTH {
-            for p in &tcx.predicates[imp.def.0 as usize] {
-                if let Pred::Projection(_, a, l, ty) = p {
-                    let pl: Vec<Ty> = tcx.tys(*l).into_iter().map(|x| subst(tcx, x, &params, &args)).collect();
-                    let pl: Vec<Ty> = pl.into_iter().map(|x| self.normalize(x, depth + 1)).collect();
-                    let ty = subst(tcx, *ty, &params, &args);
-                    if let Some(got) = self.project(*a, &pl, depth + 1)
-                        && !self.infer.unify(got, ty)
-                    {
                         return None;
                     }
                 }
@@ -1802,4 +1808,31 @@ fn has_projection(tcx: &crate::ty::TyCtxt, t: Ty) -> bool {
         }
         _ => false,
     }
+}
+
+/// `preds` with their associated type bounds spelled out: `I:
+/// Iterator<Item: IntoIterator<IntoIter = U>>` also gives `I::Item:
+/// IntoIterator` and `<I::Item as IntoIterator>::IntoIter == U`.
+fn expand_assoc_bounds(tcx: &crate::ty::TyCtxt, preds: &[Pred]) -> Vec<Pred> {
+    let mut out = preds.to_vec();
+    let mut i = 0;
+    while i < out.len() && out.len() < 64 {
+        if let Pred::Trait(t, tr) = out[i].clone() {
+            let mut args = vec![t];
+            args.extend(tcx.tys(tr.args));
+            // A bound's own bindings, for those made here (the written
+            // ones are predicates of their own already).
+            if i >= preds.len() {
+                for &(a, b) in &tr.bindings {
+                    out.push(Pred::Projection(t, a, tcx.list(args.clone()), b));
+                }
+            }
+            for (assoc, b) in &tr.assoc_bounds {
+                let p = tcx.mk(TyKind::Projection(*assoc, tcx.list(args.clone())));
+                out.push(Pred::Trait(p, b.clone()));
+            }
+        }
+        i += 1;
+    }
+    out
 }

@@ -677,6 +677,24 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let preds = expand_assoc_bounds(tcx, &tcx.predicates[imp.def.0 as usize]);
         let args = self.infer.instantiate(&params);
         let mut st = subst(tcx, imp.self_ty, &params, &args);
+        // `(C, T, <C as Trait<T>>::Assoc)`: the plain parts first, which
+        // say what the projections' are.
+        let parts = match (tcx.kind(st), tcx.kind(self.infer.shallow(t))) {
+            (TyKind::Tuple(x), TyKind::Tuple(y)) => Some((x, y)),
+            (TyKind::Adt(a, x), TyKind::Adt(b, y)) if a == b => Some((x, y)),
+            _ => None,
+        };
+        if has_projection(tcx, st)
+            && let Some((x, y)) = parts
+            && tcx.tys(x).len() == tcx.tys(y).len()
+        {
+            let (xs, ys) = (tcx.tys(x), tcx.tys(y));
+            for (&a, &b) in xs.iter().zip(&ys) {
+                if !has_projection(tcx, a) && !self.infer.unify(a, b) {
+                    return None;
+                }
+            }
+        }
         // A self type through a projection (`Matrix<R, <A as Alloc<R>>::
         // Buffer>`): worked out where it can be.
         if has_projection(tcx, st) && depth < MAX_DEPTH {

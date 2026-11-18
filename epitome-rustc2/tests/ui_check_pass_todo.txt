@@ -1,12 +1,9 @@
 # rust-lang/rust a69a63265cfd9e006d43137f98301b8d274ad4c9 on aarch64-macos
 # The check-pass UI tests that do not pass yet, and why (tests/ui_check_pass.rs).
-assumptions_on_binders/test-infra-works.rs: macro not found: test_binder_constraints!
 attributes/duplicated-attributes.rs: import not resolved: : use test::Bencher (as Bencher)
 attributes/z-crate-attr/cfg-false.rs: left out: flags that change the crate
 autodiff/flag_nott.rs: path not resolved: d_square
 borrowck/alias-liveness/escaping-bounds.rs: type check: a type left unknown
-check-cfg/report-in-external-macros.rs#cargo: macro not found: my_lib_macro!
-check-cfg/report-in-external-macros.rs#rustc: macro not found: my_lib_macro!
 check-cfg/values-target-json.rs: left out: a target rustc does not know
 closures/supertrait-hint-cycle.rs: type check: a type left unknown
 coinduction/canonicalization-rerun.rs#next: type check: a type left unknown
@@ -40,7 +37,6 @@ impl-trait/nested-hkl-lifetime.rs: type check: a type left unknown
 impl-trait/non-defining-uses/ambiguous-ops.rs#next: type check: mismatched types
 impl-trait/non-defining-uses/multiple-opaques-ok.rs: type check: method not found
 impl-trait/precise-capturing/external-macro.rs: path not resolved: element
-imports/ambiguous-glob-vs-expanded-extern.rs: macro not found: mac!
 lexer/ident_normalization.rs: path not resolved: K
 lint/use-redundant/use-redundant-issue-78894.rs: import not resolved: : use bar (as bar)
 macros/issue-34171.rs: error: in `null!`: no rule of the macro matches this input (issue-34171.rs:5:20)
@@ -88,7 +84,6 @@ traits/next-solver/overflow/fcw-on-normalization.rs#next: type check: method not
 traits/next-solver/overflow/fcw-on-normalization.rs#old: type check: method not found
 traits/next-solver/typeck/resolve-before-checking-builtin-ptr.rs: type check: mismatched types
 traits/next-solver/typeck/structurally-resolve-in-probe_adt.rs: type check: a type left unknown
-transmute/unnecessary-transmute-path-remap-ice-140277.rs: macro not found: transmute!
 tuple/indexing-in-macro.rs: error: in `m!`: no rule of the macro matches this input (indexing-in-macro.rs:7:1)
 type-alias-impl-trait/broken_mir.rs: type check: a type left unknown
 type-alias-impl-trait/match-unification.rs: type check: mismatched types

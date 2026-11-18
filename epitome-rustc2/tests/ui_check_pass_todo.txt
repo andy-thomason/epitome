@@ -1,6 +1,5 @@
 # rust-lang/rust a69a63265cfd9e006d43137f98301b8d274ad4c9 on aarch64-macos
 # The check-pass UI tests that do not pass yet, and why (tests/ui_check_pass.rs).
-array-slice-vec/infer_array_len.rs: type check: a type left unknown
 associated-inherent-types/const-generics.rs: type check: associated type not found
 associated-inherent-types/constrain_opaque_types_during_projection.rs: type check: a type left unknown
 associated-inherent-types/generic-const-exprs.rs: type check: associated type not found
@@ -58,8 +57,6 @@ const-generics/issues/issue-85031-2.rs: type check: a type left unknown
 const-generics/mgca/adt_expr_infers_from_value.rs: type check: a type left unknown
 const-generics/mgca/infer-vars-in-const-args-correct.rs: type check: a type left unknown
 const-generics/mgca/paren.rs: error: expanding `direct_const_arg!`: expected a type, found `{` (paren.rs:24:18)
-consts/issue-67696-const-prop-ice.rs: type check: a type left unknown
-consts/self_normalization2.rs: type check: a type left unknown
 crate-loading/cross-compiled-proc-macro.rs: left out: proc-macro crates rustc cannot build
 delegation/body-identity-glob.rs: path not resolved: check
 delegation/body-identity-list.rs: path not resolved: check
@@ -155,7 +152,6 @@ parser/impls-nested-within-anon-consts-semantic.rs: path not resolved: Type
 parser/macro/macro-braces-dot-question.rs: error: expected an expression, found `.` (macro-braces-dot-question.rs:6:21)
 parser/self-param-syntactic-pass.rs: error: expected a type, found `mut` (self-param-syntactic-pass.rs:59:17)
 pattern/deref-patterns/const-pats-do-not-mislead-inference.rs#deref_patterns: type check: a type left unknown
-pattern/slice-patterns-nested.rs: type check: a type left unknown
 pin-ergonomics/pattern-matching-deref-pattern.rs#pin_ergonomics: type check: pattern of another type
 pin-ergonomics/reborrow-self.rs: type check: method not found
 privacy/issue-57264-2.rs: type check: method not found
@@ -179,7 +175,6 @@ repeat-expr/copy-inference-side-effects.rs: type check: a type left unknown
 resolve/extern-prelude.rs: type check: wrong number of arguments
 resolve/open-ns-5.rs: import not resolved: : use my_api::utils::utils_helper (as utils_helper)
 resolve/open-ns-6.rs: import not resolved: : use my_api (as my_api)
-rfcs/rfc-0000-never_patterns/typeck.rs#pass: type check: a type left unknown
 rfcs/rfc-2457-non-ascii-idents/idents-normalized.rs: error: unexpected character '\u{301}' (idents-normalized.rs:6:15)
 rfcs/rfc-2565-param-attrs/issue-64682-dropping-first-attrs-in-impl-fns.rs: error: proc macro `rename_params`: assertion `left == right` failed (issue-64682-dropping-first-attrs-in-impl-fns.rs:9:1)
 rfcs/rfc-2565-param-attrs/param-attrs-allowed.rs: type check: a type left unknown
@@ -196,9 +191,7 @@ specialization/source-impl-requires-constraining-predicates-ambig.rs#next: type 
 specialization/spec-influences-inference-issue-36262.rs#next: type check: a type left unknown
 str/str-escape.rs: type check: mismatched types
 trait-bounds/issue-94999.rs: type check: method not found
-traits/alias/empty.rs: path not resolved: Self
 traits/const-traits/conditionally-const-trait-bound-syntax.rs: path not resolved: Tr
-traits/issue-59029-2.rs: path not resolved: Self
 traits/issue-66768.rs: type check: method not found
 traits/issue-84399-bad-fresh-caching.rs: type check: method not found
 traits/next-solver/assembly/ambiguity-due-to-uniquification-3.rs#current: type check: mismatched types

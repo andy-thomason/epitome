@@ -1608,10 +1608,17 @@ impl<'a, 's> FnCtxt<'a, 's> {
                         }
                     }
                 }
+                // `&[T; N] as &[U]`: `T` is `U`.
+                let s = self.norm(src);
+                if let (TyKind::Ref(_, x), TyKind::Ref(_, y)) = (tcx.kind(s), tcx.kind(self.infer.shallow(target)))
+                    && let (TyKind::Array(e, _), TyKind::Slice(f)) =
+                        (tcx.kind(self.infer.shallow(x)), tcx.kind(self.infer.shallow(y)))
+                {
+                    self.infer.unify(e, f);
+                }
                 // `&T as *const T`: a reference becomes a pointer to what
                 // it refers to (unless it is to an array, `&[T; N] as
                 // *const T`), which settles either side's unknowns.
-                let s = self.norm(src);
                 if let (TyKind::Ref(_, x), TyKind::Ptr(_, y)) = (tcx.kind(s), tcx.kind(self.infer.shallow(target))) {
                     let p = self.probe();
                     if !self.infer.unify(y, x) {
@@ -3002,9 +3009,15 @@ impl<'a, 's> FnCtxt<'a, 's> {
                         e
                     }
                     TyKind::Slice(e) => e,
+                    // Not known yet: with no `..`, an array of that many
+                    // (`let [_, _] = a.into();`), as rustc infers it.
                     _ => {
                         let e = self.infer.fresh();
-                        let sl = self.mk(TyKind::Slice(e));
+                        let sl = if kids.iter().any(|&k| self.has_rest(k)) {
+                            self.mk(TyKind::Slice(e))
+                        } else {
+                            self.mk(TyKind::Array(e, tcx.konst(crate::ty::Const::Value(kids.len() as u128))))
+                        };
                         self.infer.unify(sl, t);
                         e
                     }

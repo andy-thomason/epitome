@@ -512,7 +512,7 @@ impl<'w, 's> Walker<'w, 's> {
         let kind = self.ast.kind(item);
         self.push();
         match kind {
-            Kind::Impl | Kind::Trait | Kind::Struct | Kind::Enum | Kind::Union => {
+            Kind::Impl | Kind::Trait | Kind::TraitAlias | Kind::Struct | Kind::Enum | Kind::Union => {
                 let file = self.file;
                 self.rib().types.push(("Self", Res::SelfTy(file, item)));
             }

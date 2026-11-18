@@ -672,6 +672,15 @@ impl<'x, 's> Expander<'x, 's> {
                     _ => Place::Expr,
                 },
             )),
+            // `#[cfg(..)] m! { .. }` as a block's statement (cfg-if writes
+            // `#[cfg(..)] $crate::cfg_if! { @__temp_group .. }`): statements,
+            // not an expression.
+            Kind::AttrExpr if parent == Kind::Block => {
+                let attr = |c: NodeId| matches!(ast.kind(c), Kind::Attribute | Kind::DocComment);
+                let mut kids = ast.children(k).iter().copied().filter(|&c| !attr(c));
+                let call = kids.next().filter(|&c| ast.kind(c) == Kind::MacroCall)?;
+                kids.next().is_none().then_some((call, Place::Stmts(false)))
+            }
             Kind::ExprStmt if parent == Kind::Block => {
                 let call = ast.children(k).iter().copied().find(|&c| ast.kind(c) == Kind::MacroCall)?;
                 // `m!(...);`: the statements it gives, with the last one's

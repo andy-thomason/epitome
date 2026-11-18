@@ -55,3 +55,18 @@ impl_t! {
     u8 => 1;
     u16 => twice!(2);
 }
+
+// An attributed braced macro call as a block's statement expands to
+// statements (and the block's tail), as cfg-if's `#[cfg(..)]
+// $crate::cfg_if! { @__temp_group .. }` does.
+macro_rules! group {
+    ($($t:tt)*) => { $($t)* };
+}
+
+pub fn attributed_statements() -> bool {
+    #[cfg(all())]
+    group! {
+        let x = 1;
+        x == 1
+    }
+}

@@ -783,6 +783,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
             profile: RefCell::default(),
             codes: HashMap::new(),
             arrays: HashMap::new(),
+            memories: HashMap::new(),
         }
     }
 }
@@ -1209,9 +1210,40 @@ struct Lowering<'d, 'a> {
     /// first instance: called as one, with a lane block an iteration, by a
     /// parent narrower than registers of 16 lanes (`Layout::groups`).
     arrays: HashMap<InstId, Vec<InstId>>,
+    /// Whether each specialisation holds memories (see `holds_memories`).
+    memories: HashMap<SpecId, bool>,
 }
 
 impl<'d, 'a> Lowering<'d, 'a> {
+    /// Whether a specialisation, or one below it, holds a memory: an array
+    /// of more than a few elements, wide enough to keep in the state, that
+    /// some select indexes by a value.
+    fn holds_memories(&mut self, spec: SpecId) -> Result<bool, String> {
+        if let Some(&b) = self.memories.get(&spec) {
+            return Ok(b);
+        }
+        let d = self.d;
+        let (objs, code) = self.code_of(spec)?;
+        let ff: Vec<ProcId> = code.iter().filter_map(|n| if let Node::Proc(p) = *n { self.clocked(p).map(|_| p) } else { None }).collect();
+        let indexed = self.indexed(&code, &ff);
+        let mut b = objs.iter().any(|o| {
+            let ty = d.object(*o).ty;
+            indexed.contains(o)
+                && d.types.is_unpacked_array(ty)
+                && tw(&d.types, ty) as usize >= 32 * KEPT_MIN
+                && tw(&d.types, ty) / elem_bits(&d.types, ty).max(1) > 4
+        });
+        for n in &code {
+            if let Node::In(i) = *n
+                && !b
+            {
+                b = self.holds_memories(d.instance(i).spec)?;
+            }
+        }
+        self.memories.insert(spec, b);
+        Ok(b)
+    }
+
     /// A specialisation's static values and code, found once.
     fn code_of(&mut self, spec: SpecId) -> Result<(Vec<ObjId>, Vec<Node>), String> {
         if let Some(c) = self.codes.get(&spec) {
@@ -1498,6 +1530,15 @@ impl<'d, 'a> Lowering<'d, 'a> {
         };
         if sh.n < 16 && sh.chunks == 1 {
             lay.groups = code.iter().filter_map(|n| if let Node::In(i) = *n { self.arrays.get(&i).map(|m| (i, m.clone())) } else { None }).collect();
+            // (Not those holding memories: one at a time, each is scalar
+            // code, which selects their words by address.)
+            let mut keep = HashMap::new();
+            for (&i, m) in &lay.groups {
+                if !self.holds_memories(d.instance(i).spec)? {
+                    keep.insert(i, m.clone());
+                }
+            }
+            lay.groups = keep;
         }
         let groups = lay.groups.clone();
         expand(&mut lay, code.clone(), &groups);

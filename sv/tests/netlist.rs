@@ -981,3 +981,85 @@ fn memories_read_where_written() {
         assert_eq!(&words[4..7], &r[..], "cycle {c}: r of {ra}");
     }
 }
+
+const MEM_ARRAY: &str = r#"
+module bank #(parameter int W = 72) (
+    input  logic         clk,
+    input  logic         we,
+    input  logic [7:0]   a,
+    input  logic [W-1:0] d,
+    output logic [W-1:0] q
+);
+  logic [W-1:0] ram [200];
+  always_ff @(posedge clk) begin
+    if (we) ram[a] <= d;
+    else q <= ram[a];
+  end
+endmodule
+
+module banks (
+    input  logic         clk,
+    input  logic [3:0]   we,
+    input  logic [7:0]   a,
+    input  logic [63:0]  d,
+    output logic [287:0] q
+);
+  // An array of memories: each called on its own, by its address.
+  for (genvar k = 0; k < 4; k++) begin : g
+    bank u (.clk, .we(we[k]), .a, .d({d[7:0] ^ 8'(k), d}), .q(q[k*72 +: 72]));
+  end
+endmodule
+"#;
+
+#[test]
+fn arrays_of_memories() {
+    let Some(host) = host() else {
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
+        return;
+    };
+    let net = netlist_with(&text("banks.sv", MEM_ARRAY), "banks", host.options(1));
+    let b = build("banks", net, &host);
+    report("banks", &b);
+    let io = Io::new(&b.net, Some("clk")).unwrap();
+    let mut rng = Rng(0x6A09_E667_F3BC_C908);
+    let cycles = 800;
+    let (mut stim, mut ins) = (Vec::new(), Vec::new());
+    for _ in 0..cycles {
+        let (we, a, d) = (rng.next() % 16, rng.next() % 220, rng.next());
+        for p in &io.ins {
+            match p.name.as_str() {
+                "we" => stim.push(we as u32),
+                "a" => stim.push(a as u32),
+                "d" => stim.extend([d as u32, (d >> 32) as u32]),
+                n => panic!("{n}"),
+            }
+        }
+        ins.push((we, a as usize, d));
+    }
+    let out = b.run(&io, cycles, 1, &stim);
+    let mut ram = vec![[0u128; 200]; 4];
+    let mut q = [0u128; 4];
+    let ow = io.out_words();
+    for (c, &(we, a, d)) in ins.iter().enumerate() {
+        for k in 0..4 {
+            if we >> k & 1 == 1 {
+                if a < 200 {
+                    ram[k][a] = ((d as u128 & 0xFF) ^ k as u128) << 64 | d as u128;
+                }
+            } else {
+                q[k] = ram[k].get(a).copied().unwrap_or(0);
+            }
+        }
+        let words = &out[c * ow..(c + 1) * ow];
+        let mut all = vec![0u32; 9];
+        for k in 0..4 {
+            for bit in 0..72 {
+                if q[k] >> bit & 1 == 1 {
+                    let at = k * 72 + bit;
+                    all[at / 32] |= 1 << (at % 32);
+                }
+            }
+        }
+        assert_eq!(&words[..9], &all[..], "cycle {c}");
+    }
+}

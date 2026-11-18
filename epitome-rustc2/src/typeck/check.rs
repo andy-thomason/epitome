@@ -1962,7 +1962,16 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 let a = self.mk(TyKind::Array(u8_, c));
                 return self.mk(TyKind::Ref(Mutbl::Not, a));
             }
-            b'c' => return self.infer.fresh(),
+            // `c"..."`: `&CStr`.
+            b'c' => {
+                return match self.lang("CStr") {
+                    Some(d) => {
+                        let s = self.mk(TyKind::Adt(d, tcx.list(vec![])));
+                        self.mk(TyKind::Ref(Mutbl::Not, s))
+                    }
+                    None => self.infer.fresh(),
+                };
+            }
             _ => {}
         }
         // A number: its suffix, or a variable of the right kind.
@@ -2843,6 +2852,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 if self.infer.var_kind(rs).is_some() {
                     let tcx = self.tcx;
                     self.obligations.push(Pred::Projection(rs, o, tcx.list(vec![rs]), out));
+                    // Worked out once something says what `R` is
+                    // (`if let Err(()) = try {}`).
+                    self.pending.push((o, tcx.list(vec![rs]), out));
                 } else {
                     let ro = self.project_or_var(o, &[rs]);
                     self.infer.unify(ro, out);

@@ -206,6 +206,20 @@ pub fn expand<'s>(cx: &Context<'_, 's>, name: &str, input: &[Token<'s>]) -> Resu
             Err(cx.error(msg.to_string()))
         }
         "include" => include(cx, input),
+        // `include_bytes!("file")`: a byte string of the file's bytes
+        // (`&[u8; N]`); left as a call if it cannot be read.
+        "include_bytes" => {
+            let Some(rel) = string_arg(input) else { return Ok(None) };
+            let path = cx.file.path.parent().unwrap_or(std::path::Path::new("")).join(rel);
+            let Ok(bytes) = std::fs::read(&path) else { return Ok(None) };
+            cx.session.included.lock().unwrap().push(path);
+            let mut s = String::from("b\"");
+            for b in bytes {
+                s.push_str(&format!("\\x{b:02x}"));
+            }
+            s.push('"');
+            cx.text("<include_bytes!>", s).map(Some)
+        }
         "format_args" | "const_format_args" | "format_args_nl" => {
             super::format::format_args(cx, input, name == "format_args_nl")
         }

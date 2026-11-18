@@ -696,6 +696,19 @@ impl<'x, 's> Expander<'x, 's> {
             self.result.builtins_left += 1;
             return None;
         }
+        let builtin_name = match def {
+            Some(d) => match &self.macros.defs[d].kind {
+                MacroKind::Builtin(b) => Some(*b),
+                _ => None,
+            },
+            None => builtin::is_builtin(name).then_some(name),
+        };
+        let input = match builtin_name {
+            Some("env" | "option_env" | "include" | "include_bytes" | "include_str") => {
+                self.eager_first_arg(file, call, input, &pos, &module)
+            }
+            _ => input,
+        };
         let tokens = match def {
             Some(d) => match &self.macros.defs[d].kind {
                 MacroKind::Rules(rules) => {
@@ -1037,6 +1050,37 @@ impl<'x, 's> Expander<'x, 's> {
             None => return None,
         };
         self.eager_string(file, call, &out, pos, module, depth + 1)
+    }
+
+    /// `env!(m!())`: the first argument, if a macro's call that gives a
+    /// string literal, replaced by the literal, as rustc expands it
+    /// eagerly.
+    fn eager_first_arg(
+        &mut self,
+        file: &ParsedFile<'s>,
+        call: NodeId,
+        input: Vec<Token<'s>>,
+        pos: &[u32],
+        module: &[String],
+    ) -> Vec<Token<'s>> {
+        let mut depth = 0;
+        let end = input
+            .iter()
+            .position(|t| {
+                match t.0 {
+                    "(" | "[" | "{" => depth += 1,
+                    ")" | "]" | "}" => depth -= 1,
+                    _ => {}
+                }
+                depth == 0 && t.0 == ","
+            })
+            .unwrap_or(input.len());
+        if !input[..end].iter().any(|t| t.0 == "!") {
+            return input;
+        }
+        let Some(s) = self.eager_string(file, call, &input[..end], pos, module, 0) else { return input };
+        let Ok(lit) = lex_text(self.session, "<eager>", format!("\"{s}\"")) else { return input };
+        lit.into_iter().chain(input[end..].iter().copied()).collect()
     }
 
     /// Runs a built-in; `None` leaves the call as it is.

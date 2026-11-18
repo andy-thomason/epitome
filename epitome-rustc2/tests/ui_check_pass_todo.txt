@@ -7,8 +7,6 @@ associated-inherent-types/inference.rs#current: type check: a type left unknown
 associated-inherent-types/inference.rs#next: type check: a type left unknown
 associated-inherent-types/variance-computation-requires-equality.rs: type check: associated type not found
 associated-type-bounds/bad-bounds-on-assoc-in-trait.rs: type check: a type left unknown
-associated-type-bounds/supertrait-referencing.rs: crash: stack overflow
-associated-type-bounds/trait-params.rs: type check: a type left unknown
 associated-types/duplicate-associated-type-resolution-59326.rs: type check: a type left unknown
 associated-types/imply-relevant-nested-item-bounds.rs#current: type check: method not found
 associated-types/imply-relevant-nested-item-bounds.rs#next: type check: method not found
@@ -109,7 +107,6 @@ lint/rfc-2383-lint-reason/expect_tool_lint_rfc_2383.rs: type check: a type left 
 lint/unused-parens-pinned-reference-patterns.rs: error: expected `)`, found `const` (unused-parens-pinned-reference-patterns.rs:28:29)
 lint/use-redundant/use-redundant-issue-78894.rs: import not resolved: : use bar (as bar)
 macros/dollar-crate-nested-encoding.rs: path not resolved: crate
-macros/expand-full-in-format-str.rs: type check: a type left unknown
 macros/issue-34171.rs: error: in `null!`: no rule of the macro matches this input (issue-34171.rs:5:20)
 macros/issue-69838-mods-relative-to-included-path.rs: error: no file for module `bar`: neither `/private/tmp/claude-502/-Users-amy-andy-thomason-epitome/d698d809-bf3b-400b-91f6-effe1b4b32f5/scratchpad/rust/tests/ui/macros/bar.rs` nor `/private/tmp/claude-502/-Users-amy-andy-thomason-epitome/d698d809-bf3b-400b-91f6-effe1b4b32f5/scratchpad/rust/tests/ui/macros/bar/mod.rs` (included.rs:3:9)
 macros/parse-test.rs: error: expected a macro matcher in delimiters (parse-test.rs:8:5)
@@ -158,13 +155,11 @@ rfcs/rfc-2565-param-attrs/param-attrs-allowed.rs: type check: a type left unknow
 rfcs/rfc-2565-param-attrs/param-attrs-pretty.rs: error: proc macro `attr_extern`: assertion `left == right` failed (param-attrs-pretty.rs:15:1)
 rfcs/rfc-3348-c-string-literals/pre-2021-lexing.rs: error: in `parse!`: no rule of the macro matches this input (pre-2021-lexing.rs:26:27)
 rust-2018/suggestions-not-always-applicable.rs: import not resolved: __ui_test_40::test: use crate::foo::foo (as foo)
-rust-2021/future-prelude-collision-turbofish.rs: type check: a type left unknown
 single-use-lifetime/issue-104440.rs: type check: method not found
 single-use-lifetime/issue-117965.rs: type check: mismatched types
 sized/coinductive-1-gat.rs: type check: a type left unknown
 specialization/source-impl-requires-constraining-predicates-ambig.rs#next: type check: mismatched types
 specialization/spec-influences-inference-issue-36262.rs#next: type check: a type left unknown
-str/str-escape.rs: type check: a type left unknown
 trait-bounds/issue-94999.rs: type check: method not found
 traits/const-traits/conditionally-const-trait-bound-syntax.rs: path not resolved: Tr
 traits/issue-66768.rs: type check: method not found
@@ -193,7 +188,6 @@ traits/next-solver/supertrait-alias-4.rs: type check: a type left unknown
 traits/next-solver/typeck/resolve-before-checking-builtin-ptr.rs: type check: mismatched types
 traits/next-solver/typeck/structurally-resolve-in-probe_adt.rs: type check: a type left unknown
 transmute/unnecessary-transmute-path-remap-ice-140277.rs: macro not found: transmute!
-try-block/try-block-unused-delims.rs: type check: a type left unknown
 tuple/indexing-in-macro.rs: error: in `m!`: no rule of the macro matches this input (indexing-in-macro.rs:7:1)
 type-alias-impl-trait/broken_mir.rs: type check: a type left unknown
 type-alias-impl-trait/cross_inference_rpit.rs: type check: mismatched types

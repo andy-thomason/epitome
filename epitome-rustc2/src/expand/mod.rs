@@ -651,8 +651,11 @@ impl<'x, 's> Expander<'x, 's> {
             Kind::ExprStmt if parent == Kind::Block => {
                 let call = ast.children(k).iter().copied().find(|&c| ast.kind(c) == Kind::MacroCall)?;
                 // `m!(...);`: the statements it gives, with the last one's
-                // value dropped.
-                (ast.children(k).len() == 1).then_some((call, Place::Stmts(true)))
+                // value dropped (attributes on it, `#[inline] m!();`, are
+                // inert).
+                let others =
+                    ast.children(k).iter().filter(|&&c| !matches!(ast.kind(c), Kind::Attribute | Kind::DocComment));
+                (others.count() == 1).then_some((call, Place::Stmts(true)))
             }
             _ => None,
         }

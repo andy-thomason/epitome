@@ -248,6 +248,19 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
+    /// `mut(crate)`, `mut(in a::b)` on a field (`mut_restriction`):
+    /// skipped.
+    fn mut_restriction(&mut self) {
+        if !(self.at("mut") && self.at_n(1, "(")) {
+            return;
+        }
+        self.bump_n(2);
+        while !self.at(")") && !self.at_eof() {
+            self.bump();
+        }
+        self.bump();
+    }
+
     // ---- functions ----
 
     fn fn_item(&mut self, m: Mark) -> PResult<'a> {
@@ -390,6 +403,7 @@ impl<'a> Parser<'a> {
             let fm = self.mark();
             self.outer_attributes()?;
             self.visibility()?;
+            self.mut_restriction();
             if self.at("unsafe") {
                 self.leaf(Kind::Keyword, 1);
             }
@@ -417,6 +431,7 @@ impl<'a> Parser<'a> {
             let fm = self.mark();
             self.outer_attributes()?;
             self.visibility()?;
+            self.mut_restriction();
             self.ty()?;
             self.finish(fm, Kind::TupleField);
             if !self.eat(",") {

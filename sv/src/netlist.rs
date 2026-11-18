@@ -783,6 +783,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
             profile: RefCell::default(),
             codes: HashMap::new(),
             arrays: HashMap::new(),
+            memories: HashMap::new(),
         }
     }
 }
@@ -863,6 +864,11 @@ struct Layout {
     /// Of those, the registers: nonblocking assignments store their next
     /// values in place, as no clocked process reads them.
     in_place: HashSet<ObjId>,
+    /// The rest of them, in scalar code: a clocked process reads them, so
+    /// each nonblocking assignment to one is queued, and the queue written
+    /// in place once every process has run (rather than the whole value
+    /// copied for its next one).
+    queued: HashSet<ObjId>,
     /// For a child its parent calls twice (see [`Split`]): its code in two
     /// functions, `_a` with what the first call's outputs need, and `_b`
     /// with the rest and what of `_a` reads inputs the first call does not
@@ -971,6 +977,7 @@ impl Layout {
             pads: HashMap::new(),
             kept: HashSet::new(),
             in_place: HashSet::new(),
+            queued: HashSet::new(),
             part: None,
         }
     }
@@ -1203,9 +1210,40 @@ struct Lowering<'d, 'a> {
     /// first instance: called as one, with a lane block an iteration, by a
     /// parent narrower than registers of 16 lanes (`Layout::groups`).
     arrays: HashMap<InstId, Vec<InstId>>,
+    /// Whether each specialisation holds memories (see `holds_memories`).
+    memories: HashMap<SpecId, bool>,
 }
 
 impl<'d, 'a> Lowering<'d, 'a> {
+    /// Whether a specialisation, or one below it, holds a memory: an array
+    /// of more than a few elements, wide enough to keep in the state, that
+    /// some select indexes by a value.
+    fn holds_memories(&mut self, spec: SpecId) -> Result<bool, String> {
+        if let Some(&b) = self.memories.get(&spec) {
+            return Ok(b);
+        }
+        let d = self.d;
+        let (objs, code) = self.code_of(spec)?;
+        let ff: Vec<ProcId> = code.iter().filter_map(|n| if let Node::Proc(p) = *n { self.clocked(p).map(|_| p) } else { None }).collect();
+        let indexed = self.indexed(&code, &ff);
+        let mut b = objs.iter().any(|o| {
+            let ty = d.object(*o).ty;
+            indexed.contains(o)
+                && d.types.is_unpacked_array(ty)
+                && tw(&d.types, ty) as usize >= 32 * KEPT_MIN
+                && tw(&d.types, ty) / elem_bits(&d.types, ty).max(1) > 4
+        });
+        for n in &code {
+            if let Node::In(i) = *n
+                && !b
+            {
+                b = self.holds_memories(d.instance(i).spec)?;
+            }
+        }
+        self.memories.insert(spec, b);
+        Ok(b)
+    }
+
     /// A specialisation's static values and code, found once.
     fn code_of(&mut self, spec: SpecId) -> Result<(Vec<ObjId>, Vec<Node>), String> {
         if let Some(c) = self.codes.get(&spec) {
@@ -1492,6 +1530,15 @@ impl<'d, 'a> Lowering<'d, 'a> {
         };
         if sh.n < 16 && sh.chunks == 1 {
             lay.groups = code.iter().filter_map(|n| if let Node::In(i) = *n { self.arrays.get(&i).map(|m| (i, m.clone())) } else { None }).collect();
+            // (Not those holding memories: one at a time, each is scalar
+            // code, which selects their words by address.)
+            let mut keep = HashMap::new();
+            for (&i, m) in &lay.groups {
+                if !self.holds_memories(d.instance(i).spec)? {
+                    keep.insert(i, m.clone());
+                }
+            }
+            lay.groups = keep;
         }
         let groups = lay.groups.clone();
         expand(&mut lay, code.clone(), &groups);
@@ -1563,6 +1610,9 @@ impl<'d, 'a> Lowering<'d, 'a> {
             }
         }
         lay.in_place = lay.kept.iter().copied().filter(|o| lay.regs.contains(o) && !ff_reads.contains(o)).collect();
+        if sh.scalar() {
+            lay.queued = lay.kept.iter().copied().filter(|o| lay.regs.contains(o) && ff_reads.contains(o)).collect();
+        }
         lay.clocked = !lay.ff.is_empty() || lay.kid_keys.values().any(|k| self.layouts[k].clocked);
         self.layouts.insert(key, lay);
         self.split_calls(key)?;
@@ -1995,7 +2045,9 @@ impl<'d, 'a> Lowering<'d, 'a> {
             }
         }
         for &p in ff {
-            self.stmt_exprs(d.processes[p.0 as usize].body, &mut exprs);
+            let (terms, body) = self.clocked(p).unwrap();
+            self.stmt_exprs(body, &mut exprs);
+            exprs.extend(terms.iter().flat_map(|t| [Some(t.expr), t.iff]).flatten());
         }
         let mut indexed = HashSet::new();
         while let Some(e) = exprs.pop() {
@@ -3806,11 +3858,25 @@ struct Env {
     ret: Option<M>,
     /// The registers' next values from nonblocking assignments so far.
     nba: HashMap<ObjId, Val>,
+    /// The nonblocking assignments so far to registers queued (see
+    /// `Layout::queued`), in order.
+    queue: Vec<Queued>,
     /// Values and elements loaded from the state and not since written:
     /// a load in one arm of a branch serves the rest of the loop, as the
     /// code has no branches, without a select of it where the arms meet.
     loaded: HashMap<ObjId, Val>,
     eloaded: HashMap<(ObjId, u32), Val>,
+}
+
+/// A nonblocking assignment of `x` to the `w` bits at `off` in `o`,
+/// made where `en`.
+#[derive(Clone)]
+struct Queued {
+    o: ObjId,
+    off: Off,
+    w: u32,
+    x: Val,
+    en: M,
 }
 
 /// The IR types of a shape's values, and those every function uses.
@@ -4996,6 +5062,11 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
                     }
                     if self.lay().in_place.contains(&o) {
                         self.set(o, v);
+                    } else if self.lay().queued.contains(&o) {
+                        let x = self.logical(o, &v);
+                        let w = tw(&d.types, d.object(o).ty);
+                        let en = self.path;
+                        self.env.queue.push(Queued { o, off: Off::K(0), w, x, en });
                     } else {
                         self.env.nba.insert(o, v);
                     }
@@ -5231,6 +5302,7 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
         let pure = e.vals == s.vals
             && e.elems == s.elems
             && e.nba == s.nba
+            && e.queue.len() == s.queue.len()
             && e.dirty == s.dirty
             && e.edirty == s.edirty
             && e.brk == s.brk
@@ -5449,7 +5521,8 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
             if self.lay().kept.contains(&o) {
                 // Kept in the state, but a register's next value is not,
                 // unless in place: its value from before, for the way around.
-                if self.ff && self.lay().regs.contains(&o) && !self.lay().in_place.contains(&o) && !self.env.nba.contains_key(&o) {
+                let here = self.lay().in_place.contains(&o) || self.lay().queued.contains(&o);
+                if self.ff && self.lay().regs.contains(&o) && !here && !self.env.nba.contains_key(&o) {
                     let v = self.read(o);
                     self.env.loaded.insert(o, v);
                 }
@@ -5553,6 +5626,15 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
             let v = self.phi(&va, at_a, &vb, at_b);
             out.nba.insert(o, v);
         }
+        let n = before.queue.len();
+        for q in &a.queue[n..] {
+            let q = self.queued_phi(q, at_a, at_b);
+            out.queue.push(q);
+        }
+        for q in &b.queue[n..] {
+            let q = self.queued_phi(q, at_b, at_a);
+            out.queue.push(q);
+        }
         let stop = |f: &mut Self, x: Option<M>, y: Option<M>| match (x, y) {
             (x, y) if x == y => x,
             (x, y) => Some(f.mphi(x.unwrap_or(M::K(false)), at_a, y.unwrap_or(M::K(false)), at_b)),
@@ -5600,6 +5682,10 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
             let v = self.phi(&taken.nba[&o].clone(), at, &vs, from);
             out.nba.insert(o, v);
         }
+        for q in &taken.queue[skip.queue.len()..] {
+            let q = self.queued_phi(q, at, from);
+            out.queue.push(q);
+        }
         let stop = |f: &mut Self, t: Option<M>, s: Option<M>| match (t, s) {
             (t, s) if t == s => t,
             (t, s) => Some(f.mphi(t.unwrap_or(M::K(false)), at, s.unwrap_or(M::K(false)), from)),
@@ -5607,6 +5693,22 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
         out.brk = stop(self, taken.brk, skip.brk);
         out.ret = stop(self, taken.ret, skip.ret);
         Ok(out)
+    }
+
+    /// A queued assignment made on the way from `at` into a join: its
+    /// values as phis, with it not made on the way from `from`.
+    fn queued_phi(&mut self, q: &Queued, at: BlockId, from: BlockId) -> Queued {
+        let pb = self.pb;
+        let p = |f: &mut Self, x: P| f.phi(&Val { w: pb, p: vec![x] }, at, &Val { w: pb, p: vec![P::K(0)] }, from).p[0];
+        let off = match q.off {
+            Off::V(x, ok) => Off::V(p(self, x), self.mphi(ok, at, M::K(false), from)),
+            Off::Dec { i, n, stride, add, ok } => Off::Dec { i: p(self, i), n, stride, add, ok: self.mphi(ok, at, M::K(false), from) },
+            off => off,
+        };
+        let z = self.zero(q.x.w);
+        let x = self.phi(&q.x, at, &z, from);
+        let en = self.mphi(q.en, at, M::K(false), from);
+        Queued { o: q.o, off, w: q.w, x, en }
     }
 
     fn phi(&mut self, a: &Val, at: BlockId, b: &Val, from: BlockId) -> Val {
@@ -5832,6 +5934,9 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
             let v = if va == vb { va } else { self.select(m, &va, &vb) };
             self.env.nba.insert(o, v);
         }
+        // (Each arm's made in the lanes running it.)
+        let n = self.env.queue.len();
+        self.env.queue.extend(a.queue[n..].iter().chain(&b.queue[n..]).cloned());
         self.env.brk = self.merge_stop(m, a.brk, b.brk);
         self.env.ret = self.merge_stop(m, a.ret, b.ret);
     }
@@ -5859,6 +5964,12 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
                 if self.lay().in_place.contains(&o) {
                     let v = self.resize(&v, w, false);
                     return self.write_kept(o, off, w, &v);
+                }
+                if self.lay().queued.contains(&o) {
+                    let x = self.resize(&v, w, false);
+                    let en = self.path;
+                    self.env.queue.push(Queued { o, off, w, x, en });
+                    return Ok(());
                 }
                 let old = match self.env.nba.get(&o) {
                     Some(v) => v.clone(),
@@ -6007,6 +6118,15 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
             self.env.vals.retain(|o, _| d.object(*o).lifetime == Lifetime::Static);
         }
         self.ff = false;
+        // The queued assignments, in order, each in the lanes that made it.
+        let path = self.path;
+        for q in std::mem::take(&mut self.env.queue) {
+            self.path = self.mand(path, q.en);
+            if self.path != M::K(false) {
+                self.write_kept(q.o, q.off, q.w, &q.x)?;
+            }
+        }
+        self.path = path;
         for o in self.lay().regs.clone() {
             let shadow = self.lay().shadow.get(&o).copied();
             let v = match (self.env.nba.get(&o), shadow) {

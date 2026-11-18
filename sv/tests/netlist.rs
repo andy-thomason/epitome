@@ -878,3 +878,188 @@ fn memories_of_odd_widths_by_address() {
         assert_eq!(words[3], ((want >> 60) & 0xFF) as u32, "cycle {c}: qb of {ra}");
     }
 }
+
+const QUEUED_MEM: &str = r#"
+module qmem (
+    input  logic         clk,
+    input  logic         we,
+    input  logic         wb,
+    input  logic         clr,
+    input  logic [5:0]   wa,
+    input  logic [5:0]   ra,
+    input  logic [63:0]  d,
+    output logic [127:0] q,
+    output logic [72:0]  r
+);
+  // Memories the process that writes them also reads: every read of the
+  // cycle sees them as they were before it.
+  logic [127:0] m [40];
+  logic [72:0]  n [37];
+  always_ff @(posedge clk) begin
+    q <= m[ra];
+    r <= n[ra];
+    if (we) begin
+      m[wa] <= {m[ra][63:0], d};
+      n[wa] <= {d[8:0], d} ^ n[ra];
+    end
+    if (wb) begin
+      m[wa][71:64] <= d[7:0];
+      n[wa][67:60] <= d[7:0];
+    end
+    if (clr)
+      for (int i = 0; i < 3; i++) begin
+        m[i] <= '0;
+        n[i] <= '0;
+      end
+  end
+endmodule
+"#;
+
+#[test]
+fn memories_read_where_written() {
+    // Nonblocking writes to memories their own process reads take effect
+    // after it, in the order they were made; out of range, a read gives 0
+    // and a write changes nothing.
+    let Some(host) = host() else {
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
+        return;
+    };
+    let net = netlist_with(&text("qmem.sv", QUEUED_MEM), "qmem", host.options(1));
+    let b = build("qmem", net, &host);
+    report("qmem", &b);
+    let io = Io::new(&b.net, Some("clk")).unwrap();
+    let mut rng = Rng(0x1F83_D9AB_FB41_BD6B);
+    let cycles = 800;
+    let (mut stim, mut ins) = (Vec::new(), Vec::new());
+    for _ in 0..cycles {
+        let (we, wb, clr) = (rng.next() & 1 == 1, rng.next() % 3 == 0, rng.next() % 17 == 0);
+        let (wa, ra, d) = (rng.next() % 44, rng.next() % 44, rng.next());
+        for p in &io.ins {
+            match p.name.as_str() {
+                "we" => stim.push(we as u32),
+                "wb" => stim.push(wb as u32),
+                "clr" => stim.push(clr as u32),
+                "wa" => stim.push(wa as u32),
+                "ra" => stim.push(ra as u32),
+                "d" => stim.extend([d as u32, (d >> 32) as u32]),
+                n => panic!("{n}"),
+            }
+        }
+        ins.push((we, wb, clr, wa as usize, ra as usize, d));
+    }
+    let out = b.run(&io, cycles, 1, &stim);
+    let (mut m, mut n) = ([0u128; 40], [0u128; 37]);
+    let m73 = (1u128 << 73) - 1;
+    let ow = io.out_words();
+    for (c, &(we, wb, clr, wa, ra, d)) in ins.iter().enumerate() {
+        let (mr, nr) = (m.get(ra).copied().unwrap_or(0), n.get(ra).copied().unwrap_or(0));
+        let d = d as u128;
+        if we {
+            if wa < 40 {
+                m[wa] = mr << 64 | d;
+            }
+            if wa < 37 {
+                n[wa] = ((d & 0x1FF) << 64 | d) ^ nr;
+            }
+        }
+        if wb {
+            if wa < 40 {
+                m[wa] = m[wa] & !(0xFFu128 << 64) | (d & 0xFF) << 64;
+            }
+            if wa < 37 {
+                n[wa] = n[wa] & !(0xFFu128 << 60) | (d & 0xFF) << 60;
+            }
+        }
+        if clr {
+            m[..3].fill(0);
+            n[..3].fill(0);
+        }
+        let words = &out[c * ow..(c + 1) * ow];
+        let q: Vec<u32> = (0..4).map(|k| (mr >> (32 * k)) as u32).collect();
+        let r: Vec<u32> = (0..3).map(|k| ((nr & m73) >> (32 * k)) as u32).collect();
+        assert_eq!(&words[..4], &q[..], "cycle {c}: q of {ra}");
+        assert_eq!(&words[4..7], &r[..], "cycle {c}: r of {ra}");
+    }
+}
+
+const MEM_ARRAY: &str = r#"
+module bank #(parameter int W = 72) (
+    input  logic         clk,
+    input  logic         we,
+    input  logic [7:0]   a,
+    input  logic [W-1:0] d,
+    output logic [W-1:0] q
+);
+  logic [W-1:0] ram [200];
+  always_ff @(posedge clk) begin
+    if (we) ram[a] <= d;
+    else q <= ram[a];
+  end
+endmodule
+
+module banks (
+    input  logic         clk,
+    input  logic [3:0]   we,
+    input  logic [7:0]   a,
+    input  logic [63:0]  d,
+    output logic [287:0] q
+);
+  // An array of memories: each called on its own, by its address.
+  for (genvar k = 0; k < 4; k++) begin : g
+    bank u (.clk, .we(we[k]), .a, .d({d[7:0] ^ 8'(k), d}), .q(q[k*72 +: 72]));
+  end
+endmodule
+"#;
+
+#[test]
+fn arrays_of_memories() {
+    let Some(host) = host() else {
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
+        return;
+    };
+    let net = netlist_with(&text("banks.sv", MEM_ARRAY), "banks", host.options(1));
+    let b = build("banks", net, &host);
+    report("banks", &b);
+    let io = Io::new(&b.net, Some("clk")).unwrap();
+    let mut rng = Rng(0x6A09_E667_F3BC_C908);
+    let cycles = 800;
+    let (mut stim, mut ins) = (Vec::new(), Vec::new());
+    for _ in 0..cycles {
+        let (we, a, d) = (rng.next() % 16, rng.next() % 220, rng.next());
+        for p in &io.ins {
+            match p.name.as_str() {
+                "we" => stim.push(we as u32),
+                "a" => stim.push(a as u32),
+                "d" => stim.extend([d as u32, (d >> 32) as u32]),
+                n => panic!("{n}"),
+            }
+        }
+        ins.push((we, a as usize, d));
+    }
+    let out = b.run(&io, cycles, 1, &stim);
+    let mut ram = vec![[0u128; 200]; 4];
+    let mut q = [0u128; 4];
+    let ow = io.out_words();
+    for (c, &(we, a, d)) in ins.iter().enumerate() {
+        for k in 0..4 {
+            if we >> k & 1 == 1 {
+                if a < 200 {
+                    ram[k][a] = ((d as u128 & 0xFF) ^ k as u128) << 64 | d as u128;
+                }
+            } else {
+                q[k] = ram[k].get(a).copied().unwrap_or(0);
+            }
+        }
+        let words = &out[c * ow..(c + 1) * ow];
+        let mut all = vec![0u32; 9];
+        for k in 0..4 {
+            for bit in 0..72 {
+                if q[k] >> bit & 1 == 1 {
+                    let at = k * 72 + bit;
+                    all[at / 32] |= 1 << (at % 32);
+                }
+            }
+        }
+        assert_eq!(&words[..9], &all[..], "cycle {c}");
+    }
+}

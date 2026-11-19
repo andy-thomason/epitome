@@ -57,6 +57,10 @@
 //!   without formatting or printing its message, which leaves the
 //!   message-formatting code out of the program.
 //! - `--emit=obj`: with `-o`, write the object file to `PATH`, unlinked.
+//! - Kernels: a function of the last crate marked
+//!   `#[epitome::target("riscv64")]` is compiled for that machine too (see
+//!   `device`), into the object `PATH.riscv64.o`. `--emit=kernels` writes
+//!   only those.
 //! - `--lib`: compile the last crate as a library: monomorphise from all
 //!   its non-generic functions (even if it has a `main`), and make them
 //!   external, so that optimising keeps them. With `-o`, use `--emit=obj`.
@@ -96,7 +100,7 @@ fn main() -> ExitCode {
     let (mut dump_mono, mut mono_stats) = (false, false);
     let (mut dump_ir, mut lower_stats) = (false, false);
     let mut output: Option<PathBuf> = None;
-    let (mut emit_obj, mut lib) = (false, false);
+    let (mut emit_obj, mut lib, mut emit_kernels) = (false, false, false);
     // The optimisation level of the crates given, and of crates by name.
     let mut opt_level = "2".to_string();
     let mut crate_opt: Vec<(String, String)> = Vec::new();
@@ -142,6 +146,7 @@ fn main() -> ExitCode {
                 }
             }
             "--emit=obj" => emit_obj = true,
+            "--emit=kernels" => emit_kernels = true,
             "--lib" => lib = true,
             "--std" => with_std = true,
             "-o" => output = value("-o").map(PathBuf::from),
@@ -329,6 +334,36 @@ fn main() -> ExitCode {
             let index = epitome_rustc2::typeck::Index::new(&tcx, &r);
             let cx = epitome_rustc2::layout::LayoutCx::new(&tcx, &r, &crates, &index, Default::default());
             print!("{}", cx.dump(Some(crates.len() as u32 - 1)));
+        }
+        // The kernels, each machine's in a module of its own.
+        if let Some(out) = &output {
+            let last = crates.len() as u32 - 1;
+            let mut machines: Vec<String> = epitome_rustc2::device::kernels(&r, &crates, last).into_iter().map(|(_, t)| t).collect();
+            machines.sort();
+            machines.dedup();
+            let program = files.last().expect("a crate root");
+            for name in machines {
+                let Some(machine) = epitome_rustc2::device::machine(&name) else {
+                    eprintln!("error: no machine `{name}` for `#[epitome::target]` (there is `riscv64`)");
+                    return ExitCode::FAILURE;
+                };
+                let level = levels.last().cloned().unwrap_or_else(|| "2".to_string());
+                let mut lowered = match epitome_rustc2::device::compile(program, &crate_name(program), edition, &machine, session.options.threads, &level) {
+                    Ok(l) => l,
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        return ExitCode::FAILURE;
+                    }
+                };
+                let path = PathBuf::from(format!("{}.{name}.o", out.display()));
+                if let Err(e) = build(&mut lowered.module, machine.target, &path, Some(epitome_opt::inline::OptLevel::O2), true) {
+                    eprintln!("error: {name}: {e}");
+                    return ExitCode::FAILURE;
+                }
+            }
+            if emit_kernels {
+                return ExitCode::SUCCESS;
+            }
         }
         if dump_mono || mono_stats || dump_ir || lower_stats || output.is_some() {
             let index = epitome_rustc2::typeck::Index::new(&tcx, &r);
@@ -524,6 +559,8 @@ fn build(
     }
     let t = if target.triple.starts_with("x86_64") {
         epitome_codegen::target::Target::x86_64()
+    } else if target.triple.starts_with("riscv64") {
+        epitome_codegen::target::Target::riscv64()
     } else {
         epitome_codegen::target::Target::aarch64()
     };

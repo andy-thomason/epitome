@@ -1097,7 +1097,7 @@ fn profiled_by_instance() {
     let b = build("ptop", netlist_with(&src, "ptop", opts), &host);
     assert!(b.net.watched.is_empty(), "settling reads {:?}", b.net.watched);
     // (A design whose settling reads its clock says where.)
-    let gated = "module gtop (input logic clk, input logic en, output logic q, output logic [31:0] lq);\n  logic g;\n  assign g = clk & en;\n  leaf l (.clk(g), .a(32'(en)), .q(lq));\n  assign q = g;\nendmodule\n";
+    let gated = "module gtop (input logic clk, input logic en, input logic d, output logic q, output logic [31:0] lq);\n  logic g;\n  assign g = clk & en;\n  leaf l (.clk(g), .a(32'(en)), .q(lq));\n  assign q = g & d;\nendmodule\n";
     let w = netlist_with(&text("gtop.sv", &format!("{PROFILED}{gated}")), "gtop", host.options(1)).watched;
     assert!(w.iter().any(|(n, why)| n == "clk" && why.contains("assign writing g")), "{w:?}");
     let plain = build("ptop_plain", netlist_with(&src, "ptop", host.options(1)), &host);

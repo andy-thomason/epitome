@@ -971,6 +971,9 @@ struct Layout {
     at_ff: HashSet<Node>,
     /// Its inputs only its clock tree and its edges read.
     clock_ports: HashSet<ObjId>,
+    /// Its inputs nothing in it reads (say, a clock only properties used):
+    /// not copied to it, and not read where they are worked out.
+    idle_ports: HashSet<ObjId>,
     /// The rest of them, in scalar code: a clocked process reads them, so
     /// each nonblocking assignment to one is queued, and the queue written
     /// in place once every process has run (rather than the whole value
@@ -1089,6 +1092,7 @@ impl Layout {
             in_place: HashSet::new(),
             at_ff: HashSet::new(),
             clock_ports: HashSet::new(),
+            idle_ports: HashSet::new(),
             queued: HashSet::new(),
             part: None,
         }
@@ -3907,7 +3911,8 @@ impl<'d, 'a> Lowering<'d, 'a> {
                         let k = self.d.spec(child.0).ports.iter().position(|q| q.name == p.name);
                         let copied = !matches!(args.zip(k).map(|(a, k)| a[k]), Some(Arg::Alias(_)));
                         let at_ff = copied && self.ff_input(child, p);
-                        if p.dir == Dir::Input && rs.iter().any(|t| t.0 == o) && (copied && !at_ff || p.object.is_some_and(|q| self.comb_reads(child, q))) {
+                        let idle = p.object.is_some_and(|q| self.layouts[&child].idle_ports.contains(&q));
+                        if p.dir == Dir::Input && !idle && rs.iter().any(|t| t.0 == o) && (copied && !at_ff || p.object.is_some_and(|q| self.comb_reads(child, q))) {
                             r = true;
                         }
                     }
@@ -3996,6 +4001,57 @@ impl<'d, 'a> Lowering<'d, 'a> {
     /// edges, by children's clock inputs, or by other such nodes.
     fn clock_tree(&mut self, key: Key) {
         let d = self.d;
+        // The inputs nothing reads.
+        let idle = {
+        let lay = &self.layouts[&key];
+        let code = lay.code.clone();
+        let members = |i: InstId| lay.groups.get(&i).cloned().unwrap_or_else(|| vec![i]);
+        let mut any = Vec::new();
+        for &n in &code {
+            match n {
+                Node::In(i) | Node::Pre(i) => {
+                    let idle = &self.layouts[&lay.kid_keys[&i]].idle_ports;
+                    for m in members(i) {
+                        for (p, e) in self.connections(m) {
+                            if p.dir == Dir::Input && !p.object.is_some_and(|o| idle.contains(&o)) {
+                                self.reads(e, &mut any);
+                            }
+                        }
+                    }
+                }
+                Node::Proc(p) if self.clocked(p).is_some() => {
+                    let (terms, body) = self.clocked(p).unwrap();
+                    self.stmt_access(body, &mut any, &mut Vec::new(), &mut Vec::new());
+                    for t in terms {
+                        self.reads(t.expr, &mut any);
+                        if let Some(c) = t.iff {
+                            self.reads(c, &mut any);
+                        }
+                    }
+                }
+                Node::Call(_) | Node::Early(_) => {}
+                _ => any.extend(self.access(key, n).0),
+            }
+        }
+        // (The clocked processes are not among the nodes.)
+        for &p in &lay.ff {
+            let (terms, body) = self.clocked(p).unwrap();
+            self.stmt_access(body, &mut any, &mut Vec::new(), &mut Vec::new());
+            for t in terms {
+                self.reads(t.expr, &mut any);
+                if let Some(c) = t.iff {
+                    self.reads(c, &mut any);
+                }
+            }
+        }
+        let idle: HashSet<ObjId> = if lay.known.is_some() {
+            HashSet::new()
+        } else {
+            d.spec(key.0).ports.iter().filter(|p| p.dir == Dir::Input).filter_map(|p| p.object).filter(|o| !any.iter().any(|t| t.0 == *o)).collect()
+        };
+        idle
+        };
+        self.layouts.get_mut(&key).unwrap().idle_ports = idle;
         let lay = &self.layouts[&key];
         if !lay.clocked {
             return;
@@ -4031,9 +4087,10 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 Node::In(i) | Node::Pre(i) => {
                     let ck = lay.kid_keys[&i];
                     let clocks = &self.layouts[&ck].clock_ports;
+                    let idle = &self.layouts[&ck].idle_ports;
                     for m in members(i) {
                         for (p, e) in self.connections(m) {
-                            if p.dir != Dir::Input {
+                            if p.dir != Dir::Input || p.object.is_some_and(|o| idle.contains(&o)) {
                                 continue;
                             }
                             if p.object.is_some_and(|o| clocks.contains(&o)) {
@@ -4068,6 +4125,18 @@ impl<'d, 'a> Lowering<'d, 'a> {
             w.push(nw.into_iter().map(|t| t.0).collect());
             at.push(ok);
         }
+        // At the top, an output that only a clock makes (a clock passed
+        // out) is worked out with the clock tree: that runs every step.
+        if self.top == Some(key) {
+            let clockish: HashSet<ObjId> = edges.iter().chain(&to_clocks).map(|t| t.0).collect();
+            for p in d.spec(key.0).ports.iter().filter(|p| p.dir == Dir::Output) {
+                let Some(o) = p.object else { continue };
+                let writers: Vec<usize> = (0..code.len()).filter(|&k| w[k].contains(&o)).collect();
+                if !writers.is_empty() && writers.iter().all(|&k| at[k] && r[k].iter().all(|x| clockish.contains(x))) {
+                    fixed.remove(&o);
+                }
+            }
+        }
         loop {
             let need: HashSet<ObjId> = fixed.iter().copied().chain((0..code.len()).filter(|&k| !at[k]).flat_map(|k| r[k].iter().copied())).collect();
             let mut changed = false;
@@ -4098,24 +4167,6 @@ impl<'d, 'a> Lowering<'d, 'a> {
             edges.iter().chain(&to_clocks).map(|t| t.0).chain((0..code.len()).filter(|&k| at[k]).flat_map(|k| r[k].iter().copied())).collect();
         let clock_ports: HashSet<ObjId> =
             d.spec(key.0).ports.iter().filter(|p| p.dir == Dir::Input).filter_map(|p| p.object).filter(|o| read.contains(o) && !need.contains(o)).collect();
-        if std::env::var_os("SV_DEBUG_CLOCK").is_some() {
-            for p in d.spec(key.0).ports.iter().filter(|p| p.dir == Dir::Input && d.name(p.name).contains("clk")) {
-                let Some(o) = p.object else { continue };
-                if !clock_ports.contains(&o) {
-                    let why: Vec<String> = (0..code.len()).filter(|&j| !at[j] && r[j].contains(&o)).map(|j| self.describe(key, code[j])).collect();
-                    eprintln!("{}: port {} not a clock: need={} fixed={} read={} {:?}", d.name(d.spec(key.0).name), d.name(p.name), need.contains(&o), fixed.contains(&o), read.contains(&o), why);
-                }
-            }
-            // Who needs what a rejected buffer-like child writes.
-            for k in 0..code.len() {
-                if let Node::Call(i) = code[k] && !at[k] && !self.layouts[&self.layouts[&key].kid_keys[&i]].clocked {
-                    for o in &w[k] {
-                        let why: Vec<String> = (0..code.len()).filter(|&j| !at[j] && r[j].contains(o)).map(|j| self.describe(key, code[j])).collect();
-                        eprintln!("{}: {} writes {} needed by fixed={} {:?}", d.name(d.spec(key.0).name), d.name(d.instance(i).name), d.name(d.object(*o).name), fixed.contains(o), why);
-                    }
-                }
-            }
-        }
         let lay = self.layouts.get_mut(&key).unwrap();
         lay.at_ff = at_ff;
         lay.clock_ports = clock_ports;
@@ -5762,7 +5813,10 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
             // Values connected whole are where the child reads them;
             // an unconnected input's slot stays zero.
             let (Dir::Input, Arg::Slot(at)) = (port.dir, arg) else { continue };
-            if pre.is_some_and(|s| port.object.is_none_or(|o| !s.ins.contains(&o))) || self.l.ff_input(ck, port) != ff {
+            if pre.is_some_and(|s| port.object.is_none_or(|o| !s.ins.contains(&o)))
+                || self.l.ff_input(ck, port) != ff
+                || port.object.is_some_and(|o| child.idle_ports.contains(&o))
+            {
                 continue;
             }
             let o = port.object.ok_or("interface ports are not supported yet")?;

@@ -4245,7 +4245,17 @@ impl<'d, 'a> Lowering<'d, 'a> {
             for p in d.spec(key.0).ports.iter().filter(|p| p.dir == Dir::Output) {
                 let Some(o) = p.object else { continue };
                 let writers: Vec<usize> = (0..code.len()).filter(|&k| w[k].contains(&o)).collect();
-                if !writers.is_empty() && writers.iter().all(|&k| at[k] && r[k].iter().all(|x| clockish.contains(x))) {
+                // (A child's call reads what its inputs do.)
+                let reads_of = |k: usize| -> Vec<ObjId> {
+                    match code[k] {
+                        Node::Call(i) | Node::Early(i) => (0..code.len())
+                            .filter(|&j| matches!(code[j], Node::In(x) | Node::Pre(x) if x == i))
+                            .flat_map(|j| r[j].iter().copied())
+                            .collect(),
+                        _ => r[k].clone(),
+                    }
+                };
+                if !writers.is_empty() && writers.iter().all(|&k| at[k] && reads_of(k).iter().all(|x| clockish.contains(x))) {
                     fixed.remove(&o);
                 }
             }

@@ -4312,6 +4312,9 @@ impl<'d, 'a> Lowering<'d, 'a> {
             .filter_map(|p| p.object)
             .filter(|o| read.contains(o) && !need.contains(o) && !data.contains(o))
             .collect();
+        if std::env::var_os("SV_DEBUG_ATFF").is_some() && !at_ff.is_empty() {
+            eprintln!("at_ff {}: {:?} clocks {:?}", d.name(d.spec(key.0).name), at_ff.iter().map(|n| self.describe(key, *n)).collect::<Vec<_>>(), clock_ports.iter().map(|o| d.name(d.object(*o).name)).collect::<Vec<_>>());
+        }
         let at_ff = if std::env::var_os("SV_NO_AT_FF").is_some() { HashSet::new() } else { at_ff };
         let clock_ports = if std::env::var_os("SV_NO_AT_FF").is_some() { HashSet::new() } else { clock_ports };
         let lay = self.layouts.get_mut(&key).unwrap();

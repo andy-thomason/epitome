@@ -4090,6 +4090,17 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let read: HashSet<ObjId> = edges.iter().map(|t| t.0).chain((0..code.len()).filter(|&k| at[k]).flat_map(|k| r[k].iter().copied())).collect();
         let clock_ports: HashSet<ObjId> =
             d.spec(key.0).ports.iter().filter(|p| p.dir == Dir::Input).filter_map(|p| p.object).filter(|o| read.contains(o) && !need.contains(o)).collect();
+        if std::env::var_os("SV_DEBUG_CLOCK").is_some() {
+            // Who needs what a rejected buffer-like child writes.
+            for k in 0..code.len() {
+                if let Node::Call(i) = code[k] && !at[k] && !self.layouts[&self.layouts[&key].kid_keys[&i]].clocked {
+                    for o in &w[k] {
+                        let why: Vec<String> = (0..code.len()).filter(|&j| !at[j] && r[j].contains(o)).map(|j| self.describe(key, code[j])).collect();
+                        eprintln!("{}: {} writes {} needed by fixed={} {:?}", d.name(d.spec(key.0).name), d.name(d.instance(i).name), d.name(d.object(*o).name), fixed.contains(o), why);
+                    }
+                }
+            }
+        }
         let lay = self.layouts.get_mut(&key).unwrap();
         lay.at_ff = at_ff;
         lay.clock_ports = clock_ports;

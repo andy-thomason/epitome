@@ -331,7 +331,7 @@ fn main() -> ExitCode {
         let im = report.implied;
         if im.changed() {
             eprintln!(
-                "; implied: {} comparisons folded, {} selects resolved, {} nuw set",
+                "; implied: {} comparisons folded, {} selects resolved, {} flags set",
                 im.folded, im.selects, im.flags
             );
         }

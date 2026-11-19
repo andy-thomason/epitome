@@ -1,6 +1,6 @@
 ; @sum: not inlined @panic_bounds_check: noinline
 ; @sum: combine: (dead) x2, icmp_eq_zext_one x1, icmp_ne_zext_zero x1, select_zext x1
-; @sum: implied: 1 comparisons folded, 4 selects resolved, 0 nuw set
+; @sum: implied: 1 comparisons folded, 4 selects resolved, 0 flags set
 ; @sum: combine: (dead) x3, br_true x1
 ; @sum: simplifycfg: 1 unreachable blocks removed, 1 empty blocks bypassed, 0 selects made, 0 blocks merged
 ; @sum: rotate: 1 loops rotated
@@ -11,7 +11,7 @@
 ; @sum: lsr: 1 arrays stepped by pointer, 1 counters counting down
 ; @dot: not inlined @panic_bounds_check: noinline
 ; @dot: not inlined @panic_bounds_check: noinline
-; @dot: implied: 2 comparisons folded, 7 selects resolved, 0 nuw set
+; @dot: implied: 2 comparisons folded, 7 selects resolved, 0 flags set
 ; @dot: combine: (dead) x4, br_true x2
 ; @dot: simplifycfg: 2 unreachable blocks removed, 1 empty blocks bypassed, 0 selects made, 1 blocks merged
 ; @dot: rotate: 1 loops rotated
@@ -22,7 +22,7 @@
 ; @dot: lsr: 2 arrays stepped by pointer, 1 counters counting down
 ; @rev: not inlined @panic_bounds_check: noinline
 ; @rev: not inlined @panic_bounds_check: noinline
-; @rev: implied: 2 comparisons folded, 5 selects resolved, 1 nuw set
+; @rev: implied: 2 comparisons folded, 5 selects resolved, 2 flags set
 ; @rev: combine: (dead) x4, br_true x2
 ; @rev: simplifycfg: 2 unreachable blocks removed, 1 empty blocks bypassed, 0 selects made, 1 blocks merged
 ; @rev: rotate: 1 loops rotated
@@ -32,7 +32,7 @@
 ; @rev: indvars: 1 exact exit tests, 0 exit values, 0 counters widened
 ; @kept: not inlined @panic_bounds_check: noinline
 ; @kept: combine: (dead) x1, (reassociated) x1
-; @kept: implied: 0 comparisons folded, 0 selects resolved, 1 nuw set
+; @kept: implied: 0 comparisons folded, 0 selects resolved, 1 flags set
 ; @kept: rotate: 1 loops rotated
 ; @kept: combine: (constant to the right) x1, (dead) x1, (reassociated) x1, icmp_ugt_zero x1
 ; @kept: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged

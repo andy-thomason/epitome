@@ -21,9 +21,13 @@
 //! `x != 0`). When a fact is added, the bounds its right-hand side implies
 //! are added with it, so `i < len / 2` also gives `i < len`.
 //!
+//! Value ranges (`ranges.rs`) are one more way in: `a < b` holds when
+//! everything `a` can be here is below everything `b` can be, with each
+//! range narrowed by the facts about it. They also give `nuw` and `nsw`.
+//!
 //! It does not know facts that hold round a loop rather than down the
-//! dominator tree (an induction variable stays below its bound); it runs
-//! before rotation, while a loop's test still dominates its body. See
+//! dominator tree, beyond the counters ranges recognise; it runs before
+//! rotation, while a loop's test still dominates its body. See
 //! `docs/design/ranges.md`.
 
 use epitome_ir::module::*;
@@ -33,6 +37,7 @@ use crate::cfg::DomTree;
 use crate::combine::eval;
 use crate::ctx::Shared;
 use crate::fx::FxHashMap as HashMap;
+use crate::ranges::{self, Range, Ranges};
 
 #[derive(Default, Debug, Clone, Copy)]
 pub struct Stats {
@@ -135,9 +140,9 @@ pub fn run(sh: &Shared, f: &mut Function) -> Stats {
         }
         stats.selects += 1;
     }
-    for i in edits.nuw {
+    for (i, add) in edits.flags {
         if let Op::Binary { flags, .. } = &mut f.insts[i.index()].op {
-            *flags = *flags | IntFlags::NUW;
+            *flags = *flags | add;
             stats.flags += 1;
         }
     }
@@ -157,7 +162,8 @@ struct Edits {
     phi_uses: Vec<(InstId, BlockId, Value)>,
     /// Comparisons with a known result.
     folded: Vec<(LocalId, Value)>,
-    nuw: Vec<InstId>,
+    /// Flags (`nuw`, `nsw`) to add.
+    flags: Vec<(InstId, IntFlags)>,
 }
 
 struct Walker<'a, 'm> {
@@ -165,6 +171,8 @@ struct Walker<'a, 'm> {
     f: &'a Function,
     dom: DomTree,
     preds: Vec<Vec<BlockId>>,
+    /// What each value can be, before the facts at a block narrow it.
+    ranges: Ranges,
     /// Every fact in force at the current block, oldest first.
     facts: Vec<Fact>,
     /// For each value, the facts (by index) that mention it.
@@ -179,11 +187,15 @@ struct Walker<'a, 'm> {
 
 impl<'a, 'm> Walker<'a, 'm> {
     fn new(sh: &'a Shared<'m>, f: &'a Function) -> Self {
+        let dom = DomTree::new(f);
+        let preds = f.predecessors();
+        let ranges = Ranges::compute(sh, f, &dom, &preds);
         Walker {
             sh,
             f,
-            dom: DomTree::new(f),
-            preds: f.predecessors(),
+            dom,
+            preds,
+            ranges,
             facts: Vec::new(),
             index: HashMap::default(),
             assumed: Vec::new(),
@@ -430,26 +442,39 @@ impl<'a, 'm> Walker<'a, 'm> {
                         self.edits.folded.push((r, k));
                     }
                 }
-                Op::Binary { op: BinOp::Add, flags, lhs, rhs, .. }
-                    if !flags.contains(IntFlags::NUW) && self.is_int(lhs) =>
+                Op::Binary { op: op @ (BinOp::Add | BinOp::Sub | BinOp::Mul), flags, lhs, rhs, .. }
+                    if self.is_int(lhs) && !flags.contains(IntFlags::NUW | IntFlags::NSW) =>
                 {
-                    // `x + 1` cannot wrap when something is above `x`.
-                    let (x, k) = match (self.int(lhs), self.int(rhs)) {
-                        (None, Some(k)) => (lhs, k),
-                        (Some(k), None) => (rhs, k),
-                        _ => continue,
-                    };
-                    if k.value == 1 && self.prove(Fact { rel: Rel::Ult, a: x, b: self.all_ones(k.bits) }) {
-                        self.edits.nuw.push(i);
+                    let mut add = IntFlags::NONE;
+                    // What the operands' ranges here allow.
+                    if let (Some(a), Some(c)) = (self.range_at(lhs, 2), self.range_at(rhs, 2)) {
+                        let (nuw, nsw) = ranges::no_wrap(op, a, c);
+                        if nuw {
+                            add = add | IntFlags::NUW;
+                        }
+                        if nsw {
+                            add = add | IntFlags::NSW;
+                        }
                     }
-                }
-                Op::Binary { op: BinOp::Sub, flags, lhs, rhs, .. }
-                    if !flags.contains(IntFlags::NUW)
-                        && self.is_int(lhs)
-                        && self.int(rhs).is_none()
-                        && self.prove(Fact { rel: Rel::Ule, a: rhs, b: lhs }) =>
-                {
-                    self.edits.nuw.push(i);
+                    // `x + 1` cannot wrap when something is above `x`;
+                    // `x - y` when `y <= x`.
+                    if !(flags | add).contains(IntFlags::NUW) {
+                        let nuw = match (op, self.int(lhs), self.int(rhs)) {
+                            (BinOp::Add, None, Some(k)) | (BinOp::Add, Some(k), None) if k.value == 1 => {
+                                let x = if self.int(lhs).is_some() { rhs } else { lhs };
+                                self.prove(Fact { rel: Rel::Ult, a: x, b: self.all_ones(k.bits) })
+                            }
+                            (BinOp::Sub, _, None) => self.prove(Fact { rel: Rel::Ule, a: rhs, b: lhs }),
+                            _ => false,
+                        };
+                        if nuw {
+                            add = add | IntFlags::NUW;
+                        }
+                    }
+                    let new = IntFlags(add.0 & !flags.0);
+                    if new.0 != 0 {
+                        self.edits.flags.push((i, new));
+                    }
                 }
                 _ => {}
             }
@@ -489,6 +514,19 @@ impl<'a, 'm> Walker<'a, 'm> {
             Some(false) => Some(else_value),
             None => None,
         }
+    }
+
+    /// `v`, or the arm a select picks where its condition is known.
+    fn resolve(&self, mut v: Value) -> Value {
+        for _ in 0..4 {
+            let Some(&Op::Select { cond, then_value, else_value, .. }) = self.op(v) else { break };
+            match self.fact_bool(cond) {
+                Some(true) => v = then_value,
+                Some(false) => v = else_value,
+                None => break,
+            }
+        }
+        v
     }
 
     /// The value of an `i1` a fact gives directly.
@@ -555,6 +593,7 @@ impl<'a, 'm> Walker<'a, 'm> {
             return false;
         }
         self.steps += 1;
+        let (a, b) = (self.resolve(a), self.resolve(b));
         if a == b {
             return matches!(rel, Rel::Ule | Rel::Sle | Rel::Eq);
         }
@@ -570,6 +609,22 @@ impl<'a, 'm> Walker<'a, 'm> {
                 Rel::Ne => ICmpPred::Ne,
             };
             return eval::fold_icmp(pred, x.value, y.value, x.bits);
+        }
+        // What the two can be, here.
+        if let (Some(x), Some(y)) = (self.range_at(a, 2), self.range_at(b, 2))
+            && x.bits == y.bits
+        {
+            let decided = match rel {
+                Rel::Ult => x.umax < y.umin,
+                Rel::Ule => x.umax <= y.umin,
+                Rel::Slt => x.smax < y.smin,
+                Rel::Sle => x.smax <= y.smin,
+                Rel::Eq => x.as_constant().is_some() && x == y,
+                Rel::Ne => x.umax < y.umin || y.umax < x.umin || x.smax < y.smin || y.smax < x.smin,
+            };
+            if decided {
+                return true;
+            }
         }
         match rel {
             Rel::Ult => self.ult(a, b, depth),
@@ -594,8 +649,12 @@ impl<'a, 'm> Walker<'a, 'm> {
 
     /// `x != 0`: something is below it, or it is above something nonzero.
     fn nonzero(&mut self, x: Value, depth: u32) -> bool {
+        let x = self.resolve(x);
         if let Some(k) = self.int(x) {
             return k.value != 0;
+        }
+        if self.range_at(x, 2).is_some_and(|r| r.umin > 0) {
+            return true;
         }
         for fact in self.facts_about(x) {
             if fact.b == x && fact.rel == Rel::Ult {
@@ -661,6 +720,13 @@ impl<'a, 'm> Walker<'a, 'm> {
                     if self.holds(Rel::Ult, lhs, b, d) && self.holds(Rel::Ule, rhs, lhs, d) {
                         return true;
                     }
+                }
+                // `x + k < b` when `x < b - k` and `b - k` does not wrap.
+                Op::Binary { op: BinOp::Add, lhs, rhs, .. }
+                    if self.int(rhs).is_some_and(|k| k.value != 0 && eval::sext(k.value, k.bits) > 0)
+                        && self.below_minus(lhs, rhs, b, d) =>
+                {
+                    return true;
                 }
                 // `x - k < x` when `k <= x`, for `k > 0`; for `k == 1`,
                 // `x != 0`.
@@ -745,6 +811,28 @@ impl<'a, 'm> Walker<'a, 'm> {
         // Signed and not negative is unsigned.
         if self.holds(Rel::Slt, a, b, d) && self.holds(Rel::Sle, self.zero_like(a), a, d) {
             return true;
+        }
+        false
+    }
+
+    /// `x < b - k` by a fact, with `k <= b`: the loop `for i in 0..len - 1`
+    /// indexing `v[i + 1]`.
+    fn below_minus(&mut self, x: Value, k: Value, b: Value, d: u32) -> bool {
+        let Some(kc) = self.int(k) else { return false };
+        let x = self.resolve(x);
+        let minus = eval::mask(kc.bits) & kc.value.wrapping_neg();
+        for fact in self.facts_about(x) {
+            if fact.a != x || fact.rel != Rel::Ult {
+                continue;
+            }
+            // `y = b + (-k)`
+            if let Some(&Op::Binary { op: BinOp::Add, lhs, rhs, .. }) = self.op(fact.b)
+                && lhs == b
+                && self.int(rhs).is_some_and(|c| c.value == minus)
+                && self.holds(Rel::Ule, k, b, d)
+            {
+                return true;
+            }
         }
         false
     }
@@ -918,6 +1006,83 @@ impl<'a, 'm> Walker<'a, 'm> {
             }
         }
         ok
+    }
+
+    // ---------------------------------------------------------------------
+    // Ranges
+
+    /// What `v` can be here: its range, narrowed by the facts about it in
+    /// force, and (up to `depth` operations deep) recomputed from its
+    /// operands' ranges here. `None` for values that are not integers of at
+    /// most 64 bits, or where the facts contradict each other (the block
+    /// cannot run).
+    fn range_at(&self, v: Value, depth: u32) -> Option<Range> {
+        let mut r = self.ranges.get(self.sh, self.f, v)?;
+        if r.as_constant().is_some() {
+            return Some(r);
+        }
+        // A select whose condition is known here is its arm.
+        if let Some(&Op::Select { cond, then_value, else_value, .. }) = self.op(v)
+            && let Some(k) = self.fact_bool(cond)
+        {
+            let arm = self.range_at(if k { then_value } else { else_value }, depth)?;
+            r = r.meet(arm);
+        }
+        if depth > 0
+            && let Some(op) = self.op(v)
+        {
+            match *op {
+                Op::Binary { op, flags, lhs, rhs, .. } => {
+                    if let (Some(a), Some(c)) = (self.range_at(lhs, depth - 1), self.range_at(rhs, depth - 1))
+                        && a.bits == r.bits
+                        && c.bits == r.bits
+                    {
+                        r = r.meet(ranges::binary(op, flags, a, c));
+                    }
+                }
+                Op::Cast { op: CastOp::ZExt, value, .. } => {
+                    if let Some(a) = self.range_at(value, depth - 1) {
+                        r = r.meet(Range::unsigned(r.bits, a.umin, a.umax));
+                    }
+                }
+                _ => {}
+            }
+        }
+        let bits = r.bits;
+        let m = eval::mask(bits);
+        let (lo, hi) = (ranges::smin_of(bits), ranges::smax_of(bits));
+        let mut narrow = |fact: &Fact| {
+            let (other, left) = if fact.a == v { (fact.b, true) } else { (fact.a, false) };
+            let Some(o) = self.ranges.get(self.sh, self.f, other) else { return };
+            if o.bits != bits {
+                return;
+            }
+            let by = match (fact.rel, left) {
+                (Rel::Ult, true) if o.umax > 0 => Range::unsigned(bits, 0, o.umax - 1),
+                (Rel::Ule, true) => Range::unsigned(bits, 0, o.umax),
+                (Rel::Ult, false) if o.umin < m => Range::unsigned(bits, o.umin + 1, m),
+                (Rel::Ule, false) => Range::unsigned(bits, o.umin, m),
+                (Rel::Slt, true) if o.smax > lo => Range::signed(bits, lo, o.smax - 1),
+                (Rel::Sle, true) => Range::signed(bits, lo, o.smax),
+                (Rel::Slt, false) if o.smin < hi => Range::signed(bits, o.smin + 1, hi),
+                (Rel::Sle, false) => Range::signed(bits, o.smin, hi),
+                (Rel::Eq, _) => o,
+                (Rel::Ne, _) if o.as_constant() == Some(0) => Range::unsigned(bits, 1, m),
+                _ => return,
+            };
+            r = r.meet(by);
+        };
+        for fact in &self.assumed {
+            if fact.a == v || fact.b == v {
+                narrow(fact);
+            }
+        }
+        if let Some(list) = self.index.get(&v) {
+            for &k in list {
+                narrow(&self.facts[k as usize]);
+            }
+        }
+        (!r.is_empty()).then_some(r)
     }
 
     // ---------------------------------------------------------------------

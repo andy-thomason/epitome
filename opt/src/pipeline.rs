@@ -444,7 +444,7 @@ fn optimise(m: &mut Module, opts: &Options) -> Report {
                         sh.remark(
                             *g,
                             format!(
-                                "implied: {} comparisons folded, {} selects resolved, {} nuw set",
+                                "implied: {} comparisons folded, {} selects resolved, {} flags set",
                                 s.folded, s.selects, s.flags
                             ),
                         );

@@ -4820,16 +4820,76 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
     /// them; the body runs at least once, so what it makes stays in reach
     /// after it.
     fn repeat(&mut self, times: u32, inner: &[Node]) -> Result<(), String> {
+        // The bytes the group writes, each a pointer and a length: a pass
+        // that leaves them as it found them is a fixed point, and ends it.
+        let mut objs: Vec<ObjId> = inner.iter().flat_map(|&n| self.l.access(self.key, n).1).map(|t| t.0).collect();
+        objs.sort_unstable_by_key(|o| o.0);
+        objs.dedup();
+        let mut spans: Vec<(Value, u64)> = Vec::new();
+        for o in objs {
+            let (p, n) = match self.slot(o) {
+                Some(Base::State(at)) => {
+                    let s = self.state();
+                    (self.off(s, at), self.lay().extent.get(&o).copied().unwrap_or(0))
+                }
+                Some(Base::Port(k)) => (self.port(k), self.l.port_bytes(self.key, o)),
+                None => continue,
+            };
+            if n > 0 {
+                spans.push((p, n));
+            }
+        }
+        let words: u64 = spans.iter().map(|&(_, n)| n.div_ceil(8)).sum();
+        let scratch = (words > 0).then(|| {
+            let ty = self.b.module().types.array(words, self.t.i64);
+            self.b.alloca(ty)
+        });
         let (prev, lp) = (self.block, self.new_block("repeat"));
         self.b.br(lp);
         self.enter(lp);
         let zero = self.i64k(0);
         let c = self.b.phi(self.t.i64, &[(zero, prev)]);
+        // (Each span a word at a time, and its last bytes one at a time.)
+        let units = |n: u64| -> Vec<(u64, bool)> { (0..n / 8).map(|w| (8 * w, true)).chain((8 * (n / 8)..n).map(|b| (b, false))).collect() };
+        if let Some(sc) = scratch {
+            let mut at = 0;
+            for &(p, n) in &spans {
+                for (off, word) in units(n) {
+                    let ty = if word { self.t.i64 } else { self.t.i8 };
+                    let src = self.off(p, off);
+                    let x = self.ld(ty, src, 1);
+                    let dst = self.off(sc, at);
+                    self.st(x, dst, 1);
+                    at += if word { 8 } else { 1 };
+                }
+            }
+        }
         self.body(inner)?;
+        let mut changed = self.b.const_int(self.t.i1, 0);
+        if let Some(sc) = scratch {
+            let mut at = 0;
+            for &(p, n) in &spans {
+                for (off, word) in units(n) {
+                    let ty = if word { self.t.i64 } else { self.t.i8 };
+                    let a = self.off(p, off);
+                    let x = self.ld(ty, a, 1);
+                    let b = self.off(sc, at);
+                    let y = self.ld(ty, b, 1);
+                    let ne = self.b.icmp(ICmpPred::Ne, x, y);
+                    changed = self.b.or(changed, ne);
+                    at += if word { 8 } else { 1 };
+                }
+            }
+        } else {
+            changed = self.b.const_int(self.t.i1, 1);
+        }
         let one = self.i64k(1);
         let next = self.b.add(c, one);
         let n = self.i64k(times as i64);
-        let end = self.b.icmp(ICmpPred::Eq, next, n);
+        let last = self.b.icmp(ICmpPred::Eq, next, n);
+        let t = self.b.const_int(self.t.i1, 1);
+        let still = self.b.xor(changed, t);
+        let end = self.b.or(last, still);
         self.b.add_incoming(c, next, self.block);
         let exit = self.new_block("repeat.end");
         self.b.cond_br(end, exit, lp);

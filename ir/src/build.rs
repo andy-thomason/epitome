@@ -316,6 +316,14 @@ impl FunctionSpec {
         self
     }
 
+    /// An attribute of any kind on the last parameter (`sret(T)`,
+    /// `byval(T)`).
+    pub fn param_attribute(mut self, a: Attr) -> Self {
+        let last = self.params.last_mut().expect("param_attribute: no parameter yet");
+        last.2.push(a);
+        self
+    }
+
     /// Takes variable arguments (`...`).
     pub fn varargs(mut self) -> Self {
         self.varargs = true;
@@ -485,6 +493,12 @@ impl<'m> FunctionBuilder<'m> {
     /// The function as built so far.
     pub fn function(&self) -> &Function {
         &self.f
+    }
+
+    /// The function as built so far, to change what the builder has no
+    /// method for (a call's argument attributes).
+    pub fn function_mut(&mut self) -> &mut Function {
+        &mut self.f
     }
 
     /// Parameter `k`.

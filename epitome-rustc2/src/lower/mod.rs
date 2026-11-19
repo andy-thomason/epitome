@@ -22,7 +22,18 @@
 //! by the address of a copy the callee may change (the callee copies it
 //! into its own slot first, so a caller may pass the address of a place
 //! it still uses). A result in memory is written through a pointer passed
-//! first. `extern "C"` functions take and give scalars only, for now.
+//! first.
+//!
+//! Functions of the C convention (`extern "C"`: declared in `extern`
+//! blocks, defined, or called through `extern "C" fn` pointers) pass
+//! scalars as ours do, and aggregates as C does (`Cx::c_pass`): x86-64
+//! System V classifies each eightbyte of one up to 16 bytes, as INTEGER or
+//! SSE, and passes those in registers (one IR argument each, `i64` or
+//! `double`), and larger ones on the stack (`byval`); AArch64 passes a
+//! homogeneous floating-point aggregate in floating-point registers
+//! (`[N x float]`), others up to 16 bytes in integer registers
+//! (`[2 x i64]`), and larger ones by the address of a copy. A result too
+//! large for registers is written at an address passed first (`sret`).
 //!
 //! Panics become a trap (`panic=abort`, with no message: `core::fmt`
 //! comes later), and so does an index out of bounds or a division by zero.
@@ -111,6 +122,35 @@ pub(crate) struct FnAbi {
     pub args: Vec<Repr>,
     pub ret: Repr,
     pub variadic: bool,
+    /// How each argument crosses the call: all `Pass::Own` but for
+    /// aggregates of the C convention.
+    pub pass: Vec<Pass>,
+    pub pass_ret: Pass,
+}
+
+/// How an argument or the result of a function crosses a call, where the
+/// C convention does not pass it as our own does.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub(crate) enum Pass {
+    /// As our own convention has it (by its `Repr`).
+    Own,
+    /// In registers: its bytes as these pieces, each `(offset, IR type)`
+    /// an IR argument of its own; a result is one value, a struct of the
+    /// pieces if there are several.
+    Direct(Vec<(u64, TypeId)>),
+    /// By the address of a copy the caller makes (`byval`: System V's, on
+    /// the stack, which the code generator copies to; otherwise one in the
+    /// caller's frame); a result is written at an address passed first
+    /// (`sret`), which System V's callee gives back (`byval` here). `ty`
+    /// is the value's bytes, for the attribute.
+    Indirect { ty: TypeId, byval: bool },
+}
+
+impl FnAbi {
+    /// Whether the result is written at an address passed first.
+    pub fn sret(&self) -> bool {
+        matches!(self.pass_ret, Pass::Indirect { .. }) || (self.pass_ret == Pass::Own && self.ret == Repr::Mem)
+    }
 }
 
 /// A function of the module.
@@ -218,6 +258,7 @@ pub(crate) struct Cx<'a, 's> {
     /// there: it calls the closure, then drops its captures (unless the
     /// closure does).
     pub once: FastMap<Item, Decl>,
+    pub target: Target,
 }
 
 impl<'a, 's> Cx<'a, 's> {
@@ -247,31 +288,278 @@ impl<'a, 's> Cx<'a, 's> {
         })
     }
 
-    pub fn abi(&self, m: &mut Module, inputs: Vec<Ty>, output: Ty, variadic: bool) -> Result<FnAbi, String> {
+    /// How a function of these inputs and output takes and gives them:
+    /// by our own convention, or by C's (`c`).
+    pub fn abi(&self, m: &mut Module, inputs: Vec<Ty>, output: Ty, variadic: bool, c: bool) -> Result<FnAbi, String> {
         let args = inputs.iter().map(|&t| self.repr(m, t)).collect::<Result<Vec<_>, _>>()?;
         let ret = self.repr(m, output)?;
-        Ok(FnAbi { inputs, output, args, ret, variadic })
+        let mut abi = FnAbi { pass: vec![Pass::Own; args.len()], pass_ret: Pass::Own, inputs, output, args, ret, variadic };
+        if c && (ret == Repr::Mem || abi.args.contains(&Repr::Mem)) {
+            self.c_passes(m, &mut abi)?;
+        }
+        Ok(abi)
+    }
+
+    fn sysv(&self) -> bool {
+        self.target.triple.starts_with("x86_64")
+    }
+
+    /// Works out `abi.pass` and `abi.pass_ret` for the C convention.
+    fn c_passes(&self, m: &mut Module, abi: &mut FnAbi) -> Result<(), String> {
+        use epitome_ir::types::Type;
+        let mut solver = self.solver();
+        if abi.ret == Repr::Mem {
+            abi.pass_ret = self.c_pass(&mut solver, m, abi.output)?;
+        }
+        // System V: an aggregate whose eightbytes do not all fit in the
+        // registers left goes on the stack whole, as if it were larger.
+        let sysv = self.sysv();
+        let (mut gp, mut sse): (usize, usize) = (6 - matches!(abi.pass_ret, Pass::Indirect { .. }) as usize, 8);
+        for i in 0..abi.args.len() {
+            match abi.args[i] {
+                Repr::Zst => {}
+                Repr::Imm(t) => match m.types.get(t) {
+                    Type::Int(128) => {
+                        if gp >= 2 {
+                            gp -= 2;
+                        }
+                    }
+                    Type::Int(_) | Type::Ptr(_) => gp = gp.saturating_sub(1),
+                    _ => sse = sse.saturating_sub(1),
+                },
+                Repr::Mem => {
+                    let mut p = self.c_pass(&mut solver, m, abi.inputs[i])?;
+                    match &mut p {
+                        Pass::Direct(pieces) if sysv => {
+                            let ints = pieces.iter().filter(|(_, t)| matches!(m.types.get(*t), Type::Int(_))).count();
+                            let fps = pieces.len() - ints;
+                            if ints <= gp && fps <= sse {
+                                gp -= ints;
+                                sse -= fps;
+                            } else {
+                                let size = self.layout(abi.inputs[i])?.size;
+                                p = Pass::Indirect { ty: bytes_type(m, size), byval: true };
+                            }
+                        }
+                        // System V passes those it does not pass in
+                        // registers on the stack (`byval`).
+                        Pass::Indirect { byval, .. } => *byval = sysv,
+                        _ => {}
+                    }
+                    abi.pass[i] = p;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// How the C convention passes (or returns) a value of type `t`, which
+    /// our own passes in memory.
+    fn c_pass(&self, solver: &mut Solver, m: &mut Module, t: Ty) -> Result<Pass, String> {
+        let l = self.layout(t)?;
+        let mut leaves = Vec::new();
+        self.scalar_leaves(solver, t, 0, &mut leaves)?;
+        leaves.sort_by_key(|&(o, p)| (o, self.prim_size(p)));
+        leaves.dedup();
+        let indirect = |m: &mut Module| Pass::Indirect { ty: bytes_type(m, l.size), byval: false };
+        if leaves.iter().any(|&(_, p)| matches!(p, Prim::Float { size: 2 | 16 })) {
+            return Err(format!("{} crosses a C call, with `f16` or `f128` in it (not supported yet)", self.tcx.display(self.r, t)));
+        }
+        if self.sysv() {
+            // Each eightbyte is SSE if all it holds is floating-point,
+            // INTEGER if anything else; an aggregate larger than 16 bytes,
+            // or with a field not at its alignment, is MEMORY.
+            if l.size > 16 || leaves.iter().any(|&(o, p)| o % self.prim_size(p).min(8) != 0) {
+                return Ok(indirect(m));
+            }
+            let n = l.size.div_ceil(8) as usize;
+            let mut int = vec![false; n];
+            let mut any = vec![false; n];
+            for &(o, p) in &leaves {
+                let size = self.prim_size(p);
+                for k in (o / 8)..(o + size).div_ceil(8) {
+                    any[k as usize] = true;
+                    int[k as usize] |= !matches!(p, Prim::Float { .. });
+                }
+            }
+            let mut pieces = Vec::new();
+            for (k, (&any, &int)) in any.iter().zip(&int).enumerate() {
+                let bytes = (l.size - 8 * k as u64).min(8);
+                let ty = if any && !int {
+                    if bytes <= 4 { m.types.float() } else { m.types.double() }
+                } else {
+                    m.types.int(bytes.next_power_of_two() as u32 * 8)
+                };
+                pieces.push((8 * k as u64, ty));
+            }
+            // An eightbyte of padding alone, at the end, is not passed.
+            while pieces.len() > 1 && !any[pieces.len() - 1] {
+                pieces.pop();
+            }
+            return Ok(Pass::Direct(pieces));
+        }
+        // AAPCS64: a homogeneous floating-point aggregate (one to four of
+        // one floating-point type, filling it) in floating-point registers.
+        if let Some(&(_, Prim::Float { size })) = leaves.first()
+            && (1..=4).contains(&leaves.len())
+            && l.size == leaves.len() as u64 * size as u64
+            && leaves.iter().enumerate().all(|(k, &(o, p))| p == Prim::Float { size } && o == k as u64 * size as u64)
+        {
+            let f = if size == 4 { m.types.float() } else { m.types.double() };
+            return Ok(Pass::Direct(vec![(0, m.types.array(leaves.len() as u64, f))]));
+        }
+        let i64t = m.types.int(64);
+        Ok(match l.size {
+            0..=8 => Pass::Direct(vec![(0, i64t)]),
+            // (A 16-byte aligned one in an even register pair.)
+            9..=16 if l.align == 16 => Pass::Direct(vec![(0, m.types.int(128))]),
+            9..=16 => Pass::Direct(vec![(0, m.types.array(2, i64t))]),
+            _ => indirect(m),
+        })
+    }
+
+    fn prim_size(&self, p: Prim) -> u64 {
+        match p {
+            Prim::Int { size, .. } | Prim::Float { size } => size as u64,
+            Prim::Pointer => self.target.ptr_size,
+        }
+    }
+
+    /// The scalars a value of type `t` is made of, at their offsets (from
+    /// `at`): every variant's, of an enum, and every field's, of a union.
+    fn scalar_leaves(&self, solver: &mut Solver, t: Ty, at: u64, out: &mut Vec<(u64, Prim)>) -> Result<(), String> {
+        use crate::layout::{Fields, Variants};
+        let l = self.layout(t)?;
+        match l.abi {
+            _ if l.size == 0 => return Ok(()),
+            Abi::Scalar(s) => {
+                out.push((at, s.prim));
+                return Ok(());
+            }
+            Abi::ScalarPair(a, b) => {
+                let sb = self.prim_size(b.prim);
+                out.push((at, a.prim));
+                out.push((at + self.prim_size(a.prim).div_ceil(sb) * sb, b.prim));
+                return Ok(());
+            }
+            Abi::Uninhabited => return Err(format!("{} crosses a C call, and has no values", self.tcx.display(self.r, t))),
+            Abi::Aggregate { .. } => {}
+        }
+        if let Variants::Multiple { tag, tag_offset, variants, .. } = &l.variants {
+            out.push((at + tag_offset, tag.prim));
+            for (v, vl) in variants.iter().enumerate() {
+                let n = match &vl.fields {
+                    Fields::Arbitrary { offsets, .. } => offsets.len(),
+                    _ => 0,
+                };
+                for i in 0..n {
+                    let ft = self.field_ty(solver, t, v as u32, i)?;
+                    self.scalar_leaves(solver, ft, at + vl.offset(i), out)?;
+                }
+            }
+            return Ok(());
+        }
+        match &l.fields {
+            Fields::Arbitrary { offsets, .. } => {
+                for (i, &o) in offsets.iter().enumerate() {
+                    let ft = self.field_ty(solver, t, 0, i)?;
+                    self.scalar_leaves(solver, ft, at + o, out)?;
+                }
+            }
+            Fields::Array { stride, count } => {
+                let e = self.field_ty(solver, t, 0, 0)?;
+                for k in 0..*count {
+                    self.scalar_leaves(solver, e, at + k * stride, out)?;
+                }
+            }
+            Fields::Union(n) => {
+                for i in 0..*n as usize {
+                    let ft = self.field_ty(solver, t, 0, i)?;
+                    self.scalar_leaves(solver, ft, at, out)?;
+                }
+            }
+            Fields::Primitive => return Err(format!("{} crosses a C call, and is not understood", self.tcx.display(self.r, t))),
+        }
+        Ok(())
+    }
+
+    /// The type of field `i` of variant `v` (0 for a struct) of `t`.
+    pub fn field_ty(&self, solver: &mut Solver, t: Ty, v: u32, i: usize) -> Result<Ty, String> {
+        let tcx = self.tcx;
+        match tcx.kind(t) {
+            TyKind::Adt(d, l) => {
+                let adt = tcx.adts.get(&d).ok_or("not an ADT")?;
+                let f = adt.variants.get(v as usize).and_then(|x| x.fields.get(i)).ok_or("no such field")?;
+                let ft = crate::ty::collect::subst(tcx, f.ty, &tcx.all_params(d), &tcx.tys(l));
+                let ft = crate::mono::reveal(tcx, &self.typeck.hidden, ft);
+                Ok(solver.normalize(ft))
+            }
+            TyKind::Tuple(l) => tcx.tys(l).get(i).copied().ok_or_else(|| "no such tuple field".into()),
+            TyKind::Array(e, _) | TyKind::Slice(e) => Ok(e),
+            TyKind::Pat(x, ..) if i == 0 => Ok(x),
+            TyKind::Closure(c, _, l) => {
+                let tys = self.lcx.upvar_tys(c, l).ok_or("closure captures not known")?;
+                tys.get(i).copied().ok_or_else(|| "no such capture".into())
+            }
+            _ => Err(format!("field of {}", tcx.display(self.r, t))),
+        }
     }
 
     /// The IR type of a function with this ABI.
     pub fn ir_fn_type(m: &mut Module, abi: &FnAbi) -> (TypeId, Vec<TypeId>) {
+        let (ret, params) = Cx::ir_params(m, abi);
+        (ret, params.into_iter().map(|p| p.0).collect())
+    }
+
+    /// The IR result type of a function with this ABI, and its parameters'
+    /// types and attributes (`sret`, `byval`).
+    pub fn ir_params(m: &mut Module, abi: &FnAbi) -> (TypeId, Vec<(TypeId, Option<epitome_ir::module::Attr>)>) {
+        use epitome_ir::module::Attr;
         let ptr = m.types.ptr(0);
         let mut params = Vec::new();
-        if abi.ret == Repr::Mem {
-            params.push(ptr);
+        match abi.pass_ret {
+            Pass::Indirect { ty, .. } => params.push((ptr, Some(Attr::Type { name: "sret".into(), ty }))),
+            _ if abi.sret() => params.push((ptr, None)),
+            _ => {}
         }
-        for a in &abi.args {
-            match a {
-                Repr::Zst => {}
-                Repr::Imm(t) => params.push(*t),
-                Repr::Mem => params.push(ptr),
+        for (a, p) in abi.args.iter().zip(&abi.pass) {
+            match (a, p) {
+                (_, Pass::Direct(pieces)) => params.extend(pieces.iter().map(|&(_, t)| (t, None))),
+                (_, Pass::Indirect { ty, byval: true }) => params.push((ptr, Some(Attr::Type { name: "byval".into(), ty: *ty }))),
+                (_, Pass::Indirect { .. }) => params.push((ptr, None)),
+                (Repr::Zst, _) => {}
+                (Repr::Imm(t), _) => params.push((*t, None)),
+                (Repr::Mem, _) => params.push((ptr, None)),
             }
         }
-        let ret = match abi.ret {
-            Repr::Imm(t) => t,
+        let ret = match (&abi.pass_ret, abi.ret) {
+            (Pass::Direct(pieces), _) if pieces.len() == 1 => pieces[0].1,
+            (Pass::Direct(pieces), _) => {
+                let tys: Vec<TypeId> = pieces.iter().map(|p| p.1).collect();
+                m.types.struct_of(&tys)
+            }
+            // System V's callee gives back the address it wrote at.
+            (Pass::Indirect { byval: true, .. }, _) => ptr,
+            (_, Repr::Imm(t)) => t,
             _ => m.types.void(),
         };
         (ret, params)
+    }
+
+    /// A function of this ABI, named `name`, to declare or define.
+    pub fn fn_spec(m: &mut Module, name: &str, abi: &FnAbi) -> epitome_ir::build::FunctionSpec {
+        let (ret, params) = Cx::ir_params(m, abi);
+        let mut spec = IrFunction::builder(name).returns(ret);
+        for (p, a) in params {
+            spec = spec.param("", p);
+            if let Some(a) = a {
+                spec = spec.param_attribute(a);
+            }
+        }
+        if abi.variadic {
+            spec = spec.varargs();
+        }
+        spec
     }
 
     /// The signature of function `d` at `args`, made concrete.
@@ -300,7 +588,7 @@ impl<'a, 's> Cx<'a, 's> {
         let sig = self.tcx.sig_of(s);
         let mut inputs = vec![self.tcx.mk(TyKind::Ref(crate::ty::Mutbl::Mut, t))];
         inputs.extend(self.tcx.tys(sig.inputs));
-        self.abi(m, inputs, sig.output, false)
+        self.abi(m, inputs, sig.output, false, false)
     }
 
     /// A description of `t` that tells any two types apart and is the same
@@ -467,7 +755,7 @@ impl Session {
         };
         let drops = crate::drops::DropInfo::new(tcx);
         let mut cx =
-            Cx { tcx, r, crates, typeck, index, lcx, fns: FastMap::default(), statics: FastMap::default(), drops, owning: Default::default(), fnptr: FastMap::default(), once: FastMap::default() };
+            Cx { tcx, r, crates, typeck, index, lcx, fns: FastMap::default(), statics: FastMap::default(), drops, owning: Default::default(), fnptr: FastMap::default(), once: FastMap::default(), target };
         let mut failures = Vec::new();
         let mut solver = cx.solver();
 
@@ -509,7 +797,7 @@ impl Session {
                 Item::Fn(d, _) | Item::Foreign(d) => {
                     let l = if let Item::Fn(_, l) = *it { l } else { tcx.list(Vec::new()) };
                     let args = tcx.tys(l);
-                    let abi = cx.signature(&mut solver, d, &args).and_then(|(i, o, _, v)| cx.abi(&mut m, i, o, v));
+                    let abi = cx.signature(&mut solver, d, &args).and_then(|(i, o, c, v)| cx.abi(&mut m, i, o, v, c));
                     let abi = match abi {
                         Ok(a) => a,
                         Err(e) => {
@@ -525,19 +813,12 @@ impl Session {
                     if foreign && name.starts_with("llvm.") && (abi.ret == Repr::Mem || abi.args.contains(&Repr::Mem)) {
                         continue;
                     }
-                    let (ret, params) = Cx::ir_fn_type(&mut m, &abi);
                     let (_, _, ast, node) = cx.def_ast(d);
                     let exported = foreign
                         || crate::session::has_attribute(ast, node, "no_mangle")
                         || crate::session::has_attribute(ast, node, "rustc_std_internal_symbol")
                         || crate::session::attribute_value(ast, node, "export_name").is_some();
-                    let mut spec = IrFunction::builder(name).returns(ret);
-                    for p in params {
-                        spec = spec.param("", p);
-                    }
-                    if abi.variadic {
-                        spec = spec.varargs();
-                    }
+                    let mut spec = Cx::fn_spec(&mut m, name, &abi);
                     if !exported {
                         spec = spec.linkage(Linkage::Internal);
                     }
@@ -565,7 +846,7 @@ impl Session {
                     if typeck.captures.get(&c).is_none_or(|v| v.is_empty())
                         && let Ok(TyKind::Closure(_, s, _)) = cx.closure_ty(&mut solver, c, d, l).map(|t| tcx.kind(t))
                         && let sig = tcx.sig_of(s)
-                        && let Ok(abi) = cx.abi(&mut m, tcx.tys(sig.inputs), sig.output, false)
+                        && let Ok(abi) = cx.abi(&mut m, tcx.tys(sig.inputs), sig.output, false, false)
                     {
                         let fname = format!("{name}.fnptr");
                         let (ret, params) = Cx::ir_fn_type(&mut m, &abi);
@@ -581,7 +862,7 @@ impl Session {
                     // `fn(*mut T)`.
                     let unit = tcx.mk(TyKind::Tuple(tcx.list(Vec::new())));
                     let pt = tcx.mk(TyKind::Ptr(crate::ty::Mutbl::Mut, t));
-                    let abi = match cx.abi(&mut m, vec![pt], unit, false) {
+                    let abi = match cx.abi(&mut m, vec![pt], unit, false, false) {
                         Ok(a) => a,
                         Err(e) => {
                             failures.push(Failure { item: *it, name: name.clone(), why: e });
@@ -791,7 +1072,7 @@ fn once_shim(m: &mut Module, shim: &Decl, closure: &Decl, drop: Option<&Decl>) {
     let r = b.call(closure.g, &args);
     if let Some(d) = drop {
         // The captures' address: the first argument after the result's.
-        let env = args[(shim.abi.ret == Repr::Mem) as usize];
+        let env = args[shim.abi.sret() as usize];
         b.call(d.g, &[env]);
     }
     match r {
@@ -816,7 +1097,7 @@ fn fnptr_thunk(m: &mut Module, thunk: &Decl, closure: &Decl) {
     let null = b.module().const_zero(ptr);
     let mut args: Vec<_> = (0..params.len()).map(|i| b.param(i)).collect();
     // After the result's address, if it is returned in memory.
-    let at = (thunk.abi.ret == Repr::Mem) as usize;
+    let at = thunk.abi.sret() as usize;
     if closure.abi.args.first().is_some_and(|r| *r != Repr::Zst) {
         args.insert(at, null);
     }
@@ -1025,6 +1306,12 @@ fn global_ctors(m: &mut Module, fs: &[GlobalId]) {
     let ty = m.types.array(entries.len() as u64, entry);
     let init = Value::Const(m.consts.intern(Constant { ty, kind: ConstKind::Array(entries) }));
     epitome_ir::module::Global::builder("llvm.global_ctors").init(init).linkage(Linkage::Appending).build(m);
+}
+
+/// An array of `size` bytes, for `sret` and `byval`.
+fn bytes_type(m: &mut Module, size: u64) -> TypeId {
+    let i8t = m.types.int(8);
+    m.types.array(size, i8t)
 }
 
 /// `fn path<args>`, with the source location.

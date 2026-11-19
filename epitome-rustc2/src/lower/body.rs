@@ -2,7 +2,7 @@
 //! statements, control flow and calls. Patterns are in `pat.rs`, and
 //! intrinsics in `intrinsic.rs`.
 
-use super::{Cx, Decl, Repr, is_prim};
+use super::{Cx, Decl, Pass, Repr, is_prim};
 use crate::ast::{Ast, Kind, NodeId};
 use crate::hash::FastMap;
 use crate::layout::{Fields, Layout};
@@ -62,11 +62,15 @@ pub(crate) struct Body<'a, 's> {
 }
 
 /// Where `return` puts the result.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum Ret {
     Void,
     Imm,
-    Sret(Value),
+    /// Written at this address; given back too (System V's C convention)
+    /// if `true`.
+    Sret(Value, bool),
+    /// The C convention's pieces, in registers.
+    Pieces(Vec<(u64, TypeId)>),
 }
 
 /// A loop or labelled block that `break` can leave.
@@ -153,14 +157,7 @@ pub(crate) fn lower_fn(cx: &Cx, m: &mut Module, it: Item, decl: &Decl, owns_env:
         Some(_) => *ast.children(node).last().ok_or("closure without a body")?,
         None => ast.child(node, Kind::Block).ok_or("no body")?,
     };
-    let (ret, params) = Cx::ir_fn_type(m, &decl.abi);
-    let mut spec = IrFunction::builder(&decl.name).returns(ret);
-    for p in &params {
-        spec = spec.param("", *p);
-    }
-    if decl.abi.variadic {
-        spec = spec.varargs();
-    }
+    let mut spec = Cx::fn_spec(m, &decl.name, &decl.abi);
     let linkage = m.global(decl.g).props.linkage;
     if linkage != Linkage::External {
         spec = spec.linkage(linkage);
@@ -178,13 +175,18 @@ pub(crate) fn lower_fn(cx: &Cx, m: &mut Module, it: Item, decl: &Decl, owns_env:
     let mut fx = Fx::new(cx, b, body, decl.abi.output, &decl.name);
     let first = fx.b.current_block().expect("the body block");
     let mut ir_param = 0;
-    fx.ret = match decl.abi.ret {
-        Repr::Mem => {
+    fx.ret = match (&decl.abi.pass_ret, decl.abi.ret) {
+        (Pass::Direct(pieces), _) => Ret::Pieces(pieces.clone()),
+        (Pass::Indirect { byval, .. }, _) => {
             ir_param = 1;
-            Ret::Sret(fx.b.param(0))
+            Ret::Sret(fx.b.param(0), *byval)
         }
-        Repr::Imm(_) => Ret::Imm,
-        Repr::Zst => Ret::Void,
+        (_, Repr::Mem) => {
+            ir_param = 1;
+            Ret::Sret(fx.b.param(0), false)
+        }
+        (_, Repr::Imm(_)) => Ret::Imm,
+        (_, Repr::Zst) => Ret::Void,
     };
     // The parameters: each is copied into a slot of its own, then its
     // pattern binds from there. A closure's first is its captures.
@@ -229,18 +231,35 @@ pub(crate) fn lower_fn(cx: &Cx, m: &mut Module, it: Item, decl: &Decl, owns_env:
         // Each parameter is owned by the function, and dropped after its
         // body's locals.
         let root = if fx.needs_drop(t) { Some(fx.owned(slot, 0)?) } else { None };
-        match decl.abi.args[i + skip] {
-            Repr::Imm(_) => {
-                let v = fx.b.param(ir_param);
-                ir_param += 1;
-                fx.store(Operand { ty: t, v: Val::Imm(v) }, slot)?;
+        match (&decl.abi.pass[i + skip], decl.abi.args[i + skip]) {
+            // The C convention's pieces: stored, side by side, and copied
+            // from there.
+            (Pass::Direct(pieces), _) => {
+                let buf = fx.pieces_slot(t, pieces)?;
+                for (k, &(off, ty)) in pieces.iter().enumerate() {
+                    let v = fx.b.param(ir_param + k);
+                    let at = fx.offset(buf, off);
+                    fx.store_piece(v, ty, at);
+                }
+                ir_param += pieces.len();
+                fx.store(Operand { ty: t, v: Val::Mem(buf) }, slot)?;
             }
-            Repr::Mem => {
+            (Pass::Indirect { .. }, _) => {
                 let v = fx.b.param(ir_param);
                 ir_param += 1;
                 fx.store(Operand { ty: t, v: Val::Mem(v) }, slot)?;
             }
-            Repr::Zst => {}
+            (_, Repr::Imm(_)) => {
+                let v = fx.b.param(ir_param);
+                ir_param += 1;
+                fx.store(Operand { ty: t, v: Val::Imm(v) }, slot)?;
+            }
+            (_, Repr::Mem) => {
+                let v = fx.b.param(ir_param);
+                ir_param += 1;
+                fx.store(Operand { ty: t, v: Val::Mem(v) }, slot)?;
+            }
+            (_, Repr::Zst) => {}
         }
         match ast.kind(p) {
             Kind::SelfParam => {
@@ -277,14 +296,7 @@ pub(crate) fn lower_fn(cx: &Cx, m: &mut Module, it: Item, decl: &Decl, owns_env:
 
 /// Replaces `decl`'s body (or declaration) with one that traps.
 pub(crate) fn trap_body(m: &mut Module, decl: &Decl) {
-    let (ret, params) = Cx::ir_fn_type(m, &decl.abi);
-    let mut spec = IrFunction::builder(&decl.name).returns(ret);
-    for p in &params {
-        spec = spec.param("", *p);
-    }
-    if decl.abi.variadic {
-        spec = spec.varargs();
-    }
+    let mut spec = Cx::fn_spec(m, &decl.name, &decl.abi);
     let linkage = m.global(decl.g).props.linkage;
     if linkage != Linkage::External {
         spec = spec.linkage(linkage);
@@ -1147,7 +1159,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         let at = self.offset(vt, (3 + slot as u64) * ps);
         let f = self.load_imm(ptr, at, ps);
         // The method's own `self` is a thin pointer to the value.
-        let (mut inputs, output, _, variadic) = self.cx.signature(&mut self.solver, d, &targs)?;
+        let (mut inputs, output, c, variadic) = self.cx.signature(&mut self.solver, d, &targs)?;
         let thin = tcx.mk(TyKind::Ptr(Mutbl::Not, tcx.mk(TyKind::Uint(UintTy::U8))));
         inputs[0] = thin;
         args[0] = Operand { ty: thin, v: Val::Imm(p.addr) };
@@ -1165,7 +1177,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 inputs.push(t);
             }
         }
-        let abi = self.cx.abi(self.b.module(), inputs, output, variadic)?;
+        let abi = self.cx.abi(self.b.module(), inputs, output, variadic, c)?;
         let (ret, params) = Cx::ir_fn_type(self.b.module(), &abi);
         let fty = self.b.module().types.function(ret, &params, abi.variadic);
         self.emit_call(&abi, |b, a| b.call_indirect(fty, f, a), args)
@@ -1473,7 +1485,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             return Ok(());
         }
         let o = self.operand_of(v)?;
-        match self.ret {
+        match self.ret.clone() {
             Ret::Void => {
                 self.drop_scopes_to(0)?;
                 if !self.terminated() {
@@ -1492,16 +1504,126 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                     }
                 }
             }
-            Ret::Sret(p) => {
+            Ret::Sret(p, give) => {
                 let rt = self.ret_ty;
                 self.store(Operand { ty: rt, v: o.v }, Place { addr: p, meta: None, ty: rt })?;
                 self.drop_scopes_to(0)?;
                 if !self.terminated() {
-                    self.b.ret_void();
+                    if give { self.b.ret(p) } else { self.b.ret_void() }
+                }
+            }
+            Ret::Pieces(pieces) => {
+                if matches!(o.v, Val::Zst) {
+                    self.b.unreachable();
+                    return Ok(());
+                }
+                // Copied out of the way of what is dropped, then loaded
+                // as the pieces.
+                let rt = self.ret_ty;
+                let buf = self.pieces_slot(rt, &pieces)?;
+                self.store(o, Place { addr: buf, meta: None, ty: rt })?;
+                self.drop_scopes_to(0)?;
+                if !self.terminated() {
+                    let v = self.load_pieces(buf, &pieces);
+                    self.b.ret(v);
                 }
             }
         }
         Ok(())
+    }
+
+    /// A stack slot for a value of type `t` passed as C's `pieces`: room
+    /// for both, aligned for both.
+    pub fn pieces_slot(&mut self, t: Ty, pieces: &[(u64, TypeId)]) -> R<Value> {
+        let l = self.layout(t)?;
+        let mut size = l.size;
+        let mut align = l.align.max(1);
+        for &(off, ty) in pieces {
+            let (n, a) = self.piece_size(ty);
+            size = size.max(off + n);
+            align = align.max(a);
+        }
+        let i8t = self.i8t();
+        let arr = self.b.module().types.array(size.max(1), i8t);
+        let here = self.b.current_block();
+        self.b.at(self.entry);
+        let ptr = self.ptr_t();
+        let addr = self.b.push(Op::Alloca { inalloca: false, ty: arr, count: None, align: Align::new(align), addrspace: None }, Some(ptr)).unwrap();
+        if let Some(h) = here {
+            self.b.at(h);
+        }
+        Ok(addr)
+    }
+
+    /// The size and alignment of a piece (`i64`, `double`, `[2 x i64]`,
+    /// `[3 x float]`).
+    fn piece_size(&mut self, ty: TypeId) -> (u64, u64) {
+        use epitome_ir::types::Type;
+        match self.b.module().types.get(ty).clone() {
+            Type::Array { len, elem } => {
+                let (n, a) = self.piece_size(elem);
+                (n * len, a)
+            }
+            Type::Int(b) => ((b as u64 / 8).max(1), (b as u64 / 8).max(1)),
+            Type::Float => (4, 4),
+            _ => (8, 8),
+        }
+    }
+
+    /// Stores piece `v` (of type `ty`) at `at`: an array's elements one by
+    /// one.
+    pub fn store_piece(&mut self, v: Value, ty: TypeId, at: Value) {
+        use epitome_ir::types::Type;
+        if let Type::Array { len, elem } = self.b.module().types.get(ty).clone() {
+            let (n, _) = self.piece_size(elem);
+            for k in 0..len {
+                let e = self.b.extract_value(v, &[k as u32]);
+                let a = self.offset(at, k * n);
+                self.store_piece(e, elem, a);
+            }
+            return;
+        }
+        let (_, a) = self.piece_size(ty);
+        self.store_imm(v, at, a);
+    }
+
+    /// Loads a piece of type `ty` from `at`: an array's elements one by
+    /// one.
+    pub fn load_piece(&mut self, ty: TypeId, at: Value) -> Value {
+        use epitome_ir::types::Type;
+        if let Type::Array { len, elem } = self.b.module().types.get(ty).clone() {
+            let (n, _) = self.piece_size(elem);
+            let mut v = self.b.module().poison(ty);
+            for k in 0..len {
+                let a = self.offset(at, k * n);
+                let e = self.load_piece(elem, a);
+                v = self.b.insert_value(v, e, &[k as u32]);
+            }
+            return v;
+        }
+        let (_, a) = self.piece_size(ty);
+        self.load_imm(ty, at, a)
+    }
+
+    /// The pieces at `buf` as one value: the piece, or a struct of them.
+    fn load_pieces(&mut self, buf: Value, pieces: &[(u64, TypeId)]) -> Value {
+        let vals: Vec<Value> = pieces
+            .iter()
+            .map(|&(off, ty)| {
+                let at = self.offset(buf, off);
+                self.load_piece(ty, at)
+            })
+            .collect();
+        if let [v] = vals[..] {
+            return v;
+        }
+        let tys: Vec<TypeId> = pieces.iter().map(|p| p.1).collect();
+        let st = self.b.module().types.struct_of(&tys);
+        let mut v = self.b.module().poison(st);
+        for (k, e) in vals.into_iter().enumerate() {
+            v = self.b.insert_value(v, e, &[k as u32]);
+        }
+        v
     }
 
     fn block(&mut self, n: NodeId) -> R<Pv> {
@@ -2956,7 +3078,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         let TyKind::FnPtr(s) = tcx.kind(callee.ty) else { return Err("not a function pointer".into()) };
         let sig = tcx.sig_of(s);
         let inputs: Vec<Ty> = tcx.tys(sig.inputs);
-        let abi = self.cx.abi(self.b.module(), inputs, sig.output, sig.variadic)?;
+        let abi = self.cx.abi(self.b.module(), inputs, sig.output, sig.variadic, sig.abi == crate::ty::Abi::C)?;
         let (ret, params) = Cx::ir_fn_type(self.b.module(), &abi);
         let fty = self.b.module().types.function(ret, &params, abi.variadic);
         let target = self.imm(callee)?;
@@ -3099,18 +3221,50 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             return Ok(Pv::Val(Operand { ty: abi.output, v: Val::Zst }));
         }
         let mut ir_args = Vec::new();
-        let dst = match abi.ret {
-            Repr::Mem => {
-                let p = self.temp(abi.output)?;
-                ir_args.push(p.addr);
-                Some(p)
+        // The `sret` and `byval` arguments, by index, with their types.
+        let mut attrs = Vec::new();
+        let dst = if abi.sret() {
+            let p = self.temp(abi.output)?;
+            if let Pass::Indirect { ty, .. } = abi.pass_ret {
+                attrs.push((ir_args.len(), epitome_ir::module::Attr::Type { name: "sret".into(), ty }));
             }
-            _ => None,
+            ir_args.push(p.addr);
+            Some(p)
+        } else {
+            None
         };
         if args.len() < abi.args.len() || (!abi.variadic && args.len() != abi.args.len()) {
             return Err("wrong number of arguments".into());
         }
         for (i, o) in args.iter().enumerate() {
+            match abi.pass.get(i) {
+                // The C convention's pieces: the value copied to a slot
+                // with room for them, and loaded from there.
+                Some(Pass::Direct(pieces)) => {
+                    let buf = self.pieces_slot(o.ty, pieces)?;
+                    self.store(*o, Place { addr: buf, meta: None, ty: o.ty })?;
+                    for &(off, ty) in pieces {
+                        let at = self.offset(buf, off);
+                        let v = self.load_piece(ty, at);
+                        ir_args.push(v);
+                    }
+                    continue;
+                }
+                // System V's copy is the code generator's to make; any
+                // other is the caller's.
+                Some(Pass::Indirect { ty, byval: true }) => {
+                    attrs.push((ir_args.len(), epitome_ir::module::Attr::Type { name: "byval".into(), ty: *ty }));
+                    ir_args.push(self.mem(*o)?);
+                    continue;
+                }
+                Some(Pass::Indirect { .. }) => {
+                    let p = self.temp(o.ty)?;
+                    self.store(*o, p)?;
+                    ir_args.push(p.addr);
+                    continue;
+                }
+                _ => {}
+            }
             match abi.args.get(i) {
                 Some(Repr::Zst) => {}
                 Some(Repr::Imm(_)) => ir_args.push(self.imm(*o)?),
@@ -3123,11 +3277,32 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             }
         }
         let got = call(&mut self.b, &ir_args);
+        if !attrs.is_empty()
+            && let Some(bb) = self.b.current_block()
+        {
+            let f = self.b.function_mut();
+            let last = *f.blocks[bb.index()].insts.last().expect("the call");
+            if let Op::Call(c) = &mut f.insts[last.index()].op {
+                for (k, a) in attrs {
+                    c.args[k].attrs.push(a);
+                }
+            }
+        }
         let tcx = self.cx.tcx;
         if self.layout(abi.output)?.is_uninhabited() {
             self.b.unreachable();
             self.dead();
             return Ok(Pv::Val(Operand { ty: tcx.mk(TyKind::Never), v: Val::Zst }));
+        }
+        if let Pass::Direct(pieces) = &abi.pass_ret {
+            let v = got.ok_or("call without a value")?;
+            let buf = self.pieces_slot(abi.output, pieces)?;
+            for (k, &(off, ty)) in pieces.iter().enumerate() {
+                let e = if pieces.len() == 1 { v } else { self.b.extract_value(v, &[k as u32]) };
+                let at = self.offset(buf, off);
+                self.store_piece(e, ty, at);
+            }
+            return Ok(Pv::Val(Operand { ty: abi.output, v: Val::Mem(buf) }));
         }
         Ok(match (abi.ret, dst) {
             (Repr::Imm(_), _) => Pv::Val(Operand { ty: abi.output, v: Val::Imm(got.ok_or("call without a value")?) }),

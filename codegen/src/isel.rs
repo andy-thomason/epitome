@@ -2417,6 +2417,12 @@ impl<'a, 'b> Sel<'a, 'b> {
         loop {
             match cur {
                 Value::Local(x) => {
+                    // A parameter's registers, where the chain starts from
+                    // one (`insertvalue [2 x i64] %0, i64 %v, 1`).
+                    if let Some(regs) = self.agg_params.get(&x) {
+                        base = Some(regs.clone());
+                        break;
+                    }
                     let LocalDef::Inst(d) = self.f.locals[x.index()].def else {
                         return self.err("a struct value of unknown parts");
                     };

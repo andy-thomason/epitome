@@ -1285,6 +1285,8 @@ What a program with `std` needs beyond its code:
   | internal symbols only where named | 120 KB | 229 KB |
   | and `-C panic=immediate-abort` | 61 KB | 147 KB |
   | panics with messages (default) | 262 KB | 490 KB |
+  | and `std` without `debug_assertions` | 245 KB | 443 KB |
+  | the same with `-O0` (`std` still optimised) | 245 KB | 443 KB |
   | and `-C panic=immediate-abort` | 47 KB | 109 KB |
   | rustc (`-O`, its precompiled `std`) | | 458 KB |
 
@@ -1295,6 +1297,23 @@ What a program with `std` needs beyond its code:
   (the main thread's handle, `Once`s, the stack overflow guard's setup),
   stdout's lock and line buffer, and `fmt::write`; much of the file is
   page padding and the symbol table.
+- **Optimisation levels by crate.** Each crate has its own level: the
+  standard library's crates (those from rust-src) 2, the others
+  `-C opt-level` (`-O0` is 0), and any crate `--crate-opt name=level`.
+  The standard library's crates are also built without
+  `debug_assertions`, as rustc's prebuilt `std` is, while the program
+  keeps them. Lowering gives each function the level of the crate its
+  code is written in (`"epitome-opt-level"`): a generic function of `std`
+  is optimised as `std` is at whatever types the program uses it, where
+  rustc optimises an instance as the crate that uses it is (so its debug
+  builds run `Vec<T>` unoptimised). Drop glue and shims get the program's
+  level (2 if that is 0). epitome-opt takes a function at level 0 out of
+  the module while it optimises the rest, with what it refers to treated
+  as visible to other modules meanwhile (so nothing it calls is deleted
+  or changed); the other levels set the inliner's limits for that
+  function as a caller. The whole module is still one object: a `-O0`
+  hello world builds in 2.8 s, with `std` optimised, where it took 2.75 s
+  and was twice the size with nothing optimised.
 - **Weak symbols.** `#[linkage = "extern_weak"] static f: Option<fn ...>`
   (`std`'s `weak!`, for `gettid`) is the address of the symbol `f`, null
   if nothing defines it, not a load from it.

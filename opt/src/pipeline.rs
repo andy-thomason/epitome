@@ -134,9 +134,42 @@ pub struct Report {
 /// the module while it is optimised, so that no pass reads, changes or
 /// inlines them, and a call to one is a call to a declaration, which may
 /// read and write any memory its own attributes allow.
+///
+/// A function with `"epitome-opt-level"="0"` (a crate built without
+/// optimisation, beside others built with it) is left as it is, the same
+/// way. What its body refers to is treated as visible to other modules
+/// while the rest is optimised, so that nothing it calls or uses is
+/// deleted, or changed on the assumption that every use is known. Other
+/// levels (`1`, `2`, `3`, `s`, `z`) set the inliner's limits for that
+/// function as a caller (see `InlineParams::for_caller`).
 pub fn run(m: &mut Module, opts: &Options) -> Report {
-    let fenced = take_opaque_bodies(m);
+    let mut fenced = take_opaque_bodies(m);
+    let unoptimised = take_unoptimised_bodies(m);
+    // What the unoptimised bodies refer to, made external for the while.
+    let mentions = crate::callgraph::const_mentions(&m.consts);
+    let mut pinned: Vec<(GlobalId, Linkage)> = Vec::new();
+    for (_, body) in &unoptimised {
+        for b in &body.blocks {
+            for &i in &b.insts {
+                body.insts[i.index()].op.for_each_value(|v| {
+                    if let Value::Const(c) = v {
+                        for &g in &mentions[c.index()] {
+                            let l = m.globals[g.index()].props.linkage;
+                            if matches!(l, Linkage::Internal | Linkage::Private) {
+                                pinned.push((g, l));
+                                m.globals[g.index()].props.linkage = Linkage::External;
+                            }
+                        }
+                    }
+                });
+            }
+        }
+    }
+    fenced.extend(unoptimised);
     let report = optimise(m, opts);
+    for (g, l) in pinned {
+        m.globals[g.index()].props.linkage = l;
+    }
     for (g, body) in fenced {
         if let GlobalKind::Function(f) = &mut m.globals[g.index()].kind {
             f.locals = body.locals;
@@ -152,12 +185,23 @@ pub fn run(m: &mut Module, opts: &Options) -> Report {
 /// The bodies of `m`'s `"epitome-opaque"` functions, taken out, which
 /// leaves each a declaration (its parameters stay).
 fn take_opaque_bodies(m: &mut Module) -> Vec<(GlobalId, Function)> {
+    take_bodies(m, |m, f| epitome_ir::fits::opaque(m, &f.fn_attrs))
+}
+
+/// The bodies of `m`'s functions at `"epitome-opt-level"="0"`, taken out.
+fn take_unoptimised_bodies(m: &mut Module) -> Vec<(GlobalId, Function)> {
+    take_bodies(m, |m, f| attrs::string(m, &f.fn_attrs, "epitome-opt-level") == Some(b"0"))
+}
+
+/// The bodies of the functions `which` picks, taken out, which leaves each
+/// a declaration (its parameters stay).
+fn take_bodies(m: &mut Module, which: impl Fn(&Module, &Function) -> bool) -> Vec<(GlobalId, Function)> {
     let opaque: Vec<GlobalId> = m
         .global_order
         .iter()
         .copied()
         .filter(|&g| match &m.globals[g.index()].kind {
-            GlobalKind::Function(f) => f.has_body && epitome_ir::fits::opaque(m, &f.fn_attrs),
+            GlobalKind::Function(f) => f.has_body && which(m, f),
             _ => false,
         })
         .collect();

@@ -2815,9 +2815,11 @@ impl<'d, 'a> Lowering<'d, 'a> {
             }
             let rolled = if end - at >= ROLL_MIN && big() { self.roll(&iters[at..end]) } else { None };
             match rolled {
-                Some(r) => {
-                    code.push(Node::Loop(self.loops.len()));
-                    self.loops.push(r);
+                Some(rs) => {
+                    for r in rs {
+                        code.push(Node::Loop(self.loops.len()));
+                        self.loops.push(r);
+                    }
                 }
                 None => {
                     for &i in &iters[at..end] {
@@ -2924,9 +2926,12 @@ impl<'d, 'a> Lowering<'d, 'a> {
         }
     }
 
-    /// The iterations as one loop, if every one's code is the first's with
-    /// parameters that step evenly.
-    fn roll(&self, iters: &[ScopeId]) -> Option<Rolled> {
+    /// The iterations as loops, if every one's code is the first's with
+    /// parameters that step evenly: a loop for each set of its assignments
+    /// that share a value declared in the iteration, so that assignments
+    /// that do not wait on each other are not one node of the order (where
+    /// they could make a loop of nodes that the bits do not).
+    fn roll(&self, iters: &[ScopeId]) -> Option<Vec<Rolled>> {
         let d = self.d;
         let mut drivers = Vec::new();
         let mut params = Vec::new();
@@ -2999,7 +3004,61 @@ impl<'d, 'a> Lowering<'d, 'a> {
             }
         }
         in_range.extend(ok.into_iter().filter(|e| e.1).map(|e| e.0));
-        Some(Rolled { count: n as u32, body: drivers[0].clone(), steps, all: drivers.concat(), in_range })
+        // The assignments joined by the iteration's own values.
+        let locals: HashSet<ObjId> = params[0].iter().copied().filter(|&o| d.object(o).value.is_none()).collect();
+        let m = drivers[0].len();
+        let mut up: Vec<usize> = (0..m).collect();
+        fn root(up: &mut [usize], k: usize) -> usize {
+            let mut k = k;
+            while up[k] != k {
+                up[k] = up[up[k]];
+                k = up[k];
+            }
+            k
+        }
+        let mut first: HashMap<ObjId, usize> = HashMap::new();
+        for (k, &dr) in drivers[0].iter().enumerate() {
+            let drv = &d.drivers[dr.0 as usize];
+            let (mut r, mut w) = (Vec::new(), Vec::new());
+            self.reads(drv.rhs, &mut r);
+            self.writes(drv.lhs, &mut w, &mut r);
+            for (o, _, _) in r.into_iter().chain(w) {
+                if !locals.contains(&o) {
+                    continue;
+                }
+                match first.get(&o) {
+                    Some(&j) => {
+                        let (a, b) = (root(&mut up, j), root(&mut up, k));
+                        up[a.max(b)] = a.min(b);
+                    }
+                    None => {
+                        first.insert(o, k);
+                    }
+                }
+            }
+        }
+        let mut groups: Vec<Vec<usize>> = Vec::new();
+        let mut at: HashMap<usize, usize> = HashMap::new();
+        for k in 0..m {
+            let r = root(&mut up, k);
+            let g = *at.entry(r).or_insert_with(|| {
+                groups.push(Vec::new());
+                groups.len() - 1
+            });
+            groups[g].push(k);
+        }
+        Some(
+            groups
+                .into_iter()
+                .map(|g| Rolled {
+                    count: n as u32,
+                    body: g.iter().map(|&k| drivers[0][k]).collect(),
+                    steps: steps.clone(),
+                    all: drivers.iter().flat_map(|dv| g.iter().map(|&k| dv[k])).collect(),
+                    in_range: in_range.clone(),
+                })
+                .collect(),
+        )
     }
 
     /// A function's variables, its formals among them: those declared in

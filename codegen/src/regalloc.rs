@@ -11,9 +11,11 @@
 //! and every caller-saved register at each call. Values live across a call
 //! therefore end up in callee-saved registers. Copies give hints, so that a
 //! copy's two sides often share a register and the copy disappears.
-//! Before that, the two sides of a copy whose live ranges never meet are
-//! made one value (coalescing); where the allocation then spills, the one
-//! without coalescing is made too, and the smaller kept.
+//! Before that, copies into values nothing reads go, and the two sides of
+//! a copy whose live ranges never meet, or meet holding the same value
+//! (neither written where the other is live), are made one value
+//! (coalescing); where the allocation then spills, the one without
+//! coalescing is made too, and the smaller kept.
 //!
 //! Lists of registers (`st2 {z3.s, z4.s}`) are placed before anything
 //! else: selection copies each member into a value of its own, the list's
@@ -25,15 +27,18 @@
 //!
 //! When no register is free, a value may take one from values that are
 //! cheaper to spill: those whose uses are sparser over their ranges (their
-//! weight, uses and definitions over length, is less), which then try
-//! again (each is moved so at most once). Otherwise the value goes to a
+//! weight, uses and definitions over length, is less; a quarter of that
+//! for a constant or address, made again at each use if spilled), which
+//! then try again (each is moved so at most once). Otherwise the value goes to a
 //! stack slot and is stored after each definition, so that memory always
 //! has it. Its range is then split by blocks: a register free for all of
 //! its stretch in a block may hold it there, chosen where the reads it
 //! saves (weighted by loop depth) outweigh the loads entering those
 //! blocks take (`split_by_blocks`). In the rest of its blocks it is
 //! loaded into a scratch register (`x16`, `x17`, `x15`) before each use,
-//! or once for a run of uses where a register is free between them.
+//! or once for a run of uses where a register is free between them; or,
+//! where the instruction has a form that reads that operand from memory
+//! (x86's `addq 8(%rsp), %rax`, `Target::folds`), read from its slot.
 
 use std::collections::{HashMap, HashSet};
 
@@ -152,6 +157,7 @@ fn allocate_as(t: &Target, f: &mut MFunc, try_scratch: bool) -> Result<(), Strin
 /// `bail` set, gives up (`false`) instead of spilling.
 fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Result<bool, String> {
     record_copy_classes(f);
+    dead_copies(t, f);
     let m = &t.machine;
     let abi = f.abi.clone();
     let caller_saved = abi.caller_saved();
@@ -228,8 +234,10 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
     let mut segs: Vec<Vec<Interval>> = vec![Vec::new(); nv];
     let mut fixed: HashMap<u8, Vec<Interval>> = HashMap::new();
     let mut hints: Vec<Vec<Reg>> = vec![Vec::new(); nv];
-    // Each value's uses and definitions, for its weight.
+    // Each value's uses and definitions, for its weight, and where it is
+    // written.
     let mut occ: Vec<u32> = vec![0; nv];
+    let mut defpos: Vec<Vec<u32>> = vec![Vec::new(); nv];
     let mut calls: Vec<u32> = Vec::new();
     let mut idx = 0u32;
     for (bi, b) in f.blocks.iter().enumerate() {
@@ -275,6 +283,7 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
                 match *r {
                     Reg::V(v) => {
                         occ[v as usize] += 1;
+                        defpos[v as usize].push(dp);
                         widen(&mut local, v, dp)
                     }
                     Reg::P(p) if allocatable(p) => {
@@ -385,7 +394,7 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
     }
 
     if coalescing {
-        coalesce(f, &mut segs, &mut hints, &mut occ, &in_list, &mut weak);
+        coalesce(f, &mut segs, &mut hints, &mut occ, &in_list, &mut weak, &mut defpos);
     }
     // Each list member's value copied into it (after coalescing, which
     // renames them): a value may share a register with its own copies, as
@@ -421,9 +430,51 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
         }
     }
     let mut owners: HashMap<u8, std::collections::BTreeMap<u32, (u32, VReg)>> = HashMap::new();
+    // Values made by one instruction from nothing but immediates and
+    // symbols (a constant, an address), which reads no register, memory or
+    // flags and changes nothing else: if spilled, they are made again
+    // before each use instead (rematerialisation).
+    let pure: HashMap<VReg, MInst> = {
+        let mut defs_of: HashMap<VReg, Vec<&MInst>> = HashMap::new();
+        for b in &f.blocks {
+            for inst in &b.insts {
+                let (defs, _) = regs_of(t, inst);
+                for r in defs {
+                    if let Reg::V(v) = r {
+                        defs_of.entry(v).or_default().push(inst);
+                    }
+                }
+            }
+        }
+        defs_of
+            .into_iter()
+            .filter_map(|(v, ds)| {
+                let [d] = &ds[..] else { return None };
+                let Opcode::Instr(k) = d.op else { return None };
+                let ins = &t.instrs[k];
+                // (Nor one that reads the flags: x86's setcc, whose only
+                // operand is its condition.)
+                let pure = !ins.memory
+                    && !ins.operands.iter().any(|o| o.kind == crate::target::Kind::Cond)
+                    && ins.sets.is_none()
+                    && !ins.clobbers_flags
+                    && ins.clobbers.is_empty()
+                    && !ins.second_result
+                    && d.imp_defs.is_empty()
+                    && d.imp_uses.is_empty()
+                    && !d.barrier
+                    && d.ops.first() == Some(&MOp::Reg(Reg::V(v)))
+                    && d.ops[1..].iter().all(|o| matches!(o, MOp::Imm(_) | MOp::Sym(_)));
+                pure.then(|| (v, (*d).clone()))
+            })
+            .collect()
+    };
+    // (One made again where it is used costs an instruction a use if
+    // spilled, not a load and a store: it is lighter.)
     let weight = |v: VReg| -> f64 {
         let len: u32 = segs[v as usize].iter().map(|s| s.1 - s.0 + 1).sum();
-        f64::from(occ[v as usize]) / f64::from(len + 1)
+        let w = f64::from(occ[v as usize]) / f64::from(len + 1);
+        if pure.contains_key(&v) { w / 4.0 } else { w }
     };
     let mut assigned: Vec<Option<u8>> = vec![None; nv];
     let mut spilled: Vec<VReg> = Vec::new();
@@ -710,45 +761,13 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
     // memory or flags and changes nothing else, is made again before each use
     // instead: no slot, no store, no loads. (Rematerialisation; each is an
     // elective change, autochop.)
-    let remat: HashMap<VReg, MInst> = {
-        let mut defs_of: HashMap<VReg, Vec<MInst>> = HashMap::new();
-        let want: HashSet<VReg> = spilled.iter().copied().collect();
-        for b in &f.blocks {
-            for inst in &b.insts {
-                let (defs, _) = regs_of(t, inst);
-                for r in defs {
-                    if let Reg::V(v) = r
-                        && want.contains(&v)
-                    {
-                        defs_of.entry(v).or_default().push(inst.clone());
-                    }
-                }
-            }
-        }
-        defs_of
-            .into_iter()
-            .filter_map(|(v, ds)| {
-                let [d] = &ds[..] else { return None };
-                let Opcode::Instr(k) = d.op else { return None };
-                let ins = &t.instrs[k];
-                // (Nor one that reads the flags: x86's setcc, whose only
-                // operand is its condition.)
-                let pure = !ins.memory
-                    && !ins.operands.iter().any(|o| o.kind == crate::target::Kind::Cond)
-                    && ins.sets.is_none()
-                    && !ins.clobbers_flags
-                    && ins.clobbers.is_empty()
-                    && !ins.second_result
-                    && d.imp_defs.is_empty()
-                    && d.imp_uses.is_empty()
-                    && !d.barrier
-                    && d.ops.first() == Some(&MOp::Reg(Reg::V(v)))
-                    && d.ops[1..].iter().all(|o| matches!(o, MOp::Imm(_) | MOp::Sym(_)));
-                (pure && epitome_ir::chop::allow(|| format!("{}: make v{v} again where it is used", f.name)))
-                    .then(|| (v, d.clone()))
-            })
-            .collect()
-    };
+    let remat: HashMap<VReg, MInst> = spilled
+        .iter()
+        .filter_map(|&v| {
+            let d = pure.get(&v)?;
+            epitome_ir::chop::allow(|| format!("{}: make v{v} again where it is used", f.name)).then(|| (v, d.clone()))
+        })
+        .collect();
     let spilled_set: HashSet<VReg> = spilled.iter().copied().filter(|v| !remat.contains_key(v)).collect();
     // A machine without a stack has nowhere to spill to.
     if !spilled_set.is_empty() && t.machine.lacks("stack") {
@@ -880,6 +899,9 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
     };
     // Each instruction's number, as the positions above count them.
     let mut pos = 0u32;
+    // (Each slot's alignment, for reads folded into instructions.)
+    let slot_align: Vec<u64> = f.slots.iter().map(|s| s.align).collect();
+    let f_slots_align = |k: usize| slot_align[k];
     for (bi, b) in f.blocks.iter_mut().enumerate() {
         let old = std::mem::take(&mut b.insts);
         let mut new = Vec::with_capacity(old.len());
@@ -917,6 +939,24 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
             {
                 continue;
             }
+            // A copy of a value made again where it is used makes it in
+            // the copy's register.
+            if inst.op == Opcode::Copy
+                && let [MOp::Reg(d), MOp::Reg(Reg::V(v))] = inst.ops[..]
+                && let Some(again) = remat.get(&v)
+                && let Some(p) = match d {
+                    Reg::P(p) => Some(p),
+                    Reg::V(w) if !slot_of.contains_key(&w) && !remat.contains_key(&w) => assigned[w as usize],
+                    Reg::V(_) => None,
+                }
+                && m.in_class(vclass[v as usize], p)
+                && m.zero != Some(p)
+            {
+                let mut again = again.clone();
+                again.ops[0] = MOp::Reg(Reg::P(p));
+                new.push(again);
+                continue;
+            }
             // A copy between a spilled value and one in a register is the
             // spill code alone: the register loaded or stored directly.
             if inst.op == Opcode::Copy
@@ -949,6 +989,34 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
                         vec![MOp::Reg(Reg::P(p)), MOp::Reg(Reg::P(t.machine.sp)), MOp::Frame(sl, 0)],
                     ));
                     continue;
+                }
+            }
+            // A spilled value read once by an instruction with a form that
+            // reads that operand from memory: that form, reading the slot
+            // (x86's `addq 8(%rsp), %rax`), where a reload would go.
+            if let Opcode::Instr(k) = inst.op {
+                for fo in t.folds(k) {
+                    let Some(&MOp::Reg(Reg::V(v))) = inst.ops.get(fo.operand) else { continue };
+                    let Some(&slot) = slot_of.get(&v) else { continue };
+                    if held(Reg::V(v))
+                        || f_slots_align(slot) < fo.align
+                        || inst.ops.iter().filter(|o| **o == MOp::Reg(Reg::V(v))).count() != 1
+                        || inst.ops.len() + 2 != fo.ops.len() + 1
+                        || !epitome_ir::chop::allow(|| format!("{fname}: read a spilled value from its slot"))
+                    {
+                        continue;
+                    }
+                    let ops = fo
+                        .ops
+                        .iter()
+                        .map(|o| match *o {
+                            crate::target::FoldOp::From(i) => inst.ops[i].clone(),
+                            crate::target::FoldOp::Base => MOp::Reg(Reg::P(t.machine.sp)),
+                            crate::target::FoldOp::Offset => MOp::Frame(slot, 0),
+                        })
+                        .collect();
+                    inst = MInst { op: Opcode::Instr(fo.mem), ops, ..inst };
+                    break;
                 }
             }
             let (defs, uses) = regs_of(t, &inst);
@@ -1347,11 +1415,15 @@ fn split_by_blocks(
 }
 
 /// Coalescing: the two sides of a copy between virtual registers of one
-/// class whose live ranges never meet (the source's last read the copy,
-/// the destination first written there) become one register, so the copy
-/// copies a register to itself and goes, and allocation places one value
-/// where it would have placed two, perhaps apart. Each merge is an
-/// elective change (autochop).
+/// class become one register, so the copy copies a register to itself and
+/// goes, and allocation places one value where it would have placed two,
+/// perhaps apart. They may be merged where their live ranges never meet
+/// (the source's last read the copy, the destination first written
+/// there), or where they meet but hold the same value wherever they do:
+/// neither is written where the other is live, except by the copy itself
+/// (a chain of copies of one value, an aggregate's parts taken apart and
+/// put together again). Each merge is an elective change (autochop).
+#[allow(clippy::too_many_arguments)]
 fn coalesce(
     f: &mut MFunc,
     segs: &mut [Vec<Interval>],
@@ -1359,6 +1431,7 @@ fn coalesce(
     occ: &mut [u32],
     in_list: &HashSet<VReg>,
     weak: &mut [Vec<VReg>],
+    defpos: &mut [Vec<u32>],
 ) {
     let n = segs.len();
     let mut parent: Vec<VReg> = (0..n as VReg).collect();
@@ -1383,12 +1456,21 @@ fn coalesce(
         }
         false
     };
+    // Whether a position is in a sorted list of disjoint intervals.
+    let within = |a: &[Interval], p: u32| {
+        let k = a.partition_point(|x| x.0 <= p);
+        k > 0 && a[k - 1].1 >= p
+    };
     let name = f.name.clone();
     let mut merged = false;
+    let mut idx = 0u32;
     for b in &f.blocks {
         for inst in &b.insts {
+            let here = idx;
+            idx += 1;
             let (Opcode::Copy, [MOp::Reg(Reg::V(d)), MOp::Reg(Reg::V(s))]) = (inst.op, &inst.ops[..]) else { continue };
             let (d, s) = (root(&mut parent, *d), root(&mut parent, *s));
+            let copy = 2 * here + 1;
             // (Not a list's member: placed with the others, for one
             // instruction only.)
             if d == s
@@ -1397,20 +1479,39 @@ fn coalesce(
                 || f.vclass[d as usize] != f.vclass[s as usize]
                 || segs[d as usize].is_empty()
                 || segs[s as usize].is_empty()
-                || meet(&segs[d as usize], &segs[s as usize])
-                || !epitome_ir::chop::allow(|| format!("{name}: coalesce the copy v{d} = v{s}"))
             {
                 continue;
             }
+            let apart = !meet(&segs[d as usize], &segs[s as usize]);
+            let same = || {
+                let (sd, ss) = (&segs[d as usize], &segs[s as usize]);
+                defpos[d as usize].iter().all(|&p| p == copy || !within(ss, p))
+                    && defpos[s as usize].iter().all(|&p| p == copy || !within(sd, p))
+            };
+            if !(apart || same()) || !epitome_ir::chop::allow(|| format!("{name}: coalesce the copy v{d} = v{s}")) {
+                continue;
+            }
+            // The two lists, as one of disjoint intervals.
             let mut all = std::mem::take(&mut segs[s as usize]);
             all.extend(segs[d as usize].iter().copied());
             all.sort();
-            segs[d as usize] = all;
+            let mut joined: Vec<Interval> = Vec::with_capacity(all.len());
+            for iv in all {
+                match joined.last_mut() {
+                    Some(last) if iv.0 <= last.1 => last.1 = last.1.max(iv.1),
+                    _ => joined.push(iv),
+                }
+            }
+            segs[d as usize] = joined;
             let hs = std::mem::take(&mut hints[s as usize]);
             hints[d as usize].extend(hs);
             let ws = std::mem::take(&mut weak[s as usize]);
             weak[d as usize].extend(ws);
             occ[d as usize] += occ[s as usize];
+            // (The copy now writes the value with itself.)
+            let ds = std::mem::take(&mut defpos[s as usize]);
+            defpos[d as usize].extend(ds);
+            defpos[d as usize].retain(|&p| p != copy);
             parent[s as usize] = d;
             merged = true;
         }
@@ -1690,6 +1791,54 @@ pub fn count(t: &Target, f: &MFunc, first_slot: usize) -> (u64, u64, u64, u64) {
         }
     }
     (loads, stores, moves, weighted as u64)
+}
+
+/// Copies into virtual registers that nothing reads go (phis no one uses,
+/// a landing pad's selector, parts of aggregates left unread), and then
+/// copies those read, until none is left. Each is an elective change
+/// (autochop).
+fn dead_copies(t: &Target, f: &mut MFunc) {
+    let mut reads: HashMap<VReg, u32> = HashMap::new();
+    for inst in f.blocks.iter().flat_map(|b| &b.insts) {
+        for r in regs_of(t, inst).1 {
+            if let Reg::V(v) = r {
+                *reads.entry(v).or_default() += 1;
+            }
+        }
+    }
+    let name = f.name.clone();
+    loop {
+        let mut gone = false;
+        for b in &mut f.blocks {
+            let mut k = 0;
+            while k < b.insts.len() {
+                let inst = &b.insts[k];
+                if let (Opcode::Copy, [MOp::Reg(Reg::V(d)), MOp::Reg(src)]) = (inst.op, &inst.ops[..])
+                    && !reads.contains_key(d)
+                    && epitome_ir::chop::allow(|| format!("{name}: remove a copy nothing reads"))
+                {
+                    if let Reg::V(s) = src
+                        && let Some(n) = reads.get_mut(s)
+                    {
+                        *n -= 1;
+                        if *n == 0 {
+                            reads.remove(s);
+                        }
+                    }
+                    b.insts.remove(k);
+                    if k < b.term_start {
+                        b.term_start -= 1;
+                    }
+                    gone = true;
+                    continue;
+                }
+                k += 1;
+            }
+        }
+        if !gone {
+            break;
+        }
+    }
 }
 
 /// Records each copy's class before allocation, while its virtual

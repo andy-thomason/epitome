@@ -531,6 +531,30 @@ pub struct Target {
     /// Shuffle masks the description's patterns use.
     pub masks: std::sync::Mutex<Vec<Vec<i32>>>,
     decode_index: std::sync::OnceLock<Vec<DecodeBucket>>,
+    folds: std::sync::OnceLock<HashMap<usize, Vec<Fold>>>,
+}
+
+/// A register operand that a memory form can read from memory instead
+/// (`Target::folds`): x86's `addq 8(%rsp), %rax` for `addq %r11, %rax`.
+#[derive(Clone, Debug)]
+pub struct Fold {
+    /// The operand of the register form.
+    pub operand: usize,
+    /// The memory form.
+    pub mem: usize,
+    /// Its operands: the register form's (by index), or the address's
+    /// base or offset.
+    pub ops: Vec<FoldOp>,
+    /// The alignment its load says the address has, in bytes (legacy
+    /// SSE's 16), which the slot read must have.
+    pub align: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum FoldOp {
+    From(usize),
+    Base,
+    Offset,
 }
 
 /// The disassembler's candidates for code starting with one byte: by the
@@ -907,6 +931,7 @@ impl Target {
             fits_cache: Default::default(),
             masks: Default::default(),
             decode_index: Default::default(),
+            folds: Default::default(),
         };
         t.read()?;
         t.abis = crate::abi::read(&t.module, "abi.", &t.machine)?;
@@ -1088,6 +1113,156 @@ impl Target {
 
     pub fn instr(&self, name: &str) -> &Instr {
         &self.instrs[self.by_name[name]]
+    }
+
+    /// The operands of instruction `k` that a memory form can read from
+    /// memory instead, found from the bodies: a memory form's body is
+    /// `getelementptr i8, ptr %base, i64 %offset`, a plain load from it,
+    /// then the register form's body with the loaded value for one of its
+    /// register operands (`ADD64rm`'s of `ADD64rr`'s `%m`); its other
+    /// operands are the register form's, in order, of the same kinds, and
+    /// it writes and needs the same.
+    pub fn folds(&self, k: usize) -> &[Fold] {
+        self.folds.get_or_init(|| self.find_folds()).get(&k).map_or(&[], |v| &v[..])
+    }
+
+    fn find_folds(&self) -> HashMap<usize, Vec<Fold>> {
+        let m = &self.module;
+        // What two entries must share: their result, effects and needs,
+        // and the kinds of the operands other than the folded one.
+        let header = |ins: &Instr, others: &[usize]| -> String {
+            let f = self.func(ins.func);
+            let ret = match m.types.get(f.ty) {
+                Type::Function { ret, .. } => format!("{ret:?}"),
+                _ => String::new(),
+            };
+            let kinds: Vec<String> = others
+                .iter()
+                .map(|&i| {
+                    let o = &ins.operands[i];
+                    format!("{:?}/{}/{}/{}", o.kind, o.bits, o.tied, o.writeback)
+                })
+                .collect();
+            let mut features = ins.features.clone();
+            features.sort();
+            format!(
+                "{ret} {} {} {:?} {} {:?} {features:?} {:?} {kinds:?}",
+                ins.has_result, ins.second_result, ins.clobbers, ins.clobbers_flags, ins.sets, ins.format
+            )
+        };
+        // The body from instruction `from` on, its locals numbered: the
+        // folded value 0, the other parameters as `params` says, results by
+        // position. None if it reads anything else.
+        let body = |f: &Function, from: usize, folded: LocalId, params: &HashMap<LocalId, u32>| -> Option<String> {
+            let insts = &f.blocks[f.entry().index()].insts;
+            let mut names: HashMap<LocalId, u32> = params.clone();
+            names.insert(folded, 0);
+            // (The folded value's type: a cast says only what it makes.)
+            let mut out = format!("{:?};", f.locals[folded.index()].ty);
+            for (i, &id) in insts.iter().enumerate().skip(from) {
+                let inst = &f.insts[id.index()];
+                let mut op = inst.op.clone();
+                let mut ok = true;
+                op.for_each_value_mut(|v| {
+                    if let Value::Local(l) = v {
+                        match names.get(l) {
+                            Some(&n) => *l = LocalId(n),
+                            None => ok = false,
+                        }
+                    }
+                });
+                if !ok {
+                    return None;
+                }
+                if let Some(r) = inst.result {
+                    names.insert(r, 10_000 + (i - from) as u32);
+                }
+                out.push_str(&format!("{op:?};"));
+            }
+            Some(out)
+        };
+        // (Entries whose operands are the result, if any, then the
+        // parameters.)
+        let usable = |ins: &Instr| {
+            let f = self.func(ins.func);
+            !ins.asm_only && !ins.second_result && f.has_body && ins.operands.len() == ins.has_result as usize + f.params.len()
+        };
+        // Register forms, by what they would be with each register operand
+        // read from memory.
+        let mut by_key: HashMap<String, Vec<(usize, usize)>> = HashMap::new();
+        for (k, ins) in self.instrs.iter().enumerate() {
+            if !usable(ins) || ins.memory || ins.operands.iter().any(|o| o.list.is_some()) {
+                continue;
+            }
+            let f = self.func(ins.func);
+            let at = ins.has_result as usize;
+            for j in at..ins.operands.len() {
+                let o = &ins.operands[j];
+                if !matches!(o.kind, Kind::Reg(_)) || o.tied || o.writeback {
+                    continue;
+                }
+                let others: Vec<usize> = (0..ins.operands.len()).filter(|&i| i != j).collect();
+                let params: HashMap<LocalId, u32> = others
+                    .iter()
+                    .filter(|&&i| i >= at)
+                    .enumerate()
+                    .map(|(n, &i)| (f.params[i - at].local, 1 + n as u32))
+                    .collect();
+                if let Some(b) = body(f, 0, f.params[j - at].local, &params) {
+                    by_key.entry(format!("{} | {b}", header(ins, &others))).or_default().push((k, j));
+                }
+            }
+        }
+        let mut out: HashMap<usize, Vec<Fold>> = HashMap::new();
+        for (mk, ins) in self.instrs.iter().enumerate() {
+            let Some((base, off)) = ins.base_offset else { continue };
+            // (Frame lowering finds an address's base just before its
+            // offset.)
+            if !usable(ins) || ins.address_of || off != base + 1 {
+                continue;
+            }
+            let f = self.func(ins.func);
+            let insts = &f.blocks[f.entry().index()].insts;
+            let (Some(&gep), Some(&load)) = (insts.first(), insts.get(1)) else { continue };
+            let Some(addr) = f.insts[gep.index()].result else { continue };
+            let Some(loaded) = f.insts[load.index()].result else { continue };
+            if !matches!(f.insts[load.index()].op, Op::Load { volatile: false, atomic: None, ptr: Value::Local(p), .. } if p == addr)
+            {
+                continue;
+            }
+            let at = ins.has_result as usize;
+            let others: Vec<usize> = (0..ins.operands.len()).filter(|&i| i != base && i != off).collect();
+            let params: HashMap<LocalId, u32> = others
+                .iter()
+                .filter(|&&i| i >= at)
+                .enumerate()
+                .map(|(n, &i)| (f.params[i - at].local, 1 + n as u32))
+                .collect();
+            let Some(b) = body(f, 2, loaded, &params) else { continue };
+            let Some(regs) = by_key.get(&format!("{} | {b}", header(ins, &others))) else { continue };
+            for &(rk, j) in regs {
+                // The memory form's operands: the register form's but the
+                // folded one, in order, and the address.
+                let mut from = (0..self.instrs[rk].operands.len()).filter(|&i| i != j);
+                let ops: Vec<FoldOp> = (0..ins.operands.len())
+                    .map(|i| {
+                        if i == base {
+                            FoldOp::Base
+                        } else if i == off {
+                            FoldOp::Offset
+                        } else {
+                            FoldOp::From(from.next().expect("as many operands"))
+                        }
+                    })
+                    .collect();
+                let align = match &f.insts[load.index()].op {
+                    Op::Load { align: Some(a), .. } => a.bytes(),
+                    _ => 0,
+                };
+                out.entry(rk).or_default().push(Fold { operand: j, mem: mk, ops, align });
+            }
+        }
+        out
     }
 
     pub fn func(&self, g: GlobalId) -> &Function {

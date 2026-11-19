@@ -79,11 +79,6 @@ these are for after.
 - **Inline assembly operands in another register file** (`isel.rs`,
   `emit_asm`): a copy in, and the result copied out (`fmov s1, s0`), where
   allocation could place them there.
-- **Chains of copies** (`regalloc.rs`): a value copied from one virtual
-  register to another and on (an aggregate's parts taken by
-  `extractvalue`s) keeps the copies, a dead one included, where
-  coalescing them would leave none. `aggregates.rs` leaves wide integers'
-  `[2 x i64]` halves whole for this reason.
 - **Vector arguments no register holds** (`prepare.rs`,
   `vector_arguments`): put together from their parts by shuffles at the
   callee's entry and taken apart by shuffles at each call, where a split
@@ -157,27 +152,25 @@ these are for after.
   callee's), and its sign is changed through a stack slot and two `eor`s
   (one with `xzr`) where `eor v.16b` with a constant would do.
 - **Register allocation's moves and spills** (`regalloc.rs`; measured by
-  `bench/vs-llc`): over its sample of crates we make 1.217 times llc's
-  instructions on AArch64 (88,259 against 72,536; register moves 8,982
-  against 6,125), and 1.255 times its bytes on x86-64's scalar crates
-  (moves 10,626 against 7,793, stack loads 7,307 against 4,482). Most of
+  `bench/vs-llc`): over its sample of crates we make 1.198 times llc's
+  instructions on AArch64 (86,873 against 72,536; register moves 7,693
+  against 6,125), and 1.240 times its bytes on x86-64's scalar crates
+  (moves 9,254 against 7,793, stack loads 7,201 against 4,482). Most of
   the excess is selection's, not allocation's: on AArch64 the allocator's
-  spill code is 2,306 loads and 1,555 stores in all. The moves left are
+  spill code is 2,327 loads and 1,582 stores in all. The moves left are
   mostly arguments copied into registers and out again when a register an
-  argument arrived in is needed for another, loop phis whose incoming
+  argument arrived in is needed for another, and loop phis whose incoming
   values were allocated elsewhere (the next value made before the old
-  one's last read, `sub x0, x24, #1; cbz x24, ..; mov x24, x0`), and
-  chains of copies of one value whose ranges meet, which coalescing
-  (copies whose sides never meet) leaves. A spilled value's range is
-  split by blocks (held in a register through blocks where one is free,
-  loaded entering them), but not within a block: a value live across a
-  call in a block that also reads it is reloaded after the call, in a
-  scratch register, use by use where no register is free between them;
-  and its loads are not placed across the function as greedy's spill
-  placement does (a block of several predecessors, one of which is
+  one's last read, `sub x0, x24, #1; cbz x24, ..; mov x24, x0`, which
+  neither coalescing joins nor a scheduler reorders). A spilled value's
+  range is split by blocks (held in a register through blocks where one
+  is free, loaded entering them), but not within a block: a value live
+  across a call in a block that also reads it is reloaded after the call,
+  in a scratch register, use by use where no register is free between
+  them; and its loads are not placed across the function as greedy's
+  spill placement does (a block of several predecessors, one of which is
   another block's of several successors, cannot be entered). Better:
-  coalescing by value (copies whose sides hold the same value where they
-  meet), and splitting within blocks around calls.
+  splitting within blocks around calls, and edges split for loads.
 - **Frames** (`frame.rs`): every alloca has its own slot for the whole
   function (a serde_json deserializer: 1,088 bytes of slots to llc's 336
   for its whole frame), where slots of allocas whose lifetimes
@@ -192,21 +185,24 @@ these are for after.
   flags from a compare only when it holds, else to a constant chosen so
   the result's condition fails (for `and`) or holds (for `or`).
 - **x86's code size** (`regalloc.rs`, `isel.rs`, `targets/x86_64/`): over
-  a sample of crates' scalar modules, 1.31 times llc's bytes. Most of the
-  rest is moves (`movq`, 30,013 against 17,880): spill code, as on
-  AArch64 but with 14 registers and five callee-saved; reloads not folded
-  into instructions' memory operands, as x86 allows (`movq 32(%rsp),
-  %r11; cmpq %rax, %r11` where `cmpq 32(%rsp), %rax` does; a reg-form
-  instruction's memory form could be found from their bodies); stores of
-  immediates made in a register first (`movq $imm, mem` has no pattern);
-  switches tested case by case where llc jumps through a table.
+  `bench/vs-llc`'s scalar crates, 1.238 times llc's bytes (84,195
+  instructions against 70,211). Spill reloads are folded into the
+  instructions that read them where a memory form reads that operand
+  (`Target::folds`, found from the bodies: `cmpq 32(%rsp), %rax`, `addq`,
+  scalar SSE arithmetic), and constants are stored as immediates (`movq
+  $imm, mem`); but most reloads left feed an address (`movq 32(%rsp),
+  %r11; movq 8(%r11), %rax`), which needs a register, or a store (memory
+  to memory goes through one). A constant stored many times is now longer
+  as immediates (9 bytes each) than made once in a register and stored
+  from it (5); and switches are tested case by case where llc jumps
+  through a table.
 - **x86's vector memory operands, further** (`targets/x86_64/gen_sel.py`):
   loads fold into SSE2's two-address operations when 16-aligned
   (`Pattern::align`), but not into AVX's (VEX forms take any alignment,
   and none has a memory entry for selection yet), nor at a base plus a
-  scaled index; spill reloads of vectors could be folded the same way
-  as scalars' (PR #201's pairing found from the bodies), where the slot
-  is 16-aligned. Aligned loads are `movups`, where llc writes `movdqa`
+  scaled index. Spill reloads of vectors are folded as scalars' are
+  (`Target::folds`), into those SSE2 forms, from 16-aligned slots. Aligned
+  loads are `movups`, where llc writes `movdqa`
   or `movaps` (the same length and speed; only the text differs).
 - **gen_sel.py and 10-integer.ll disagree**: entries added to
   `10-integer.ll` by hand (`PMULLD`, AVX2's mask logic `VPAND.ym*`,

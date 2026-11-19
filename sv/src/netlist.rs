@@ -2204,8 +2204,10 @@ impl<'d, 'a> Lowering<'d, 'a> {
             // (Not those holding memories: one at a time, each is scalar
             // code, which selects their words by address.)
             let mut keep = HashMap::new();
+            let min: usize = std::env::var("SV_GROUP_MIN").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
             for (&i, m) in &lay.groups {
-                if !self.holds_memories(d.instance(i).spec)? {
+                let small = min > 0 && self.code_of(d.instance(i).spec)?.1.len() < min;
+                if !self.holds_memories(d.instance(i).spec)? && !small {
                     keep.insert(i, m.clone());
                 }
             }

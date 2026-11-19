@@ -92,6 +92,26 @@ fn rises(v: &[u64]) -> u64 {
     n
 }
 
+/// Fixed-size arrays indexed by what the index can be: a counter with a
+/// constant bound, through arithmetic, and a byte into 256 entries.
+#[inline(never)]
+fn odd(a: &[u64; 16]) -> u64 {
+    let mut s = 0;
+    for i in 0..8 {
+        s += a[2 * i + 1];
+    }
+    s
+}
+
+#[inline(never)]
+fn table(t: &[u8; 256], v: &[u8]) -> u64 {
+    let mut s = 0u64;
+    for &b in v {
+        s += t[b as usize] as u64 + t[(b & 15) as usize] as u64;
+    }
+    s
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn main() -> i32 {
     let xs = [3u64, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5];
@@ -107,6 +127,16 @@ pub extern "C" fn main() -> i32 {
             put_u64(dot(&a[..k], &b[..j]) as u64);
         }
     }
+    let mut sixteen = [0u64; 16];
+    let mut squares = [0u8; 256];
+    for i in 0..16 {
+        sixteen[i] = (i * i) as u64;
+    }
+    for i in 0..256 {
+        squares[i] = (i * i % 251) as u8;
+    }
+    put_u64(odd(&sixteen));
+    put_u64(table(&squares, b"bounds checks, gone"));
     let mut word = *b"abcdefgh";
     for k in 0..=word.len() {
         rev(&mut word[..k]);

@@ -18,8 +18,10 @@ Two pieces do this, from the LangRef and from LLVM's behaviour as a program
    comparisons a branch established on the path to a block, and what
    follows from them. LLVM calls its versions correlated value propagation
    and constraint elimination.
-2. **Value ranges** (planned): what each integer can be, as an interval,
-   from constants, masks, casts, loop counters and branch conditions.
+2. **Value ranges** (`opt/src/ranges.rs`, done): what each integer can
+   be, as an interval, from constants, masks, casts, arithmetic, loop
+   counters and, where a value is used, the branch conditions in force.
+   `implied` asks them as part of its search.
 
 For sources and status labels, see the [index](README.md).
 
@@ -78,7 +80,11 @@ steps per question:
   most `x`, and the first two below it when `x != 0` and `k` divides or
   shifts; `x % y < y`; a select's two arms, each
   with its condition assumed; `umin` and `umax`;
+- `x + k < b` when a fact says `x < b - k` and `k <= b` (`v[i + 1]` in
+  `for i in 0..len - 1`);
 - by `b`'s shape: `a <= x - 1` when `a < x`; a select's arms; `umin`, `umax`;
+- by ranges: `a < b` when everything `a` can be here is below everything
+  `b` can be (below);
 - `x != 0` when some fact puts a value below `x`, or a fact says so;
 - signed `<` and not negative is unsigned `<`.
 
@@ -107,7 +113,11 @@ For each block, with its facts:
 - an `i1` operand a fact gives is replaced by the constant: a condition
   tested again below its own branch;
 - `add x, 1` gets `nuw` when something is above `x`; `sub x, y` gets `nuw`
-  when `y <= x`.
+  when `y <= x`; `add`, `sub` and `mul` get `nuw` and `nsw` when their
+  operands' ranges here cannot make them wrap.
+
+A select whose condition a fact gives is looked through wherever the
+search meets it, not only where it is rewritten.
 
 In the pipeline it runs after simplifycfg and before rotation, while a
 loop's test is still at the top, dominating the body, followed by the
@@ -151,92 +161,122 @@ checks stay, over slices of every length.
   rotation, `i < len` in the body holds because it held on entry and the
   bottom test keeps it; `implied` does not see that, which is why it runs
   before rotation. Value ranges (below) cover induction variables.
-- Relations not written in a branch: `v[i]` after `assert!(i + 4 <= len)`
-  needs `i + 3 < len` from `i + 4 <= len`, arithmetic on facts it does not
-  do. Nor sums of facts (`i < n` and `j < m` give `i + j < n + m`).
+- Relations not written in a branch, beyond `x + k < b` from
+  `x < b - k`: `v[i]` after `assert!(i + 4 <= len)` needs `i + 3 < len`
+  from `i + 4 <= len`, which it does not work out. Nor sums of facts
+  (`i < n` and `j < m` give `i + j < n + m`).
 - Facts across calls or through memory; anything after a `switch` default.
 
-## Value ranges (planned)
+## Value ranges
 
-What `implied` cannot reach is what each value can be by itself: an index
-`i & 15` into `[T; 16]`, a `u8` widened to index a 256-entry table,
-`i % len`, a counter running from 0 to a constant. These need a range per
-value.
+What `implied`'s facts cannot reach is what each value can be by itself:
+an index `2 * i + 1` with `i` counting to 8, a parameter with a `range`
+attribute, `i % len`, a counter running from 0 to a constant. These need a
+range per value. (Comparing a mask, a shift or a `zext` with a constant was
+already done by the combiner, from the bits that can be set.)
 
 ### The lattice
 
 Each integer value of at most 64 bits gets two closed intervals, unsigned
 `[umin, umax]` and signed `[smin, smax]`. The value is in both. Two
-intervals rather than one wrapped interval (LLVM's `!range` metadata allows
-`[a, b)` wrapping round) keep the arithmetic simple and lose little:
-an index is non-negative both ways, and a value whose range wraps in one
-view is usually plain in the other. The full ranges mean "unknown"; an
-empty one means the value is never computed (unreachable code).
+intervals rather than one interval that may wrap round (as a `range`
+attribute's `[a, b)` may) keep the arithmetic simple and lose little: an
+index is non-negative both ways, and a value whose range wraps in one view
+is usually plain in the other. Each view narrows the other: unsigned
+`[0, 9]` is signed `[0, 9]`; signed `[-3, -1]` is unsigned
+`[2^w - 3, 2^w - 1]`. Full intervals mean "unknown".
 
 ### Where ranges come from
+
+`ranges::Ranges::compute` makes one pass over a function in reverse
+postorder, so each operand's range is known before its users', except along
+back edges:
 
 | Value | Range |
 | --- | --- |
 | constant `k` | `[k, k]` |
-| `zext` from `w` bits | unsigned and signed `[0, 2^w - 1]` |
-| `sext` from `w` bits | signed `[-2^(w-1), 2^(w-1) - 1]` |
-| `trunc` | the operand's, if it fits; else full |
-| `and x, k` | unsigned `[0, k]` (and `[0, umax(x)]`) |
-| `or x, k` | unsigned at least `k` |
-| `urem x, y` | unsigned `[0, umax(y) - 1]` |
-| `udiv x, y`, `lshr x, y` | `umax(x) / umin(y)`, `umax(x) >> umin(y)` |
-| `ashr x, k`, `sdiv x, k` | signed interval of `x` shrunk |
-| `add`, `sub`, `mul`, `shl` | interval arithmetic, when no bound wraps (or the flag forbids it) |
-| `select`, `umin`, `umax`, `smin`, `smax` | from the arms |
-| `icmp`, `zext` of `i1` | `[0, 1]` |
-| `ctpop`, `ctlz`, `cttz` of `w` bits | `[0, w]` |
-| `load` or call with `!range`, call with a `range` return attribute | as given |
-| induction variable (below) | `[start, bound]` |
-| other phis | the union of the incoming ranges |
+| parameter, call with a `range(iN a, b)` attribute | `[a, b - 1]` |
+| `zext` | the operand's, unsigned |
+| `sext` | the operand's, signed |
+| `trunc` | the operand's, if it fits |
+| `add`, `sub`, `mul`, `shl` by a constant range | interval arithmetic in 128 bits, kept when no bound leaves the type, or clamped when `nuw`/`nsw` says leaving it would be poison |
+| `and` | `[0, min(umax)]` |
+| `or`, `xor` | up to every bit either could set |
+| `udiv`, `lshr` | `umax(x) / umin(y)`, `umax(x) >> umin(y)` |
+| `urem x, y` | `[0, min(umax(x), umax(y) - 1)]` |
+| `srem x, y`, `y > 0` | `x`'s sign, smaller than `y` |
+| `ashr` | `x`'s signed interval shifted |
+| `select` | both arms |
+| `llvm.umin`, `umax`, `smin`, `smax` | from the operands |
+| `llvm.ctpop`, `ctlz`, `cttz` of `w` bits | `[0, w]` |
+| `icmp` | `[0, 1]` |
+| counter (below) | `[start, bound]` |
+| other phis | both (all) incoming ranges |
 
-They are computed in reverse postorder, so each operand's range is known
-first, except along back edges. A loop header's phis are handled as
-induction variables when `indvars` recognises them, and otherwise get the
-full range: one pass, no fixed-point iteration or widening.
+A phi with an entry along a back edge that is not a counter gets the full
+range: there is no iteration to a fixed point, and no widening.
 
-### Induction variables
+### Counters
 
-For a counter `i = phi [start, pre], [i + 1, latch]` whose loop goes round
-while `i + 1 < n` (unsigned; signed alike), entered only when `start < n`
-(the guard): `i` is in `[umin(start), umax(n) - 1]` and `i + 1` in
-`[umin(start) + 1, umax(n)]`, and neither wraps. Counting down by 1 is the
-mirror. With a constant bound this is a constant range: `for i in 0..16`
-gives `i` in `[0, 15]`. This is what `implied` cannot see after rotation.
+A loop header phi `i = phi [start, outside], [i + 1, latch]` (or
+`select %c, i + 1, i`, as `Range::next` leaves it) whose header ends in
+`br (i < n), body, exit`, where `body` is entered only from the header and
+dominates every latch, and `n` does not change in the loop: `i` goes up
+only after the test passed, so it never passes `max(start, n)` and never
+wraps. Its range is `[umin(start), max(umax(start), umax(n))]`. The same
+holds signed, with `<=` (when `n + 1` does not wrap), with `!=` when `start
+<= n`, and counting down by one while `> x`, `>= x` or `!= x`.
+
+That is the loop shape before rotation, which is where `implied` runs.
+With `for i in 0..8` it gives `[0, 8]`, and in the body, under `i < 8`,
+`[0, 7]`.
 
 ### Ranges at a block
 
-A range is refined where it is used by the facts `implied` keeps: under
-`x < k`, `umax(x)` is at most `k - 1`; under `x < y`, at most
-`umax(y) - 1`; under `x == k`, it is `k`. The refinement is per block, as
-the facts are; the value's own range stays as computed.
+Where `implied` asks about a value, its range is narrowed by the facts in
+force about it: under `x < y`, `umax(x)` is at most `umax(y) - 1`; under
+`y < x`, `umin(x)` at least `umin(y) + 1`; signed alike; under `x == y`,
+`y`'s range; under `x != 0`, at least 1. Then, up to two operations deep,
+it is computed again from its operands' ranges at the block, so the facts
+about `i` reach `2 * i + 1`. A select whose condition a fact gives is its
+arm. Facts that contradict each other (an empty range) mean the block
+cannot run, and nothing is concluded from them.
+
+`a < b` then holds when `umax(a) < umin(b)` here (signed alike), and
+`a != b` when the ranges do not overlap. This is one more way into
+`implied`'s search, so the two combine: `i < len` from `i` in `[0, 7]` and
+`len` at least 8.
 
 ### What ranges change
 
-- An `icmp` whose operands' ranges decide it folds: `i & 15 < 16`, `u8 as
-  usize < 256`, `i % n < n`, a counter in `[0, 15]` against an array of 16.
-- In `implied`'s search, `a < b` holds when `umax(a) < umin(b)`, so the two
-  combine: `i < len` with `len` known to be at least 16 and `i` in `[0, 15]`.
-- `add`, `sub`, `mul` and `shl` get `nuw` or `nsw` when the ranges show no
-  wrap; `sext` of a value that is never negative becomes `zext nneg`.
-- `udiv` and `urem` by a value never zero need no check by the code
-  generator; a select whose condition's ranges decide it folds.
+`opt/tests/examples/ranges.ll`:
+
+- `for i in 0..8 { s += a[2 * i + 1] }` over `[u64; 16]`: the check goes,
+  `a[2 * i + 2]`'s stays;
+- an index with a `range(i64 0, 10)` attribute into 16 entries: the check
+  goes; `x & 31` into 16 entries stays.
+
+`add`, `sub` and `mul` get `nuw` and `nsw` where the ranges allow, as
+`i * i` for a counter from 3 to 12 does in `loops.ll`.
+
+In std's hello world, `implied` with ranges folds 503 comparisons and
+sets flags on 449 instructions; without ranges, 346 and 149.
 
 ### What ranges cannot prove
 
 - Relations between two unknown values. Ranges are about one value at a
-  time; `i < len` with `len` a parameter is `implied`'s business, and
-  facts like `i + j < n` are neither's.
-- Through memory: a value loaded without `!range` is unknown, as is a
-  call's result without a `range` attribute.
-- Loops other than counters stepping by 1 with one exit test, and phis on
-  back edges that are not induction variables (no iteration to a fixed
-  point).
+  time; `i < len` with `len` a parameter is `implied`'s business.
+- Through memory: a value loaded is unknown (`!range` metadata on loads is
+  not read yet), as is a call's result without a `range` attribute.
+- Loops other than counters stepping by one under their header's test;
+  other phis on back edges are unknown. A counter is not followed after
+  rotation, as `implied` runs before it.
+- A loop bounded by something other than its counter: `put_u64`'s digit
+  loop `loop { buf[i] = ..; i += 1; n /= 10; if n == 0 { break } }` keeps
+  its check, as nothing bounds the number of digits.
 - Non-intervals: `x` in `{0, 255}` is `[0, 255]`; bits known to be zero in
-  the middle of a value (`x << 4` has its low four bits clear) are not
-  tracked. Known bits would be a separate analysis.
+  the middle of a value (`x << 4`) are the combiner's known bits, not
+  ranges.
 - Wider than 64 bits.
+- Not yet: `zext nneg` for a `sext` of a value never negative, and
+  division by a value never zero.

@@ -1,5 +1,6 @@
 ; @fib: recursion: 2 call(s) now push a frame on an explicit stack (values saved per frame: 1, 1)
 ; @fib: combine: add_add_const x1, add_zero x1, sub_const x3
+; @fib: implied: 0 comparisons folded, 0 selects resolved, 1 flags set
 ; @fib: cse: 2 merged, 0 loads reused, 0 stores forwarded
 
 
@@ -31,7 +32,7 @@ entry:                                            ; preds = %rec.grow, %rec.head
   br i1 %small, label %done, label %recur
 
 recur:                                            ; preds = %entry
-  %n1 = add i32 %n, -1
+  %n1 = add nsw i32 %n, -1
   %frame0 = getelementptr inbounds { ptr, ptr, [64 x { i32, i32 }] }, ptr %chunk, i32 0, i32 2, i32 %index
   store i32 0, ptr %frame0
   %frame.slot = getelementptr inbounds { i32, i32 }, ptr %frame0, i32 0, i32 1

@@ -20,6 +20,8 @@
 //! - `implied`: what dominating branches imply: comparisons folded,
 //!   selects resolved and `nuw` set from the conditions on the way to
 //!   them (bounds checks in loops).
+//! - `ranges`: what each integer can be, as unsigned and signed intervals,
+//!   which `implied` narrows by the facts where a value is used.
 //! - `cse`: common-subexpression elimination, by hashing a canonical key
 //!   for each instruction, scoped by the dominator tree.
 //! - `cfg`, `ssa`, `cleanup`: analyses and helpers the passes share.
@@ -48,6 +50,7 @@ pub mod memcpyopt;
 pub mod memssa;
 pub mod par;
 pub mod pipeline;
+pub mod ranges;
 pub mod recursion;
 pub mod rotate;
 pub mod simplifycfg;

@@ -1,3 +1,4 @@
+; @fill: implied: 0 comparisons folded, 0 selects resolved, 2 flags set
 ; @fill: rotate: 2 loops rotated
 ; @fill: combine: (folded) x2, br_true x2
 ; @fill: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 2 blocks merged

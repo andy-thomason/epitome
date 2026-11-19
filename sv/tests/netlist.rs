@@ -1447,16 +1447,17 @@ module wram (input logic clk, input logic ls, input logic cen, input logic wen, 
   logic [63:0] ram [64];
   for (genvar p = 0; p < 1; p++) begin : g_part
     always_ff @(posedge clk) begin
-      if (!cen && !wen) ram[addr] <= wdata;
-      if (!cen && wen) rdata <= ram[addr];
-      else rdata <= '0;
+      if (!cen && !wen) ram[addr][((p+1)*64)-1:(p*64)] <= wdata[((p+1)*64)-1:(p*64)];
+      if (!cen && wen) rdata[((p+1)*64)-1:(p*64)] <= ram[addr][((p+1)*64)-1:(p*64)];
+      else rdata[((p+1)*64)-1:(p*64)] <= '0;
     end
   end
 endmodule
 
 module wwrap (input logic clk, input logic cen, input logic wen, input logic [5:0] addr,
               input logic [63:0] wdata, output logic [63:0] rdata);
-  wram u (.clk, .ls(1'b0), .cen, .wen, .addr, .wdata, .rdata, .spare(1'b1));
+  // (The address made, not connected whole: copied to the child.)
+  wram u (.clk, .ls(1'b0), .cen, .wen, .addr({addr[0], addr[5:1]}), .wdata, .rdata, .spare(1'b1));
 endmodule
 
 module wtop (input logic clk, input logic [3:0] cen, input logic wen, input logic [5:0] addr,
@@ -1498,6 +1499,7 @@ fn wrapped_rams() {
     let mut q = [0u64; 4];
     let ow = io.out_words();
     for (c, &(cen, wen, addr, d)) in ins.iter().enumerate() {
+        let addr = (addr & 1) << 5 | addr >> 1;
         for k in 0..4 {
             let on = (cen >> k) & 1 == 0;
             let old = ram[k][addr];

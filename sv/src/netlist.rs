@@ -4773,9 +4773,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
             ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_) => {
                 if let Some(r) = self.span(e) {
                     out.push(r);
-                    for &a in &x.args[1..] {
-                        self.reads(a, out);
-                    }
+                    self.index_reads(e, out);
                 } else {
                     for &a in &x.args {
                         self.reads(a, out);
@@ -4787,6 +4785,18 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     self.reads(a, out);
                 }
             }
+        }
+    }
+
+    /// What the indices of a chain of selects read: each select's own, and
+    /// those of the selects it is made from (`addr` in `m[addr][7:0]`).
+    fn index_reads(&self, e: ExprId, out: &mut Vec<(ObjId, u32, u32)>) {
+        let mut x = self.d.expr(e);
+        while matches!(x.kind, ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_)) {
+            for &a in &x.args[1..] {
+                self.reads(a, out);
+            }
+            x = self.d.expr(x.args[0]);
         }
     }
 
@@ -4804,9 +4814,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     w.push(s);
                 }
                 if matches!(x.kind, ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_)) {
-                    for &a in &x.args[1..] {
-                        self.reads(a, r);
-                    }
+                    self.index_reads(e, r);
                 }
             }
         }

@@ -57,7 +57,6 @@ struct Iv {
     next: InstId,
     start: Value,
     step: i64,
-    flags: IntFlags,
     ty: TypeId,
     bits: u32,
 }
@@ -159,7 +158,7 @@ fn simplify_loop(
         let (Some(start), Some(next)) = (start, next) else { continue };
         let Some(n) = def_inst(f, next) else { continue };
         let me = f.result(p);
-        let Op::Binary { op: BinOp::Add, flags, lhs, rhs, .. } = f.insts[n.index()].op else { continue };
+        let Op::Binary { op: BinOp::Add, lhs, rhs, .. } = f.insts[n.index()].op else { continue };
         let step_value = if lhs == me {
             rhs
         } else if rhs == me {
@@ -170,7 +169,7 @@ fn simplify_loop(
         let Some(step) = int_of(sh, step_value) else { continue };
         let ty = f.locals[f.insts[p.index()].result.unwrap().index()].ty;
         let Type::Int(bits) = *sh.types().get(ty) else { continue };
-        ivs.push(Iv { phi: p, next: n, start, step: eval::sext(step.value, step.bits), flags, ty, bits });
+        ivs.push(Iv { phi: p, next: n, start, step: eval::sext(step.value, step.bits), ty, bits });
     }
     if ivs.is_empty() {
         return;
@@ -209,13 +208,11 @@ fn simplify_loop(
             return;
         }
         // The guard: the block before the loop, or before its preheader
-        // when that is empty (only a branch to the header).
-        let (guard, into) = match f.blocks[pre.index()].insts[..] {
-            [only] if matches!(f.insts[only.index()].op, Op::Br(t) if t == h) && preds[pre.index()].len() == 1 => {
-                (preds[pre.index()][0], pre)
-            }
-            _ => (pre, h),
-        };
+        // when that only leads to the header (it may hold what LICM moved
+        // out of the loop).
+        let leads_in = f.terminator(pre).is_some_and(|t| matches!(f.insts[t.index()].op, Op::Br(t) if t == h));
+        let (guard, into) =
+            if leads_in && preds[pre.index()].len() == 1 { (preds[pre.index()][0], pre) } else { (pre, h) };
         if exact_exit(sh, f, guard, into, iv, &e) {
             stats.exact_exits += 1;
             stats.exit_values += exit_values(f, latch, iv, &e);
@@ -277,9 +274,15 @@ fn starts_inside(sh: &Shared, f: &Function, pre: BlockId, h: BlockId, iv: &Iv, p
     }
     let Some(c) = def_inst(f, cond) else { return false };
     let Op::ICmp { pred: gp, lhs, rhs, .. } = f.insts[c.index()].op else { return false };
-    let (gp, a, b) = if lhs == iv.start { (gp, lhs, rhs) } else { (eval::swapped(gp), rhs, lhs) };
     let gp = if into_loop_on_true { gp } else { inverse(gp) };
-    gp == pred && a == iv.start && b == bound
+    if (lhs, rhs) == (iv.start, bound) && gp == pred || (rhs, lhs) == (iv.start, bound) && eval::swapped(gp) == pred {
+        return true;
+    }
+    // `0 < bound`, unsigned, as the combiner writes it: `bound != 0`.
+    pred == ICmpPred::Ult
+        && int_of(sh, iv.start).is_some_and(|k| k.value == 0)
+        && gp == ICmpPred::Ne
+        && ((lhs, rhs) == (bound, iv.start) || (rhs, lhs) == (bound, iv.start))
 }
 
 /// Rewrites `i.next < bound` (and its relatives) as `i.next != bound` when
@@ -294,9 +297,13 @@ fn exact_exit(sh: &Shared, f: &mut Function, guard: BlockId, into: BlockId, iv: 
     if e.pred == ICmpPred::Ne && iv.step.abs() == 1 {
         return true;
     }
+    // With a step of 1 the increment needs no flags: the guard puts the
+    // counter below the bound on entry, and the test keeps it there, so
+    // `i + 1` is at most the bound and cannot wrap. Counting down by 1
+    // with `>` is the same the other way. The increment gets the flag
+    // that says so below.
     let ok = match (iv.step, e.pred) {
-        (1, ICmpPred::Slt) | (-1, ICmpPred::Sgt) => iv.flags.contains(IntFlags::NSW),
-        (1, ICmpPred::Ult) => iv.flags.contains(IntFlags::NUW),
+        (1, ICmpPred::Slt) | (-1, ICmpPred::Sgt) | (1, ICmpPred::Ult) => true,
         // A larger step, from a constant start to a constant bound it
         // divides the distance to (a vectorized loop, 4 at a time): the
         // counter reaches the bound exactly, and cannot wrap before.
@@ -311,6 +318,12 @@ fn exact_exit(sh: &Shared, f: &mut Function, guard: BlockId, into: BlockId, iv: 
     };
     if !ok || !starts_inside(sh, f, guard, into, iv, e.pred, e.bound) {
         return false;
+    }
+    let flag = if e.pred == ICmpPred::Ult { IntFlags::NUW } else { IntFlags::NSW };
+    if iv.step.abs() == 1
+        && let Op::Binary { flags, .. } = &mut f.insts[iv.next.index()].op
+    {
+        *flags = *flags | flag;
     }
     let next = f.result(iv.next);
     let pred = if e.repeat_on_true { ICmpPred::Ne } else { ICmpPred::Eq };
@@ -352,7 +365,9 @@ fn widen(
     iv: &Iv,
     e: &Exit,
 ) -> usize {
-    if iv.bits >= 64 || !iv.flags.contains(IntFlags::NSW) {
+    // The flags as they are now: `exact_exit` may have just added `nsw`.
+    let nsw = matches!(f.insts[iv.next.index()].op, Op::Binary { flags, .. } if flags.contains(IntFlags::NSW));
+    if iv.bits >= 64 || !nsw {
         return 0;
     }
     let (phi_v, next_v) = (f.result(iv.phi), f.result(iv.next));

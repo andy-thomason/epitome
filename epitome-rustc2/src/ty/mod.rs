@@ -155,6 +155,17 @@ pub enum Abi {
     Other,
 }
 
+impl Abi {
+    /// The ABI an `extern "..."` names: those that are C's on the targets
+    /// supported (`"system"` is `"C"` but on 32-bit Windows).
+    pub fn named(s: &str) -> Abi {
+        match s {
+            "C" | "C-unwind" | "system" | "system-unwind" => Abi::C,
+            _ => Abi::Other,
+        }
+    }
+}
+
 /// A function's signature: parameter types (the receiver first for a
 /// method) and result.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]

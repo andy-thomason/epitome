@@ -8,6 +8,7 @@
 
 pub mod ast;
 pub mod cfg;
+pub mod device;
 pub mod consteval;
 pub mod drops;
 pub mod expand;

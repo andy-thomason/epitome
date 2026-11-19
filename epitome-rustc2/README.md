@@ -34,10 +34,12 @@ The plan is in [`docs/design.md`](docs/design.md).
 | Layout and constants | Done | Sizes and alignments match rustc's for the 45 types tested. |
 | Monomorphisation | Done | From every non-generic function of `core`: 28,430 items in 0.09 s. 99.9% of uses resolve; most of the rest are specialisations. |
 | Lowering to Epitome IR | Working | The programs in `tests/run/` lower completely. Of the 22,797 functions `core` reaches, all but 297 lower outside SIMD; those that do not trap, and `--lower-stats` says why. |
-| Compiling and running | Working | The nineteen programs in `tests/run/` compile through Epitome's optimiser and code generator, run, and print what rustc's builds print, two of them with `std` (`--std`, from rust-src), one of those spawning threads. |
+| Compiling and running | Working | The twenty-four programs in `tests/run/` compile through Epitome's optimiser and code generator, run, and print what rustc's builds print (stderr too), three of them with `std` (`--std`, from rust-src), one of those spawning threads. Panics print their message and where, and abort, as with rustc's `panic=abort`. |
 
 Everything up to and including type checking `core`, `alloc` and `std`
-together takes 1.3 s of wall time.
+together takes 1.3 s of wall time. A build checks only the bodies
+monomorphisation reaches: 2,040 for a `std` hello world, which builds,
+optimised, in 2.9 s on a Mac.
 
 ## Trying it
 
@@ -59,6 +61,10 @@ $B --lower-stats $L/core/src/lib.rs file.rs  # what could not be lowered, and wh
 $B --lib --dump-ir $L/core/src/lib.rs        # core as a library: its non-generic functions external
 $B -o prog $L/core/src/lib.rs prog.rs        # an executable, through Epitome (tested on x86-64 Linux)
 $B --std -o prog prog.rs                     # one with `std` from rust-src
+$B --std -Cpanic=immediate-abort -o prog prog.rs  # smaller: panics abort without a message
+$B --std -O0 -o prog prog.rs                 # prog unoptimised, std optimised (--crate-opt std=0 for both)
+$B --std -o prog prog.rs                     # #[epitome::target("riscv64")] fns: compiled for RV64, launched from the host
+                                             # (see tests/kernels/riscv_kernels.rs)
 
 # The statistics for each stage, on the standard library.
 $B --edition 2024 --expand-stats --resolve-stats --types-stats --typeck-stats \

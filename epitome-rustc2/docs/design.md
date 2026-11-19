@@ -410,6 +410,11 @@ macros of crates outside the session are still found by name.
 ### 6.5 Built-in macros and attributes
 
 `assert!(c)` is expanded as rustc expands it: `if !(c) { ::core::panicking::panic("assertion failed: c") }`, or `::core::panic!(message)` with a message.
+`panic!` and `unreachable!` (the built-ins `core_panic`, `std_panic` and
+`unreachable`) become `core`'s macro for the edition of the crate they
+are called in: `::core::panic::panic_2021!(..)`, or `panic_2015!` before
+2021 (`std`'s own `panic_2015!` for `std`'s `panic!`, which takes any
+payload).
 
 Done in expansion: `cfg_select!`, `cfg!`, `include!`, `stringify!`,
 `concat!`, `line!`, `column!`, `file!`, `module_path!`, `env!`,
@@ -739,7 +744,13 @@ finding a new one adds a job.
   differing only in `Sized`: `impl<W: Write + ?Sized>` and `impl<W:
   Write>`, as `Write::write_fmt`'s `SpecWriteFmt` has), the one that does
   not relax `Sized` is taken, by the implicit `Sized` bounds the
-  predicates do not record.
+  predicates do not record. An impl that leaves an item out takes it
+  from the impl it specialises: the next most specific of those that
+  match, and failing those the trait's default (`ZipImpl`'s impl for
+  `TrustedRandomAccess` iterators has no `fold`, its impl for
+  `TrustedRandomAccessNoCoerce` ones does). A `where` clause's
+  supertraits take the trait's defaults for arguments not written
+  (`T: BytewiseEq` brings `T: PartialEq<T>`).
 - A vtable of a type for a `dyn` trait (from unsizing to `dyn`) needs
   each method of the trait and its supertraits, at the trait's arguments
   (`dyn FnMut(&str) -> bool`), a supertrait's put in terms of the
@@ -766,8 +777,22 @@ finding a new one adds a job.
   monomorphisation puts that in its place. `impl Trait` as a parameter
   is a generic parameter of its own, after the written ones, so callers
   choose it as they do the others.
+- **Only reachable bodies are type checked.** A build starts with no
+  body checked, and monomorphisation checks bodies as it reaches them,
+  in rounds: an item whose body (a function, constant or static) is not
+  checked yet waits, as does one that needs an `impl Trait`'s hidden type
+  from an owner not checked yet; the bodies the waiting items need are
+  checked together on the pool, and those items are walked again. A
+  `std` hello world checks 2,040 bodies of 40,093, in 0.1 s instead of
+  2.9 s on a Mac, and builds in 2.9 s (13 s of CPU) instead of 5.1 s
+  (38 s). `--typeck-stats` and `--dump-types` still check everything, as
+  does a build with `EPITOME_TYPECK_ALL` set. (Checking everything also
+  wrongly gives a closure in an item nested in a function, such as a
+  `const _`, to the function, which makes items for it that are never
+  used.)
 - `--dump-mono` prints the items, `--mono-stats` counts them and what
-  could not be resolved (all of it with `EPITOME_MONO_ALL` set).
+  could not be resolved (all of it with `EPITOME_MONO_ALL` set), and how
+  many bodies were type checked.
 
 From every non-generic function of `core` with a body (on mandelbrot):
 28,688 items from 54,624 uses, in 0.1 s. 43 uses (0.1%) are not
@@ -810,7 +835,39 @@ any other; then each is defined.
   first, so a caller may pass the address of a place it still uses). A
   result in memory is written through a pointer passed first. A trait
   method resolves to the impl's by the same code monomorphisation uses.
-  `extern "C"` functions take and give scalars only, for now.
+- **The C convention.** Functions of the C ABI (declared in `extern`
+  blocks, defined as `extern "C" fn`, and called through `extern "C" fn`
+  pointers; `"C-unwind"` and `"system"` are the same here) pass scalars as
+  ours do, and aggregates as C does, from the layout's scalars and their
+  offsets (every variant's of an enum, every field's of a union):
+  `Cx::c_pass` gives each argument and the result a `Pass`, as clang's IR
+  has them, and the code generator turns those into registers and stack.
+  - x86-64 (System V): an aggregate of up to 16 bytes, its fields at
+    their alignment, has each eightbyte classed SSE if all it holds is
+    floating-point, INTEGER otherwise, and is passed as one IR argument
+    per eightbyte (`double`, or `float` for the last four bytes; an
+    integer of the bytes left, rounded up to a power of two), and
+    returned as one value, a struct of them (`{ i64, double }`) for two.
+    One whose eightbytes do not fit in the integer and SSE registers
+    still free (six and eight, less what the arguments before it took)
+    goes on the stack whole, as a larger one does: a pointer with
+    `byval`, whose bytes the code generator copies to the argument area.
+    A larger result is written at an address passed first (`sret`),
+    which the callee gives back (in `rax`).
+  - AArch64 (AAPCS64, Apple's): a homogeneous floating-point aggregate
+    (one to four of `f32` or of `f64`, filling it) is `[N x float]`, in
+    floating-point registers; any other up to 16 bytes is `i64` or
+    `[2 x i64]` (`i128` when 16-byte aligned), in integer registers; a
+    larger one is passed by the address of a copy the caller makes, and
+    a larger result written at an address passed in `x8` (`sret`).
+
+  A value passed in pieces is copied to a slot with room for them (a
+  3-byte struct passes as an `i32`), loaded from there piece by piece
+  (arrays element by element, then `insertvalue`); one received in pieces
+  is stored to such a slot and used from there. Aggregates of `f16` or
+  `f128`, aggregates as variadic arguments, RISC-V's convention, and
+  extending small integers to 32 bits as Apple's and System V's callers
+  do are not done yet.
 - **Control flow.** `if` (with `let` chains), `loop` and labelled blocks
   with `break` values, `while` and `while let`, `for` through
   `IntoIterator::into_iter` and `Iterator::next`, `?` through
@@ -968,7 +1025,7 @@ any other; then each is defined.
     value expression (`*Box::new(x)`) is a temporary, so it is freed.
   - **Not yet:** moving out of a closure's capture in its body, or out
     of an array by a pattern (`let [a, b] = arr;`), or-patterns that
-    move what they bind, and unwinding (panics trap, so nothing is
+    move what they bind, and unwinding (panics abort, so nothing is
     dropped on the way out).
 - **`Box` and allocation** are `alloc`'s own code, compiled from
   rust-src with `core` (a program with `extern crate alloc;` and a
@@ -981,10 +1038,25 @@ any other; then each is defined.
   the expansion of `format_args!` (section 6.5): `write!`, `Display` and
   `Debug` of integers, floats, strings and derived types, `{:#?}`, and
   user `Display` impls all run as rustc's build does.
-- **Panics** become a trap (`llvm.trap`), with no message: a call into
-  `core::panicking`, `panic!` and its relatives (`unreachable!`, `todo!`,
-  `unimplemented!`), an index out of bounds, a division by zero, and a
-  failed `assert!`. Arithmetic wraps, as in a release build.
+- **Panics** run `core`'s and `std`'s own code, as with rustc's
+  `panic=abort`: `core::panicking` builds the `PanicInfo` and calls
+  `panic_impl`, which is the program's `#[panic_handler]` (`std`'s prints
+  the message and where, then aborts). The checks lowering makes call
+  `core`'s lang items: an index out of bounds `panic_bounds_check`, and a
+  division by zero or `MIN / -1` the `panic_const_*` ones (monomorphisation
+  keeps them as roots). Arithmetic wraps, as in a release build.
+  With `-C panic=immediate-abort`, a call of a panic function is a trap
+  instead: each aborts before anything else.
+- **`#[track_caller]`** functions (those with the attribute, or a trait
+  impl's method whose trait method has it, as `SliceIndex::index`) take
+  their caller's `&'static Location` as a last, unseen argument.
+  A caller that is `#[track_caller]` itself passes its own on; any other
+  passes a constant `Location` of the call (a method call's name, an
+  overloaded index's `[`, the start of anything else; in code a macro
+  made, the macro's call), which `Location::caller()`
+  (`caller_location`) gives back. rust-src's paths are named as rustc's
+  prebuilt `std` names them (`/rustc/<commit>/library/...`). Not yet: a
+  `#[track_caller]` function as a function pointer or in a vtable.
 - **Symbols** are the item's path and arguments, made safe for an
   assembler, and a hash of where the item is written and of its
   arguments in full; `#[no_mangle]`, `#[export_name]` and foreign items
@@ -1135,15 +1207,13 @@ autoderef finds that the body cannot see (`Box`'s own `.0` from outside
 Gaps in type checking that the test programs work around, for later:
 an integer literal is not inferred through a bound such as `S:
 Sum<Self::Item>` (`(1..=5).map(..).sum::<i64>()` takes `i32` for the
-range, and lowering then finds no impl); `StepBy` and `Zip::fold` go
-through specialised associated items (`StepByImpl`, `ZipImpl`) that are
-not worked out; and in some bodies `.min()` is not found on an iterator
+range, and lowering then finds no impl); and in some bodies `.min()` is not found on an iterator
 whose item waits on an operator in a closure (`.map(|(a, b)| a * b)`).
 Lowering reports each of these rather than compiling something wrong.
 
 Not done yet: the moves drops do not handle yet (above),
 upcasting a `dyn` to a supertrait's, function items and pointers as
-`dyn Fn` (closures are done), panics' messages (panics trap),
+`dyn Fn` (closures are done),
 unwinding, closures made function pointers, string
 patterns, SIMD, `async`, and v0 symbol mangling.
 
@@ -1174,6 +1244,29 @@ where the machine has no instruction for them, as LLVM does; rustc's
 builds get these from `compiler-builtins`). `-O0` leaves out the optimiser, and `--emit=obj` writes the object
 file instead of linking. It fails if any function of the program's own
 crate could not be lowered (one of `core`'s only traps if it is reached).
+
+The link also takes the native libraries the crates name
+(`Session::native_libs`): each `#[link(name = "..")]` on an `extern`
+block of the expanded trees (so after `cfg` and `cfg_attr`), unless its
+own `cfg(..)` is false, the program's crate's first and each once.
+`kind = "framework"` is `-framework NAME` on macOS, `kind = "static"` is
+`-l` between `-Bstatic` and `-Bdynamic` on Linux, `raw-dylib` (Windows)
+is left out, and anything else is `-lNAME`; macOS's `System` and libm,
+which `cc` links anyway, are not repeated. As for rustc, `-l
+[KIND=]NAME` adds a library after those, `-L [KIND=]DIR` a directory to
+look in (`-F` for `framework`), and `-C link-arg=ARG` (or `-C
+link-args="A B"`) an argument for `cc` after everything else.
+
+`tests/c_vs_rustc.rs` builds each C file of `tests/c/` (`NAME.c` into
+`libcNAME.a` and `NAME.o`) and each program there with
+`epitome-rustc2 --std` (optimised and not) and rustc, with `-L` for that
+directory and any arguments a `//@ link:` line gives, and compares their
+output: `structs.rs` passes and returns structs of sixteen shapes to C,
+several at once until they spill to the stack, has C call back into
+`extern "C" fn`s, by pointer and by name, and calls them through
+`extern "C" fn` pointers; `link.rs` links with `-l static=`, `-L
+native=`, `-C link-arg=` and (on macOS) a framework. It runs on x86-64
+Linux and AArch64 macOS.
 
 ```sh
 $B -o prog $L/core/src/lib.rs prog.rs && ./prog
@@ -1234,12 +1327,60 @@ What a program with `std` needs beyond its code:
 - **Functions one crate defines for another by name**
   (`#[rustc_std_internal_symbol]`: `__rust_start_panic` of `panic_abort`,
   `__rdl_alloc` of `std`) are named by their names, not mangled, and kept
-  with `main`.
+  with `main` where something declares them (an `extern` block's item of
+  that name) or the allocator shim calls them. One nothing names is left
+  out, as a linker would leave it: `std`'s `__isPlatformVersionAtLeast`
+  (for C code's `@available` on macOS, which reads the OS version through
+  CoreFoundation) was 17% of a hello world's code.
+- **Panic strategies.** `-C panic=immediate-abort` builds `std` and
+  `core` with `cfg(panic = "immediate-abort")` (their own option) in place
+  of `unwind`: a panic aborts at once, and the code that formats and prints
+  its message (`Debug` for `str` and `io::Error`, `stderr`, the panic hook)
+  is left out. A hello world (`println!` of a constant) on a Mac:
+
+  | | code | file |
+  |---|---|---|
+  | before | 151 KB | 282 KB |
+  | internal symbols only where named | 120 KB | 229 KB |
+  | and `-C panic=immediate-abort` | 61 KB | 147 KB |
+  | panics with messages (default) | 262 KB | 490 KB |
+  | and `std` without `debug_assertions` | 245 KB | 443 KB |
+  | the same with `-O0` (`std` still optimised) | 245 KB | 443 KB |
+  | and `-C panic=immediate-abort` | 47 KB | 109 KB |
+  | rustc (`-O`, its precompiled `std`) | | 458 KB |
+
+  With panics that print their messages, the panic hook and what it
+  reaches (formatting, `Debug`, `std`'s backtrace printing and symbol
+  demangling, kept although `std` is built without backtraces) are in
+  every program. With immediate-abort, what remains is `std`'s runtime
+  (the main thread's handle, `Once`s, the stack overflow guard's setup),
+  stdout's lock and line buffer, and `fmt::write`; much of the file is
+  page padding and the symbol table.
+- **Optimisation levels by crate.** Each crate has its own level: the
+  standard library's crates (those from rust-src) 2, the others
+  `-C opt-level` (`-O0` is 0), and any crate `--crate-opt name=level`.
+  The standard library's crates are also built without
+  `debug_assertions`, as rustc's prebuilt `std` is, while the program
+  keeps them. Lowering gives each function the level of the crate its
+  code is written in (`"epitome-opt-level"`): a generic function of `std`
+  is optimised as `std` is at whatever types the program uses it, where
+  rustc optimises an instance as the crate that uses it is (so its debug
+  builds run `Vec<T>` unoptimised). Drop glue and shims get the program's
+  level (2 if that is 0). epitome-opt takes a function at level 0 out of
+  the module while it optimises the rest, with what it refers to treated
+  as visible to other modules meanwhile (so nothing it calls is deleted
+  or changed); the other levels set the inliner's limits for that
+  function as a caller. The whole module is still one object: a `-O0`
+  hello world builds in 2.8 s, with `std` optimised, where it took 2.75 s
+  and was twice the size with nothing optimised.
 - **Weak symbols.** `#[linkage = "extern_weak"] static f: Option<fn ...>`
   (`std`'s `weak!`, for `gettid`) is the address of the symbol `f`, null
   if nothing defines it, not a load from it.
-- **Panics** still trap: `catch_unwind` (with nothing to unwind) calls
-  its function and gives 0.
+- **Panics** print and abort as rustc's `panic=abort` build does (exit
+  status 134); `std` is built with `backtrace_in_libstd`, as its build
+  script sets, so that without its `backtrace` feature it symbolizes
+  nothing (and there is no `RUST_BACKTRACE` note). `catch_unwind` (with
+  nothing to unwind) calls its function and gives 0.
 - **Closures as function pointers.** One that captures nothing (as
   `thread_local!`'s are) becomes a function of its signature that calls
   it with no captures.
@@ -1302,11 +1443,62 @@ macOS's `std` also needed the `ptr_mask` intrinsic, and an `if` whose
 branches are two different functions (`RwLock`'s `write_lock` and
 `read_lock`) made a function pointer.
 
-Not yet: unwinding and panic messages, and the rest of what `std`
+Not yet: unwinding, backtraces, and the rest of what `std`
 reaches. On
 mandelbrot, `tests/run/std_hello.rs` (formatting, `Vec`, iterators,
 `String`, `Box<dyn Trait>`, drops and `env::args`) prints what rustc's
 build prints, optimised and not.
+
+### 8.6 Kernels for other machines (`src/device.rs`)
+
+One source file can hold code for more than one machine. A function marked
+`#[epitome::target("riscv64")]` is a kernel: it, and everything it calls,
+is compiled for that machine, and a call of it from the host launches it
+there.
+
+- **A pass for each machine.** The kernels are compiled in a session of
+  their own over the same file: `core` and `alloc` from rust-src with the
+  machine's `cfg` (a bare-metal RV64, `target_os = "none"`, as rustc
+  prints for `riscv64gc-unknown-none-elf`, with `panic =
+  "immediate-abort"`), then the program's crate again. Monomorphisation
+  starts from the kernels, and type checking only checks what it reaches,
+  so the host's code (`std`'s `println!`, which this pass does not have)
+  is never looked at there. Everything a kernel calls is compiled for the
+  machine, at the machine's layout: a helper both sides call is compiled
+  twice. This is CUDA's model (one source, a pass for each machine), with
+  the device functions found from the kernels rather than marked.
+- **Naming.** A kernel is named by its path (`kernel.prog.squares`) in
+  both passes, and is external in the machine's module.
+- **The image.** The machine's module is optimised and compiled with the
+  built-in RISC-V description into an object (`PATH.riscv64.o`), which
+  `epitome_codegen::flat` links at one base address into a flat image:
+  code, data, zeroed space and every global symbol's address. A function
+  nothing defines (`putchar`, `memcpy`) gets a stub address. The image is
+  written into the host's module as the constant `epitome.image.riscv64`.
+- **Launching.** On the host, a call of a kernel is not a call: each
+  argument goes in a `u64` with its kind (integer, `f32`, `f64`), and
+  `__epitome_launch(image, kernel name, args, kinds, n, result kind)`
+  runs it and gives its result back. A `&[T]`, `&mut [T]` or `&str` of
+  plain numbers (and arrays of them, laid out alike on both machines) is
+  passed as its address, length and element size: the runtime copies the
+  elements into the machine's memory and gives the kernel the slice there,
+  and copies a `&mut [T]`'s back after the run. Monomorphisation does not
+  walk a kernel's body on the host, but adds the hook. `--lower-stats`
+  also lists what the kernels' pass could not lower.
+- **The runtime.** `runtime/rv64.rs` is a `#![no_std]` RV64 interpreter
+  (I, M, A, and F and D but for square roots and fused operations) that
+  defines `__epitome_launch`. It is compiled into a program that has
+  kernels, by epitome-rustc2, as a crate before the program's, at
+  optimisation level 2. It loads the image into memory of its own each
+  launch, puts the arguments where the LP64D convention has them, runs
+  the kernel to its return, and serves the stubs (`putchar` is the
+  host's). A program for real hardware gives its own `__epitome_launch`
+  and leaves the runtime out (`--launch-runtime none`).
+- `--emit=kernels` writes only the machines' objects (`tests/kernels.rs`
+  runs one on codegen's RV64 test machine).
+
+Next: a GPU (gfx1151, which so far only assembles). Not yet: pointers
+other than slices, structs, and kernels that are generic or methods.
 
 ## 9. Crates and Cargo
 

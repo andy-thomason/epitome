@@ -1,5 +1,6 @@
 ; @f: recursion: not removed: musttail call to another function
 ; @f: combine: sub_const x1
+; @f: implied: 0 comparisons folded, 0 selects resolved, 1 flags set
 
 
 @fmt = private constant [4 x i8] c"%d\0A\00"
@@ -21,7 +22,7 @@ base:                                             ; preds = %entry
   ret i32 %t
 
 rec:                                              ; preds = %entry
-  %a = add i32 %n, -1
+  %a = add nsw i32 %n, -1
   %r = tail call i32 @f(i32 %a)
   %s = add i32 %r, %n
   ret i32 %s

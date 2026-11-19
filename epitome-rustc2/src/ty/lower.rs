@@ -234,7 +234,7 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
             match ast.kind(c) {
                 Kind::Keyword if ast.token(c).0 == "unsafe" => unsafety = true,
                 Kind::Keyword if ast.token(c).0 == "extern" => abi = Abi::C,
-                Kind::Abi => abi = if crate::cfg::string_value(ast.token(c).0) == "C" { Abi::C } else { Abi::Other },
+                Kind::Abi => abi = Abi::named(crate::cfg::string_value(ast.token(c).0)),
                 Kind::Params => {
                     for &p in ast.children(c) {
                         match ast.kind(p) {

@@ -4,7 +4,6 @@
 ; @small: deleted, no longer used
 
 
-@fmt = private constant [4 x i8] c"%p\0A\00"
 @tbl = global ptr blockaddress(@caller, %L)
 
 declare i32 @printf(ptr, ...)

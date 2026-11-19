@@ -51,6 +51,18 @@ impl CfgSet {
         self
     }
 
+    /// Sets `name`'s one value, in place of any it had: `panic = "abort"`.
+    pub fn replace_value(&mut self, name: &str, value: &str) -> &mut Self {
+        self.pairs.retain(|(n, _)| n != name);
+        self.set_value(name, value)
+    }
+
+    /// Unsets a name: `debug_assertions`.
+    pub fn unset(&mut self, name: &str) -> &mut Self {
+        self.names.remove(name);
+        self
+    }
+
     pub fn is_set(&self, name: &str) -> bool {
         self.names.contains(name)
     }
@@ -170,6 +182,36 @@ impl CfgSet {
     /// The configuration of `x86_64-unknown-linux-gnu` with its default
     /// features, as rustc sets it for a build without optimisation: for
     /// compiling `core` for that target on another machine.
+    /// A bare-metal RV64 machine, as rustc's `riscv64gc-unknown-none-elf`
+    /// prints it (`--print cfg`), but for panics, which abort at once
+    /// (`immediate-abort`: nothing on the machine prints their messages),
+    /// and without `debug_assertions` (its crates are built as a release
+    /// `core` is).
+    pub fn riscv64_none() -> Self {
+        let mut s = CfgSet::new();
+        for (name, value) in [
+            ("panic", "immediate-abort"),
+            ("target_abi", ""),
+            ("target_arch", "riscv64"),
+            ("target_endian", "little"),
+            ("target_env", ""),
+            ("target_os", "none"),
+            ("target_pointer_width", "64"),
+            ("target_vendor", "unknown"),
+        ] {
+            s.set_value(name, value);
+        }
+        for f in ["a", "c", "m", "zaamo", "zalrsc", "zca", "zicsr", "zifencei"] {
+            s.set_value("target_feature", f);
+        }
+        s.set("target_has_atomic");
+        for width in ["8", "16", "32", "64", "ptr"] {
+            s.set_value("target_has_atomic", width);
+            s.set_value("target_has_atomic_primitive_alignment", width);
+        }
+        s
+    }
+
     pub fn x86_64_linux() -> Self {
         let mut s = CfgSet::new();
         for name in [

@@ -1455,8 +1455,15 @@ impl<'s, 'm, 'f> Combiner<'s, 'm, 'f> {
                     return Some(sh.poison(ty));
                 }
                 let (Value::Const(a), Value::Const(b)) = (lhs, rhs) else { return None };
-                let (x, y) = (self.int(a)?, self.int(b)?);
-                self.int_value(ty, eval::fold_icmp(pred, x.value, y.value, x.bits) as u64)
+                if let (Some(x), Some(y)) = (self.int(a), self.int(b)) {
+                    return self.int_value(ty, eval::fold_icmp(pred, x.value, y.value, x.bits) as u64);
+                }
+                // Wider than 64 bits.
+                let (x, y) = {
+                    let (consts, types) = (sh.consts(), sh.types());
+                    (eval::wide_int(consts, types, a)?, eval::wide_int(consts, types, b)?)
+                };
+                self.int_value(ty, eval::fold_icmp_wide(pred, &x, &y)? as u64)
             }
             Op::Select { cond, then_value, else_value, .. } => {
                 if is_poison(cond) {

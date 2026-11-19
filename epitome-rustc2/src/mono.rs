@@ -67,7 +67,8 @@ pub struct MonoItems {
 }
 
 impl Session {
-    /// The items the `roots` need, transitively.
+    /// The items the `roots` need, transitively, with every body already
+    /// type checked.
     pub fn collect_mono_items<'s>(
         &'s self,
         crates: &[ParsedCrate<'s>],
@@ -77,11 +78,77 @@ impl Session {
         typeck: &TypeckResults,
         roots: Vec<Item>,
     ) -> MonoItems {
-        let seen: Mutex<FastSet<Item>> = Mutex::new(roots.iter().copied().collect());
-        let unresolved: Mutex<FastMap<String, usize>> = Mutex::new(FastMap::default());
+        let mut c = Collect::new(tcx, &roots);
+        c.round(self, crates, r, tcx, index, typeck, roots, false);
+        c.finish()
+    }
+
+    /// The items the `roots` need, type checking only the bodies they
+    /// reach: an item whose body (or the body that says what an `impl
+    /// Trait` it uses is) has not been checked waits, and the bodies the
+    /// waiting items need are checked together, in parallel, before the
+    /// next round. `typeck` starts empty (`TypeckResults::empty`) or with
+    /// what is already checked.
+    pub fn collect_mono_items_lazily<'s>(
+        &'s self,
+        crates: &[ParsedCrate<'s>],
+        r: &Resolver<'s>,
+        tcx: &TyCtxt<'s>,
+        index: &Index<'s>,
+        typeck: &mut TypeckResults,
+        roots: Vec<Item>,
+    ) -> MonoItems {
+        let mut c = Collect::new(tcx, &roots);
+        let mut pending = roots;
+        while !pending.is_empty() {
+            let (waiting, needs) = c.round(self, crates, r, tcx, index, typeck, pending, true);
+            let needs: Vec<DefId> = needs.into_iter().filter(|d| !typeck.checked.contains(d)).collect();
+            if needs.is_empty() {
+                // Nothing more to check: what still waits is walked as it is.
+                c.round(self, crates, r, tcx, index, typeck, waiting, false);
+                break;
+            }
+            self.typeck_owners(crates, r, tcx, index, &needs, typeck);
+            pending = waiting;
+        }
+        c.finish()
+    }
+}
+
+/// What monomorphisation has found so far.
+struct Collect {
+    seen: FastSet<Item>,
+    unresolved: FastMap<String, usize>,
+    uses: usize,
+    drops: crate::drops::DropInfo,
+}
+
+impl Collect {
+    fn new(tcx: &TyCtxt, roots: &[Item]) -> Collect {
+        Collect { seen: roots.iter().copied().collect(), unresolved: FastMap::default(), uses: 0, drops: crate::drops::DropInfo::new(tcx) }
+    }
+
+    /// Walks `items` and everything they lead to. With `lazy`, an item
+    /// whose body is not checked yet waits: the items that wait, and the
+    /// bodies they need checked.
+    #[allow(clippy::too_many_arguments)]
+    fn round<'s>(
+        &mut self,
+        session: &'s Session,
+        crates: &[ParsedCrate<'s>],
+        r: &Resolver<'s>,
+        tcx: &TyCtxt<'s>,
+        index: &Index<'s>,
+        typeck: &TypeckResults,
+        items: Vec<Item>,
+        lazy: bool,
+    ) -> (Vec<Item>, Vec<DefId>) {
+        let seen: Mutex<&mut FastSet<Item>> = Mutex::new(&mut self.seen);
+        let unresolved: Mutex<&mut FastMap<String, usize>> = Mutex::new(&mut self.unresolved);
         let uses = std::sync::atomic::AtomicUsize::new(0);
-        let drops = crate::drops::DropInfo::new(tcx);
-        pool::run(self.threads(), roots, |item, q| {
+        let waiting: Mutex<(Vec<Item>, FastSet<DefId>)> = Mutex::new((Vec::new(), FastSet::default()));
+        let drops = &self.drops;
+        pool::run(session.threads(), items, |item, q| {
             let mut w = Walk {
                 tcx,
                 r,
@@ -90,9 +157,17 @@ impl Session {
                 solver: Solver::new(tcx, r, crates, index),
                 found: Vec::new(),
                 unresolved: FastMap::default(),
-                drops: &drops,
+                drops,
+                lazy,
+                needs: Vec::new(),
             };
             w.item(item);
+            if !w.needs.is_empty() {
+                let mut wt = waiting.lock().unwrap();
+                wt.0.push(item);
+                wt.1.extend(w.needs);
+                return;
+            }
             uses.fetch_add(w.found.len(), std::sync::atomic::Ordering::Relaxed);
             {
                 let mut seen = seen.lock().unwrap();
@@ -107,11 +182,20 @@ impl Session {
                 *u.entry(k).or_default() += v;
             }
         });
-        let mut items: Vec<Item> = seen.into_inner().unwrap().into_iter().collect();
+        self.uses += uses.into_inner();
+        let (mut items, needs) = waiting.into_inner().unwrap();
         items.sort();
-        let mut unresolved: Vec<(String, usize)> = unresolved.into_inner().unwrap().into_iter().collect();
+        let mut needs: Vec<DefId> = needs.into_iter().collect();
+        needs.sort();
+        (items, needs)
+    }
+
+    fn finish(self) -> MonoItems {
+        let mut items: Vec<Item> = self.seen.into_iter().collect();
+        items.sort();
+        let mut unresolved: Vec<(String, usize)> = self.unresolved.into_iter().collect();
         unresolved.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-        MonoItems { items, uses: uses.into_inner(), unresolved }
+        MonoItems { items, uses: self.uses, unresolved }
     }
 }
 
@@ -135,9 +219,22 @@ pub fn roots(r: &Resolver, tcx: &TyCtxt, crates: &[ParsedCrate], k: u32, lib: bo
         let ast = &crates[def.krate as usize].files[def.file as usize].ast;
         crate::session::has_attribute(ast, def.node, "no_mangle") || crate::session::attribute_value(ast, def.node, "export_name").is_some()
     };
+    // What lowering's own checks call: `core`'s `panic_bounds_check`
+    // (an index out of bounds) and the `panic_const_*` of division.
+    let checks: Vec<Item> = (0..r.defs.len() as u32)
+        .map(DefId)
+        .filter(|&d| {
+            let def = &r.defs[d.0 as usize];
+            def.kind == DefKind::Fn
+                && (def.name == "panic_bounds_check" && tcx.lang.get("panic_bounds_check") == Some(&d)
+                    || PANIC_CONSTS.contains(&def.name) && r.def_path(d).starts_with("core::panicking::panic_const::"))
+        })
+        .map(|d| Item::Fn(d, empty))
+        .collect();
     match fns.iter().find(|&&d| !lib && is_main(d)) {
         Some(&m) => {
             let mut v = vec![Item::Fn(m, empty)];
+            v.extend(checks);
             // With `std`, `main` is run by its `lang_start::<T>` (`T` what
             // `main` returns), which the entry point lowering adds calls.
             if let Some(&start) = tcx.lang.get("start")
@@ -146,7 +243,21 @@ pub fn roots(r: &Resolver, tcx: &TyCtxt, crates: &[ParsedCrate], k: u32, lib: bo
                 v.push(Item::Fn(start, tcx.list(vec![tcx.sig_of(sig).output])));
                 // What the standard library's crates define for each other
                 // by name (`#[rustc_std_internal_symbol]`: `std`'s own
-                // allocator, `__rust_start_panic` and the rest).
+                // allocator, `__rust_start_panic` and the rest), where
+                // something declares it or the allocator shim calls it. One
+                // nothing names is left out, as a linker would leave it:
+                // `std`'s `__isPlatformVersionAtLeast`, for C code's
+                // `@available`.
+                let mut named: FastSet<String> = crate::lower::DEFAULT_ALLOCATOR.iter().map(|&(_, t)| t.to_string()).collect();
+                for def in &r.defs {
+                    if matches!(def.kind, DefKind::ForeignFn | DefKind::ForeignStatic) {
+                        named.insert(def.name.to_string());
+                        let ast = &crates[def.krate as usize].files[def.file as usize].ast;
+                        if let Some(l) = crate::session::attribute_value(ast, def.node, "link_name") {
+                            named.insert(l);
+                        }
+                    }
+                }
                 v.extend(
                     (0..r.defs.len() as u32)
                         .map(DefId)
@@ -154,6 +265,7 @@ pub fn roots(r: &Resolver, tcx: &TyCtxt, crates: &[ParsedCrate], k: u32, lib: bo
                             let def = &r.defs[d.0 as usize];
                             def.krate != k
                                 && def.kind == DefKind::Fn
+                                && named.contains(def.name)
                                 && defined(d)
                                 && crate::session::has_attribute(&crates[def.krate as usize].files[def.file as usize].ast, def.node, "rustc_std_internal_symbol")
                         })
@@ -176,14 +288,72 @@ struct Walk<'a, 's> {
     found: Vec<Item>,
     unresolved: FastMap<String, usize>,
     drops: &'a crate::drops::DropInfo,
+    /// Whether to wait for bodies not checked yet (`needs`) rather than
+    /// walk without them.
+    lazy: bool,
+    /// The bodies this item needs checked before it can be walked.
+    needs: Vec<DefId>,
 }
 
 impl<'a, 's> Walk<'a, 's> {
+    /// Notes that the item needs the body of `d` checked, if it is not.
+    fn need(&mut self, d: DefId) -> bool {
+        if self.lazy && !self.typeck.checked.contains(&d) {
+            self.needs.push(d);
+            return true;
+        }
+        false
+    }
+
+    /// Notes the bodies that would say what each `impl Trait` in `t` is,
+    /// where none has yet.
+    fn need_hidden(&mut self, t: Ty) {
+        if !self.lazy {
+            return;
+        }
+        let tcx = self.tcx;
+        let mut stack = vec![t];
+        while let Some(t) = stack.pop() {
+            match tcx.kind(t) {
+                TyKind::Opaque(o, l) => {
+                    if !self.typeck.hidden.contains_key(&o) {
+                        let owner = tcx.opaque(o).owner;
+                        self.need(owner);
+                    }
+                    stack.extend(tcx.tys(l));
+                }
+                TyKind::Adt(_, l) | TyKind::Tuple(l) | TyKind::FnDef(_, l) | TyKind::Projection(_, l) | TyKind::Closure(_, _, l) => stack.extend(tcx.tys(l)),
+                TyKind::Ref(_, x) | TyKind::Ptr(_, x) | TyKind::Slice(x) | TyKind::Array(x, _) | TyKind::Pat(x, ..) => stack.push(x),
+                TyKind::FnPtr(s) => {
+                    let s = tcx.sig_of(s);
+                    stack.extend(tcx.tys(s.inputs));
+                    stack.push(s.output);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn is_kernel(&self, f: DefId) -> bool {
+        let def = &self.r.defs[f.0 as usize];
+        crate::device::kernel_target(&self.crates[def.krate as usize].files[def.file as usize].ast, def.node).is_some()
+    }
+
     fn miss(&mut self, why: String) {
         *self.unresolved.entry(why).or_default() += 1;
     }
 
     fn item(&mut self, item: Item) {
+        // A body not checked yet: the item waits for it.
+        let owner = match item {
+            Item::Fn(d, _) | Item::Const(d, _) | Item::Static(d) => Some(d),
+            _ => None,
+        };
+        if let Some(d) = owner
+            && self.need(d)
+        {
+            return;
+        }
         match item {
             Item::Fn(d, args) => self.body(d, args),
             Item::Const(d, args) => self.body(d, args),
@@ -295,7 +465,9 @@ impl<'a, 's> Walk<'a, 's> {
     }
 
     fn sub(&mut self, t: Ty, params: &[crate::ty::ParamId], args: &[Ty]) -> Ty {
-        sub(self.tcx, &self.typeck.hidden, &mut self.solver, t, params, args)
+        let t = sub(self.tcx, &self.typeck.hidden, &mut self.solver, t, params, args);
+        self.need_hidden(t);
+        t
     }
 
     fn sub_list(&mut self, l: List, params: &[crate::ty::ParamId], args: &[Ty]) -> Vec<Ty> {
@@ -345,6 +517,13 @@ impl<'a, 's> Walk<'a, 's> {
             return;
         }
         match instance(self.r, self.crates, tcx, &mut self.solver, d, args.clone()) {
+            // A kernel for another machine is launched, not run here: what
+            // the host needs is the launch hook.
+            Resolved::Item(Item::Fn(f, _)) if self.is_kernel(f) => {
+                if let Some(h) = crate::device::launch_hook(self.r, self.crates) {
+                    self.found.push(Item::Fn(h, tcx.list(Vec::new())));
+                }
+            }
             Resolved::Item(it) => self.found.push(it),
             Resolved::Builtin => self.builtin_call(d, &args),
             Resolved::NoImpl => self.miss("associated constant without an impl".into()),
@@ -596,6 +775,17 @@ pub(crate) fn is_intrinsic(r: &Resolver, crates: &[ParsedCrate], d: DefId) -> bo
     crate::session::has_attribute(ast, def.node, "rustc_intrinsic")
 }
 
+/// The `core::panicking::panic_const` functions lowering's division
+/// checks call.
+pub(crate) const PANIC_CONSTS: [&str; 4] = ["panic_const_div_by_zero", "panic_const_rem_by_zero", "panic_const_div_overflow", "panic_const_rem_overflow"];
+
+/// Whether `d` is a declaration of `core`'s `panic_impl`.
+fn is_panic_impl(r: &Resolver, crates: &[ParsedCrate], d: DefId) -> bool {
+    let def = &r.defs[d.0 as usize];
+    def.name == "panic_impl"
+        && crate::session::attribute_value(&crates[def.krate as usize].files[def.file as usize].ast, def.node, "lang").as_deref() == Some("panic_impl")
+}
+
 /// The trait an associated item is in, if it is in one.
 pub(crate) fn trait_of(r: &Resolver, item: DefId) -> Option<DefId> {
     let m = r.defs[item.0 as usize].parent?;
@@ -609,8 +799,18 @@ pub(crate) fn trait_of(r: &Resolver, item: DefId) -> Option<DefId> {
 pub(crate) fn instance(r: &Resolver, crates: &[ParsedCrate], tcx: &TyCtxt, solver: &mut Solver, d: DefId, args: Vec<Ty>) -> Resolved {
     let kind = r.defs[d.0 as usize].kind;
     match kind {
+        // `core`'s `panic_impl` (declared twice) is the program's
+        // `#[panic_handler]`.
+        DefKind::ForeignFn
+            if let Some(&h) = tcx.lang.get("panic_handler")
+                && is_panic_impl(r, crates, d) =>
+        {
+            Resolved::Item(Item::Fn(h, tcx.list(Vec::new())))
+        }
         DefKind::ForeignFn => Resolved::Item(Item::Foreign(d)),
         DefKind::Const => Resolved::Item(Item::Const(d, tcx.list(args))),
+        // An inherent impl's constant is itself; a trait's, the impl's.
+        DefKind::AssocConst if trait_of(r, d).is_none() => Resolved::Item(Item::Const(d, tcx.list(args))),
         DefKind::AssocConst => match solver.resolve_method(d, &args) {
             Some((c, a)) => Resolved::Item(Item::Const(c, tcx.list(a))),
             None => Resolved::NoImpl,
@@ -830,5 +1030,29 @@ mod tests {
             dump.lines().any(|l| l.starts_with("closure @") && l.ends_with("in program::adder")),
             "no closure of adder in:\n{dump}"
         );
+    }
+
+    /// Checking only the bodies monomorphisation reaches finds the same
+    /// items as checking every body first, with far fewer bodies checked.
+    #[test]
+    fn lazy_type_checking_finds_the_same_items() {
+        let Some(core) = core_src() else {
+            eprintln!("no rust-src: skipped");
+            return;
+        };
+        let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/mono/program.rs");
+        let session = Session::new(Options { threads: 4, cfg: Some(crate::cfg::CfgSet::host()), ..Default::default() });
+        let mut crates = session.parse_crates(vec![CrateRoot::new("core", core), CrateRoot::new("program", &file)]);
+        session.expand(&mut crates);
+        let r = session.resolve(&crates);
+        let tcx = session.collect_types(&crates, &r);
+        let index = crate::typeck::Index::new(&tcx, &r);
+        let all = session.typeck_with(&crates, &r, &tcx, &index);
+        let roots = super::roots(&r, &tcx, &crates, 1, false);
+        let eager = session.collect_mono_items(&crates, &r, &tcx, &index, &all, roots.clone());
+        let mut some = crate::typeck::TypeckResults::empty(&crates);
+        let lazy = session.collect_mono_items_lazily(&crates, &r, &tcx, &index, &mut some, roots);
+        assert_eq!(eager.dump(&r, &tcx), lazy.dump(&r, &tcx));
+        assert!(some.stats.bodies * 10 < all.stats.bodies, "{} of {} bodies checked", some.stats.bodies, all.stats.bodies);
     }
 }

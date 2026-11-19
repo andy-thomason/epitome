@@ -32,6 +32,10 @@ pub(super) fn collect<'s>(crates: &[ParsedCrate<'s>], r: &Resolver<'s>) -> TyCtx
                     tcx.lang.insert(name, DefId(i as u32));
                 }
             }
+            // `#[panic_handler]`: what `core`'s `panic_impl` is.
+            if d.kind == DefKind::Fn && crate::session::has_attribute(ast, d.node, "panic_handler") {
+                tcx.lang.insert("panic_handler", DefId(i as u32));
+            }
         }
     }
     let defs: Vec<DefId> = (0..r.defs.len() as u32).map(DefId).filter(|&d| r.defs[d.0 as usize].parent.is_some()).collect();
@@ -410,7 +414,7 @@ fn signature<'s>(tcx: &TyCtxt<'s>, env: &Env<'_, 's>, d: DefId) -> Option<SigOut
                 match ast.kind(c) {
                     Kind::Keyword if ast.token(c).0 == "unsafe" => unsafety = true,
                     Kind::Abi => {
-                        abi = if crate::cfg::string_value(ast.token(c).0) == "C" { Abi::C } else { Abi::Other }
+                        abi = Abi::named(crate::cfg::string_value(ast.token(c).0))
                     }
                     Kind::Params => {
                         for &p in ast.children(c) {

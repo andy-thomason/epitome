@@ -43,9 +43,14 @@ pub struct Options {
     pub memory: bool,
     /// Marking calls that may reuse the frame `tail` (`tailmark.rs`).
     pub tailmark: bool,
+    /// After the bottom-up passes, the interprocedural ones (`ipo.rs`):
+    /// constant returns and arguments, argument promotion, leaf inlining.
+    pub ipo: bool,
     pub mem2reg: bool,
     pub sroa: bool,
     pub simplifycfg: bool,
+    /// Folding what dominating branches imply (`implied.rs`).
+    pub implied: bool,
     /// Loop rotation, then induction variables and trip counts.
     pub loops: bool,
     pub recursion: RecursionMode,
@@ -65,9 +70,11 @@ impl Default for Options {
             cse: true,
             memory: true,
             tailmark: true,
+            ipo: true,
             mem2reg: true,
             sroa: true,
             simplifycfg: true,
+            implied: true,
             loops: true,
             recursion: RecursionMode::Tail,
             chop: None,
@@ -98,6 +105,8 @@ pub struct Report {
     pub sroa: crate::sroa::Stats,
     /// What CFG simplification did, over the whole module.
     pub simplifycfg: crate::simplifycfg::Stats,
+    /// What dominating branches implied, over the whole module.
+    pub implied: crate::implied::Stats,
     pub rotated: usize,
     pub indvars: crate::indvars::Stats,
     pub tail_calls: usize,
@@ -114,6 +123,8 @@ pub struct Report {
     pub chop_stopped: Option<(usize, u64, Option<String>)>,
     /// The first step refused there.
     pub chop_next: Option<String>,
+    /// What the interprocedural passes did.
+    pub ipo: crate::ipo::Stats,
     /// Functions deleted because nothing used them any more.
     pub deleted: Vec<String>,
     /// The size of all functions, and of the longest chain of SCCs that
@@ -134,9 +145,42 @@ pub struct Report {
 /// the module while it is optimised, so that no pass reads, changes or
 /// inlines them, and a call to one is a call to a declaration, which may
 /// read and write any memory its own attributes allow.
+///
+/// A function with `"epitome-opt-level"="0"` (a crate built without
+/// optimisation, beside others built with it) is left as it is, the same
+/// way. What its body refers to is treated as visible to other modules
+/// while the rest is optimised, so that nothing it calls or uses is
+/// deleted, or changed on the assumption that every use is known. Other
+/// levels (`1`, `2`, `3`, `s`, `z`) set the inliner's limits for that
+/// function as a caller (see `InlineParams::for_caller`).
 pub fn run(m: &mut Module, opts: &Options) -> Report {
-    let fenced = take_opaque_bodies(m);
+    let mut fenced = take_opaque_bodies(m);
+    let unoptimised = take_unoptimised_bodies(m);
+    // What the unoptimised bodies refer to, made external for the while.
+    let mentions = crate::callgraph::const_mentions(&m.consts);
+    let mut pinned: Vec<(GlobalId, Linkage)> = Vec::new();
+    for (_, body) in &unoptimised {
+        for b in &body.blocks {
+            for &i in &b.insts {
+                body.insts[i.index()].op.for_each_value(|v| {
+                    if let Value::Const(c) = v {
+                        for &g in &mentions[c.index()] {
+                            let l = m.globals[g.index()].props.linkage;
+                            if matches!(l, Linkage::Internal | Linkage::Private) {
+                                pinned.push((g, l));
+                                m.globals[g.index()].props.linkage = Linkage::External;
+                            }
+                        }
+                    }
+                });
+            }
+        }
+    }
+    fenced.extend(unoptimised);
     let report = optimise(m, opts);
+    for (g, l) in pinned {
+        m.globals[g.index()].props.linkage = l;
+    }
     for (g, body) in fenced {
         if let GlobalKind::Function(f) = &mut m.globals[g.index()].kind {
             f.locals = body.locals;
@@ -152,12 +196,23 @@ pub fn run(m: &mut Module, opts: &Options) -> Report {
 /// The bodies of `m`'s `"epitome-opaque"` functions, taken out, which
 /// leaves each a declaration (its parameters stay).
 fn take_opaque_bodies(m: &mut Module) -> Vec<(GlobalId, Function)> {
+    take_bodies(m, |m, f| epitome_ir::fits::opaque(m, &f.fn_attrs))
+}
+
+/// The bodies of `m`'s functions at `"epitome-opt-level"="0"`, taken out.
+fn take_unoptimised_bodies(m: &mut Module) -> Vec<(GlobalId, Function)> {
+    take_bodies(m, |m, f| attrs::string(m, &f.fn_attrs, "epitome-opt-level") == Some(b"0"))
+}
+
+/// The bodies of the functions `which` picks, taken out, which leaves each
+/// a declaration (its parameters stay).
+fn take_bodies(m: &mut Module, which: impl Fn(&Module, &Function) -> bool) -> Vec<(GlobalId, Function)> {
     let opaque: Vec<GlobalId> = m
         .global_order
         .iter()
         .copied()
         .filter(|&g| match &m.globals[g.index()].kind {
-            GlobalKind::Function(f) => f.has_body && epitome_ir::fits::opaque(m, &f.fn_attrs),
+            GlobalKind::Function(f) => f.has_body && which(m, f),
             _ => false,
         })
         .collect();
@@ -207,6 +262,7 @@ fn optimise(m: &mut Module, opts: &Options) -> Report {
     let m2r_stats = std::sync::Mutex::new(crate::mem2reg::Stats::default());
     let sroa_stats = std::sync::Mutex::new(crate::sroa::Stats::default());
     let cfg_stats = std::sync::Mutex::new(crate::simplifycfg::Stats::default());
+    let implied_stats = std::sync::Mutex::new(crate::implied::Stats::default());
     let extra = opts.extra_rules.as_deref().map(|r| crate::combine::with_extra(r).unwrap_or_else(|e| panic!("{e}")));
     let matcher = extra.as_ref().unwrap_or_else(|| crate::combine::standard());
     let rotated = AtomicUsize::new(0);
@@ -429,6 +485,31 @@ fn optimise(m: &mut Module, opts: &Options) -> Report {
                 // Then the CFG, and the combiner again on what that touched,
                 // which may fold more branches.
                 simplify_cfg(*g, f);
+                // What the branches on the way to each block imply: bounds
+                // checks under a loop's test, before rotation moves the
+                // test to the bottom.
+                if opts.implied {
+                    let s = crate::implied::run(sh, f);
+                    if s.changed() {
+                        sh.remark(
+                            *g,
+                            format!(
+                                "implied: {} comparisons folded, {} selects resolved, {} flags set",
+                                s.folded, s.selects, s.flags
+                            ),
+                        );
+                        {
+                            let mut all = implied_stats.lock().unwrap();
+                            all.folded += s.folded;
+                            all.selects += s.selects;
+                            all.flags += s.flags;
+                        }
+                        if opts.combine {
+                            combine(*g, f, None);
+                        }
+                        simplify_cfg(*g, f);
+                    }
+                }
                 // Loops: rotate them to test at the bottom, tidy what that
                 // copied, then work out counters and trip counts.
                 if opts.loops {
@@ -566,6 +647,7 @@ fn optimise(m: &mut Module, opts: &Options) -> Report {
     report.mem2reg = m2r_stats.into_inner().unwrap();
     report.sroa = sroa_stats.into_inner().unwrap();
     report.simplifycfg = cfg_stats.into_inner().unwrap();
+    report.implied = implied_stats.into_inner().unwrap();
     report.rotated = rotated.into_inner();
     report.indvars = iv_stats.into_inner().unwrap();
     report.tail_calls = tail_calls.into_inner();
@@ -576,9 +658,38 @@ fn optimise(m: &mut Module, opts: &Options) -> Report {
         .into_iter()
         .map(|(g, list)| (m.global(g).name.clone().unwrap_or_else(|| g.0.to_string()), list))
         .collect();
+    // What the bottom-up order cannot see: calls within a cycle, and what
+    // callers know about their callees' arguments.
+    if opts.ipo && opts.combine {
+        // Most functions are dead by now, inlined wherever they were called;
+        // their calls would only hide which arguments are constant.
+        report.deleted = delete_dead_functions(m, threads, &chop, &chop_index);
+        let cx = crate::ipo::Context {
+            threads,
+            intrinsics,
+            matcher,
+            memory: opts.memory,
+            sroa: opts.sroa,
+            mem2reg: opts.mem2reg,
+            simplifycfg: opts.simplifycfg,
+            inline: opts.inline,
+            chop: &chop,
+            chop_index: &chop_index,
+        };
+        let (stats, remarks) = crate::ipo::run(m, &cx);
+        for (g, list) in remarks {
+            let name = m.global(g).name.clone().unwrap_or_else(|| g.0.to_string());
+            match report.remarks.iter_mut().find(|(n, _)| *n == name) {
+                Some((_, l)) => l.extend(list),
+                None => report.remarks.push((name, list)),
+            }
+        }
+        report.ipo = stats;
+        lap("interprocedural");
+    }
     metadata::unique_metadata(m);
     lap("merge metadata");
-    report.deleted = delete_dead_functions(m, threads, &chop, &chop_index);
+    report.deleted.extend(delete_dead_functions(m, threads, &chop, &chop_index));
     lap("delete dead functions");
     report.chop_names =
         chop_order.iter().map(|&g| m.global(g).name.clone().unwrap_or_else(|| g.0.to_string())).collect();
@@ -629,13 +740,16 @@ fn declare_intrinsics(m: &mut Module) -> Intrinsics {
     }
 }
 
-/// Deletes internal functions with no remaining references, and unused
-/// intrinsic declarations. Deleting a function removes its calls, which can
-/// leave its callees unused in turn, so this works through a list.
-/// Returns the names of the deleted functions, intrinsics aside.
+/// Deletes the internal functions and variables nothing can reach, and
+/// unused intrinsic declarations. What is kept is found from the globals
+/// other modules can see (and those named by metadata), through what each
+/// function's body and each variable's initialiser mentions, so a vtable
+/// that nothing uses goes with the functions only it named. Returns the
+/// names of the deleted functions, intrinsics aside.
 ///
 /// Deleting a function with a body is an elective change of that function
-/// (autochop); declarations go without asking.
+/// (autochop); one refused is kept, with what it mentions. Variables and
+/// declarations go without asking.
 fn delete_dead_functions(
     m: &mut Module,
     threads: usize,
@@ -643,50 +757,95 @@ fn delete_dead_functions(
     chop_index: &[usize],
 ) -> Vec<String> {
     let cg = CallGraph::build(m, threads);
-    let mut calls = cg.call_sites.clone();
-    let deletable = |n: usize| -> bool {
-        let global = m.global(cg.nodes[n]);
+    let mentions = crate::callgraph::const_mentions(&m.consts);
+    let n = m.globals.len();
+    // What each global mentions.
+    let mut edges: Vec<Vec<GlobalId>> = vec![Vec::new(); n];
+    for &g in &m.global_order {
+        let consts: Vec<ConstId> = match &m.global(g).kind {
+            GlobalKind::Variable(v) => v.init.into_iter().collect(),
+            GlobalKind::Alias { aliasee, .. } => vec![*aliasee],
+            GlobalKind::IFunc { resolver, .. } => vec![*resolver],
+            GlobalKind::Function(f) => [f.prefix, f.prologue, f.personality].into_iter().flatten().collect(),
+            GlobalKind::Forward => vec![],
+        };
+        let e = &mut edges[g.index()];
+        consts.iter().for_each(|c| e.extend_from_slice(&mentions[c.index()]));
+        if let Some(i) = cg.node(g) {
+            e.extend(cg.callees[i].iter().map(|&j| cg.nodes[j]));
+            e.extend_from_slice(&cg.refs[i]);
+        }
+    }
+    let deletable = |g: GlobalId| -> bool {
+        let global = m.global(g);
         let local = matches!(global.props.linkage, Linkage::Internal | Linkage::Private);
-        let intrinsic = global.name.as_deref().is_some_and(|s| s.starts_with("llvm."));
-        let GlobalKind::Function(f) = &global.kind else { return false };
-        !cg.address_taken[n] && !cg.has_blockaddress[n] && (local || (intrinsic && !f.has_body))
-    };
-    let mut dead = vec![false; cg.nodes.len()];
-    let mut work: Vec<usize> = (0..cg.nodes.len()).filter(|&n| calls[n] == 0 && deletable(n)).collect();
-    while let Some(n) = work.pop() {
-        if dead[n] {
-            continue;
-        }
-        let g = cg.nodes[n];
-        if let GlobalKind::Function(f) = &m.global(g).kind
-            && f.has_body
-            && chop_index[g.index()] != usize::MAX
-        {
-            let _counted = chop.enter(chop_index[g.index()]);
-            let name = m.global(g).name.clone().unwrap_or_default();
-            if !epitome_ir::chop::allow(|| format!("delete @{name}, no longer used")) {
-                continue;
+        let blockaddress = cg.node(g).is_some_and(|i| cg.has_blockaddress[i]);
+        match &global.kind {
+            GlobalKind::Function(f) => {
+                let intrinsic = global.name.as_deref().is_some_and(|s| s.starts_with("llvm."));
+                !blockaddress && (local || (intrinsic && !f.has_body))
             }
+            GlobalKind::Variable(_) => local,
+            _ => false,
         }
-        dead[n] = true;
-        for &c in &cg.sites[n] {
-            calls[c] -= 1;
-            if calls[c] == 0 && !dead[c] && deletable(c) {
-                work.push(c);
+    };
+    let mut live = vec![false; n];
+    let mut work: Vec<GlobalId> = m.global_order.iter().copied().filter(|&g| !deletable(g)).collect();
+    // Globals metadata names.
+    for node in &m.metadata {
+        let mut values = Vec::new();
+        match &node.data {
+            Metadata::Value(v) => values.push(*v),
+            Metadata::Node { fields, .. } => fields.iter().for_each(|f| {
+                if let MdFieldValue::Value(v) = f.value {
+                    values.push(v)
+                }
+            }),
+            _ => {}
+        }
+        for v in values {
+            if let Value::Const(c) = v {
+                work.extend_from_slice(&mentions[c.index()]);
             }
         }
     }
+    let mut asked = vec![false; n];
+    loop {
+        while let Some(g) = work.pop() {
+            if !std::mem::replace(&mut live[g.index()], true) {
+                work.extend(edges[g.index()].iter().copied().filter(|h| !live[h.index()]));
+            }
+        }
+        // A function with a body that autochop will not let go is kept.
+        for &g in &m.global_order {
+            if live[g.index()] || asked[g.index()] {
+                continue;
+            }
+            asked[g.index()] = true;
+            if let GlobalKind::Function(f) = &m.global(g).kind
+                && f.has_body
+                && chop_index[g.index()] != usize::MAX
+            {
+                let _counted = chop.enter(chop_index[g.index()]);
+                let name = m.global(g).name.clone().unwrap_or_default();
+                if !epitome_ir::chop::allow(|| format!("delete @{name}, no longer used")) {
+                    work.push(g);
+                }
+            }
+        }
+        if work.is_empty() {
+            break;
+        }
+    }
     let mut deleted = Vec::new();
-    for (n, &g) in cg.nodes.iter().enumerate() {
-        if dead[n] {
+    for &g in &m.global_order {
+        if !live[g.index()] && matches!(m.global(g).kind, GlobalKind::Function(_)) {
             let name = m.global(g).name.clone().unwrap_or_default();
             if !name.starts_with("llvm.") {
                 deleted.push(name);
             }
         }
     }
-    let mut gone = vec![false; m.globals.len()];
-    cg.nodes.iter().enumerate().filter(|&(n, _)| dead[n]).for_each(|(_, g)| gone[g.index()] = true);
-    m.global_order.retain(|g| !gone[g.index()]);
+    m.global_order.retain(|g| live[g.index()]);
     deleted
 }

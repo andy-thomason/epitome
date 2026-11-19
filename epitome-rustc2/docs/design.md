@@ -744,7 +744,13 @@ finding a new one adds a job.
   differing only in `Sized`: `impl<W: Write + ?Sized>` and `impl<W:
   Write>`, as `Write::write_fmt`'s `SpecWriteFmt` has), the one that does
   not relax `Sized` is taken, by the implicit `Sized` bounds the
-  predicates do not record.
+  predicates do not record. An impl that leaves an item out takes it
+  from the impl it specialises: the next most specific of those that
+  match, and failing those the trait's default (`ZipImpl`'s impl for
+  `TrustedRandomAccess` iterators has no `fold`, its impl for
+  `TrustedRandomAccessNoCoerce` ones does). A `where` clause's
+  supertraits take the trait's defaults for arguments not written
+  (`T: BytewiseEq` brings `T: PartialEq<T>`).
 - A vtable of a type for a `dyn` trait (from unsizing to `dyn`) needs
   each method of the trait and its supertraits, at the trait's arguments
   (`dyn FnMut(&str) -> bool`), a supertrait's put in terms of the
@@ -1169,9 +1175,7 @@ autoderef finds that the body cannot see (`Box`'s own `.0` from outside
 Gaps in type checking that the test programs work around, for later:
 an integer literal is not inferred through a bound such as `S:
 Sum<Self::Item>` (`(1..=5).map(..).sum::<i64>()` takes `i32` for the
-range, and lowering then finds no impl); `StepBy` and `Zip::fold` go
-through specialised associated items (`StepByImpl`, `ZipImpl`) that are
-not worked out; and in some bodies `.min()` is not found on an iterator
+range, and lowering then finds no impl); and in some bodies `.min()` is not found on an iterator
 whose item waits on an operator in a closure (`.map(|(a, b)| a * b)`).
 Lowering reports each of these rather than compiling something wrong.
 

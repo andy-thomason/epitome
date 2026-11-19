@@ -148,6 +148,15 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let params = tcx.all_params(tr.def);
         let mut args = vec![t];
         args.extend(tcx.tys(tr.args));
+        // Arguments not written take their defaults (`T: BytewiseEq` is
+        // `BytewiseEq<T>`, so its supertrait `PartialEq<Rhs>` is
+        // `PartialEq<T>`).
+        let defaults = &tcx.generics[tr.def.0 as usize].defaults;
+        while args.len() < params.len() {
+            let Some(d) = defaults.get(args.len()).copied().flatten() else { break };
+            let a = subst(tcx, d, &params[..args.len()], &args);
+            args.push(a);
+        }
         for sup in &def.supertraits {
             let sup = subst_trait_ref(tcx, sup, &params, &args);
             self.elaborate(t, &sup, out);
@@ -562,8 +571,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
 
     /// For a concrete `t` that several impls match (specialisation): the
     /// one that is more specific than each of the others, which match its
-    /// header. Its arguments, as `select` gives them.
-    pub(super) fn select_specific(&mut self, t: Ty, tr: DefId, targs: &[Ty]) -> Option<(usize, Vec<Ty>)> {
+    /// header. Its arguments, as `select` gives them. The impls in `skip`
+    /// are left out (to find the one an item not in them comes from).
+    pub(super) fn select_specific(&mut self, t: Ty, tr: DefId, targs: &[Ty], skip: &[usize]) -> Option<(usize, Vec<Ty>)> {
         let tcx = self.tcx;
         let ti = self.index.trait_impls.get(&tr)?;
         let cands: Vec<usize> = match head(tcx, t) {
@@ -573,6 +583,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let matching: Vec<usize> = cands
             .into_iter()
             .filter(|&i| {
+                if skip.contains(&i) {
+                    return false;
+                }
                 let s = self.probe();
                 let ok = self.impl_matches(i, t, targs, 0).is_some();
                 self.rollback(s);

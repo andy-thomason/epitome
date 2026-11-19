@@ -76,6 +76,11 @@ impl Target {
         }
     }
 
+    /// A bare-metal RV64 machine (LP64D), for kernels.
+    pub fn riscv64_none() -> Target {
+        Target { triple: "riscv64-unknown-none-elf", data_layout: "e-m:e-p:64:64-i64:64-i128:128-n32:64-S128", ptr_size: 8, cpu: None }
+    }
+
     /// macOS on Apple silicon: every Mac with it has the M1's features
     /// (LSE atomics among them, so atomics are instructions, not calls of
     /// helpers macOS does not have).
@@ -475,6 +480,11 @@ impl<'a, 's> Cx<'a, 's> {
         if crate::session::has_attribute(ast, node, "no_mangle") || crate::session::has_attribute(ast, node, "rustc_std_internal_symbol") {
             return self.r.defs[d.0 as usize].name.to_string();
         }
+        // A kernel (`#[epitome::target(..)]`): by its path, the same in
+        // the pass for its machine and in the host's.
+        if crate::device::kernel_target(ast, node).is_some() {
+            return crate::device::kernel_symbol(&crate::mono::item_path(self.r, self.tcx, d));
+        }
         let mut text = crate::mono::item_path(self.r, self.tcx, d);
         let a = self.tcx.tys(args);
         if !a.is_empty() {
@@ -585,6 +595,7 @@ impl Session {
                     let exported = foreign
                         || crate::session::has_attribute(ast, node, "no_mangle")
                         || crate::session::has_attribute(ast, node, "rustc_std_internal_symbol")
+                        || crate::device::kernel_target(ast, node).is_some()
                         || crate::session::attribute_value(ast, node, "export_name").is_some();
                     let mut spec = IrFunction::builder(name).returns(ret);
                     for p in params {

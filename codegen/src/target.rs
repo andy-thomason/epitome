@@ -745,6 +745,20 @@ pub fn mask_lanes(m: &Module, c: ConstId) -> Option<Vec<i32>> {
     }
 }
 
+/// The RISC-V RV64 description (`codegen/targets/riscv64/`), its files in
+/// order. Together they are one module.
+pub const RISCV64_FILES: &[(&str, &str)] = &[
+    ("00-base.ll", include_str!("../targets/riscv64/00-base.ll")),
+    ("10-integer.ll", include_str!("../targets/riscv64/10-integer.ll")),
+    ("20-m.ll", include_str!("../targets/riscv64/20-m.ll")),
+    ("25-a.ll", include_str!("../targets/riscv64/25-a.ll")),
+    ("30-zbb.ll", include_str!("../targets/riscv64/30-zbb.ll")),
+    ("40-float.ll", include_str!("../targets/riscv64/40-float.ll")),
+    ("60-recipes.ll", include_str!("../targets/riscv64/60-recipes.ll")),
+    ("70-abi.ll", include_str!("../targets/riscv64/70-abi.ll")),
+    ("80-asm.ll", include_str!("../targets/riscv64/80-asm.ll")),
+];
+
 impl Target {
     pub fn aarch64() -> Target {
         Target::load_files(AARCH64_FILES).expect("the built-in AArch64 description is valid")
@@ -752,6 +766,10 @@ impl Target {
 
     pub fn x86_64() -> Target {
         Target::load_files(X86_64_FILES).expect("the built-in x86-64 description is valid")
+    }
+
+    pub fn riscv64() -> Target {
+        Target::load_files(RISCV64_FILES).expect("the built-in RISC-V description is valid")
     }
 
     /// A description in several files, read in order as one module; a

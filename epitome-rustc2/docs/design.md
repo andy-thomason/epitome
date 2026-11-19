@@ -1390,6 +1390,57 @@ mandelbrot, `tests/run/std_hello.rs` (formatting, `Vec`, iterators,
 `String`, `Box<dyn Trait>`, drops and `env::args`) prints what rustc's
 build prints, optimised and not.
 
+### 8.6 Kernels for other machines (`src/device.rs`)
+
+One source file can hold code for more than one machine. A function marked
+`#[epitome::target("riscv64")]` is a kernel: it, and everything it calls,
+is compiled for that machine, and a call of it from the host launches it
+there.
+
+- **A pass for each machine.** The kernels are compiled in a session of
+  their own over the same file: `core` and `alloc` from rust-src with the
+  machine's `cfg` (a bare-metal RV64, `target_os = "none"`, as rustc
+  prints for `riscv64gc-unknown-none-elf`, with `panic =
+  "immediate-abort"`), then the program's crate again. Monomorphisation
+  starts from the kernels, and type checking only checks what it reaches,
+  so the host's code (`std`'s `println!`, which this pass does not have)
+  is never looked at there. Everything a kernel calls is compiled for the
+  machine, at the machine's layout: a helper both sides call is compiled
+  twice. This is CUDA's model (one source, a pass for each machine), with
+  the device functions found from the kernels rather than marked.
+- **Naming.** A kernel is named by its path (`kernel.prog.squares`) in
+  both passes, and is external in the machine's module.
+- **The image.** The machine's module is optimised and compiled with the
+  built-in RISC-V description into an object (`PATH.riscv64.o`), which
+  `epitome_codegen::flat` links at one base address into a flat image:
+  code, data, zeroed space and every global symbol's address. A function
+  nothing defines (`putchar`, `memcpy`) gets a stub address. The image is
+  written into the host's module as the constant `epitome.image.riscv64`.
+- **Launching.** On the host, a call of a kernel is not a call: each
+  argument goes in a `u64` with its kind (integer, `f32`, `f64`), and
+  `__epitome_launch(image, kernel name, args, kinds, n, result kind)`
+  runs it and gives its result back. A `&[T]`, `&mut [T]` or `&str` of
+  plain numbers (and arrays of them, laid out alike on both machines) is
+  passed as its address, length and element size: the runtime copies the
+  elements into the machine's memory and gives the kernel the slice there,
+  and copies a `&mut [T]`'s back after the run. Monomorphisation does not
+  walk a kernel's body on the host, but adds the hook. `--lower-stats`
+  also lists what the kernels' pass could not lower.
+- **The runtime.** `runtime/rv64.rs` is a `#![no_std]` RV64 interpreter
+  (I, M, A, and F and D but for square roots and fused operations) that
+  defines `__epitome_launch`. It is compiled into a program that has
+  kernels, by epitome-rustc2, as a crate before the program's, at
+  optimisation level 2. It loads the image into memory of its own each
+  launch, puts the arguments where the LP64D convention has them, runs
+  the kernel to its return, and serves the stubs (`putchar` is the
+  host's). A program for real hardware gives its own `__epitome_launch`
+  and leaves the runtime out (`--launch-runtime none`).
+- `--emit=kernels` writes only the machines' objects (`tests/kernels.rs`
+  runs one on codegen's RV64 test machine).
+
+Next: a GPU (gfx1151, which so far only assembles). Not yet: pointers
+other than slices, structs, and kernels that are generic or methods.
+
 ## 9. Crates and Cargo
 
 Libraries are written as `.rlib` archives holding the object and a

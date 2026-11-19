@@ -34,6 +34,13 @@ pub fn remap(path: &str) -> String {
     }
 }
 
+/// The library crate `name` (`core`, `alloc`) of `library` (rust-src's
+/// `library/`), in the edition its `Cargo.toml` names.
+pub fn library_crate(library: &Path, name: &str) -> CrateRoot {
+    let dir = library.join(name);
+    CrateRoot::new(name, dir.join("src/lib.rs")).edition(edition(&dir.join("Cargo.toml")))
+}
+
 /// The crates `std` needs, each before those that use it, from
 /// `library` (rust-src's `library/`).
 pub fn std_crates(library: &Path) -> Result<Vec<CrateRoot>, String> {

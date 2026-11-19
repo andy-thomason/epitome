@@ -24,8 +24,10 @@
 //! it still uses). A result in memory is written through a pointer passed
 //! first. `extern "C"` functions take and give scalars only, for now.
 //!
-//! Panics become a trap (`panic=abort`, with no message: `core::fmt`
-//! comes later), and so does an index out of bounds or a division by zero.
+//! Panics are `core`'s and `std`'s own code (`panic=abort`): an index out
+//! of bounds or a division by zero calls `core`'s lang item for it, and
+//! `core`'s `panic_impl` is the program's `#[panic_handler]`. A
+//! `#[track_caller]` function takes its caller's `Location` last.
 //! Arithmetic wraps, as in a release build.
 //!
 //! A function whose body uses something lowering does not support yet
@@ -111,6 +113,9 @@ pub(crate) struct FnAbi {
     pub args: Vec<Repr>,
     pub ret: Repr,
     pub variadic: bool,
+    /// Whether it takes its caller's `&'static Location` last, unseen
+    /// (`#[track_caller]`).
+    pub caller: bool,
 }
 
 /// A function of the module.
@@ -218,9 +223,33 @@ pub(crate) struct Cx<'a, 's> {
     /// there: it calls the closure, then drops its captures (unless the
     /// closure does).
     pub once: FastMap<Item, Decl>,
+    /// Whether `core` and `std` are built with `panic = "immediate-abort"`,
+    /// where each of their panic functions aborts before anything else.
+    pub immediate_abort: bool,
 }
 
 impl<'a, 's> Cx<'a, 's> {
+    /// Whether function `d` is `#[track_caller]`: itself, or (a trait
+    /// impl's method) the trait's method it implements, which makes every
+    /// impl's so (`SliceIndex::index`).
+    pub fn track_caller(&self, d: DefId) -> bool {
+        let (_, _, ast, node) = self.def_ast(d);
+        if crate::session::has_attribute(ast, node, "track_caller") {
+            return true;
+        }
+        let r = self.r;
+        let def = &r.defs[d.0 as usize];
+        let Some(imp) = def.parent.and_then(|m| r.modules[m.0 as usize].def) else { return false };
+        let Some(tr) = self.tcx.impl_index.get(&imp).and_then(|&i| self.tcx.impls[i].trait_ref.as_ref()).map(|t| t.def) else { return false };
+        match r.defs[tr.0 as usize].module.and_then(|m| r.modules[m.0 as usize].names.get(&(def.name, crate::resolve::Ns::Value))).map(|b| &b.res) {
+            Some(crate::resolve::Res::Def(td)) => {
+                let (_, _, ast, node) = self.def_ast(*td);
+                crate::session::has_attribute(ast, node, "track_caller")
+            }
+            _ => false,
+        }
+    }
+
     pub fn solver(&self) -> Solver<'a, 's> {
         Solver::new(self.tcx, self.r, self.crates, self.index)
     }
@@ -250,7 +279,7 @@ impl<'a, 's> Cx<'a, 's> {
     pub fn abi(&self, m: &mut Module, inputs: Vec<Ty>, output: Ty, variadic: bool) -> Result<FnAbi, String> {
         let args = inputs.iter().map(|&t| self.repr(m, t)).collect::<Result<Vec<_>, _>>()?;
         let ret = self.repr(m, output)?;
-        Ok(FnAbi { inputs, output, args, ret, variadic })
+        Ok(FnAbi { inputs, output, args, ret, variadic, caller: false })
     }
 
     /// The IR type of a function with this ABI.
@@ -266,6 +295,9 @@ impl<'a, 's> Cx<'a, 's> {
                 Repr::Imm(t) => params.push(*t),
                 Repr::Mem => params.push(ptr),
             }
+        }
+        if abi.caller {
+            params.push(ptr);
         }
         let ret = match abi.ret {
             Repr::Imm(t) => t,
@@ -467,7 +499,8 @@ impl Session {
         };
         let drops = crate::drops::DropInfo::new(tcx);
         let mut cx =
-            Cx { tcx, r, crates, typeck, index, lcx, fns: FastMap::default(), statics: FastMap::default(), drops, owning: Default::default(), fnptr: FastMap::default(), once: FastMap::default() };
+            Cx { tcx, r, crates, typeck, index, lcx, fns: FastMap::default(), statics: FastMap::default(), drops, owning: Default::default(), fnptr: FastMap::default(), once: FastMap::default(), immediate_abort: false };
+        cx.immediate_abort = self.cfg_of(0).is_some_and(|c| c.has_value("panic", "immediate-abort"));
         let mut failures = Vec::new();
         let mut solver = cx.solver();
 
@@ -510,7 +543,7 @@ impl Session {
                     let l = if let Item::Fn(_, l) = *it { l } else { tcx.list(Vec::new()) };
                     let args = tcx.tys(l);
                     let abi = cx.signature(&mut solver, d, &args).and_then(|(i, o, _, v)| cx.abi(&mut m, i, o, v));
-                    let abi = match abi {
+                    let mut abi = match abi {
                         Ok(a) => a,
                         Err(e) => {
                             failures.push(Failure { item: *it, name: name.clone(), why: e });
@@ -518,6 +551,7 @@ impl Session {
                         }
                     };
                     let foreign = matches!(it, Item::Foreign(_));
+                    abi.caller = !foreign && cx.track_caller(d);
                     // An LLVM intrinsic of vectors (`core::arch`'s, by
                     // `link_name`) or aggregates takes them as values, where
                     // this ABI passes them in memory: SIMD is not lowered
@@ -1080,7 +1114,10 @@ mod tests {
             let mut options = Options { threads: 4, ..Default::default() };
             if !std::fs::read_to_string(&file).unwrap().contains("#![no_std]") {
                 for (n, v) in crate::sysroot::std_cfg() {
-                    cfg.set_value(n, v);
+                    match v {
+                        Some(v) => cfg.set_value(n, v),
+                        None => cfg.set(n),
+                    };
                 }
                 options.env = crate::sysroot::std_env("x86_64");
             }

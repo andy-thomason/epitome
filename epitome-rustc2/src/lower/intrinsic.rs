@@ -142,11 +142,11 @@ impl Fx<'_, '_, '_, '_> {
                 let v = self.b.const_int(i8t, b as i64);
                 imm(v)
             }
+            // `Location::caller()`: the caller's, in a `#[track_caller]`
+            // function; else where the intrinsic is called.
             "caller_location" => {
-                // Only panics use it, and they trap.
-                let ptr = self.ptr_t();
-                let z = self.b.module().const_zero(ptr);
-                imm(z)
+                let v = self.caller_location()?;
+                imm(v)
             }
             "add_with_overflow" | "sub_with_overflow" | "mul_with_overflow" => {
                 let t = t0.ok_or("no type argument")?;

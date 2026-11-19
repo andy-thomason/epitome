@@ -410,6 +410,11 @@ macros of crates outside the session are still found by name.
 ### 6.5 Built-in macros and attributes
 
 `assert!(c)` is expanded as rustc expands it: `if !(c) { ::core::panicking::panic("assertion failed: c") }`, or `::core::panic!(message)` with a message.
+`panic!` and `unreachable!` (the built-ins `core_panic`, `std_panic` and
+`unreachable`) become `core`'s macro for the edition of the crate they
+are called in: `::core::panic::panic_2021!(..)`, or `panic_2015!` before
+2021 (`std`'s own `panic_2015!` for `std`'s `panic!`, which takes any
+payload).
 
 Done in expansion: `cfg_select!`, `cfg!`, `include!`, `stringify!`,
 `concat!`, `line!`, `column!`, `file!`, `module_path!`, `env!`,
@@ -982,7 +987,7 @@ any other; then each is defined.
     value expression (`*Box::new(x)`) is a temporary, so it is freed.
   - **Not yet:** moving out of a closure's capture in its body, or out
     of an array by a pattern (`let [a, b] = arr;`), or-patterns that
-    move what they bind, and unwinding (panics trap, so nothing is
+    move what they bind, and unwinding (panics abort, so nothing is
     dropped on the way out).
 - **`Box` and allocation** are `alloc`'s own code, compiled from
   rust-src with `core` (a program with `extern crate alloc;` and a
@@ -995,10 +1000,25 @@ any other; then each is defined.
   the expansion of `format_args!` (section 6.5): `write!`, `Display` and
   `Debug` of integers, floats, strings and derived types, `{:#?}`, and
   user `Display` impls all run as rustc's build does.
-- **Panics** become a trap (`llvm.trap`), with no message: a call into
-  `core::panicking`, `panic!` and its relatives (`unreachable!`, `todo!`,
-  `unimplemented!`), an index out of bounds, a division by zero, and a
-  failed `assert!`. Arithmetic wraps, as in a release build.
+- **Panics** run `core`'s and `std`'s own code, as with rustc's
+  `panic=abort`: `core::panicking` builds the `PanicInfo` and calls
+  `panic_impl`, which is the program's `#[panic_handler]` (`std`'s prints
+  the message and where, then aborts). The checks lowering makes call
+  `core`'s lang items: an index out of bounds `panic_bounds_check`, and a
+  division by zero or `MIN / -1` the `panic_const_*` ones (monomorphisation
+  keeps them as roots). Arithmetic wraps, as in a release build.
+  With `-C panic=immediate-abort`, a call of a panic function is a trap
+  instead: each aborts before anything else.
+- **`#[track_caller]`** functions (those with the attribute, or a trait
+  impl's method whose trait method has it, as `SliceIndex::index`) take
+  their caller's `&'static Location` as a last, unseen argument.
+  A caller that is `#[track_caller]` itself passes its own on; any other
+  passes a constant `Location` of the call (a method call's name, an
+  overloaded index's `[`, the start of anything else; in code a macro
+  made, the macro's call), which `Location::caller()`
+  (`caller_location`) gives back. rust-src's paths are named as rustc's
+  prebuilt `std` names them (`/rustc/<commit>/library/...`). Not yet: a
+  `#[track_caller]` function as a function pointer or in a vtable.
 - **Symbols** are the item's path and arguments, made safe for an
   assembler, and a hash of where the item is written and of its
   arguments in full; `#[no_mangle]`, `#[export_name]` and foreign items
@@ -1157,7 +1177,7 @@ Lowering reports each of these rather than compiling something wrong.
 
 Not done yet: the moves drops do not handle yet (above),
 upcasting a `dyn` to a supertrait's, function items and pointers as
-`dyn Fn` (closures are done), panics' messages (panics trap),
+`dyn Fn` (closures are done),
 unwinding, closures made function pointers, string
 patterns, SIMD, `async`, and v0 symbol mangling.
 
@@ -1264,16 +1284,25 @@ What a program with `std` needs beyond its code:
   | before | 151 KB | 282 KB |
   | internal symbols only where named | 120 KB | 229 KB |
   | and `-C panic=immediate-abort` | 61 KB | 147 KB |
+  | panics with messages (default) | 262 KB | 520 KB |
+  | and `-C panic=immediate-abort` | 47 KB | 109 KB |
   | rustc (`-O`, its precompiled `std`) | | 458 KB |
 
-  What remains is `std`'s runtime (the main thread's handle, `Once`s, the
-  stack overflow guard's setup), stdout's lock and line buffer, and
-  `fmt::write`; much of the file is page padding and the symbol table.
+  With panics that print their messages, the panic hook and what it
+  reaches (formatting, `Debug`, `std`'s backtrace printing and symbol
+  demangling, kept although `std` is built without backtraces) are in
+  every program. With immediate-abort, what remains is `std`'s runtime
+  (the main thread's handle, `Once`s, the stack overflow guard's setup),
+  stdout's lock and line buffer, and `fmt::write`; much of the file is
+  page padding and the symbol table.
 - **Weak symbols.** `#[linkage = "extern_weak"] static f: Option<fn ...>`
   (`std`'s `weak!`, for `gettid`) is the address of the symbol `f`, null
   if nothing defines it, not a load from it.
-- **Panics** still trap: `catch_unwind` (with nothing to unwind) calls
-  its function and gives 0.
+- **Panics** print and abort as rustc's `panic=abort` build does (exit
+  status 134); `std` is built with `backtrace_in_libstd`, as its build
+  script sets, so that without its `backtrace` feature it symbolizes
+  nothing (and there is no `RUST_BACKTRACE` note). `catch_unwind` (with
+  nothing to unwind) calls its function and gives 0.
 - **Closures as function pointers.** One that captures nothing (as
   `thread_local!`'s are) becomes a function of its signature that calls
   it with no captures.
@@ -1336,7 +1365,7 @@ macOS's `std` also needed the `ptr_mask` intrinsic, and an `if` whose
 branches are two different functions (`RwLock`'s `write_lock` and
 `read_lock`) made a function pointer.
 
-Not yet: unwinding and panic messages, and the rest of what `std`
+Not yet: unwinding, backtraces, and the rest of what `std`
 reaches. On
 mandelbrot, `tests/run/std_hello.rs` (formatting, `Vec`, iterators,
 `String`, `Box<dyn Trait>`, drops and `env::args`) prints what rustc's

@@ -16,6 +16,24 @@ pub fn rust_src() -> Option<PathBuf> {
     lib.join("std/src/lib.rs").exists().then_some(lib)
 }
 
+/// How rustc names a file of rust-src in panic locations: its prebuilt
+/// `std` was compiled from `/rustc/<commit>/library/...`, so a path under
+/// rust-src's `library/` becomes that one. Any other path is as it is.
+pub fn remap(path: &str) -> String {
+    static PREFIX: std::sync::OnceLock<Option<(String, String)>> = std::sync::OnceLock::new();
+    let prefix = PREFIX.get_or_init(|| {
+        let lib = rust_src()?;
+        let out = std::process::Command::new("rustc").arg("-vV").output().ok()?;
+        let text = String::from_utf8(out.stdout).ok()?;
+        let hash = text.lines().find_map(|l| l.strip_prefix("commit-hash: "))?.trim().to_string();
+        Some((lib.to_str()?.to_string(), format!("/rustc/{hash}/library")))
+    });
+    match prefix {
+        Some((from, to)) if path.starts_with(from.as_str()) => format!("{to}{}", &path[from.len()..]),
+        _ => path.to_string(),
+    }
+}
+
 /// The crates `std` needs, each before those that use it, from
 /// `library` (rust-src's `library/`).
 pub fn std_crates(library: &Path) -> Result<Vec<CrateRoot>, String> {
@@ -35,10 +53,13 @@ pub fn std_crates(library: &Path) -> Result<Vec<CrateRoot>, String> {
     Ok(out)
 }
 
-/// The `cfg` options `std`'s crates are built with, as `name = value`:
-/// the vendored crates' `rustc-dep-of-std` feature.
-pub fn std_cfg() -> Vec<(&'static str, &'static str)> {
-    vec![("feature", "rustc-dep-of-std")]
+/// The `cfg` options `std`'s crates are built with, as a name and, for
+/// `name = value`, its value: the vendored crates' `rustc-dep-of-std`
+/// feature, and `backtrace_in_libstd`, which `std`'s build script sets
+/// (without `std`'s `backtrace` feature, its copy of `backtrace` then
+/// symbolizes nothing, rather than through crates it does not have).
+pub fn std_cfg() -> Vec<(&'static str, Option<&'static str>)> {
+    vec![("feature", Some("rustc-dep-of-std")), ("backtrace_in_libstd", None)]
 }
 
 /// The environment `std`'s sources read with `env!`, for a target whose

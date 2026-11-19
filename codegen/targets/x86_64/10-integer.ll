@@ -13747,6 +13747,49 @@ define <4 x float> @X86.sse.min.ss(<4 x float> "reg"="xv" "tied" %a0, <4 x float
 
 declare <4 x float> @llvm.x86.sse.min.ss(<4 x float>, <4 x float>)
 
+; The movemask intrinsics: each lane's top bit.
+define i32 @X86.sse2.pmovmskb.128(<16 x i8> "reg"="xv" %a0) "enc"="01100110 | rex(0, d, 0, a0) | 00001111 | 11010111 | 11 reg:3=d&7 rm:3=a0&7" "asm"="pmovmskb {a0}, {d}" "dclass"="r32" "feature"="sse2" "nodecode" {
+  %r = call i32 @llvm.x86.sse2.pmovmskb.128(<16 x i8> %a0)
+  ret i32 %r
+}
+
+declare i32 @llvm.x86.sse2.pmovmskb.128(<16 x i8>)
+
+define i32 @X86.avx2.pmovmskb(<32 x i8> "reg"="yv" %a0) "enc"="vex(d, 0, a0, 1, 0, 0, 1, 1) | 11010111 | 11 reg:3=d&7 rm:3=a0&7" "asm"="vpmovmskb {a0}, {d}" "dclass"="r32" "feature"="avx2" "nodecode" {
+  %r = call i32 @llvm.x86.avx2.pmovmskb(<32 x i8> %a0)
+  ret i32 %r
+}
+
+declare i32 @llvm.x86.avx2.pmovmskb(<32 x i8>)
+
+define i32 @X86.sse.movmsk.ps(<4 x float> "reg"="xv" %a0) "enc"="rex(0, d, 0, a0) | 00001111 | 01010000 | 11 reg:3=d&7 rm:3=a0&7" "asm"="movmskps {a0}, {d}" "dclass"="r32" "feature"="sse" "nodecode" {
+  %r = call i32 @llvm.x86.sse.movmsk.ps(<4 x float> %a0)
+  ret i32 %r
+}
+
+declare i32 @llvm.x86.sse.movmsk.ps(<4 x float>)
+
+define i32 @X86.sse2.movmsk.pd(<2 x double> "reg"="xv" %a0) "enc"="01100110 | rex(0, d, 0, a0) | 00001111 | 01010000 | 11 reg:3=d&7 rm:3=a0&7" "asm"="movmskpd {a0}, {d}" "dclass"="r32" "feature"="sse2" "nodecode" {
+  %r = call i32 @llvm.x86.sse2.movmsk.pd(<2 x double> %a0)
+  ret i32 %r
+}
+
+declare i32 @llvm.x86.sse2.movmsk.pd(<2 x double>)
+
+define i32 @X86.avx.movmsk.ps.256(<8 x float> "reg"="yv" %a0) "enc"="vex(d, 0, a0, 1, 0, 0, 1, 0) | 01010000 | 11 reg:3=d&7 rm:3=a0&7" "asm"="vmovmskps {a0}, {d}" "dclass"="r32" "feature"="avx" "nodecode" {
+  %r = call i32 @llvm.x86.avx.movmsk.ps.256(<8 x float> %a0)
+  ret i32 %r
+}
+
+declare i32 @llvm.x86.avx.movmsk.ps.256(<8 x float>)
+
+define i32 @X86.avx.movmsk.pd.256(<4 x double> "reg"="yv" %a0) "enc"="vex(d, 0, a0, 1, 0, 0, 1, 1) | 01010000 | 11 reg:3=d&7 rm:3=a0&7" "asm"="vmovmskpd {a0}, {d}" "dclass"="r32" "feature"="avx" "nodecode" {
+  %r = call i32 @llvm.x86.avx.movmsk.pd.256(<4 x double> %a0)
+  ret i32 %r
+}
+
+declare i32 @llvm.x86.avx.movmsk.pd.256(<4 x double>)
+
 define <4 x float> @X86.sse.rcp.ps(<4 x float> "reg"="xv" %a0) "enc"="rex(0, d, 0, a0) | 00001111 | 01010011 | 11 reg:3=d&7 rm:3=a0&7" "asm"="rcpps {a0}, {d}" "dclass"="xv" "feature"="sse" "nodecode" {
   %r = call <4 x float> @llvm.x86.sse.rcp.ps(<4 x float> %a0)
   ret <4 x float> %r

@@ -6156,7 +6156,7 @@ pub(crate) fn mask_bits_selected(cx: &Ctx, f: &Function, m: Value, to: TypeId) -
         && matches!(cx.m.types.get(to), Type::Int(w) if *w == len)
         && (len == 16 || len == 32)
         && len * 8 <= cx.vector_bits()
-        && crate::legalize::mask_width(cx, f, m, &mut Vec::new()) == Some(8)
+        && byte_mask(cx, f, m, 0)
         && cx.selects_head(|h| {
             *h == Head::Cast(
                 CastOp::BitCast,
@@ -6164,6 +6164,28 @@ pub(crate) fn mask_bits_selected(cx: &Ctx, f: &Function, m: Value, to: TypeId) -
                 crate::target::wide_bits(crate::target::head_bits(cx.m, to)),
             )
         })
+}
+
+/// Whether mask `v` is made only of comparisons of bytes (through `and`,
+/// `or`, `xor` and `freeze`, with constants): one whose lanes are bytes
+/// whatever legalisation does, as one combined with a split comparison's
+/// is not.
+fn byte_mask(cx: &Ctx, f: &Function, v: Value, depth: u32) -> bool {
+    let Value::Local(x) = v else { return true };
+    let LocalDef::Inst(d) = f.locals[x.index()].def else { return false };
+    if depth > 16 {
+        return false;
+    }
+    match &f.insts[d.index()].op {
+        Op::ICmp { lhs, .. } => {
+            matches!(cx.m.types.get(cx.value_ty(f, *lhs)), Type::Vector { elem, .. } if matches!(cx.m.types.get(*elem), Type::Int(8)))
+        }
+        Op::Binary { op: BinOp::And | BinOp::Or | BinOp::Xor, lhs, rhs, .. } => {
+            byte_mask(cx, f, *lhs, depth + 1) && byte_mask(cx, f, *rhs, depth + 1)
+        }
+        Op::Freeze(x) => byte_mask(cx, f, *x, depth + 1),
+        _ => false,
+    }
 }
 
 /// Bit casts between a vector of booleans and an integer of as many bits

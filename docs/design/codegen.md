@@ -121,7 +121,7 @@ Chosen with `-regalloc=`.
 | --- | --- | --- |
 | `fast` | Works one block at a time. The default for debug builds. | Planned |
 | `basic` | Allocates live ranges one by one in a heuristic order. Useful for finding bugs. | Planned |
-| linear scan | Epitome's first allocator: live ranges in order of start, copy hints, callee-saved registers for values live across calls, eviction of lighter values, spills through scratch registers; a spilled value's range split by blocks (below). See [isel](isel.md). | Done |
+| linear scan | Epitome's first allocator: live ranges in order of start, copy hints, callee-saved registers for values live across calls, eviction of lighter values, spills through scratch registers; a spilled value's range split by blocks (below). Before it, copies into values nothing reads go, and the sides of a copy that never meet or hold the same value where they do are joined (coalescing). See [isel](isel.md). | Done |
 | `greedy` | The default. Like `basic`, plus splitting live ranges across the function. | Later |
 
 Epitome's splitting is by blocks, after linear scan (`split_by_blocks`): a
@@ -147,7 +147,9 @@ across the function as greedy's has.
   virtual-to-physical map and let a spiller rewrite the code.
 - **Spiller**: adds loads and stores for spilled registers.
 - **Folding**: folds a spill load or store into the instruction that uses it,
-  to remove copies.
+  to remove copies. Epitome folds reloads on x86: an instruction whose
+  memory form's body is its own with a load for one register operand
+  (`ADD64rm` of `ADD64rr`) reads a spilled value from its slot.
 
 ## 5. Machine passes after selection
 

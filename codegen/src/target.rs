@@ -151,6 +151,10 @@ pub struct Instr {
     /// It reads or writes memory, or calls: its body loads, stores, calls,
     /// fences or makes an atomic access.
     pub memory: bool,
+    /// Its only access of memory is one plain store (no load, call or
+    /// atomic): the bytes it writes, else 0. Frame lowering takes such a
+    /// store of a whole slot as overwriting it (`frame.rs`).
+    pub store_bytes: u64,
     /// Where it goes in bundles, if the machine has them (`bundle.rs`):
     /// such an entry is written and read only inside a bundle.
     pub slot: Option<crate::bundle::SlotUse>,
@@ -1356,6 +1360,7 @@ impl Target {
                     }),
                     _ => false,
                 }),
+                store_bytes: store_bytes_of(m, f),
                 clobbers: {
                     let list: Vec<String> = attr(&f.fn_attrs, "clobbers")
                         .flatten()
@@ -2330,6 +2335,47 @@ fn base_offset_of(m: &Module, f: &Function, has_result: bool) -> Option<(usize, 
     }
     let at = has_result as usize;
     Some((base + at, off + at))
+}
+
+/// The bytes a body writes if its only access of memory is one plain store
+/// of a scalar or a fixed vector (not of booleans), else 0.
+fn store_bytes_of(m: &Module, f: &Function) -> u64 {
+    if !f.has_body {
+        return 0;
+    }
+    let mut bytes = 0;
+    for i in f.blocks.iter().flat_map(|b| &b.insts) {
+        match &f.insts[i.index()].op {
+            Op::Store { volatile: false, atomic: None, value, .. } if bytes == 0 => {
+                let ty = match *value {
+                    Value::Local(l) => f.locals[l.index()].ty,
+                    Value::Const(c) => m.constant(c).ty,
+                    Value::Metadata(_) => return 0,
+                };
+                let bits = match m.types.get(ty) {
+                    Type::Int(_) | Type::Ptr(_) | Type::Double | Type::Float | Type::Half | Type::BFloat => {
+                        type_bits(m, ty)
+                    }
+                    Type::Vector { scalable: false, elem, .. }
+                        if !matches!(m.types.get(*elem), Type::Int(1) | Type::Vector { .. }) =>
+                    {
+                        type_bits(m, ty)
+                    }
+                    _ => return 0,
+                };
+                if bits == 0 || bits % 8 != 0 {
+                    return 0;
+                }
+                bytes = bits as u64 / 8;
+            }
+            Op::Load { .. } | Op::Store { .. } | Op::Fence { .. } | Op::AtomicRmw { .. } | Op::CmpXchg { .. } => {
+                return 0;
+            }
+            Op::Call(_) | Op::Invoke { .. } | Op::CallBr { .. } => return 0,
+            _ => {}
+        }
+    }
+    bytes
 }
 
 /// Whether the body's value is its first instruction's result: `%r = ...;

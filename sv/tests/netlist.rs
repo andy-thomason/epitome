@@ -1097,7 +1097,7 @@ fn profiled_by_instance() {
     let b = build("ptop", netlist_with(&src, "ptop", opts), &host);
     assert!(b.net.watched.is_empty(), "settling reads {:?}", b.net.watched);
     // (A design whose settling reads its clock says where.)
-    let gated = "module gtop (input logic clk, input logic en, output logic q);\n  logic g;\n  assign g = clk & en;\n  leaf l (.clk(g), .a(32'(en)), .q());\n  assign q = g;\nendmodule\n";
+    let gated = "module gtop (input logic clk, input logic en, output logic q, output logic [31:0] lq);\n  logic g;\n  assign g = clk & en;\n  leaf l (.clk(g), .a(32'(en)), .q(lq));\n  assign q = g;\nendmodule\n";
     let w = netlist_with(&text("gtop.sv", &format!("{PROFILED}{gated}")), "gtop", host.options(1)).watched;
     assert!(w.iter().any(|(n, why)| n == "clk" && why.contains("assign writing g")), "{w:?}");
     let plain = build("ptop_plain", netlist_with(&src, "ptop", host.options(1)), &host);
@@ -1117,6 +1117,7 @@ fn profiled_by_instance() {
         assert_eq!(&out[c * 4..c * 4 + 4], &q[..], "cycle {c}");
     }
     let t = b.time(&io, cycles, 1, &stim, 2);
+    assert!(t.pieces.is_empty(), "pieces are timed only when asked");
     for p in &t.profile {
         eprintln!("{:8.1} {:8.1} {:5.2}  {}", p.ticks, p.own, p.calls, p.what);
     }
@@ -1139,5 +1140,178 @@ fn profiled_by_instance() {
     }
     for p in &t.profile {
         assert!(p.own >= 0.0, "{}: own {} of {}", p.what, p.own, p.ticks);
+    }
+    // Each piece timed, where asked: every leaf's clocked process runs
+    // once a cycle in each of the eight leaves.
+    let mut po = host.options(1);
+    po.profile = Some(epitome_sv::model::TICKS);
+    po.pieces = true;
+    let pb = build("ptop_pieces", netlist_with(&src, "ptop", po), &host);
+    assert_eq!(pb.run(&io, cycles, 1, &stim), out);
+    let tp = pb.time(&io, cycles, 1, &stim, 2);
+    let leaf_ff = tp.pieces.iter().find(|p| p.2 == "leaf_ff clocked processes").expect("the leaf's clocked processes are timed");
+    assert!(leaf_ff.1 > 0.0, "{leaf_ff:?}");
+}
+
+/// A block of arithmetic heavy enough to be worth a task, registered.
+const HEAVY: &str = r#"
+module heavy (input logic clk, input logic [63:0] a, output logic [63:0] q, output logic [63:0] c);
+  logic [63:0] t [8];
+  always_comb begin
+    t[0] = a * 64'h9E37_79B9_7F4A_7C15;
+    for (int k = 1; k < 8; k++) t[k] = (t[k-1] ^ (t[k-1] >> 29)) * 64'hBF58_476D_1CE4_E5B9 + 64'(k);
+  end
+  assign c = t[7];
+  always_ff @(posedge clk) q <= t[7];
+endmodule
+"#;
+
+/// Eight `heavy`s side by side (`chain` false), or each fed what the one
+/// before works out.
+fn heavies(chain: bool) -> String {
+    let mut s = String::from(HEAVY);
+    s += "module eight (input logic clk, input logic [63:0] a, output logic [511:0] q);\n  logic [63:0] c [9];\n  assign c[0] = a;\n";
+    for k in 0..8 {
+        let input = if chain { format!("c[{k}]") } else { format!("a ^ 64'd{k}") };
+        s += &format!("  heavy u{k} (.clk, .a({input}), .q(q[{k}*64 +: 64]), .c(c[{}]));\n", k + 1);
+    }
+    s + "endmodule\n"
+}
+
+#[test]
+fn steps_cut_into_tasks() {
+    // One clocked step's code, piece by piece with the bytes each reads and
+    // writes, cut into tasks: eight blocks side by side run about eight
+    // times as fast on eight threads; chained, not much faster than one.
+    let Some(host) = host() else {
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
+        return;
+    };
+    let speedup = |chain: bool| {
+        let net = netlist_with(&text("eight.sv", &heavies(chain)), "eight", host.options(1));
+        let s = &net.steps;
+        let funcs: Vec<&str> = s.calls.iter().filter(|c| c.parent.is_none()).map(|c| c.func.as_str()).collect();
+        assert_eq!(funcs, ["step settle", "step ff", "step commit", "step settle again"]);
+        for (k, it) in s.items.iter().enumerate() {
+            assert!(s.calls[it.call].items.contains(&k), "piece {k} is outside its call");
+            assert!(!it.writes.is_empty() || !it.reads.is_empty(), "piece {k} touches nothing");
+        }
+        assert!(s.calls.iter().any(|c| c.path == "u7" && c.func == "settle"));
+        let costs = epitome_sv::tasks::costs(s, &[]);
+        for budget in [50.0, 200.0, 1000.0] {
+            let g = epitome_sv::tasks::cut(s, &costs, budget, budget);
+            assert!(g.well_formed(s.items.len()), "budget {budget}");
+        }
+        let (work, plans) = epitome_sv::tasks::plans(s, &costs, &[1, 8], 2.0, 0.0, 0.0);
+        for p in &plans {
+            eprintln!("chain {chain}: {} threads, {} tasks, {} edges, span {:.0}, time {:.0} of {work:.0}", p.threads, p.tasks, p.edges, p.span, p.time);
+        }
+        assert!((plans[0].time - work).abs() < 1e-6 * work, "one thread does all the work");
+        work / plans[1].time
+    };
+    let side = speedup(false);
+    let chained = speedup(true);
+    assert!(side > 4.0, "side by side: {side:.2}x on 8 threads");
+    assert!(chained < 2.0, "chained: {chained:.2}x on 8 threads");
+}
+
+const DEAD: &str = r#"
+module checks (input logic clk, input logic [7:0] a);
+  logic [7:0] seen;
+  always_ff @(posedge clk) seen <= seen ^ a;
+endmodule
+
+module spare (input logic [7:0] a, output logic [7:0] q);
+  assign q = a * 8'd3;
+endmodule
+
+module dtop (input logic clk, input logic [7:0] a, output logic [7:0] q);
+  logic [7:0] unused_sink, r, spent;
+  assign unused_sink = ^a ? a : ~a;
+  always_ff @(posedge clk) spent <= spent + a;
+  always_ff @(posedge clk) r <= a + 8'd1;
+  assign q = r;
+  checks c (.clk, .a);
+  spare s (.a, .q());
+endmodule
+"#;
+
+#[test]
+fn dead_code_is_left_out() {
+    // What no output needs is not run: a child with no outputs, a child
+    // whose outputs are unread, a value nothing reads, and a register
+    // nothing reads.
+    let Some(host) = host() else {
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
+        return;
+    };
+    let net = netlist_with(&text("dtop.sv", DEAD), "dtop", host.options(1));
+    let paths: Vec<&str> = net.steps.calls.iter().map(|c| c.path.as_str()).collect();
+    assert!(paths.iter().all(|p| p.is_empty()), "calls of {paths:?}");
+    let names: Vec<&str> = net.steps.items.iter().map(|p| p.name.as_str()).collect();
+    assert!(names.iter().all(|n| !n.contains("unused_sink") && !n.contains("spent")), "{names:?}");
+    let b = build("dtop", net, &host);
+    let io = Io::new(&b.net, Some("clk")).unwrap();
+    let stim: Vec<u32> = (0..20u32).map(|c| c * 37 % 256).collect();
+    let out = b.run(&io, 20, 1, &stim);
+    for (c, &a) in stim.iter().enumerate() {
+        assert_eq!(out[c], (a + 1) % 256, "cycle {c}");
+    }
+}
+
+const SPLIT_ARRAY: &str = r#"
+module stage (input logic clk, input logic en, input logic [31:0] a, output logic [31:0] q);
+  always_ff @(posedge clk) if (en) q <= a * 32'd3 + 32'd1;
+endmodule
+
+module sgtop (input logic clk, input logic [7:0][31:0] a, output logic [7:0][31:0] q, output logic stop);
+  logic en;
+  logic [7:0][31:0] qs;
+  for (genvar k = 0; k < 8; k++) begin : g
+    stage u (.clk, .en, .a(a[k]), .q(qs[k]));
+  end
+  // The enable is made from the array's outputs: a loop through the array
+  // as one call, but not through any bit, as the outputs are registers.
+  assign stop = qs[0][0] & qs[7][1];
+  assign en = !stop;
+  assign q = qs;
+endmodule
+"#;
+
+#[test]
+fn arrays_split_where_they_loop() {
+    // An array whose inputs are made from its outputs, where each output
+    // is a register: still called as one, twice, not an instance at a time.
+    let Some(host) = host() else {
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
+        return;
+    };
+    let net = netlist_with(&text("sgtop.sv", SPLIT_ARRAY), "sgtop", host.options(1));
+    assert!(net.steps.calls.iter().any(|c| c.path == "g[*].u"), "{:?}", net.steps.calls.iter().map(|c| &c.path).collect::<Vec<_>>());
+    assert!(net.loops.is_empty(), "{:?}", net.loops);
+    let b = build("sgtop", net, &host);
+    let io = Io::new(&b.net, Some("clk")).unwrap();
+    let mut rng = Rng(0x510E_527F_ADE6_82D1);
+    let cycles = 200;
+    let mut stim = Vec::new();
+    let mut ins = Vec::new();
+    for _ in 0..cycles {
+        let a: Vec<u32> = (0..8).map(|_| rng.next() as u32).collect();
+        stim.extend(&a);
+        ins.push(a);
+    }
+    let out = b.run(&io, cycles, 1, &stim);
+    let mut q = [0u32; 8];
+    let ow = io.out_words();
+    for (c, a) in ins.iter().enumerate() {
+        let stop = q[0] & 1 & (q[7] >> 1);
+        if stop == 0 {
+            for k in 0..8 {
+                q[k] = a[k].wrapping_mul(3).wrapping_add(1);
+            }
+        }
+        let stop = q[0] & 1 & (q[7] >> 1);
+        assert_eq!(&out[c * ow..c * ow + 8], &q[..], "cycle {c}");
+        assert_eq!(out[c * ow + 8], stop, "cycle {c}: stop");
     }
 }

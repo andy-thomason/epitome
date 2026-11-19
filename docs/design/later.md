@@ -185,14 +185,17 @@ these are for after.
   flags from a compare only when it holds, else to a constant chosen so
   the result's condition fails (for `and`) or holds (for `or`).
 - **x86's code size** (`regalloc.rs`, `isel.rs`, `targets/x86_64/`): over
-  a sample of crates' scalar modules, 1.31 times llc's bytes. Most of the
-  rest is moves (`movq`, 30,013 against 17,880): spill code, as on
-  AArch64 but with 14 registers and five callee-saved; reloads not folded
-  into instructions' memory operands, as x86 allows (`movq 32(%rsp),
-  %r11; cmpq %rax, %r11` where `cmpq 32(%rsp), %rax` does; a reg-form
-  instruction's memory form could be found from their bodies); stores of
-  immediates made in a register first (`movq $imm, mem` has no pattern);
-  switches tested case by case where llc jumps through a table.
+  `bench/vs-llc`'s scalar crates, 1.238 times llc's bytes (84,195
+  instructions against 70,211). Spill reloads are folded into the
+  instructions that read them where a memory form reads that operand
+  (`Target::folds`, found from the bodies: `cmpq 32(%rsp), %rax`, `addq`,
+  scalar SSE arithmetic), and constants are stored as immediates (`movq
+  $imm, mem`); but most reloads left feed an address (`movq 32(%rsp),
+  %r11; movq 8(%r11), %rax`), which needs a register, or a store (memory
+  to memory goes through one). A constant stored many times is now longer
+  as immediates (9 bytes each) than made once in a register and stored
+  from it (5); and switches are tested case by case where llc jumps
+  through a table.
 - **Registers chosen for encodings' size**: x86's r8-r15 need a REX
   prefix, and some instructions have shorter forms for rax (the
   descriptions' `acc:0=d` alternatives, already there); RISC-V's

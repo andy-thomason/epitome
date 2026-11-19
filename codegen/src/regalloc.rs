@@ -36,7 +36,9 @@
 //! saves (weighted by loop depth) outweigh the loads entering those
 //! blocks take (`split_by_blocks`). In the rest of its blocks it is
 //! loaded into a scratch register (`x16`, `x17`, `x15`) before each use,
-//! or once for a run of uses where a register is free between them.
+//! or once for a run of uses where a register is free between them; or,
+//! where the instruction has a form that reads that operand from memory
+//! (x86's `addq 8(%rsp), %rax`, `Target::folds`), read from its slot.
 
 use std::collections::{HashMap, HashSet};
 
@@ -984,6 +986,33 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
                         vec![MOp::Reg(Reg::P(p)), MOp::Reg(Reg::P(t.machine.sp)), MOp::Frame(sl, 0)],
                     ));
                     continue;
+                }
+            }
+            // A spilled value read once by an instruction with a form that
+            // reads that operand from memory: that form, reading the slot
+            // (x86's `addq 8(%rsp), %rax`), where a reload would go.
+            if let Opcode::Instr(k) = inst.op {
+                for fo in t.folds(k) {
+                    let Some(&MOp::Reg(Reg::V(v))) = inst.ops.get(fo.operand) else { continue };
+                    let Some(&slot) = slot_of.get(&v) else { continue };
+                    if held(Reg::V(v))
+                        || inst.ops.iter().filter(|o| **o == MOp::Reg(Reg::V(v))).count() != 1
+                        || inst.ops.len() + 2 != fo.ops.len() + 1
+                        || !epitome_ir::chop::allow(|| format!("{fname}: read a spilled value from its slot"))
+                    {
+                        continue;
+                    }
+                    let ops = fo
+                        .ops
+                        .iter()
+                        .map(|o| match *o {
+                            crate::target::FoldOp::From(i) => inst.ops[i].clone(),
+                            crate::target::FoldOp::Base => MOp::Reg(Reg::P(t.machine.sp)),
+                            crate::target::FoldOp::Offset => MOp::Frame(slot, 0),
+                        })
+                        .collect();
+                    inst = MInst { op: Opcode::Instr(fo.mem), ops, ..inst };
+                    break;
                 }
             }
             let (defs, uses) = regs_of(t, &inst);

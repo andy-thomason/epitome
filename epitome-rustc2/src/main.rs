@@ -59,8 +59,11 @@
 //! - `--emit=obj`: with `-o`, write the object file to `PATH`, unlinked.
 //! - Kernels: a function of the last crate marked
 //!   `#[epitome::target("riscv64")]` is compiled for that machine too (see
-//!   `device`), into the object `PATH.riscv64.o`. `--emit=kernels` writes
-//!   only those.
+//!   `device`), into the object `PATH.riscv64.o`, linked into an image the
+//!   program carries. A call of a kernel launches it: `__epitome_launch`,
+//!   which an RV64 interpreter compiled into the program gives
+//!   (`runtime/rv64.rs`), or the program itself with `--launch-runtime
+//!   none`. `--emit=kernels` writes only the objects.
 //! - `--lib`: compile the last crate as a library: monomorphise from all
 //!   its non-generic functions (even if it has a `main`), and make them
 //!   external, so that optimising keeps them. With `-o`, use `--emit=obj`.
@@ -101,6 +104,7 @@ fn main() -> ExitCode {
     let (mut dump_ir, mut lower_stats) = (false, false);
     let mut output: Option<PathBuf> = None;
     let (mut emit_obj, mut lib, mut emit_kernels) = (false, false, false);
+    let mut launch_runtime = true;
     // The optimisation level of the crates given, and of crates by name.
     let mut opt_level = "2".to_string();
     let mut crate_opt: Vec<(String, String)> = Vec::new();
@@ -147,6 +151,14 @@ fn main() -> ExitCode {
             }
             "--emit=obj" => emit_obj = true,
             "--emit=kernels" => emit_kernels = true,
+            _ if arg.starts_with("--launch-runtime") => match value("--launch-runtime").as_deref() {
+                Some("rv64") => launch_runtime = true,
+                Some("none") => launch_runtime = false,
+                v => {
+                    eprintln!("error: `--launch-runtime` is `rv64` or `none`, not {v:?}");
+                    return ExitCode::FAILURE;
+                }
+            },
             "--lib" => lib = true,
             "--std" => with_std = true,
             "-o" => output = value("-o").map(PathBuf::from),
@@ -253,8 +265,29 @@ fn main() -> ExitCode {
         options.proc_macro_server = epitome_rustc2::proc_macro::Server::from_rustc();
     }
     let session = Session::new(options);
+    // A program with kernels gets the launch runtime, as a crate before
+    // its own (written out of the compiler, where the session can read it).
+    let mut runtime: Vec<CrateRoot> = Vec::new();
+    if launch_runtime
+        && !emit_kernels
+        && output.is_some()
+        && let Some(last) = files.last()
+        && std::fs::read_to_string(last).is_ok_and(|t| t.contains("epitome::target"))
+    {
+        let text = include_str!("../runtime/rv64.rs");
+        let path = std::env::temp_dir().join(format!("epitome-launch-rv64-{:016x}.rs", epitome_rustc2::hash::fnv(text.as_bytes())));
+        if std::fs::read_to_string(&path).ok().as_deref() != Some(text)
+            && let Err(e) = std::fs::write(&path, text)
+        {
+            eprintln!("error: writing the launch runtime to {}: {e}", path.display());
+            return ExitCode::FAILURE;
+        }
+        runtime.push(CrateRoot::new("epitome_launch_rv64", path).edition(Edition::E2024));
+    }
+    let runtime_names: Vec<String> = runtime.iter().map(|r| r.name.clone()).collect();
     let roots: Vec<CrateRoot> = std_roots
         .into_iter()
+        .chain(runtime)
         .chain(files.iter().map(|f| {
             let mut root = CrateRoot::new(crate_name(f), f).edition(edition);
             for (name, lib) in &externs {
@@ -263,7 +296,7 @@ fn main() -> ExitCode {
             root
         }))
         .map(|root| match &library_cfg {
-            Some(c) if is_library(&root.root) => root.cfg(c.clone()),
+            Some(c) if is_library(&root.root) || runtime_names.contains(&root.name) => root.cfg(c.clone()),
             _ => root,
         })
         .collect();
@@ -273,7 +306,7 @@ fn main() -> ExitCode {
         .iter()
         .map(|root| match crate_opt.iter().rev().find(|(n, _)| *n == root.name) {
             Some((_, l)) => l.clone(),
-            None if is_library(&root.root) => "2".to_string(),
+            None if is_library(&root.root) || runtime_names.contains(&root.name) => "2".to_string(),
             None => opt_level.clone(),
         })
         .collect();
@@ -335,7 +368,9 @@ fn main() -> ExitCode {
             let cx = epitome_rustc2::layout::LayoutCx::new(&tcx, &r, &crates, &index, Default::default());
             print!("{}", cx.dump(Some(crates.len() as u32 - 1)));
         }
-        // The kernels, each machine's in a module of its own.
+        // The kernels, each machine's in a module of its own, linked into
+        // an image for the host to carry.
+        let mut images: Vec<(String, Vec<u8>)> = Vec::new();
         if let Some(out) = &output {
             let last = crates.len() as u32 - 1;
             let mut machines: Vec<String> = epitome_rustc2::device::kernels(&r, &crates, last).into_iter().map(|(_, t)| t).collect();
@@ -359,6 +394,17 @@ fn main() -> ExitCode {
                 if let Err(e) = build(&mut lowered.module, machine.target, &path, Some(epitome_opt::inline::OptLevel::O2), true) {
                     eprintln!("error: {name}: {e}");
                     return ExitCode::FAILURE;
+                }
+                if !emit_kernels {
+                    let object = std::fs::read(&path).unwrap_or_default();
+                    let stubs = ["putchar", "memcpy", "memmove", "memset", "memcmp", "bcmp"];
+                    match epitome_codegen::flat::link_riscv64(&[object], 0x1_0000, 0x1000, &stubs) {
+                        Ok(image) => images.push((name.clone(), image.encode(&name))),
+                        Err(e) => {
+                            eprintln!("error: linking the {name} kernels: {e}");
+                            return ExitCode::FAILURE;
+                        }
+                    }
                 }
             }
             if emit_kernels {
@@ -436,6 +482,19 @@ fn main() -> ExitCode {
                         lowered.set_opt_levels(&r, |k| levels.get(k as usize).cloned());
                         epitome_opt::inline::OptLevel::parse(&opt_level).unwrap_or(epitome_opt::inline::OptLevel::O2)
                     });
+                    // Each machine's image, where the program launches it.
+                    for (name, bytes) in &images {
+                        let m = &mut lowered.module;
+                        if let Some(g) = m.find_global(&format!("epitome.image.{name}"))
+                            && let epitome_ir::module::Value::Const(c) = m.const_bytes(bytes)
+                        {
+                            let ty = m.consts.get(c).ty;
+                            if let epitome_ir::module::GlobalKind::Variable(v) = &mut m.globals[g.index()].kind {
+                                v.init = Some(c);
+                                v.ty = ty;
+                            }
+                        }
+                    }
                     if let Err(e) = build(&mut lowered.module, target, out, level, emit_obj) {
                         eprintln!("error: {e}");
                         return ExitCode::FAILURE;

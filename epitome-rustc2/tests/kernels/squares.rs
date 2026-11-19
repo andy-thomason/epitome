@@ -3,6 +3,7 @@
 //! `sort_unstable`) are compiled for RV64, and run on codegen's RV64
 //! machine, which gives `putchar`.
 //!
+//! run on: riscv64
 //! prints: 173
 //! prints: 1
 //! prints: 1

@@ -1,8 +1,11 @@
 //! Kernels: each program in `tests/kernels/` has functions marked
-//! `#[epitome::target("riscv64")]`, compiled for RISC-V with
-//! `--emit=kernels` and run on codegen's RV64 machine
-//! (`codegen/tests/riscv/emu.rs`), from its `main`. What they print must
-//! be what the program's `//! prints:` lines say.
+//! `#[epitome::target("riscv64")]`. One that says `//! run on: riscv64`
+//! is compiled for RISC-V only (`--emit=kernels`) and run on codegen's RV64
+//! machine (`codegen/tests/riscv/emu.rs`) from its kernel `main`; one that
+//! says `//! run on: host` is built whole (optimised, and with `-O0`) and
+//! run here, its calls of kernels launching them on the RV64 interpreter
+//! compiled into it. What each prints must be what its `//! prints:` lines
+//! say.
 
 #[path = "../../codegen/tests/riscv/emu.rs"]
 #[allow(dead_code)]
@@ -34,6 +37,21 @@ fn kernels_run_on_riscv() {
         let text = std::fs::read_to_string(p).unwrap();
         let want: String = text.lines().filter_map(|l| l.strip_prefix("//! prints: ")).map(|l| format!("{l}\n")).collect();
         let out = dir.join(&name);
+        if text.contains("//! run on: host") {
+            for opt in [&[][..], &["-O0"][..]] {
+                let built = Command::new(env!("CARGO_BIN_EXE_epitome-rustc2")).arg("--std").args(opt).arg("-o").arg(&out).arg(p).output().unwrap();
+                if !built.status.success() {
+                    failed.push(format!("{name} {opt:?}: not built:\n{}", String::from_utf8_lossy(&built.stderr)));
+                    continue;
+                }
+                let ran = Command::new(&out).output().unwrap();
+                let got = String::from_utf8_lossy(&ran.stdout).into_owned();
+                if !ran.status.success() || got != want {
+                    failed.push(format!("{name} {opt:?}: got {got:?} ({}), stderr {}, want {want:?}", ran.status, String::from_utf8_lossy(&ran.stderr)));
+                }
+            }
+            continue;
+        }
         let built = Command::new(env!("CARGO_BIN_EXE_epitome-rustc2")).arg("--emit=kernels").arg("-o").arg(&out).arg(p).output().unwrap();
         if !built.status.success() {
             failed.push(format!("{name}: not built:\n{}", String::from_utf8_lossy(&built.stderr)));

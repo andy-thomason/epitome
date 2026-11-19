@@ -334,6 +334,11 @@ impl<'a, 's> Walk<'a, 's> {
         }
     }
 
+    fn is_kernel(&self, f: DefId) -> bool {
+        let def = &self.r.defs[f.0 as usize];
+        crate::device::kernel_target(&self.crates[def.krate as usize].files[def.file as usize].ast, def.node).is_some()
+    }
+
     fn miss(&mut self, why: String) {
         *self.unresolved.entry(why).or_default() += 1;
     }
@@ -512,6 +517,13 @@ impl<'a, 's> Walk<'a, 's> {
             return;
         }
         match instance(self.r, self.crates, tcx, &mut self.solver, d, args.clone()) {
+            // A kernel for another machine is launched, not run here: what
+            // the host needs is the launch hook.
+            Resolved::Item(Item::Fn(f, _)) if self.is_kernel(f) => {
+                if let Some(h) = crate::device::launch_hook(self.r, self.crates) {
+                    self.found.push(Item::Fn(h, tcx.list(Vec::new())));
+                }
+            }
             Resolved::Item(it) => self.found.push(it),
             Resolved::Builtin => self.builtin_call(d, &args),
             Resolved::NoImpl => self.miss("associated constant without an impl".into()),

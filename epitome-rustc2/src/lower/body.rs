@@ -3024,6 +3024,95 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         self.emit_call(&abi, |b, a| b.call_indirect(fty, target, a), args)
     }
 
+    /// A call of kernel `f` (for the machine its `#[epitome::target]`
+    /// names): its arguments as `u64`s, each with its kind (0 an integer,
+    /// 1 an `f32`, 2 an `f64`), and `__epitome_launch` given the machine's
+    /// image (the global `epitome.image.<machine>`, which the driver fills
+    /// in) and the kernel's symbol; its result, converted back.
+    fn launch(&mut self, f: DefId, args: Vec<Operand>) -> R<Pv> {
+        let cx = self.cx;
+        let tcx = cx.tcx;
+        let (_, _, ast, node) = cx.def_ast(f);
+        let machine = crate::device::kernel_target(ast, node).ok_or("not a kernel")?;
+        let symbol = crate::device::kernel_symbol(&crate::mono::item_path(cx.r, tcx, f));
+        let (_, output, _, _) = cx.signature(&mut self.solver, f, &[])?;
+        let kind = |t: Ty| -> Option<u8> {
+            match tcx.kind(t) {
+                TyKind::Int(_) | TyKind::Uint(_) | TyKind::Bool | TyKind::Char => Some(0),
+                TyKind::Float(crate::ty::FloatTy::F32) => Some(1),
+                TyKind::Float(crate::ty::FloatTy::F64) => Some(2),
+                _ => None,
+            }
+        };
+        let i64t = self.b.module().types.int(64);
+        let i32t = self.b.module().types.int(32);
+        let i8t = self.i8t();
+        let n = args.len();
+        let slots = self.temp(tcx.mk(TyKind::Tuple(tcx.list(vec![tcx.mk(TyKind::Uint(UintTy::U64)); n.max(1)]))))?;
+        let mut kinds = Vec::new();
+        for (i, a) in args.iter().enumerate() {
+            let k = kind(a.ty).ok_or_else(|| format!("a kernel argument of type {} (only numbers, so far)", tcx.display(cx.r, a.ty)))?;
+            let v = self.imm(*a)?;
+            let w = match k {
+                1 => {
+                    let b = self.b.bitcast(v, i32t);
+                    self.b.zext(b, i64t)
+                }
+                2 => self.b.bitcast(v, i64t),
+                _ if self.signed(a.ty) => self.b.sext(v, i64t),
+                _ => {
+                    let vt = self.b.type_of(v);
+                    if vt == i64t { v } else { self.b.zext(v, i64t) }
+                }
+            };
+            let p = self.offset(slots.addr, 8 * i as u64);
+            self.store_imm(w, p, 8);
+            kinds.push(k);
+        }
+        let ret = match tcx.kind(output) {
+            TyKind::Tuple(l) if tcx.tys(l).is_empty() => 3,
+            _ => kind(output).ok_or_else(|| format!("a kernel result of type {} (only numbers, so far)", tcx.display(cx.r, output)))?,
+        };
+        let ptr = self.ptr_t();
+        let usize_t = self.isize_t();
+        let image_name = format!("epitome.image.{machine}");
+        let m = self.b.module();
+        let image = match m.find_global(&image_name) {
+            Some(g) => g,
+            None => {
+                let init = m.const_bytes(&[0]);
+                epitome_ir::module::Global::builder(&image_name).init(init).constant().linkage(Linkage::Private).align(8).build(m)
+            }
+        };
+        let image = m.global_value(image);
+        let name = m.const_bytes(symbol.as_bytes());
+        let name = epitome_ir::module::Global::builder(&format!("{}.kernel.{}", self.fname, self.strings)).init(name).constant().linkage(Linkage::Private).align(1).build(m);
+        let name = m.global_value(name);
+        let kinds_init = m.const_bytes(&kinds);
+        let kinds = epitome_ir::module::Global::builder(&format!("{}.kinds.{}", self.fname, self.strings)).init(kinds_init).constant().linkage(Linkage::Private).align(1).build(m);
+        let kinds = m.global_value(kinds);
+        self.strings += 1;
+        let hook = m.declare("__epitome_launch", i64t, &[ptr, ptr, usize_t, ptr, ptr, usize_t, i8t], false);
+        let len = self.usize_const(symbol.len() as u64);
+        let nargs = self.usize_const(n as u64);
+        let rk = self.b.const_int(i8t, ret as i64);
+        let got = self.b.call(hook, &[image, name, len, slots.addr, kinds, nargs, rk]).ok_or("`__epitome_launch` gave no value")?;
+        if ret == 3 {
+            return Ok(Pv::Val(self.unit()));
+        }
+        let Repr::Imm(rt) = self.repr(output)? else { return Err("a kernel result not a scalar".into()) };
+        let v = match ret {
+            1 => {
+                let t = self.b.trunc(got, i32t);
+                self.b.bitcast(t, rt)
+            }
+            2 => self.b.bitcast(got, rt),
+            _ if rt == i64t => got,
+            _ => self.b.trunc(got, rt),
+        };
+        Ok(Pv::Val(Operand { ty: output, v: Val::Imm(v) }))
+    }
+
     /// The address of function `d` at `args`, as a value.
     pub fn fn_address(&mut self, d: DefId, args: Vec<Ty>) -> R<Value> {
         match crate::mono::instance(self.cx.r, self.cx.crates, self.cx.tcx, &mut self.solver, d, args) {
@@ -3056,6 +3145,10 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             // With `panic = "immediate-abort"`, a panic function aborts
             // first: the call is the abort, and the message it would have
             // made (and the code that formats it) is left out.
+            // A kernel for another machine: launched, not called.
+            Resolved::Item(Item::Fn(f, _)) if crate::device::kernel_target(self.cx.def_ast(f).2, self.cx.def_ast(f).3).is_some() => {
+                self.launch(f, args)
+            }
             Resolved::Item(Item::Fn(f, _)) if self.cx.immediate_abort && is_panic_fn(r, f) => {
                 self.trap();
                 Ok(Pv::Val(Operand { ty: tcx.mk(TyKind::Never), v: Val::Zst }))

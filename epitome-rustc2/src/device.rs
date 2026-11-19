@@ -49,6 +49,17 @@ pub fn kernel_symbol(path: &str) -> String {
     format!("kernel.{}", safe.replace("..", "."))
 }
 
+/// `__epitome_launch` (a `#[no_mangle]` function), where a crate of the
+/// session defines it: what a host's call of a kernel calls.
+pub fn launch_hook(r: &Resolver, crates: &[ParsedCrate]) -> Option<DefId> {
+    (0..r.defs.len() as u32).map(DefId).find(|&d| {
+        let def = &r.defs[d.0 as usize];
+        def.name == "__epitome_launch"
+            && def.kind == DefKind::Fn
+            && crate::session::has_attribute(&crates[def.krate as usize].files[def.file as usize].ast, def.node, "no_mangle")
+    })
+}
+
 /// The kernels of crate `k`, with the machine each is for.
 pub fn kernels(r: &Resolver, crates: &[ParsedCrate], k: u32) -> Vec<(DefId, String)> {
     (0..r.defs.len() as u32)

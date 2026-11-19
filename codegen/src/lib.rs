@@ -317,7 +317,9 @@ fn compile_function(t: &Target, abi: &abi::Abi, cx: &mut Ctx, job: &Job, opts: &
     if opts.stop != Stop::AfterSelection {
         let now = Instant::now();
         let selected = (opts.stop != Stop::AfterAllocation).then(|| mf.clone());
+        let slots = mf.slots.len();
         regalloc::allocate(t, &mut mf)?;
+        let mut counted = regalloc::count(t, &mf, slots);
         timing::add(&timing::ALLOCATE, now);
         if opts.stop != Stop::AfterAllocation {
             let now = Instant::now();
@@ -327,6 +329,7 @@ fn compile_function(t: &Target, abi: &abi::Abi, cx: &mut Ctx, job: &Job, opts: &
                 Err(e) if e.ends_with(frame::NEEDS_SCRATCH) => {
                     mf = selected.expect("kept for this");
                     regalloc::allocate_keeping_scratch(t, &mut mf)?;
+                    counted = regalloc::count(t, &mf, slots);
                     frame::lower(t, &mut mf)?;
                 }
                 r => r?,
@@ -342,6 +345,11 @@ fn compile_function(t: &Target, abi: &abi::Abi, cx: &mut Ctx, job: &Job, opts: &
             mir::set_sizes(t, &mut mf);
             timing::add(&timing::LAYOUT, now);
         }
+        use isel::stats::{MOVES, SPILL_LOADS, SPILL_STORES, SPILL_WEIGHTED, add};
+        add(&SPILL_LOADS, counted.0);
+        add(&SPILL_STORES, counted.1);
+        add(&MOVES, counted.2);
+        add(&SPILL_WEIGHTED, counted.3);
     }
     Ok(mf)
 }

@@ -75,10 +75,19 @@ pub mod stats {
     pub static VALID: Counter = Counter { total: AtomicU64::new(0), slot: 3 };
     pub static NANOS: Counter = Counter { total: AtomicU64::new(0), slot: 4 };
     pub static WALK_NANOS: Counter = Counter { total: AtomicU64::new(0), slot: 5 };
-    const ALL: [&Counter; 6] = [&ROOTS, &STEPS, &CANDIDATES, &VALID, &NANOS, &WALK_NANOS];
+    // What register allocation left (`regalloc::count`): spill loads and
+    // stores, and register moves.
+    pub static SPILL_LOADS: Counter = Counter { total: AtomicU64::new(0), slot: 6 };
+    pub static SPILL_STORES: Counter = Counter { total: AtomicU64::new(0), slot: 7 };
+    pub static MOVES: Counter = Counter { total: AtomicU64::new(0), slot: 8 };
+    // Spill loads and stores, each weighted by its block's expected
+    // frequency (`regalloc::block_freqs`).
+    pub static SPILL_WEIGHTED: Counter = Counter { total: AtomicU64::new(0), slot: 9 };
+    const ALL: [&Counter; 10] =
+        [&ROOTS, &STEPS, &CANDIDATES, &VALID, &NANOS, &WALK_NANOS, &SPILL_LOADS, &SPILL_STORES, &MOVES, &SPILL_WEIGHTED];
 
     thread_local! {
-        static LOCAL: [Cell<u64>; 6] = const { [const { Cell::new(0) }; 6] };
+        static LOCAL: [Cell<u64>; 10] = const { [const { Cell::new(0) }; 10] };
     }
 
     pub fn add(c: &Counter, n: u64) {

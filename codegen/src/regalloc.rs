@@ -753,7 +753,29 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
             spilled_set.len()
         ));
     }
+    // Splitting by blocks: a spilled value is held in a register through
+    // the blocks where one is free for all of its stretch there, chosen
+    // where its uses there (weighted by loop depth) outnumber the loads
+    // that entering them takes (`split_by_blocks`).
+    let cands_of = |v: VReg| -> Vec<u8> {
+        let class = classes[v as usize];
+        let wide = too_wide(v);
+        caller_saved
+            .iter()
+            .chain(&fp_caller_saved)
+            .chain(callee_saved.iter().chain(&fp_callee_saved).filter(|_| !wide))
+            .copied()
+            .filter(|&p| m.in_class(class, p))
+            .collect()
+    };
+    let saved = |p: u8| callee_saved.contains(&p) || fp_callee_saved.contains(&p);
+    let mut by_weight: Vec<VReg> = spilled_set.iter().copied().collect();
+    by_weight.sort_by(|a, b| weight(*b).total_cmp(&weight(*a)).then(a.cmp(b)));
+    let split = split_by_blocks(t, f, &by_weight, &segs, &block_range, &mut taken, &cands_of, &saved);
     let mut local: HashMap<(VReg, usize), Vec<(u32, u32, u8)>> = HashMap::new();
+    for (&(v, bi), &(iv, p)) in &split.held {
+        local.insert((v, bi), vec![(iv.0, iv.1, p)]);
+    }
     {
         let mut idx = 0u32;
         for (bi, b) in f.blocks.iter().enumerate() {
@@ -773,7 +795,8 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
                 }
                 idx += 1;
             }
-            let mut vs: Vec<(VReg, Vec<u32>)> = seen.into_iter().filter(|(_, ps)| ps.len() > 1).collect();
+            let mut vs: Vec<(VReg, Vec<u32>)> =
+                seen.into_iter().filter(|(v, ps)| ps.len() > 1 && !split.held.contains_key(&(*v, bi))).collect();
             vs.sort_by_key(|(v, ps)| (ps[0], *v));
             for (v, ps) in vs {
                 let class = classes[v as usize];
@@ -856,9 +879,30 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
         let old = std::mem::take(&mut b.insts);
         let mut new = Vec::with_capacity(old.len());
         // Values held in a register, and the group whose register holds
-        // them now.
+        // them now: those held through the block that arrive in it (loaded
+        // on the way in, or already there in the block before).
         let mut loaded: HashMap<VReg, u32> = HashMap::new();
-        for mut inst in old {
+        let (bs, _) = block_range[bi];
+        for (&(v, b), &(iv, _)) in &split.held {
+            if b == bi && iv.0 == bs {
+                loaded.insert(v, iv.0);
+            }
+        }
+        let load = |v: VReg, p: u8| -> Result<MInst, String> {
+            let (ld, _) = spill_of(vclass[v as usize])
+                .ok_or_else(|| format!("{fname}: no instructions load and store a {} register to spill it", m.def(vclass[v as usize]).name))?;
+            Ok(MInst::new(ld, vec![MOp::Reg(Reg::P(p)), MOp::Reg(Reg::P(t.machine.sp)), MOp::Frame(slot_of[&v], 0)]))
+        };
+        for &(v, p) in split.at_start.get(&bi).into_iter().flatten() {
+            new.push(load(v, p)?);
+        }
+        let (term_start, old_len) = (b.term_start, old.len());
+        for (k, mut inst) in old.into_iter().enumerate() {
+            if k == term_start {
+                for &(v, p) in split.at_end.get(&bi).into_iter().flatten() {
+                    new.push(load(v, p)?);
+                }
+            }
             let here = pos;
             pos += 1;
             let held = |r: Reg| matches!(r, Reg::V(v) if group_at(v, bi, 2 * here).or(group_at(v, bi, 2 * here + 1)).is_some());
@@ -1008,6 +1052,11 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
             new.push(inst);
             new.extend(after);
         }
+        if term_start >= old_len {
+            for &(v, p) in split.at_end.get(&bi).into_iter().flatten() {
+                new.push(load(v, p)?);
+            }
+        }
         b.insts = new;
     }
     let spill_ops: Vec<(usize, usize)> =
@@ -1018,6 +1067,278 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
     }
     redundant_copies(t, f);
     lower_copies(t, f).map(|_| true)
+}
+
+/// Each block's expected frequency: 8 to the power of how many loops it is
+/// in (natural loops, of back edges to a block that dominates their
+/// source), at most 8^5.
+pub(crate) fn block_freqs(f: &MFunc) -> Vec<f64> {
+    let n = f.blocks.len();
+    let idom = crate::peephole::dominators(f);
+    let dominates = |h: usize, mut b: usize| loop {
+        if b == h {
+            return true;
+        }
+        if b == 0 || idom[b] == b {
+            return false;
+        }
+        b = idom[b];
+    };
+    let mut preds = vec![Vec::new(); n];
+    for (b, blk) in f.blocks.iter().enumerate() {
+        for &s in &blk.succs {
+            if s < n {
+                preds[s].push(b);
+            }
+        }
+    }
+    // Each header's loop: the blocks that reach a back edge's source
+    // without passing the header.
+    let mut body: HashMap<usize, HashSet<usize>> = HashMap::new();
+    for (b, blk) in f.blocks.iter().enumerate() {
+        for &h in &blk.succs {
+            if h < n && dominates(h, b) {
+                let set = body.entry(h).or_insert_with(|| HashSet::from([h]));
+                let mut stack = vec![b];
+                while let Some(x) = stack.pop() {
+                    if set.insert(x) {
+                        stack.extend(preds[x].iter().copied());
+                    }
+                }
+            }
+        }
+    }
+    let mut depth = vec![0u32; n];
+    for set in body.values() {
+        for &b in set {
+            depth[b] += 1;
+        }
+    }
+    depth.into_iter().map(|d| 8f64.powi(d.min(5) as i32)).collect()
+}
+
+/// Where spilled values are held in registers through whole blocks, and
+/// the loads that put them there (`split_by_blocks`).
+#[derive(Default)]
+struct Split {
+    /// (value, block): its stretch in the block, and the register holding
+    /// it there.
+    held: HashMap<(VReg, usize), (Interval, u8)>,
+    /// Loads at the start of a block, and before its terminator.
+    at_start: HashMap<usize, Vec<(VReg, u8)>>,
+    at_end: HashMap<usize, Vec<(VReg, u8)>>,
+}
+
+/// Splitting a spilled value's live range by blocks. Memory always has a
+/// spilled value (it is stored after each definition), so a register may
+/// hold it through any set of blocks where the register is free for all
+/// of its stretch: leaving them needs nothing, and entering them a load,
+/// on the edge (at the start of a block of one predecessor, or before
+/// the terminator of a block of one successor; a value cannot enter by an
+/// edge that is neither). For each value, heaviest first, and register,
+/// the blocks are chosen where its reads (weighted by the blocks'
+/// frequencies) outweigh the loads entering them: starting from the
+/// blocks that read it, each block is in where that pays, given its
+/// neighbours, until nothing changes (a few rounds), and then blocks that
+/// could not be entered are taken out. The register that saves most is
+/// taken, and then the rest of the value's blocks may take another, up to
+/// three. (A greedy allocator's region splitting, by blocks.)
+#[allow(clippy::too_many_arguments)]
+fn split_by_blocks(
+    t: &Target,
+    f: &MFunc,
+    values: &[VReg],
+    segs: &[Vec<Interval>],
+    block_range: &[Interval],
+    taken: &mut HashMap<u8, Busy>,
+    cands_of: &dyn Fn(VReg) -> Vec<u8>,
+    saved: &dyn Fn(u8) -> bool,
+) -> Split {
+    let mut out = Split::default();
+    if values.is_empty() || !epitome_ir::chop::allow(|| format!("{}: split spilled values by blocks", f.name)) {
+        return out;
+    }
+    let nb = f.blocks.len();
+    let freq = block_freqs(f);
+    let mut preds: Vec<Vec<usize>> = vec![Vec::new(); nb];
+    let mut succs: Vec<Vec<usize>> = vec![Vec::new(); nb];
+    for (b, blk) in f.blocks.iter().enumerate() {
+        for &s in &blk.succs {
+            if s < nb && !succs[b].contains(&s) {
+                succs[b].push(s);
+                preds[s].push(b);
+            }
+        }
+    }
+    let empty: Vec<bool> = f.blocks.iter().map(|b| b.insts.is_empty()).collect();
+    // The non-empty block a position is in.
+    let block_at = |pos: u32| -> Option<usize> {
+        let k = block_range.partition_point(|r| r.0 <= pos);
+        (0..k).rev().find(|&b| !empty[b] && block_range[b].0 <= pos && pos <= block_range[b].1)
+    };
+    // Each value's reads per block, and the blocks where it is written
+    // at or after the terminator's start.
+    let want: HashSet<VReg> = values.iter().copied().collect();
+    let mut reads: HashMap<(VReg, usize), u32> = HashMap::new();
+    let mut late: HashSet<(VReg, usize)> = HashSet::new();
+    for (bi, b) in f.blocks.iter().enumerate() {
+        for (k, inst) in b.insts.iter().enumerate() {
+            let (defs, uses) = regs_of(t, inst);
+            let mut seen: Vec<VReg> = Vec::new();
+            for r in uses {
+                if let Reg::V(v) = r
+                    && want.contains(&v)
+                    && !seen.contains(&v)
+                {
+                    seen.push(v);
+                    *reads.entry((v, bi)).or_default() += 1;
+                }
+            }
+            if k >= b.term_start {
+                for r in defs {
+                    if let Reg::V(v) = r {
+                        late.insert((v, bi));
+                    }
+                }
+            }
+        }
+    }
+    // Where a load before a block's terminator goes.
+    let end_of = |p: usize| -> Interval {
+        let (bs, be) = block_range[p];
+        let ts = f.blocks[p].term_start.min(f.blocks[p].insts.len()) as u32;
+        ((bs + 2 * ts).min(be), be)
+    };
+    for &v in values {
+        // Its stretch in each block, as one interval.
+        let mut hull: HashMap<usize, Interval> = HashMap::new();
+        for &(a, b) in &segs[v as usize] {
+            let Some(bi) = block_at(a) else { continue };
+            let e = hull.entry(bi).or_insert((a, b));
+            e.0 = e.0.min(a);
+            e.1 = e.1.max(b);
+        }
+        let mut blocks: Vec<usize> = hull.keys().copied().collect();
+        blocks.sort();
+        let reads_in = |b: usize| f64::from(reads.get(&(v, b)).copied().unwrap_or(0));
+        if !blocks.iter().any(|&b| reads_in(b) > 0.0) {
+            continue;
+        }
+        let live_in = |b: usize| hull.get(&b).is_some_and(|iv| iv.0 == block_range[b].0);
+        let edge = |p: usize, b: usize| freq[p].min(freq[b]);
+        let mut state: HashMap<usize, u8> = HashMap::new();
+        for _ in 0..3 {
+            let mut best: Option<(f64, u8, HashSet<usize>)> = None;
+            for r in cands_of(v) {
+                let busy = taken.get(&r);
+                let free = |iv: Interval| busy.is_none_or(|b| !b.meets(iv));
+                // Where a load on the edge p -> b can go: at b's start
+                // (true) or before p's terminator (false).
+                let place = |p: usize, b: usize| -> Option<bool> {
+                    if preds[b].len() == 1 {
+                        Some(true)
+                    } else if succs[p].len() == 1 && !empty[p] && !late.contains(&(v, p)) && free(end_of(p)) {
+                        Some(false)
+                    } else {
+                        None
+                    }
+                };
+                let elig: Vec<usize> =
+                    blocks.iter().copied().filter(|b| !state.contains_key(b) && free(hull[b])).collect();
+                let mut inr: HashSet<usize> = elig.iter().copied().filter(|&b| reads_in(b) > 0.0).collect();
+                if inr.is_empty() {
+                    continue;
+                }
+                const NEVER: f64 = 1e12;
+                for _ in 0..6 {
+                    let mut changed = false;
+                    for &b in &elig {
+                        let mut score = freq[b] * reads_in(b);
+                        if live_in(b) {
+                            for &p in &preds[b] {
+                                if p != b && !inr.contains(&p) {
+                                    score -= place(p, b).map_or(NEVER, |_| edge(p, b));
+                                }
+                            }
+                        }
+                        for &s in &succs[b] {
+                            if s != b && inr.contains(&s) && live_in(s) {
+                                score += place(b, s).map_or(NEVER, |_| edge(b, s));
+                            }
+                        }
+                        if (score > 0.0) != inr.contains(&b) {
+                            if score > 0.0 {
+                                inr.insert(b);
+                            } else {
+                                inr.remove(&b);
+                            }
+                            changed = true;
+                        }
+                    }
+                    if !changed {
+                        break;
+                    }
+                }
+                // Blocks that cannot be entered are taken out.
+                loop {
+                    let bad: Vec<usize> = inr
+                        .iter()
+                        .copied()
+                        .filter(|&b| {
+                            live_in(b) && preds[b].iter().any(|&p| p != b && !inr.contains(&p) && place(p, b).is_none())
+                        })
+                        .collect();
+                    if bad.is_empty() {
+                        break;
+                    }
+                    for b in bad {
+                        inr.remove(&b);
+                    }
+                }
+                let mut gain: f64 = inr.iter().map(|&b| freq[b] * reads_in(b)).sum();
+                for &b in &inr {
+                    if live_in(b) {
+                        gain -= preds[b].iter().filter(|&&p| p != b && !inr.contains(&p)).map(|&p| edge(p, b)).sum::<f64>();
+                    }
+                }
+                // (A callee-saved register nothing else uses is saved and
+                // restored.)
+                if saved(r) && busy.is_none_or(|b| b.0.is_empty()) {
+                    gain -= 2.0;
+                }
+                if gain > 0.0 && best.as_ref().is_none_or(|b| gain > b.0) {
+                    best = Some((gain, r, inr));
+                }
+            }
+            let Some((_, r, inr)) = best else { break };
+            let mut ends: Vec<usize> = Vec::new();
+            for &b in &inr {
+                if live_in(b) {
+                    for &p in &preds[b] {
+                        if p == b || inr.contains(&p) {
+                            continue;
+                        }
+                        if preds[b].len() == 1 {
+                            out.at_start.entry(b).or_default().push((v, r));
+                        } else {
+                            ends.push(p);
+                        }
+                    }
+                }
+            }
+            let busy = taken.entry(r).or_default();
+            for &b in &inr {
+                state.insert(b, r);
+                busy.add(hull[&b]);
+                out.held.insert((v, b), (hull[&b], r));
+            }
+            for p in ends {
+                busy.add(end_of(p));
+                out.at_end.entry(p).or_default().push((v, r));
+            }
+        }
+    }
+    out
 }
 
 /// Coalescing: the two sides of a copy between virtual registers of one
@@ -1334,6 +1655,46 @@ fn lower_copies(t: &Target, f: &mut MFunc) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// What an allocation left, for `--stats`: loads and stores of spill slots
+/// (those from `first_slot` on, which the allocator made), register moves,
+/// and the spill loads and stores weighted by their blocks' frequencies.
+pub fn count(t: &Target, f: &MFunc, first_slot: usize) -> (u64, u64, u64, u64) {
+    let freq = block_freqs(f);
+    let m = &t.machine;
+    let spill_ops: Vec<(usize, usize)> = (0..m.classes.len())
+        .filter_map(|c| {
+            let n = &m.def(crate::target::Class(c as u8)).name;
+            t.role(&format!("load.{n}")).zip(t.role(&format!("store.{n}")))
+        })
+        .collect();
+    let mut copies: HashSet<usize> = t.copies.values().copied().collect();
+    let names: Vec<&String> = m.classes.iter().map(|c| &c.name).collect();
+    for a in &names {
+        for b in &names {
+            copies.extend(t.role(&format!("move.{a}.{b}")));
+        }
+    }
+    let (mut loads, mut stores, mut moves, mut weighted) = (0, 0, 0, 0.0);
+    for (bi, inst) in f.blocks.iter().enumerate().flat_map(|(bi, b)| b.insts.iter().map(move |i| (bi, i))) {
+        let Opcode::Instr(k) = inst.op else { continue };
+        if let [MOp::Reg(_), MOp::Reg(_), MOp::Frame(s, 0)] = inst.ops[..]
+            && s >= first_slot
+        {
+            let (ld, st) = (spill_ops.iter().any(|o| o.0 == k), spill_ops.iter().any(|o| o.1 == k));
+            loads += ld as u64;
+            stores += st as u64;
+            if ld || st {
+                weighted += freq[bi];
+            }
+        } else if copies.contains(&k)
+            && let [MOp::Reg(_), MOp::Reg(_)] = inst.ops[..]
+        {
+            moves += 1;
+        }
+    }
+    (loads, stores, moves, weighted as u64)
 }
 
 /// Records each copy's class before allocation, while its virtual

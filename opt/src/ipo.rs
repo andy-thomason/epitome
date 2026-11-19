@@ -85,6 +85,8 @@ pub struct Context<'a> {
     pub intrinsics: Intrinsics,
     pub matcher: &'a Matcher,
     pub memory: bool,
+    pub sroa: bool,
+    pub mem2reg: bool,
     pub simplifycfg: bool,
     /// Whether step 2 may inline.
     pub inline: bool,
@@ -241,6 +243,9 @@ impl<'a, 's, 'm> Round<'a, 's, 'm> {
         for k in 0..self.order.len() {
             let g = self.order[k];
             let f = self.body(g);
+            if self.has(&f.fn_attrs, "optnone") {
+                continue;
+            }
             // The results still in use of calls with a constant result.
             let mut map: StdHashMap<LocalId, Value> = StdHashMap::new();
             for i in f.insts_in_order() {
@@ -529,10 +534,13 @@ impl<'a, 's, 'm> Round<'a, 's, 'm> {
 
     /// Whether the call `i` in `g` passes, as parameter `j` of `c`, memory
     /// of `g`'s frame that holds every slot and whose address goes nowhere
-    /// but to that parameter.
+    /// but to that parameter. An `optnone` caller is left as it is.
     fn caller_allows(&self, g: GlobalId, i: InstId, c: GlobalId, j: usize, slots: &[Slot]) -> bool {
         let sh = self.sh;
         let f = self.body(g);
+        if self.has(&f.fn_attrs, "optnone") {
+            return false;
+        }
         let Some(call) = f.insts[i.index()].op.call() else { return false };
         let Some(arg) = call.args.get(j).map(|a| a.value) else { return false };
         // The alloca under the argument, and the argument's offset into it.
@@ -717,8 +725,12 @@ impl<'a, 's, 'm> Round<'a, 's, 'm> {
 /// SROA and mem2reg, the combiner, and CFG simplification with the
 /// combiner on what it touched.
 fn clean_up(sh: &Shared, cx: &Context, f: &mut Function, block_addresses: bool) {
-    crate::sroa::run(sh, f);
-    crate::mem2reg::run(sh, f);
+    if cx.sroa {
+        crate::sroa::run(sh, f);
+    }
+    if cx.mem2reg {
+        crate::mem2reg::run(sh, f);
+    }
     crate::combine::run_with(sh, f, cx.matcher, None, cx.memory);
     if !cx.simplifycfg {
         return;

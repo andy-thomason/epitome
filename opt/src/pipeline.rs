@@ -593,6 +593,8 @@ fn optimise(m: &mut Module, opts: &Options) -> Report {
             intrinsics,
             matcher,
             memory: opts.memory,
+            sroa: opts.sroa,
+            mem2reg: opts.mem2reg,
             simplifycfg: opts.simplifycfg,
             inline: opts.inline,
             chop: &chop,

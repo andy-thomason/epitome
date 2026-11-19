@@ -17,6 +17,9 @@
 //!   write on demand.
 //! - `simplifycfg`: unreachable blocks, empty blocks, diamonds to
 //!   selects, straight lines; branches themselves fold in the combiner.
+//! - `implied`: what dominating branches imply: comparisons folded,
+//!   selects resolved and `nuw` set from the conditions on the way to
+//!   them (bounds checks in loops).
 //! - `cse`: common-subexpression elimination, by hashing a canonical key
 //!   for each instruction, scoped by the dominator tree.
 //! - `cfg`, `ssa`, `cleanup`: analyses and helpers the passes share.
@@ -33,6 +36,7 @@ pub mod constcall;
 pub mod cse;
 pub mod ctx;
 pub mod fx;
+pub mod implied;
 pub mod indvars;
 pub mod inline;
 pub mod licm;

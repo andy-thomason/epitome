@@ -69,6 +69,12 @@ A loop is rotated when:
   not mean the same;
 - no header phi's value from the latch is computed in the header.
 
+The last rule would stop the loops an inlined `Range::next` makes, which
+compute `i + 1` before the test. So rotation first moves a header
+instruction that only gives a phi its next value (an arithmetic operation,
+cast, comparison, select or address, used once, by that phi) to the end of
+the latch, where it runs only when the loop goes round again.
+
 ## Induction variables
 
 An *induction variable* is a header phi `%i = phi [start, preheader],
@@ -80,12 +86,16 @@ change in the loop, `indvars`:
   and bound are constants, otherwise an expression such as `%n` or
   `%n - %start`. It is reported as a remark (`--remarks`). It assumes the
   loop is entered; the guard decides that.
-- **Makes the exit test exact.** `%i.next < %n` with a step of 1 that
-  cannot wrap (`nsw` for a signed comparison, `nuw` for unsigned) becomes
+- **Makes the exit test exact.** `%i.next < %n` with a step of 1 becomes
   `%i.next != %n`, if the loop only starts when `start < %n`. That is shown
-  by constants, or by the guard rotation left in the preheader. Counting
-  down by 1 with `>` works the same way. Without the guard the rewrite would
-  be wrong: a loop entered with `start >= %n` would run until it wraps.
+  by constants, or by the guard rotation left in the preheader (for a
+  start of 0 and `<` unsigned, the guard `%n != 0` the combiner makes of
+  `0 < %n`). Counting down by 1 with `>` works the same way. Without the
+  guard the rewrite would be wrong: a loop entered with `start >= %n` would
+  run until it wraps. With it, the increment needs no `nuw` or `nsw`: the
+  counter is below `%n` on entry and the test keeps it there, so `%i + 1`
+  is at most `%n` and cannot wrap. The increment is given the flag (`nuw`
+  for `<` unsigned, `nsw` for signed) that says so.
 - **Replaces exit values.** With an exact test, the loop leaves with
   `%i.next == %n`, so an exit phi that takes `%i.next` from the latch takes
   `%n` instead.
@@ -160,7 +170,9 @@ back ends see.
 
 ## In the pipeline
 
-After simplifycfg, before CSE, on each function: rotate; then, if any loop
+After simplifycfg and [`implied`](ranges.md) (which needs the loop test
+still at the top, dominating the body), before CSE, on each function:
+rotate; then, if any loop
 rotated, the combiner and simplifycfg again; then indvars and the combiner;
 then strength reduction and the combiner.
 `--no-loops` turns all of this off, and `loops` names it in `--passes=`.

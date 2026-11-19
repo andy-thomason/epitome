@@ -5,7 +5,7 @@
 ; @mul: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 2 blocks merged
 ; @mul: licm: 3 moved out of loops (0 loads)
 ; @mul: indvars: loop %loop.preheader runs 64 times when entered
-; @mul: indvars: 1 exact exit tests, 0 exit values, 0 counters widened
+; @mul: indvars: 2 exact exit tests, 0 exit values, 0 counters widened
 ; @mul: lsr: 3 arrays stepped by pointer, 1 counters counting down
 ; @mul: cse: 2 merged, 0 loads reused, 0 stores forwarded
 ; @sum: combine: (constant to the right) x6, (dead) x3, (reassociated) x3, add_zero x8
@@ -14,7 +14,7 @@
 ; @sum: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 2 blocks merged
 ; @sum: licm: 4 moved out of loops (0 loads)
 ; @sum: indvars: loop a loop runs 64 times when entered
-; @sum: indvars: 1 exact exit tests, 0 exit values, 0 counters widened
+; @sum: indvars: 2 exact exit tests, 0 exit values, 0 counters widened
 ; @sum: lsr: 1 arrays stepped by pointer, 1 counters counting down
 ; @sum: combine: (dead) x3
 ; @sum: cse: 1 merged, 0 loads reused, 0 stores forwarded
@@ -24,6 +24,7 @@
 ; @main: indvars: loop %fill runs 98304 times when entered
 ; @main: indvars: loop %loop.preheader.i runs 64 times when entered
 ; @main: indvars: loop a loop runs 64 times when entered
+; @main: indvars: 3 exact exit tests, 0 exit values, 0 counters widened
 
 
 @a = global [98304 x float] zeroinitializer
@@ -59,8 +60,8 @@ loop.preheader:                                   ; preds = %11, %3
   br i1 %10, label %6, label %11
 
 11:                                               ; preds = %6
-  %12 = add i64 %4, 1
-  %13 = icmp slt i64 %12, 64
+  %12 = add nsw i64 %4, 1
+  %13 = icmp ne i64 %12, 64
   br i1 %13, label %loop.preheader, label %14
 
 14:                                               ; preds = %11
@@ -114,8 +115,8 @@ define void @sum(ptr %0, ptr %1) {
   %35 = fadd float %33, %34
   %36 = fadd float %35, %6
   store float %36, ptr %5
-  %37 = add i64 %4, 1
-  %38 = icmp slt i64 %37, 64
+  %37 = add nsw i64 %4, 1
+  %38 = icmp ne i64 %37, 64
   br i1 %38, label %3, label %39
 
 39:                                               ; preds = %25
@@ -135,8 +136,8 @@ fill:                                             ; preds = %fill, %entry
   %pb = getelementptr float, ptr @b, i64 %i
   %kb = fadd float %kf, 1.000000e+00
   store float %kb, ptr %pb
-  %i.next = add i64 %i, 1
-  %more = icmp ult i64 %i.next, 98304
+  %i.next = add nuw i64 %i, 1
+  %more = icmp ne i64 %i.next, 98304
   br i1 %more, label %fill, label %loop.preheader.i
 
 loop.preheader.i:                                 ; preds = %7, %fill
@@ -164,8 +165,8 @@ loop.preheader.i:                                 ; preds = %7, %fill
   br i1 %6, label %2, label %7
 
 7:                                                ; preds = %2
-  %8 = add i64 %0, 1
-  %9 = icmp slt i64 %8, 64
+  %8 = add nsw i64 %0, 1
+  %9 = icmp ne i64 %8, 64
   br i1 %9, label %loop.preheader.i, label %10
 
 10:                                               ; preds = %32, %7
@@ -212,8 +213,8 @@ loop.preheader.i:                                 ; preds = %7, %fill
   %42 = fadd float %40, %41
   %43 = fadd float %42, %13
   store float %43, ptr %12
-  %44 = add i64 %11, 1
-  %45 = icmp slt i64 %44, 64
+  %44 = add nsw i64 %11, 1
+  %45 = icmp ne i64 %44, 64
   br i1 %45, label %10, label %46
 
 46:                                               ; preds = %32

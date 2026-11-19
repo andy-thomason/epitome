@@ -4,6 +4,7 @@
 ; @fill: licm: 1 moved out of loops (0 loads)
 ; @fill: indvars: loop %col runs 10 times when entered
 ; @fill: indvars: loop %cols.preheader runs 4 times when entered
+; @fill: indvars: 2 exact exit tests, 0 exit values, 0 counters widened
 ; @fill: loopidiom: 1 loops made memsets
 ; @fill: combine: (dead) x3, (folded) x4, add_zero x1, mul_mul_const x1
 ; @fill: simplifycfg: 0 unreachable blocks removed, 1 empty blocks bypassed, 0 selects made, 1 blocks merged
@@ -16,7 +17,11 @@
 ; @ones: combine: (dead) x2, (folded) x2, mul_pow2 x1, sub_zero x1
 ; @ones: simplifycfg: 0 unreachable blocks removed, 1 empty blocks bypassed, 0 selects made, 0 blocks merged
 ; @not_a_byte: indvars: loop %loop runs 16 times when entered
+; @not_a_byte: indvars: 1 exact exit tests, 0 exit values, 0 counters widened
+; @not_a_byte: lsr: 1 arrays stepped by pointer, 1 counters counting down
 ; @copy_and_clear: indvars: loop %loop runs 16 times when entered
+; @copy_and_clear: indvars: 1 exact exit tests, 0 exit values, 0 counters widened
+; @copy_and_clear: lsr: 2 arrays stepped by pointer, 1 counters counting down
 ; @main: not inlined @fill: noinline
 ; @main: not inlined @ones: noinline
 ; @main: not inlined @not_a_byte: noinline
@@ -52,11 +57,12 @@ entry:
   br label %loop
 
 loop:                                             ; preds = %loop, %entry
-  %k = phi i64 [ 0, %entry ], [ %k.next, %loop ]
-  %a = getelementptr i32, ptr %p, i64 %k
-  store i32 1, ptr %a
-  %k.next = add i64 %k, 1
-  %again = icmp slt i64 %k.next, 16
+  %lsr.ptr = phi ptr [ %p, %entry ], [ %lsr.ptr.next, %loop ]
+  %lsr.count = phi i64 [ 16, %entry ], [ %lsr.count.next, %loop ]
+  store i32 1, ptr %lsr.ptr
+  %lsr.count.next = add i64 %lsr.count, -1
+  %again = icmp ne i64 %lsr.count.next, 0
+  %lsr.ptr.next = getelementptr i32, ptr %lsr.ptr, i64 1
   br i1 %again, label %loop, label %done
 
 done:                                             ; preds = %loop
@@ -68,14 +74,16 @@ entry:
   br label %loop
 
 loop:                                             ; preds = %loop, %entry
-  %k = phi i64 [ 0, %entry ], [ %k.next, %loop ]
-  %a = getelementptr i32, ptr %p, i64 %k
-  %b = getelementptr i32, ptr %q, i64 %k
-  %x = load i32, ptr %a
-  store i32 %x, ptr %b
-  store i32 0, ptr %a
-  %k.next = add i64 %k, 1
-  %again = icmp slt i64 %k.next, 16
+  %lsr.ptr1 = phi ptr [ %q, %entry ], [ %lsr.ptr.next1, %loop ]
+  %lsr.ptr = phi ptr [ %p, %entry ], [ %lsr.ptr.next, %loop ]
+  %lsr.count = phi i64 [ 16, %entry ], [ %lsr.count.next, %loop ]
+  %x = load i32, ptr %lsr.ptr
+  store i32 %x, ptr %lsr.ptr1
+  store i32 0, ptr %lsr.ptr
+  %lsr.count.next = add i64 %lsr.count, -1
+  %again = icmp ne i64 %lsr.count.next, 0
+  %lsr.ptr.next = getelementptr i32, ptr %lsr.ptr, i64 1
+  %lsr.ptr.next1 = getelementptr i32, ptr %lsr.ptr1, i64 1
   br i1 %again, label %loop, label %done
 
 done:                                             ; preds = %loop

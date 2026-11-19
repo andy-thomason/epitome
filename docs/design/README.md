@@ -48,6 +48,8 @@ short) has to do to work like LLVM. They are split into two halves:
   `epitome-objdump`, which disassembles with it.
 - [Loops](loops.md): finding loops, rotation, induction variables and
   trip counts.
+- [Ranges](ranges.md): what dominating branches imply (bounds checks
+  under a loop's test), and the plan for value ranges.
 - [CSE](cse.md): common-subexpression elimination by hashing a canonical
   key for each instruction.
 - [Combines](combine.md): the rule language, the discrimination tree that

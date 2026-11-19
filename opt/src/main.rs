@@ -123,6 +123,7 @@ fn main() -> ExitCode {
                         "cse",
                         "memory",
                         "tailmark",
+                        "ipo",
                     ]
                     .contains(p)
                 }) {
@@ -133,6 +134,7 @@ fn main() -> ExitCode {
                 opts.cse = list.contains(&"cse");
                 opts.memory = list.contains(&"memory");
                 opts.tailmark = list.contains(&"tailmark");
+                opts.ipo = list.contains(&"ipo");
                 opts.mem2reg = list.contains(&"mem2reg");
                 opts.sroa = list.contains(&"sroa");
                 opts.simplifycfg = list.contains(&"simplifycfg");
@@ -350,6 +352,13 @@ fn main() -> ExitCode {
         }
         if report.licm.hoisted > 0 {
             eprintln!("; licm: {} instructions moved out of loops ({} loads)", report.licm.hoisted, report.licm.loads);
+        }
+        let ipo = &report.ipo;
+        if ipo.total() > 0 {
+            eprintln!(
+                "; ipo: {} constant returns, {} leaf calls inlined, {} parameters promoted into {}, {} constant arguments, in {} rounds",
+                ipo.returns, ipo.inlined, ipo.promoted, ipo.promoted_into, ipo.arguments, ipo.rounds
+            );
         }
         if report.tail_marked > 0 {
             eprintln!("; tailmark: {} calls marked tail", report.tail_marked);

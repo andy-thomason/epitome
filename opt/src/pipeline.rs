@@ -43,6 +43,9 @@ pub struct Options {
     pub memory: bool,
     /// Marking calls that may reuse the frame `tail` (`tailmark.rs`).
     pub tailmark: bool,
+    /// After the bottom-up passes, the interprocedural ones (`ipo.rs`):
+    /// constant returns and arguments, argument promotion, leaf inlining.
+    pub ipo: bool,
     pub mem2reg: bool,
     pub sroa: bool,
     pub simplifycfg: bool,
@@ -65,6 +68,7 @@ impl Default for Options {
             cse: true,
             memory: true,
             tailmark: true,
+            ipo: true,
             mem2reg: true,
             sroa: true,
             simplifycfg: true,
@@ -114,6 +118,8 @@ pub struct Report {
     pub chop_stopped: Option<(usize, u64, Option<String>)>,
     /// The first step refused there.
     pub chop_next: Option<String>,
+    /// What the interprocedural passes did.
+    pub ipo: crate::ipo::Stats,
     /// Functions deleted because nothing used them any more.
     pub deleted: Vec<String>,
     /// The size of all functions, and of the longest chain of SCCs that
@@ -620,9 +626,38 @@ fn optimise(m: &mut Module, opts: &Options) -> Report {
         .into_iter()
         .map(|(g, list)| (m.global(g).name.clone().unwrap_or_else(|| g.0.to_string()), list))
         .collect();
+    // What the bottom-up order cannot see: calls within a cycle, and what
+    // callers know about their callees' arguments.
+    if opts.ipo && opts.combine {
+        // Most functions are dead by now, inlined wherever they were called;
+        // their calls would only hide which arguments are constant.
+        report.deleted = delete_dead_functions(m, threads, &chop, &chop_index);
+        let cx = crate::ipo::Context {
+            threads,
+            intrinsics,
+            matcher,
+            memory: opts.memory,
+            sroa: opts.sroa,
+            mem2reg: opts.mem2reg,
+            simplifycfg: opts.simplifycfg,
+            inline: opts.inline,
+            chop: &chop,
+            chop_index: &chop_index,
+        };
+        let (stats, remarks) = crate::ipo::run(m, &cx);
+        for (g, list) in remarks {
+            let name = m.global(g).name.clone().unwrap_or_else(|| g.0.to_string());
+            match report.remarks.iter_mut().find(|(n, _)| *n == name) {
+                Some((_, l)) => l.extend(list),
+                None => report.remarks.push((name, list)),
+            }
+        }
+        report.ipo = stats;
+        lap("interprocedural");
+    }
     metadata::unique_metadata(m);
     lap("merge metadata");
-    report.deleted = delete_dead_functions(m, threads, &chop, &chop_index);
+    report.deleted.extend(delete_dead_functions(m, threads, &chop, &chop_index));
     lap("delete dead functions");
     report.chop_names =
         chop_order.iter().map(|&g| m.global(g).name.clone().unwrap_or_else(|| g.0.to_string())).collect();

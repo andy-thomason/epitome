@@ -319,6 +319,9 @@ fn split_round(sh: &Shared, f: &mut Function, entry: BlockId, stats: &mut Stats)
     let mut new_allocas: Vec<InstId> = Vec::new();
     let big_endian = sh.layout.big_endian;
     let ptr = sh.intern_type(Type::Ptr(0));
+    // Uses, found afresh after each change: splitting one alloca can add
+    // accesses to another, when one was copied into the other.
+    let mut users: Option<HashMap<LocalId, Vec<InstId>>> = None;
 
     for i in candidates {
         let Op::Alloca { inalloca: false, ty, count: None, addrspace: None | Some(0), .. } = f.insts[i.index()].op
@@ -327,20 +330,21 @@ fn split_round(sh: &Shared, f: &mut Function, entry: BlockId, stats: &mut Stats)
         };
         let Some(size) = sh.layout.alloc_size(sh.types(), ty) else { continue };
         let a = f.insts[i.index()].result.unwrap();
-        // Uses are found afresh for each alloca: splitting one can add
-        // accesses to another, when one was copied into the other.
-        let mut users: HashMap<LocalId, Vec<InstId>> = HashMap::default();
-        for x in f.insts_in_order() {
-            if erased.contains(&x) {
-                continue;
-            }
-            f.insts[x.index()].op.for_each_value(|v| {
-                if let Value::Local(l) = v {
-                    users.entry(*l).or_default().push(x);
+        let found = users.get_or_insert_with(|| {
+            let mut users: HashMap<LocalId, Vec<InstId>> = HashMap::default();
+            for x in f.insts_in_order() {
+                if erased.contains(&x) {
+                    continue;
                 }
-            });
-        }
-        let Some(uses) = collect(sh, f, &users, a, size) else { continue };
+                f.insts[x.index()].op.for_each_value(|v| {
+                    if let Value::Local(l) = v {
+                        users.entry(*l).or_default().push(x);
+                    }
+                });
+            }
+            users
+        });
+        let Some(uses) = collect(sh, f, found, a, size) else { continue };
         if uses.accesses.is_empty() {
             // Only ever written: the alloca and everything writing it go.
             if !uses.copies.is_empty()
@@ -353,6 +357,7 @@ fn split_round(sh: &Shared, f: &mut Function, entry: BlockId, stats: &mut Stats)
                 erased.extend(uses.others);
                 erased.extend(uses.copies.iter().map(|c| c.inst));
                 stats.split += 1;
+                users = None;
             }
             continue;
         }
@@ -440,6 +445,7 @@ fn split_round(sh: &Shared, f: &mut Function, entry: BlockId, stats: &mut Stats)
         erased.extend(uses.others);
         stats.split += 1;
         stats.pieces += parts.len();
+        users = None;
     }
     if !erased.is_empty() {
         let mut gone = vec![false; f.insts.len()];

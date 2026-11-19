@@ -19,6 +19,9 @@
 //!   selects, straight lines; branches themselves fold in the combiner.
 //! - `cse`: common-subexpression elimination, by hashing a canonical key
 //!   for each instruction, scoped by the dominator tree.
+//! - `ipo`: after the bottom-up passes, what they cannot see: constant
+//!   returns and arguments across calls, argument promotion, and leaf
+//!   functions inlined within call-graph cycles.
 //! - `cfg`, `ssa`, `cleanup`: analyses and helpers the passes share.
 //!
 //! See `docs/design/parallel.md` for the design.
@@ -35,6 +38,7 @@ pub mod ctx;
 pub mod fx;
 pub mod indvars;
 pub mod inline;
+pub mod ipo;
 pub mod licm;
 pub mod loopidiom;
 pub mod loops;

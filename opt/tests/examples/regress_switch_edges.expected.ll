@@ -1,5 +1,6 @@
 ; @f: recursion: 1 accumulator call(s) now jump back to the start, folding with add
 ; @f: combine: (folded) x1, add_zero x1, sub_const x1
+; @f: ipo: 1 parameters are the constant every caller passes
 
 
 @fmt = private constant [4 x i8] c"%d\0A\00"
@@ -11,7 +12,7 @@ entry.rec:
   br label %entry
 
 entry:                                            ; preds = %rec, %entry.rec
-  %n = phi i32 [ %n.arg, %entry.rec ], [ %a, %rec ]
+  %n = phi i32 [ 100, %entry.rec ], [ %a, %rec ]
   %acc = phi i32 [ 0, %entry.rec ], [ %s, %rec ]
   switch i32 %n, label %rec [
     i32 0, label %done

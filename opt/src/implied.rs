@@ -220,9 +220,14 @@ impl<'a, 'm> Walker<'a, 'm> {
     // Facts
 
     /// Adds the facts of the edge from `p` into its dominator-tree child
-    /// `c`, if `c` is reached only along that edge.
+    /// `c`, if every path into `c` comes along that edge: it is `c`'s only
+    /// predecessor, or the others are back edges from blocks `c`
+    /// dominates (`c` heads a loop, and is entered only from `p`).
     fn enter(&mut self, p: BlockId, c: BlockId) {
-        if self.preds[c.index()].as_slice() != [p] {
+        let preds = &self.preds[c.index()];
+        if preds.iter().filter(|&&q| q == p).count() != 1
+            || preds.iter().any(|&q| q != p && !self.dom.dominates(c, q))
+        {
             return;
         }
         let mut new = Vec::new();

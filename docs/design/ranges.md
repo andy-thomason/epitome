@@ -29,7 +29,10 @@ A block reached only along the `true` edge of `br i1 %c` knows `%c` is
 true, and when `%c = icmp ult %i, %n`, that `%i < %n`. So does every block
 that block dominates. `implied` walks the dominator tree keeping the facts
 in force: entering a child reached only along one edge of its parent's
-conditional branch adds that edge's facts, and leaving it drops them.
+conditional branch adds that edge's facts, and leaving it drops them. The
+child may have other predecessors if they are back edges from blocks it
+dominates: a loop entered only from that edge (an inner loop, already
+rotated, inlined as the first thing in an outer loop's body).
 
 A fact is `a rel b` with `rel` one of `<` and `<=` (unsigned or signed),
 `==` and `!=`; `>` and `>=` are turned round. A condition gives:

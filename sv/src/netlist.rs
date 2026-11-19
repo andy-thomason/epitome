@@ -305,6 +305,9 @@ pub struct Piece {
     /// (a child's inputs only its clocked processes read), `ff` or
     /// `commit` (the instance's own).
     pub what: &'static str,
+    /// What it is, for people: the process or assignment and what it
+    /// writes, or whose inputs or outputs it copies.
+    pub name: String,
     /// The instructions written for it, before optimisation.
     pub insts: usize,
     /// The bytes of the state it reads and writes, as sorted, disjoint
@@ -1374,7 +1377,15 @@ impl<'d, 'a> Lowering<'d, 'a> {
                         Code::Commit => "commit",
                         _ => "settle",
                     };
-                    out.items.push(Piece { call: me, what, insts, reads: runs(r), writes: runs(w) });
+                    let name = match &piece {
+                        Code::Nodes(ns) if ns.len() == 1 => self.describe(key, ns[0]),
+                        Code::Nodes(ns) => format!("{} nodes", ns.len()),
+                        Code::Inputs(i) => format!("clocked inputs of {}", self.inst_name(key.0, *i, lay.groups.contains_key(i))),
+                        Code::Ff => "clocked processes".into(),
+                        Code::Commit => "commit".into(),
+                        Code::Known => "recognised whole".into(),
+                    };
+                    out.items.push(Piece { call: me, what, name, insts, reads: runs(r), writes: runs(w) });
                 }
                 Step::Part(part) => self.walk(key, part, base, ports, path, func_of(part).into(), Some(me), out),
                 Step::Call(i, cf) => {
@@ -3654,23 +3665,34 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 }
                 Node::Call(_) | Node::Early(_) => {}
                 _ => {
-                    let (r, w) = self.access(key, node);
-                    if r.iter().any(|t| t.0 == o) {
-                        let mut names: Vec<&str> = w.iter().map(|t| d.name(d.object(t.0).name)).collect();
-                        names.dedup();
-                        names.truncate(4);
-                        let what = match node {
-                            Node::Proc(p) => format!("{:?}", d.processes[p.0 as usize].kind),
-                            Node::Driver(_) => "assign".into(),
-                            Node::Loop(_) => "rolled assigns".into(),
-                            _ => format!("{node:?}"),
-                        };
-                        return Some(format!(" {what} writing {}", names.join(", ")));
+                    if self.access(key, node).0.iter().any(|t| t.0 == o) {
+                        return Some(format!(" {}", self.describe(key, node)));
                     }
                 }
             }
         }
         None
+    }
+
+    /// A node of a specialisation, for people: what it is, and what it
+    /// writes.
+    fn describe(&self, key: Key, node: Node) -> String {
+        let d = self.d;
+        let lay = &self.layouts[&key];
+        let inst = |i: InstId| self.inst_name(key.0, i, lay.groups.contains_key(&i));
+        let what = match node {
+            Node::Proc(p) => format!("{:?}", d.processes[p.0 as usize].kind),
+            Node::Driver(_) => "assign".into(),
+            Node::Loop(_) => "rolled assigns".into(),
+            Node::In(i) | Node::Pre(i) => return format!("inputs of {}", inst(i)),
+            Node::Call(i) | Node::Early(i) => return format!("outputs of {}", inst(i)),
+            _ => format!("{node:?}"),
+        };
+        let mut names: Vec<&str> = self.access(key, node).1.iter().map(|t| d.name(d.object(t.0).name)).collect();
+        names.dedup();
+        let more = names.len() > 4;
+        names.truncate(4);
+        format!("{what} writing {}{}", names.join(", "), if more { ", ..." } else { "" })
     }
 
     /// Whether a clocked child's input, copied to a slot, is copied only

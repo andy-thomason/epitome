@@ -243,6 +243,29 @@ pub fn span(g: &Graph, overhead: f64) -> f64 {
     finish.into_iter().fold(0.0, f64::max)
 }
 
+/// The tasks on the longest path, first to last.
+pub fn longest_path(g: &Graph, overhead: f64) -> Vec<usize> {
+    let n = g.tasks.len();
+    let mut finish = vec![0.0f64; n];
+    let mut from = vec![usize::MAX; n];
+    for t in 0..n {
+        for &u in &g.deps[t] {
+            if finish[u as usize] > finish[t] {
+                (finish[t], from[t]) = (finish[u as usize], u as usize);
+            }
+        }
+        finish[t] += g.cost[t] + overhead;
+    }
+    let mut t = (0..n).max_by(|&a, &b| finish[a].total_cmp(&finish[b]));
+    let mut path = Vec::new();
+    while let Some(k) = t {
+        path.push(k);
+        t = (from[k] != usize::MAX).then_some(from[k]);
+    }
+    path.reverse();
+    path
+}
+
 /// How long the tasks take on `threads` threads, each costing `overhead`
 /// more: a list scheduler that, whenever a thread is free, starts the
 /// ready task with the longest path after it.
@@ -332,7 +355,7 @@ mod tests {
     use crate::netlist::{Invocation, Piece};
 
     fn piece(call: usize, insts: usize, reads: &[(u64, u64)], writes: &[(u64, u64)]) -> Piece {
-        Piece { call, what: "settle", insts, reads: reads.to_vec(), writes: writes.to_vec() }
+        Piece { call, what: "settle", name: String::new(), insts, reads: reads.to_vec(), writes: writes.to_vec() }
     }
 
     /// A top calling `n` children, each one piece; `chain` makes each read
@@ -367,6 +390,7 @@ mod tests {
         let c = costs(&s, &[]);
         let g = cut(&s, &c, 20.0, 0.0);
         assert_eq!(g.edges(), 7);
+        assert_eq!(longest_path(&g, 0.0), (0..8).collect::<Vec<_>>());
         assert_eq!(makespan(&g, 8, 0.0), 80.0);
     }
 

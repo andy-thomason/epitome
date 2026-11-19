@@ -1388,6 +1388,11 @@ fn clock_trees_run_before_clocked_processes() {
     let t = b.time(&io, cycles, 1, &stim, 2);
     let settle = t.profile.iter().find(|p| p.what == "step settle").unwrap();
     assert!(settle.calls < 1.5, "settles {} times a cycle besides after commits", settle.calls);
+    // A clock that goes into a child written into its parent, in an array:
+    // still a clock of the array's.
+    let arr = "module cmid (input logic clk, input logic [15:0] d, output logic [15:0] q);\n  creg r (.clk, .d, .q);\nendmodule\nmodule catop (input logic clk, input logic [3:0][15:0] d, output logic [3:0][15:0] q);\n  for (genvar k = 0; k < 4; k++) begin : g\n    cmid m (.clk, .d(d[k]), .q(q[k]));\n  end\nendmodule\n";
+    let net = netlist_with(&text("catop.sv", &format!("{CLOCK_TREE}{arr}")), "catop", host.options(1));
+    assert!(!net.watched.iter().any(|w| w.0 == "clk"), "settling reads {:?}", net.watched);
 }
 
 const HANDSHAKE: &str = r#"

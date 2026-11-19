@@ -43,13 +43,27 @@
 //!   with Epitome's optimiser, compile for the host with Epitome's code
 //!   generator, and link with `cc` (and libm) into the executable `PATH`. It fails if
 //!   any function of the last crate could not be lowered.
-//! - `-O0`: with `-o`, do not optimise.
+//! - `-O0`: with `-o`, do not optimise the crates given (`-C opt-level=0`).
+//! - `-C opt-level=0|1|2|3|s|z` (also `-Copt-level=..`): how much to
+//!   optimise the crates given (default 2). The standard library's crates
+//!   (those from rust-src) are optimised at 2 whatever this is, and built
+//!   without `debug_assertions`, as rustc's prebuilt `std` is; a generic
+//!   function is optimised as the crate it is written in is.
+//! - `--crate-opt name=level`: crate `name`'s own optimisation level, in
+//!   place of the above (`--crate-opt std=0`, `--crate-opt prog=3`).
 //! - `-C panic=unwind|abort|immediate-abort` (also `-Cpanic=...`): the
 //!   panic strategy `std` and `core` are built for (`cfg(panic = ..)`;
 //!   default `unwind`). With `immediate-abort` a panic aborts at once,
 //!   without formatting or printing its message, which leaves the
 //!   message-formatting code out of the program.
 //! - `--emit=obj`: with `-o`, write the object file to `PATH`, unlinked.
+//! - Kernels: a function of the last crate marked
+//!   `#[epitome::target("riscv64")]` is compiled for that machine too (see
+//!   `device`), into the object `PATH.riscv64.o`, linked into an image the
+//!   program carries. A call of a kernel launches it: `__epitome_launch`,
+//!   which an RV64 interpreter compiled into the program gives
+//!   (`runtime/rv64.rs`), or the program itself with `--launch-runtime
+//!   none`. `--emit=kernels` writes only the objects.
 //! - `--lib`: compile the last crate as a library: monomorphise from all
 //!   its non-generic functions (even if it has a `main`), and make them
 //!   external, so that optimising keeps them. With `-o`, use `--emit=obj`.
@@ -89,7 +103,12 @@ fn main() -> ExitCode {
     let (mut dump_mono, mut mono_stats) = (false, false);
     let (mut dump_ir, mut lower_stats) = (false, false);
     let mut output: Option<PathBuf> = None;
-    let (mut no_opt, mut emit_obj, mut lib) = (false, false, false);
+    let (mut emit_obj, mut lib, mut emit_kernels) = (false, false, false);
+    let mut launch_runtime = true;
+    // The optimisation level of the crates given, and of crates by name.
+    let mut opt_level = "2".to_string();
+    let mut crate_opt: Vec<(String, String)> = Vec::new();
+    let level_ok = |l: &str| matches!(l, "0" | "1" | "2" | "3" | "s" | "z");
     let mut tree: Option<PathBuf> = None;
     let mut cfg = CfgSet::host();
     let mut externs: Vec<(String, PathBuf)> = Vec::new();
@@ -119,8 +138,27 @@ fn main() -> ExitCode {
             "--dump-mono" => dump_mono = true,
             "--mono-stats" => mono_stats = true,
             "--dump-ir" => dump_ir = true,
-            "-O0" => no_opt = true,
+            "-O0" => opt_level = "0".to_string(),
+            _ if arg.starts_with("--crate-opt") => {
+                let v = value("--crate-opt").unwrap_or_default();
+                match v.split_once('=') {
+                    Some((n, l)) if level_ok(l) => crate_opt.push((n.to_string(), l.to_string())),
+                    _ => {
+                        eprintln!("error: `--crate-opt` takes `name=level` (level 0, 1, 2, 3, s or z), not `{v}`");
+                        return ExitCode::FAILURE;
+                    }
+                }
+            }
             "--emit=obj" => emit_obj = true,
+            "--emit=kernels" => emit_kernels = true,
+            _ if arg.starts_with("--launch-runtime") => match value("--launch-runtime").as_deref() {
+                Some("rv64") => launch_runtime = true,
+                Some("none") => launch_runtime = false,
+                v => {
+                    eprintln!("error: `--launch-runtime` is `rv64` or `none`, not {v:?}");
+                    return ExitCode::FAILURE;
+                }
+            },
             "--lib" => lib = true,
             "--std" => with_std = true,
             "-o" => output = value("-o").map(PathBuf::from),
@@ -131,6 +169,7 @@ fn main() -> ExitCode {
                     Some(p @ ("unwind" | "abort" | "immediate-abort")) => {
                         cfg.replace_value("panic", p);
                     }
+                    _ if v.strip_prefix("opt-level=").is_some_and(level_ok) => opt_level = v["opt-level=".len()..].to_string(),
                     _ => {
                         eprintln!("error: unknown codegen option `{v}`");
                         return ExitCode::FAILURE;
@@ -204,10 +243,21 @@ fn main() -> ExitCode {
             }
         }
         for (n, v) in epitome_rustc2::sysroot::std_cfg() {
-            cfg.set_value(n, v);
+            match v {
+                Some(v) => cfg.set_value(n, v),
+                None => cfg.set(n),
+            };
         }
         options.env.extend(epitome_rustc2::sysroot::std_env(std::env::consts::ARCH));
     }
+    // The standard library's crates (from rust-src) are built as rustc's
+    // prebuilt `std` is: without `debug_assertions`.
+    let is_library = |p: &Path| p.to_string_lossy().contains("/lib/rustlib/src/rust/library/");
+    let library_cfg = (!no_cfg).then(|| {
+        let mut c = cfg.clone();
+        c.unset("debug_assertions");
+        c
+    });
     if !no_cfg {
         options.cfg = Some(cfg);
     }
@@ -215,8 +265,29 @@ fn main() -> ExitCode {
         options.proc_macro_server = epitome_rustc2::proc_macro::Server::from_rustc();
     }
     let session = Session::new(options);
-    let roots = std_roots
+    // A program with kernels gets the launch runtime, as a crate before
+    // its own (written out of the compiler, where the session can read it).
+    let mut runtime: Vec<CrateRoot> = Vec::new();
+    if launch_runtime
+        && !emit_kernels
+        && output.is_some()
+        && let Some(last) = files.last()
+        && std::fs::read_to_string(last).is_ok_and(|t| t.contains("epitome::target"))
+    {
+        let text = include_str!("../runtime/rv64.rs");
+        let path = std::env::temp_dir().join(format!("epitome-launch-rv64-{:016x}.rs", epitome_rustc2::hash::fnv(text.as_bytes())));
+        if std::fs::read_to_string(&path).ok().as_deref() != Some(text)
+            && let Err(e) = std::fs::write(&path, text)
+        {
+            eprintln!("error: writing the launch runtime to {}: {e}", path.display());
+            return ExitCode::FAILURE;
+        }
+        runtime.push(CrateRoot::new("epitome_launch_rv64", path).edition(Edition::E2024));
+    }
+    let runtime_names: Vec<String> = runtime.iter().map(|r| r.name.clone()).collect();
+    let roots: Vec<CrateRoot> = std_roots
         .into_iter()
+        .chain(runtime)
         .chain(files.iter().map(|f| {
             let mut root = CrateRoot::new(crate_name(f), f).edition(edition);
             for (name, lib) in &externs {
@@ -224,6 +295,20 @@ fn main() -> ExitCode {
             }
             root
         }))
+        .map(|root| match &library_cfg {
+            Some(c) if is_library(&root.root) || runtime_names.contains(&root.name) => root.cfg(c.clone()),
+            _ => root,
+        })
+        .collect();
+    // Each crate's optimisation level: its own (`--crate-opt`), else 2 for
+    // the standard library's and `-C opt-level` for the others.
+    let levels: Vec<String> = roots
+        .iter()
+        .map(|root| match crate_opt.iter().rev().find(|(n, _)| *n == root.name) {
+            Some((_, l)) => l.clone(),
+            None if is_library(&root.root) || runtime_names.contains(&root.name) => "2".to_string(),
+            None => opt_level.clone(),
+        })
         .collect();
     let mut crates = session.parse_crates(roots);
     // A crate whose root file could not be read or parsed has no files,
@@ -282,6 +367,60 @@ fn main() -> ExitCode {
             let index = epitome_rustc2::typeck::Index::new(&tcx, &r);
             let cx = epitome_rustc2::layout::LayoutCx::new(&tcx, &r, &crates, &index, Default::default());
             print!("{}", cx.dump(Some(crates.len() as u32 - 1)));
+        }
+        // The kernels, each machine's in a module of its own, linked into
+        // an image for the host to carry.
+        let mut images: Vec<(String, Vec<u8>)> = Vec::new();
+        if let Some(out) = &output {
+            let last = crates.len() as u32 - 1;
+            let mut machines: Vec<String> = epitome_rustc2::device::kernels(&r, &crates, last).into_iter().map(|(_, t)| t).collect();
+            machines.sort();
+            machines.dedup();
+            let program = files.last().expect("a crate root");
+            for name in machines {
+                let Some(machine) = epitome_rustc2::device::machine(&name) else {
+                    eprintln!("error: no machine `{name}` for `#[epitome::target]` (there is `riscv64`)");
+                    return ExitCode::FAILURE;
+                };
+                let level = levels.last().cloned().unwrap_or_else(|| "2".to_string());
+                let mut lowered = match epitome_rustc2::device::compile(program, &crate_name(program), edition, &machine, session.options.threads, &level) {
+                    Ok(l) => l,
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        return ExitCode::FAILURE;
+                    }
+                };
+                if lower_stats {
+                    eprintln!(
+                        "lower ({name} kernels): {} functions, {} not lowered, {} that trap where they use something not supported",
+                        lowered.functions,
+                        lowered.failures.len(),
+                        lowered.partial.len()
+                    );
+                    for f in lowered.failures.iter().chain(&lowered.partial) {
+                        eprintln!("  {}: {}", f.name, f.why);
+                    }
+                }
+                let path = PathBuf::from(format!("{}.{name}.o", out.display()));
+                if let Err(e) = build(&mut lowered.module, machine.target, &path, Some(epitome_opt::inline::OptLevel::O2), true) {
+                    eprintln!("error: {name}: {e}");
+                    return ExitCode::FAILURE;
+                }
+                if !emit_kernels {
+                    let object = std::fs::read(&path).unwrap_or_default();
+                    let stubs = ["putchar", "memcpy", "memmove", "memset", "memcmp", "bcmp"];
+                    match epitome_codegen::flat::link_riscv64(&[object], 0x1_0000, 0x1000, &stubs) {
+                        Ok(image) => images.push((name.clone(), image.encode(&name))),
+                        Err(e) => {
+                            eprintln!("error: linking the {name} kernels: {e}");
+                            return ExitCode::FAILURE;
+                        }
+                    }
+                }
+            }
+            if emit_kernels {
+                return ExitCode::SUCCESS;
+            }
         }
         if dump_mono || mono_stats || dump_ir || lower_stats || output.is_some() {
             let index = epitome_rustc2::typeck::Index::new(&tcx, &r);
@@ -348,7 +487,26 @@ fn main() -> ExitCode {
                         }
                         return ExitCode::FAILURE;
                     }
-                    if let Err(e) = build(&mut lowered.module, target, out, !no_opt, emit_obj) {
+                    // Each function at its crate's level; what lowering made
+                    // itself at the given crates' (2 if that is 0).
+                    let level = levels.iter().any(|l| l != "0").then(|| {
+                        lowered.set_opt_levels(&r, |k| levels.get(k as usize).cloned());
+                        epitome_opt::inline::OptLevel::parse(&opt_level).unwrap_or(epitome_opt::inline::OptLevel::O2)
+                    });
+                    // Each machine's image, where the program launches it.
+                    for (name, bytes) in &images {
+                        let m = &mut lowered.module;
+                        if let Some(g) = m.find_global(&format!("epitome.image.{name}"))
+                            && let epitome_ir::module::Value::Const(c) = m.const_bytes(bytes)
+                        {
+                            let ty = m.consts.get(c).ty;
+                            if let epitome_ir::module::GlobalKind::Variable(v) = &mut m.globals[g.index()].kind {
+                                v.init = Some(c);
+                                v.ty = ty;
+                            }
+                        }
+                    }
+                    if let Err(e) = build(&mut lowered.module, target, out, level, emit_obj) {
                         eprintln!("error: {e}");
                         return ExitCode::FAILURE;
                     }
@@ -455,15 +613,24 @@ fn item_crate(r: &epitome_rustc2::resolve::Resolver, it: epitome_rustc2::mono::I
     Some(r.defs[d.0 as usize].krate)
 }
 
-/// Optimises `m` (unless `!optimise`), compiles it for `target` and
-/// writes the object file, then links it with `cc` into `out` (unless
-/// `emit_obj`, when the object file is `out`).
-fn build(m: &mut epitome_ir::Module, target: epitome_rustc2::lower::Target, out: &Path, optimise: bool, emit_obj: bool) -> Result<(), String> {
-    if optimise {
-        epitome_opt::pipeline::run(m, &epitome_opt::pipeline::Options::default());
+/// Optimises `m` (at `level`, for the functions without a level of their
+/// own; not at all if `None`), compiles it for `target` and writes the
+/// object file, then links it with `cc` into `out` (unless `emit_obj`, when
+/// the object file is `out`).
+fn build(
+    m: &mut epitome_ir::Module,
+    target: epitome_rustc2::lower::Target,
+    out: &Path,
+    level: Option<epitome_opt::inline::OptLevel>,
+    emit_obj: bool,
+) -> Result<(), String> {
+    if let Some(level) = level {
+        epitome_opt::pipeline::run(m, &epitome_opt::pipeline::Options { level, ..Default::default() });
     }
     let t = if target.triple.starts_with("x86_64") {
         epitome_codegen::target::Target::x86_64()
+    } else if target.triple.starts_with("riscv64") {
+        epitome_codegen::target::Target::riscv64()
     } else {
         epitome_codegen::target::Target::aarch64()
     };

@@ -2,12 +2,13 @@
 //! expressions and conditions of rules, and folding operations whose
 //! operands are all constant.
 //!
-//! Integers up to 64 bits are handled; wider ones are left alone. The
-//! semantics follow the Language Reference: shifting by the width or more
+//! Integers up to 64 bits are handled; of wider ones, only comparisons
+//! fold (`fold_icmp_wide`). The semantics follow the Language Reference: shifting by the width or more
 //! gives poison, dividing by zero (and signed division overflow) is
 //! undefined behaviour and is never folded, and `nuw`, `nsw`, `exact` and
 //! `disjoint` give poison when their promise is broken.
 
+use epitome_ir::apint::ApInt;
 use epitome_ir::float::{self, FloatKind};
 use epitome_ir::module::*;
 use epitome_ir::types::{Type, TypeId};
@@ -249,6 +250,46 @@ pub fn fold_icmp(pred: ICmpPred, a: u64, b: u64, bits: u32) -> bool {
         ICmpPred::Slt => sa < sb,
         ICmpPred::Sle => sa <= sb,
     }
+}
+
+/// An integer constant of any width (scalar, or a splat).
+pub fn wide_int(consts: &Constants, types: &Types, c: ConstId) -> Option<ApInt> {
+    let k = consts.get(c);
+    match &k.kind {
+        ConstKind::Int(a) => Some(a.clone()),
+        ConstKind::Zero => Some(ApInt::zero(int_bits(types, k.ty)?)),
+        ConstKind::Splat(e) => wide_int(consts, types, *e),
+        _ => None,
+    }
+}
+
+/// `fold_icmp` for integers of any width, such as the `i128` compares of
+/// `u16::MAX as u128 <= usize::MAX as u128`. `None` if the widths differ.
+pub fn fold_icmp_wide(pred: ICmpPred, a: &ApInt, b: &ApInt) -> Option<bool> {
+    use std::cmp::Ordering::*;
+    if a.bits() != b.bits() {
+        return None;
+    }
+    // Words are little-endian with the bits above the width zero, so the
+    // unsigned order is the order of the words from the top.
+    let unsigned = a.words().iter().rev().cmp(b.words().iter().rev());
+    let signed = match (a.is_negative(), b.is_negative()) {
+        (true, false) => Less,
+        (false, true) => Greater,
+        _ => unsigned,
+    };
+    Some(match pred {
+        ICmpPred::Eq => unsigned == Equal,
+        ICmpPred::Ne => unsigned != Equal,
+        ICmpPred::Ugt => unsigned == Greater,
+        ICmpPred::Uge => unsigned != Less,
+        ICmpPred::Ult => unsigned == Less,
+        ICmpPred::Ule => unsigned != Greater,
+        ICmpPred::Sgt => signed == Greater,
+        ICmpPred::Sge => signed != Less,
+        ICmpPred::Slt => signed == Less,
+        ICmpPred::Sle => signed != Greater,
+    })
 }
 
 /// The predicate that gives the same answer with the operands swapped.

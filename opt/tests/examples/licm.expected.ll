@@ -1,5 +1,7 @@
 ; @sum: licm: 2 moved out of loops (1 loads)
 ; @sum: indvars: loop %loop runs %n times when entered
+; @sum: indvars: 1 exact exit tests, 0 exit values, 0 counters widened
+; @sum: lsr: 2 arrays stepped by pointer, 1 counters counting down
 
 target datalayout = "e-m:o-i64:64-i128:128-n32:64-S128"
 
@@ -16,16 +18,18 @@ loop.preheader:                                   ; preds = %entry
   br label %loop
 
 loop:                                             ; preds = %loop, %loop.preheader
-  %i = phi i64 [ %i1, %loop ], [ 0, %loop.preheader ]
+  %lsr.ptr1 = phi ptr [ %out, %loop.preheader ], [ %lsr.ptr.next1, %loop ]
+  %lsr.ptr = phi ptr [ %a, %loop.preheader ], [ %lsr.ptr.next, %loop ]
+  %lsr.count = phi i64 [ %lsr.count.next, %loop ], [ %n, %loop.preheader ]
   %acc = phi i32 [ %acc1, %loop ], [ 0, %loop.preheader ]
-  %p = getelementptr inbounds i32, ptr %a, i64 %i
-  %x = load i32, ptr %p
+  %x = load i32, ptr %lsr.ptr
   %y = mul i32 %x, %m
   %acc1 = add i32 %acc, %y
-  %o = getelementptr inbounds i32, ptr %out, i64 %i
-  store i32 %y, ptr %o
-  %i1 = add i64 %i, 1
-  %c = icmp slt i64 %i1, %n
+  store i32 %y, ptr %lsr.ptr1
+  %lsr.count.next = add i64 %lsr.count, -1
+  %c = icmp ne i64 %lsr.count.next, 0
+  %lsr.ptr.next = getelementptr i32, ptr %lsr.ptr, i64 1
+  %lsr.ptr.next1 = getelementptr i32, ptr %lsr.ptr1, i64 1
   br i1 %c, label %loop, label %done
 
 done:                                             ; preds = %loop, %entry

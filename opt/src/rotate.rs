@@ -56,6 +56,7 @@ pub fn run(sh: &Shared, f: &mut Function) -> Stats {
         return stats;
     }
     let mut names = Names::new(f);
+    sink_next_values(f);
     // Each rotation changes the blocks, so loops are found again after one.
     for _ in 0..64 {
         let found = loops::find(f);
@@ -73,6 +74,50 @@ pub fn run(sh: &Shared, f: &mut Function) -> Stats {
         }
     }
     stats
+}
+
+/// Moves a header instruction computing a header phi's next value into the
+/// latch, when nothing else uses it: `i.next = add i, 1` left in the header
+/// by an inlined `Range::next`, which picks the next value before testing.
+/// It then runs only when the loop goes round again, and the loop can be
+/// rotated (`can_rotate` refuses a next value made in the header).
+fn sink_next_values(f: &mut Function) {
+    let found = loops::find(f);
+    if found.is_empty() {
+        return;
+    }
+    // Uses of each local, outside the phi entries that carry it round.
+    let mut uses = vec![0u32; f.locals.len()];
+    for i in f.insts_in_order() {
+        f.insts[i.index()].op.for_each_value(|v| {
+            if let Value::Local(x) = v {
+                uses[x.index()] += 1;
+            }
+        });
+    }
+    for l in &found {
+        let h = l.header;
+        let [latch] = l.latches[..] else { continue };
+        if latch == h || !f.terminator(latch).is_some_and(|t| matches!(f.insts[t.index()].op, Op::Br(x) if x == h)) {
+            continue;
+        }
+        for phi in phis(f, h) {
+            let Some(Value::Local(x)) = incoming(f, phi, latch) else { continue };
+            let LocalDef::Inst(i) = f.locals[x.index()].def else { continue };
+            let pure = matches!(
+                f.insts[i.index()].op,
+                Op::Binary { .. } | Op::Cast { .. } | Op::ICmp { .. } | Op::Select { .. } | Op::Gep { .. }
+            );
+            // Used once (by this phi), with no debug records of its own to move.
+            if !pure || uses[x.index()] != 1 || !f.insts[i.index()].debug_records.is_empty() {
+                continue;
+            }
+            let Some(at) = f.blocks[h.index()].insts.iter().position(|&y| y == i) else { continue };
+            f.blocks[h.index()].insts.remove(at);
+            let list = &mut f.blocks[latch.index()].insts;
+            list.insert(list.len() - 1, i);
+        }
+    }
 }
 
 fn phis(f: &Function, b: BlockId) -> Vec<InstId> {

@@ -122,6 +122,11 @@ pub(crate) struct Fx<'c, 'a, 's, 'm> {
     /// Whether it called a closure by `call_once` whose kind was not
     /// known yet (so it must be lowered again, once all are).
     pub unknown_closure: bool,
+    /// In a `#[track_caller]` function: its caller's `&Location`.
+    pub caller: Option<Value>,
+    /// The call (or check) being lowered, by crate, file and node: where a
+    /// `#[track_caller]` callee is called from.
+    pub site: Option<(u32, u32, NodeId)>,
     /// Where the value of the expression at this node is to go: an
     /// aggregate literal there is built in place rather than in a stack
     /// slot. A static's initialiser is (its value may not fit on the
@@ -181,6 +186,9 @@ pub(crate) fn lower_fn(cx: &Cx, m: &mut Module, it: Item, decl: &Decl, owns_env:
         args: tcx.tys(l),
     };
     let mut fx = Fx::new(cx, b, body, decl.abi.output, &decl.name);
+    if decl.abi.caller {
+        fx.caller = Some(fx.b.param(params.len() - 1));
+    }
     let first = fx.b.current_block().expect("the body block");
     let mut ir_param = 0;
     fx.ret = match decl.abi.ret {
@@ -469,6 +477,8 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             env_root: None,
             moved_capture: false,
             unknown_closure: false,
+            caller: None,
+            site: None,
             dest: None,
         };
         fx.entry = fx.b.block("start");
@@ -768,14 +778,40 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         Operand { ty: t, v: Val::Zst }
     }
 
-    /// Branches to a trap unless `ok` (an `i1`) holds.
-    pub fn check(&mut self, ok: Value) {
+    /// Panics unless `ok` (an `i1`) holds, through `core`'s lang item
+    /// `lang` (`panic_bounds_check`, `panic_const_div_by_zero`, ...) called
+    /// with `args`; traps if there is none.
+    pub fn check(&mut self, ok: Value, lang: &str, args: Vec<Operand>) -> R<()> {
         let good = self.new_block("ok");
         let bad = self.new_block("panic");
         self.b.cond_br(ok, good, bad);
         self.b.at(bad);
-        self.trap();
+        match self.lang_fn(lang).filter(|_| !self.cx.immediate_abort) {
+            Some(d) => {
+                self.call_def(d, Vec::new(), args, None)?;
+                if !self.terminated() {
+                    self.b.unreachable();
+                    self.dead();
+                }
+            }
+            None => self.trap(),
+        }
         self.b.at(good);
+        Ok(())
+    }
+
+    /// `core`'s lang item function `lang`. The `panic_const_*` ones are
+    /// named by `#[lang = stringify!(..)]`, which is not a literal, so
+    /// they are found by name in `core::panicking::panic_const`.
+    fn lang_fn(&self, lang: &str) -> Option<DefId> {
+        let tcx = self.cx.tcx;
+        if let Some(&d) = tcx.lang.get(lang) {
+            return Some(d);
+        }
+        let r = self.cx.r;
+        (0..r.defs.len() as u32)
+            .map(DefId)
+            .find(|&d| r.defs[d.0 as usize].name == lang && r.defs[d.0 as usize].kind == DefKind::Fn && r.def_path(d).starts_with("core::panicking::panic_const::"))
     }
 
     /// An `i8` `bool` as an `i1`.
@@ -1010,7 +1046,14 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         if self.dest.is_some_and(|d| d.0 != n) || self.body.tables.adjustments.get(&n).is_some_and(|a| !a.is_empty()) {
             self.dest = None;
         }
-        let pv = self.expr_raw(n)?;
+        // A call, an index, an operator: where a panic in it is reported.
+        let saved = self.site;
+        if matches!(self.body.ast.kind(n), Kind::Call | Kind::MethodCall | Kind::Index | Kind::Binary | Kind::Unary | Kind::MacroCall) {
+            self.site = Some((self.body.k, self.body.f, n));
+        }
+        let pv = self.expr_raw(n);
+        self.site = saved;
+        let pv = pv?;
         match self.body.tables.adjustments.get(&n) {
             Some(adj) if !adj.is_empty() => {
                 let adj = adj.clone();
@@ -2364,7 +2407,24 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 let t = self.b.type_of(y);
                 let z = self.b.const_int(t, 0);
                 let ok = self.b.icmp(ICmpPred::Ne, y, z);
-                self.check(ok);
+                let div = op == "/";
+                self.check(ok, if div { "panic_const_div_by_zero" } else { "panic_const_rem_by_zero" }, Vec::new())?;
+                // `MIN / -1` overflows.
+                if signed {
+                    let bits = match self.b.module().types.get(t) {
+                        epitome_ir::types::Type::Int(n) => *n,
+                        _ => 64,
+                    };
+                    let min = self.int_const(t, 1u128 << (bits - 1));
+                    let minus_one = self.b.const_int(t, -1);
+                    let is_min = self.b.icmp(ICmpPred::Eq, x, min);
+                    let is_minus_one = self.b.icmp(ICmpPred::Eq, y, minus_one);
+                    let both = self.b.and(is_min, is_minus_one);
+                    let i1 = self.b.module().types.int(1);
+                    let t1 = self.b.const_int(i1, 1);
+                    let ok = self.b.xor(both, t1);
+                    self.check(ok, if div { "panic_const_div_overflow" } else { "panic_const_rem_overflow" }, Vec::new())?;
+                }
                 match (op, signed) {
                     ("/", true) => self.b.sdiv(x, y),
                     ("/", false) => self.b.udiv(x, y),
@@ -2587,7 +2647,8 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             _ => return Err(format!("index of {}", tcx.display(self.cx.r, base.ty))),
         };
         let ok = self.b.icmp(ICmpPred::Ult, iv, len);
-        self.check(ok);
+        let usize_t = tcx.mk(TyKind::Uint(UintTy::Usize));
+        self.check(ok, "panic_bounds_check", vec![Operand { ty: usize_t, v: Val::Imm(iv) }, Operand { ty: usize_t, v: Val::Imm(len) }])?;
         let stride = self.layout(elem)?.size;
         let s = self.usize_const(stride);
         let off = self.b.mul(iv, s);
@@ -3102,6 +3163,135 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         self.emit_call(&abi, |b, a| b.call_indirect(fty, target, a), args)
     }
 
+    /// A call of kernel `f` (for the machine its `#[epitome::target]`
+    /// names): its arguments as `u64`s, each with its kind (0 an integer,
+    /// 1 an `f32`, 2 an `f64`; 3 a `&[T]` and 4 a `&mut [T]` of plain
+    /// numbers, as three: the address, the length and the size of an
+    /// element, copied into the machine's memory and, for 4, back), and
+    /// `__epitome_launch` given the machine's image (the global
+    /// `epitome.image.<machine>`, which the driver fills in) and the
+    /// kernel's symbol; its result, converted back.
+    fn launch(&mut self, f: DefId, args: Vec<Operand>) -> R<Pv> {
+        let cx = self.cx;
+        let tcx = cx.tcx;
+        let (_, _, ast, node) = cx.def_ast(f);
+        let machine = crate::device::kernel_target(ast, node).ok_or("not a kernel")?;
+        let symbol = crate::device::kernel_symbol(&crate::mono::item_path(cx.r, tcx, f));
+        let (_, output, _, _) = cx.signature(&mut self.solver, f, &[])?;
+        let kind = |t: Ty| -> Option<u8> {
+            match tcx.kind(t) {
+                TyKind::Int(_) | TyKind::Uint(_) | TyKind::Bool | TyKind::Char => Some(0),
+                TyKind::Float(crate::ty::FloatTy::F32) => Some(1),
+                TyKind::Float(crate::ty::FloatTy::F64) => Some(2),
+                _ => None,
+            }
+        };
+        let i64t = self.b.module().types.int(64);
+        let i32t = self.b.module().types.int(32);
+        let i8t = self.i8t();
+        // Plain data: numbers, and arrays of them, laid out alike on both
+        // machines.
+        fn plain(tcx: &crate::ty::TyCtxt, t: Ty) -> bool {
+            match tcx.kind(t) {
+                TyKind::Int(_) | TyKind::Uint(_) | TyKind::Float(_) | TyKind::Bool | TyKind::Char => true,
+                TyKind::Array(e, _) => plain(tcx, e),
+                _ => false,
+            }
+        }
+        let slice_of = |t: Ty| -> Option<(Mutbl, Ty)> {
+            match tcx.kind(t) {
+                TyKind::Ref(m, s) => match tcx.kind(s) {
+                    TyKind::Slice(e) if plain(tcx, e) => Some((m, e)),
+                    TyKind::Str => Some((m, tcx.mk(TyKind::Uint(UintTy::U8)))),
+                    _ => None,
+                },
+                _ => None,
+            }
+        };
+        let n = args.len();
+        let words: usize = args.iter().map(|a| if slice_of(a.ty).is_some() { 3 } else { 1 }).sum();
+        let slots = self.temp(tcx.mk(TyKind::Tuple(tcx.list(vec![tcx.mk(TyKind::Uint(UintTy::U64)); words.max(1)]))))?;
+        let mut kinds = Vec::new();
+        let mut word = 0;
+        for a in args.iter() {
+            if let Some((m, e)) = slice_of(a.ty) {
+                let p = self.deref(*a)?;
+                let len = p.meta.ok_or("a slice without its length")?;
+                let size = self.layout(e)?.size;
+                let addr = self.b.cast(CastOp::PtrToInt, p.addr, i64t);
+                let size = self.usize_const(size);
+                for (k, v) in [addr, len, size].into_iter().enumerate() {
+                    let at = self.offset(slots.addr, 8 * (word + k) as u64);
+                    self.store_imm(v, at, 8);
+                }
+                word += 3;
+                kinds.push(if m == Mutbl::Mut { 4 } else { 3 });
+                continue;
+            }
+            let k = kind(a.ty).ok_or_else(|| format!("a kernel argument of type {} (numbers and slices of them, so far)", tcx.display(cx.r, a.ty)))?;
+            let i = word;
+            word += 1;
+            let v = self.imm(*a)?;
+            let w = match k {
+                1 => {
+                    let b = self.b.bitcast(v, i32t);
+                    self.b.zext(b, i64t)
+                }
+                2 => self.b.bitcast(v, i64t),
+                _ if self.signed(a.ty) => self.b.sext(v, i64t),
+                _ => {
+                    let vt = self.b.type_of(v);
+                    if vt == i64t { v } else { self.b.zext(v, i64t) }
+                }
+            };
+            let p = self.offset(slots.addr, 8 * i as u64);
+            self.store_imm(w, p, 8);
+            kinds.push(k);
+        }
+        let ret = match tcx.kind(output) {
+            TyKind::Tuple(l) if tcx.tys(l).is_empty() => 3,
+            _ => kind(output).ok_or_else(|| format!("a kernel result of type {} (only numbers, so far)", tcx.display(cx.r, output)))?,
+        };
+        let ptr = self.ptr_t();
+        let usize_t = self.isize_t();
+        let image_name = format!("epitome.image.{machine}");
+        let m = self.b.module();
+        let image = match m.find_global(&image_name) {
+            Some(g) => g,
+            None => {
+                let init = m.const_bytes(&[0]);
+                epitome_ir::module::Global::builder(&image_name).init(init).constant().linkage(Linkage::Private).align(8).build(m)
+            }
+        };
+        let image = m.global_value(image);
+        let name = m.const_bytes(symbol.as_bytes());
+        let name = epitome_ir::module::Global::builder(&format!("{}.kernel.{}", self.fname, self.strings)).init(name).constant().linkage(Linkage::Private).align(1).build(m);
+        let name = m.global_value(name);
+        let kinds_init = m.const_bytes(&kinds);
+        let kinds = epitome_ir::module::Global::builder(&format!("{}.kinds.{}", self.fname, self.strings)).init(kinds_init).constant().linkage(Linkage::Private).align(1).build(m);
+        let kinds = m.global_value(kinds);
+        self.strings += 1;
+        let hook = m.declare("__epitome_launch", i64t, &[ptr, ptr, usize_t, ptr, ptr, usize_t, i8t], false);
+        let len = self.usize_const(symbol.len() as u64);
+        let nargs = self.usize_const(n as u64);
+        let rk = self.b.const_int(i8t, ret as i64);
+        let got = self.b.call(hook, &[image, name, len, slots.addr, kinds, nargs, rk]).ok_or("`__epitome_launch` gave no value")?;
+        if ret == 3 {
+            return Ok(Pv::Val(self.unit()));
+        }
+        let Repr::Imm(rt) = self.repr(output)? else { return Err("a kernel result not a scalar".into()) };
+        let v = match ret {
+            1 => {
+                let t = self.b.trunc(got, i32t);
+                self.b.bitcast(t, rt)
+            }
+            2 => self.b.bitcast(got, rt),
+            _ if rt == i64t => got,
+            _ => self.b.trunc(got, rt),
+        };
+        Ok(Pv::Val(Operand { ty: output, v: Val::Imm(v) }))
+    }
+
     /// The address of function `d` at `args`, as a value.
     pub fn fn_address(&mut self, d: DefId, args: Vec<Ty>) -> R<Value> {
         match crate::mono::instance(self.cx.r, self.cx.crates, self.cx.tcx, &mut self.solver, d, args) {
@@ -3131,11 +3321,18 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         }
         let resolved = crate::mono::instance(r, self.cx.crates, tcx, &mut self.solver, d, targs.clone());
         match resolved {
+            // With `panic = "immediate-abort"`, a panic function aborts
+            // first: the call is the abort, and the message it would have
+            // made (and the code that formats it) is left out.
+            // A kernel for another machine: launched, not called.
+            Resolved::Item(Item::Fn(f, _)) if crate::device::kernel_target(self.cx.def_ast(f).2, self.cx.def_ast(f).3).is_some() => {
+                self.launch(f, args)
+            }
+            Resolved::Item(Item::Fn(f, _)) if self.cx.immediate_abort && is_panic_fn(r, f) => {
+                self.trap();
+                Ok(Pv::Val(Operand { ty: tcx.mk(TyKind::Never), v: Val::Zst }))
+            }
             Resolved::Item(it @ (Item::Fn(f, _) | Item::Foreign(f))) => {
-                if r.def_path(f).starts_with("core::panicking::") {
-                    self.trap();
-                    return Ok(Pv::Val(Operand { ty: tcx.mk(TyKind::Never), v: Val::Zst }));
-                }
                 let decl = self.cx.fns.get(&it).cloned().ok_or_else(|| {
                     if let Item::Foreign(_) = it
                         && let name = self.cx.symbol(f, tcx.list(Vec::new()))
@@ -3232,6 +3429,88 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         Ok(Pv::Val(o))
     }
 
+    /// The `&'static Location` a `#[track_caller]` callee is given: this
+    /// function's own caller's, if it is `#[track_caller]` too, else where
+    /// the call is (a method call's method name, an overloaded index's
+    /// `[`, or the expression's start; for code a macro made, the macro's
+    /// call).
+    pub fn caller_location(&mut self) -> R<Value> {
+        if let Some(v) = self.caller {
+            return Ok(v);
+        }
+        let cx = self.cx;
+        let (k, f, n) = self.site.unwrap_or((self.body.k, self.body.f, NodeId(0)));
+        let file = &cx.crates[k as usize].files[f as usize];
+        let ast = &file.ast;
+        let mut i = match ast.kind(n) {
+            Kind::MethodCall => ast.node(ast.children(n).get(1).copied().unwrap_or(n)).first as usize,
+            // An overloaded index (`Index::index`): its `[`, as rustc has it.
+            Kind::Index if cx.typeck.tables[k as usize][f as usize].methods.contains_key(&n) && ast.children(n).len() > 1 => {
+                ast.node(ast.children(n)[1]).first as usize - 1
+            }
+            _ => ast.node(n).first as usize,
+        };
+        if !ast.tokens.get(i).is_some_and(|t| file.source.contains(t.0)) {
+            i = ast.origin_of(i) as usize;
+        }
+        let (line, col) = match ast.tokens.get(i) {
+            Some(t) if file.source.contains(t.0) => crate::source::line_col(&file.source.text, file.source.offset_of(t.0)),
+            _ => (0, 0),
+        };
+        self.location_const(&crate::sysroot::remap(&file.source.name), line as u32, col as u32)
+    }
+
+    /// A `Location` of `file:line:col`, as a constant global (one for
+    /// each place in the module).
+    fn location_const(&mut self, file: &str, line: u32, col: u32) -> R<Value> {
+        let tcx = self.cx.tcx;
+        let name = format!("location.{:016x}.{line}.{col}", crate::hash::fnv(file.as_bytes()));
+        if let Some(g) = self.b.module().find_global(&name) {
+            return Ok(self.b.module().global_value(g));
+        }
+        let ld = *tcx.lang.get("panic_location").ok_or("no `Location`")?;
+        let lt = tcx.mk(TyKind::Adt(ld, tcx.list(Vec::new())));
+        let l = self.layout(lt)?;
+        let (ptr, isz) = (self.ptr_t(), self.isize_t());
+        let i32t = self.b.module().types.int(32);
+        // The file's name, with a NUL after it (`Location::file_as_c_str`),
+        // one for each file.
+        let fname_name = format!("location.{:016x}.file", crate::hash::fnv(file.as_bytes()));
+        let m = self.b.module();
+        let fname = match m.find_global(&fname_name) {
+            Some(g) => g,
+            None => {
+                let mut bytes = file.as_bytes().to_vec();
+                bytes.push(0);
+                let init = m.const_bytes(&bytes);
+                epitome_ir::module::Global::builder(&fname_name).init(init).constant().linkage(Linkage::Private).align(1).build(m)
+            }
+        };
+        use epitome_ir::module::{ConstKind, Constant};
+        let Value::Const(addr) = m.global_value(fname) else { return Err("a global that is not a constant".into()) };
+        let len = m.consts.intern(Constant::int(&m.types, isz, file.len() as i64));
+        let line = m.consts.intern(Constant::int(&m.types, i32t, line as i64));
+        let col = m.consts.intern(Constant::int(&m.types, i32t, col as i64));
+        // `filename` (a `NonNull<str>`: address, length), `line`, `col`,
+        // in the order the layout puts them.
+        let ps = self.cx.lcx.target.ptr_size;
+        let mut parts = vec![(l.offset(0), ptr, addr), (l.offset(0) + ps, isz, len), (l.offset(1), i32t, line), (l.offset(2), i32t, col)];
+        parts.sort_by_key(|p| p.0);
+        let mut at = 0u64;
+        for &(off, t, _) in &parts {
+            let size = if t == i32t { 4 } else { ps };
+            if off != at.div_ceil(size) * size {
+                return Err("`Location` laid out with padding".into());
+            }
+            at = off + size;
+        }
+        let m = self.b.module();
+        let ty = m.types.struct_of(&parts.iter().map(|p| p.1).collect::<Vec<_>>());
+        let init = Value::Const(m.consts.intern(Constant { ty, kind: ConstKind::Struct(parts.iter().map(|p| p.2).collect()) }));
+        let g = epitome_ir::module::Global::builder(&name).init(init).constant().linkage(Linkage::Private).align(l.align).build(m);
+        Ok(m.global_value(g))
+    }
+
     /// Emits a call with `abi`, passing `args`.
     pub fn emit_call(&mut self, abi: &super::FnAbi, call: impl FnOnce(&mut FunctionBuilder<'m>, &[Value]) -> Option<Value>, args: Vec<Operand>) -> R<Pv> {
         if self.terminated() {
@@ -3261,6 +3540,9 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 },
             }
         }
+        if abi.caller {
+            ir_args.push(self.caller_location()?);
+        }
         let got = call(&mut self.b, &ir_args);
         let tcx = self.cx.tcx;
         if self.layout(abi.output)?.is_uninhabited() {
@@ -3274,6 +3556,13 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             _ => Pv::Val(Operand { ty: abi.output, v: Val::Zst }),
         })
     }
+}
+
+/// Whether `f` is one of `core`'s or `std`'s functions that start a panic
+/// (each aborts first with `panic = "immediate-abort"`).
+fn is_panic_fn(r: &crate::resolve::Resolver, f: DefId) -> bool {
+    let p = r.def_path(f);
+    p.starts_with("core::panicking::") || p == "std::panicking::begin_panic" || p == "std::panicking::begin_panic_handler"
 }
 
 /// The value of a float literal, without its suffix (`2.5f16`, `1e3`).

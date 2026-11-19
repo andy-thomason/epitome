@@ -17,8 +17,16 @@
 //!   write on demand.
 //! - `simplifycfg`: unreachable blocks, empty blocks, diamonds to
 //!   selects, straight lines; branches themselves fold in the combiner.
+//! - `implied`: what dominating branches imply: comparisons folded,
+//!   selects resolved and `nuw` set from the conditions on the way to
+//!   them (bounds checks in loops).
+//! - `ranges`: what each integer can be, as unsigned and signed intervals,
+//!   which `implied` narrows by the facts where a value is used.
 //! - `cse`: common-subexpression elimination, by hashing a canonical key
 //!   for each instruction, scoped by the dominator tree.
+//! - `ipo`: after the bottom-up passes, what they cannot see: constant
+//!   returns and arguments across calls, argument promotion, and leaf
+//!   functions inlined within call-graph cycles.
 //! - `cfg`, `ssa`, `cleanup`: analyses and helpers the passes share.
 //!
 //! See `docs/design/parallel.md` for the design.
@@ -33,8 +41,10 @@ pub mod constcall;
 pub mod cse;
 pub mod ctx;
 pub mod fx;
+pub mod implied;
 pub mod indvars;
 pub mod inline;
+pub mod ipo;
 pub mod licm;
 pub mod loopidiom;
 pub mod loops;
@@ -44,6 +54,7 @@ pub mod memcpyopt;
 pub mod memssa;
 pub mod par;
 pub mod pipeline;
+pub mod ranges;
 pub mod recursion;
 pub mod rotate;
 pub mod simplifycfg;

@@ -223,14 +223,21 @@ impl<'a, 's> Solver<'a, 's> {
 
     /// How `t: tr<targs>` holds, if it does unambiguously.
     pub fn select(&mut self, t: Ty, tr: DefId, targs: &[Ty]) -> Option<ImplSource> {
+        self.select_skipping(t, tr, targs, &[])
+    }
+
+    /// `select`, the impls in `skip` left out: where the impl taken does
+    /// not define an item, the impl it specialises that does.
+    fn select_skipping(&mut self, t: Ty, tr: DefId, targs: &[Ty], skip: &[usize]) -> Option<ImplSource> {
         let s = self.cx.probe();
-        let got = match self.cx.select(t, tr, targs, 0) {
+        let sel = if skip.is_empty() { self.cx.select(t, tr, targs, 0) } else { traits::Select::Ambiguous };
+        let got = match sel {
             traits::Select::Yes(traits::Source::Impl(i, args)) => {
                 let args = args.into_iter().map(|a| self.cx.infer.resolve(a)).collect();
                 Some(ImplSource::Impl(i, args))
             }
             traits::Select::Yes(_) => Some(ImplSource::Builtin),
-            traits::Select::Ambiguous => self.cx.select_specific(t, tr, targs).map(|(i, args)| {
+            traits::Select::Ambiguous => self.cx.select_specific(t, tr, targs, skip).map(|(i, args)| {
                 let args = args.into_iter().map(|a| self.cx.infer.resolve(a)).collect();
                 ImplSource::Impl(i, args)
             }),
@@ -249,21 +256,32 @@ impl<'a, 's> Solver<'a, 's> {
         let Some(tr) = self.cx.trait_of(item) else { return Some((item, args.to_vec())) };
         let ntrait = tcx.all_params(tr).len();
         let (self_ty, targs) = (args[0], &args[1..ntrait.min(args.len())]);
-        match self.select(self_ty, tr, targs)? {
-            ImplSource::Impl(i, iargs) => {
-                let name = self.cx.r.defs[item.0 as usize].name;
-                let m = self.cx.r.defs[tcx.impls[i].def.0 as usize].module?;
-                match self.cx.r.modules[m.0 as usize].names.get(&(name, crate::resolve::Ns::Value)).map(|b| &b.res) {
-                    Some(crate::resolve::Res::Def(f)) => {
+        let name = self.cx.r.defs[item.0 as usize].name;
+        // Where the impl taken does not define the item (a specialising
+        // impl leaves out what it does not change, as `ZipImpl`'s for
+        // `TrustedRandomAccess` does `fold`), the impl it specialises that
+        // does, and failing those the trait's own body.
+        let mut skip = Vec::new();
+        loop {
+            let sel = match self.select_skipping(self_ty, tr, targs, &skip) {
+                Some(s) => s,
+                None if skip.is_empty() => return None,
+                None => return Some((item, args.to_vec())),
+            };
+            match sel {
+                ImplSource::Impl(i, iargs) => {
+                    let m = self.cx.r.defs[tcx.impls[i].def.0 as usize].module?;
+                    if let Some(crate::resolve::Res::Def(f)) =
+                        self.cx.r.modules[m.0 as usize].names.get(&(name, crate::resolve::Ns::Value)).map(|b| &b.res)
+                    {
                         let mut a = iargs;
                         a.extend_from_slice(&args[ntrait.min(args.len())..]);
-                        Some((*f, a))
+                        return Some((*f, a));
                     }
-                    // Not overridden: the trait's own body.
-                    _ => Some((item, args.to_vec())),
+                    skip.push(i);
                 }
+                ImplSource::Builtin => return None,
             }
-            ImplSource::Builtin => None,
         }
     }
 }

@@ -1098,7 +1098,7 @@ impl<'x, 's> Expander<'x, 's> {
                     } else {
                         inner.to_vec()
                     };
-                    let cx = builtin::Context { session: self.session, file, call, crate_name: self.crate_name, krate: self.krate };
+                    let cx = builtin::Context { session: self.session, file, call, crate_name: self.crate_name, krate: self.krate, edition: self.edition };
                     builtin::expand(&cx, b, &inner).ok()??
                 }
                 MacroKind::Proc(..) => return None,
@@ -1109,7 +1109,7 @@ impl<'x, 's> Expander<'x, 's> {
                 } else {
                     inner.to_vec()
                 };
-                let cx = builtin::Context { session: self.session, file, call, crate_name: self.crate_name, krate: self.krate };
+                let cx = builtin::Context { session: self.session, file, call, crate_name: self.crate_name, krate: self.krate, edition: self.edition };
                 builtin::expand(&cx, name, &inner).ok()??
             }
             None => return None,
@@ -1172,7 +1172,7 @@ impl<'x, 's> Expander<'x, 's> {
         place: Place,
     ) -> Option<Vec<Token<'s>>> {
         let _ = place;
-        let cx = builtin::Context { session: self.session, file, call, crate_name: self.crate_name, krate: self.krate };
+        let cx = builtin::Context { session: self.session, file, call, crate_name: self.crate_name, krate: self.krate, edition: self.edition };
         match builtin::expand(&cx, name, input) {
             Ok(Some(t)) => Some(t),
             Ok(None) => {

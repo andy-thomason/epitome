@@ -1187,6 +1187,10 @@ fn steps_cut_into_tasks() {
         }
         assert!(s.calls.iter().any(|c| c.path == "u7" && c.func == "settle"));
         let costs = epitome_sv::tasks::costs(s, &[]);
+        for budget in [50.0, 200.0, 1000.0] {
+            let g = epitome_sv::tasks::cut(s, &costs, budget, budget);
+            assert!(g.well_formed(s.items.len()), "budget {budget}");
+        }
         let (work, plans) = epitome_sv::tasks::plans(s, &costs, &[1, 8], 2.0, 0.0, 0.0);
         for p in &plans {
             eprintln!("chain {chain}: {} threads, {} tasks, {} edges, span {:.0}, time {:.0} of {work:.0}", p.threads, p.tasks, p.edges, p.span, p.time);

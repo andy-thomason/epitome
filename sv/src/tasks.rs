@@ -70,14 +70,30 @@ impl Graph {
     pub fn edges(&self) -> usize {
         self.deps.iter().map(|d| d.len()).sum()
     }
+
+    /// Whether every task waits only on tasks before it, and every piece
+    /// is in exactly one task.
+    pub fn well_formed(&self, pieces: usize) -> bool {
+        let mut seen = vec![false; pieces];
+        for r in self.tasks.iter().flatten() {
+            for k in r.clone() {
+                if std::mem::replace(&mut seen[k], true) {
+                    return false;
+                }
+            }
+        }
+        seen.into_iter().all(|x| x) && self.deps.iter().enumerate().all(|(t, d)| d.iter().all(|&u| (u as usize) < t))
+    }
 }
 
 /// The step's calls cut into tasks: a call that costs at most `budget`
 /// is one task, a dearer one its own pieces one a task and its calls cut
-/// in turn. Then each task cheaper than `min` joins the task that all it
-/// waits on is in, if together they cost at most `min` (which makes no
-/// task wait on itself), or with nothing to wait on, the last such task
-/// that waits on nothing.
+/// in turn. Then each task cheaper than `min` joins one it waits on, if
+/// together they cost at most `min`: the one that starts last, so long as
+/// every other it waits on ends before that one starts (tasks wait only on
+/// tasks before them, so none of those can come to wait on the merged
+/// one); with nothing to wait on, it joins the last such task that waits on
+/// nothing.
 pub fn cut(steps: &Steps, costs: &[f64], budget: f64, min: f64) -> Graph {
     let calls = &steps.calls;
     let mut kids: Vec<Vec<usize>> = vec![Vec::new(); calls.len()];
@@ -121,16 +137,16 @@ pub fn cut(steps: &Steps, costs: &[f64], budget: f64, min: f64) -> Graph {
     let n = fine.len();
     let mut cluster: Vec<usize> = (0..n).collect();
     let mut total: Vec<f64> = fine.iter().map(|t| cost_of(&t[0])).collect();
+    // (A cluster's first task is its own index; its last, `last`.)
+    let mut last: Vec<usize> = (0..n).collect();
     let mut free: Option<usize> = None;
     for t in 0..n {
         let c = total[t];
         if c >= min {
             continue;
         }
-        let mut into = deps0[t].iter().map(|&u| cluster[u as usize]);
-        let target = match into.next() {
-            Some(first) if into.all(|u| u == first) => Some(first),
-            Some(_) => None,
+        let target = match deps0[t].iter().map(|&u| cluster[u as usize]).max() {
+            Some(u) => deps0[t].iter().map(|&v| cluster[v as usize]).all(|v| v == u || last[v] < u).then_some(u),
             None => {
                 let f = free.filter(|&f| total[f] + c <= min);
                 if f.is_none() {
@@ -144,26 +160,74 @@ pub fn cut(steps: &Steps, costs: &[f64], budget: f64, min: f64) -> Graph {
         {
             cluster[t] = u;
             total[u] += c;
+            last[u] = t;
         }
     }
-    // The clusters, in the order of their first tasks.
+    // The clusters, and what each waits on: what its tasks wait on.
     let mut index = vec![usize::MAX; n];
-    let mut tasks: Vec<Vec<Range<usize>>> = Vec::new();
+    let mut runs: Vec<Vec<Range<usize>>> = Vec::new();
     for t in 0..n {
         let c = cluster[t];
         if index[c] == usize::MAX {
-            index[c] = tasks.len();
-            tasks.push(Vec::new());
+            index[c] = runs.len();
+            runs.push(Vec::new());
         }
-        let runs = &mut tasks[index[c]];
+        let rs = &mut runs[index[c]];
         let r = fine[t][0].clone();
-        match runs.last_mut() {
+        match rs.last_mut() {
             Some(l) if l.end == r.start => l.end = r.end,
-            _ => runs.push(r),
+            _ => rs.push(r),
         }
     }
+    let m = runs.len();
+    let mut waits: Vec<Vec<u32>> = vec![Vec::new(); m];
+    for t in 0..n {
+        let c = index[cluster[t]];
+        for &u in &deps0[t] {
+            let d = index[cluster[u as usize]];
+            if d != c {
+                waits[c].push(d as u32);
+            }
+        }
+    }
+    for w in &mut waits {
+        w.sort_unstable();
+        w.dedup();
+    }
+    // In an order where each comes after all it waits on.
+    let mut succs: Vec<Vec<u32>> = vec![Vec::new(); m];
+    let mut left: Vec<usize> = waits.iter().map(|w| w.len()).collect();
+    for (c, w) in waits.iter().enumerate() {
+        for &d in w {
+            succs[d as usize].push(c as u32);
+        }
+    }
+    let mut ready: std::collections::BTreeSet<usize> = (0..m).filter(|&c| left[c] == 0).collect();
+    let mut order = Vec::with_capacity(m);
+    while let Some(c) = ready.pop_first() {
+        order.push(c);
+        for &s in &succs[c] {
+            left[s as usize] -= 1;
+            if left[s as usize] == 0 {
+                ready.insert(s as usize);
+            }
+        }
+    }
+    assert_eq!(order.len(), m, "tasks that wait on each other");
+    let mut at = vec![0u32; m];
+    for (k, &c) in order.iter().enumerate() {
+        at[c] = k as u32;
+    }
+    let tasks: Vec<Vec<Range<usize>>> = order.iter().map(|&c| runs[c].clone()).collect();
+    let deps: Vec<Vec<u32>> = order
+        .iter()
+        .map(|&c| {
+            let mut d: Vec<u32> = waits[c].iter().map(|&x| at[x as usize]).collect();
+            d.sort_unstable();
+            d
+        })
+        .collect();
     let cost: Vec<f64> = tasks.iter().map(|t| t.iter().map(cost_of).sum()).collect();
-    let deps = deps(steps, &tasks);
     Graph { tasks, cost, deps }
 }
 
@@ -377,6 +441,7 @@ mod tests {
         let s = fan(8, false);
         let c = costs(&s, &[]);
         let g = cut(&s, &c, 20.0, 0.0);
+        assert!(g.well_formed(8));
         assert_eq!(g.tasks.len(), 8);
         assert_eq!(g.edges(), 0);
         assert_eq!(makespan(&g, 4, 0.0), 20.0);
@@ -414,6 +479,8 @@ mod tests {
         // (Eight that wait on nothing: merged four at a time.)
         assert_eq!(cut(&s, &c, 20.0, 40.0).tasks.len(), 2);
         // (A chain: each joins the one it waits on.)
-        assert_eq!(cut(&fan(8, true), &c, 20.0, 40.0).tasks.len(), 2);
+        let g = cut(&fan(8, true), &c, 20.0, 40.0);
+        assert!(g.well_formed(8));
+        assert_eq!(g.tasks.len(), 2);
     }
 }

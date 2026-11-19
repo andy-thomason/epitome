@@ -11,8 +11,8 @@ use crate::resolve::{DefId, DefKind, Res};
 use crate::ty::{AdtKind, FloatTy, IntTy, List, Mutbl, ParamId, Ty, TyKind, UintTy};
 use crate::typeck::{Adjust, Solver, Tables};
 use epitome_ir::build::FunctionBuilder;
-use epitome_ir::module::{Align, BinOp, BlockId, CastOp, FCmpPred, Function as IrFunction, GlobalId, ICmpPred, Linkage, Module, Op, Value};
-use epitome_ir::types::TypeId;
+use epitome_ir::module::{Align, BinOp, BlockId, CastOp, ConstKind, FCmpPred, Function as IrFunction, GlobalId, ICmpPred, Linkage, Module, Op, Value};
+use epitome_ir::types::{Type, TypeId};
 use std::sync::Arc;
 
 pub(crate) type R<T> = Result<T, String>;
@@ -122,6 +122,11 @@ pub(crate) struct Fx<'c, 'a, 's, 'm> {
     /// Whether it called a closure by `call_once` whose kind was not
     /// known yet (so it must be lowered again, once all are).
     pub unknown_closure: bool,
+    /// Where the value of the expression at this node is to go: an
+    /// aggregate literal there is built in place rather than in a stack
+    /// slot. A static's initialiser is (its value may not fit on the
+    /// stack), and so in turn are the literals in it.
+    pub dest: Option<(NodeId, Place)>,
 }
 
 /// Source comments for `--dump-ir`: block, position in the block, text.
@@ -300,19 +305,29 @@ pub(crate) fn trap_body(m: &mut Module, decl: &Decl) {
 
 /// Defines a `static`: a global holding its value. A value the evaluator
 /// can work out (an integer, `bool` or `char`) is the global's
-/// initialiser. Any other is not known until its initialiser runs: the
-/// global starts as zeros, and the second result is true, for the caller
-/// to lower the initialiser (`lower_static_init`) to run at start-up.
+/// initialiser, as is one that is plainly all zeros (`zero_init`). Any
+/// other is not known until its initialiser runs: the global starts as
+/// zeros, and the second result is true, for the caller to lower the
+/// initialiser (`lower_static_init`) to work out (`image.rs`) or run at
+/// start-up.
 pub(crate) fn define_static(cx: &Cx, m: &mut Module, d: DefId, name: &str) -> R<(GlobalId, bool)> {
     let t = cx.tcx.type_of(d).ok_or("static without a type")?;
     let l = cx.layout(t)?;
     let value = cx.lcx.eval_item(d).and_then(|v| v.int());
-    let bytes: Vec<u8> = match value {
-        Some(value) => (0..l.size).map(|i| if i < 16 { (value as u128 >> (8 * i)) as u8 } else { 0 }).collect(),
-        None => vec![0; l.size as usize],
+    let init = match value {
+        Some(value) if value != 0 => {
+            let bytes: Vec<u8> = (0..l.size).map(|i| if i < 16 { (value as u128 >> (8 * i)) as u8 } else { 0 }).collect();
+            m.const_bytes(&bytes)
+        }
+        // Zeros: `zeroinitializer`, which takes no room in the file.
+        _ => {
+            let i8t = m.types.int(8);
+            let ty = m.types.array(l.size, i8t);
+            m.const_zero(ty)
+        }
     };
-    let init = m.const_bytes(&bytes);
-    let (_, _, ast, node) = cx.def_ast(d);
+    let (k, f, ast, node) = cx.def_ast(d);
+    let zero = value.is_none() && ast.children(node).iter().rev().copied().find(|&x| super::pat::is_expr(ast.kind(x))).is_some_and(|e| zero_init(cx, k, f, ast, e));
     let mutable = ast.children(node).iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == "mut");
     let mut g = epitome_ir::module::Global::builder(name).init(init).align(l.align.max(1));
     if !mutable && value.is_some() {
@@ -327,7 +342,41 @@ pub(crate) fn define_static(cx: &Cx, m: &mut Module, d: DefId, name: &str) -> R<
     if crate::session::has_attribute(ast, node, "thread_local") {
         m.globals[g.index()].props.thread_local = Some(epitome_ir::module::ThreadLocal::GeneralDynamic);
     }
-    Ok((g, value.is_none()))
+    Ok((g, value.is_none() && !zero))
+}
+
+/// Whether expression `n` (in crate `k`'s file `f`) is plainly all zeros:
+/// an integer, `bool` or `char` constant of zero, a zero float literal, or
+/// an array, repeat, tuple or struct literal of those. Worked out from the
+/// syntax, however large the value, where the static evaluator
+/// (`image.rs`) would have to build it.
+fn zero_init(cx: &Cx, k: u32, f: u32, ast: &Ast, n: NodeId) -> bool {
+    let kids = ast.children(n);
+    let ty = cx.typeck.types[k as usize][f as usize].get(n.0 as usize).copied().flatten().map(|t| cx.tcx.kind(t));
+    match ast.kind(n) {
+        Kind::Paren | Kind::AttrExpr | Kind::ConstBlock => kids.last().is_some_and(|&e| zero_init(cx, k, f, ast, e)),
+        Kind::Array | Kind::Tuple => kids.iter().all(|&e| zero_init(cx, k, f, ast, e)),
+        Kind::ArrayRepeat => kids.first().is_some_and(|&e| zero_init(cx, k, f, ast, e)),
+        Kind::StructExpr => {
+            // A struct's, not an enum variant's (whose tag may not be 0).
+            let Some(TyKind::Adt(d, _)) = ty else { return false };
+            if cx.tcx.adts.get(&d).is_none_or(|a| a.kind == AdtKind::Enum) {
+                return false;
+            }
+            kids[1..].iter().all(|&fi| {
+                let fk = ast.children(fi);
+                ast.kind(fi) == Kind::FieldInit && fk.get(1).is_some_and(|&e| zero_init(cx, k, f, ast, e))
+            })
+        }
+        Kind::Literal if matches!(ty, Some(TyKind::Float(_))) => {
+            // Zero if every digit is (`0.0`, `0f32`, `0e5`).
+            let tok = ast.token(n).0;
+            let tok = ["f16", "f32", "f64", "f128"].iter().find_map(|s| tok.strip_suffix(s)).unwrap_or(tok);
+            let digits = tok.split(['e', 'E']).next().unwrap_or("");
+            !digits.is_empty() && digits.chars().all(|c| matches!(c, '0' | '.' | '_'))
+        }
+        _ => cx.lcx.eval(k, f, n, &Default::default()).and_then(|v| v.int()) == Some(0),
+    }
 }
 
 /// The address of static `g` in this thread: through
@@ -364,10 +413,16 @@ pub(crate) fn lower_static_init(cx: &Cx, m: &mut Module, d: DefId, g: GlobalId, 
     let unit = cx.tcx.unit();
     let mut fx = Fx::new(cx, b, body, unit, name);
     let first = fx.b.current_block().expect("the body block");
-    let o = fx.operand(init)?;
+    // The value is built in the static itself, not on the stack, where a
+    // large one would not fit.
     let addr = static_address(&mut fx.b, g);
+    let dst = Place { addr, meta: None, ty: t };
+    fx.dest = Some((init, dst));
+    let o = fx.operand(init);
+    fx.dest = None;
+    let o = o?;
     if !fx.terminated() {
-        fx.store(Operand { ty: t, v: o.v }, Place { addr, meta: None, ty: t })?;
+        fx.store(Operand { ty: t, v: o.v }, dst)?;
         fx.b.ret_void();
     }
     fx.close_open_blocks();
@@ -404,6 +459,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
             env_root: None,
             moved_capture: false,
             unknown_closure: false,
+            dest: None,
         };
         fx.entry = fx.b.block("start");
         let first = fx.b.new_block("body");
@@ -611,6 +667,22 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
 
     pub fn store_imm(&mut self, v: Value, addr: Value, align: u64) {
         self.b.build_store(v, addr).align(align.max(1)).build()
+    }
+
+    pub fn memset(&mut self, dst: Value, byte: u8, size: u64) {
+        if size == 0 {
+            return;
+        }
+        let ptr = self.ptr_t();
+        let i8t = self.i8t();
+        let i64t = self.b.module().types.int(64);
+        let i1 = self.b.module().types.int(1);
+        let void = self.b.module().types.void();
+        let f = self.b.module().declare("llvm.memset.p0.i64", void, &[ptr, i8t, i64t, i1], false);
+        let v = self.b.const_int(i8t, byte as i64);
+        let n = self.b.const_int(i64t, size as i64);
+        let no = self.b.const_int(i1, 0);
+        self.b.call(f, &[dst, v, n, no]);
     }
 
     pub fn memcpy(&mut self, dst: Value, src: Value, size: u64) {
@@ -924,6 +996,10 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
 
     /// Expression `n` with its adjustments.
     pub fn expr(&mut self, n: NodeId) -> R<Pv> {
+        // A destination is for this node's value as it is, not adjusted.
+        if self.dest.is_some_and(|d| d.0 != n) || self.body.tables.adjustments.get(&n).is_some_and(|a| !a.is_empty()) {
+            self.dest = None;
+        }
         let pv = self.expr_raw(n)?;
         match self.body.tables.adjustments.get(&n) {
             Some(adj) if !adj.is_empty() => {
@@ -1191,6 +1267,56 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         }
     }
 
+    /// Where an aggregate literal is built: its destination if it has one,
+    /// else a new stack slot.
+    fn slot(&mut self, dest: Option<Place>, t: Ty) -> R<Place> {
+        match dest {
+            Some(p) => Ok(Place { ty: t, ..p }),
+            None => self.temp(t),
+        }
+    }
+
+    /// Stores the value of `e` in `p`, building it there if `in_place`
+    /// (`dest`).
+    fn operand_into(&mut self, e: NodeId, p: Place, in_place: bool) -> R<()> {
+        if in_place {
+            self.dest = Some((e, p));
+        }
+        let o = self.operand(e);
+        self.dest = None;
+        self.store(Operand { ty: p.ty, v: o?.v }, p)
+    }
+
+    /// The byte every byte of `o` is, if `o` is a constant scalar of that
+    /// kind (zero, or a `u8`).
+    fn splat_byte(&mut self, o: Operand) -> R<Option<u8>> {
+        let Val::Imm(Value::Const(c)) = o.v else { return Ok(None) };
+        let size = self.layout(o.ty)?.size;
+        let k = self.b.module().consts.get(c).clone();
+        let v: u128 = match &k.kind {
+            ConstKind::Zero | ConstKind::Null => 0,
+            ConstKind::Int(a) => {
+                let mut v: u128 = 0;
+                for (i, w) in a.words().iter().take(2).enumerate() {
+                    v |= (*w as u128) << (64 * i);
+                }
+                v
+            }
+            _ => return Ok(None),
+        };
+        // The value's own bits (`bool` is an `i8` here, so whole bytes).
+        let bits = match self.b.module().types.get(k.ty) {
+            Type::Int(b) => *b,
+            Type::Ptr(_) => self.cx.lcx.ptr_bits(),
+            _ => return Ok(None),
+        };
+        if bits as u64 != size * 8 || size == 0 || size > 16 {
+            return Ok(None);
+        }
+        let b = v as u8;
+        Ok((0..size).all(|i| (v >> (8 * i)) as u8 == b).then_some(b))
+    }
+
     /// The method `name` of trait `tr`.
     pub fn trait_method(&self, tr: DefId, name: &str) -> Option<DefId> {
         let r = self.cx.r;
@@ -1205,17 +1331,21 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         let ast = self.body.ast;
         let tcx = self.cx.tcx;
         let kids = self.kids(n);
+        let dest = self.dest.take().map(|d| d.1);
         match ast.kind(n) {
             Kind::Literal => Ok(Pv::Val(self.literal(n)?)),
             Kind::PathExpr => self.path_expr(n, kids[0]),
-            Kind::Paren | Kind::AttrExpr => self.expr(*kids.last().unwrap()),
+            Kind::Paren | Kind::AttrExpr | Kind::ConstBlock => {
+                let e = *kids.last().unwrap();
+                self.dest = dest.map(|p| (e, p));
+                self.expr(e)
+            }
             Kind::Tuple | Kind::Array => {
                 let t = self.ty(n)?;
-                let p = self.temp(t)?;
+                let p = self.slot(dest, t)?;
                 for (i, &e) in kids.iter().enumerate() {
-                    let o = self.operand(e)?;
                     let fp = self.field(p, 0, i)?;
-                    self.store(o, fp)?;
+                    self.operand_into(e, fp, dest.is_some())?;
                 }
                 Ok(Pv::Val(Operand { ty: t, v: self.load(p)?.v }))
             }
@@ -1223,41 +1353,34 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 let t = self.ty(n)?;
                 let TyKind::Array(_, c) = tcx.kind(t) else { return Err("repeat of something not an array".into()) };
                 let count = self.cx.lcx.eval_const(c, &Default::default()).ok_or("array length not known")? as u64;
-                let p = self.temp(t)?;
+                let p = self.slot(dest, t)?;
                 let o = self.operand(kids[0])?;
-                // A loop over the elements.
                 let stride = match self.layout(t)?.fields {
                     Fields::Array { stride, .. } => stride,
                     _ => 0,
                 };
                 if count > 0 && stride > 0 {
-                    let isz = self.isize_t();
-                    let i = self.temp(tcx.mk(TyKind::Uint(UintTy::Usize)))?;
-                    let zero = self.usize_const(0);
-                    self.store_imm(zero, i.addr, 8);
-                    let head = self.new_block("repeat");
-                    let done = self.new_block("repeat.end");
-                    self.b.br(head);
-                    self.b.at(head);
-                    let iv = self.load_imm(isz, i.addr, 8);
-                    let s = self.usize_const(stride);
-                    let off = self.b.mul(iv, s);
-                    let i8t = self.i8t();
-                    let ea = self.b.gep(i8t, p.addr, &[off]);
-                    let et = self.field_ty(t, 0, 0)?;
-                    self.store(o, Place { addr: ea, meta: None, ty: et })?;
-                    let one = self.usize_const(1);
-                    let next = self.b.add(iv, one);
-                    self.store_imm(next, i.addr, 8);
-                    let lim = self.usize_const(count);
-                    let more = self.b.icmp(ICmpPred::Ult, next, lim);
-                    self.b.cond_br(more, head, done);
-                    self.b.at(done);
+                    if let Some(b) = self.splat_byte(o)? {
+                        // Every byte the same (zeros, most often): a fill.
+                        self.memset(p.addr, b, count * stride);
+                    } else {
+                        // The first element, then copies of what is there,
+                        // doubling: a few steps however long the array, for
+                        // the static evaluator as well.
+                        let et = self.field_ty(t, 0, 0)?;
+                        self.store(o, Place { addr: p.addr, meta: None, ty: et })?;
+                        let mut have = 1;
+                        while have < count {
+                            let k = have.min(count - have);
+                            let to = self.offset(p.addr, have * stride);
+                            self.memcpy(to, p.addr, k * stride);
+                            have += k;
+                        }
+                    }
                 }
                 Ok(Pv::Val(Operand { ty: t, v: self.load(p)?.v }))
             }
             Kind::Block => self.block(n),
-            Kind::ConstBlock => self.expr(kids[0]),
             Kind::Unary => self.unary(n, &kids),
             Kind::Borrow => {
                 let t = self.ty(n)?;
@@ -1320,7 +1443,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                 Ok(Pv::Place(self.field(base, 0, i)?))
             }
             Kind::Index => self.index(n, &kids),
-            Kind::StructExpr => self.struct_expr(n, &kids),
+            Kind::StructExpr => self.struct_expr(n, &kids, dest),
             Kind::If => self.if_expr(n, &kids),
             Kind::Match => self.match_expr(n, &kids),
             Kind::Loop => {
@@ -2463,7 +2586,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         Ok(Place { addr, meta: None, ty: elem })
     }
 
-    fn struct_expr(&mut self, n: NodeId, kids: &[NodeId]) -> R<Pv> {
+    fn struct_expr(&mut self, n: NodeId, kids: &[NodeId], dest: Option<Place>) -> R<Pv> {
         let tcx = self.cx.tcx;
         let ast = self.body.ast;
         let t = self.ty(n)?;
@@ -2472,7 +2595,7 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         let v = self.variant_of_path(kids[0], d).unwrap_or(0);
         let fields: Vec<&str> = adt.variants[v as usize].fields.iter().map(|f| f.name).collect();
         let union = adt.kind == AdtKind::Union;
-        let p = self.temp(t)?;
+        let p = self.slot(dest, t)?;
         let mut given = vec![false; fields.len()];
         for &f in &kids[1..] {
             let fk = self.kids(f);
@@ -2481,6 +2604,12 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
                     let name = ast.token(fk[0]).0;
                     let i = fields.iter().position(|&x| x == name).ok_or_else(|| format!("no field `{name}`"))?;
                     let o = match fk.get(1) {
+                        Some(&e) if dest.is_some() && !union => {
+                            let fp = self.field(p, v, i)?;
+                            self.operand_into(e, fp, true)?;
+                            given[i] = true;
+                            continue;
+                        }
                         Some(&e) => self.operand(e)?,
                         None => {
                             // `S { a }`: the local `a`.

@@ -167,7 +167,13 @@ pub fn lower(t: &Target, f: &mut MFunc) -> Result<(), String> {
     let pushing = ra && !saved.is_empty() && saved.iter().all(|&r| push(r).is_some() && pop(r).is_some());
     let cfi = |c: Cfi| MInst { op: Opcode::Cfi(c), ..MInst::new(0, vec![]) };
     let sp = t.machine.sp;
-    let (prologue, epilogue) = if pushing {
+    // Eight bytes of frame below the return address and the pushes (x86's
+    // alignment of sp for calls) are made by pushing a register, whatever
+    // it holds, and unmade by popping one dead where the function leaves:
+    // a byte or two each, where moving sp takes four (as llc does).
+    let eight = ra && push(f.abi.result).is_some() && pop(f.abi.result).is_some();
+    let mut pop_at = None;
+    let (prologue, mut epilogue) = if pushing {
         let n = saved.len() as i64;
         let rest = size - 8 * n;
         let mut prologue = Vec::new();
@@ -177,7 +183,10 @@ pub fn lower(t: &Target, f: &mut MFunc) -> Result<(), String> {
             prologue.push(cfi(Cfi::DefCfaOffset(8 + 8 * (k + 1))));
             prologue.push(cfi(Cfi::Offset(r, -16 - 8 * k)));
         }
-        if rest > 0 {
+        if rest == 8 && eight {
+            prologue.push(MInst::new(push(f.abi.result).unwrap(), vec![MOp::Reg(Reg::P(f.abi.result))]));
+            prologue.push(cfi(Cfi::DefCfaOffset(cfa)));
+        } else if rest > 0 {
             adjust(t, &mut prologue, sp, sp, -rest, &f.abi.scratch)?;
             prologue.push(cfi(Cfi::DefCfaOffset(cfa)));
         }
@@ -188,7 +197,10 @@ pub fn lower(t: &Target, f: &mut MFunc) -> Result<(), String> {
             prologue.push(cfi(Cfi::DefCfa(b, cfa)));
             epilogue.push(MInst::new(addi, vec![MOp::Reg(Reg::P(sp)), MOp::Reg(Reg::P(b)), MOp::Imm(0)]));
         }
-        if rest > 0 {
+        if rest == 8 && eight {
+            pop_at = Some(epilogue.len());
+            epilogue.push(MInst::new(pop(f.abi.result).unwrap(), vec![MOp::Reg(Reg::P(f.abi.result))]));
+        } else if rest > 0 {
             adjust(t, &mut epilogue, sp, sp, rest, &f.abi.scratch)?;
         }
         for &r in saved.iter().rev() {
@@ -234,7 +246,11 @@ pub fn lower(t: &Target, f: &mut MFunc) -> Result<(), String> {
         // was saved, from the CFA.
         let mut prologue = Vec::new();
         let extra = cfa - size;
-        if size - low > 0 {
+        let by_push = eight && size == 8 && slots.is_empty() && base.is_none();
+        if by_push {
+            prologue.push(MInst::new(push(f.abi.result).unwrap(), vec![MOp::Reg(Reg::P(f.abi.result))]));
+            prologue.push(cfi(Cfi::DefCfaOffset(cfa)));
+        } else if size - low > 0 {
             adjust(t, &mut prologue, sp, sp, -(size - low), &f.abi.scratch)?;
             prologue.push(cfi(Cfi::DefCfaOffset(size - low + extra)));
         }
@@ -258,10 +274,39 @@ pub fn lower(t: &Target, f: &mut MFunc) -> Result<(), String> {
             adjust(t, &mut epilogue, sp, sp, low, &f.abi.scratch)?;
         }
         epilogue.extend(restores);
-        if size - low > 0 {
+        if by_push {
+            pop_at = Some(epilogue.len());
+            epilogue.push(MInst::new(pop(f.abi.result).unwrap(), vec![MOp::Reg(Reg::P(f.abi.result))]));
+        } else if size - low > 0 {
             adjust(t, &mut epilogue, sp, sp, size - low, &f.abi.scratch)?;
         }
         (prologue, epilogue)
+    };
+    // The pop's register, for each way out: one the call may change that
+    // the return or tail call does not read (a return's results, a tail
+    // call's arguments and target), else sp moved back.
+    let mut unpop = Vec::new();
+    if let Some(k) = pop_at {
+        adjust(t, &mut unpop, sp, sp, 8, &f.abi.scratch)?;
+        epilogue[k].ops.clear();
+    }
+    let pop_for = |inst: &MInst| -> Vec<MInst> {
+        let Some(k) = pop_at else { return epilogue.clone() };
+        let names = |r: u8| inst.ops.contains(&MOp::Reg(Reg::P(r))) || inst.imp_uses.contains(&r);
+        // (A tail call's callee may read more than the call names, as al
+        // for a variadic one: there, only the scratch registers.)
+        let ret = matches!(inst.op, Opcode::Instr(i) if t.has_role(i, "ret"));
+        let free = if ret { &f.abi.clobbers } else { &f.abi.scratch };
+        let mut out = epilogue.clone();
+        match free.iter().copied().find(|&r| !names(r) && pop(r).is_some()) {
+            Some(r) => {
+                out[k] = MInst::new(pop(r).unwrap(), vec![MOp::Reg(Reg::P(r))]);
+            }
+            None => {
+                out.splice(k..k + 1, unpop.iter().cloned());
+            }
+        }
+        out
     };
 
     // Before each return, and each tail call (whose callee returns to this
@@ -271,7 +316,7 @@ pub fn lower(t: &Target, f: &mut MFunc) -> Result<(), String> {
         let old = std::mem::take(&mut b.insts);
         for inst in old {
             if leaves(&inst) {
-                b.insts.extend(epilogue.iter().cloned());
+                b.insts.extend(pop_for(&inst));
             }
             b.insts.push(inst);
         }

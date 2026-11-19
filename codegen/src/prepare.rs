@@ -151,6 +151,45 @@ impl Ctx<'_> {
         })
     }
 
+    /// Is there a pattern, of instructions that are on, for the high halves
+    /// of products of vector `ty`'s lanes, `trunc (lshr (mul (ext a), (ext
+    /// b)), N)` at twice their width `N` (x86's `pmulhuw`, `pmulhw`)?
+    pub fn selects_mul_high(&self, ty: TypeId, signed: bool) -> bool {
+        let hb = crate::target::head_bits(self.m, ty);
+        let ext = if signed { CastOp::SExt } else { CastOp::ZExt };
+        let is_ext = |t: &Tree| matches!(t, Tree::Op(Head::Cast(op, from, _), _) if *op == ext && *from == hb);
+        self.t.patterns.iter().any(|p| {
+            matches!(&p.tree, Tree::Op(Head::Cast(CastOp::Trunc, _, to), kids)
+                if *to == crate::target::wide_bits(hb)
+                    && matches!(kids.as_slice(), [Tree::Op(Head::Bin(BinOp::LShr, _), sh)]
+                        if matches!(sh.as_slice(), [Tree::Op(Head::Bin(BinOp::Mul, _), m), Tree::Lit(..)]
+                            if m.len() == 2 && m.iter().all(is_ext))))
+                && p.emit.iter().all(|e| self.enabled(e.instr))
+        })
+    }
+
+    /// Is there a pattern, of instructions that are on, with an IR node
+    /// `head`, not counting those it is the root of only over what other
+    /// operations made (`pmulhuw`'s `trunc` of a product's high half,
+    /// which takes no `trunc` of any value)?
+    pub fn selects_head_unfused(&self, head: &Head) -> bool {
+        fn inner(t: &Tree, head: &Head) -> bool {
+            match t {
+                Tree::Op(h, kids) => h == head || kids.iter().any(|k| inner(k, head)),
+                _ => false,
+            }
+        }
+        self.t.patterns.iter().any(|p| {
+            let Tree::Op(h, kids) = &p.tree else { return false };
+            let here = if h == head {
+                kids.iter().all(|k| !matches!(k, Tree::Op(..)))
+            } else {
+                false
+            };
+            (here || kids.iter().any(|k| inner(k, head))) && p.emit.iter().all(|e| self.enabled(e.instr))
+        })
+    }
+
     /// Is there an instruction for intrinsic `name` (`llvm.ctlz.i64`)?
     pub fn selects_intrinsic(&self, name: &str) -> bool {
         match self.t.intrinsics.iter().position(|n| n == name) {

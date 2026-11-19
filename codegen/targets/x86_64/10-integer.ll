@@ -2821,6 +2821,24 @@ define <8 x i16> @PXOR.8xi16(<8 x i16> "reg"="xv" "tied" %n, <8 x i16> "reg"="xv
   ret <8 x i16> %r
 }
 
+define <8 x i16> @PMULHUW.8xi16(<8 x i16> "reg"="xv" "tied" %n, <8 x i16> "reg"="xv" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 11100100 | rr(d, m)" "asm"="pmulhuw {m}, {d}" "dclass"="xv" "nodecode" {
+  %a = zext <8 x i16> %n to <8 x i32>
+  %b = zext <8 x i16> %m to <8 x i32>
+  %p = mul <8 x i32> %a, %b
+  %h = lshr <8 x i32> %p, splat (i32 16)
+  %r = trunc <8 x i32> %h to <8 x i16>
+  ret <8 x i16> %r
+}
+
+define <8 x i16> @PMULHW.8xi16(<8 x i16> "reg"="xv" "tied" %n, <8 x i16> "reg"="xv" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 11100101 | rr(d, m)" "asm"="pmulhw {m}, {d}" "dclass"="xv" "nodecode" {
+  %a = sext <8 x i16> %n to <8 x i32>
+  %b = sext <8 x i16> %m to <8 x i32>
+  %p = mul <8 x i32> %a, %b
+  %h = lshr <8 x i32> %p, splat (i32 16)
+  %r = trunc <8 x i32> %h to <8 x i16>
+  ret <8 x i16> %r
+}
+
 define <8 x i16> @PSLLWi.8xi16(<8 x i16> "reg"="xv" "tied" %n, <8 x i16> "imm" %sh) "enc"="01100110 | rex(0, 0, 0, d) | 00001111 | 01110001 | rr(6, d) | ib:8=sh" "asm"="psllw ${sh}, {d}" "dclass"="xv" "nodecode" {
   %r = shl <8 x i16> %n, %sh
   ret <8 x i16> %r
@@ -3008,6 +3026,24 @@ define <4 x i16> @POR.4xi16(<4 x i16> "reg"="xh" "tied" %n, <4 x i16> "reg"="xh"
 
 define <4 x i16> @PXOR.4xi16(<4 x i16> "reg"="xh" "tied" %n, <4 x i16> "reg"="xh" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 11101111 | rr(d, m)" "asm"="pxor {m}, {d}" "dclass"="xh" "nodecode" {
   %r = xor <4 x i16> %n, %m
+  ret <4 x i16> %r
+}
+
+define <4 x i16> @PMULHUW.4xi16(<4 x i16> "reg"="xh" "tied" %n, <4 x i16> "reg"="xh" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 11100100 | rr(d, m)" "asm"="pmulhuw {m}, {d}" "dclass"="xh" "nodecode" {
+  %a = zext <4 x i16> %n to <4 x i32>
+  %b = zext <4 x i16> %m to <4 x i32>
+  %p = mul <4 x i32> %a, %b
+  %h = lshr <4 x i32> %p, splat (i32 16)
+  %r = trunc <4 x i32> %h to <4 x i16>
+  ret <4 x i16> %r
+}
+
+define <4 x i16> @PMULHW.4xi16(<4 x i16> "reg"="xh" "tied" %n, <4 x i16> "reg"="xh" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 11100101 | rr(d, m)" "asm"="pmulhw {m}, {d}" "dclass"="xh" "nodecode" {
+  %a = sext <4 x i16> %n to <4 x i32>
+  %b = sext <4 x i16> %m to <4 x i32>
+  %p = mul <4 x i32> %a, %b
+  %h = lshr <4 x i32> %p, splat (i32 16)
+  %r = trunc <4 x i32> %h to <4 x i16>
   ret <4 x i16> %r
 }
 
@@ -4077,6 +4113,117 @@ define <2 x float> @HIGH.4xf32(<4 x float> "reg"="xv" %v) "enc"="01100110 | rex(
 define <4 x float> @JOIN.4xf32(<2 x float> "reg"="xh" "tied" %a, <2 x float> "reg"="xh" %b) "enc"="01100110 | rex(0, d, 0, b) | 00001111 | 01101100 | rr(d, b)" "asm"="punpcklqdq {b}, {d}" "dclass"="xv" "nodecode" {
   %r = shufflevector <2 x float> %a, <2 x float> %b, <4 x i32> <i32 0, i32 1, i32 2, i32 3>
   ret <4 x float> %r
+}
+
+define <8 x i16> @PSHUFHW(<8 x i16> "reg"="xv" %v, i64 "imm" %k) "enc"="11110011 | rex(0, d, 0, v) | 00001111 | 01110000 | rr(d, v) | ib:8=k" "asm"="pshufhw ${k}, {v}, {d}" "dclass"="xv" "nomatch" "nodecode" {
+  ret <8 x i16> %v
+}
+
+define <4 x i16> @PSHUFD.h4xi16(<4 x i32> "reg"="xv" %v, i64 "imm" %k) "enc"="01100110 | rex(0, d, 0, v) | 00001111 | 01110000 | rr(d, v) | ib:8=k" "asm"="pshufd ${k}, {v}, {d}" "dclass"="xh" "nomatch" "nodecode" {
+  ret <4 x i16> poison
+}
+
+define <2 x i32> @PSHUFD.h2xi32(<4 x i32> "reg"="xv" %v, i64 "imm" %k) "enc"="01100110 | rex(0, d, 0, v) | 00001111 | 01110000 | rr(d, v) | ib:8=k" "asm"="pshufd ${k}, {v}, {d}" "dclass"="xh" "nomatch" "nodecode" {
+  ret <2 x i32> poison
+}
+
+define <8 x i16> @PACKSSDW(<4 x i32> "reg"="xv" "tied" %n, <4 x i32> "reg"="xv" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 01101011 | rr(d, m)" "asm"="packssdw {m}, {d}" "dclass"="xv" "nomatch" "nodecode" {
+  ret <8 x i16> poison
+}
+
+define <16 x i8> @PACKUSWB.16xi8(<8 x i16> "reg"="xv" "tied" %n, <8 x i16> "reg"="xv" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 01100111 | rr(d, m)" "asm"="packuswb {m}, {d}" "dclass"="xv" "nomatch" "nodecode" {
+  ret <16 x i8> poison
+}
+
+define <8 x i8> @PACKUSWB.8xi8(<8 x i16> "reg"="xv" "tied" %n, <8 x i16> "reg"="xv" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 01100111 | rr(d, m)" "asm"="packuswb {m}, {d}" "dclass"="xh" "nomatch" "nodecode" {
+  ret <8 x i8> poison
+}
+
+define <4 x i32> @SHUFPS(<4 x i32> "reg"="xv" "tied" %n, <4 x i32> "reg"="xv" %m, i64 "imm" %k) "enc"="rex(0, d, 0, m) | 00001111 | 11000110 | rr(d, m) | ib:8=k" "asm"="shufps ${k}, {m}, {d}" "dclass"="xv" "nomatch" "nodecode" {
+  ret <4 x i32> %n
+}
+
+define <4 x i16> @trunc.4xi32(<4 x i32> "reg"="xv" %v) "recipe"="trunc.4xi32.expand" {
+  %r = trunc <4 x i32> %v to <4 x i16>
+  ret <4 x i16> %r
+}
+
+define <4 x i16> @trunc.4xi32.expand(<4 x i32> %v) {
+  %h = bitcast <4 x i32> %v to <8 x i16>
+  %l = call <8 x i16> @PSHUFLW(<8 x i16> %h, i64 8)
+  %u = call <8 x i16> @PSHUFHW(<8 x i16> %l, i64 8)
+  %d = bitcast <8 x i16> %u to <4 x i32>
+  %r = call <4 x i16> @PSHUFD.h4xi16(<4 x i32> %d, i64 8)
+  ret <4 x i16> %r
+}
+
+define <2 x i32> @trunc.2xi64(<2 x i64> "reg"="xv" %v) "recipe"="trunc.2xi64.expand" {
+  %r = trunc <2 x i64> %v to <2 x i32>
+  ret <2 x i32> %r
+}
+
+define <2 x i32> @trunc.2xi64.expand(<2 x i64> %v) {
+  %d = bitcast <2 x i64> %v to <4 x i32>
+  %r = call <2 x i32> @PSHUFD.h2xi32(<4 x i32> %d, i64 8)
+  ret <2 x i32> %r
+}
+
+define <8 x i8> @trunc.8xi16(<8 x i16> "reg"="xv" %v) "recipe"="trunc.8xi16.expand" {
+  %r = trunc <8 x i16> %v to <8 x i8>
+  ret <8 x i8> %r
+}
+
+define <8 x i8> @trunc.8xi16.expand(<8 x i16> %v) {
+  %a = call <8 x i16> @PSLLWi.8xi16(<8 x i16> %v, i16 8)
+  %b = call <8 x i16> @PSRLWi.8xi16(<8 x i16> %a, i16 8)
+  %r = call <8 x i8> @PACKUSWB.8xi8(<8 x i16> %b, <8 x i16> %b)
+  ret <8 x i8> %r
+}
+
+define <8 x i16> @trunc2.4xi32(<4 x i32> "reg"="xv" %a, <4 x i32> "reg"="xv" %b) "recipe"="trunc2.4xi32.expand" {
+  %x = trunc <4 x i32> %a to <4 x i16>
+  %y = trunc <4 x i32> %b to <4 x i16>
+  %r = shufflevector <4 x i16> %x, <4 x i16> %y, <8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7>
+  ret <8 x i16> %r
+}
+
+define <8 x i16> @trunc2.4xi32.expand(<4 x i32> %a, <4 x i32> %b) {
+  %a1 = call <4 x i32> @PSLLDi.4xi32(<4 x i32> %a, i32 16)
+  %a2 = call <4 x i32> @PSRADi.4xi32(<4 x i32> %a1, i32 16)
+  %b1 = call <4 x i32> @PSLLDi.4xi32(<4 x i32> %b, i32 16)
+  %b2 = call <4 x i32> @PSRADi.4xi32(<4 x i32> %b1, i32 16)
+  %r = call <8 x i16> @PACKSSDW(<4 x i32> %a2, <4 x i32> %b2)
+  ret <8 x i16> %r
+}
+
+define <16 x i8> @trunc2.8xi16(<8 x i16> "reg"="xv" %a, <8 x i16> "reg"="xv" %b) "recipe"="trunc2.8xi16.expand" {
+  %x = trunc <8 x i16> %a to <8 x i8>
+  %y = trunc <8 x i16> %b to <8 x i8>
+  %r = shufflevector <8 x i8> %x, <8 x i8> %y, <16 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7, i32 8, i32 9, i32 10, i32 11, i32 12, i32 13, i32 14, i32 15>
+  ret <16 x i8> %r
+}
+
+define <16 x i8> @trunc2.8xi16.expand(<8 x i16> %a, <8 x i16> %b) {
+  %a1 = call <8 x i16> @PSLLWi.8xi16(<8 x i16> %a, i16 8)
+  %a2 = call <8 x i16> @PSRLWi.8xi16(<8 x i16> %a1, i16 8)
+  %b1 = call <8 x i16> @PSLLWi.8xi16(<8 x i16> %b, i16 8)
+  %b2 = call <8 x i16> @PSRLWi.8xi16(<8 x i16> %b1, i16 8)
+  %r = call <16 x i8> @PACKUSWB.16xi8(<8 x i16> %a2, <8 x i16> %b2)
+  ret <16 x i8> %r
+}
+
+define <4 x i32> @trunc2.2xi64(<2 x i64> "reg"="xv" %a, <2 x i64> "reg"="xv" %b) "recipe"="trunc2.2xi64.expand" {
+  %x = trunc <2 x i64> %a to <2 x i32>
+  %y = trunc <2 x i64> %b to <2 x i32>
+  %r = shufflevector <2 x i32> %x, <2 x i32> %y, <4 x i32> <i32 0, i32 1, i32 2, i32 3>
+  ret <4 x i32> %r
+}
+
+define <4 x i32> @trunc2.2xi64.expand(<2 x i64> %a, <2 x i64> %b) {
+  %ad = bitcast <2 x i64> %a to <4 x i32>
+  %bd = bitcast <2 x i64> %b to <4 x i32>
+  %r = call <4 x i32> @SHUFPS(<4 x i32> %ad, <4 x i32> %bd, i64 136)
+  ret <4 x i32> %r
 }
 
 define <8 x i16> @UNPCKLz.8xi8(<8 x i8> "reg"="xh" "tied" %v, <2 x i64> "reg"="xv" %z) "enc"="01100110 | rex(0, d, 0, z) | 00001111 | 01100000 | rr(d, z)" "asm"="punpcklbw {z}, {d}" "dclass"="xv" "nomatch" "nodecode" {
@@ -5355,6 +5502,24 @@ define <16 x i16> @VPSUBW.16xi16(<16 x i16> "reg"="yv" %n, <16 x i16> "reg"="yv"
 
 define <16 x i16> @VPMULLW.16xi16(<16 x i16> "reg"="yv" %n, <16 x i16> "reg"="yv" %m) "enc"="{ if(m<8) vex(d, 0, m, 1, 0, n, 1, 1) | 11010101 | 11 reg:3=d&7 rm:3=m&7 ; if(n<8) vex(d, 0, n, 1, 0, m, 1, 1) | 11010101 | 11 reg:3=d&7 rm:3=n&7 ; vex(d, 0, m, 1, 0, n, 1, 1) | 11010101 | 11 reg:3=d&7 rm:3=m&7 ; evexr(d, m, 1, 0, n, 1, 1, 0, 0, 0) | 11010101 | 11 reg:3=d&7 rm:3=m&7 ; vex(d, 0, n, 1, 0, m, 1, 1) | 11010101 | 11 reg:3=d&7 rm:3=n&7 }" "asm"="vpmullw {m}, {n}, {d}" "dclass"="yv" "feature"="avx2" "nodecode" {
   %r = mul <16 x i16> %n, %m
+  ret <16 x i16> %r
+}
+
+define <16 x i16> @VPMULHUW.16xi16(<16 x i16> "reg"="yv" %n, <16 x i16> "reg"="yv" %m) "enc"="{ if(m<8) vex(d, 0, m, 1, 0, n, 1, 1) | 11100100 | 11 reg:3=d&7 rm:3=m&7 ; if(n<8) vex(d, 0, n, 1, 0, m, 1, 1) | 11100100 | 11 reg:3=d&7 rm:3=n&7 ; vex(d, 0, m, 1, 0, n, 1, 1) | 11100100 | 11 reg:3=d&7 rm:3=m&7 ; evexr(d, m, 1, 0, n, 1, 1, 0, 0, 0) | 11100100 | 11 reg:3=d&7 rm:3=m&7 ; vex(d, 0, n, 1, 0, m, 1, 1) | 11100100 | 11 reg:3=d&7 rm:3=n&7 }" "asm"="vpmulhuw {m}, {n}, {d}" "dclass"="yv" "feature"="avx2" "nodecode" {
+  %a = zext <16 x i16> %n to <16 x i32>
+  %b = zext <16 x i16> %m to <16 x i32>
+  %p = mul <16 x i32> %a, %b
+  %h = lshr <16 x i32> %p, splat (i32 16)
+  %r = trunc <16 x i32> %h to <16 x i16>
+  ret <16 x i16> %r
+}
+
+define <16 x i16> @VPMULHW.16xi16(<16 x i16> "reg"="yv" %n, <16 x i16> "reg"="yv" %m) "enc"="{ if(m<8) vex(d, 0, m, 1, 0, n, 1, 1) | 11100101 | 11 reg:3=d&7 rm:3=m&7 ; if(n<8) vex(d, 0, n, 1, 0, m, 1, 1) | 11100101 | 11 reg:3=d&7 rm:3=n&7 ; vex(d, 0, m, 1, 0, n, 1, 1) | 11100101 | 11 reg:3=d&7 rm:3=m&7 ; evexr(d, m, 1, 0, n, 1, 1, 0, 0, 0) | 11100101 | 11 reg:3=d&7 rm:3=m&7 ; vex(d, 0, n, 1, 0, m, 1, 1) | 11100101 | 11 reg:3=d&7 rm:3=n&7 }" "asm"="vpmulhw {m}, {n}, {d}" "dclass"="yv" "feature"="avx2" "nodecode" {
+  %a = sext <16 x i16> %n to <16 x i32>
+  %b = sext <16 x i16> %m to <16 x i32>
+  %p = mul <16 x i32> %a, %b
+  %h = lshr <16 x i32> %p, splat (i32 16)
+  %r = trunc <16 x i32> %h to <16 x i16>
   ret <16 x i16> %r
 }
 

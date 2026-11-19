@@ -1315,3 +1315,72 @@ fn arrays_split_where_they_loop() {
         assert_eq!(out[c * ow + 8], stop, "cycle {c}: stop");
     }
 }
+
+const CLOCK_TREE: &str = r#"
+module cbuf (input logic a, output logic z);
+  assign z = a;
+endmodule
+
+module creg (input logic clk, input logic [15:0] d, output logic [15:0] q);
+  always_ff @(posedge clk) q <= d;
+endmodule
+
+module ctop (input logic clk, input logic en, input logic [15:0] a, output logic [15:0] q, output logic [15:0] s);
+  logic bclk, gclk;
+  cbuf b (.a(clk), .z(bclk));
+  assign gclk = bclk & en;
+  logic [15:0] q0;
+  creg r0 (.clk(bclk), .d(a ^ 16'h5a5a), .q(q0));
+  creg r1 (.clk(gclk), .d(q0 + a), .q(q));
+  // Settling reads the data, not the clock.
+  assign s = q0 - a;
+endmodule
+"#;
+
+#[test]
+fn clock_trees_run_before_clocked_processes() {
+    // A clock through a buffer and a gate: worked out before the clocked
+    // processes, so settling reads no clock and an edge alone needs no
+    // settling.
+    let Some(host) = host() else {
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
+        return;
+    };
+    let src = text("ctop.sv", CLOCK_TREE);
+    let mut opts = host.options(1);
+    opts.profile = Some(epitome_sv::model::TICKS);
+    let net = netlist_with(&src, "ctop", opts);
+    let watched: Vec<&str> = net.watched.iter().map(|w| w.0.as_str()).collect();
+    assert!(!watched.contains(&"clk") && watched.contains(&"a"), "settling reads {:?}", net.watched);
+    let b = build("ctop", net, &host);
+    let io = Io::new(&b.net, Some("clk")).unwrap();
+    let mut rng = Rng(0x9B05_688C_2B3E_6C1F);
+    let cycles = 100;
+    let (mut stim, mut ins) = (Vec::new(), Vec::new());
+    for _ in 0..cycles {
+        let (en, a) = ((rng.next() & 1) as u32, (rng.next() & 0xFFFF) as u32);
+        for p in &io.ins {
+            match p.name.as_str() {
+                "en" => stim.push(en),
+                "a" => stim.push(a),
+                n => panic!("{n}"),
+            }
+        }
+        ins.push((en, a));
+    }
+    let out = b.run(&io, cycles, 1, &stim);
+    let (mut q0, mut q) = (0u32, 0u32);
+    let ow = io.out_words();
+    for (c, &(en, a)) in ins.iter().enumerate() {
+        let d1 = (q0 + a) & 0xFFFF;
+        q0 = a ^ 0x5a5a;
+        if en == 1 {
+            q = d1;
+        }
+        assert_eq!(out[c * ow], q, "cycle {c}: q");
+        assert_eq!(out[c * ow + 1], q0.wrapping_sub(a) & 0xFFFF, "cycle {c}: s");
+    }
+    let t = b.time(&io, cycles, 1, &stim, 2);
+    let settle = t.profile.iter().find(|p| p.what == "step settle").unwrap();
+    assert!(settle.calls < 1.5, "settles {} times a cycle besides after commits", settle.calls);
+}

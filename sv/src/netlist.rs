@@ -963,6 +963,14 @@ struct Layout {
     /// Of those, the registers: nonblocking assignments store their next
     /// values in place, as no clocked process reads them.
     in_place: HashSet<ObjId>,
+    /// Its clock tree: the nodes that work out only clocks (what edges of
+    /// its clocked processes, and its children's clock inputs, read), run
+    /// before the clocked processes, not when settling, so that a change
+    /// of a clock alone needs no settling. A child here is one with no
+    /// registers (a buffer, say), called there.
+    at_ff: HashSet<Node>,
+    /// Its inputs only its clock tree and its edges read.
+    clock_ports: HashSet<ObjId>,
     /// The rest of them, in scalar code: a clocked process reads them, so
     /// each nonblocking assignment to one is queued, and the queue written
     /// in place once every process has run (rather than the whole value
@@ -1079,6 +1087,8 @@ impl Layout {
             pads: HashMap::new(),
             kept: HashSet::new(),
             in_place: HashSet::new(),
+            at_ff: HashSet::new(),
+            clock_ports: HashSet::new(),
             queued: HashSet::new(),
             part: None,
         }
@@ -2200,6 +2210,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         }
         lay.clocked = !lay.ff.is_empty() || lay.kid_keys.values().any(|k| self.layouts[k].clocked);
         self.layouts.insert(key, lay);
+        self.clock_tree(key);
         self.split_calls(key)?;
         if let Some(split) = self.parts.get(&spec).cloned() {
             let part = self.part_of(key, &split);
@@ -2291,6 +2302,14 @@ impl<'d, 'a> Lowering<'d, 'a> {
             }
         }
         local.retain(|o| !ff_ins.iter().any(|t| t.0 == *o));
+        // (Nor what the clock tree reads or writes: it runs apart.)
+        let mut tree = Vec::new();
+        for &n in &self.layouts[&key].at_ff {
+            let (r, w) = self.access(key, n);
+            tree.extend(r);
+            tree.extend(w);
+        }
+        local.retain(|o| !tree.iter().any(|t| t.0 == *o));
         let fresh = self.fresh_values(key)?;
         let mut lay = self.layouts.remove(&key).unwrap();
         let piece = sh.piece_lane();
@@ -3401,7 +3420,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
             }
             None => match this.layouts[&key].part.clone() {
                 None => {
-                    let order = this.order(key)?;
+                    let order = this.settle_order(key)?;
                     let mut f = Func::new(this, m, key, &name, None);
                     f.body(&order)?;
                     f.finish().map_err(fail)?;
@@ -3410,7 +3429,8 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 Some((a, b)) => {
                     for (part, nodes) in [("_a", &a), ("_b", &b)] {
                         let mut g = Func::new(this, m, key, &format!("{name}{part}"), None);
-                        g.body(nodes)?;
+                        let nodes: Vec<Node> = nodes.iter().copied().filter(|n| !this.layouts[&key].at_ff.contains(n)).collect();
+                        g.body(&nodes)?;
                         g.finish().map_err(fail)?;
                     }
                     let mut f = Func::new(this, m, key, &name, None);
@@ -3873,7 +3893,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         }
         let lay = &self.layouts[&key];
         let mut r = lay.known.is_some();
-        for &node in &lay.code {
+        for &node in lay.code.iter().filter(|n| !lay.at_ff.contains(n)) {
             match node {
                 // An input the parent copies to a slot is read where it
                 // settles, whatever the child does with it; one the child
@@ -3962,6 +3982,117 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let more = names.len() > 4;
         names.truncate(4);
         format!("{what} writing {}{}", names.join(", "), if more { ", ..." } else { "" })
+    }
+
+    /// The order of a specialisation's settling: its nodes' order without
+    /// its clock tree.
+    fn settle_order(&self, key: Key) -> Result<Vec<Node>, String> {
+        let at = &self.layouts[&key].at_ff;
+        Ok(self.order(key)?.into_iter().filter(|n| !at.contains(n)).collect())
+    }
+
+    /// Finds a specialisation's clock tree and clock inputs (see
+    /// `Layout::at_ff`): the nodes all of whose writes are read only by
+    /// edges, by children's clock inputs, or by other such nodes.
+    fn clock_tree(&mut self, key: Key) {
+        let d = self.d;
+        let lay = &self.layouts[&key];
+        if !lay.clocked {
+            return;
+        }
+        let code = lay.code.clone();
+        let members = |i: InstId| lay.groups.get(&i).cloned().unwrap_or_else(|| vec![i]);
+        // What needs a value other than as a clock: the outputs, what the
+        // clocked processes' bodies read, and below what the rest reads.
+        let mut fixed: HashSet<ObjId> = d.spec(key.0).ports.iter().filter(|p| p.dir != Dir::Input).filter_map(|p| p.object).collect();
+        let mut edges = Vec::new();
+        for &p in &lay.ff {
+            let (terms, body) = self.clocked(p).unwrap();
+            let mut r = Vec::new();
+            self.stmt_access(body, &mut r, &mut Vec::new(), &mut Vec::new());
+            fixed.extend(r.into_iter().map(|t| t.0));
+            for t in terms {
+                self.reads(t.expr, &mut edges);
+                if let Some(c) = t.iff {
+                    self.reads(c, &mut edges);
+                }
+            }
+        }
+        // Each node's reads (of what it needs as other than a clock) and
+        // writes, and whether it may be in the tree.
+        let mut r: Vec<Vec<ObjId>> = Vec::new();
+        let mut w: Vec<Vec<ObjId>> = Vec::new();
+        let mut at: Vec<bool> = Vec::new();
+        for &n in &code {
+            let (mut nr, mut nw) = (Vec::new(), Vec::new());
+            let ok = match n {
+                Node::In(i) | Node::Pre(i) => {
+                    let ck = lay.kid_keys[&i];
+                    let clocks = &self.layouts[&ck].clock_ports;
+                    for m in members(i) {
+                        for (p, e) in self.connections(m) {
+                            if p.dir == Dir::Input && !p.object.is_some_and(|o| clocks.contains(&o)) {
+                                self.reads(e, &mut nr);
+                            }
+                        }
+                    }
+                    !self.layouts[&ck].clocked
+                }
+                Node::Call(i) | Node::Early(i) => {
+                    for m in members(i) {
+                        for (p, e) in self.connections(m) {
+                            if p.dir == Dir::Output {
+                                self.writes(e, &mut nw, &mut Vec::new());
+                            }
+                        }
+                    }
+                    !self.layouts[&lay.kid_keys[&i]].clocked
+                }
+                Node::Proc(p) if self.clocked(p).is_some() => false,
+                Node::Proc(_) | Node::Driver(_) | Node::Loop(_) | Node::Rev(_) => {
+                    let (a, b) = self.access(key, n);
+                    nr = a;
+                    nw = b;
+                    true
+                }
+                _ => false,
+            };
+            r.push(nr.into_iter().map(|t| t.0).collect());
+            w.push(nw.into_iter().map(|t| t.0).collect());
+            at.push(ok);
+        }
+        loop {
+            let need: HashSet<ObjId> = fixed.iter().copied().chain((0..code.len()).filter(|&k| !at[k]).flat_map(|k| r[k].iter().copied())).collect();
+            let mut changed = false;
+            for k in 0..code.len() {
+                let child_in = matches!(code[k], Node::In(_) | Node::Pre(_));
+                if at[k] && (w[k].is_empty() && !child_in || w[k].iter().any(|o| need.contains(o))) {
+                    at[k] = false;
+                    changed = true;
+                }
+            }
+            // (A child's calls and its inputs go together.)
+            for k in 0..code.len() {
+                if let Node::In(i) | Node::Pre(i) | Node::Call(i) | Node::Early(i) = code[k]
+                    && at[k]
+                    && code.iter().enumerate().any(|(j, &m)| !at[j] && matches!(m, Node::In(x) | Node::Pre(x) | Node::Call(x) | Node::Early(x) if x == i))
+                {
+                    at[k] = false;
+                    changed = true;
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        let need: HashSet<ObjId> = fixed.iter().copied().chain((0..code.len()).filter(|&k| !at[k]).flat_map(|k| r[k].iter().copied())).collect();
+        let at_ff: HashSet<Node> = (0..code.len()).filter(|&k| at[k]).map(|k| code[k]).collect();
+        let read: HashSet<ObjId> = edges.iter().map(|t| t.0).chain((0..code.len()).filter(|&k| at[k]).flat_map(|k| r[k].iter().copied())).collect();
+        let clock_ports: HashSet<ObjId> =
+            d.spec(key.0).ports.iter().filter(|p| p.dir == Dir::Input).filter_map(|p| p.object).filter(|o| read.contains(o) && !need.contains(o)).collect();
+        let lay = self.layouts.get_mut(&key).unwrap();
+        lay.at_ff = at_ff;
+        lay.clock_ports = clock_ports;
     }
 
     /// Whether a clocked child's input, copied to a slot, is copied only
@@ -6982,6 +7113,13 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
         if phase == Phase::Ff && !self.lay().ff.is_empty() {
             let (p, z) = (self.at(fired), self.b.const_int(self.t.i8, 0));
             self.st(z, p, 1);
+        }
+        // The clock tree, worked out from the settled values before any
+        // clocked process looks for its edges.
+        if phase == Phase::Ff && !self.lay().at_ff.is_empty() {
+            let at = &self.lay().at_ff;
+            let tree: Vec<Node> = self.l.order(self.key)?.into_iter().filter(|n| at.contains(n)).collect();
+            self.body(&tree)?;
         }
         for n in self.lay().code.clone() {
             if let Node::Call(i) = n

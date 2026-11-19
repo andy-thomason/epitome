@@ -863,6 +863,16 @@ fn conflicts(t: &Target, f: &MFunc, how: &[Use], started_at_entry: &[bool], conf
             set(&mut entry_state, s);
         }
     }
+    // Those in use from the entry conflict with each other.
+    let mut marked = vec![0u64; words];
+    for s in 0..n {
+        if how[s] == Use::Markers {
+            set(&mut marked, s);
+        }
+        if started_at_entry[s] {
+            or(&mut conflict[s], &entry_state);
+        }
+    }
     let mut st_in = vec![vec![0u64; words]; nb];
     let mut st_out = vec![vec![0u64; words]; nb];
     let mut changed = true;
@@ -947,7 +957,23 @@ fn conflicts(t: &Target, f: &MFunc, how: &[Use], started_at_entry: &[bool], conf
         for (k, inst) in insts.iter().enumerate() {
             let mut occ = started.clone();
             if let Some((s, st)) = marker(inst) {
-                if st { set(&mut started, s) } else { clear(&mut started, s) }
+                // Two marked slots conflict where one starts while the
+                // other may be in use: if both are on some path, the
+                // later start sees the earlier.
+                if st {
+                    for w in 0..words {
+                        let mut o = started[w];
+                        while o != 0 {
+                            let y = w * 64 + o.trailing_zeros() as usize;
+                            o &= o - 1;
+                            set(&mut conflict[y], s);
+                            set(&mut conflict[s], y);
+                        }
+                    }
+                    set(&mut started, s);
+                } else {
+                    clear(&mut started, s);
+                }
                 or(&mut occ, &started);
             }
             or(&mut occ, &live_before);
@@ -961,15 +987,20 @@ fn conflicts(t: &Target, f: &MFunc, how: &[Use], started_at_entry: &[bool], conf
                     }
                 }
             }
-            // Those coming into use here.
+            // Those coming into use here, with the rest in use (two
+            // marked slots are taken care of above: the union of paths
+            // where blocks meet, as where landing pads meet to resume,
+            // would have them all in use at once).
             for w in 0..words {
                 let mut new = occ[w] & !prev.as_ref().map_or(0, |p| p[w]);
                 while new != 0 {
                     let s = w * 64 + new.trailing_zeros() as usize;
                     new &= new - 1;
-                    or(&mut conflict[s], &occ);
+                    let others = |x: usize| if how[s] == Use::Markers { occ[x] & !marked[x] } else { occ[x] };
                     for x in 0..words {
-                        let mut o = occ[x];
+                        let o = others(x);
+                        conflict[s][x] |= o;
+                        let mut o = o;
                         while o != 0 {
                             let y = x * 64 + o.trailing_zeros() as usize;
                             o &= o - 1;

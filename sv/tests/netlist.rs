@@ -1097,7 +1097,7 @@ fn profiled_by_instance() {
     let b = build("ptop", netlist_with(&src, "ptop", opts), &host);
     assert!(b.net.watched.is_empty(), "settling reads {:?}", b.net.watched);
     // (A design whose settling reads its clock says where.)
-    let gated = "module gtop (input logic clk, input logic en, output logic q);\n  logic g;\n  assign g = clk & en;\n  leaf l (.clk(g), .a(32'(en)), .q());\n  assign q = g;\nendmodule\n";
+    let gated = "module gtop (input logic clk, input logic en, output logic q, output logic [31:0] lq);\n  logic g;\n  assign g = clk & en;\n  leaf l (.clk(g), .a(32'(en)), .q(lq));\n  assign q = g;\nendmodule\n";
     let w = netlist_with(&text("gtop.sv", &format!("{PROFILED}{gated}")), "gtop", host.options(1)).watched;
     assert!(w.iter().any(|(n, why)| n == "clk" && why.contains("assign writing g")), "{w:?}");
     let plain = build("ptop_plain", netlist_with(&src, "ptop", host.options(1)), &host);
@@ -1213,4 +1213,48 @@ fn steps_cut_into_tasks() {
     let chained = speedup(true);
     assert!(side > 4.0, "side by side: {side:.2}x on 8 threads");
     assert!(chained < 2.0, "chained: {chained:.2}x on 8 threads");
+}
+
+const DEAD: &str = r#"
+module checks (input logic clk, input logic [7:0] a);
+  logic [7:0] seen;
+  always_ff @(posedge clk) seen <= seen ^ a;
+endmodule
+
+module spare (input logic [7:0] a, output logic [7:0] q);
+  assign q = a * 8'd3;
+endmodule
+
+module dtop (input logic clk, input logic [7:0] a, output logic [7:0] q);
+  logic [7:0] unused_sink, r, spent;
+  assign unused_sink = ^a ? a : ~a;
+  always_ff @(posedge clk) spent <= spent + a;
+  always_ff @(posedge clk) r <= a + 8'd1;
+  assign q = r;
+  checks c (.clk, .a);
+  spare s (.a, .q());
+endmodule
+"#;
+
+#[test]
+fn dead_code_is_left_out() {
+    // What no output needs is not run: a child with no outputs, a child
+    // whose outputs are unread, a value nothing reads, and a register
+    // nothing reads.
+    let Some(host) = host() else {
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
+        return;
+    };
+    let net = netlist_with(&text("dtop.sv", DEAD), "dtop", host.options(1));
+    let paths: Vec<&str> = net.steps.calls.iter().map(|c| c.path.as_str()).collect();
+    assert!(paths.iter().all(|p| p.is_empty()), "calls of {paths:?}");
+    let names: Vec<&str> = net.steps.items.iter().map(|p| p.name.as_str()).collect();
+    assert!(names.iter().all(|n| !n.contains("unused_sink") && !n.contains("spent")), "{names:?}");
+    let b = build("dtop", net, &host);
+    let io = Io::new(&b.net, Some("clk")).unwrap();
+    let stim: Vec<u32> = (0..20u32).map(|c| c * 37 % 256).collect();
+    let out = b.run(&io, 20, 1, &stim);
+    for (c, &a) in stim.iter().enumerate() {
+        assert_eq!(out[c], (a + 1) % 256, "cycle {c}");
+    }
 }

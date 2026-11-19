@@ -1749,8 +1749,91 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 return Err(format!("{}: initial values of variables are not supported yet", d.name(ob.name)));
             }
         }
+        let code = self.live_code(spec, code);
         self.codes.insert(spec, (objs.clone(), code.clone()));
         Ok((objs, code))
+    }
+
+    /// The nodes of a specialisation's code that its outputs need: those
+    /// that write a value an output is worked out from, through the
+    /// clocked processes too (a register no one reads is not kept up). A
+    /// child is needed where an output of its is; one none of whose outputs
+    /// the parent reads (a module of properties, say) is left out whole.
+    fn live_code(&self, spec: SpecId, code: Vec<Node>) -> Vec<Node> {
+        let d = self.d;
+        let mut live: HashSet<ObjId> = d.spec(spec).ports.iter().filter(|p| p.dir != Dir::Input).filter_map(|p| p.object).collect();
+        // Each node's reads and writes, value by value, and whether it is
+        // kept whatever it writes.
+        let rw: Vec<(Vec<ObjId>, Vec<ObjId>, bool)> = code
+            .iter()
+            .map(|&n| {
+                let (mut r, mut w) = (Vec::new(), Vec::new());
+                let mut always = false;
+                match n {
+                    Node::Proc(p) => match self.clocked(p) {
+                        Some((terms, body)) => {
+                            self.stmt_access(body, &mut r, &mut w, &mut Vec::new());
+                            for t in terms {
+                                self.reads(t.expr, &mut r);
+                                if let Some(c) = t.iff {
+                                    self.reads(c, &mut r);
+                                }
+                            }
+                        }
+                        None => self.stmt_access(d.processes[p.0 as usize].body, &mut r, &mut w, &mut Vec::new()),
+                    },
+                    Node::Driver(dr) => {
+                        let drv = &d.drivers[dr.0 as usize];
+                        self.reads(drv.rhs, &mut r);
+                        self.writes(drv.lhs, &mut w, &mut r);
+                    }
+                    Node::Loop(l) => {
+                        for &dr in &self.loops[l].all {
+                            let drv = &d.drivers[dr.0 as usize];
+                            self.reads(drv.rhs, &mut r);
+                            self.writes(drv.lhs, &mut w, &mut r);
+                        }
+                    }
+                    Node::Rev(v) => {
+                        r.push((self.revs[v].s, 0, 0));
+                        w.push((self.revs[v].d, 0, 0));
+                    }
+                    Node::In(i) => {
+                        // (Every instance of an array the node stands for.)
+                        let ms = self.arrays.get(&i).cloned().unwrap_or_else(|| vec![i]);
+                        for m in ms {
+                            let inst = d.instance(m);
+                            for p in &d.spec(inst.spec).ports {
+                                let Some(e) = inst.connections.iter().find(|c| c.port == p.name).and_then(|c| c.expr) else { continue };
+                                match p.dir {
+                                    Dir::Input => self.reads(e, &mut r),
+                                    Dir::Output => self.writes(e, &mut w, &mut r),
+                                    // (Anything else: kept.)
+                                    _ => always = true,
+                                }
+                            }
+                        }
+                    }
+                    _ => always = true,
+                }
+                (r.into_iter().map(|t| t.0).collect(), w.into_iter().map(|t| t.0).collect(), always)
+            })
+            .collect();
+        let mut keep = vec![false; code.len()];
+        loop {
+            let mut more = false;
+            for k in 0..code.len() {
+                if !keep[k] && (rw[k].2 || rw[k].1.iter().any(|o| live.contains(o))) {
+                    keep[k] = true;
+                    more = true;
+                    live.extend(rw[k].0.iter().copied());
+                }
+            }
+            if !more {
+                break;
+            }
+        }
+        code.into_iter().zip(keep).filter_map(|(n, k)| k.then_some(n)).collect()
     }
 
     /// The instances an instance node of `key`'s code stands for: an

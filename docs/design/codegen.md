@@ -147,7 +147,9 @@ across the function as greedy's has.
   virtual-to-physical map and let a spiller rewrite the code.
 - **Spiller**: adds loads and stores for spilled registers.
 - **Folding**: folds a spill load or store into the instruction that uses it,
-  to remove copies.
+  to remove copies. Epitome folds reloads on x86: an instruction whose
+  memory form's body is its own with a load for one register operand
+  (`ADD64rm` of `ADD64rr`) reads a spilled value from its slot.
 
 ## 5. Machine passes after selection
 

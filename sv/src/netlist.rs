@@ -2101,7 +2101,12 @@ impl<'d, 'a> Lowering<'d, 'a> {
             for (&i, m) in &lay.groups {
                 if !self.holds_memories(d.instance(i).spec)? {
                     keep.insert(i, m.clone());
+                } else if std::env::var_os("SV_DEBUG_GROUPS").is_some() {
+                    eprintln!("group {} ungrouped: memories", d.name(d.instance(i).name));
                 }
+            }
+            if std::env::var_os("SV_DEBUG_GROUPS").is_some() {
+                eprintln!("{} lanes {}: groups {:?}", d.name(d.spec(spec).name), lanes, keep.keys().map(|i| d.name(d.instance(*i).name)).collect::<Vec<_>>());
             }
             lay.groups = keep;
         }
@@ -2114,6 +2119,9 @@ impl<'d, 'a> Lowering<'d, 'a> {
             let lay = self.layouts.get_mut(&key).unwrap();
             let looped: HashSet<InstId> =
                 stuck.iter().filter_map(|&n| if let Node::In(i) | Node::Call(i) = lay.code[n] { Some(i) } else { None }).collect();
+            if std::env::var_os("SV_DEBUG_GROUPS").is_some() {
+                eprintln!("{}: looped {:?}", d.name(d.spec(spec).name), looped.iter().map(|i| d.name(d.instance(*i).name)).collect::<Vec<_>>());
+            }
             if lay.groups.keys().any(|i| looped.contains(i)) {
                 lay.groups.retain(|i, _| !looped.contains(i));
                 let groups = lay.groups.clone();

@@ -64,6 +64,7 @@ $B --std -o prog prog.rs                     # one with `std` from rust-src
 $B --std -Cpanic=immediate-abort -o prog prog.rs  # smaller: panics abort without a message
 $B --std -O0 -o prog prog.rs                 # prog unoptimised, std optimised (--crate-opt std=0 for both)
 $B --std -o prog prog.rs                     # #[epitome::target("riscv64")] fns: compiled for RV64, launched from the host
+                                             # (see tests/kernels/riscv_kernels.rs)
 
 # The statistics for each stage, on the standard library.
 $B --edition 2024 --expand-stats --resolve-stats --types-stats --typeck-stats \

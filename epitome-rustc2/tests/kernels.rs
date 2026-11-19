@@ -5,7 +5,7 @@
 //! says `//! run on: host` is built whole (optimised, and with `-O0`) and
 //! run here, its calls of kernels launching them on the RV64 interpreter
 //! compiled into it. What each prints must be what its `//! prints:` lines
-//! say.
+//! say (`{host_arch}` being the machine the test runs on).
 
 #[path = "../../codegen/tests/riscv/emu.rs"]
 #[allow(dead_code)]
@@ -35,7 +35,12 @@ fn kernels_run_on_riscv() {
     for p in &files {
         let name = p.file_stem().unwrap().to_string_lossy().into_owned();
         let text = std::fs::read_to_string(p).unwrap();
-        let want: String = text.lines().filter_map(|l| l.strip_prefix("//! prints: ")).map(|l| format!("{l}\n")).collect();
+        // `{host_arch}` is the architecture of the machine the test runs on.
+        let want: String = text
+            .lines()
+            .filter_map(|l| l.strip_prefix("//! prints: "))
+            .map(|l| format!("{}\n", l.replace("{host_arch}", std::env::consts::ARCH)))
+            .collect();
         let out = dir.join(&name);
         if text.contains("//! run on: host") {
             for opt in [&[][..], &["-O0"][..]] {

@@ -1128,9 +1128,10 @@ fn profiled_by_instance() {
     // Only clocked processes read the input and the clock: neither a new
     // input nor an edge needs settling, only a commit does.
     assert!(has("step settle").calls < 0.5, "settles {} times a cycle", has("step settle").calls);
-    // The array may be called as one or an instance at a time.
+    // The array may be called as one or an instance at a time, and a
+    // leaf may be written into its parent.
     let leaves: Vec<_> = t.profile.iter().filter(|p| p.counter.func == "ff" && p.counter.spec == "leaf").collect();
-    assert!(leaves.len() == 2 || leaves.len() == 8, "{} leaves' ff counters", leaves.len());
+    assert!(!leaves.is_empty() && leaves.len() <= 8, "{} leaves' ff counters", leaves.len());
     for p in &leaves {
         assert!(p.counter.path.starts_with("g[") && p.counter.path.contains(".m.l"), "{}", p.counter.path);
         let within = &t.profile[p.counter.within.expect("a leaf's ff is within its parent's")];
@@ -1383,4 +1384,56 @@ fn clock_trees_run_before_clocked_processes() {
     let t = b.time(&io, cycles, 1, &stim, 2);
     let settle = t.profile.iter().find(|p| p.what == "step settle").unwrap();
     assert!(settle.calls < 1.5, "settles {} times a cycle besides after commits", settle.calls);
+}
+
+const HANDSHAKE: &str = r#"
+module pass (input logic valid_i, output logic ready_o, input logic ready_i, output logic valid_o,
+             input logic [7:0] d_i, output logic [7:0] d_o);
+  assign ready_o = ready_i;
+  assign valid_o = valid_i;
+  assign d_o = d_i + 8'd1;
+endmodule
+
+module hs (input logic req, input logic rdy, input logic [7:0] d, output logic valid, output logic [7:0] q);
+  logic v0, ready0;
+  // The sender offers only when the slice is ready: a loop through the
+  // slice as a whole, but not through any port.
+  assign v0 = req & ready0;
+  pass u (.valid_i(v0), .ready_o(ready0), .ready_i(rdy), .valid_o(valid), .d_i(d), .d_o(q));
+endmodule
+"#;
+
+#[test]
+fn small_children_are_written_into_their_parents() {
+    // A child alone of its kind is written into its parent, a port at a
+    // time: a handshake through it is no loop.
+    let Some(host) = host() else {
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
+        return;
+    };
+    let net = netlist_with(&text("hs.sv", HANDSHAKE), "hs", host.options(1));
+    assert!(net.loops.is_empty(), "{:?}", net.loops);
+    assert!(net.steps.calls.iter().all(|c| c.path.is_empty()), "the slice is still called");
+    let b = build("hs", net, &host);
+    let io = Io::new(&b.net, None).unwrap();
+    let mut stim = Vec::new();
+    let mut ins = Vec::new();
+    for c in 0..16u32 {
+        let (req, rdy, d) = (c & 1, (c >> 1) & 1, c * 29 % 256);
+        for p in &io.ins {
+            match p.name.as_str() {
+                "req" => stim.push(req),
+                "rdy" => stim.push(rdy),
+                "d" => stim.push(d),
+                n => panic!("{n}"),
+            }
+        }
+        ins.push((req, rdy, d));
+    }
+    let out = b.run(&io, 16, 1, &stim);
+    let ow = io.out_words();
+    for (c, &(req, rdy, d)) in ins.iter().enumerate() {
+        assert_eq!(out[c * ow], req & rdy, "cycle {c}: valid");
+        assert_eq!(out[c * ow + 1], (d + 1) % 256, "cycle {c}: q");
+    }
 }

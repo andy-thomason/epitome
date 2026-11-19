@@ -871,6 +871,8 @@ impl<'d, 'a> Lowering<'d, 'a> {
             called: RefCell::default(),
             traces: RefCell::default(),
             cycles: RefCell::default(),
+            flat: HashMap::new(),
+            flattening: Vec::new(),
             edge_canon: RefCell::default(),
             piece_prof: Cell::new(None),
             piece_names: RefCell::default(),
@@ -1198,6 +1200,11 @@ enum Node {
     /// call needs, and that call with the outputs it gives.
     Pre(InstId),
     Early(InstId),
+    /// A child written into its parent (see `Lowering::flatten`): what an
+    /// input port of it (by index) is connected to, copied to the port's
+    /// value, and an output port's value copied to what it is connected to.
+    PortIn(InstId, u32),
+    PortOut(InstId, u32),
     /// A run of a generate loop's iterations, rolled back into a loop.
     Loop(usize),
     /// A run of a generate loop's iterations that reverses the bits of a
@@ -1292,6 +1299,12 @@ fn runs(mut v: Vec<(u64, u64)>) -> Vec<(u64, u64)> {
     out
 }
 
+/// Most nodes of a child written into its parent (see
+/// `Lowering::flatten`); a larger one is called.
+const FLAT_MAX: usize = 400;
+/// Most levels of children written into one another.
+const FLAT_DEPTH: usize = 16;
+
 /// The top's step's calls, each with a counter when profiling.
 const STEPS: [&str; 4] = ["step settle", "step ff", "step commit", "step settle again"];
 /// Fewest instructions, for one register of lanes, of an arm of an `if` or
@@ -1374,6 +1387,11 @@ struct Lowering<'d, 'a> {
     /// expression that does: every process waiting on an edge of it shares
     /// that one's slot of its last value (see [`Self::edge_expr`]).
     edge_canon: RefCell<HashMap<ObjId, ExprId>>,
+    /// The specialisations written into each specialisation's code (see
+    /// [`Self::flatten`]), and those being written into the one being
+    /// collected.
+    flat: HashMap<SpecId, HashSet<SpecId>>,
+    flattening: Vec<HashSet<SpecId>>,
     /// For [`Netlist::loops`].
     cycles: RefCell<Vec<(String, Vec<String>)>>,
     /// With [`Options::pieces`], the global of the pieces' counters, and
@@ -1743,6 +1761,58 @@ impl<'d, 'a> Lowering<'d, 'a> {
         Ok(b)
     }
 
+    /// Writes child `i` into the code being collected, if it is small and
+    /// alone: not an array's, with only inputs and outputs, of a
+    /// specialisation not yet written into this code (its values are its
+    /// specialisation's, one set a state). Its values become the parent's,
+    /// its nodes the parent's, and a node for each port joins them: so
+    /// ports are values the parent orders bit by bit, with no call, no
+    /// copies to a slot and back, and no loop through the child as a whole.
+    fn flatten(&mut self, i: InstId, objs: &mut Vec<ObjId>, code: &mut Vec<Node>) -> Result<bool, String> {
+        let d = self.d;
+        let inst = d.instance(i);
+        let c = inst.spec;
+        if self.arrays.contains_key(&i) || d.spec(c).ports.iter().any(|p| p.object.is_none() || !matches!(p.dir, Dir::Input | Dir::Output)) {
+            return Ok(false);
+        }
+        let current = self.flattening.last().cloned().unwrap_or_default();
+        if current.contains(&c) || self.flattening.len() > FLAT_DEPTH {
+            return Ok(false);
+        }
+        let (cobjs, ccode) = self.code_of(c)?;
+        let inner = self.flat.get(&c).cloned().unwrap_or_default();
+        if ccode.len() > FLAT_MAX || !inner.is_disjoint(&current) {
+            return Ok(false);
+        }
+        let set = self.flattening.last_mut().unwrap();
+        set.insert(c);
+        set.extend(inner);
+        objs.extend(cobjs);
+        for (k, p) in d.spec(c).ports.iter().enumerate() {
+            let connected = inst.connections.iter().any(|x| x.port == p.name && x.expr.is_some());
+            if p.dir == Dir::Input && connected {
+                code.push(Node::PortIn(i, k as u32));
+            }
+        }
+        code.extend(ccode);
+        for (k, p) in d.spec(c).ports.iter().enumerate() {
+            let connected = inst.connections.iter().any(|x| x.port == p.name && x.expr.is_some());
+            if p.dir == Dir::Output && connected {
+                code.push(Node::PortOut(i, k as u32));
+            }
+        }
+        Ok(true)
+    }
+
+    /// Port `k` of child `i`: its value, and what it is connected to.
+    fn port_of(&self, i: InstId, k: u32) -> (ObjId, ExprId) {
+        let d = self.d;
+        let inst = d.instance(i);
+        let p = &d.spec(inst.spec).ports[k as usize];
+        let e = inst.connections.iter().find(|x| x.port == p.name).and_then(|x| x.expr).expect("a connected port");
+        (p.object.unwrap(), e)
+    }
+
     /// A specialisation's static values and code, found once.
     fn code_of(&mut self, spec: SpecId) -> Result<(Vec<ObjId>, Vec<Node>), String> {
         if let Some(c) = self.codes.get(&spec) {
@@ -1751,7 +1821,11 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let d = self.d;
         let mut objs = Vec::new();
         let mut code = Vec::new();
-        self.collect(d.spec(spec).scope, &mut objs, &mut code)?;
+        self.flattening.push(HashSet::new());
+        let collected = self.collect(d.spec(spec).scope, &mut objs, &mut code);
+        let flat = self.flattening.pop().unwrap();
+        collected?;
+        self.flat.insert(spec, flat);
         for &o in &objs {
             let ob = d.object(o);
             if tw(&d.types, ob.ty) == 0 {
@@ -1814,6 +1888,16 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     Node::Rev(v) => {
                         r.push((self.revs[v].s, 0, 0));
                         w.push((self.revs[v].d, 0, 0));
+                    }
+                    Node::PortIn(i, k) => {
+                        let (o, e) = self.port_of(i, k);
+                        self.reads(e, &mut r);
+                        w.push((o, 0, 0));
+                    }
+                    Node::PortOut(i, k) => {
+                        let (o, e) = self.port_of(i, k);
+                        r.push((o, 0, 0));
+                        self.writes(e, &mut w, &mut r);
                     }
                     Node::In(i) => {
                         // (Every instance of an array the node stands for.)
@@ -1948,6 +2032,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     ops.selects += self.branches(body);
                 }
                 Node::In(i) | Node::Call(i) | Node::Pre(i) | Node::Early(i) => kids.push(d.instance(i).spec),
+                Node::PortIn(i, k) | Node::PortOut(i, k) => exprs.push(self.port_of(i, k).1),
                 Node::Rev(_) => {}
             }
         }
@@ -2650,7 +2735,11 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     code.push(Node::Driver(dr));
                 }
                 // An array's instances are one node, its first's.
-                Item::Instance(i) if !self.arrays.values().any(|m| m[0] != i && m.contains(&i)) => code.push(Node::In(i)),
+                Item::Instance(i) if !self.arrays.values().any(|m| m[0] != i && m.contains(&i)) => {
+                    if !self.flatten(i, objs, code)? {
+                        code.push(Node::In(i));
+                    }
+                }
                 Item::Instance(_) => {}
                 Item::Cell(_) => return Err("gates and UDPs are not supported yet".into()),
                 Item::Scope(s) => match d.scope(s).kind {
@@ -2795,6 +2884,11 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     uses.insert(self.revs[r].s, None);
                 }
                 Node::Proc(p) => self.stmt_uses(d.processes[p.0 as usize].body, &mut uses),
+                Node::PortIn(i, k) | Node::PortOut(i, k) => {
+                    let (o, e) = self.port_of(i, k);
+                    uses.insert(o, None);
+                    self.expr_uses(e, &mut uses);
+                }
                 Node::In(i) | Node::Call(i) | Node::Pre(i) | Node::Early(i) => {
                     for m in self.candidates(i) {
                         for c in &d.instance(m).connections {
@@ -3867,6 +3961,16 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 r.push((v.s, v.s_lo, v.s_lo + v.n));
                 w.push((v.d, v.d_lo, v.d_lo + v.n));
             }
+            Node::PortIn(i, k) => {
+                let (o, e) = self.port_of(i, k);
+                self.reads(e, &mut r);
+                w.push(whole(o));
+            }
+            Node::PortOut(i, k) => {
+                let (o, e) = self.port_of(i, k);
+                r.push(whole(o));
+                self.writes(e, &mut w, &mut r);
+            }
             Node::In(i) | Node::Pre(i) => {
                 let pre = if let Node::Pre(_) = node { lay.splits.get(&i) } else { None };
                 for (p, e) in self.member_connections(key, i) {
@@ -4061,12 +4165,15 @@ impl<'d, 'a> Lowering<'d, 'a> {
         // What needs a value other than as a clock: the outputs, what the
         // clocked processes' bodies read, and below what the rest reads.
         let mut fixed: HashSet<ObjId> = d.spec(key.0).ports.iter().filter(|p| p.dir != Dir::Input).filter_map(|p| p.object).collect();
+        // (What the clocked processes' bodies read: a copy to a port may
+        // be made for them before they run, but nothing else is.)
+        let mut body_reads: HashSet<ObjId> = HashSet::new();
         let mut edges = Vec::new();
         for &p in &lay.ff {
             let (terms, body) = self.clocked(p).unwrap();
             let mut r = Vec::new();
             self.stmt_access(body, &mut r, &mut Vec::new(), &mut Vec::new());
-            fixed.extend(r.into_iter().map(|t| t.0));
+            body_reads.extend(r.into_iter().map(|t| t.0));
             for t in terms {
                 self.reads(t.expr, &mut edges);
                 if let Some(c) = t.iff {
@@ -4113,7 +4220,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     !self.layouts[&lay.kid_keys[&i]].clocked
                 }
                 Node::Proc(p) if self.clocked(p).is_some() => false,
-                Node::Proc(_) | Node::Driver(_) | Node::Loop(_) | Node::Rev(_) => {
+                Node::Proc(_) | Node::Driver(_) | Node::Loop(_) | Node::Rev(_) | Node::PortIn(..) | Node::PortOut(..) => {
                     let (a, b) = self.access(key, n);
                     nr = a;
                     nw = b;
@@ -4137,12 +4244,33 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 }
             }
         }
+        // A copy to a port of a child written in here may be made before
+        // the clocked processes where only they, or clocks, read the port;
+        // what it reads is then read there as data, not as a clock.
+        let port_in: Vec<bool> = code.iter().map(|n| matches!(n, Node::PortIn(..))).collect();
+        // (Read as data: what the bodies read, and what such copies read
+        // for a port read as data.)
+        let data_of = |at: &[bool]| -> HashSet<ObjId> {
+            let mut data = body_reads.clone();
+            loop {
+                let more: Vec<ObjId> = (0..code.len())
+                    .filter(|&k| at[k] && port_in[k] && w[k].iter().any(|o| data.contains(o)))
+                    .flat_map(|k| r[k].iter().copied())
+                    .filter(|o| !data.contains(o))
+                    .collect();
+                if more.is_empty() {
+                    return data;
+                }
+                data.extend(more);
+            }
+        };
         loop {
             let need: HashSet<ObjId> = fixed.iter().copied().chain((0..code.len()).filter(|&k| !at[k]).flat_map(|k| r[k].iter().copied())).collect();
+            let data = data_of(&at);
             let mut changed = false;
             for k in 0..code.len() {
                 let child_in = matches!(code[k], Node::In(_) | Node::Pre(_));
-                if at[k] && (w[k].is_empty() && !child_in || w[k].iter().any(|o| need.contains(o))) {
+                if at[k] && (w[k].is_empty() && !child_in || w[k].iter().any(|o| need.contains(o) || !port_in[k] && data.contains(o))) {
                     at[k] = false;
                     changed = true;
                 }
@@ -4162,11 +4290,22 @@ impl<'d, 'a> Lowering<'d, 'a> {
             }
         }
         let need: HashSet<ObjId> = fixed.iter().copied().chain((0..code.len()).filter(|&k| !at[k]).flat_map(|k| r[k].iter().copied())).collect();
+        let data = data_of(&at);
         let at_ff: HashSet<Node> = (0..code.len()).filter(|&k| at[k]).map(|k| code[k]).collect();
-        let read: HashSet<ObjId> =
-            edges.iter().chain(&to_clocks).map(|t| t.0).chain((0..code.len()).filter(|&k| at[k]).flat_map(|k| r[k].iter().copied())).collect();
-        let clock_ports: HashSet<ObjId> =
-            d.spec(key.0).ports.iter().filter(|p| p.dir == Dir::Input).filter_map(|p| p.object).filter(|o| read.contains(o) && !need.contains(o)).collect();
+        let read: HashSet<ObjId> = edges
+            .iter()
+            .chain(&to_clocks)
+            .map(|t| t.0)
+            .chain((0..code.len()).filter(|&k| at[k] && !port_in[k]).flat_map(|k| r[k].iter().copied()))
+            .collect();
+        let clock_ports: HashSet<ObjId> = d
+            .spec(key.0)
+            .ports
+            .iter()
+            .filter(|p| p.dir == Dir::Input)
+            .filter_map(|p| p.object)
+            .filter(|o| read.contains(o) && !need.contains(o) && !data.contains(o))
+            .collect();
         let lay = self.layouts.get_mut(&key).unwrap();
         lay.at_ff = at_ff;
         lay.clock_ports = clock_ports;
@@ -4206,7 +4345,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     }
                 }
                 Node::In(_) | Node::Pre(_) | Node::Early(_) => {}
-                Node::Driver(_) | Node::Loop(_) | Node::Rev(_) => {
+                Node::Driver(_) | Node::Loop(_) | Node::Rev(_) | Node::PortIn(..) | Node::PortOut(..) => {
                     let (r, w) = self.access(key, node);
                     out.push(Dep { node: n, w, r });
                 }
@@ -5759,6 +5898,22 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
                 Ok(())
             }
             Node::In(_) | Node::Pre(_) => self.inputs(n, false),
+            Node::PortIn(i, k) => {
+                let (o, e) = self.l.port_of(i, k);
+                let v = self.expr(e)?;
+                let w = tw(&d.types, d.object(o).ty);
+                let v = self.resize(&v, w, d.types.is_signed(d.expr(e).ty));
+                self.set(o, v);
+                Ok(())
+            }
+            Node::PortOut(i, k) => {
+                let (o, e) = self.l.port_of(i, k);
+                let ty = d.object(o).ty;
+                let v = self.read(o);
+                let v = self.logical(o, &v);
+                let v = self.resize(&v, tw(&d.types, d.expr(e).ty), d.types.is_signed(ty));
+                self.assign(e, v)
+            }
             Node::Call(i) | Node::Early(i) => {
                 let ck = self.lay().kid_keys[&i];
                 let child = &self.l.layouts[&ck];
@@ -10760,6 +10915,20 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
                 Node::Rev(r) => self.l.revs[r].all.iter().try_for_each(|&dr| self.driver(dr))?,
                 Node::Proc(p) => self.stmt(d.processes[p.0 as usize].body)?,
                 Node::In(_) => {}
+                Node::PortIn(i, k) => {
+                    let (o, e) = self.l.port_of(i, k);
+                    let w = tw(&d.types, d.object(o).ty) as usize;
+                    let v = self.expr(e)?;
+                    let v = self.resize(&v, w, false);
+                    self.env.insert(o, v);
+                }
+                Node::PortOut(i, k) => {
+                    let (o, e) = self.l.port_of(i, k);
+                    let ty = d.object(o).ty;
+                    let v = self.env.get(&o).cloned().unwrap_or_else(|| vec![FALSE; tw(&d.types, ty) as usize]);
+                    let v = self.resize(&v, tw(&d.types, d.expr(e).ty) as usize, d.types.is_signed(ty));
+                    self.assign(e, v)?;
+                }
                 Node::Call(i) => self.l.members(self.key, i).into_iter().try_for_each(|m| self.call(m))?,
                 Node::Pre(_) | Node::Early(_) => return Err(Unproved),
             }

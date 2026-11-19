@@ -2101,29 +2101,38 @@ impl<'d, 'a> Lowering<'d, 'a> {
             for (&i, m) in &lay.groups {
                 if !self.holds_memories(d.instance(i).spec)? {
                     keep.insert(i, m.clone());
-                } else if std::env::var_os("SV_DEBUG_GROUPS").is_some() {
-                    eprintln!("group {} ungrouped: memories", d.name(d.instance(i).name));
                 }
-            }
-            if std::env::var_os("SV_DEBUG_GROUPS").is_some() {
-                eprintln!("{} lanes {}: groups {:?}", d.name(d.spec(spec).name), lanes, keep.keys().map(|i| d.name(d.instance(*i).name)).collect::<Vec<_>>());
             }
             lay.groups = keep;
         }
         let groups = lay.groups.clone();
         expand(&mut lay, code.clone(), &groups);
         // An array whose call would wait on itself (an iteration's input
-        // made from another's output) is called an instance at a time.
+        // made from another's output) is called an instance at a time,
+        // unless an output of its children waits on fewer than all their
+        // inputs (one from a register, say): then the array is called
+        // twice as one (see [`Self::split_calls`]).
         self.layouts.insert(key, lay);
         if let Err(stuck) = self.order_of(key) {
-            let lay = self.layouts.get_mut(&key).unwrap();
-            let looped: HashSet<InstId> =
-                stuck.iter().filter_map(|&n| if let Node::In(i) | Node::Call(i) = lay.code[n] { Some(i) } else { None }).collect();
-            if std::env::var_os("SV_DEBUG_GROUPS").is_some() {
-                eprintln!("{}: looped {:?}", d.name(d.spec(spec).name), looped.iter().map(|i| d.name(d.instance(*i).name)).collect::<Vec<_>>());
+            let lay = &self.layouts[&key];
+            let looped: Vec<(InstId, Key)> = stuck
+                .iter()
+                .filter_map(|&n| if let Node::In(i) | Node::Call(i) = lay.code[n] { Some(i) } else { None })
+                .filter_map(|i| lay.groups.get(&i).map(|m| (i, (d.instance(i).spec, m.len() as u32 * sh.width()))))
+                .collect();
+            let mut drop = HashSet::new();
+            for (i, ck) in looped {
+                if drop.contains(&i) {
+                    continue;
+                }
+                self.layout(ck)?;
+                if !self.splittable(ck) {
+                    drop.insert(i);
+                }
             }
-            if lay.groups.keys().any(|i| looped.contains(i)) {
-                lay.groups.retain(|i, _| !looped.contains(i));
+            if !drop.is_empty() {
+                let lay = self.layouts.get_mut(&key).unwrap();
+                lay.groups.retain(|i, _| !drop.contains(i));
                 let groups = lay.groups.clone();
                 expand(lay, code.clone(), &groups);
             }
@@ -2263,6 +2272,22 @@ impl<'d, 'a> Lowering<'d, 'a> {
         self.layouts.insert(key, lay);
         let mut local = self.loop_locals(key)?;
         local.retain(|o| !ff_reads.contains(o) && !self.layouts[&key].kept.contains(o));
+        // (Nor what a child's inputs copied before its clocked processes
+        // read: that copy is not in a pass of the settling.)
+        let mut ff_ins = Vec::new();
+        {
+            let lay = &self.layouts[&key];
+            for node in &lay.code {
+                let Node::In(i) = *node else { continue };
+                let ck = lay.kid_keys[&i];
+                for (p, e) in self.member_connections(key, i) {
+                    if self.ff_input(ck, p) {
+                        self.reads(e, &mut ff_ins);
+                    }
+                }
+            }
+        }
+        local.retain(|o| !ff_ins.iter().any(|t| t.0 == *o));
         let fresh = self.fresh_values(key)?;
         let mut lay = self.layouts.remove(&key).unwrap();
         let piece = sh.piece_lane();
@@ -4060,6 +4085,15 @@ impl<'d, 'a> Lowering<'d, 'a> {
         }
     }
 
+    /// Whether a call of `key` could be split in two (see [`Split`]): some
+    /// output of it waits on fewer than all its inputs.
+    fn splittable(&self, key: Key) -> bool {
+        let d = self.d;
+        let ins = d.spec(key.0).ports.iter().filter(|p| p.dir == Dir::Input && p.object.is_some()).count();
+        let pd = self.port_deps(key);
+        d.spec(key.0).ports.iter().filter(|p| p.dir == Dir::Output).filter_map(|p| p.object).any(|o| pd.get(&o).map_or(0, |x| x.len()) < ins)
+    }
+
     /// For each output of a specialisation, the inputs its value depends
     /// on through its combinational code (none, for a register).
     fn port_deps(&self, key: Key) -> std::rc::Rc<HashMap<ObjId, HashSet<ObjId>>> {
@@ -4178,7 +4212,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
             let pd = self.port_deps(ck);
             let mut late = HashSet::new();
             let mut split = Split::default();
-            for (p, e) in self.connections(i) {
+            for (p, e) in self.member_connections(key, i) {
                 let Some(o) = p.object.filter(|_| p.dir == Dir::Input) else { continue };
                 let mut r = Vec::new();
                 self.reads(e, &mut r);

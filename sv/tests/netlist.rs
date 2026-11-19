@@ -1258,3 +1258,60 @@ fn dead_code_is_left_out() {
         assert_eq!(out[c], (a + 1) % 256, "cycle {c}");
     }
 }
+
+const SPLIT_ARRAY: &str = r#"
+module stage (input logic clk, input logic en, input logic [31:0] a, output logic [31:0] q);
+  always_ff @(posedge clk) if (en) q <= a * 32'd3 + 32'd1;
+endmodule
+
+module sgtop (input logic clk, input logic [7:0][31:0] a, output logic [7:0][31:0] q, output logic stop);
+  logic en;
+  logic [7:0][31:0] qs;
+  for (genvar k = 0; k < 8; k++) begin : g
+    stage u (.clk, .en, .a(a[k]), .q(qs[k]));
+  end
+  // The enable is made from the array's outputs: a loop through the array
+  // as one call, but not through any bit, as the outputs are registers.
+  assign stop = qs[0][0] & qs[7][1];
+  assign en = !stop;
+  assign q = qs;
+endmodule
+"#;
+
+#[test]
+fn arrays_split_where_they_loop() {
+    // An array whose inputs are made from its outputs, where each output
+    // is a register: still called as one, twice, not an instance at a time.
+    let Some(host) = host() else {
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
+        return;
+    };
+    let net = netlist_with(&text("sgtop.sv", SPLIT_ARRAY), "sgtop", host.options(1));
+    assert!(net.steps.calls.iter().any(|c| c.path == "g[*].u"), "{:?}", net.steps.calls.iter().map(|c| &c.path).collect::<Vec<_>>());
+    assert!(net.loops.is_empty(), "{:?}", net.loops);
+    let b = build("sgtop", net, &host);
+    let io = Io::new(&b.net, Some("clk")).unwrap();
+    let mut rng = Rng(0x510E_527F_ADE6_82D1);
+    let cycles = 200;
+    let mut stim = Vec::new();
+    let mut ins = Vec::new();
+    for _ in 0..cycles {
+        let a: Vec<u32> = (0..8).map(|_| rng.next() as u32).collect();
+        stim.extend(&a);
+        ins.push(a);
+    }
+    let out = b.run(&io, cycles, 1, &stim);
+    let mut q = [0u32; 8];
+    let ow = io.out_words();
+    for (c, a) in ins.iter().enumerate() {
+        let stop = q[0] & 1 & (q[7] >> 1);
+        if stop == 0 {
+            for k in 0..8 {
+                q[k] = a[k].wrapping_mul(3).wrapping_add(1);
+            }
+        }
+        let stop = q[0] & 1 & (q[7] >> 1);
+        assert_eq!(&out[c * ow..c * ow + 8], &q[..], "cycle {c}");
+        assert_eq!(out[c * ow + 8], stop, "cycle {c}: stop");
+    }
+}

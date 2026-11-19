@@ -61,6 +61,7 @@ $B --lower-stats $L/core/src/lib.rs file.rs  # what could not be lowered, and wh
 $B --lib --dump-ir $L/core/src/lib.rs        # core as a library: its non-generic functions external
 $B -o prog $L/core/src/lib.rs prog.rs        # an executable, through Epitome (tested on x86-64 Linux)
 $B --std -o prog prog.rs                     # one with `std` from rust-src
+$B --std -Cpanic=immediate-abort -o prog prog.rs  # smaller: panics abort without a message
 
 # The statistics for each stage, on the standard library.
 $B --edition 2024 --expand-stats --resolve-stats --types-stats --typeck-stats \

@@ -44,6 +44,11 @@
 //!   generator, and link with `cc` (and libm) into the executable `PATH`. It fails if
 //!   any function of the last crate could not be lowered.
 //! - `-O0`: with `-o`, do not optimise.
+//! - `-C panic=unwind|abort|immediate-abort` (also `-Cpanic=...`): the
+//!   panic strategy `std` and `core` are built for (`cfg(panic = ..)`;
+//!   default `unwind`). With `immediate-abort` a panic aborts at once,
+//!   without formatting or printing its message, which leaves the
+//!   message-formatting code out of the program.
 //! - `--emit=obj`: with `-o`, write the object file to `PATH`, unlinked.
 //! - `--lib`: compile the last crate as a library: monomorphise from all
 //!   its non-generic functions (even if it has a `main`), and make them
@@ -120,6 +125,18 @@ fn main() -> ExitCode {
             "--std" => with_std = true,
             "-o" => output = value("-o").map(PathBuf::from),
             "--lower-stats" => lower_stats = true,
+            _ if arg.starts_with("-C") => {
+                let v = if arg == "-C" { value("-C").unwrap_or_default() } else { arg[2..].to_string() };
+                match v.strip_prefix("panic=") {
+                    Some(p @ ("unwind" | "abort" | "immediate-abort")) => {
+                        cfg.replace_value("panic", p);
+                    }
+                    _ => {
+                        eprintln!("error: unknown codegen option `{v}`");
+                        return ExitCode::FAILURE;
+                    }
+                }
+            }
             _ if arg.starts_with("--cfg") => {
                 let v = value("--cfg").unwrap_or_default();
                 match v.split_once('=') {

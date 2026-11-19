@@ -51,6 +51,12 @@ impl CfgSet {
         self
     }
 
+    /// Sets `name`'s one value, in place of any it had: `panic = "abort"`.
+    pub fn replace_value(&mut self, name: &str, value: &str) -> &mut Self {
+        self.pairs.retain(|(n, _)| n != name);
+        self.set_value(name, value)
+    }
+
     pub fn is_set(&self, name: &str) -> bool {
         self.names.contains(name)
     }

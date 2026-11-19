@@ -1248,7 +1248,27 @@ What a program with `std` needs beyond its code:
 - **Functions one crate defines for another by name**
   (`#[rustc_std_internal_symbol]`: `__rust_start_panic` of `panic_abort`,
   `__rdl_alloc` of `std`) are named by their names, not mangled, and kept
-  with `main`.
+  with `main` where something declares them (an `extern` block's item of
+  that name) or the allocator shim calls them. One nothing names is left
+  out, as a linker would leave it: `std`'s `__isPlatformVersionAtLeast`
+  (for C code's `@available` on macOS, which reads the OS version through
+  CoreFoundation) was 17% of a hello world's code.
+- **Panic strategies.** `-C panic=immediate-abort` builds `std` and
+  `core` with `cfg(panic = "immediate-abort")` (their own option) in place
+  of `unwind`: a panic aborts at once, and the code that formats and prints
+  its message (`Debug` for `str` and `io::Error`, `stderr`, the panic hook)
+  is left out. A hello world (`println!` of a constant) on a Mac:
+
+  | | code | file |
+  |---|---|---|
+  | before | 151 KB | 282 KB |
+  | internal symbols only where named | 120 KB | 229 KB |
+  | and `-C panic=immediate-abort` | 61 KB | 147 KB |
+  | rustc (`-O`, its precompiled `std`) | | 458 KB |
+
+  What remains is `std`'s runtime (the main thread's handle, `Once`s, the
+  stack overflow guard's setup), stdout's lock and line buffer, and
+  `fmt::write`; much of the file is page padding and the symbol table.
 - **Weak symbols.** `#[linkage = "extern_weak"] static f: Option<fn ...>`
   (`std`'s `weak!`, for `gettid`) is the address of the symbol `f`, null
   if nothing defines it, not a load from it.

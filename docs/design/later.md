@@ -156,24 +156,28 @@ these are for after.
   value is spilled around each runtime call (q registers are all the
   callee's), and its sign is changed through a stack slot and two `eor`s
   (one with `xzr`) where `eor v.16b` with a constant would do.
-- **Register allocation's moves and spills** (`regalloc.rs`): across a
-  sample of crates we make 1.16 times llc's instructions (79,899 against
-  68,885), the most of the excess register moves (15,210 against 11,769)
-  and spill code (loads 7,356 against 4,871, stores 4,675 against 2,674).
-  The moves left are mostly arguments copied into registers and out again
-  when a register an argument arrived in is needed for another, and loop
-  phis whose incoming values were allocated elsewhere: linear scan
-  assigns each value as it comes, from hints. After allocation, copies in
-  a block that propagate, repeat or are overwritten go, and a spilled
-  value's copy is its load or store; but spilling is still of whole values
-  (a load before each use, a store after each definition, reused only
-  within a block), now evicting lighter values (fewer uses over their
-  length) for heavier ones; it does not split ranges, so a value of a
-  long, sparsely used range is reloaded at every use (rand_chacha's
-  four-block refill). Better: coalescing of copies before allocation (or a
-  graph colouring that does it; copies whose sides never meet are now
-  coalesced, but none that would need a range split), and range
-  splitting, as LLVM's greedy allocator does.
+- **Register allocation's moves and spills** (`regalloc.rs`; measured by
+  `bench/vs-llc`): over its sample of crates we make 1.217 times llc's
+  instructions on AArch64 (88,259 against 72,536; register moves 8,982
+  against 6,125), and 1.255 times its bytes on x86-64's scalar crates
+  (moves 10,626 against 7,793, stack loads 7,307 against 4,482). Most of
+  the excess is selection's, not allocation's: on AArch64 the allocator's
+  spill code is 2,306 loads and 1,555 stores in all. The moves left are
+  mostly arguments copied into registers and out again when a register an
+  argument arrived in is needed for another, loop phis whose incoming
+  values were allocated elsewhere (the next value made before the old
+  one's last read, `sub x0, x24, #1; cbz x24, ..; mov x24, x0`), and
+  chains of copies of one value whose ranges meet, which coalescing
+  (copies whose sides never meet) leaves. A spilled value's range is
+  split by blocks (held in a register through blocks where one is free,
+  loaded entering them), but not within a block: a value live across a
+  call in a block that also reads it is reloaded after the call, in a
+  scratch register, use by use where no register is free between them;
+  and its loads are not placed across the function as greedy's spill
+  placement does (a block of several predecessors, one of which is
+  another block's of several successors, cannot be entered). Better:
+  coalescing by value (copies whose sides hold the same value where they
+  meet), and splitting within blocks around calls.
 - **Frames** (`frame.rs`): every alloca has its own slot for the whole
   function (a serde_json deserializer: 1,088 bytes of slots to llc's 336
   for its whole frame), where slots of allocas whose lifetimes

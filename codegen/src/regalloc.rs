@@ -27,8 +27,13 @@
 //! cheaper to spill: those whose uses are sparser over their ranges (their
 //! weight, uses and definitions over length, is less), which then try
 //! again (each is moved so at most once). Otherwise the value goes to a
-//! stack slot and is loaded into a scratch register (`x16`, `x17`, `x15`)
-//! before each use and stored after each definition.
+//! stack slot and is stored after each definition, so that memory always
+//! has it. Its range is then split by blocks: a register free for all of
+//! its stretch in a block may hold it there, chosen where the reads it
+//! saves (weighted by loop depth) outweigh the loads entering those
+//! blocks take (`split_by_blocks`). In the rest of its blocks it is
+//! loaded into a scratch register (`x16`, `x17`, `x15`) before each use,
+//! or once for a run of uses where a register is free between them.
 
 use std::collections::{HashMap, HashSet};
 

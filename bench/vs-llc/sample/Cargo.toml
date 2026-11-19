@@ -1,0 +1,23 @@
+# A sample of crates, for comparing Epitome's code with llc's
+# (bench/vs-llc/run.sh). Not part of the workspace.
+[package]
+name = "sample"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+regex-syntax = "0.8"
+rand_chacha = "0.9"
+serde_json = "1"
+memchr = "2"
+itoa = "1"
+ryu = "1"
+base64 = "0.22"
+crc32fast = "1"
+hashbrown = "0.17"
+smallvec = "1"
+
+[profile.release]
+codegen-units = 1
+
+[workspace]

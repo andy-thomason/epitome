@@ -4301,6 +4301,17 @@ impl<'d, 'a> Lowering<'d, 'a> {
         }
         let need: HashSet<ObjId> = fixed.iter().copied().chain((0..code.len()).filter(|&k| !at[k]).flat_map(|k| r[k].iter().copied())).collect();
         let data = data_of(&at);
+        if std::env::var_os("SV_DEBUG_PORTIN").is_some() {
+            let need: HashSet<ObjId> = fixed.iter().copied().chain((0..code.len()).filter(|&k| !at[k]).flat_map(|k| r[k].iter().copied())).collect();
+            for k in 0..code.len() {
+                if let Node::PortIn(i, _) = code[k] && !at[k] {
+                    for o in &w[k] {
+                        let why: Vec<String> = (0..code.len()).filter(|&j| !at[j] && r[j].contains(o)).map(|j| format!("{:?} {}", code[j], self.describe(key, code[j]))).collect();
+                        eprintln!("{} {}: port {} needed={} fixed={} data={} by {:?}", d.name(d.spec(key.0).name), d.name(d.instance(i).name), d.name(d.object(*o).name), need.contains(o), fixed.contains(o), data.contains(o), why);
+                    }
+                }
+            }
+        }
         let at_ff: HashSet<Node> = (0..code.len()).filter(|&k| at[k]).map(|k| code[k]).collect();
         let read: HashSet<ObjId> = edges
             .iter()

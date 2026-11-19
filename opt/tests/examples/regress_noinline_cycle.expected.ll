@@ -1,12 +1,12 @@
 ; @a: recursion: 1 call(s) now push a frame on an explicit stack (values saved per frame: 1)
 ; @a: recursion: cycle not collapsed: @b is noinline
 ; @a: combine: sub_const x2
-; @a: simplifycfg: 0 unreachable blocks removed, 1 empty blocks bypassed, 0 selects made, 0 blocks merged
+; @a: simplifycfg: 0 unreachable blocks removed, 1 empty blocks bypassed, 0 selects made, 0 blocks merged, 0 edges into unreachable dropped
 ; @a: implied: 0 comparisons folded, 0 selects resolved, 1 flags set
 ; @b: recursion: 1 call(s) now push a frame on an explicit stack (values saved per frame: 1)
 ; @b: recursion: cycle not collapsed: @c is noinline
 ; @b: combine: sub_const x2
-; @b: simplifycfg: 0 unreachable blocks removed, 1 empty blocks bypassed, 0 selects made, 0 blocks merged
+; @b: simplifycfg: 0 unreachable blocks removed, 1 empty blocks bypassed, 0 selects made, 0 blocks merged, 0 edges into unreachable dropped
 ; @b: implied: 0 comparisons folded, 0 selects resolved, 1 flags set
 ; @c: sroa: 1 allocas split into 1 pieces
 ; @c: mem2reg: 1 allocas promoted (1 loads, 1 stores removed)

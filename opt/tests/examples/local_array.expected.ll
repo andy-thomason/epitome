@@ -3,7 +3,7 @@
 ; @walk: recursion: 1 accumulator call(s) now jump back to the start, folding with add
 ; @walk: combine: add_zero x1, sub_const x1
 ; @walk: rotate: 1 loops rotated
-; @walk: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged
+; @walk: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged, 0 edges into unreachable dropped
 ; @walk: indvars: loop %recur runs %n.arg times when entered
 ; @walk: indvars: 1 exact exit tests, 0 exit values, 0 counters widened
 ; @main: constcall: 1 calls worked out

@@ -54,6 +54,7 @@ pub mod memcpyopt;
 pub mod memssa;
 pub mod par;
 pub mod pipeline;
+pub mod prefold;
 pub mod ranges;
 pub mod recursion;
 pub mod rotate;

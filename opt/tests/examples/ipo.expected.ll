@@ -1,18 +1,23 @@
 ; @style: combine: sub_const x1
+; @style: implied: 0 comparisons folded, 0 selects resolved, 1 flags set
+; @style: recursion: the cycle splits into pieces of 1, 2
 ; @widen: combine: (folded) x1, br_true x1
-; @widen: simplifycfg: 1 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged
+; @widen: simplifycfg: 1 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged, 0 edges into unreachable dropped
 ; @hook: not inlined @report: noinline
 ; @hook: not inlined @report: noinline
+; @hook: inlined @widen: cost 1, bonus 12, threshold 100
+; @hook: not inlined @report: noinline
+; @hook: not inlined @report: noinline
+; @hook: combine: (dead) x1, trunc_zext_narrow x1
 ; @hook: ipo: 1 call results are the constant their callee always returns
-; @hook: ipo: inlined leaf @widen
 ; @report: not inlined @verbose: noinline
 ; @report: ipo: 1 pointer parameters promoted into 1 loaded values
 ; @report: ipo: 1 parameters are the constant every caller passes
 ; @kept: not inlined @peek: noinline
 ; @main: not inlined @hook: callee is part of a call-graph cycle
 ; @main: inlined @kept: cost 8, bonus 18, threshold 100
-; @kept: deleted, no longer used
 ; @widen: deleted, no longer used
+; @kept: deleted, no longer used
 ; @verbose: deleted, no longer used
 
 
@@ -25,7 +30,7 @@ entry:
   br i1 %big, label %again, label %done
 
 again:                                            ; preds = %entry
-  %m = add i32 %n, -1
+  %m = add nsw i32 %n, -1
   tail call void @hook(i32 %m)
   br label %done
 

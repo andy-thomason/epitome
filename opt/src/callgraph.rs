@@ -345,7 +345,7 @@ pub(crate) fn const_mentions(consts: &Constants) -> Vec<Vec<GlobalId>> {
 }
 
 /// Tarjan's algorithm, without recursion. SCCs come out callees first.
-fn tarjan(succ: &[Vec<usize>]) -> Vec<Vec<usize>> {
+pub(crate) fn tarjan(succ: &[Vec<usize>]) -> Vec<Vec<usize>> {
     let n = succ.len();
     let mut index = vec![u32::MAX; n];
     let mut low = vec![0u32; n];

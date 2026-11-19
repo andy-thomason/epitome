@@ -1,12 +1,12 @@
 ; @known: combine: (folded) x2, br_true x1
-; @known: simplifycfg: 1 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 2 blocks merged
-; @switched: combine: (switch folded) x1
-; @switched: simplifycfg: 2 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged
-; @max: simplifycfg: 1 unreachable blocks removed, 1 empty blocks bypassed, 1 selects made, 1 blocks merged
+; @known: simplifycfg: 1 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 2 blocks merged, 0 edges into unreachable dropped
+; @switched: prefold: 1 branches on constants folded, 2 blocks removed
+; @switched: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged, 0 edges into unreachable dropped
+; @max: simplifycfg: 1 unreachable blocks removed, 1 empty blocks bypassed, 1 selects made, 1 blocks merged, 0 edges into unreachable dropped
 ; @max: combine: (dead) x1
-; @clamp_low: simplifycfg: 1 unreachable blocks removed, 0 empty blocks bypassed, 1 selects made, 1 blocks merged
+; @clamp_low: simplifycfg: 1 unreachable blocks removed, 0 empty blocks bypassed, 1 selects made, 1 blocks merged, 0 edges into unreachable dropped
 ; @count: combine: (dead) x1, br_not x1
-; @count: simplifycfg: 0 unreachable blocks removed, 1 empty blocks bypassed, 0 selects made, 0 blocks merged
+; @count: simplifycfg: 0 unreachable blocks removed, 1 empty blocks bypassed, 0 selects made, 0 blocks merged, 0 edges into unreachable dropped
 
 
 define i32 @known(i32 %x) {

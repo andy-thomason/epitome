@@ -10,7 +10,7 @@
 ; @main: not inlined @never: noinline
 ; @main: not inlined @big: cost 83 - bonus 6 > threshold 0
 ; @main: combine: (dead) x2, (folded) x2, (reassociated) x1, (switch folded) x1, add_add_const x1, sub_add_add x2
-; @main: simplifycfg: 2 unreachable blocks removed, 1 empty blocks bypassed, 0 selects made, 2 blocks merged
+; @main: simplifycfg: 2 unreachable blocks removed, 1 empty blocks bypassed, 0 selects made, 2 blocks merged, 0 edges into unreachable dropped
 ; @main: implied: 0 comparisons folded, 0 selects resolved, 1 flags set
 ; @main: cse: 1 merged, 0 loads reused, 0 stores forwarded
 ; @tiny: deleted, no longer used

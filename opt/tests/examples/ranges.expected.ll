@@ -1,17 +1,17 @@
 ; @lookups: not inlined @panic_bounds_check: noinline
 ; @lookups: combine: (known bits) x3, br_true x3
-; @lookups: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 3 blocks merged
+; @lookups: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 3 blocks merged, 0 edges into unreachable dropped
 ; @lookups: implied: 1 comparisons folded, 0 selects resolved, 4 flags set
 ; @lookups: combine: (dead) x1, br_true x1
-; @lookups: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged
+; @lookups: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged, 0 edges into unreachable dropped
 ; @odd: not inlined @panic_bounds_check: noinline
 ; @odd: combine: (dead) x1, (reassociated) x1
 ; @odd: implied: 1 comparisons folded, 0 selects resolved, 3 flags set
 ; @odd: combine: (dead) x1, br_true x1
-; @odd: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged
+; @odd: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged, 0 edges into unreachable dropped
 ; @odd: rotate: 1 loops rotated
 ; @odd: combine: (dead) x1, (folded) x2, (reassociated) x1, br_true x1
-; @odd: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged
+; @odd: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged, 0 edges into unreachable dropped
 ; @odd: indvars: loop %body runs 8 times when entered
 ; @odd: indvars: 1 exact exit tests, 0 exit values, 0 counters widened
 ; @main: not inlined @lookups: noinline

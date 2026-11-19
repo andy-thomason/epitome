@@ -3201,12 +3201,19 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         let l = self.layout(lt)?;
         let (ptr, isz) = (self.ptr_t(), self.isize_t());
         let i32t = self.b.module().types.int(32);
-        // The file's name, with a NUL after it (`Location::file_as_c_str`).
-        let mut bytes = file.as_bytes().to_vec();
-        bytes.push(0);
+        // The file's name, with a NUL after it (`Location::file_as_c_str`),
+        // one for each file.
+        let fname_name = format!("location.{:016x}.file", crate::hash::fnv(file.as_bytes()));
         let m = self.b.module();
-        let init = m.const_bytes(&bytes);
-        let fname = epitome_ir::module::Global::builder(&format!("{name}.file")).init(init).constant().linkage(Linkage::Private).align(1).build(m);
+        let fname = match m.find_global(&fname_name) {
+            Some(g) => g,
+            None => {
+                let mut bytes = file.as_bytes().to_vec();
+                bytes.push(0);
+                let init = m.const_bytes(&bytes);
+                epitome_ir::module::Global::builder(&fname_name).init(init).constant().linkage(Linkage::Private).align(1).build(m)
+            }
+        };
         use epitome_ir::module::{ConstKind, Constant};
         let Value::Const(addr) = m.global_value(fname) else { return Err("a global that is not a constant".into()) };
         let len = m.consts.intern(Constant::int(&m.types, isz, file.len() as i64));

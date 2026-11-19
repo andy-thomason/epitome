@@ -1284,7 +1284,7 @@ What a program with `std` needs beyond its code:
   | before | 151 KB | 282 KB |
   | internal symbols only where named | 120 KB | 229 KB |
   | and `-C panic=immediate-abort` | 61 KB | 147 KB |
-  | panics with messages (default) | 262 KB | 520 KB |
+  | panics with messages (default) | 262 KB | 490 KB |
   | and `-C panic=immediate-abort` | 47 KB | 109 KB |
   | rustc (`-O`, its precompiled `std`) | | 458 KB |
 

@@ -1141,3 +1141,65 @@ fn profiled_by_instance() {
         assert!(p.own >= 0.0, "{}: own {} of {}", p.what, p.own, p.ticks);
     }
 }
+
+/// A block of arithmetic heavy enough to be worth a task, registered.
+const HEAVY: &str = r#"
+module heavy (input logic clk, input logic [63:0] a, output logic [63:0] q, output logic [63:0] c);
+  logic [63:0] t [8];
+  always_comb begin
+    t[0] = a * 64'h9E37_79B9_7F4A_7C15;
+    for (int k = 1; k < 8; k++) t[k] = (t[k-1] ^ (t[k-1] >> 29)) * 64'hBF58_476D_1CE4_E5B9 + 64'(k);
+  end
+  assign c = t[7];
+  always_ff @(posedge clk) q <= t[7];
+endmodule
+"#;
+
+/// Eight `heavy`s side by side (`chain` false), or each fed what the one
+/// before works out.
+fn heavies(chain: bool) -> String {
+    let mut s = String::from(HEAVY);
+    s += "module eight (input logic clk, input logic [63:0] a, output logic [511:0] q);\n  logic [63:0] c [9];\n  assign c[0] = a;\n";
+    for k in 0..8 {
+        let input = if chain { format!("c[{k}]") } else { format!("a ^ 64'd{k}") };
+        s += &format!("  heavy u{k} (.clk, .a({input}), .q(q[{k}*64 +: 64]), .c(c[{}]));\n", k + 1);
+    }
+    s + "endmodule\n"
+}
+
+#[test]
+fn steps_cut_into_tasks() {
+    // One clocked step's code, piece by piece with the bytes each reads and
+    // writes, cut into tasks: eight blocks side by side run about eight
+    // times as fast on eight threads; chained, not much faster than one.
+    let Some(host) = host() else {
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
+        return;
+    };
+    let speedup = |chain: bool| {
+        let net = netlist_with(&text("eight.sv", &heavies(chain)), "eight", host.options(1));
+        let s = &net.steps;
+        let funcs: Vec<&str> = s.calls.iter().filter(|c| c.parent.is_none()).map(|c| c.func.as_str()).collect();
+        assert_eq!(funcs, ["step settle", "step ff", "step commit", "step settle again"]);
+        for (k, it) in s.items.iter().enumerate() {
+            assert!(s.calls[it.call].items.contains(&k), "piece {k} is outside its call");
+            assert!(!it.writes.is_empty() || !it.reads.is_empty(), "piece {k} touches nothing");
+        }
+        assert!(s.calls.iter().any(|c| c.path == "u7" && c.func == "settle"));
+        let costs = epitome_sv::tasks::costs(s, &[]);
+        for budget in [50.0, 200.0, 1000.0] {
+            let g = epitome_sv::tasks::cut(s, &costs, budget, budget);
+            assert!(g.well_formed(s.items.len()), "budget {budget}");
+        }
+        let (work, plans) = epitome_sv::tasks::plans(s, &costs, &[1, 8], 2.0, 0.0, 0.0);
+        for p in &plans {
+            eprintln!("chain {chain}: {} threads, {} tasks, {} edges, span {:.0}, time {:.0} of {work:.0}", p.threads, p.tasks, p.edges, p.span, p.time);
+        }
+        assert!((plans[0].time - work).abs() < 1e-6 * work, "one thread does all the work");
+        work / plans[1].time
+    };
+    let side = speedup(false);
+    let chained = speedup(true);
+    assert!(side > 4.0, "side by side: {side:.2}x on 8 threads");
+    assert!(chained < 2.0, "chained: {chained:.2}x on 8 threads");
+}

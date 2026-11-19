@@ -17,4 +17,5 @@ pub mod sim;
 pub mod source;
 pub mod stimulus;
 pub mod synth;
+pub mod tasks;
 pub mod verilator;

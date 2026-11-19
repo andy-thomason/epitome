@@ -871,6 +871,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
             called: RefCell::default(),
             traces: RefCell::default(),
             cycles: RefCell::default(),
+            edge_canon: RefCell::default(),
             piece_prof: Cell::new(None),
             piece_names: RefCell::default(),
             codes: HashMap::new(),
@@ -1352,6 +1353,10 @@ struct Lowering<'d, 'a> {
     /// What each function of each specialisation runs, by suffix, as it
     /// was written: its own code and its calls (see [`Steps`]).
     traces: RefCell<HashMap<(Key, &'static str), Vec<Step>>>,
+    /// For each value a clocked process's edge reads whole, the first
+    /// expression that does: every process waiting on an edge of it shares
+    /// that one's slot of its last value (see [`Self::edge_expr`]).
+    edge_canon: RefCell<HashMap<ObjId, ExprId>>,
     /// For [`Netlist::loops`].
     cycles: RefCell<Vec<(String, Vec<String>)>>,
     /// With [`Options::pieces`], the global of the pieces' counters, and
@@ -2230,9 +2235,10 @@ impl<'d, 'a> Lowering<'d, 'a> {
         }
         for p in lay.ff.clone() {
             for t in self.clocked(p).unwrap().0 {
-                if !lay.prev.contains_key(&t.expr) {
+                let k = self.edge_expr(t.expr);
+                if !lay.prev.contains_key(&k) {
                     let at = lay.room_for(1, Lane::of(1, sh, planes));
-                    lay.prev.insert(t.expr, at);
+                    lay.prev.insert(k, at);
                 }
             }
         }
@@ -3552,6 +3558,16 @@ impl<'d, 'a> Lowering<'d, 'a> {
             }
         }
         (order.iter().filter(|x| !matches!(x, Node::Repeat(_) | Node::RepeatEnd)).count() == n).then_some(order)
+    }
+
+    /// The expression standing for an edge's: for a value read whole (a
+    /// clock, a reset), the first such expression, so that the processes
+    /// that wait on it share one slot of its last value and one test.
+    fn edge_expr(&self, e: ExprId) -> ExprId {
+        match self.d.expr(e).kind {
+            ExprKind::Object(o) => *self.edge_canon.borrow_mut().entry(o).or_insert(e),
+            _ => e,
+        }
     }
 
     /// Notes a group of nodes that wait on each other, for
@@ -6897,22 +6913,32 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
         let planes = self.l.opts.bit_planes;
         let mut runs = Vec::new();
         let mut seen = HashMap::new();
+        // (Processes that wait on the same edges, none qualified by
+        // `iff`, share one mask of them.)
+        let mut fires: HashMap<Vec<(bool, ExprId)>, M> = HashMap::new();
         for p in self.lay().ff.clone() {
             let (terms, body) = self.l.clocked(p).unwrap();
+            let sig: Option<Vec<(bool, ExprId)>> =
+                terms.iter().map(|t| t.iff.is_none().then(|| (matches!(t.edge, crate::design::Edge::Pos), self.l.edge_expr(t.expr)))).collect();
+            if let Some(&m) = sig.as_ref().and_then(|g| fires.get(g)) {
+                runs.push((m, body));
+                continue;
+            }
             let mut fire = M::K(false);
             for t in terms {
                 // An edge is a change of the expression's lowest bit
                 // (9.4.2).
-                let (now, before) = match seen.get(&t.expr) {
+                let key = self.l.edge_expr(t.expr);
+                let (now, before) = match seen.get(&key) {
                     Some(&x) => x,
                     None => {
                         let v = self.expr(t.expr)?;
                         let now = self.extract(&v, 0, 1);
                         let now = self.truth(&now);
-                        let at = self.lay().prev[&t.expr];
+                        let at = self.lay().prev[&key];
                         let b = self.load(Base::State(at), Lane::of(1, self.sh, planes), 1);
                         let before = self.truth(&b);
-                        seen.insert(t.expr, (now, before));
+                        seen.insert(key, (now, before));
                         (now, before)
                     }
                 };
@@ -6932,6 +6958,9 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
                     e = self.mand(e, c);
                 }
                 fire = self.mor(fire, e);
+            }
+            if let Some(g) = sig {
+                fires.insert(g, fire);
             }
             runs.push((fire, body));
         }
@@ -6961,9 +6990,30 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
             self.st(one, p, 1);
         }
         self.ff = true;
-        for (fire, body) in runs {
-            self.cond(fire, body, None)?;
+        // In scalar code, consecutive processes that wait on the same edges
+        // run behind one branch.
+        let mut k = 0;
+        while k < runs.len() {
+            let (fire, body) = runs[k];
+            let mut j = k + 1;
+            while self.sc() && matches!(fire, M::V(_)) && j < runs.len() && runs[j].0 == fire {
+                j += 1;
+            }
+            if j - k > 1 {
+                let bodies: Vec<StmtId> = runs[k..j].iter().map(|r| r.1).collect();
+                let run_all = |f: &mut Self| {
+                    for &b in &bodies {
+                        f.stmt(b)?;
+                        f.env.vals.retain(|o, _| d.object(*o).lifetime == Lifetime::Static);
+                    }
+                    Ok(())
+                };
+                self.diamond(fire, &bodies, run_all, None::<fn(&mut Self) -> Result<(), String>>)?;
+            } else {
+                self.cond(fire, body, None)?;
+            }
             self.env.vals.retain(|o, _| d.object(*o).lifetime == Lifetime::Static);
+            k = j;
         }
         self.ff = false;
         // The queued assignments, in order, each in the lanes that made it.

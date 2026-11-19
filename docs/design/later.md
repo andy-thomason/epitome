@@ -196,6 +196,19 @@ these are for after.
   instruction's memory form could be found from their bodies); stores of
   immediates made in a register first (`movq $imm, mem` has no pattern);
   switches tested case by case where llc jumps through a table.
+- **x86's vector memory operands, further** (`targets/x86_64/gen_sel.py`):
+  loads fold into SSE2's two-address operations when 16-aligned
+  (`Pattern::align`), but not into AVX's (VEX forms take any alignment,
+  and none has a memory entry for selection yet), nor at a base plus a
+  scaled index; spill reloads of vectors could be folded the same way
+  as scalars' (PR #201's pairing found from the bodies), where the slot
+  is 16-aligned. Aligned loads are `movups`, where llc writes `movdqa`
+  or `movaps` (the same length and speed; only the text differs).
+- **gen_sel.py and 10-integer.ll disagree**: entries added to
+  `10-integer.ll` by hand (`PMULLD`, AVX2's mask logic `VPAND.ym*`,
+  AVX-512's `VPMOVDB`/`VPMOVDW`/`VPMOVZX*z`, `VPMULLQ`) are not in the
+  generator, so running it drops them; new generated entries are spliced
+  in instead. The generator should write them all again.
 - **Registers chosen for encodings' size**: x86's r8-r15 need a REX
   prefix, and some instructions have shorter forms for rax (the
   descriptions' `acc:0=d` alternatives, already there); RISC-V's

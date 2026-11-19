@@ -431,7 +431,11 @@ fn mul_highs(cx: &mut Ctx, f: &mut Function) {
             };
             let signed = ext == CastOp::SExt;
             // (Already the shape, but for a vector to be split.)
-            if c == n as i64 && matches!((&nx, &ny), (Narrow::Ext(..), Narrow::Ext(..))) && split_count(cx, ty).is_none() {
+            if c == n as i64
+                && sop == BinOp::LShr
+                && matches!((&nx, &ny), (Narrow::Ext(..), Narrow::Ext(..)))
+                && split_count(cx, ty).is_none()
+            {
                 continue;
             }
             // A constant's lane must be what extending a narrow lane gives.
@@ -536,9 +540,10 @@ fn mul_highs(cx: &mut Ctx, f: &mut Function) {
     }
 }
 
-/// The instructions inside the multiply-high shapes `mul_highs` made that
-/// the description selects whole (the extensions, product and shift under
-/// a `trunc`): they are left as they are, their wide lanes never made.
+/// The instructions of the multiply-high shapes `mul_highs` made that the
+/// description selects whole (the `trunc`, and the extensions, product and
+/// shift under it): they are left as they are, their wide lanes never
+/// made.
 pub(crate) fn mul_high_insts(cx: &Ctx, f: &Function) -> std::collections::HashSet<InstId> {
     let mut out = std::collections::HashSet::new();
     let def = |v: Value| match v {
@@ -567,7 +572,7 @@ pub(crate) fn mul_high_insts(cx: &Ctx, f: &Function) -> std::collections::HashSe
         if ea != eb || !cx.selects_mul_high(ty, ea == CastOp::SExt) {
             continue;
         }
-        out.extend([sh, mul, def(x).unwrap(), def(y).unwrap()]);
+        out.extend([i, sh, mul, def(x).unwrap(), def(y).unwrap()]);
     }
     out
 }

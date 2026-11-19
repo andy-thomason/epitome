@@ -894,6 +894,16 @@ impl<'a, 'b> Sel<'a, 'b> {
         layout_next: Option<BlockId>,
     ) -> Option<Match> {
         let p = &self.t.patterns[pat];
+        // Loads as aligned as the pattern's body says (legacy SSE's memory
+        // operands).
+        if p.align > 1
+            && covered.iter().any(|&x| {
+                matches!(self.f.insts[x.index()].op, Op::Load { align, .. }
+                    if align.map_or(1, |a| a.bytes()) < p.align)
+            })
+        {
+            return None;
+        }
         let mut params: Vec<Option<Term>> = vec![None; p.params.len()];
         let mut next = None;
         for (slot, &t) in p.wild.iter().zip(binds) {

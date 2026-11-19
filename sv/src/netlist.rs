@@ -8405,6 +8405,13 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
                 if let Some(o) = self.elem_target(e) {
                     return self.elem_read(o, e);
                 }
+                // A select within an element of a value kept an element to
+                // a slot: from that element alone, not the whole value.
+                if let Some(o) = self.elem_target(x.args[0]) {
+                    let el = self.elem_read(o, x.args[0])?;
+                    let (off, w) = self.offset(e)?;
+                    return Ok(self.extract_off(&el, off, w));
+                }
                 if let Some(o) = self.in_memory(x.args[0]) {
                     let (off, w2) = self.offset(e)?;
                     if let Some((p, ok)) = self.uniform_off(off)

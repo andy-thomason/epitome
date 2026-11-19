@@ -42,7 +42,15 @@
 //! - `-o PATH`: monomorphise from the last crate's `main`, lower, optimise
 //!   with Epitome's optimiser, compile for the host with Epitome's code
 //!   generator, and link with `cc` (and libm) into the executable `PATH`. It fails if
-//!   any function of the last crate could not be lowered.
+//!   any function of the last crate could not be lowered. The libraries the
+//!   crates' `extern` blocks name with `#[link(name = "..")]` are linked
+//!   too (`kind = "framework"` as a macOS framework).
+//! - `-l [KIND=]NAME`: link with library `NAME` as well (`KIND` is
+//!   `dylib`, `static` or `framework`), after those of `#[link]`.
+//! - `-L [KIND=]DIR`: look for libraries in `DIR` (frameworks, for `KIND`
+//!   `framework`).
+//! - `-C link-arg=ARG` (and `-C link-args="A B"`): pass `ARG` to `cc` when
+//!   linking, after everything else.
 //! - `-O0`: with `-o`, do not optimise the crates given (`-C opt-level=0`).
 //! - `-C opt-level=0|1|2|3|s|z` (also `-Copt-level=..`): how much to
 //!   optimise the crates given (default 2). The standard library's crates
@@ -103,6 +111,7 @@ fn main() -> ExitCode {
     let (mut dump_mono, mut mono_stats) = (false, false);
     let (mut dump_ir, mut lower_stats) = (false, false);
     let mut output: Option<PathBuf> = None;
+    let mut link = Link::default();
     let (mut emit_obj, mut lib, mut emit_kernels) = (false, false, false);
     let mut launch_runtime = true;
     // The optimisation level of the crates given, and of crates by name.
@@ -169,11 +178,31 @@ fn main() -> ExitCode {
                     Some(p @ ("unwind" | "abort" | "immediate-abort")) => {
                         cfg.replace_value("panic", p);
                     }
+                    _ if v.starts_with("link-arg=") => link.args.push(v["link-arg=".len()..].to_string()),
+                    _ if v.starts_with("link-args=") => link.args.extend(v["link-args=".len()..].split_whitespace().map(str::to_string)),
                     _ if v.strip_prefix("opt-level=").is_some_and(level_ok) => opt_level = v["opt-level=".len()..].to_string(),
                     _ => {
                         eprintln!("error: unknown codegen option `{v}`");
                         return ExitCode::FAILURE;
                     }
+                }
+            }
+            _ if arg.starts_with("-l") => {
+                let v = if arg == "-l" { value("-l").unwrap_or_default() } else { arg[2..].to_string() };
+                // `[KIND[:MODIFIERS]=]NAME[:RENAME]`: the name to link by.
+                let (kind, name) = match v.split_once('=') {
+                    Some((k, n)) => (Some(k.split(':').next().unwrap_or(k).to_string()), n),
+                    None => (None, v.as_str()),
+                };
+                let name = name.rsplit(':').next().unwrap_or(name).to_string();
+                link.libs.push(epitome_rustc2::session::NativeLib { name, kind });
+            }
+            _ if arg.starts_with("-L") => {
+                let v = if arg == "-L" { value("-L").unwrap_or_default() } else { arg[2..].to_string() };
+                match v.split_once('=') {
+                    Some(("framework", d)) => link.frameworks.push(PathBuf::from(d)),
+                    Some(("dependency" | "crate" | "native" | "all", d)) => link.dirs.push(PathBuf::from(d)),
+                    _ => link.dirs.push(PathBuf::from(v)),
                 }
             }
             _ if arg.starts_with("--cfg") => {
@@ -402,7 +431,7 @@ fn main() -> ExitCode {
                     }
                 }
                 let path = PathBuf::from(format!("{}.{name}.o", out.display()));
-                if let Err(e) = build(&mut lowered.module, machine.target, &path, Some(epitome_opt::inline::OptLevel::O2), true) {
+                if let Err(e) = build(&mut lowered.module, machine.target, &path, Some(epitome_opt::inline::OptLevel::O2), true, &Link::default()) {
                     eprintln!("error: {name}: {e}");
                     return ExitCode::FAILURE;
                 }
@@ -506,7 +535,12 @@ fn main() -> ExitCode {
                             }
                         }
                     }
-                    if let Err(e) = build(&mut lowered.module, target, out, level, emit_obj) {
+                    // The crates' own libraries, then those given.
+                    let mut link = link.clone();
+                    let mut libs = session.native_libs(&crates);
+                    libs.append(&mut link.libs);
+                    link.libs = libs;
+                    if let Err(e) = build(&mut lowered.module, target, out, level, emit_obj, &link) {
                         eprintln!("error: {e}");
                         return ExitCode::FAILURE;
                     }
@@ -613,16 +647,27 @@ fn item_crate(r: &epitome_rustc2::resolve::Resolver, it: epitome_rustc2::mono::I
     Some(r.defs[d.0 as usize].krate)
 }
 
+/// What linking adds to the object file: libraries, where to look for
+/// them, and arguments for `cc`.
+#[derive(Clone, Debug, Default)]
+struct Link {
+    libs: Vec<epitome_rustc2::session::NativeLib>,
+    dirs: Vec<PathBuf>,
+    frameworks: Vec<PathBuf>,
+    args: Vec<String>,
+}
+
 /// Optimises `m` (at `level`, for the functions without a level of their
 /// own; not at all if `None`), compiles it for `target` and writes the
-/// object file, then links it with `cc` into `out` (unless `emit_obj`, when
-/// the object file is `out`).
+/// object file, then links it with `cc` into `out`, with what `link` adds
+/// (unless `emit_obj`, when the object file is `out`).
 fn build(
     m: &mut epitome_ir::Module,
     target: epitome_rustc2::lower::Target,
     out: &Path,
     level: Option<epitome_opt::inline::OptLevel>,
     emit_obj: bool,
+    link: &Link,
 ) -> Result<(), String> {
     if let Some(level) = level {
         epitome_opt::pipeline::run(m, &epitome_opt::pipeline::Options { level, ..Default::default() });
@@ -641,9 +686,37 @@ fn build(
     if emit_obj {
         return Ok(());
     }
+    let mut cc = std::process::Command::new("cc");
+    cc.arg(&obj_path).arg("-o").arg(out);
+    for d in &link.dirs {
+        cc.arg("-L").arg(d);
+    }
+    for d in &link.frameworks {
+        cc.arg("-F").arg(d);
+    }
+    let darwin = target.triple.contains("apple");
+    for lib in &link.libs {
+        match lib.kind.as_deref() {
+            // What `cc` links anyway (macOS's libSystem, which `std`
+            // names), and libm, which goes last.
+            _ if (darwin && lib.name == "System") || lib.name == "m" => {}
+            Some("framework") if darwin => {
+                cc.arg("-framework").arg(&lib.name);
+            }
+            Some("framework" | "raw-dylib") => {}
+            // A static library's archive, wherever a shared one is too.
+            Some("static") if !darwin => {
+                cc.arg("-Wl,-Bstatic").arg(format!("-l{}", lib.name)).arg("-Wl,-Bdynamic");
+            }
+            _ => {
+                cc.arg(format!("-l{}", lib.name));
+            }
+        }
+    }
     // libm: Epitome's code generator calls `floorf`, `fma` and their
     // kin where the machine has no instruction for them.
-    let status = std::process::Command::new("cc").arg(&obj_path).arg("-o").arg(out).arg("-lm").status();
+    cc.arg("-lm").args(&link.args);
+    let status = cc.status();
     let _ = std::fs::remove_file(&obj_path);
     match status {
         Ok(s) if s.success() => Ok(()),

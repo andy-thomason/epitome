@@ -835,7 +835,39 @@ any other; then each is defined.
   first, so a caller may pass the address of a place it still uses). A
   result in memory is written through a pointer passed first. A trait
   method resolves to the impl's by the same code monomorphisation uses.
-  `extern "C"` functions take and give scalars only, for now.
+- **The C convention.** Functions of the C ABI (declared in `extern`
+  blocks, defined as `extern "C" fn`, and called through `extern "C" fn`
+  pointers; `"C-unwind"` and `"system"` are the same here) pass scalars as
+  ours do, and aggregates as C does, from the layout's scalars and their
+  offsets (every variant's of an enum, every field's of a union):
+  `Cx::c_pass` gives each argument and the result a `Pass`, as clang's IR
+  has them, and the code generator turns those into registers and stack.
+  - x86-64 (System V): an aggregate of up to 16 bytes, its fields at
+    their alignment, has each eightbyte classed SSE if all it holds is
+    floating-point, INTEGER otherwise, and is passed as one IR argument
+    per eightbyte (`double`, or `float` for the last four bytes; an
+    integer of the bytes left, rounded up to a power of two), and
+    returned as one value, a struct of them (`{ i64, double }`) for two.
+    One whose eightbytes do not fit in the integer and SSE registers
+    still free (six and eight, less what the arguments before it took)
+    goes on the stack whole, as a larger one does: a pointer with
+    `byval`, whose bytes the code generator copies to the argument area.
+    A larger result is written at an address passed first (`sret`),
+    which the callee gives back (in `rax`).
+  - AArch64 (AAPCS64, Apple's): a homogeneous floating-point aggregate
+    (one to four of `f32` or of `f64`, filling it) is `[N x float]`, in
+    floating-point registers; any other up to 16 bytes is `i64` or
+    `[2 x i64]` (`i128` when 16-byte aligned), in integer registers; a
+    larger one is passed by the address of a copy the caller makes, and
+    a larger result written at an address passed in `x8` (`sret`).
+
+  A value passed in pieces is copied to a slot with room for them (a
+  3-byte struct passes as an `i32`), loaded from there piece by piece
+  (arrays element by element, then `insertvalue`); one received in pieces
+  is stored to such a slot and used from there. Aggregates of `f16` or
+  `f128`, aggregates as variadic arguments, RISC-V's convention, and
+  extending small integers to 32 bits as Apple's and System V's callers
+  do are not done yet.
 - **Control flow.** `if` (with `let` chains), `loop` and labelled blocks
   with `break` values, `while` and `while let`, `for` through
   `IntoIterator::into_iter` and `Iterator::next`, `?` through
@@ -1212,6 +1244,29 @@ where the machine has no instruction for them, as LLVM does; rustc's
 builds get these from `compiler-builtins`). `-O0` leaves out the optimiser, and `--emit=obj` writes the object
 file instead of linking. It fails if any function of the program's own
 crate could not be lowered (one of `core`'s only traps if it is reached).
+
+The link also takes the native libraries the crates name
+(`Session::native_libs`): each `#[link(name = "..")]` on an `extern`
+block of the expanded trees (so after `cfg` and `cfg_attr`), unless its
+own `cfg(..)` is false, the program's crate's first and each once.
+`kind = "framework"` is `-framework NAME` on macOS, `kind = "static"` is
+`-l` between `-Bstatic` and `-Bdynamic` on Linux, `raw-dylib` (Windows)
+is left out, and anything else is `-lNAME`; macOS's `System` and libm,
+which `cc` links anyway, are not repeated. As for rustc, `-l
+[KIND=]NAME` adds a library after those, `-L [KIND=]DIR` a directory to
+look in (`-F` for `framework`), and `-C link-arg=ARG` (or `-C
+link-args="A B"`) an argument for `cc` after everything else.
+
+`tests/c_vs_rustc.rs` builds each C file of `tests/c/` (`NAME.c` into
+`libcNAME.a` and `NAME.o`) and each program there with
+`epitome-rustc2 --std` (optimised and not) and rustc, with `-L` for that
+directory and any arguments a `//@ link:` line gives, and compares their
+output: `structs.rs` passes and returns structs of sixteen shapes to C,
+several at once until they spill to the stack, has C call back into
+`extern "C" fn`s, by pointer and by name, and calls them through
+`extern "C" fn` pointers; `link.rs` links with `-l static=`, `-L
+native=`, `-C link-arg=` and (on macOS) a framework. It runs on x86-64
+Linux and AArch64 macOS.
 
 ```sh
 $B -o prog $L/core/src/lib.rs prog.rs && ./prog

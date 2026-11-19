@@ -568,6 +568,86 @@ fn scan_into<'s>(
 }
 
 /// The attributes of an item, as (name, node).
+/// A native library a crate links with: `#[link(name = "m")]` on an
+/// `extern` block, and its `kind` (`"static"`, `"framework"`, ...).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NativeLib {
+    pub name: String,
+    pub kind: Option<String>,
+}
+
+impl Session {
+    /// The native libraries the `extern` blocks of `crates` link with, each
+    /// once: the last crate's (the program's) first, then those it uses;
+    /// those whose own `cfg(..)` does not hold left out.
+    pub fn native_libs(&self, crates: &[ParsedCrate]) -> Vec<NativeLib> {
+        let mut out = Vec::new();
+        for c in crates.iter().rev() {
+            for f in &c.files {
+                let ast = &f.ast;
+                let mut stack = vec![ast.root];
+                while let Some(n) = stack.pop() {
+                    if ast.kind(n) == Kind::ExternBlock {
+                        for (name, a) in attributes(ast, n) {
+                            if name == "link"
+                                && let Some(lib) = self.link_attribute(ast, a)
+                                && !out.contains(&lib)
+                            {
+                                out.push(lib);
+                            }
+                        }
+                    }
+                    stack.extend(ast.children(n).iter().rev());
+                }
+            }
+        }
+        out
+    }
+
+    /// The library `#[link(name = "..", kind = "..", cfg(..))]` names, if
+    /// it names one and its `cfg` holds.
+    fn link_attribute(&self, ast: &Ast, a: NodeId) -> Option<NativeLib> {
+        let tt = ast.child(a, Kind::TokenTree)?;
+        let toks = ast.tokens_of(tt);
+        let inner = toks.get(1..toks.len().checked_sub(1)?)?;
+        let (mut name, mut kind) = (None, None);
+        // Each `key = "value"` or `cfg(..)`, between commas outside
+        // brackets.
+        let mut depth = 0;
+        let mut start = 0;
+        for i in 0..=inner.len() {
+            match inner.get(i).map(|t| t.0) {
+                Some("(" | "[" | "{") => depth += 1,
+                Some(")" | "]" | "}") => depth -= 1,
+                Some(",") | None if depth == 0 => {
+                    let part = &inner[start..i];
+                    start = i + 1;
+                    match part {
+                        [Token("cfg"), Token("("), cond @ .., Token(")")] => {
+                            if let Some(cfg) = &self.options.cfg
+                                && !cfg.eval(cond, Token("")).unwrap_or(false)
+                            {
+                                return None;
+                            }
+                        }
+                        [Token(key), Token("="), Token(value)] => {
+                            let v = crate::cfg::string_value(value).to_string();
+                            match *key {
+                                "name" => name = Some(v),
+                                "kind" => kind = Some(v),
+                                _ => {}
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+        }
+        Some(NativeLib { name: name?, kind })
+    }
+}
+
 pub(crate) fn attributes<'p>(ast: &'p Ast, item: NodeId) -> impl Iterator<Item = (String, NodeId)> + 'p {
     ast.children(item).iter().copied().filter(move |&a| ast.kind(a) == Kind::Attribute).filter_map(move |a| {
         let path = ast.child(a, Kind::Path)?;

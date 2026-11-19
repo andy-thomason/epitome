@@ -414,7 +414,7 @@ fn signature<'s>(tcx: &TyCtxt<'s>, env: &Env<'_, 's>, d: DefId) -> Option<SigOut
                 match ast.kind(c) {
                     Kind::Keyword if ast.token(c).0 == "unsafe" => unsafety = true,
                     Kind::Abi => {
-                        abi = if crate::cfg::string_value(ast.token(c).0) == "C" { Abi::C } else { Abi::Other }
+                        abi = Abi::named(crate::cfg::string_value(ast.token(c).0))
                     }
                     Kind::Params => {
                         for &p in ast.children(c) {

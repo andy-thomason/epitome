@@ -1775,6 +1775,9 @@ impl<'d, 'a> Lowering<'d, 'a> {
         if self.arrays.contains_key(&i) || d.spec(c).ports.iter().any(|p| p.object.is_none() || !matches!(p.dir, Dir::Input | Dir::Output)) {
             return Ok(false);
         }
+        if std::env::var_os("SV_NO_FLAT").is_some() {
+            return Ok(false);
+        }
         let current = self.flattening.last().cloned().unwrap_or_default();
         if current.contains(&c) || self.flattening.len() > FLAT_DEPTH {
             return Ok(false);
@@ -4155,7 +4158,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         };
         idle
         };
-        self.layouts.get_mut(&key).unwrap().idle_ports = idle;
+        self.layouts.get_mut(&key).unwrap().idle_ports = if std::env::var_os("SV_NO_IDLE").is_some() { HashSet::new() } else { idle };
         let lay = &self.layouts[&key];
         if !lay.clocked {
             return;
@@ -4306,6 +4309,8 @@ impl<'d, 'a> Lowering<'d, 'a> {
             .filter_map(|p| p.object)
             .filter(|o| read.contains(o) && !need.contains(o) && !data.contains(o))
             .collect();
+        let at_ff = if std::env::var_os("SV_NO_AT_FF").is_some() { HashSet::new() } else { at_ff };
+        let clock_ports = if std::env::var_os("SV_NO_AT_FF").is_some() { HashSet::new() } else { clock_ports };
         let lay = self.layouts.get_mut(&key).unwrap();
         lay.at_ff = at_ff;
         lay.clock_ports = clock_ports;

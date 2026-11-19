@@ -169,7 +169,7 @@ are those the subtraction had. This is what llc does (its prologues have
 | | bytes, bench/vs-llc scalar crates | std hello world |
 |---|---|---|
 | before | 364,323 (1.240x llc) | 214,913 |
-| after | 363,338 (1.237x llc) | see the PR |
+| after | 363,338 (1.237x llc) | 214,545 |
 
 **Not done: push and pop of spills and constant temporaries.** At most
 0.8% of the crates' code before the costs above (alignment at calls,

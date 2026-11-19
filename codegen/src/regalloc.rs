@@ -1662,33 +1662,23 @@ fn lower_copies(t: &Target, f: &mut MFunc) -> Result<(), String> {
 /// and the spill loads and stores weighted by their blocks' frequencies.
 pub fn count(t: &Target, f: &MFunc, first_slot: usize) -> (u64, u64, u64, u64) {
     let freq = block_freqs(f);
-    let m = &t.machine;
-    let spill_ops: Vec<(usize, usize)> = (0..m.classes.len())
-        .filter_map(|c| {
-            let n = &m.def(crate::target::Class(c as u8)).name;
-            t.role(&format!("load.{n}")).zip(t.role(&format!("store.{n}")))
-        })
-        .collect();
-    let mut copies: HashSet<usize> = t.copies.values().copied().collect();
-    let names: Vec<&String> = m.classes.iter().map(|c| &c.name).collect();
-    for a in &names {
-        for b in &names {
-            copies.extend(t.role(&format!("move.{a}.{b}")));
-        }
-    }
+    // Spill loads and stores by their roles (`load.x`, `store.x`), and
+    // moves between files (`move.d.x`) as well as copies within one.
+    let role = |k: usize, prefix: &str| t.instrs[k].role.as_deref().is_some_and(|r| r.split(',').any(|x| x.starts_with(prefix)));
+    let copies: HashSet<usize> = t.copies.values().copied().collect();
     let (mut loads, mut stores, mut moves, mut weighted) = (0, 0, 0, 0.0);
     for (bi, inst) in f.blocks.iter().enumerate().flat_map(|(bi, b)| b.insts.iter().map(move |i| (bi, i))) {
         let Opcode::Instr(k) = inst.op else { continue };
         if let [MOp::Reg(_), MOp::Reg(_), MOp::Frame(s, 0)] = inst.ops[..]
             && s >= first_slot
         {
-            let (ld, st) = (spill_ops.iter().any(|o| o.0 == k), spill_ops.iter().any(|o| o.1 == k));
+            let (ld, st) = (role(k, "load."), role(k, "store."));
             loads += ld as u64;
             stores += st as u64;
             if ld || st {
                 weighted += freq[bi];
             }
-        } else if copies.contains(&k)
+        } else if (copies.contains(&k) || role(k, "move."))
             && let [MOp::Reg(_), MOp::Reg(_)] = inst.ops[..]
         {
             moves += 1;

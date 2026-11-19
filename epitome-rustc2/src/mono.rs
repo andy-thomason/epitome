@@ -67,7 +67,8 @@ pub struct MonoItems {
 }
 
 impl Session {
-    /// The items the `roots` need, transitively.
+    /// The items the `roots` need, transitively, with every body already
+    /// type checked.
     pub fn collect_mono_items<'s>(
         &'s self,
         crates: &[ParsedCrate<'s>],
@@ -77,11 +78,77 @@ impl Session {
         typeck: &TypeckResults,
         roots: Vec<Item>,
     ) -> MonoItems {
-        let seen: Mutex<FastSet<Item>> = Mutex::new(roots.iter().copied().collect());
-        let unresolved: Mutex<FastMap<String, usize>> = Mutex::new(FastMap::default());
+        let mut c = Collect::new(tcx, &roots);
+        c.round(self, crates, r, tcx, index, typeck, roots, false);
+        c.finish()
+    }
+
+    /// The items the `roots` need, type checking only the bodies they
+    /// reach: an item whose body (or the body that says what an `impl
+    /// Trait` it uses is) has not been checked waits, and the bodies the
+    /// waiting items need are checked together, in parallel, before the
+    /// next round. `typeck` starts empty (`TypeckResults::empty`) or with
+    /// what is already checked.
+    pub fn collect_mono_items_lazily<'s>(
+        &'s self,
+        crates: &[ParsedCrate<'s>],
+        r: &Resolver<'s>,
+        tcx: &TyCtxt<'s>,
+        index: &Index<'s>,
+        typeck: &mut TypeckResults,
+        roots: Vec<Item>,
+    ) -> MonoItems {
+        let mut c = Collect::new(tcx, &roots);
+        let mut pending = roots;
+        while !pending.is_empty() {
+            let (waiting, needs) = c.round(self, crates, r, tcx, index, typeck, pending, true);
+            let needs: Vec<DefId> = needs.into_iter().filter(|d| !typeck.checked.contains(d)).collect();
+            if needs.is_empty() {
+                // Nothing more to check: what still waits is walked as it is.
+                c.round(self, crates, r, tcx, index, typeck, waiting, false);
+                break;
+            }
+            self.typeck_owners(crates, r, tcx, index, &needs, typeck);
+            pending = waiting;
+        }
+        c.finish()
+    }
+}
+
+/// What monomorphisation has found so far.
+struct Collect {
+    seen: FastSet<Item>,
+    unresolved: FastMap<String, usize>,
+    uses: usize,
+    drops: crate::drops::DropInfo,
+}
+
+impl Collect {
+    fn new(tcx: &TyCtxt, roots: &[Item]) -> Collect {
+        Collect { seen: roots.iter().copied().collect(), unresolved: FastMap::default(), uses: 0, drops: crate::drops::DropInfo::new(tcx) }
+    }
+
+    /// Walks `items` and everything they lead to. With `lazy`, an item
+    /// whose body is not checked yet waits: the items that wait, and the
+    /// bodies they need checked.
+    #[allow(clippy::too_many_arguments)]
+    fn round<'s>(
+        &mut self,
+        session: &'s Session,
+        crates: &[ParsedCrate<'s>],
+        r: &Resolver<'s>,
+        tcx: &TyCtxt<'s>,
+        index: &Index<'s>,
+        typeck: &TypeckResults,
+        items: Vec<Item>,
+        lazy: bool,
+    ) -> (Vec<Item>, Vec<DefId>) {
+        let seen: Mutex<&mut FastSet<Item>> = Mutex::new(&mut self.seen);
+        let unresolved: Mutex<&mut FastMap<String, usize>> = Mutex::new(&mut self.unresolved);
         let uses = std::sync::atomic::AtomicUsize::new(0);
-        let drops = crate::drops::DropInfo::new(tcx);
-        pool::run(self.threads(), roots, |item, q| {
+        let waiting: Mutex<(Vec<Item>, FastSet<DefId>)> = Mutex::new((Vec::new(), FastSet::default()));
+        let drops = &self.drops;
+        pool::run(session.threads(), items, |item, q| {
             let mut w = Walk {
                 tcx,
                 r,
@@ -90,9 +157,17 @@ impl Session {
                 solver: Solver::new(tcx, r, crates, index),
                 found: Vec::new(),
                 unresolved: FastMap::default(),
-                drops: &drops,
+                drops,
+                lazy,
+                needs: Vec::new(),
             };
             w.item(item);
+            if !w.needs.is_empty() {
+                let mut wt = waiting.lock().unwrap();
+                wt.0.push(item);
+                wt.1.extend(w.needs);
+                return;
+            }
             uses.fetch_add(w.found.len(), std::sync::atomic::Ordering::Relaxed);
             {
                 let mut seen = seen.lock().unwrap();
@@ -107,11 +182,20 @@ impl Session {
                 *u.entry(k).or_default() += v;
             }
         });
-        let mut items: Vec<Item> = seen.into_inner().unwrap().into_iter().collect();
+        self.uses += uses.into_inner();
+        let (mut items, needs) = waiting.into_inner().unwrap();
         items.sort();
-        let mut unresolved: Vec<(String, usize)> = unresolved.into_inner().unwrap().into_iter().collect();
+        let mut needs: Vec<DefId> = needs.into_iter().collect();
+        needs.sort();
+        (items, needs)
+    }
+
+    fn finish(self) -> MonoItems {
+        let mut items: Vec<Item> = self.seen.into_iter().collect();
+        items.sort();
+        let mut unresolved: Vec<(String, usize)> = self.unresolved.into_iter().collect();
         unresolved.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-        MonoItems { items, uses: uses.into_inner(), unresolved }
+        MonoItems { items, uses: self.uses, unresolved }
     }
 }
 
@@ -176,14 +260,67 @@ struct Walk<'a, 's> {
     found: Vec<Item>,
     unresolved: FastMap<String, usize>,
     drops: &'a crate::drops::DropInfo,
+    /// Whether to wait for bodies not checked yet (`needs`) rather than
+    /// walk without them.
+    lazy: bool,
+    /// The bodies this item needs checked before it can be walked.
+    needs: Vec<DefId>,
 }
 
 impl<'a, 's> Walk<'a, 's> {
+    /// Notes that the item needs the body of `d` checked, if it is not.
+    fn need(&mut self, d: DefId) -> bool {
+        if self.lazy && !self.typeck.checked.contains(&d) {
+            self.needs.push(d);
+            return true;
+        }
+        false
+    }
+
+    /// Notes the bodies that would say what each `impl Trait` in `t` is,
+    /// where none has yet.
+    fn need_hidden(&mut self, t: Ty) {
+        if !self.lazy {
+            return;
+        }
+        let tcx = self.tcx;
+        let mut stack = vec![t];
+        while let Some(t) = stack.pop() {
+            match tcx.kind(t) {
+                TyKind::Opaque(o, l) => {
+                    if !self.typeck.hidden.contains_key(&o) {
+                        let owner = tcx.opaque(o).owner;
+                        self.need(owner);
+                    }
+                    stack.extend(tcx.tys(l));
+                }
+                TyKind::Adt(_, l) | TyKind::Tuple(l) | TyKind::FnDef(_, l) | TyKind::Projection(_, l) | TyKind::Closure(_, _, l) => stack.extend(tcx.tys(l)),
+                TyKind::Ref(_, x) | TyKind::Ptr(_, x) | TyKind::Slice(x) | TyKind::Array(x, _) | TyKind::Pat(x, ..) => stack.push(x),
+                TyKind::FnPtr(s) => {
+                    let s = tcx.sig_of(s);
+                    stack.extend(tcx.tys(s.inputs));
+                    stack.push(s.output);
+                }
+                _ => {}
+            }
+        }
+    }
+
     fn miss(&mut self, why: String) {
         *self.unresolved.entry(why).or_default() += 1;
     }
 
     fn item(&mut self, item: Item) {
+        // A body not checked yet: the item waits for it.
+        let owner = match item {
+            Item::Fn(d, _) | Item::Const(d, _) | Item::Static(d) => Some(d),
+            _ => None,
+        };
+        if let Some(d) = owner
+            && self.need(d)
+        {
+            return;
+        }
         match item {
             Item::Fn(d, args) => self.body(d, args),
             Item::Const(d, args) => self.body(d, args),
@@ -295,7 +432,9 @@ impl<'a, 's> Walk<'a, 's> {
     }
 
     fn sub(&mut self, t: Ty, params: &[crate::ty::ParamId], args: &[Ty]) -> Ty {
-        sub(self.tcx, &self.typeck.hidden, &mut self.solver, t, params, args)
+        let t = sub(self.tcx, &self.typeck.hidden, &mut self.solver, t, params, args);
+        self.need_hidden(t);
+        t
     }
 
     fn sub_list(&mut self, l: List, params: &[crate::ty::ParamId], args: &[Ty]) -> Vec<Ty> {
@@ -611,6 +750,8 @@ pub(crate) fn instance(r: &Resolver, crates: &[ParsedCrate], tcx: &TyCtxt, solve
     match kind {
         DefKind::ForeignFn => Resolved::Item(Item::Foreign(d)),
         DefKind::Const => Resolved::Item(Item::Const(d, tcx.list(args))),
+        // An inherent impl's constant is itself; a trait's, the impl's.
+        DefKind::AssocConst if trait_of(r, d).is_none() => Resolved::Item(Item::Const(d, tcx.list(args))),
         DefKind::AssocConst => match solver.resolve_method(d, &args) {
             Some((c, a)) => Resolved::Item(Item::Const(c, tcx.list(a))),
             None => Resolved::NoImpl,
@@ -830,5 +971,29 @@ mod tests {
             dump.lines().any(|l| l.starts_with("closure @") && l.ends_with("in program::adder")),
             "no closure of adder in:\n{dump}"
         );
+    }
+
+    /// Checking only the bodies monomorphisation reaches finds the same
+    /// items as checking every body first, with far fewer bodies checked.
+    #[test]
+    fn lazy_type_checking_finds_the_same_items() {
+        let Some(core) = core_src() else {
+            eprintln!("no rust-src: skipped");
+            return;
+        };
+        let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/mono/program.rs");
+        let session = Session::new(Options { threads: 4, cfg: Some(crate::cfg::CfgSet::host()), ..Default::default() });
+        let mut crates = session.parse_crates(vec![CrateRoot::new("core", core), CrateRoot::new("program", &file)]);
+        session.expand(&mut crates);
+        let r = session.resolve(&crates);
+        let tcx = session.collect_types(&crates, &r);
+        let index = crate::typeck::Index::new(&tcx, &r);
+        let all = session.typeck_with(&crates, &r, &tcx, &index);
+        let roots = super::roots(&r, &tcx, &crates, 1, false);
+        let eager = session.collect_mono_items(&crates, &r, &tcx, &index, &all, roots.clone());
+        let mut some = crate::typeck::TypeckResults::empty(&crates);
+        let lazy = session.collect_mono_items_lazily(&crates, &r, &tcx, &index, &mut some, roots);
+        assert_eq!(eager.dump(&r, &tcx), lazy.dump(&r, &tcx));
+        assert!(some.stats.bodies * 10 < all.stats.bodies, "{} of {} bodies checked", some.stats.bodies, all.stats.bodies);
     }
 }

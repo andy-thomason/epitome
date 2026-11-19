@@ -766,8 +766,22 @@ finding a new one adds a job.
   monomorphisation puts that in its place. `impl Trait` as a parameter
   is a generic parameter of its own, after the written ones, so callers
   choose it as they do the others.
+- **Only reachable bodies are type checked.** A build starts with no
+  body checked, and monomorphisation checks bodies as it reaches them,
+  in rounds: an item whose body (a function, constant or static) is not
+  checked yet waits, as does one that needs an `impl Trait`'s hidden type
+  from an owner not checked yet; the bodies the waiting items need are
+  checked together on the pool, and those items are walked again. A
+  `std` hello world checks 2,040 bodies of 40,093, in 0.1 s instead of
+  2.9 s on a Mac, and builds in 2.9 s (13 s of CPU) instead of 5.1 s
+  (38 s). `--typeck-stats` and `--dump-types` still check everything, as
+  does a build with `EPITOME_TYPECK_ALL` set. (Checking everything also
+  wrongly gives a closure in an item nested in a function, such as a
+  `const _`, to the function, which makes items for it that are never
+  used.)
 - `--dump-mono` prints the items, `--mono-stats` counts them and what
-  could not be resolved (all of it with `EPITOME_MONO_ALL` set).
+  could not be resolved (all of it with `EPITOME_MONO_ALL` set), and how
+  many bodies were type checked.
 
 From every non-generic function of `core` with a body (on mandelbrot):
 28,688 items from 54,624 uses, in 0.1 s. 43 uses (0.1%) are not

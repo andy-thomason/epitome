@@ -538,6 +538,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let hidden_vars = std::mem::take(&mut self.hidden);
         let hidden: Vec<(crate::ty::OpaqueId, Ty)> = hidden_vars.into_iter().map(|(o, v)| (o, fin(&mut self, v))).collect();
         BodyResult {
+            owner: self.owner,
             hidden,
             closures: std::mem::take(&mut self.closures).into_iter().map(|c| (c, self.owner)).collect(),
             captures,
@@ -1539,9 +1540,18 @@ impl<'a, 's> FnCtxt<'a, 's> {
                                     || matches!(self.ast.kind(a), Kind::Literal | Kind::Unary | Kind::Block)
                             })
                             .collect();
+                        let count = written.len();
                         for (i, a) in written.into_iter().enumerate() {
                             if i < args.len() {
                                 args[i] = self.written_arg(a);
+                            }
+                        }
+                        // Those not written take their defaults:
+                        // `RawVec::<T>` is `RawVec<T, Global>`.
+                        let defaults = tcx.generics[d.0 as usize].defaults.clone();
+                        for i in count..args.len() {
+                            if let Some(Some(t)) = defaults.get(i) {
+                                args[i] = subst(tcx, *t, &all, &args);
                             }
                         }
                     }

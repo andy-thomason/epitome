@@ -5561,11 +5561,6 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
                 spans.push((p, n));
             }
         }
-        let words: u64 = spans.iter().map(|&(_, n)| n.div_ceil(8)).sum();
-        let scratch = (words > 0).then(|| {
-            let ty = self.b.module().types.array(words, self.t.i64);
-            self.b.alloca(ty)
-        });
         let (prev, lp) = (self.block, self.new_block("repeat"));
         self.b.br(lp);
         self.enter(lp);
@@ -5573,37 +5568,22 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
         let c = self.b.phi(self.t.i64, &[(zero, prev)]);
         // (Each span a word at a time, and its last bytes one at a time.)
         let units = |n: u64| -> Vec<(u64, bool)> { (0..n / 8).map(|w| (8 * w, true)).chain((8 * (n / 8)..n).map(|b| (b, false))).collect() };
-        if let Some(sc) = scratch {
-            let mut at = 0;
-            for &(p, n) in &spans {
-                for (off, word) in units(n) {
-                    let ty = if word { self.t.i64 } else { self.t.i8 };
-                    let src = self.off(p, off);
-                    let x = self.ld(ty, src, 1);
-                    let dst = self.off(sc, at);
-                    self.st(x, dst, 1);
-                    at += if word { 8 } else { 1 };
-                }
+        // (What the pass starts from, as values: the loop's head comes
+        // before all of the pass, so they reach its end.)
+        let mut before = Vec::new();
+        for &(p, n) in &spans {
+            for (off, word) in units(n) {
+                let ty = if word { self.t.i64 } else { self.t.i8 };
+                let a = self.off(p, off);
+                before.push((ty, a, self.ld(ty, a, 1)));
             }
         }
         self.body(inner)?;
-        let mut changed = self.b.const_int(self.t.i1, 0);
-        if let Some(sc) = scratch {
-            let mut at = 0;
-            for &(p, n) in &spans {
-                for (off, word) in units(n) {
-                    let ty = if word { self.t.i64 } else { self.t.i8 };
-                    let a = self.off(p, off);
-                    let x = self.ld(ty, a, 1);
-                    let b = self.off(sc, at);
-                    let y = self.ld(ty, b, 1);
-                    let ne = self.b.icmp(ICmpPred::Ne, x, y);
-                    changed = self.b.or(changed, ne);
-                    at += if word { 8 } else { 1 };
-                }
-            }
-        } else {
-            changed = self.b.const_int(self.t.i1, 1);
+        let mut changed = self.b.const_int(self.t.i1, before.is_empty() as i64);
+        for (ty, a, y) in before {
+            let x = self.ld(ty, a, 1);
+            let ne = self.b.icmp(ICmpPred::Ne, x, y);
+            changed = self.b.or(changed, ne);
         }
         let one = self.i64k(1);
         let next = self.b.add(c, one);

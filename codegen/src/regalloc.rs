@@ -11,9 +11,11 @@
 //! and every caller-saved register at each call. Values live across a call
 //! therefore end up in callee-saved registers. Copies give hints, so that a
 //! copy's two sides often share a register and the copy disappears.
-//! Before that, the two sides of a copy whose live ranges never meet are
-//! made one value (coalescing); where the allocation then spills, the one
-//! without coalescing is made too, and the smaller kept.
+//! Before that, copies into values nothing reads go, and the two sides of
+//! a copy whose live ranges never meet, or meet holding the same value
+//! (neither written where the other is live), are made one value
+//! (coalescing); where the allocation then spills, the one without
+//! coalescing is made too, and the smaller kept.
 //!
 //! Lists of registers (`st2 {z3.s, z4.s}`) are placed before anything
 //! else: selection copies each member into a value of its own, the list's
@@ -25,8 +27,9 @@
 //!
 //! When no register is free, a value may take one from values that are
 //! cheaper to spill: those whose uses are sparser over their ranges (their
-//! weight, uses and definitions over length, is less), which then try
-//! again (each is moved so at most once). Otherwise the value goes to a
+//! weight, uses and definitions over length, is less; a quarter of that
+//! for a constant or address, made again at each use if spilled), which
+//! then try again (each is moved so at most once). Otherwise the value goes to a
 //! stack slot and is stored after each definition, so that memory always
 //! has it. Its range is then split by blocks: a register free for all of
 //! its stretch in a block may hold it there, chosen where the reads it

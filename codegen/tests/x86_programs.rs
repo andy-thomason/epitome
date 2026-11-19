@@ -49,7 +49,7 @@ const PROGRAMS: &[&str] = &[
 ];
 
 /// And those of `tests/x86`, for x86 alone (`long double` is x87's).
-const X86_PROGRAMS: &[&str] = &["fminmax", "ldouble", "vecops"];
+const X86_PROGRAMS: &[&str] = &["fminmax", "ldouble", "vecops", "lanes"];
 
 fn run(cmd: &mut Command) -> Result<String, String> {
     let out = cmd.output().map_err(|e| format!("{cmd:?}: {e}"))?;

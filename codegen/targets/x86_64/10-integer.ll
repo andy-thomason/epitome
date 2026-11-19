@@ -409,6 +409,35 @@ define void @STI8(i8 "reg"="r32" %t, ptr "reg"="r64" %n, i64 "imm" %off) "enc"="
   ret void
 }
 
+; Bit scans: the number of the lowest set bit (bsf, trailing zeros) or the
+; highest (bsr: `llvm.epitome.highbit`, ctlz xor 31 or 63), of a nonzero
+; value; for zero the result is undefined (preparation selects the width
+; there where it must).
+define i32 @BSF32(i32 "reg"="r32" %n) "enc"="rex(0, d, 0, n) | 00001111 | 10111100 | rr(d, n)" "asm"="bsfl {n}, {d}" "clobbers"="flags" "nodecode" {
+  %r = call i32 @llvm.cttz.i32(i32 %n, i1 true)
+  ret i32 %r
+}
+
+define i64 @BSF64(i64 "reg"="r64" %n) "enc"="rex(1, d, 0, n) | 00001111 | 10111100 | rr(d, n)" "asm"="bsfq {n}, {d}" "clobbers"="flags" "nodecode" {
+  %r = call i64 @llvm.cttz.i64(i64 %n, i1 true)
+  ret i64 %r
+}
+
+define i32 @BSR32(i32 "reg"="r32" %n) "enc"="rex(0, d, 0, n) | 00001111 | 10111101 | rr(d, n)" "asm"="bsrl {n}, {d}" "clobbers"="flags" "nodecode" {
+  %r = call i32 @llvm.epitome.highbit.i32(i32 %n)
+  ret i32 %r
+}
+
+define i64 @BSR64(i64 "reg"="r64" %n) "enc"="rex(1, d, 0, n) | 00001111 | 10111101 | rr(d, n)" "asm"="bsrq {n}, {d}" "clobbers"="flags" "nodecode" {
+  %r = call i64 @llvm.epitome.highbit.i64(i64 %n)
+  ret i64 %r
+}
+
+declare i32 @llvm.epitome.highbit.i32(i32)
+declare i64 @llvm.epitome.highbit.i64(i64)
+declare i32 @llvm.cttz.i32(i32, i1)
+declare i64 @llvm.cttz.i64(i64, i1)
+
 define void @STP(ptr "reg"="r64" %t, ptr "reg"="r64" %n, i64 "imm" %off) "enc"="rex(1, t, 4, n) | 10001001 | rm(t, n, 4, 1, off, 0, 1)" "asm"="movq {t}, {off}({n})" "nodecode" {
   %a = getelementptr i8, ptr %n, i64 %off
   store ptr %t, ptr %a
@@ -3358,6 +3387,13 @@ define <16 x i1> @PXOR.m16(<16 x i1> "reg"="xv" "tied" %n, <16 x i1> "reg"="xv" 
   ret <16 x i1> %r
 }
 
+; A mask's bits as an integer: its lanes' top bits. A mask of 16 lanes in
+; an xmm register, or 32 in a ymm one, is of bytes (no lane is narrower).
+define i16 @PMOVMSKB.m16(<16 x i1> "reg"="xv" %n) "enc"="01100110 | rex(0, d, 0, n) | 00001111 | 11010111 | 11 reg:3=d&7 rm:3=n&7" "asm"="pmovmskb {n}, {d}" "dclass"="r32" "zext"="16" "feature"="sse2" "nodecode" {
+  %r = bitcast <16 x i1> %n to i16
+  ret i16 %r
+}
+
 define <8 x i1> @PAND.m8(<8 x i1> "reg"="xv" "tied" %n, <8 x i1> "reg"="xv" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 11011011 | rr(d, m)" "asm"="pand {m}, {d}" "dclass"="xv" "nodecode" {
   %r = and <8 x i1> %n, %m
   ret <8 x i1> %r
@@ -5665,6 +5701,11 @@ define <32 x i8> @VPXOR.32xi8(<32 x i8> "reg"="yv" %n, <32 x i8> "reg"="yv" %m) 
 define <32 x i1> @VPAND.ym32(<32 x i1> "reg"="yv" %n, <32 x i1> "reg"="yv" %m) "enc"="{ if(m<8) vex(d, 0, m, 1, 0, n, 1, 1) | 11011011 | 11 reg:3=d&7 rm:3=m&7 ; if(n<8) vex(d, 0, n, 1, 0, m, 1, 1) | 11011011 | 11 reg:3=d&7 rm:3=n&7 ; vex(d, 0, m, 1, 0, n, 1, 1) | 11011011 | 11 reg:3=d&7 rm:3=m&7 ; vex(d, 0, n, 1, 0, m, 1, 1) | 11011011 | 11 reg:3=d&7 rm:3=n&7 }" "asm"="vpand {m}, {n}, {d}" "dclass"="yv" "feature"="avx2" "nodecode" {
   %r = and <32 x i1> %n, %m
   ret <32 x i1> %r
+}
+
+define i32 @VPMOVMSKB.ym32(<32 x i1> "reg"="yv" %n) "enc"="vex(d, 0, n, 1, 0, 0, 1, 1) | 11010111 | 11 reg:3=d&7 rm:3=n&7" "asm"="vpmovmskb {n}, {d}" "dclass"="r32" "feature"="avx2" "nodecode" {
+  %r = bitcast <32 x i1> %n to i32
+  ret i32 %r
 }
 
 define <32 x i1> @VPOR.ym32(<32 x i1> "reg"="yv" %n, <32 x i1> "reg"="yv" %m) "enc"="{ if(m<8) vex(d, 0, m, 1, 0, n, 1, 1) | 11101011 | 11 reg:3=d&7 rm:3=m&7 ; if(n<8) vex(d, 0, n, 1, 0, m, 1, 1) | 11101011 | 11 reg:3=d&7 rm:3=n&7 ; vex(d, 0, m, 1, 0, n, 1, 1) | 11101011 | 11 reg:3=d&7 rm:3=m&7 ; vex(d, 0, n, 1, 0, m, 1, 1) | 11101011 | 11 reg:3=d&7 rm:3=n&7 }" "asm"="vpor {m}, {n}, {d}" "dclass"="yv" "feature"="avx2" "nodecode" {
@@ -14188,6 +14229,49 @@ define <4 x float> @X86.sse.min.ss(<4 x float> "reg"="xv" "tied" %a0, <4 x float
 
 declare <4 x float> @llvm.x86.sse.min.ss(<4 x float>, <4 x float>)
 
+; The movemask intrinsics: each lane's top bit.
+define i32 @X86.sse2.pmovmskb.128(<16 x i8> "reg"="xv" %a0) "enc"="01100110 | rex(0, d, 0, a0) | 00001111 | 11010111 | 11 reg:3=d&7 rm:3=a0&7" "asm"="pmovmskb {a0}, {d}" "dclass"="r32" "feature"="sse2" "nodecode" {
+  %r = call i32 @llvm.x86.sse2.pmovmskb.128(<16 x i8> %a0)
+  ret i32 %r
+}
+
+declare i32 @llvm.x86.sse2.pmovmskb.128(<16 x i8>)
+
+define i32 @X86.avx2.pmovmskb(<32 x i8> "reg"="yv" %a0) "enc"="vex(d, 0, a0, 1, 0, 0, 1, 1) | 11010111 | 11 reg:3=d&7 rm:3=a0&7" "asm"="vpmovmskb {a0}, {d}" "dclass"="r32" "feature"="avx2" "nodecode" {
+  %r = call i32 @llvm.x86.avx2.pmovmskb(<32 x i8> %a0)
+  ret i32 %r
+}
+
+declare i32 @llvm.x86.avx2.pmovmskb(<32 x i8>)
+
+define i32 @X86.sse.movmsk.ps(<4 x float> "reg"="xv" %a0) "enc"="rex(0, d, 0, a0) | 00001111 | 01010000 | 11 reg:3=d&7 rm:3=a0&7" "asm"="movmskps {a0}, {d}" "dclass"="r32" "feature"="sse" "nodecode" {
+  %r = call i32 @llvm.x86.sse.movmsk.ps(<4 x float> %a0)
+  ret i32 %r
+}
+
+declare i32 @llvm.x86.sse.movmsk.ps(<4 x float>)
+
+define i32 @X86.sse2.movmsk.pd(<2 x double> "reg"="xv" %a0) "enc"="01100110 | rex(0, d, 0, a0) | 00001111 | 01010000 | 11 reg:3=d&7 rm:3=a0&7" "asm"="movmskpd {a0}, {d}" "dclass"="r32" "feature"="sse2" "nodecode" {
+  %r = call i32 @llvm.x86.sse2.movmsk.pd(<2 x double> %a0)
+  ret i32 %r
+}
+
+declare i32 @llvm.x86.sse2.movmsk.pd(<2 x double>)
+
+define i32 @X86.avx.movmsk.ps.256(<8 x float> "reg"="yv" %a0) "enc"="vex(d, 0, a0, 1, 0, 0, 1, 0) | 01010000 | 11 reg:3=d&7 rm:3=a0&7" "asm"="vmovmskps {a0}, {d}" "dclass"="r32" "feature"="avx" "nodecode" {
+  %r = call i32 @llvm.x86.avx.movmsk.ps.256(<8 x float> %a0)
+  ret i32 %r
+}
+
+declare i32 @llvm.x86.avx.movmsk.ps.256(<8 x float>)
+
+define i32 @X86.avx.movmsk.pd.256(<4 x double> "reg"="yv" %a0) "enc"="vex(d, 0, a0, 1, 0, 0, 1, 1) | 01010000 | 11 reg:3=d&7 rm:3=a0&7" "asm"="vmovmskpd {a0}, {d}" "dclass"="r32" "feature"="avx" "nodecode" {
+  %r = call i32 @llvm.x86.avx.movmsk.pd.256(<4 x double> %a0)
+  ret i32 %r
+}
+
+declare i32 @llvm.x86.avx.movmsk.pd.256(<4 x double>)
+
 define <4 x float> @X86.sse.rcp.ps(<4 x float> "reg"="xv" %a0) "enc"="rex(0, d, 0, a0) | 00001111 | 01010011 | 11 reg:3=d&7 rm:3=a0&7" "asm"="rcpps {a0}, {d}" "dclass"="xv" "feature"="sse" "nodecode" {
   %r = call <4 x float> @llvm.x86.sse.rcp.ps(<4 x float> %a0)
   ret <4 x float> %r
@@ -14565,6 +14649,76 @@ define <8 x i16> @X86.ssse3.pmul.hr.sw.128(<8 x i16> "reg"="xv" "tied" %a0, <8 x
 }
 
 declare <8 x i16> @llvm.x86.ssse3.pmul.hr.sw.128(<8 x i16>, <8 x i16>)
+
+; Permutations of four lanes by an immediate (`legalize::permuted_shuffles`):
+; lane j of each four is lane (k >> 2j) & 3 of those four; of 16-bit lanes,
+; of the low four or the high four, the others kept.
+define <4 x i32> @PERMUTE4.4xi32(<4 x i32> "reg"="xv" %v, i64 "imm" %k) "enc"="01100110 | rex(0, d, 0, v) | 00001111 | 01110000 | rr(d, v) | ib:8=k" "asm"="pshufd ${k}, {v}, {d}" "dclass"="xv" "feature"="sse2" "nodecode" {
+  %r = call <4 x i32> @llvm.epitome.permute4.v4i32(<4 x i32> %v, i64 %k)
+  ret <4 x i32> %r
+}
+
+declare <4 x i32> @llvm.epitome.permute4.v4i32(<4 x i32>, i64)
+
+define <8 x i32> @PERMUTE4.8xi32(<8 x i32> "reg"="yv" %v, i64 "imm" %k) "enc"="vex(d, 0, v, 1, 0, 0, 1, 1) | 01110000 | 11 reg:3=d&7 rm:3=v&7 | ib:8=k" "asm"="vpshufd ${k}, {v}, {d}" "dclass"="yv" "feature"="avx2" "nodecode" {
+  %r = call <8 x i32> @llvm.epitome.permute4.v8i32(<8 x i32> %v, i64 %k)
+  ret <8 x i32> %r
+}
+
+declare <8 x i32> @llvm.epitome.permute4.v8i32(<8 x i32>, i64)
+
+define <8 x i16> @PERMUTE4LO.8xi16(<8 x i16> "reg"="xv" %v, i64 "imm" %k) "enc"="11110010 | rex(0, d, 0, v) | 00001111 | 01110000 | rr(d, v) | ib:8=k" "asm"="pshuflw ${k}, {v}, {d}" "dclass"="xv" "feature"="sse2" "nodecode" {
+  %r = call <8 x i16> @llvm.epitome.permute4lo.v8i16(<8 x i16> %v, i64 %k)
+  ret <8 x i16> %r
+}
+
+declare <8 x i16> @llvm.epitome.permute4lo.v8i16(<8 x i16>, i64)
+
+define <8 x i16> @PERMUTE4HI.8xi16(<8 x i16> "reg"="xv" %v, i64 "imm" %k) "enc"="11110011 | rex(0, d, 0, v) | 00001111 | 01110000 | rr(d, v) | ib:8=k" "asm"="pshufhw ${k}, {v}, {d}" "dclass"="xv" "feature"="sse2" "nodecode" {
+  %r = call <8 x i16> @llvm.epitome.permute4hi.v8i16(<8 x i16> %v, i64 %k)
+  ret <8 x i16> %r
+}
+
+declare <8 x i16> @llvm.epitome.permute4hi.v8i16(<8 x i16>, i64)
+
+; Windows of bytes (`legalize::permuted_shuffles`): of two vectors, bytes s
+; to s + 15 of the two together (lo first); of one, its bytes shifted up or
+; down by n, zeros in.
+define <16 x i8> @WINDOW16.16xi8(<16 x i8> "reg"="xv" "tied" %hi, <16 x i8> "reg"="xv" %lo, i64 "imm" %s) "enc"="01100110 | rex(0, d, 0, lo) | 00001111 | 00111010 | 00001111 | 11 reg:3=d&7 rm:3=lo&7 | ib:8=s" "asm"="palignr ${s}, {lo}, {d}" "dclass"="xv" "feature"="ssse3" "nodecode" {
+  %r = call <16 x i8> @llvm.epitome.window16.v16i8(<16 x i8> %lo, <16 x i8> %hi, i64 %s)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.epitome.window16.v16i8(<16 x i8>, <16 x i8>, i64)
+
+define <16 x i8> @SHLBYTES.16xi8(<16 x i8> "reg"="xv" "tied" %x, i64 "imm" %n) "enc"="01100110 | rex(0, 0, 0, d) | 00001111 | 01110011 | rr(7, d) | ib:8=n" "asm"="pslldq ${n}, {d}" "dclass"="xv" "feature"="sse2" "nodecode" {
+  %r = call <16 x i8> @llvm.epitome.shlbytes.v16i8(<16 x i8> %x, i64 %n)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.epitome.shlbytes.v16i8(<16 x i8>, i64)
+
+define <16 x i8> @SHRBYTES.16xi8(<16 x i8> "reg"="xv" "tied" %x, i64 "imm" %n) "enc"="01100110 | rex(0, 0, 0, d) | 00001111 | 01110011 | rr(3, d) | ib:8=n" "asm"="psrldq ${n}, {d}" "dclass"="xv" "feature"="sse2" "nodecode" {
+  %r = call <16 x i8> @llvm.epitome.shrbytes.v16i8(<16 x i8> %x, i64 %n)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.epitome.shrbytes.v16i8(<16 x i8>, i64)
+
+; A permutation of bytes within each 16 (`legalize::permuted_shuffles`).
+define <16 x i8> @PERMUTE16.16xi8(<16 x i8> "reg"="xv" "tied" %t, <16 x i8> "reg"="xv" %i) "enc"="01100110 | rex(0, d, 0, i) | 00001111 | 00111000 | 00000000 | 11 reg:3=d&7 rm:3=i&7" "asm"="pshufb {i}, {d}" "dclass"="xv" "feature"="ssse3" "nodecode" {
+  %r = call <16 x i8> @llvm.epitome.permute16.v16i8(<16 x i8> %t, <16 x i8> %i)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.epitome.permute16.v16i8(<16 x i8>, <16 x i8>)
+
+define <32 x i8> @PERMUTE16.32xi8(<32 x i8> "reg"="yv" %t, <32 x i8> "reg"="yv" %i) "enc"="vex(d, 0, i, 2, 0, t, 1, 1) | 00000000 | 11 reg:3=d&7 rm:3=i&7" "asm"="vpshufb {i}, {t}, {d}" "dclass"="yv" "feature"="avx2" "nodecode" {
+  %r = call <32 x i8> @llvm.epitome.permute16.v32i8(<32 x i8> %t, <32 x i8> %i)
+  ret <32 x i8> %r
+}
+
+declare <32 x i8> @llvm.epitome.permute16.v32i8(<32 x i8>, <32 x i8>)
 
 define <16 x i8> @X86.ssse3.pshuf.b.128(<16 x i8> "reg"="xv" "tied" %a0, <16 x i8> "reg"="xv" %a1) "enc"="01100110 | rex(0, d, 0, a1) | 00001111 | 00111000 | 00000000 | 11 reg:3=d&7 rm:3=a1&7" "asm"="pshufb {a1}, {d}" "dclass"="xv" "feature"="ssse3" "nodecode" {
   %r = call <16 x i8> @llvm.x86.ssse3.pshuf.b.128(<16 x i8> %a0, <16 x i8> %a1)

@@ -28,6 +28,9 @@ const EXPANDED: &[&str] = &[
     "pattern_type",
     "direct_const_arg",
     "assert",
+    "core_panic",
+    "std_panic",
+    "unreachable",
     "format_args",
     "format_args_nl",
     "const_format_args",
@@ -56,10 +59,6 @@ const LEFT: &[&str] = &[
     "cfg_accessible",
     "cfg_eval",
     "alloc_error_handler",
-    "core_panic",
-    "std_panic",
-    "unreachable_2015",
-    "unreachable_2021",
     "contract_requires",
     "contract_ensures",
     "autodiff_forward",
@@ -82,6 +81,8 @@ pub struct Context<'c, 's> {
     pub crate_name: &'c str,
     /// The crate's index in the session.
     pub krate: usize,
+    /// The edition the call is written in.
+    pub edition: crate::lexer::Edition,
 }
 
 impl<'c, 's> Context<'c, 's> {
@@ -222,6 +223,25 @@ pub fn expand<'s>(cx: &Context<'_, 's>, name: &str, input: &[Token<'s>]) -> Resu
         }
         "format_args" | "const_format_args" | "format_args_nl" => {
             super::format::format_args(cx, input, name == "format_args_nl")
+        }
+        // `panic!` and `unreachable!`: `core`'s macro for the edition of
+        // the call (`panic_2015!` or `panic_2021!`), as rustc expands them.
+        // `std`'s `panic_2015!` is its own (any payload, through
+        // `begin_panic`); its `panic_2021!` is `core`'s.
+        "core_panic" | "std_panic" | "unreachable" => {
+            let old = cx.edition < crate::lexer::Edition::E2021;
+            let path = match (name, old) {
+                ("core_panic", true) => "::core::panic::panic_2015!",
+                ("std_panic", true) => "::std::panic::panic_2015!",
+                ("unreachable", true) => "::core::panic::unreachable_2015!",
+                ("unreachable", false) => "::core::panic::unreachable_2021!",
+                _ => "::core::panic::panic_2021!",
+            };
+            let mut out = cx.text("<panic!>", path.to_string())?;
+            out.push(Token("("));
+            out.extend_from_slice(input);
+            out.push(Token(")"));
+            Ok(Some(out))
         }
         // `assert!(c)`: `if !(c) { ::core::panicking::panic("assertion
         // failed: c") }`, as rustc expands it; with a message,

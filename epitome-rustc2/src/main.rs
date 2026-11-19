@@ -204,7 +204,10 @@ fn main() -> ExitCode {
             }
         }
         for (n, v) in epitome_rustc2::sysroot::std_cfg() {
-            cfg.set_value(n, v);
+            match v {
+                Some(v) => cfg.set_value(n, v),
+                None => cfg.set(n),
+            };
         }
         options.env.extend(epitome_rustc2::sysroot::std_env(std::env::consts::ARCH));
     }

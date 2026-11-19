@@ -629,13 +629,16 @@ fn declare_intrinsics(m: &mut Module) -> Intrinsics {
     }
 }
 
-/// Deletes internal functions with no remaining references, and unused
-/// intrinsic declarations. Deleting a function removes its calls, which can
-/// leave its callees unused in turn, so this works through a list.
-/// Returns the names of the deleted functions, intrinsics aside.
+/// Deletes the internal functions and variables nothing can reach, and
+/// unused intrinsic declarations. What is kept is found from the globals
+/// other modules can see (and those named by metadata), through what each
+/// function's body and each variable's initialiser mentions, so a vtable
+/// that nothing uses goes with the functions only it named. Returns the
+/// names of the deleted functions, intrinsics aside.
 ///
 /// Deleting a function with a body is an elective change of that function
-/// (autochop); declarations go without asking.
+/// (autochop); one refused is kept, with what it mentions. Variables and
+/// declarations go without asking.
 fn delete_dead_functions(
     m: &mut Module,
     threads: usize,
@@ -643,50 +646,95 @@ fn delete_dead_functions(
     chop_index: &[usize],
 ) -> Vec<String> {
     let cg = CallGraph::build(m, threads);
-    let mut calls = cg.call_sites.clone();
-    let deletable = |n: usize| -> bool {
-        let global = m.global(cg.nodes[n]);
+    let mentions = crate::callgraph::const_mentions(&m.consts);
+    let n = m.globals.len();
+    // What each global mentions.
+    let mut edges: Vec<Vec<GlobalId>> = vec![Vec::new(); n];
+    for &g in &m.global_order {
+        let consts: Vec<ConstId> = match &m.global(g).kind {
+            GlobalKind::Variable(v) => v.init.into_iter().collect(),
+            GlobalKind::Alias { aliasee, .. } => vec![*aliasee],
+            GlobalKind::IFunc { resolver, .. } => vec![*resolver],
+            GlobalKind::Function(f) => [f.prefix, f.prologue, f.personality].into_iter().flatten().collect(),
+            GlobalKind::Forward => vec![],
+        };
+        let e = &mut edges[g.index()];
+        consts.iter().for_each(|c| e.extend_from_slice(&mentions[c.index()]));
+        if let Some(i) = cg.node(g) {
+            e.extend(cg.callees[i].iter().map(|&j| cg.nodes[j]));
+            e.extend_from_slice(&cg.refs[i]);
+        }
+    }
+    let deletable = |g: GlobalId| -> bool {
+        let global = m.global(g);
         let local = matches!(global.props.linkage, Linkage::Internal | Linkage::Private);
-        let intrinsic = global.name.as_deref().is_some_and(|s| s.starts_with("llvm."));
-        let GlobalKind::Function(f) = &global.kind else { return false };
-        !cg.address_taken[n] && !cg.has_blockaddress[n] && (local || (intrinsic && !f.has_body))
-    };
-    let mut dead = vec![false; cg.nodes.len()];
-    let mut work: Vec<usize> = (0..cg.nodes.len()).filter(|&n| calls[n] == 0 && deletable(n)).collect();
-    while let Some(n) = work.pop() {
-        if dead[n] {
-            continue;
-        }
-        let g = cg.nodes[n];
-        if let GlobalKind::Function(f) = &m.global(g).kind
-            && f.has_body
-            && chop_index[g.index()] != usize::MAX
-        {
-            let _counted = chop.enter(chop_index[g.index()]);
-            let name = m.global(g).name.clone().unwrap_or_default();
-            if !epitome_ir::chop::allow(|| format!("delete @{name}, no longer used")) {
-                continue;
+        let blockaddress = cg.node(g).is_some_and(|i| cg.has_blockaddress[i]);
+        match &global.kind {
+            GlobalKind::Function(f) => {
+                let intrinsic = global.name.as_deref().is_some_and(|s| s.starts_with("llvm."));
+                !blockaddress && (local || (intrinsic && !f.has_body))
             }
+            GlobalKind::Variable(_) => local,
+            _ => false,
         }
-        dead[n] = true;
-        for &c in &cg.sites[n] {
-            calls[c] -= 1;
-            if calls[c] == 0 && !dead[c] && deletable(c) {
-                work.push(c);
+    };
+    let mut live = vec![false; n];
+    let mut work: Vec<GlobalId> = m.global_order.iter().copied().filter(|&g| !deletable(g)).collect();
+    // Globals metadata names.
+    for node in &m.metadata {
+        let mut values = Vec::new();
+        match &node.data {
+            Metadata::Value(v) => values.push(*v),
+            Metadata::Node { fields, .. } => fields.iter().for_each(|f| {
+                if let MdFieldValue::Value(v) = f.value {
+                    values.push(v)
+                }
+            }),
+            _ => {}
+        }
+        for v in values {
+            if let Value::Const(c) = v {
+                work.extend_from_slice(&mentions[c.index()]);
             }
         }
     }
+    let mut asked = vec![false; n];
+    loop {
+        while let Some(g) = work.pop() {
+            if !std::mem::replace(&mut live[g.index()], true) {
+                work.extend(edges[g.index()].iter().copied().filter(|h| !live[h.index()]));
+            }
+        }
+        // A function with a body that autochop will not let go is kept.
+        for &g in &m.global_order {
+            if live[g.index()] || asked[g.index()] {
+                continue;
+            }
+            asked[g.index()] = true;
+            if let GlobalKind::Function(f) = &m.global(g).kind
+                && f.has_body
+                && chop_index[g.index()] != usize::MAX
+            {
+                let _counted = chop.enter(chop_index[g.index()]);
+                let name = m.global(g).name.clone().unwrap_or_default();
+                if !epitome_ir::chop::allow(|| format!("delete @{name}, no longer used")) {
+                    work.push(g);
+                }
+            }
+        }
+        if work.is_empty() {
+            break;
+        }
+    }
     let mut deleted = Vec::new();
-    for (n, &g) in cg.nodes.iter().enumerate() {
-        if dead[n] {
+    for &g in &m.global_order {
+        if !live[g.index()] && matches!(m.global(g).kind, GlobalKind::Function(_)) {
             let name = m.global(g).name.clone().unwrap_or_default();
             if !name.starts_with("llvm.") {
                 deleted.push(name);
             }
         }
     }
-    let mut gone = vec![false; m.globals.len()];
-    cg.nodes.iter().enumerate().filter(|&(n, _)| dead[n]).for_each(|(_, g)| gone[g.index()] = true);
-    m.global_order.retain(|g| !gone[g.index()]);
+    m.global_order.retain(|g| live[g.index()]);
     deleted
 }

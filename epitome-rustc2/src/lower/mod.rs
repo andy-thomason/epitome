@@ -308,12 +308,16 @@ impl<'a, 's> Cx<'a, 's> {
     fn c_passes(&self, m: &mut Module, abi: &mut FnAbi) -> Result<(), String> {
         use epitome_ir::types::Type;
         let mut solver = self.solver();
+        let sysv = self.sysv();
         if abi.ret == Repr::Mem {
             abi.pass_ret = self.c_pass(&mut solver, m, abi.output)?;
+            // System V's callee gives back the address it wrote at.
+            if let Pass::Indirect { byval, .. } = &mut abi.pass_ret {
+                *byval = sysv;
+            }
         }
         // System V: an aggregate whose eightbytes do not all fit in the
         // registers left goes on the stack whole, as if it were larger.
-        let sysv = self.sysv();
         let (mut gp, mut sse): (usize, usize) = (6 - matches!(abi.pass_ret, Pass::Indirect { .. }) as usize, 8);
         for i in 0..abi.args.len() {
             match abi.args[i] {

@@ -212,7 +212,8 @@ these are for after.
   `vpshufd`), `pshuflw`/`pshufhw`, or, with SSSE3, `pshufb` by a constant
   (`llvm.epitome.permute16`, within each 16 bytes); two-vector windows of
   bytes are `pslldq`/`psrldq` against zeros, else `palignr`; and bit scans
-  `bsf`/`bsr` (with a `cmov` where zero must give the width). Over
+  `bsf`/`bsr` (`llvm.epitome.highbit`, with a `cmov` where zero must give
+  the width). Over
   `bench/vs-llc`'s vector crates, against llc's instructions: memchr 7,634
   against 5,674 (from 50,602), rand_chacha 4,753 against 2,442 (from
   70,411), crc32fast 2,457 against 1,303, hashbrown 137 against 120. Left:

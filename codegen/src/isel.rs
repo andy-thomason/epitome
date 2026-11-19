@@ -700,16 +700,8 @@ impl<'a, 'b> Sel<'a, 'b> {
             }
             // The vector length (SVE's), which reads nothing that changes
             // within a function's mode: into a multiple of it (`rdvl x0,
-            // #1` of `vscale << 4`). And bit counts, which only compute
-            // (x86's bsr of `ctlz xor 31`).
-            op @ Op::Call(c) => {
-                self.is_vscale(op)
-                    || prepare::callee_name(self.cx.m, c).is_some_and(|n| {
-                        ["llvm.ctlz.", "llvm.cttz.", "llvm.ctpop.", "llvm.bswap.", "llvm.bitreverse."]
-                            .iter()
-                            .any(|p| n.starts_with(p))
-                    })
-            }
+            // #1` of `vscale << 4`).
+            op @ Op::Call(_) => self.is_vscale(op),
             op => !side_effects(op) && !matches!(op, Op::Alloca { .. }),
         }
     }

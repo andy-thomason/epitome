@@ -5448,37 +5448,29 @@ fn expand_intrinsics(cx: &mut Ctx, f: &mut Function) {
                     continue;
                 }
             }
-            // Where the description counts only nonzero inputs (x86's bsf,
-            // and bsr, whose bit number is ctlz xor w - 1): the count of a
-            // nonzero input (ctlz's xor'ed twice, the inner pair bsr), and
-            // for zero, where it is not poison, the width.
-            let poison_form = |cx: &Ctx| {
-                scalar && !cx.selects_intrinsic_with(&name, 0) && cx.selects_intrinsic_with(&name, -1)
-            };
-            if (base == "llvm.ctlz" || base == "llvm.cttz") && args.len() == 2 && poison_form(cx) {
+            // Where the description counts only nonzero inputs (x86's bsf
+            // for cttz, and bsr, the highest set bit's number, of which
+            // ctlz is xor w - 1): the count of a nonzero input, and for
+            // zero, where it is not poison, the width.
+            let highbit = format!("llvm.epitome.highbit.i{bits}");
+            let nonzero_form = scalar
+                && args.len() == 2
+                && !cx.selects_intrinsic_with(&name, 0)
+                && (base == "llvm.cttz" && cx.selects_intrinsic_with(&name, -1)
+                    || base == "llvm.ctlz" && cx.selects_intrinsic(&highbit));
+            if nonzero_form {
                 let zero_poison = cx.const_int(args[1]).is_some_and(|v| v != 0);
-                let top = cx.int(ty, i64::from(bits) - 1);
-                // (ctlz's already made so: its one use the xor.)
-                let made = base == "llvm.ctlz" && zero_poison && {
-                    let mut users = s.f.insts_in_order().filter(|&j| {
-                        let mut u = false;
-                        s.f.insts[j.index()].op.for_each_value(|v| u |= *v == Value::Local(r));
-                        u
-                    });
-                    matches!((users.next(), users.next()), (Some(j), None)
-                        if matches!(s.f.insts[j.index()].op, Op::Binary { op: BinOp::Xor, rhs, .. } if rhs == top))
-                };
-                if base == "llvm.cttz" && zero_poison || made {
+                if base == "llvm.cttz" && zero_poison {
                     k += 1;
                     continue;
                 }
-                let yes = cx.int(i1, 1);
-                let count = call_intrinsic(cx, &mut s, &name, vec![args[0], yes], ty);
-                let count = if base == "llvm.ctlz" {
-                    let bit = s.bin(BinOp::Xor, count, top, ty);
-                    s.bin(BinOp::Xor, bit, top, ty)
+                let count = if base == "llvm.cttz" {
+                    let yes = cx.int(i1, 1);
+                    call_intrinsic(cx, &mut s, &name, vec![args[0], yes], ty)
                 } else {
-                    count
+                    let top = cx.int(ty, i64::from(bits) - 1);
+                    let bit = call_intrinsic(cx, &mut s, &highbit, vec![args[0]], ty);
+                    s.bin(BinOp::Xor, bit, top, ty)
                 };
                 let v = if zero_poison {
                     count

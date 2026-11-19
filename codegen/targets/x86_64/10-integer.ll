@@ -410,8 +410,9 @@ define void @STI8(i8 "reg"="r32" %t, ptr "reg"="r64" %n, i64 "imm" %off) "enc"="
 }
 
 ; Bit scans: the number of the lowest set bit (bsf, trailing zeros) or the
-; highest (bsr, ctlz xor 31 or 63), of a nonzero value; the result is
-; undefined for zero (preparation selects the width there where it must).
+; highest (bsr: `llvm.epitome.highbit`, ctlz xor 31 or 63), of a nonzero
+; value; for zero the result is undefined (preparation selects the width
+; there where it must).
 define i32 @BSF32(i32 "reg"="r32" %n) "enc"="rex(0, d, 0, n) | 00001111 | 10111100 | rr(d, n)" "asm"="bsfl {n}, {d}" "clobbers"="flags" "nodecode" {
   %r = call i32 @llvm.cttz.i32(i32 %n, i1 true)
   ret i32 %r
@@ -423,21 +424,19 @@ define i64 @BSF64(i64 "reg"="r64" %n) "enc"="rex(1, d, 0, n) | 00001111 | 101111
 }
 
 define i32 @BSR32(i32 "reg"="r32" %n) "enc"="rex(0, d, 0, n) | 00001111 | 10111101 | rr(d, n)" "asm"="bsrl {n}, {d}" "clobbers"="flags" "nodecode" {
-  %c = call i32 @llvm.ctlz.i32(i32 %n, i1 true)
-  %r = xor i32 %c, 31
+  %r = call i32 @llvm.epitome.highbit.i32(i32 %n)
   ret i32 %r
 }
 
 define i64 @BSR64(i64 "reg"="r64" %n) "enc"="rex(1, d, 0, n) | 00001111 | 10111101 | rr(d, n)" "asm"="bsrq {n}, {d}" "clobbers"="flags" "nodecode" {
-  %c = call i64 @llvm.ctlz.i64(i64 %n, i1 true)
-  %r = xor i64 %c, 63
+  %r = call i64 @llvm.epitome.highbit.i64(i64 %n)
   ret i64 %r
 }
 
+declare i32 @llvm.epitome.highbit.i32(i32)
+declare i64 @llvm.epitome.highbit.i64(i64)
 declare i32 @llvm.cttz.i32(i32, i1)
 declare i64 @llvm.cttz.i64(i64, i1)
-declare i32 @llvm.ctlz.i32(i32, i1)
-declare i64 @llvm.ctlz.i64(i64, i1)
 
 define void @STP(ptr "reg"="r64" %t, ptr "reg"="r64" %n, i64 "imm" %off) "enc"="rex(1, t, 4, n) | 10001001 | rm(t, n, 4, 1, off, 0, 1)" "asm"="movq {t}, {off}({n})" "nodecode" {
   %a = getelementptr i8, ptr %n, i64 %off

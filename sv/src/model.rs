@@ -258,8 +258,6 @@ pub struct Model {
     pub eval: unsafe extern "C" fn(*mut u8),
     /// Each function's name and bytes of machine code.
     pub functions: Vec<(String, u64)>,
-    /// With `netlist::Options::profile`, its counters (else null).
-    pub prof: *mut i64,
     pub times: BuildTimes,
     /// The code `eval` is in.
     _code: Option<Loaded>,
@@ -267,17 +265,27 @@ pub struct Model {
     cross: Option<unsafe extern "C" fn(*mut u8)>,
 }
 
-/// The cycle counter the netlist's profile calls on x86-64 (where it is a
-/// function, not inline assembly).
+/// The cycle counter a netlist's profile calls ([`TICKS`]): the time-stamp
+/// counter on x86-64, the virtual counter on AArch64.
 #[cfg(target_arch = "x86_64")]
 extern "C" fn sv_ticks() -> i64 {
     unsafe { std::arch::x86_64::_rdtsc() as i64 }
 }
 
+#[cfg(target_arch = "aarch64")]
+extern "C" fn sv_ticks() -> i64 {
+    let t: i64;
+    unsafe { std::arch::asm!("mrs {}, cntvct_el0", out(reg) t, options(nomem, nostack)) };
+    t
+}
+
+/// The function to name in `netlist::Options::profile`.
+pub const TICKS: &str = "sv_ticks";
+
 /// What the netlist's code calls that it does not define.
 pub fn resolve(name: &str) -> Option<*const u8> {
-    #[cfg(target_arch = "x86_64")]
-    if name == "sv_ticks" {
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    if name == TICKS {
         return Some(sv_ticks as *const u8);
     }
     load::process_symbol(name)
@@ -325,18 +333,16 @@ impl Model {
         let functions = functions(c, host)?;
         let code = load::load(t, c, resolve).map_err(|e| format!("loading: {e}"))?;
         let eval = unsafe { code.function(&net.entry) }.ok_or_else(|| format!("no {}", net.entry))?;
-        let prof = code.address("sv_prof").map_or(std::ptr::null_mut(), |p| p as *mut i64);
         times.load = started.elapsed();
-        Ok(Model { net, eval, functions, prof, times, _code: Some(code), cross: None })
+        Ok(Model { net, eval, functions, times, _code: Some(code), cross: None })
     }
 
-    /// A model of code loaded some other way: `eval` is `net`'s entry,
-    /// `prof` its profile's counters or null.
+    /// A model of code loaded some other way: `eval` is `net`'s entry.
     ///
     /// # Safety
     /// `eval` runs `net`'s code, and stays loaded while the model lives.
-    pub unsafe fn from_parts(net: Netlist, eval: unsafe extern "C" fn(*mut u8), functions: Vec<(String, u64)>, prof: *mut i64) -> Model {
-        Model { net, eval, functions, prof, times: BuildTimes::default(), _code: None, cross: None }
+    pub unsafe fn from_parts(net: Netlist, eval: unsafe extern "C" fn(*mut u8), functions: Vec<(String, u64)>) -> Model {
+        Model { net, eval, functions, times: BuildTimes::default(), _code: None, cross: None }
     }
 
     /// From now on each [`Model::eval_state`] also runs `other` on a copy
@@ -450,9 +456,8 @@ impl Model {
         let states = (n / group).clamp(1, (netlist::GROUP / group).max(1));
         let lanes = group.min(n);
         let mut spent = Duration::ZERO;
-        let counters: &mut [i64] =
-            if self.prof.is_null() { &mut [] } else { unsafe { std::slice::from_raw_parts_mut(self.prof, 2 * net.profile.len()) } };
-        counters.fill(0);
+        // The profile's counters, summed over the states.
+        let mut counters = vec![[0i64; 2]; net.profile.len()];
         for _ in 0..reps {
             let mut sts: Vec<State> = (0..states).map(|_| self.state()).collect();
             for c in 0..cycles {
@@ -478,16 +483,37 @@ impl Model {
                     spent += t0.elapsed();
                 }
             }
+            for st in &sts {
+                for (c, n) in net.profile.iter().zip(&mut counters) {
+                    for (k, x) in n.iter_mut().enumerate() {
+                        *x += unsafe { (st.ptr.add(c.at + 8 * k) as *const i64).read_unaligned() };
+                    }
+                }
+            }
         }
-        // The counters, per instance a cycle, largest first, with the
-        // calls a state a cycle.
+        // The counters, per instance a cycle, with the calls a state a
+        // cycle; and each one's own: less the calls made within it (the
+        // top's settle's calls are within the first settle of the step,
+        // but made in both).
         let per = (reps * cycles * states) as f64;
         let mut profile: Vec<Profiled> = counters
-            .chunks(2)
+            .iter()
             .zip(&net.profile)
-            .map(|(c, what)| Profiled { ticks: c[0] as f64 / per / group as f64, calls: c[1] as f64 / per, what: what.clone() })
+            .map(|(c, k)| {
+                let ticks = c[0] as f64 / per / group as f64;
+                let what = if k.path.is_empty() { k.func.clone() } else { format!("{} {}", k.path, k.func) };
+                Profiled { ticks, own: ticks, calls: c[1] as f64 / per, what, counter: k.clone() }
+            })
             .collect();
-        profile.sort_by(|a, b| b.ticks.total_cmp(&a.ticks));
+        let again = net.profile.iter().position(|k| k.path.is_empty() && k.func == "step settle again");
+        if let (Some(a), Some(s)) = (again, net.profile.iter().position(|k| k.path.is_empty() && k.func == "step settle")) {
+            profile[s].own += profile[a].ticks;
+        }
+        for k in 0..profile.len() {
+            if let Some(w) = profile[k].counter.within {
+                profile[w].own -= profile[k].ticks;
+            }
+        }
         Timed { ns: spent.as_secs_f64() * 1e9 / (reps * cycles * states * group) as f64, profile }
     }
 }
@@ -501,12 +527,16 @@ pub struct Timed {
 }
 
 /// A counter of the profile: cycle counter ticks an instance a cycle, and
-/// calls a state a cycle, in what it names.
+/// calls a state a cycle, in what it names (its instance's path and the
+/// function); in the order of [`Netlist::profile`].
 #[derive(Clone, Debug)]
 pub struct Profiled {
     pub ticks: f64,
+    /// Its ticks less those of the calls made within it.
+    pub own: f64,
     pub calls: f64,
     pub what: String,
+    pub counter: netlist::Counter,
 }
 
 /// The ports a run sets and reads: the inputs (the clock aside) and the

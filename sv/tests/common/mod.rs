@@ -119,8 +119,8 @@ pub fn build(name: &str, net: Netlist, host: &Host) -> Model {
         let obj = tmp.join(format!("{name}_cc.o"));
         let st = Command::new("cc").args(["-O1", "-c", "-o"]).arg(&obj).arg(tmp.join(format!("{name}.ll"))).status().unwrap();
         assert!(st.success(), "cc on {name}.ll");
-        let (eval, prof) = linked(&format!("{name}_cc"), &obj, &net, &tmp);
-        return unsafe { Model::from_parts(net, eval, functions, prof) };
+        let eval = linked(&format!("{name}_cc"), &obj, &net, &tmp);
+        return unsafe { Model::from_parts(net, eval, functions) };
     }
     let mut model = Model::load(net, host, &c, times).unwrap_or_else(|e| panic!("{name}: {e}"));
     let t = model.times;
@@ -133,7 +133,7 @@ pub fn build(name: &str, net: Netlist, host: &Host) -> Model {
     if std::env::var_os("NETLIST_CC").is_some() {
         let obj = tmp.join(format!("{name}.o"));
         std::fs::write(&obj, c.object_file(&host.target).unwrap()).unwrap();
-        let other = linked(name, &obj, &model.net, &tmp).0;
+        let other = linked(name, &obj, &model.net, &tmp);
         unsafe { model.cross_check(other) };
     }
     model
@@ -142,7 +142,7 @@ pub fn build(name: &str, net: Netlist, host: &Host) -> Model {
 /// Object `obj` linked by `cc -shared` (with `sv_ticks`, if the netlist
 /// calls it) and `dlopen`ed: the netlist's entry, and its profile's
 /// counters if it has them.
-fn linked(name: &str, obj: &Path, net: &Netlist, tmp: &Path) -> (unsafe extern "C" fn(*mut u8), *mut i64) {
+fn linked(name: &str, obj: &Path, net: &Netlist, tmp: &Path) -> unsafe extern "C" fn(*mut u8) {
     let lib = tmp.join(format!("lib{name}.so"));
     let mut link = Command::new("cc");
     link.arg("-shared").arg("-o").arg(&lib).arg(obj);
@@ -160,8 +160,7 @@ fn linked(name: &str, obj: &Path, net: &Netlist, tmp: &Path) -> (unsafe extern "
         let sym = CString::new(net.entry.as_str()).unwrap();
         let f = dlsym(h, sym.as_ptr());
         assert!(!f.is_null(), "no {}", net.entry);
-        let prof = dlsym(h, c"sv_prof".as_ptr()) as *mut i64;
-        (std::mem::transmute::<*mut c_void, unsafe extern "C" fn(*mut u8)>(f), prof)
+        std::mem::transmute::<*mut c_void, unsafe extern "C" fn(*mut u8)>(f)
     }
 }
 
@@ -210,8 +209,10 @@ pub fn check_against(b: &Model, io: &Io, v: &Verilated, cycles: usize, n: usize,
 pub fn time_replay(b: &Model, io: &Io, cycles: usize, n: usize, stim: &[u32], reps: usize) -> f64 {
     let reps = reps * std::env::var("NETLIST_REPS").ok().and_then(|r| r.parse().ok()).unwrap_or(1);
     let t = b.time(io, cycles, n, stim, reps);
-    for p in &t.profile {
-        eprintln!("profile: {:10.1} ticks an instance a cycle, {:5.2} calls a cycle  {}", p.ticks, p.calls, p.what);
+    let mut prof = t.profile.clone();
+    prof.sort_by(|a, b| b.ticks.total_cmp(&a.ticks));
+    for p in &prof {
+        eprintln!("profile: {:10.1} ticks ({:10.1} own) an instance a cycle, {:5.2} calls a cycle  {}", p.ticks, p.own, p.calls, p.what);
     }
     t.ns
 }

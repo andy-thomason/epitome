@@ -258,6 +258,8 @@ pub struct Model {
     pub eval: unsafe extern "C" fn(*mut u8),
     /// Each function's name and bytes of machine code.
     pub functions: Vec<(String, u64)>,
+    /// With `netlist::Options::pieces`, the pieces' counters (else null).
+    pub pieces: *mut i64,
     pub times: BuildTimes,
     /// The code `eval` is in.
     _code: Option<Loaded>,
@@ -333,8 +335,9 @@ impl Model {
         let functions = functions(c, host)?;
         let code = load::load(t, c, resolve).map_err(|e| format!("loading: {e}"))?;
         let eval = unsafe { code.function(&net.entry) }.ok_or_else(|| format!("no {}", net.entry))?;
+        let pieces = code.address("sv_pieces").map_or(std::ptr::null_mut(), |p| p as *mut i64);
         times.load = started.elapsed();
-        Ok(Model { net, eval, functions, times, _code: Some(code), cross: None })
+        Ok(Model { net, eval, functions, pieces, times, _code: Some(code), cross: None })
     }
 
     /// A model of code loaded some other way: `eval` is `net`'s entry.
@@ -342,7 +345,7 @@ impl Model {
     /// # Safety
     /// `eval` runs `net`'s code, and stays loaded while the model lives.
     pub unsafe fn from_parts(net: Netlist, eval: unsafe extern "C" fn(*mut u8), functions: Vec<(String, u64)>) -> Model {
-        Model { net, eval, functions, times: BuildTimes::default(), _code: None, cross: None }
+        Model { net, eval, functions, pieces: std::ptr::null_mut(), times: BuildTimes::default(), _code: None, cross: None }
     }
 
     /// From now on each [`Model::eval_state`] also runs `other` on a copy
@@ -458,6 +461,9 @@ impl Model {
         let mut spent = Duration::ZERO;
         // The profile's counters, summed over the states.
         let mut counters = vec![[0i64; 2]; net.profile.len()];
+        let pieces: &mut [i64] =
+            if self.pieces.is_null() { &mut [] } else { unsafe { std::slice::from_raw_parts_mut(self.pieces, 2 * net.pieces.len()) } };
+        pieces.fill(0);
         for _ in 0..reps {
             let mut sts: Vec<State> = (0..states).map(|_| self.state()).collect();
             for c in 0..cycles {
@@ -514,7 +520,10 @@ impl Model {
                 profile[w].own -= profile[k].ticks;
             }
         }
-        Timed { ns: spent.as_secs_f64() * 1e9 / (reps * cycles * states * group) as f64, profile }
+        let mut pieces: Vec<(f64, f64, String)> =
+            pieces.chunks(2).zip(&net.pieces).map(|(c, what)| (c[0] as f64 / per / group as f64, c[1] as f64 / per, what.clone())).collect();
+        pieces.sort_by(|a, b| b.0.total_cmp(&a.0));
+        Timed { ns: spent.as_secs_f64() * 1e9 / (reps * cycles * states * group) as f64, profile, pieces }
     }
 }
 
@@ -524,6 +533,9 @@ pub struct Timed {
     /// Nanoseconds an instance a cycle.
     pub ns: f64,
     pub profile: Vec<Profiled>,
+    /// With `netlist::Options::pieces`, each piece's cycle counter ticks an
+    /// instance a cycle and runs a state a cycle, the most first.
+    pub pieces: Vec<(f64, f64, String)>,
 }
 
 /// A counter of the profile: cycle counter ticks an instance a cycle, and

@@ -266,6 +266,9 @@ pub struct Netlist {
     /// real or false), each run until it settles: the specialisation, and
     /// each node, with what it reads of the others' writes.
     pub loops: Vec<(String, Vec<String>)>,
+    /// With [`Options::pieces`], what each pair of counters of `sv_pieces`
+    /// times (cycles, then runs).
+    pub pieces: Vec<String>,
     /// The top's inputs its settling reads, each with where it first does
     /// (an instance path, and what reads it there): a change of any other
     /// input (a clock, say) needs no settling.
@@ -659,6 +662,12 @@ pub struct Options {
     /// cycles it took to an `i64` of the caller's state, and one to the
     /// next (see [`Netlist::profile`]): each instance's calls counted apart.
     pub profile: Option<&'static str>,
+    /// With `profile`, also each piece of each specialisation's code (a
+    /// node of a pass, a rolled loop, a repeated group, the clocked
+    /// processes, the commit) timed into a counter of the global
+    /// `sv_pieces`, named in [`Netlist::pieces`]: every instance of a
+    /// specialisation adds to the same one.
+    pub pieces: bool,
     /// Lanes as vectors ([`Shape::vector_of`]), not side by side in an
     /// `i64` ([`Shape::of`]).
     pub vectors: bool,
@@ -670,7 +679,7 @@ pub struct Options {
 
 impl Default for Options {
     fn default() -> Self {
-        Options { bit_planes: true, recognise: true, guard_min: GUARD_MIN, branch_min: BRANCH_MIN, sims: 1, profile: None, vectors: true, lane_bits: None }
+        Options { bit_planes: true, recognise: true, guard_min: GUARD_MIN, branch_min: BRANCH_MIN, sims: 1, profile: None, pieces: false, vectors: true, lane_bits: None }
     }
 }
 
@@ -789,6 +798,10 @@ pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, 
         n.settled = lay.room(1, 1);
     }
     let mut module = Module::default();
+    if opts.profile.is_some() && opts.pieces {
+        let i64t = module.types.int(64);
+        n.piece_prof.set(Some(module.add_global(epitome_ir::module::Global::variable("sv_pieces", i64t, None, false))));
+    }
     n.function(&mut module, key)?;
     let lay = &n.layouts[&key];
     let mut ports = Vec::new();
@@ -820,7 +833,16 @@ pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, 
     functions.sort_by(|a, b| a.name.cmp(&b.name));
     let steps = n.steps(key);
     let loops = n.cycles.take();
-    Ok(Netlist { module, entry, size, lanes: sims, ports, dropped, profile, functions, watched, steps, loops })
+    let pieces = n.piece_names.take();
+    if let Some(g) = n.piece_prof.get() {
+        let i64t = module.types.int(64);
+        let ty = module.types.array(2 * pieces.len().max(1) as u64, i64t);
+        let Value::Const(init) = module.const_zero(ty) else { unreachable!() };
+        if let epitome_ir::module::GlobalKind::Variable(v) = &mut module.globals[g.index()].kind {
+            (v.ty, v.init, v.align) = (ty, Some(init), Some(8));
+        }
+    }
+    Ok(Netlist { module, entry, size, lanes: sims, ports, dropped, profile, functions, watched, steps, loops, pieces })
 }
 
 impl<'d, 'a> Lowering<'d, 'a> {
@@ -849,6 +871,8 @@ impl<'d, 'a> Lowering<'d, 'a> {
             called: RefCell::default(),
             traces: RefCell::default(),
             cycles: RefCell::default(),
+            piece_prof: Cell::new(None),
+            piece_names: RefCell::default(),
             codes: HashMap::new(),
             arrays: HashMap::new(),
             memories: HashMap::new(),
@@ -1330,6 +1354,10 @@ struct Lowering<'d, 'a> {
     traces: RefCell<HashMap<(Key, &'static str), Vec<Step>>>,
     /// For [`Netlist::loops`].
     cycles: RefCell<Vec<(String, Vec<String>)>>,
+    /// With [`Options::pieces`], the global of the pieces' counters, and
+    /// what each times.
+    piece_prof: Cell<Option<GlobalId>>,
+    piece_names: RefCell<Vec<String>>,
     /// Each specialisation's static values and code, as `collect` finds
     /// them.
     codes: HashMap<SpecId, (Vec<ObjId>, Vec<Node>)>,
@@ -4740,10 +4768,46 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
     /// Own code `piece`, written by `run`, noted with its instructions.
     fn own(&mut self, piece: Code, run: impl FnOnce(&mut Self) -> Result<(), String>) -> Result<(), String> {
         let before = self.b.function().insts.len();
-        run(self)?;
+        let what = match &piece {
+            Code::Nodes(ns) if ns.len() == 1 => self.l.describe(self.key, ns[0]),
+            Code::Nodes(ns) => format!("{} nodes repeated", ns.len()),
+            Code::Inputs(i) => format!("clocked inputs of {}", self.l.inst_name(self.key.0, *i, self.lay().groups.contains_key(i))),
+            Code::Ff => "clocked processes".into(),
+            Code::Commit => "commit".into(),
+            Code::Known => "recognised whole".into(),
+        };
+        self.timed_piece(what, run)?;
         let n = self.b.function().insts.len() - before;
         if n > 0 {
             self.trace(Step::Own(piece, n));
+        }
+        Ok(())
+    }
+
+    /// `run`, with [`Options::pieces`] timed into a counter of
+    /// `sv_pieces` named for this specialisation's function and `what`.
+    fn timed_piece(&mut self, what: String, run: impl FnOnce(&mut Self) -> Result<(), String>) -> Result<(), String> {
+        let (Some(counter), Some(g)) = (self.l.opts.profile, self.l.piece_prof.get()) else { return run(self) };
+        let k = {
+            let mut names = self.l.piece_names.borrow_mut();
+            let d = self.d();
+            names.push(format!("{}{} {what}", d.name(d.spec(self.key.0).name), self.suffix()));
+            names.len() as i64 - 1
+        };
+        let i64t = self.t.i64;
+        let ctr = self.b.module().declare(counter, i64t, &[], false);
+        let t0 = self.b.call(ctr, &[]).unwrap();
+        run(self)?;
+        let t1 = self.b.call(ctr, &[]).unwrap();
+        let dt = self.b.sub(t1, t0);
+        let one = self.i64k(1);
+        let gv = self.b.module().global_value(g);
+        for (off, add) in [(16 * k, dt), (16 * k + 8, one)] {
+            let o = self.i64k(off);
+            let at = self.b.gep(self.t.i8, gv, &[o]);
+            let was = self.b.build_load(i64t, at).align(8).build();
+            let now = self.b.add(was, add);
+            self.b.build_store(now, at).align(8).build();
         }
         Ok(())
     }
@@ -4907,7 +4971,8 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
         self.run_loop_with(|f| {
             for &n in nodes {
                 let before = f.b.function().insts.len();
-                f.node(n)?;
+                let what = f.l.describe(f.key, n);
+                f.timed_piece(what, |f| f.node(n))?;
                 each.push(f.b.function().insts.len() - before);
             }
             Ok(())

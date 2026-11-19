@@ -1117,6 +1117,7 @@ fn profiled_by_instance() {
         assert_eq!(&out[c * 4..c * 4 + 4], &q[..], "cycle {c}");
     }
     let t = b.time(&io, cycles, 1, &stim, 2);
+    assert!(t.pieces.is_empty(), "pieces are timed only when asked");
     for p in &t.profile {
         eprintln!("{:8.1} {:8.1} {:5.2}  {}", p.ticks, p.own, p.calls, p.what);
     }
@@ -1140,6 +1141,16 @@ fn profiled_by_instance() {
     for p in &t.profile {
         assert!(p.own >= 0.0, "{}: own {} of {}", p.what, p.own, p.ticks);
     }
+    // Each piece timed, where asked: every leaf's clocked process runs
+    // once a cycle in each of the eight leaves.
+    let mut po = host.options(1);
+    po.profile = Some(epitome_sv::model::TICKS);
+    po.pieces = true;
+    let pb = build("ptop_pieces", netlist_with(&src, "ptop", po), &host);
+    assert_eq!(pb.run(&io, cycles, 1, &stim), out);
+    let tp = pb.time(&io, cycles, 1, &stim, 2);
+    let leaf_ff = tp.pieces.iter().find(|p| p.2 == "leaf_ff clocked processes").expect("the leaf's clocked processes are timed");
+    assert!(leaf_ff.1 > 0.0, "{leaf_ff:?}");
 }
 
 /// A block of arithmetic heavy enough to be worth a task, registered.

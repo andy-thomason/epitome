@@ -59,8 +59,8 @@ pub fn costs(steps: &Steps, profile: &[Profiled]) -> Vec<f64> {
 /// Tasks and what each waits on.
 #[derive(Clone, Debug, Default)]
 pub struct Graph {
-    /// Each task's pieces, a run of [`Steps::items`], in order.
-    pub tasks: Vec<Range<usize>>,
+    /// Each task's pieces, runs of [`Steps::items`], in order.
+    pub tasks: Vec<Vec<Range<usize>>>,
     pub cost: Vec<f64>,
     /// The earlier tasks each waits on.
     pub deps: Vec<Vec<u32>>,
@@ -74,8 +74,10 @@ impl Graph {
 
 /// The step's calls cut into tasks: a call that costs at most `budget`
 /// is one task, a dearer one its own pieces one a task and its calls cut
-/// in turn; then each task merged into the one before while together
-/// they cost at most `min`.
+/// in turn. Then each task cheaper than `min` joins the task that all it
+/// waits on is in, if together they cost at most `min` (which makes no
+/// task wait on itself), or with nothing to wait on, the last such task
+/// that waits on nothing.
 pub fn cut(steps: &Steps, costs: &[f64], budget: f64, min: f64) -> Graph {
     let calls = &steps.calls;
     let mut kids: Vec<Vec<usize>> = vec![Vec::new(); calls.len()];
@@ -85,13 +87,12 @@ pub fn cut(steps: &Steps, costs: &[f64], budget: f64, min: f64) -> Graph {
         }
     }
     let cost_of = |r: &Range<usize>| costs[r.clone()].iter().sum::<f64>();
-    let mut tasks: Vec<Range<usize>> = Vec::new();
-    // (The calls to open, as a stack, each the run left of it.)
-    fn open(k: usize, steps: &Steps, kids: &[Vec<usize>], budget: f64, cost_of: &dyn Fn(&Range<usize>) -> f64, tasks: &mut Vec<Range<usize>>) {
+    let mut runs: Vec<Range<usize>> = Vec::new();
+    fn open(k: usize, steps: &Steps, kids: &[Vec<usize>], budget: f64, cost_of: &dyn Fn(&Range<usize>) -> f64, runs: &mut Vec<Range<usize>>) {
         let c = &steps.calls[k];
         if cost_of(&c.items) <= budget || c.items.len() <= 1 {
             if !c.items.is_empty() {
-                tasks.push(c.items.clone());
+                runs.push(c.items.clone());
             }
             return;
         }
@@ -101,35 +102,75 @@ pub fn cut(steps: &Steps, costs: &[f64], budget: f64, min: f64) -> Graph {
             match next.peek() {
                 Some(&&kid) if steps.calls[kid].items.start == at => {
                     next.next();
-                    open(kid, steps, kids, budget, cost_of, tasks);
+                    open(kid, steps, kids, budget, cost_of, runs);
                     at = steps.calls[kid].items.end.max(at + usize::from(steps.calls[kid].items.is_empty()));
                 }
                 _ => {
-                    tasks.push(at..at + 1);
+                    runs.push(at..at + 1);
                     at += 1;
                 }
             }
         }
     }
     for k in (0..calls.len()).filter(|&k| calls[k].parent.is_none()) {
-        open(k, steps, &kids, budget, &cost_of, &mut tasks);
+        open(k, steps, &kids, budget, &cost_of, &mut runs);
     }
-    let mut merged: Vec<Range<usize>> = Vec::new();
-    for t in tasks {
-        match merged.last_mut() {
-            Some(m) if m.end == t.start && cost_of(m) + cost_of(&t) <= min => m.end = t.end,
-            _ => merged.push(t),
+    let fine: Vec<Vec<Range<usize>>> = runs.into_iter().map(|r| vec![r]).collect();
+    let deps0 = deps(steps, &fine);
+    // Each fine task's cluster, by the cluster's first task.
+    let n = fine.len();
+    let mut cluster: Vec<usize> = (0..n).collect();
+    let mut total: Vec<f64> = fine.iter().map(|t| cost_of(&t[0])).collect();
+    let mut free: Option<usize> = None;
+    for t in 0..n {
+        let c = total[t];
+        if c >= min {
+            continue;
+        }
+        let mut into = deps0[t].iter().map(|&u| cluster[u as usize]);
+        let target = match into.next() {
+            Some(first) if into.all(|u| u == first) => Some(first),
+            Some(_) => None,
+            None => {
+                let f = free.filter(|&f| total[f] + c <= min);
+                if f.is_none() {
+                    free = Some(t);
+                }
+                f
+            }
+        };
+        if let Some(u) = target
+            && total[u] + c <= min
+        {
+            cluster[t] = u;
+            total[u] += c;
         }
     }
-    let cost: Vec<f64> = merged.iter().map(cost_of).collect();
-    let deps = deps(steps, &merged);
-    Graph { tasks: merged, cost, deps }
+    // The clusters, in the order of their first tasks.
+    let mut index = vec![usize::MAX; n];
+    let mut tasks: Vec<Vec<Range<usize>>> = Vec::new();
+    for t in 0..n {
+        let c = cluster[t];
+        if index[c] == usize::MAX {
+            index[c] = tasks.len();
+            tasks.push(Vec::new());
+        }
+        let runs = &mut tasks[index[c]];
+        let r = fine[t][0].clone();
+        match runs.last_mut() {
+            Some(l) if l.end == r.start => l.end = r.end,
+            _ => runs.push(r),
+        }
+    }
+    let cost: Vec<f64> = tasks.iter().map(|t| t.iter().map(cost_of).sum()).collect();
+    let deps = deps(steps, &tasks);
+    Graph { tasks, cost, deps }
 }
 
 /// What each task waits on: the last earlier task to write each byte it
 /// reads or writes, and the earlier tasks that read a byte it writes since
 /// it was last written.
-fn deps(steps: &Steps, tasks: &[Range<usize>]) -> Vec<Vec<u32>> {
+fn deps(steps: &Steps, tasks: &[Vec<Range<usize>>]) -> Vec<Vec<u32>> {
     // The state cut into runs no range starts or ends inside.
     let mut cuts: Vec<u64> = Vec::new();
     for it in &steps.items {
@@ -154,7 +195,7 @@ fn deps(steps: &Steps, tasks: &[Range<usize>]) -> Vec<Vec<u32>> {
                 d.push(u);
             }
         };
-        for it in &steps.items[r.clone()] {
+        for it in r.iter().flat_map(|r| &steps.items[r.clone()]) {
             for rr in &it.reads {
                 for a in atoms(rr) {
                     wait(writer[a], &mut d);
@@ -169,7 +210,7 @@ fn deps(steps: &Steps, tasks: &[Range<usize>]) -> Vec<Vec<u32>> {
                 }
             }
         }
-        for it in &steps.items[r.clone()] {
+        for it in r.iter().flat_map(|r| &steps.items[r.clone()]) {
             for rr in &it.reads {
                 for a in atoms(rr) {
                     if readers[a].last() != Some(&t) {
@@ -178,7 +219,7 @@ fn deps(steps: &Steps, tasks: &[Range<usize>]) -> Vec<Vec<u32>> {
                 }
             }
         }
-        for it in &steps.items[r.clone()] {
+        for it in r.iter().flat_map(|r| &steps.items[r.clone()]) {
             for ww in &it.writes {
                 for a in atoms(ww) {
                     writer[a] = t;
@@ -268,15 +309,17 @@ pub struct Plan {
 }
 
 /// For each of `threads`: the step cut for `per` tasks a thread (a budget
-/// of the step's work over `per * threads`, no task smaller than `min`
-/// where it can be merged), with each task's dispatch costing `overhead`.
-/// Also the step's whole work, the time on one thread with no overhead.
-pub fn plans(steps: &Steps, costs: &[f64], threads: &[usize], per: f64, min: f64, overhead: f64) -> (f64, Vec<Plan>) {
+/// of the step's work over `per * threads`, pieces next to each other
+/// merged up to the budget, or up to `floor` where that is more), with
+/// each task's dispatch costing `overhead`. Also the step's whole work,
+/// the time on one thread with no overhead.
+pub fn plans(steps: &Steps, costs: &[f64], threads: &[usize], per: f64, floor: f64, overhead: f64) -> (f64, Vec<Plan>) {
     let work: f64 = costs.iter().sum();
     let plans = threads
         .iter()
         .map(|&n| {
-            let g = cut(steps, costs, work / (per * n as f64), min);
+            let budget = work / (per * n as f64);
+            let g = cut(steps, costs, budget, budget.max(floor));
             Plan { threads: n, tasks: g.tasks.len(), edges: g.edges(), span: span(&g, overhead), time: makespan(&g, n, overhead) }
         })
         .collect();
@@ -343,7 +386,10 @@ mod tests {
     fn a_cheap_call_is_one_task_and_small_tasks_merge() {
         let s = fan(8, false);
         let c = costs(&s, &[]);
-        assert_eq!(cut(&s, &c, 1000.0, 0.0).tasks, vec![0..8]);
+        assert_eq!(cut(&s, &c, 1000.0, 0.0).tasks, vec![vec![0..8]]);
+        // (Eight that wait on nothing: merged four at a time.)
         assert_eq!(cut(&s, &c, 20.0, 40.0).tasks.len(), 2);
+        // (A chain: each joins the one it waits on.)
+        assert_eq!(cut(&fan(8, true), &c, 20.0, 40.0).tasks.len(), 2);
     }
 }

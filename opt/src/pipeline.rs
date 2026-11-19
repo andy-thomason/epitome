@@ -424,6 +424,14 @@ fn optimise(m: &mut Module, opts: &Options) -> Report {
                     }
                 }
             }
+            // Collapsing a cycle inlines its members into each other, which
+            // brings in allocas as inlining does.
+            if (opts.mem2reg || opts.sroa) && opts.recursion != RecursionMode::Off && cg.is_recursive(s) {
+                for (g, f) in &mut bodies {
+                    let _counted = counted(*g);
+                    promote(*g, f);
+                }
+            }
             // Simplify before publishing, so callers see the simpler body:
             // combine, then CSE, then combine again if CSE found anything,
             // since merged values can make new patterns (`x - y` with
@@ -599,6 +607,15 @@ fn optimise(m: &mut Module, opts: &Options) -> Report {
                         if opts.combine {
                             combine(*g, f, Some(&changed));
                         }
+                    }
+                }
+                // Allocas again, now that the combiner and CSE have folded
+                // what kept some in memory: their addresses stored in other
+                // allocas that are gone, or offsets now constant.
+                if opts.mem2reg || opts.sroa {
+                    promote(*g, f);
+                    if opts.combine {
+                        combine(*g, f, None);
                     }
                 }
                 // Runs of stores as memsets, once the stores that were dead

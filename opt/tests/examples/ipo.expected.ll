@@ -1,4 +1,5 @@
 ; @style: combine: sub_const x1
+; @style: implied: 0 comparisons folded, 0 selects resolved, 1 flags set
 ; @widen: combine: (folded) x1, br_true x1
 ; @widen: simplifycfg: 1 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged
 ; @hook: not inlined @report: noinline
@@ -25,7 +26,7 @@ entry:
   br i1 %big, label %again, label %done
 
 again:                                            ; preds = %entry
-  %m = add i32 %n, -1
+  %m = add nsw i32 %n, -1
   tail call void @hook(i32 %m)
   br label %done
 

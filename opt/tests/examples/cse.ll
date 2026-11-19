@@ -126,3 +126,20 @@ define i32 @aliasing(ptr %p, i32 %v) {
   %r = add i32 %s1, %s2
   ret i32 %r
 }
+
+; A load of the bytes a store just wrote as another type: a pointer read
+; as an integer, an integer as a pointer, and the low byte of an i64 (on
+; this little-endian machine), each a cast of the stored value.
+define i64 @forward_cast(ptr %slot, ptr %p, i64 %n) {
+  store ptr %p, ptr %slot
+  %bits = load i64, ptr %slot
+  %other = getelementptr i8, ptr %slot, i64 8
+  store i64 %n, ptr %other
+  %low = load i8, ptr %other
+  %back = load ptr, ptr %other
+  %w = zext i8 %low to i64
+  %b = ptrtoint ptr %back to i64
+  %s = add i64 %bits, %w
+  %r = add i64 %s, %b
+  ret i64 %r
+}

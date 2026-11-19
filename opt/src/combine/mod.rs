@@ -1487,6 +1487,16 @@ impl<'s, 'm, 'f> Combiner<'s, 'm, 'f> {
                 {
                     return self.int_value(ty, raw as u64);
                 }
+                // Zero as a pointer is null, and null as an integer zero.
+                if op == CastOp::IntToPtr
+                    && matches!(sh.types().get(ty), Type::Ptr(_))
+                    && self.int(c).is_some_and(|k| k.value == 0)
+                {
+                    return Some(Value::Const(sh.intern_const(Constant { ty, kind: ConstKind::Null })));
+                }
+                if op == CastOp::PtrToInt && matches!(sh.consts().get(c).kind, ConstKind::Null) {
+                    return self.int_value(ty, 0);
+                }
                 let x = self.int(c)?;
                 let to = eval::int_bits(sh.types(), ty)?;
                 // Wider than 64 bits, a sign extension's sign goes on past

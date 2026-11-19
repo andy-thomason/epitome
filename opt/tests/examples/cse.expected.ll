@@ -4,6 +4,7 @@
 ; @dominance: cse: 2 merged, 0 loads reused, 0 stores forwarded
 ; @memory: cse: 0 merged, 2 loads reused, 1 stores forwarded
 ; @aliasing: cse: 0 merged, 0 loads reused, 3 stores forwarded
+; @forward_cast: cse: 0 merged, 0 loads reused, 3 stores forwarded
 
 
 @counter = global i32 0
@@ -109,4 +110,18 @@ define i32 @aliasing(ptr %p, i32 %v) {
   %s2 = add i32 2, %d
   %r = add i32 %s1, %s2
   ret i32 %r
+}
+
+define i64 @forward_cast(ptr %slot, ptr %p, i64 %n) {
+  store ptr %p, ptr %slot
+  %bits = ptrtoint ptr %p to i64
+  %other = getelementptr i8, ptr %slot, i64 8
+  store i64 %n, ptr %other
+  %low = trunc i64 %n to i8
+  %back = inttoptr i64 %n to ptr
+  %w = zext i8 %low to i64
+  %b = ptrtoint ptr %back to i64
+  %s = add i64 %bits, %w
+  %r = add i64 %s, %b
+  ret i64 %r
 }

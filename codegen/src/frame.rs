@@ -294,11 +294,11 @@ pub fn lower(t: &Target, f: &mut MFunc) -> Result<(), String> {
         let Some(k) = pop_at else { return epilogue.clone() };
         let names = |r: u8| inst.ops.contains(&MOp::Reg(Reg::P(r))) || inst.imp_uses.contains(&r);
         // (A tail call's callee may read more than the call names, as al
-        // for a variadic one: there, only the scratch registers.)
+        // for a variadic one: there, none of the arguments or the result.)
         let ret = matches!(inst.op, Opcode::Instr(i) if t.has_role(i, "ret"));
-        let free = if ret { &f.abi.clobbers } else { &f.abi.scratch };
+        let unread = |r: u8| ret || !(f.abi.args.contains(&r) || r == f.abi.result);
         let mut out = epilogue.clone();
-        match free.iter().copied().find(|&r| !names(r) && pop(r).is_some()) {
+        match f.abi.clobbers.iter().copied().find(|&r| !names(r) && unread(r) && pop(r).is_some()) {
             Some(r) => {
                 out[k] = MInst::new(pop(r).unwrap(), vec![MOp::Reg(Reg::P(r))]);
             }

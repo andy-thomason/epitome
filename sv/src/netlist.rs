@@ -4023,6 +4023,8 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let mut r: Vec<Vec<ObjId>> = Vec::new();
         let mut w: Vec<Vec<ObjId>> = Vec::new();
         let mut at: Vec<bool> = Vec::new();
+        // (What children's clock inputs read: read as clocks.)
+        let mut to_clocks = Vec::new();
         for &n in &code {
             let (mut nr, mut nw) = (Vec::new(), Vec::new());
             let ok = match n {
@@ -4031,7 +4033,12 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     let clocks = &self.layouts[&ck].clock_ports;
                     for m in members(i) {
                         for (p, e) in self.connections(m) {
-                            if p.dir == Dir::Input && !p.object.is_some_and(|o| clocks.contains(&o)) {
+                            if p.dir != Dir::Input {
+                                continue;
+                            }
+                            if p.object.is_some_and(|o| clocks.contains(&o)) {
+                                self.reads(e, &mut to_clocks);
+                            } else {
                                 self.reads(e, &mut nr);
                             }
                         }
@@ -4087,7 +4094,8 @@ impl<'d, 'a> Lowering<'d, 'a> {
         }
         let need: HashSet<ObjId> = fixed.iter().copied().chain((0..code.len()).filter(|&k| !at[k]).flat_map(|k| r[k].iter().copied())).collect();
         let at_ff: HashSet<Node> = (0..code.len()).filter(|&k| at[k]).map(|k| code[k]).collect();
-        let read: HashSet<ObjId> = edges.iter().map(|t| t.0).chain((0..code.len()).filter(|&k| at[k]).flat_map(|k| r[k].iter().copied())).collect();
+        let read: HashSet<ObjId> =
+            edges.iter().chain(&to_clocks).map(|t| t.0).chain((0..code.len()).filter(|&k| at[k]).flat_map(|k| r[k].iter().copied())).collect();
         let clock_ports: HashSet<ObjId> =
             d.spec(key.0).ports.iter().filter(|p| p.dir == Dir::Input).filter_map(|p| p.object).filter(|o| read.contains(o) && !need.contains(o)).collect();
         if std::env::var_os("SV_DEBUG_CLOCK").is_some() {

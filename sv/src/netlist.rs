@@ -1736,6 +1736,34 @@ impl<'d, 'a> Lowering<'d, 'a> {
         parts.join(".")
     }
 
+    /// For an array of children `i` stands for: the work one does settling
+    /// (expression nodes of its code, its children's too), and the bits
+    /// its ports move to and from lanes.
+    fn group_costs(&mut self, i: InstId) -> (usize, usize) {
+        let d = self.d;
+        let c = d.instance(i).spec;
+        let pack: usize = d.spec(c).ports.iter().filter_map(|p| p.object).map(|o| tw(&d.types, d.object(o).ty) as usize).sum();
+        fn work(l: &mut Lowering, spec: SpecId) -> usize {
+            let d = l.d;
+            let Ok((_, code)) = l.code_of(spec) else { return 0 };
+            let mut n = 0;
+            for node in code {
+                n += match node {
+                    Node::Driver(dr) => l.expr_size(d.drivers[dr.0 as usize].rhs) + l.expr_size(d.drivers[dr.0 as usize].lhs),
+                    Node::Proc(p) => {
+                        let mut ex = Vec::new();
+                        l.stmt_exprs(d.processes[p.0 as usize].body, &mut ex);
+                        ex.iter().map(|&e| l.expr_size(e)).sum()
+                    }
+                    Node::In(k) => work(l, d.instance(k).spec),
+                    _ => 1,
+                };
+            }
+            n
+        }
+        (work(self, c), pack)
+    }
+
     /// Whether a specialisation, or one below it, holds a memory: an array
     /// of more than a few elements, wide enough to keep in the state, that
     /// some select indexes by a value.
@@ -2204,8 +2232,14 @@ impl<'d, 'a> Lowering<'d, 'a> {
             // (Not those holding memories: one at a time, each is scalar
             // code, which selects their words by address.)
             let mut keep = HashMap::new();
+            let ungroup = std::env::var("SV_UNGROUP").unwrap_or_default();
             for (&i, m) in &lay.groups {
-                if !self.holds_memories(d.instance(i).spec)? {
+                let c = d.instance(i).spec;
+                if std::env::var_os("SV_GROUP_STATS").is_some() {
+                    let (work, pack) = self.group_costs(i);
+                    eprintln!("group {} x{} in {}: work {} pack {}", d.name(d.spec(c).name), m.len(), d.name(d.spec(spec).name), work, pack);
+                }
+                if !self.holds_memories(c)? && !ungroup.split(',').any(|n| n == d.name(d.spec(c).name)) {
                     keep.insert(i, m.clone());
                 }
             }

@@ -16,7 +16,8 @@ const USAGE: &str = "usage: epitome-opt [options] <file.ll>
   -o <file>               write the result here instead of stdout (- is
                           stdout; an input of - is stdin)
   --passes=<list>         which passes to run, from sroa, mem2reg, inline,
-                          recursion, combine, simplifycfg, loops, cse,
+                          recursion, combine, simplifycfg, implied,
+                          loops, cse,
                           memory (the combiner's memory rules) and
                           tailmark (marking calls tail),
                           separated by commas (default: all)
@@ -29,6 +30,8 @@ const USAGE: &str = "usage: epitome-opt [options] <file.ll>
   --no-sroa               do not split allocas into pieces
   --no-simplifycfg        do not simplify the control-flow graph
   --no-loops              do not rotate loops or simplify their counters
+  --no-implied            do not fold what dominating branches imply
+                          (bounds checks under a loop's test)
   --recursion=<mode>      off; tail (default): tail and accumulator calls
                           become loops, other recursion stays; or stack:
                           all recursion, with an explicit stack
@@ -109,6 +112,7 @@ fn main() -> ExitCode {
             "--no-sroa" => opts.sroa = false,
             "--no-simplifycfg" => opts.simplifycfg = false,
             "--no-loops" => opts.loops = false,
+            "--no-implied" => opts.implied = false,
             s if s.starts_with("--passes=") => {
                 let list: Vec<&str> = s["--passes=".len()..].split(',').filter(|p| !p.is_empty()).collect();
                 if let Some(bad) = list.iter().find(|p| {
@@ -119,10 +123,12 @@ fn main() -> ExitCode {
                         "recursion",
                         "combine",
                         "simplifycfg",
+                        "implied",
                         "loops",
                         "cse",
                         "memory",
                         "tailmark",
+                        "ipo",
                     ]
                     .contains(p)
                 }) {
@@ -133,10 +139,12 @@ fn main() -> ExitCode {
                 opts.cse = list.contains(&"cse");
                 opts.memory = list.contains(&"memory");
                 opts.tailmark = list.contains(&"tailmark");
+                opts.ipo = list.contains(&"ipo");
                 opts.mem2reg = list.contains(&"mem2reg");
                 opts.sroa = list.contains(&"sroa");
                 opts.simplifycfg = list.contains(&"simplifycfg");
                 opts.loops = list.contains(&"loops");
+                opts.implied = list.contains(&"implied");
                 if !list.contains(&"recursion") {
                     opts.recursion = RecursionMode::Off;
                 }
@@ -322,6 +330,13 @@ fn main() -> ExitCode {
                 c.unreachable, c.bypassed, c.selects, c.merged
             );
         }
+        let im = report.implied;
+        if im.changed() {
+            eprintln!(
+                "; implied: {} comparisons folded, {} selects resolved, {} flags set",
+                im.folded, im.selects, im.flags
+            );
+        }
         if report.rotated > 0 || report.indvars.changed() {
             let iv = &report.indvars;
             eprintln!(
@@ -350,6 +365,13 @@ fn main() -> ExitCode {
         }
         if report.licm.hoisted > 0 {
             eprintln!("; licm: {} instructions moved out of loops ({} loads)", report.licm.hoisted, report.licm.loads);
+        }
+        let ipo = &report.ipo;
+        if ipo.total() > 0 {
+            eprintln!(
+                "; ipo: {} constant returns, {} leaf calls inlined, {} parameters promoted into {}, {} constant arguments, in {} rounds",
+                ipo.returns, ipo.inlined, ipo.promoted, ipo.promoted_into, ipo.arguments, ipo.rounds
+            );
         }
         if report.tail_marked > 0 {
             eprintln!("; tailmark: {} calls marked tail", report.tail_marked);

@@ -161,6 +161,11 @@ icmp_ne_true:     icmp.ne(x, true) -> xor(x, true) if bw == 1
 icmp_eq_true:     icmp.eq(x, true) -> x if bw == 1
 icmp_ne_false:    icmp.ne(x, false) -> x if bw == 1
 icmp_eq_false:    icmp.eq(x, false) -> xor(x, true) if bw == 1
+# A bool widened (a Rust `bool` is a byte) and compared with 0 or 1.
+icmp_ne_zext_zero: icmp.ne(zext(x), 0) -> x if bw(x) == 1
+icmp_eq_zext_one: icmp.eq(zext(x), 1) -> x if bw(x) == 1
+icmp_eq_zext_zero: icmp.eq(zext(x), 0) -> xor(x, true) if bw(x) == 1
+icmp_ne_zext_one: icmp.ne(zext(x), 1) -> xor(x, true) if bw(x) == 1
 
 # ---------------------------------------------------------------------------
 # Selects
@@ -170,6 +175,7 @@ select_false:     select(false, x, y) -> y
 select_same:      select(c, x, x) -> x
 select_bool:      select(c, true, false) -> c if bw == 1
 select_not_bool:  select(c, false, true) -> xor(c, true) if bw == 1
+select_zext:      select(c, 1, 0) -> zext(c) if bw > 1
 select_not_cond:  select(xor(c, true), x, y) -> select(c, y, x)
 select_eq_pick:   select(icmp.eq(x, y), x, y) -> y
 select_ne_pick:   select(icmp.ne(x, y), x, y) -> x

@@ -35,8 +35,10 @@
 //! (`[2 x i64]`), and larger ones by the address of a copy. A result too
 //! large for registers is written at an address passed first (`sret`).
 //!
-//! Panics become a trap (`panic=abort`, with no message: `core::fmt`
-//! comes later), and so does an index out of bounds or a division by zero.
+//! Panics are `core`'s and `std`'s own code (`panic=abort`): an index out
+//! of bounds or a division by zero calls `core`'s lang item for it, and
+//! `core`'s `panic_impl` is the program's `#[panic_handler]`. A
+//! `#[track_caller]` function takes its caller's `Location` last.
 //! Arithmetic wraps, as in a release build.
 //!
 //! A function whose body uses something lowering does not support yet
@@ -85,6 +87,11 @@ impl Target {
         }
     }
 
+    /// A bare-metal RV64 machine (LP64D), for kernels.
+    pub fn riscv64_none() -> Target {
+        Target { triple: "riscv64-unknown-none-elf", data_layout: "e-m:e-p:64:64-i64:64-i128:128-n32:64-S128", ptr_size: 8, cpu: None }
+    }
+
     /// macOS on Apple silicon: every Mac with it has the M1's features
     /// (LSE atomics among them, so atomics are instructions, not calls of
     /// helpers macOS does not have).
@@ -122,6 +129,9 @@ pub(crate) struct FnAbi {
     pub args: Vec<Repr>,
     pub ret: Repr,
     pub variadic: bool,
+    /// Whether it takes its caller's `&'static Location` last, unseen
+    /// (`#[track_caller]`).
+    pub caller: bool,
     /// How each argument crosses the call: all `Pass::Own` but for
     /// aggregates of the C convention.
     pub pass: Vec<Pass>,
@@ -192,6 +202,27 @@ pub struct Lowered {
 }
 
 impl Lowered {
+    /// Gives each function of a Rust function or closure the optimisation
+    /// level of the crate it is written in (`"epitome-opt-level"`, which
+    /// epitome-opt reads), where `level` names one: a generic function of
+    /// `std` is optimised as `std` is, at whatever types it is used. The
+    /// functions lowering makes (drop glue, shims) are left at the
+    /// module's level.
+    pub fn set_opt_levels(&mut self, r: &Resolver, level: impl Fn(u32) -> Option<String>) {
+        for (it, &g) in &self.decls {
+            let d = match *it {
+                Item::Fn(d, _) | Item::Closure(_, d, _) => d,
+                _ => continue,
+            };
+            let Some(l) = level(r.defs[d.0 as usize].krate) else { continue };
+            if let epitome_ir::module::GlobalKind::Function(f) = &mut self.module.globals[g.index()].kind
+                && f.has_body
+            {
+                f.fn_attrs.push(epitome_ir::module::Attr::Str { key: b"epitome-opt-level".to_vec(), value: Some(l.into_bytes()) });
+            }
+        }
+    }
+
     /// Makes the functions `items` are external (those lowered), so that
     /// optimising keeps them, as for a library's.
     pub fn export(&mut self, items: &[Item]) {
@@ -259,9 +290,33 @@ pub(crate) struct Cx<'a, 's> {
     /// closure does).
     pub once: FastMap<Item, Decl>,
     pub target: Target,
+    /// Whether `core` and `std` are built with `panic = "immediate-abort"`,
+    /// where each of their panic functions aborts before anything else.
+    pub immediate_abort: bool,
 }
 
 impl<'a, 's> Cx<'a, 's> {
+    /// Whether function `d` is `#[track_caller]`: itself, or (a trait
+    /// impl's method) the trait's method it implements, which makes every
+    /// impl's so (`SliceIndex::index`).
+    pub fn track_caller(&self, d: DefId) -> bool {
+        let (_, _, ast, node) = self.def_ast(d);
+        if crate::session::has_attribute(ast, node, "track_caller") {
+            return true;
+        }
+        let r = self.r;
+        let def = &r.defs[d.0 as usize];
+        let Some(imp) = def.parent.and_then(|m| r.modules[m.0 as usize].def) else { return false };
+        let Some(tr) = self.tcx.impl_index.get(&imp).and_then(|&i| self.tcx.impls[i].trait_ref.as_ref()).map(|t| t.def) else { return false };
+        match r.defs[tr.0 as usize].module.and_then(|m| r.modules[m.0 as usize].names.get(&(def.name, crate::resolve::Ns::Value))).map(|b| &b.res) {
+            Some(crate::resolve::Res::Def(td)) => {
+                let (_, _, ast, node) = self.def_ast(*td);
+                crate::session::has_attribute(ast, node, "track_caller")
+            }
+            _ => false,
+        }
+    }
+
     pub fn solver(&self) -> Solver<'a, 's> {
         Solver::new(self.tcx, self.r, self.crates, self.index)
     }
@@ -293,7 +348,7 @@ impl<'a, 's> Cx<'a, 's> {
     pub fn abi(&self, m: &mut Module, inputs: Vec<Ty>, output: Ty, variadic: bool, c: bool) -> Result<FnAbi, String> {
         let args = inputs.iter().map(|&t| self.repr(m, t)).collect::<Result<Vec<_>, _>>()?;
         let ret = self.repr(m, output)?;
-        let mut abi = FnAbi { pass: vec![Pass::Own; args.len()], pass_ret: Pass::Own, inputs, output, args, ret, variadic };
+        let mut abi = FnAbi { pass: vec![Pass::Own; args.len()], pass_ret: Pass::Own, inputs, output, args, ret, variadic, caller: false };
         if c && (ret == Repr::Mem || abi.args.contains(&Repr::Mem)) {
             self.c_passes(m, &mut abi)?;
         }
@@ -307,6 +362,9 @@ impl<'a, 's> Cx<'a, 's> {
     /// Works out `abi.pass` and `abi.pass_ret` for the C convention.
     fn c_passes(&self, m: &mut Module, abi: &mut FnAbi) -> Result<(), String> {
         use epitome_ir::types::Type;
+        if self.target.triple.starts_with("riscv") {
+            return Err("aggregates in RISC-V's C convention are not supported yet".into());
+        }
         let mut solver = self.solver();
         let sysv = self.sysv();
         if abi.ret == Repr::Mem {
@@ -536,6 +594,9 @@ impl<'a, 's> Cx<'a, 's> {
                 (Repr::Mem, _) => params.push((ptr, None)),
             }
         }
+        if abi.caller {
+            params.push((ptr, None));
+        }
         let ret = match (&abi.pass_ret, abi.ret) {
             (Pass::Direct(pieces), _) if pieces.len() == 1 => pieces[0].1,
             (Pass::Direct(pieces), _) => {
@@ -714,6 +775,11 @@ impl<'a, 's> Cx<'a, 's> {
         if crate::session::has_attribute(ast, node, "no_mangle") || crate::session::has_attribute(ast, node, "rustc_std_internal_symbol") {
             return self.r.defs[d.0 as usize].name.to_string();
         }
+        // A kernel (`#[epitome::target(..)]`): by its path, the same in
+        // the pass for its machine and in the host's.
+        if crate::device::kernel_target(ast, node).is_some() {
+            return crate::device::kernel_symbol(&crate::mono::item_path(self.r, self.tcx, d));
+        }
         let mut text = crate::mono::item_path(self.r, self.tcx, d);
         let a = self.tcx.tys(args);
         if !a.is_empty() {
@@ -759,7 +825,8 @@ impl Session {
         };
         let drops = crate::drops::DropInfo::new(tcx);
         let mut cx =
-            Cx { tcx, r, crates, typeck, index, lcx, fns: FastMap::default(), statics: FastMap::default(), drops, owning: Default::default(), fnptr: FastMap::default(), once: FastMap::default(), target };
+            Cx { tcx, r, crates, typeck, index, lcx, fns: FastMap::default(), statics: FastMap::default(), drops, owning: Default::default(), fnptr: FastMap::default(), once: FastMap::default(), immediate_abort: false, target };
+        cx.immediate_abort = self.cfg_of(0).is_some_and(|c| c.has_value("panic", "immediate-abort"));
         let mut failures = Vec::new();
         let mut solver = cx.solver();
 
@@ -802,7 +869,7 @@ impl Session {
                     let l = if let Item::Fn(_, l) = *it { l } else { tcx.list(Vec::new()) };
                     let args = tcx.tys(l);
                     let abi = cx.signature(&mut solver, d, &args).and_then(|(i, o, c, v)| cx.abi(&mut m, i, o, v, c));
-                    let abi = match abi {
+                    let mut abi = match abi {
                         Ok(a) => a,
                         Err(e) => {
                             failures.push(Failure { item: *it, name: name.clone(), why: e });
@@ -810,6 +877,7 @@ impl Session {
                         }
                     };
                     let foreign = matches!(it, Item::Foreign(_));
+                    abi.caller = !foreign && cx.track_caller(d);
                     // An LLVM intrinsic of vectors (`core::arch`'s, by
                     // `link_name`) or aggregates takes them as values, where
                     // this ABI passes them in memory: SIMD is not lowered
@@ -821,6 +889,7 @@ impl Session {
                     let exported = foreign
                         || crate::session::has_attribute(ast, node, "no_mangle")
                         || crate::session::has_attribute(ast, node, "rustc_std_internal_symbol")
+                        || crate::device::kernel_target(ast, node).is_some()
                         || crate::session::attribute_value(ast, node, "export_name").is_some();
                     let mut spec = Cx::fn_spec(&mut m, name, &abi);
                     if !exported {
@@ -1371,7 +1440,10 @@ mod tests {
             let mut options = Options { threads: 4, ..Default::default() };
             if !std::fs::read_to_string(&file).unwrap().contains("#![no_std]") {
                 for (n, v) in crate::sysroot::std_cfg() {
-                    cfg.set_value(n, v);
+                    match v {
+                        Some(v) => cfg.set_value(n, v),
+                        None => cfg.set(n),
+                    };
                 }
                 options.env = crate::sysroot::std_env("x86_64");
             }

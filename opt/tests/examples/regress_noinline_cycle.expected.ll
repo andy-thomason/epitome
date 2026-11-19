@@ -2,10 +2,12 @@
 ; @a: recursion: cycle not collapsed: @b is noinline
 ; @a: combine: sub_const x2
 ; @a: simplifycfg: 0 unreachable blocks removed, 1 empty blocks bypassed, 0 selects made, 0 blocks merged
+; @a: implied: 0 comparisons folded, 0 selects resolved, 1 flags set
 ; @b: recursion: 1 call(s) now push a frame on an explicit stack (values saved per frame: 1)
 ; @b: recursion: cycle not collapsed: @c is noinline
 ; @b: combine: sub_const x2
 ; @b: simplifycfg: 0 unreachable blocks removed, 1 empty blocks bypassed, 0 selects made, 0 blocks merged
+; @b: implied: 0 comparisons folded, 0 selects resolved, 1 flags set
 ; @c: sroa: 1 allocas split into 1 pieces
 ; @c: mem2reg: 1 allocas promoted (1 loads, 1 stores removed)
 ; @main: not inlined @a: noinline
@@ -44,7 +46,7 @@ entry:                                            ; preds = %rec.grow, %rec.head
   br i1 %c, label %rec.return, label %rec
 
 rec:                                              ; preds = %entry
-  %m = add i32 %n, -1
+  %m = add nsw i32 %n, -1
   %x = call i32 @b(i32 %m)
   %frame0 = getelementptr inbounds { ptr, ptr, [64 x { i32 }] }, ptr %chunk, i32 0, i32 2, i32 %index
   store i32 %x, ptr %frame0
@@ -111,7 +113,7 @@ entry:                                            ; preds = %rec.grow, %rec.head
   br i1 %c, label %rec.return, label %rec
 
 rec:                                              ; preds = %entry
-  %m = add i32 %n, -1
+  %m = add nsw i32 %n, -1
   %x = call i32 @c(i32 %m)
   %y = mul i32 %x, 3
   %frame0 = getelementptr inbounds { ptr, ptr, [64 x { i32 }] }, ptr %chunk, i32 0, i32 2, i32 %index

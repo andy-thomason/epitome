@@ -32,6 +32,9 @@ pub struct CallGraph {
     /// The node's address is used other than as a direct callee, so it may
     /// be called from anywhere.
     pub address_taken: Vec<bool>,
+    /// The globals each node's body mentions other than as a direct
+    /// callee (an address taken, a variable used), sorted.
+    pub refs: Vec<Vec<GlobalId>>,
     /// A `blockaddress` constant names one of the node's blocks.
     pub has_blockaddress: Vec<bool>,
     /// The instruction count of each node.
@@ -70,6 +73,7 @@ impl CallGraph {
         let mut sites = vec![Vec::new(); n];
         let mut call_sites = vec![0; n];
         let mut address_taken = vec![false; n];
+        let mut refs = vec![Vec::new(); n];
         let mut size = vec![0; n];
         let mut take = |g: GlobalId| {
             if let Some(i) = node_of[g.index()] {
@@ -87,6 +91,9 @@ impl CallGraph {
             callees[i].sort_unstable();
             callees[i].dedup();
             s.refs.iter().for_each(|&g| take(g));
+            refs[i] = s.refs.clone();
+            refs[i].sort_unstable();
+            refs[i].dedup();
         }
         // References from outside function bodies.
         for &g in &m.global_order {
@@ -149,6 +156,7 @@ impl CallGraph {
             call_sites,
             sites_in_scc,
             address_taken,
+            refs,
             has_blockaddress,
             size,
             sccs,
@@ -291,7 +299,7 @@ fn scan(m: &Module, mentions: &[Vec<GlobalId>], f: &Function, is_fn: &dyn Fn(Glo
 
 /// For each constant, the globals it mentions, directly or through its
 /// operands.
-fn const_mentions(consts: &Constants) -> Vec<Vec<GlobalId>> {
+pub(crate) fn const_mentions(consts: &Constants) -> Vec<Vec<GlobalId>> {
     let n = consts.len();
     let mut memo: Vec<Option<Vec<GlobalId>>> = vec![None; n];
     fn visit(consts: &Constants, memo: &mut Vec<Option<Vec<GlobalId>>>, c: ConstId) -> Vec<GlobalId> {

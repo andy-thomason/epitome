@@ -1,7 +1,9 @@
 //! Each program in `tests/run/` is compiled by `epitome-rustc2` (with
 //! `core` from rust-src, through Epitome's optimiser and code generator,
 //! and without the optimiser) and by rustc, and run: the outputs and exit
-//! statuses must be the same.
+//! statuses must be the same, and so must what they write to stderr (a
+//! panic's message and place), but for the thread's id and the note about
+//! `RUST_BACKTRACE` (`std` from rust-src is built without backtraces).
 //!
 //! A program without `#![no_std]` uses `std` (with `--std`, `std` from
 //! rust-src). The others are `#![no_std]` with a C `main`, and write through
@@ -19,10 +21,32 @@ fn sysroot() -> Option<PathBuf> {
     Some(PathBuf::from(String::from_utf8(out.stdout).ok()?.trim()))
 }
 
-/// Runs `exe` for at most ten seconds: its output and exit status.
-fn run(exe: &Path) -> (String, Option<i32>) {
+/// Runs `exe` for at most ten seconds: its output, exit status and
+/// stderr (see `stderr`).
+fn run(exe: &Path) -> (String, Option<i32>, String) {
     let out = Command::new("timeout").arg("10").arg(exe).output().expect("timeout runs");
-    (String::from_utf8_lossy(&out.stdout).into_owned(), out.status.code())
+    (String::from_utf8_lossy(&out.stdout).into_owned(), out.status.code(), stderr(&String::from_utf8_lossy(&out.stderr)))
+}
+
+/// `text` without a thread's id (`thread 'main' (1234) panicked`) or the
+/// note about `RUST_BACKTRACE`.
+fn stderr(text: &str) -> String {
+    let mut out = String::new();
+    for line in text.lines().filter(|l| !l.starts_with("note: run with `RUST_BACKTRACE")) {
+        let mut rest = line;
+        while let Some(i) = rest.find(" (") {
+            out.push_str(&rest[..i + 2]);
+            rest = &rest[i + 2..];
+            let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+            if digits > 0 && rest[digits..].starts_with(')') {
+                out.push('N');
+                rest = &rest[digits..];
+            }
+        }
+        out.push_str(rest);
+        out.push('\n');
+    }
+    out
 }
 
 #[test]

@@ -1,5 +1,6 @@
 ; @sum_to: mem2reg: 4 allocas promoted (7 loads, 6 stores removed)
 ; @sum_to: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged
+; @sum_to: implied: 0 comparisons folded, 0 selects resolved, 1 flags set
 ; @sum_to: rotate: 1 loops rotated
 ; @sum_to: combine: (constant to the right) x1
 ; @sum_to: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged
@@ -8,6 +9,7 @@
 ; @sum_to: lsr: 1 arrays stepped by pointer, 1 counters counting down
 ; @last: mem2reg: 2 allocas promoted (4 loads, 3 stores removed)
 ; @last: simplifycfg: 0 unreachable blocks removed, 1 empty blocks bypassed, 0 selects made, 0 blocks merged
+; @last: implied: 0 comparisons folded, 0 selects resolved, 1 flags set
 ; @last: rotate: 1 loops rotated
 ; @last: combine: (constant to the right) x1
 ; @last: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged
@@ -22,6 +24,7 @@
 ; @count_down: indvars: 1 exact exit tests, 0 exit values, 0 counters widened
 ; @squares: mem2reg: 2 allocas promoted (6 loads, 4 stores removed)
 ; @squares: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged
+; @squares: implied: 0 comparisons folded, 0 selects resolved, 2 flags set
 ; @squares: rotate: 1 loops rotated
 ; @squares: combine: (folded) x2, br_true x1
 ; @squares: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged
@@ -67,7 +70,7 @@ entry:
 
 for.inc:                                          ; preds = %for.inc, %entry
   %i = phi i32 [ 0, %entry ], [ %inc, %for.inc ]
-  %inc = add nsw i32 %i, 1
+  %inc = add nuw nsw i32 %i, 1
   %cmp = icmp ne i32 %inc, %n
   br i1 %cmp, label %for.inc, label %for.end
 
@@ -103,9 +106,9 @@ entry:
 for.body:                                         ; preds = %for.body, %entry
   %t = phi i32 [ 0, %entry ], [ %add, %for.body ]
   %i = phi i32 [ 3, %entry ], [ %inc, %for.body ]
-  %mul = mul nsw i32 %i, %i
+  %mul = mul nuw nsw i32 %i, %i
   %add = add nsw i32 %t, %mul
-  %inc = add nsw i32 %i, 1
+  %inc = add nuw nsw i32 %i, 1
   %cmp = icmp ne i32 %inc, 13
   br i1 %cmp, label %for.body, label %for.end
 

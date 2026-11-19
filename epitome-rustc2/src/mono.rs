@@ -219,9 +219,22 @@ pub fn roots(r: &Resolver, tcx: &TyCtxt, crates: &[ParsedCrate], k: u32, lib: bo
         let ast = &crates[def.krate as usize].files[def.file as usize].ast;
         crate::session::has_attribute(ast, def.node, "no_mangle") || crate::session::attribute_value(ast, def.node, "export_name").is_some()
     };
+    // What lowering's own checks call: `core`'s `panic_bounds_check`
+    // (an index out of bounds) and the `panic_const_*` of division.
+    let checks: Vec<Item> = (0..r.defs.len() as u32)
+        .map(DefId)
+        .filter(|&d| {
+            let def = &r.defs[d.0 as usize];
+            def.kind == DefKind::Fn
+                && (def.name == "panic_bounds_check" && tcx.lang.get("panic_bounds_check") == Some(&d)
+                    || PANIC_CONSTS.contains(&def.name) && r.def_path(d).starts_with("core::panicking::panic_const::"))
+        })
+        .map(|d| Item::Fn(d, empty))
+        .collect();
     match fns.iter().find(|&&d| !lib && is_main(d)) {
         Some(&m) => {
             let mut v = vec![Item::Fn(m, empty)];
+            v.extend(checks);
             // With `std`, `main` is run by its `lang_start::<T>` (`T` what
             // `main` returns), which the entry point lowering adds calls.
             if let Some(&start) = tcx.lang.get("start")
@@ -319,6 +332,11 @@ impl<'a, 's> Walk<'a, 's> {
                 _ => {}
             }
         }
+    }
+
+    fn is_kernel(&self, f: DefId) -> bool {
+        let def = &self.r.defs[f.0 as usize];
+        crate::device::kernel_target(&self.crates[def.krate as usize].files[def.file as usize].ast, def.node).is_some()
     }
 
     fn miss(&mut self, why: String) {
@@ -499,6 +517,13 @@ impl<'a, 's> Walk<'a, 's> {
             return;
         }
         match instance(self.r, self.crates, tcx, &mut self.solver, d, args.clone()) {
+            // A kernel for another machine is launched, not run here: what
+            // the host needs is the launch hook.
+            Resolved::Item(Item::Fn(f, _)) if self.is_kernel(f) => {
+                if let Some(h) = crate::device::launch_hook(self.r, self.crates) {
+                    self.found.push(Item::Fn(h, tcx.list(Vec::new())));
+                }
+            }
             Resolved::Item(it) => self.found.push(it),
             Resolved::Builtin => self.builtin_call(d, &args),
             Resolved::NoImpl => self.miss("associated constant without an impl".into()),
@@ -750,6 +775,17 @@ pub(crate) fn is_intrinsic(r: &Resolver, crates: &[ParsedCrate], d: DefId) -> bo
     crate::session::has_attribute(ast, def.node, "rustc_intrinsic")
 }
 
+/// The `core::panicking::panic_const` functions lowering's division
+/// checks call.
+pub(crate) const PANIC_CONSTS: [&str; 4] = ["panic_const_div_by_zero", "panic_const_rem_by_zero", "panic_const_div_overflow", "panic_const_rem_overflow"];
+
+/// Whether `d` is a declaration of `core`'s `panic_impl`.
+fn is_panic_impl(r: &Resolver, crates: &[ParsedCrate], d: DefId) -> bool {
+    let def = &r.defs[d.0 as usize];
+    def.name == "panic_impl"
+        && crate::session::attribute_value(&crates[def.krate as usize].files[def.file as usize].ast, def.node, "lang").as_deref() == Some("panic_impl")
+}
+
 /// The trait an associated item is in, if it is in one.
 pub(crate) fn trait_of(r: &Resolver, item: DefId) -> Option<DefId> {
     let m = r.defs[item.0 as usize].parent?;
@@ -763,6 +799,14 @@ pub(crate) fn trait_of(r: &Resolver, item: DefId) -> Option<DefId> {
 pub(crate) fn instance(r: &Resolver, crates: &[ParsedCrate], tcx: &TyCtxt, solver: &mut Solver, d: DefId, args: Vec<Ty>) -> Resolved {
     let kind = r.defs[d.0 as usize].kind;
     match kind {
+        // `core`'s `panic_impl` (declared twice) is the program's
+        // `#[panic_handler]`.
+        DefKind::ForeignFn
+            if let Some(&h) = tcx.lang.get("panic_handler")
+                && is_panic_impl(r, crates, d) =>
+        {
+            Resolved::Item(Item::Fn(h, tcx.list(Vec::new())))
+        }
         DefKind::ForeignFn => Resolved::Item(Item::Foreign(d)),
         DefKind::Const => Resolved::Item(Item::Const(d, tcx.list(args))),
         // An inherent impl's constant is itself; a trait's, the impl's.

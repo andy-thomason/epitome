@@ -17,6 +17,7 @@ pub mod eh;
 pub mod elf;
 pub mod enc;
 pub mod features;
+pub mod flat;
 pub mod frame;
 pub mod huge;
 pub mod intel;

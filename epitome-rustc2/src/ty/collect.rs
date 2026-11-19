@@ -32,6 +32,10 @@ pub(super) fn collect<'s>(crates: &[ParsedCrate<'s>], r: &Resolver<'s>) -> TyCtx
                     tcx.lang.insert(name, DefId(i as u32));
                 }
             }
+            // `#[panic_handler]`: what `core`'s `panic_impl` is.
+            if d.kind == DefKind::Fn && crate::session::has_attribute(ast, d.node, "panic_handler") {
+                tcx.lang.insert("panic_handler", DefId(i as u32));
+            }
         }
     }
     let defs: Vec<DefId> = (0..r.defs.len() as u32).map(DefId).filter(|&d| r.defs[d.0 as usize].parent.is_some()).collect();

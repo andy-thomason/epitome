@@ -871,6 +871,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
             called: RefCell::default(),
             traces: RefCell::default(),
             cycles: RefCell::default(),
+            tables: RefCell::default(),
             flat: HashMap::new(),
             flattening: Vec::new(),
             edge_canon: RefCell::default(),
@@ -1392,6 +1393,9 @@ struct Lowering<'d, 'a> {
     /// collected.
     flat: HashMap<SpecId, HashSet<SpecId>>,
     flattening: Vec<HashSet<SpecId>>,
+    /// The constant tables written into the code's data (see
+    /// `Func::table_read`), by their bytes.
+    tables: RefCell<HashMap<Vec<u8>, GlobalId>>,
     /// For [`Netlist::loops`].
     cycles: RefCell<Vec<(String, Vec<String>)>>,
     /// With [`Options::pieces`], the global of the pieces' counters, and
@@ -7870,6 +7874,76 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
         Ok((i, ok))
     }
 
+    /// In scalar code, an element of a constant (a table, say) selected by
+    /// a value: loaded from a copy of the table in the code's data by its
+    /// address, not picked out by comparing the index with each element's.
+    fn table_read(&mut self, e: ExprId) -> Option<Val> {
+        let d = self.d();
+        if !self.sc() {
+            return None;
+        }
+        let x = d.expr(e);
+        let base = x.args[0];
+        let c = self.l.fold(base)?;
+        let bits = const_bits(&c, tw(&d.types, d.expr(base).ty))?;
+        let (off, w) = self.offset(e).ok()?;
+        let Off::Dec { i, n, stride, add, ok } = off else { return None };
+        if n <= 4 || w > 256 || w == 0 {
+            return None;
+        }
+        let span = w.div_ceil(64) as usize;
+        let mut bytes = Vec::with_capacity(n as usize * span * 8);
+        for k in 0..n {
+            let b = bits.slice(k * stride + add, w);
+            for j in 0..span as u32 {
+                let word = (0..64u32).filter(|t| j * 64 + t < w && b.bit(j * 64 + t) == Logic::One).fold(0u64, |a, t| a | 1 << t);
+                bytes.extend(word.to_le_bytes());
+            }
+        }
+        let g = {
+            let mut tables = self.l.tables.borrow_mut();
+            let next = tables.len();
+            match tables.get(&bytes) {
+                Some(&g) => g,
+                None => {
+                    let m = self.b.module();
+                    let Value::Const(init) = m.const_bytes(&bytes) else { unreachable!() };
+                    let i8t = m.types.int(8);
+                    let ty = m.types.array(bytes.len() as u64, i8t);
+                    let g = m.add_global(epitome_ir::module::Global::variable(&format!("sv_table_{next}"), ty, Some(init), true));
+                    if let epitome_ir::module::GlobalKind::Variable(v) = &mut m.globals[g.index()].kind {
+                        v.align = Some(8);
+                    }
+                    tables.insert(bytes, g);
+                    g
+                }
+            }
+        };
+        // (The index clamped into range: out of it, what is loaded is not
+        // used.)
+        let ix = self.lane0(i);
+        let last = self.i64k(n as i64 - 1);
+        let big = self.b.icmp(ICmpPred::Ugt, ix, last);
+        let ix = self.b.select(big, last, ix);
+        let row = self.i64k(span as i64 * 8);
+        let at = self.b.mul(ix, row);
+        let gv = self.b.module().global_value(g);
+        let p0 = self.b.gep(self.t.i8, gv, &[at]);
+        let p: Vec<P> = (0..span)
+            .map(|j| {
+                let a = self.off(p0, 8 * j as u64);
+                let v = self.ld(self.t.i64, a, 8);
+                P::V(self.reg(v))
+            })
+            .collect();
+        let v = self.extract(&Val { w: 64 * span as u32, p }, 0, w);
+        if ok == M::K(true) {
+            return Some(v);
+        }
+        let z = self.zero(w);
+        Some(self.select(ok, &v, &z))
+    }
+
     /// `o[...]` read, for an object kept an element to a slot.
     fn elem_read(&mut self, o: ObjId, e: ExprId) -> Result<Val, String> {
         let el = self.lay().elems[&o];
@@ -9226,6 +9300,9 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
                 }
                 if let Some((o, off, w)) = self.read_place(e)? {
                     return Ok(self.read_at(o, off, w));
+                }
+                if let Some(v) = self.table_read(e) {
+                    return Ok(v);
                 }
                 let base = self.expr(x.args[0])?;
                 let (off, w) = self.offset(e)?;

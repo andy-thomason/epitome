@@ -1521,3 +1521,34 @@ fn wrapped_rams() {
         assert_eq!(&out[c * ow..c * ow + 8], &want[..], "cycle {c}");
     }
 }
+
+
+const TABLE: &str = r#"
+module tbl (input logic [4:0] idx, output logic [69:0] y);
+  localparam logic [19:0][69:0] T = {70'h0a8e1e08c47287358f, 70'h0a3fe68f0af33cb97a, 70'h0b91af155173f23d65, 70'h08e3779b97f4a7c150, 70'h09b54021de755d453b, 70'h084708a824f612c926, 70'h08d8d12e6b76c84d11, 70'h07aa99b4b1f77dd0fc, 70'h067c623af8783354e7, 70'h068e2ac13ef8e8d8d2, 70'h051ff34785799e5cbd, 70'h0471bbcdcbfa53e0a8, 70'h04238454127b096493, 70'h03d54cda58fbbee87e, 70'h034715609f7c746c69, 70'h0238dde6e5fd29f054, 70'h01eaa66d2c7ddf743f, 70'h011c6ef372fe94f82a, 70'h008e3779b97f4a7c15, 70'h000000000000000000};
+  assign y = T[idx];
+endmodule
+"#;
+
+#[test]
+fn constant_tables_by_address() {
+    // An element of a constant selected by a value: a load from a table;
+    // out of range, 0.
+    let Some(host) = host() else {
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
+        return;
+    };
+    let net = netlist_with(&text("tbl.sv", TABLE), "tbl", host.options(1));
+    assert!(net.ir().contains("sv_table_"), "no table");
+    let b = build("tbl", net, &host);
+    let io = Io::new(&b.net, None).unwrap();
+    let vals: [u128; 20] = [0x0, 0x8e3779b97f4a7c15, 0x11c6ef372fe94f82a, 0x1eaa66d2c7ddf743f, 0x238dde6e5fd29f054, 0x34715609f7c746c69, 0x3d54cda58fbbee87e, 0x4238454127b096493, 0x471bbcdcbfa53e0a8, 0x51ff34785799e5cbd, 0x68e2ac13ef8e8d8d2, 0x67c623af8783354e7, 0x7aa99b4b1f77dd0fc, 0x8d8d12e6b76c84d11, 0x84708a824f612c926, 0x9b54021de755d453b, 0x8e3779b97f4a7c150, 0xb91af155173f23d65, 0xa3fe68f0af33cb97a, 0xa8e1e08c47287358f];
+    let stim: Vec<u32> = (0..32).collect();
+    let out = b.run(&io, 32, 1, &stim);
+    let ow = io.out_words();
+    for i in 0..32usize {
+        let want = if i < 20 { vals[i] } else { 0 };
+        let got = out[i * ow] as u128 | (out[i * ow + 1] as u128) << 32 | (out[i * ow + 2] as u128) << 64;
+        assert_eq!(got, want, "T[{i}]");
+    }
+}

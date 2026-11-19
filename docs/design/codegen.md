@@ -121,8 +121,22 @@ Chosen with `-regalloc=`.
 | --- | --- | --- |
 | `fast` | Works one block at a time. The default for debug builds. | Planned |
 | `basic` | Allocates live ranges one by one in a heuristic order. Useful for finding bugs. | Planned |
-| linear scan | Epitome's first allocator: live ranges in order of start, copy hints, callee-saved registers for values live across calls, spills through scratch registers. See [isel](isel.md). | Done |
+| linear scan | Epitome's first allocator: live ranges in order of start, copy hints, callee-saved registers for values live across calls, eviction of lighter values, spills through scratch registers; a spilled value's range split by blocks (below). See [isel](isel.md). | Done |
 | `greedy` | The default. Like `basic`, plus splitting live ranges across the function. | Later |
+
+Epitome's splitting is by blocks, after linear scan (`split_by_blocks`): a
+spilled value is stored after each definition, so memory always has it,
+and a register free for all of its stretch in a block may hold it there.
+For each spilled value, heaviest first, and each register of its class,
+the blocks are chosen where the reads it saves (each block weighted 8 for
+each loop it is in) outweigh the loads entering them, which go on the
+edges: at the start of a block of one predecessor, or before the
+terminator of a block of one successor. Leaving needs nothing. The
+register that saves most is taken, then up to two more for the rest. In
+its other blocks the value is reloaded before each use, or once for a
+run of uses where a register is free between them. Within a block ranges
+are not split (around one call, say), and there is no spill placement
+across the function as greedy's has.
 | `pbqp` | Solves allocation as a partitioned boolean quadratic problem. | Later |
 
 ### Allocation support

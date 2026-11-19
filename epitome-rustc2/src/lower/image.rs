@@ -84,27 +84,15 @@ pub(crate) fn run(m: &Module, init: GlobalId, target: GlobalId, size: u64) -> Op
 }
 
 /// The image as a constant: a packed struct of its bytes and addresses
-/// (or just its bytes).
+/// (or just its bytes), long runs of zeros as `zeroinitializer` (all
+/// zeros, the static goes in `.bss`).
 pub(crate) fn constant(m: &mut Module, img: &Image) -> ConstId {
-    let bytes = |m: &mut Module, b: &[u8]| match m.const_bytes(b) {
-        Value::Const(c) => c,
-        _ => unreachable!("bytes are a constant"),
-    };
-    if img.ptrs.is_empty() {
-        return bytes(m, &img.bytes);
-    }
-    let ptr = m.types.ptr(0);
-    let i8t = m.types.int(8);
-    let ps = 8u64;
     let mut fields = Vec::new();
-    let mut tys = Vec::new();
     let mut at = 0u64;
     for &(off, g, add) in &img.ptrs {
-        if off > at {
-            let c = bytes(m, &img.bytes[at as usize..off as usize]);
-            tys.push(m.consts.get(c).ty);
-            fields.push(c);
-        }
+        bytes(m, &img.bytes[at as usize..off as usize], &mut fields);
+        let ptr = m.types.ptr(0);
+        let i8t = m.types.int(8);
         let base = m.consts.intern(Constant { ty: ptr, kind: ConstKind::Global(g) });
         let c = if add == 0 {
             base
@@ -116,17 +104,56 @@ pub(crate) fn constant(m: &mut Module, img: &Image) -> ConstId {
                 kind: ConstKind::Expr(ConstExpr::Gep { flags: Default::default(), inrange: None, source_ty: i8t, ptr: base, indices: vec![k].into() }),
             })
         };
-        tys.push(ptr);
         fields.push(c);
-        at = off + ps;
+        at = off + 8;
     }
-    if (at as usize) < img.bytes.len() {
-        let c = bytes(m, &img.bytes[at as usize..]);
-        tys.push(m.consts.get(c).ty);
-        fields.push(c);
+    bytes(m, &img.bytes[(at as usize).min(img.bytes.len())..], &mut fields);
+    if fields.is_empty() {
+        let i8t = m.types.int(8);
+        let ty = m.types.array(0, i8t);
+        return m.consts.intern(Constant { ty, kind: ConstKind::Bytes(Vec::new()) });
     }
+    if fields.len() == 1 {
+        return fields[0];
+    }
+    let tys: Vec<TypeId> = fields.iter().map(|&c| m.consts.get(c).ty).collect();
     let ty = m.types.intern(Type::Struct { packed: true, fields: tys.into() });
     m.consts.intern(Constant { ty, kind: ConstKind::Struct(fields) })
+}
+
+/// Runs of zeros at least this long are `zeroinitializer`.
+const ZEROS: usize = 64;
+
+/// `b` as constants pushed on `out`: `[N x i8]` arrays, of its bytes or
+/// (for a long run of zeros) `zeroinitializer`.
+fn bytes(m: &mut Module, b: &[u8], out: &mut Vec<ConstId>) {
+    let i8t = m.types.int(8);
+    let mut piece = |m: &mut Module, b: &[u8], zero: bool| {
+        let ty = m.types.array(b.len() as u64, i8t);
+        let kind = if zero { ConstKind::Zero } else { ConstKind::Bytes(b.to_vec()) };
+        out.push(m.consts.intern(Constant { ty, kind }));
+    };
+    let mut start = 0;
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] != 0 {
+            i += 1;
+            continue;
+        }
+        let end = b[i..].iter().position(|&x| x != 0).map_or(b.len(), |n| i + n);
+        // A long run, or all there is: its own piece.
+        if end - i >= ZEROS || (i == start && end == b.len()) {
+            if i > start {
+                piece(m, &b[start..i], false);
+            }
+            piece(m, &b[i..end], true);
+            start = end;
+        }
+        i = end;
+    }
+    if start < b.len() {
+        piece(m, &b[start..], false);
+    }
 }
 
 fn mask(v: u128, bits: u32) -> u128 {

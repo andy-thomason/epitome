@@ -1419,9 +1419,13 @@ there.
 - **Launching.** On the host, a call of a kernel is not a call: each
   argument goes in a `u64` with its kind (integer, `f32`, `f64`), and
   `__epitome_launch(image, kernel name, args, kinds, n, result kind)`
-  runs it and gives its result back. Monomorphisation does not walk a
-  kernel's body on the host, but adds the hook. So far kernels take and
-  give numbers only.
+  runs it and gives its result back. A `&[T]`, `&mut [T]` or `&str` of
+  plain numbers (and arrays of them, laid out alike on both machines) is
+  passed as its address, length and element size: the runtime copies the
+  elements into the machine's memory and gives the kernel the slice there,
+  and copies a `&mut [T]`'s back after the run. Monomorphisation does not
+  walk a kernel's body on the host, but adds the hook. `--lower-stats`
+  also lists what the kernels' pass could not lower.
 - **The runtime.** `runtime/rv64.rs` is a `#![no_std]` RV64 interpreter
   (I, M, A, and F and D but for square roots and fused operations) that
   defines `__epitome_launch`. It is compiled into a program that has
@@ -1434,9 +1438,8 @@ there.
 - `--emit=kernels` writes only the machines' objects (`tests/kernels.rs`
   runs one on codegen's RV64 test machine).
 
-Next: slices as arguments (copied into the machine's memory before the
-run, and back after for `&mut`), then a GPU (gfx1151, which so far only
-assembles).
+Next: a GPU (gfx1151, which so far only assembles). Not yet: pointers
+other than slices, structs, and kernels that are generic or methods.
 
 ## 9. Crates and Cargo
 

@@ -517,9 +517,14 @@ impl Machine {
 }
 
 /// Runs kernel `kernel` (its symbol, `kernel_len` bytes) of `image` on
-/// `nargs` arguments: each a `u64` of `args`, of the kind the same element
-/// of `kinds` says (0 an integer or pointer, 1 an `f32`, 2 an `f64`).
-/// Gives a0, or fa0 if `ret` is 1 or 2.
+/// `nargs` arguments, of the kinds `kinds` says, from the `u64`s of `args`:
+/// 0 an integer, 1 an `f32`, 2 an `f64`, each one `u64`; 3 a `&[T]` and 4
+/// a `&mut [T]`, each three (the host's address, the length and the size
+/// of an element). A slice's elements are copied into the machine's
+/// memory, after the image, and the kernel is given the address of the
+/// slice there (a pair of address and length, which the convention passes
+/// by address); a `&mut [T]`'s are copied back after the run. Gives a0,
+/// or fa0 if `ret` is 1 or 2.
 ///
 /// # Safety
 /// The pointers are to what the compiler made for the call.
@@ -567,11 +572,43 @@ pub unsafe extern "C" fn __epitome_launch(image: *const u8, kernel: *const u8, k
     m.f = [0; 32];
     m.reserved = 0;
     let (mut ni, mut nf) = (0, 0);
+    // Slices go after the image; the stack is at the top.
+    let mut heap = (base + len as u64 + 15) & !15;
+    let mut back: [(u64, u64, usize); 8] = [(0, 0, 0); 8];
+    let mut nback = 0;
+    let mut word = 0;
     for i in 0..nargs {
-        let v = unsafe { *args.add(i) };
+        let v = unsafe { *args.add(word) };
+        word += 1;
         match unsafe { *kinds.add(i) } {
             0 => {
                 m.x[10 + ni] = v;
+                ni += 1;
+            }
+            k @ (3 | 4) => {
+                let count = unsafe { *args.add(word) };
+                let size = unsafe { *args.add(word + 1) };
+                word += 2;
+                let bytes = (count * size) as usize;
+                if heap as usize + bytes + 16 > MEM - (1 << 20) {
+                    fail("slices too large for the machine", bytes as u64);
+                }
+                let data = heap;
+                let from = unsafe { core::slice::from_raw_parts(v as *const u8, bytes) };
+                m.mem()[data as usize..data as usize + bytes].copy_from_slice(from);
+                heap = (heap + bytes as u64 + 15) & !15;
+                let pair = heap;
+                m.store(pair, 8, data);
+                m.store(pair + 8, 8, count);
+                heap += 16;
+                if k == 4 {
+                    if nback == back.len() {
+                        fail("too many `&mut` slices", i as u64);
+                    }
+                    back[nback] = (v, data, bytes);
+                    nback += 1;
+                }
+                m.x[10 + ni] = pair;
                 ni += 1;
             }
             1 => {
@@ -600,6 +637,10 @@ pub unsafe extern "C" fn __epitome_launch(image: *const u8, kernel: *const u8, k
             continue;
         }
         m.step();
+    }
+    for &(host, data, bytes) in &back[..nback] {
+        let to = unsafe { core::slice::from_raw_parts_mut(host as *mut u8, bytes) };
+        to.copy_from_slice(&m.mem()[data as usize..data as usize + bytes]);
     }
     match ret {
         1 => m.f[10] & 0xffff_ffff,

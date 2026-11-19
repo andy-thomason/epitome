@@ -390,6 +390,17 @@ fn main() -> ExitCode {
                         return ExitCode::FAILURE;
                     }
                 };
+                if lower_stats {
+                    eprintln!(
+                        "lower ({name} kernels): {} functions, {} not lowered, {} that trap where they use something not supported",
+                        lowered.functions,
+                        lowered.failures.len(),
+                        lowered.partial.len()
+                    );
+                    for f in lowered.failures.iter().chain(&lowered.partial) {
+                        eprintln!("  {}: {}", f.name, f.why);
+                    }
+                }
                 let path = PathBuf::from(format!("{}.{name}.o", out.display()));
                 if let Err(e) = build(&mut lowered.module, machine.target, &path, Some(epitome_opt::inline::OptLevel::O2), true) {
                     eprintln!("error: {name}: {e}");

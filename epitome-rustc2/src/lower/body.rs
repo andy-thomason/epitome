@@ -3026,9 +3026,12 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
 
     /// A call of kernel `f` (for the machine its `#[epitome::target]`
     /// names): its arguments as `u64`s, each with its kind (0 an integer,
-    /// 1 an `f32`, 2 an `f64`), and `__epitome_launch` given the machine's
-    /// image (the global `epitome.image.<machine>`, which the driver fills
-    /// in) and the kernel's symbol; its result, converted back.
+    /// 1 an `f32`, 2 an `f64`; 3 a `&[T]` and 4 a `&mut [T]` of plain
+    /// numbers, as three: the address, the length and the size of an
+    /// element, copied into the machine's memory and, for 4, back), and
+    /// `__epitome_launch` given the machine's image (the global
+    /// `epitome.image.<machine>`, which the driver fills in) and the
+    /// kernel's symbol; its result, converted back.
     fn launch(&mut self, f: DefId, args: Vec<Operand>) -> R<Pv> {
         let cx = self.cx;
         let tcx = cx.tcx;
@@ -3047,11 +3050,48 @@ impl<'c, 'a, 's, 'm> Fx<'c, 'a, 's, 'm> {
         let i64t = self.b.module().types.int(64);
         let i32t = self.b.module().types.int(32);
         let i8t = self.i8t();
+        // Plain data: numbers, and arrays of them, laid out alike on both
+        // machines.
+        fn plain(tcx: &crate::ty::TyCtxt, t: Ty) -> bool {
+            match tcx.kind(t) {
+                TyKind::Int(_) | TyKind::Uint(_) | TyKind::Float(_) | TyKind::Bool | TyKind::Char => true,
+                TyKind::Array(e, _) => plain(tcx, e),
+                _ => false,
+            }
+        }
+        let slice_of = |t: Ty| -> Option<(Mutbl, Ty)> {
+            match tcx.kind(t) {
+                TyKind::Ref(m, s) => match tcx.kind(s) {
+                    TyKind::Slice(e) if plain(tcx, e) => Some((m, e)),
+                    TyKind::Str => Some((m, tcx.mk(TyKind::Uint(UintTy::U8)))),
+                    _ => None,
+                },
+                _ => None,
+            }
+        };
         let n = args.len();
-        let slots = self.temp(tcx.mk(TyKind::Tuple(tcx.list(vec![tcx.mk(TyKind::Uint(UintTy::U64)); n.max(1)]))))?;
+        let words: usize = args.iter().map(|a| if slice_of(a.ty).is_some() { 3 } else { 1 }).sum();
+        let slots = self.temp(tcx.mk(TyKind::Tuple(tcx.list(vec![tcx.mk(TyKind::Uint(UintTy::U64)); words.max(1)]))))?;
         let mut kinds = Vec::new();
-        for (i, a) in args.iter().enumerate() {
-            let k = kind(a.ty).ok_or_else(|| format!("a kernel argument of type {} (only numbers, so far)", tcx.display(cx.r, a.ty)))?;
+        let mut word = 0;
+        for a in args.iter() {
+            if let Some((m, e)) = slice_of(a.ty) {
+                let p = self.deref(*a)?;
+                let len = p.meta.ok_or("a slice without its length")?;
+                let size = self.layout(e)?.size;
+                let addr = self.b.cast(CastOp::PtrToInt, p.addr, i64t);
+                let size = self.usize_const(size);
+                for (k, v) in [addr, len, size].into_iter().enumerate() {
+                    let at = self.offset(slots.addr, 8 * (word + k) as u64);
+                    self.store_imm(v, at, 8);
+                }
+                word += 3;
+                kinds.push(if m == Mutbl::Mut { 4 } else { 3 });
+                continue;
+            }
+            let k = kind(a.ty).ok_or_else(|| format!("a kernel argument of type {} (numbers and slices of them, so far)", tcx.display(cx.r, a.ty)))?;
+            let i = word;
+            word += 1;
             let v = self.imm(*a)?;
             let w = match k {
                 1 => {

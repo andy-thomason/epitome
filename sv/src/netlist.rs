@@ -1295,7 +1295,10 @@ pub const GUARD_MIN: usize = 64;
 pub const BRANCH_MIN: usize = 8;
 /// Most expression nodes, over all iterations, of a run of iterations
 /// left unrolled: each iteration of a rolled loop is a pass over the
-/// group's state, which costs more than a small body written out.
+/// group's state, with its selects' offsets worked out at run time, which
+/// costs many times a body written out (generate loops of a few
+/// assignments to and from wide structs, as register banks have, ran
+/// several times slower rolled at a sixteenth of this).
 const UNROLL_MAX: usize = 16384;
 /// Most expression nodes in one iteration for which [`UNROLL_TINY_MAX`]
 /// holds instead. A body this small is a select or two (a loop that moves

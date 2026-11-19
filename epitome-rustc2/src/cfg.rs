@@ -57,6 +57,12 @@ impl CfgSet {
         self.set_value(name, value)
     }
 
+    /// Unsets a name: `debug_assertions`.
+    pub fn unset(&mut self, name: &str) -> &mut Self {
+        self.names.remove(name);
+        self
+    }
+
     pub fn is_set(&self, name: &str) -> bool {
         self.names.contains(name)
     }

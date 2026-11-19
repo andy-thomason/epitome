@@ -43,7 +43,14 @@
 //!   with Epitome's optimiser, compile for the host with Epitome's code
 //!   generator, and link with `cc` (and libm) into the executable `PATH`. It fails if
 //!   any function of the last crate could not be lowered.
-//! - `-O0`: with `-o`, do not optimise.
+//! - `-O0`: with `-o`, do not optimise the crates given (`-C opt-level=0`).
+//! - `-C opt-level=0|1|2|3|s|z` (also `-Copt-level=..`): how much to
+//!   optimise the crates given (default 2). The standard library's crates
+//!   (those from rust-src) are optimised at 2 whatever this is, and built
+//!   without `debug_assertions`, as rustc's prebuilt `std` is; a generic
+//!   function is optimised as the crate it is written in is.
+//! - `--crate-opt name=level`: crate `name`'s own optimisation level, in
+//!   place of the above (`--crate-opt std=0`, `--crate-opt prog=3`).
 //! - `-C panic=unwind|abort|immediate-abort` (also `-Cpanic=...`): the
 //!   panic strategy `std` and `core` are built for (`cfg(panic = ..)`;
 //!   default `unwind`). With `immediate-abort` a panic aborts at once,
@@ -89,7 +96,11 @@ fn main() -> ExitCode {
     let (mut dump_mono, mut mono_stats) = (false, false);
     let (mut dump_ir, mut lower_stats) = (false, false);
     let mut output: Option<PathBuf> = None;
-    let (mut no_opt, mut emit_obj, mut lib) = (false, false, false);
+    let (mut emit_obj, mut lib) = (false, false);
+    // The optimisation level of the crates given, and of crates by name.
+    let mut opt_level = "2".to_string();
+    let mut crate_opt: Vec<(String, String)> = Vec::new();
+    let level_ok = |l: &str| matches!(l, "0" | "1" | "2" | "3" | "s" | "z");
     let mut tree: Option<PathBuf> = None;
     let mut cfg = CfgSet::host();
     let mut externs: Vec<(String, PathBuf)> = Vec::new();
@@ -119,7 +130,17 @@ fn main() -> ExitCode {
             "--dump-mono" => dump_mono = true,
             "--mono-stats" => mono_stats = true,
             "--dump-ir" => dump_ir = true,
-            "-O0" => no_opt = true,
+            "-O0" => opt_level = "0".to_string(),
+            _ if arg.starts_with("--crate-opt") => {
+                let v = value("--crate-opt").unwrap_or_default();
+                match v.split_once('=') {
+                    Some((n, l)) if level_ok(l) => crate_opt.push((n.to_string(), l.to_string())),
+                    _ => {
+                        eprintln!("error: `--crate-opt` takes `name=level` (level 0, 1, 2, 3, s or z), not `{v}`");
+                        return ExitCode::FAILURE;
+                    }
+                }
+            }
             "--emit=obj" => emit_obj = true,
             "--lib" => lib = true,
             "--std" => with_std = true,
@@ -131,6 +152,7 @@ fn main() -> ExitCode {
                     Some(p @ ("unwind" | "abort" | "immediate-abort")) => {
                         cfg.replace_value("panic", p);
                     }
+                    _ if v.strip_prefix("opt-level=").is_some_and(level_ok) => opt_level = v["opt-level=".len()..].to_string(),
                     _ => {
                         eprintln!("error: unknown codegen option `{v}`");
                         return ExitCode::FAILURE;
@@ -211,6 +233,14 @@ fn main() -> ExitCode {
         }
         options.env.extend(epitome_rustc2::sysroot::std_env(std::env::consts::ARCH));
     }
+    // The standard library's crates (from rust-src) are built as rustc's
+    // prebuilt `std` is: without `debug_assertions`.
+    let is_library = |p: &Path| p.to_string_lossy().contains("/lib/rustlib/src/rust/library/");
+    let library_cfg = (!no_cfg).then(|| {
+        let mut c = cfg.clone();
+        c.unset("debug_assertions");
+        c
+    });
     if !no_cfg {
         options.cfg = Some(cfg);
     }
@@ -218,7 +248,7 @@ fn main() -> ExitCode {
         options.proc_macro_server = epitome_rustc2::proc_macro::Server::from_rustc();
     }
     let session = Session::new(options);
-    let roots = std_roots
+    let roots: Vec<CrateRoot> = std_roots
         .into_iter()
         .chain(files.iter().map(|f| {
             let mut root = CrateRoot::new(crate_name(f), f).edition(edition);
@@ -227,6 +257,20 @@ fn main() -> ExitCode {
             }
             root
         }))
+        .map(|root| match &library_cfg {
+            Some(c) if is_library(&root.root) => root.cfg(c.clone()),
+            _ => root,
+        })
+        .collect();
+    // Each crate's optimisation level: its own (`--crate-opt`), else 2 for
+    // the standard library's and `-C opt-level` for the others.
+    let levels: Vec<String> = roots
+        .iter()
+        .map(|root| match crate_opt.iter().rev().find(|(n, _)| *n == root.name) {
+            Some((_, l)) => l.clone(),
+            None if is_library(&root.root) => "2".to_string(),
+            None => opt_level.clone(),
+        })
         .collect();
     let mut crates = session.parse_crates(roots);
     // A crate whose root file could not be read or parsed has no files,
@@ -351,7 +395,13 @@ fn main() -> ExitCode {
                         }
                         return ExitCode::FAILURE;
                     }
-                    if let Err(e) = build(&mut lowered.module, target, out, !no_opt, emit_obj) {
+                    // Each function at its crate's level; what lowering made
+                    // itself at the given crates' (2 if that is 0).
+                    let level = levels.iter().any(|l| l != "0").then(|| {
+                        lowered.set_opt_levels(&r, |k| levels.get(k as usize).cloned());
+                        epitome_opt::inline::OptLevel::parse(&opt_level).unwrap_or(epitome_opt::inline::OptLevel::O2)
+                    });
+                    if let Err(e) = build(&mut lowered.module, target, out, level, emit_obj) {
                         eprintln!("error: {e}");
                         return ExitCode::FAILURE;
                     }
@@ -458,12 +508,19 @@ fn item_crate(r: &epitome_rustc2::resolve::Resolver, it: epitome_rustc2::mono::I
     Some(r.defs[d.0 as usize].krate)
 }
 
-/// Optimises `m` (unless `!optimise`), compiles it for `target` and
-/// writes the object file, then links it with `cc` into `out` (unless
-/// `emit_obj`, when the object file is `out`).
-fn build(m: &mut epitome_ir::Module, target: epitome_rustc2::lower::Target, out: &Path, optimise: bool, emit_obj: bool) -> Result<(), String> {
-    if optimise {
-        epitome_opt::pipeline::run(m, &epitome_opt::pipeline::Options::default());
+/// Optimises `m` (at `level`, for the functions without a level of their
+/// own; not at all if `None`), compiles it for `target` and writes the
+/// object file, then links it with `cc` into `out` (unless `emit_obj`, when
+/// the object file is `out`).
+fn build(
+    m: &mut epitome_ir::Module,
+    target: epitome_rustc2::lower::Target,
+    out: &Path,
+    level: Option<epitome_opt::inline::OptLevel>,
+    emit_obj: bool,
+) -> Result<(), String> {
+    if let Some(level) = level {
+        epitome_opt::pipeline::run(m, &epitome_opt::pipeline::Options { level, ..Default::default() });
     }
     let t = if target.triple.starts_with("x86_64") {
         epitome_codegen::target::Target::x86_64()

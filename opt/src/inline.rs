@@ -94,6 +94,16 @@ pub struct InlineParams {
 }
 
 impl InlineParams {
+    /// The parameters for a caller with attributes `attrs`: its own
+    /// `"epitome-opt-level"` (`1`, `2`, `3`, `s`, `z`), where it has one
+    /// (a crate built at its own level), else `default`.
+    pub fn for_caller(m: &Module, attrs: &[Attr], default: InlineParams) -> InlineParams {
+        match crate::attrs::string(m, attrs, "epitome-opt-level").and_then(|v| std::str::from_utf8(v).ok()).and_then(OptLevel::parse) {
+            Some(level) => InlineParams::for_level(level),
+            None => default,
+        }
+    }
+
     pub fn for_level(level: OptLevel) -> InlineParams {
         let (threshold, growth_factor, growth_slack) = match level {
             OptLevel::O1 => (40, 2, 100),
@@ -154,7 +164,8 @@ impl<'a> Inliner<'a> {
         }
         let my_scc = self.cg.node(g).map(|n| self.cg.scc_of[n]);
         let start_size = live_size(f);
-        let limit = start_size * self.params.growth_factor + self.params.growth_slack;
+        let params = InlineParams::for_caller(m, &caller_attrs, self.params);
+        let limit = start_size * params.growth_factor + params.growth_slack;
         let mut size = start_size;
         // Built on first use: most functions inline nothing.
         let mut names: Option<Names> = None;
@@ -336,7 +347,7 @@ impl<'a> Inliner<'a> {
         }
 
         // Threshold.
-        let p = &self.params;
+        let p = &InlineParams::for_caller(m, caller_attrs, self.params);
         let cold_site = ends_in_unreachable(caller, block);
         let mut threshold = p.threshold;
         if attrs::has(m, caller_attrs, "minsize")

@@ -157,6 +157,27 @@ pub struct Lowered {
 }
 
 impl Lowered {
+    /// Gives each function of a Rust function or closure the optimisation
+    /// level of the crate it is written in (`"epitome-opt-level"`, which
+    /// epitome-opt reads), where `level` names one: a generic function of
+    /// `std` is optimised as `std` is, at whatever types it is used. The
+    /// functions lowering makes (drop glue, shims) are left at the
+    /// module's level.
+    pub fn set_opt_levels(&mut self, r: &Resolver, level: impl Fn(u32) -> Option<String>) {
+        for (it, &g) in &self.decls {
+            let d = match *it {
+                Item::Fn(d, _) | Item::Closure(_, d, _) => d,
+                _ => continue,
+            };
+            let Some(l) = level(r.defs[d.0 as usize].krate) else { continue };
+            if let epitome_ir::module::GlobalKind::Function(f) = &mut self.module.globals[g.index()].kind
+                && f.has_body
+            {
+                f.fn_attrs.push(epitome_ir::module::Attr::Str { key: b"epitome-opt-level".to_vec(), value: Some(l.into_bytes()) });
+            }
+        }
+    }
+
     /// Makes the functions `items` are external (those lowered), so that
     /// optimising keeps them, as for a library's.
     pub fn export(&mut self, items: &[Item]) {

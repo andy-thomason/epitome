@@ -5448,6 +5448,53 @@ fn expand_intrinsics(cx: &mut Ctx, f: &mut Function) {
                     continue;
                 }
             }
+            // Where the description counts only nonzero inputs (x86's bsf,
+            // and bsr, whose bit number is ctlz xor w - 1): the count of a
+            // nonzero input (ctlz's xor'ed twice, the inner pair bsr), and
+            // for zero, where it is not poison, the width.
+            let poison_form = |cx: &Ctx| {
+                scalar && !cx.selects_intrinsic_with(&name, 0) && cx.selects_intrinsic_with(&name, -1)
+            };
+            if (base == "llvm.ctlz" || base == "llvm.cttz") && args.len() == 2 && poison_form(cx) {
+                let zero_poison = cx.const_int(args[1]).is_some_and(|v| v != 0);
+                let top = cx.int(ty, i64::from(bits) - 1);
+                // (ctlz's already made so: its one use the xor.)
+                let made = base == "llvm.ctlz" && zero_poison && {
+                    let mut users = s.f.insts_in_order().filter(|&j| {
+                        let mut u = false;
+                        s.f.insts[j.index()].op.for_each_value(|v| u |= *v == Value::Local(r));
+                        u
+                    });
+                    matches!((users.next(), users.next()), (Some(j), None)
+                        if matches!(s.f.insts[j.index()].op, Op::Binary { op: BinOp::Xor, rhs, .. } if rhs == top))
+                };
+                if base == "llvm.cttz" && zero_poison || made {
+                    k += 1;
+                    continue;
+                }
+                let yes = cx.int(i1, 1);
+                let count = call_intrinsic(cx, &mut s, &name, vec![args[0], yes], ty);
+                let count = if base == "llvm.ctlz" {
+                    let bit = s.bin(BinOp::Xor, count, top, ty);
+                    s.bin(BinOp::Xor, bit, top, ty)
+                } else {
+                    count
+                };
+                let v = if zero_poison {
+                    count
+                } else {
+                    let zero = cx.int(ty, 0);
+                    let is_zero = s.op(Op::ICmp { pred: ICmpPred::Eq, samesign: false, lhs: args[0], rhs: zero }, i1);
+                    let width = cx.int(ty, i64::from(bits));
+                    s.op(Op::Select { fmf: FastMath::default(), cond: is_zero, then_value: width, else_value: count }, ty)
+                };
+                let new = std::mem::take(&mut s.new);
+                f.replace_uses(Value::Local(r), v);
+                let n = new.len();
+                f.blocks[b.index()].insts.splice(k..=k, new);
+                k += n;
+                continue;
+            }
             // ctlz and cttz may say a zero input gives poison; giving the
             // full width instead is always allowed, and is what clz does.
             if (base == "llvm.ctlz" || base == "llvm.cttz") && args.len() == 2 {
@@ -6107,6 +6154,26 @@ fn offset_ptr(cx: &mut Ctx, s: &mut Seq, p: Value, off: u64, i8t: TypeId, i64t: 
     }
 }
 
+/// Whether selection makes the bits of mask `m` as an integer `to` in one
+/// instruction: a mask of bytes filling a register (16 lanes of 128 bits,
+/// 32 of 256), where the description has its bitcast (x86's `pmovmskb`).
+pub(crate) fn mask_bits_selected(cx: &Ctx, f: &Function, m: Value, to: TypeId) -> bool {
+    let from = cx.value_ty(f, m);
+    let Type::Vector { len, elem, scalable: false } = *cx.m.types.get(from) else { return false };
+    matches!(cx.m.types.get(elem), Type::Int(1))
+        && matches!(cx.m.types.get(to), Type::Int(w) if *w == len)
+        && (len == 16 || len == 32)
+        && len * 8 <= cx.vector_bits()
+        && crate::legalize::mask_width(cx, f, m, &mut Vec::new()) == Some(8)
+        && cx.selects_head(|h| {
+            *h == Head::Cast(
+                CastOp::BitCast,
+                crate::target::head_bits(cx.m, from),
+                crate::target::wide_bits(crate::target::head_bits(cx.m, to)),
+            )
+        })
+}
+
 /// Bit casts between a vector of booleans and an integer of as many bits
 /// (`bitcast <16 x i1> %m to i16`, a vector comparison's lanes as a mask),
 /// lane by lane: the lanes extended to bytes, each extracted, extended and
@@ -6154,6 +6221,10 @@ pub(crate) fn bool_vector_casts(cx: &mut Ctx, f: &mut Function) {
                 Type::Int(w) if *w <= 64 => Some(*w),
                 _ => None,
             };
+            if mask_bits_selected(cx, f, value, to) {
+                k += 1;
+                continue;
+            }
             let mut s = Seq { f, new: Vec::new() };
             let out = match (lanes_of(cx, from), bits_of(cx, to), bits_of(cx, from), lanes_of(cx, to)) {
                 (Some(n), Some(w), _, _)

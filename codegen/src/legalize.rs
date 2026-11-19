@@ -675,6 +675,239 @@ fn native_shuffle(cx: &Ctx, f: &Function, i: InstId) -> bool {
     crate::target::mask_lanes(cx.m, *mask).is_some_and(|lanes| cx.t.has_shuffle(&lanes, hb, src_bits, of_insert))
 }
 
+/// Shuffles of one vector filling a register (not of masks) that no
+/// pattern has, as a permutation of its bytes within each 16 (lane by lane
+/// otherwise): `llvm.epitome.permute16.vNi8(%table, %indices)`, byte k of
+/// the result byte `indices[k]` of the table's 16 bytes that byte k is in,
+/// where the description has it (x86's `pshufb`). The indices are
+/// constants; a byte the mask leaves poison takes byte 0.
+fn permuted_shuffles(cx: &mut Ctx, f: &mut Function) {
+    let i8t = cx.m.types.int(8);
+    for blk in f.layout.clone() {
+        let mut k = 0;
+        while k < f.blocks[blk.index()].insts.len() {
+            let i = f.blocks[blk.index()].insts[k];
+            k += 1;
+            let Op::ShuffleVector { a, b, mask } = f.insts[i.index()].op else { continue };
+            let is_poison = |v: Value| matches!(v, Value::Const(c) if matches!(cx.m.constant(c).kind, ConstKind::Poison | ConstKind::Undef));
+            let Some(r) = f.insts[i.index()].result else { continue };
+            let rty = f.locals[r.index()].ty;
+            let aty = cx.value_ty(f, a);
+            let Some(lanes) = crate::target::mask_lanes(cx.m, mask) else { continue };
+            let Some((len, _, bits)) = vec_info(cx, rty) else { continue };
+            let eb = bits / 8;
+            let bytes = len * eb;
+            if !is_poison(b) {
+                if aty == rty && bits % 8 == 0 && bytes == 16 && !native_shuffle(cx, f, i)
+                    && let Some(new) = byte_window(cx, f, a, b, &lanes, eb, rty, r)
+                {
+                    let n = new.len();
+                    f.blocks[blk.index()].insts.splice(k - 1..k, new);
+                    k += n - 1;
+                }
+                continue;
+            }
+            if aty != rty
+                || bits % 8 != 0
+                || !matches!(bytes, 16 | 32)
+                || bytes * 8 > cx.vector_bits()
+                || matches!(cx.m.types.get(rty), Type::Vector { elem, .. } if matches!(cx.m.types.get(*elem), Type::Int(1)))
+                || native_shuffle(cx, f, i)
+            {
+                continue;
+            }
+            // Each result byte's source byte (a poison byte: its own).
+            let src: Vec<u32> = (0..bytes)
+                .map(|p| {
+                    let l = lanes[(p / eb) as usize];
+                    if l < 0 { p } else { l as u32 * eb + p % eb }
+                })
+                .collect();
+            // As lanes of `w` bytes, if each moves whole: lane j's source.
+            let units = |w: u32| -> Option<Vec<u32>> {
+                (0..bytes / w)
+                    .map(|j| {
+                        let s0 = src[(j * w) as usize];
+                        (s0 % w == 0 && (0..w).all(|b| src[(j * w + b) as usize] == s0 + b)).then_some(s0 / w)
+                    })
+                    .collect()
+            };
+            let mut bld = Builder { f, new: Vec::new() };
+            fn cast(cx: &Ctx, bld: &mut Builder, v: Value, ty: TypeId) -> Value {
+                if cx.value_ty(bld.f, v) == ty {
+                    v
+                } else {
+                    bld.op(Op::Cast { op: CastOp::BitCast, flags: IntFlags::NONE, fmf: FastMath::default(), value: v }, Some(ty))
+                }
+            }
+            let i64t = cx.m.types.int(64);
+            // An immediate of four 2-bit lane numbers, each of four lanes
+            // within its group of four.
+            let imm4 = |u: &[u32], at: usize| -> i64 { (0..4).map(|j| i64::from(u[at + j] % 4) << (2 * j)).sum() };
+            let mut out = None;
+            // 32-bit lanes, the same permutation in each four (pshufd).
+            let i32t = cx.m.types.int(32);
+            if let Some(u) = units(4)
+                && u.chunks(4).enumerate().all(|(g, c)| c.iter().all(|&x| x / 4 == g as u32))
+                && u.chunks(4).all(|c| c.iter().zip(&u[..4]).all(|(a, b)| a % 4 == b % 4))
+            {
+                let name = format!("llvm.epitome.permute4.v{}i32", bytes / 4);
+                if cx.selects_intrinsic(&name) {
+                    let vt = vec_ty(cx, bytes / 4, i32t);
+                    let v = cast(cx, &mut bld, a, vt);
+                    let callee = declare(cx, &name, vt, &[vt, i64t]);
+                    let k = cx.int(i64t, imm4(&u, 0));
+                    out = Some(call_value(&mut bld, cx, callee, vec![v, k], vt, vt));
+                }
+            }
+            // 16-bit lanes of 128 bits, the low four among themselves and
+            // the high four (pshuflw, pshufhw).
+            let i16t = cx.m.types.int(16);
+            if out.is_none()
+                && bytes == 16
+                && let Some(u) = units(2)
+                && u[..4].iter().all(|&x| x < 4)
+                && u[4..].iter().all(|&x| x >= 4)
+                && cx.selects_intrinsic("llvm.epitome.permute4lo.v8i16")
+                && cx.selects_intrinsic("llvm.epitome.permute4hi.v8i16")
+            {
+                let vt = vec_ty(cx, 8, i16t);
+                let mut v = cast(cx, &mut bld, a, vt);
+                for (half, at) in [("lo", 0), ("hi", 4)] {
+                    let k = imm4(&u, at);
+                    // (0xe4: each lane its own.)
+                    if k == 0xe4 {
+                        continue;
+                    }
+                    let name = format!("llvm.epitome.permute4{half}.v8i16");
+                    let callee = declare(cx, &name, vt, &[vt, i64t]);
+                    let k = cx.int(i64t, k);
+                    v = call_value(&mut bld, cx, callee, vec![v, k], vt, vt);
+                }
+                out = Some(v);
+            }
+            if let Some(v) = out {
+                let v = cast(cx, &mut bld, v, rty);
+                let new = bld.new;
+                let n = new.len();
+                f.replace_uses(Value::Local(r), v);
+                f.blocks[blk.index()].insts.splice(k - 1..k, new);
+                k += n - 1;
+                continue;
+            }
+            drop(bld);
+            // Each result byte's source byte, within its 16.
+            let mut idx: Vec<i64> = Vec::with_capacity(bytes as usize);
+            let mut ok = true;
+            for p in 0..bytes {
+                let l = lanes[(p / eb) as usize];
+                let src = if l < 0 { (p / 16) * 16 } else { l as u32 * eb + p % eb };
+                ok &= src / 16 == p / 16;
+                idx.push(i64::from(src % 16));
+            }
+            let name = format!("llvm.epitome.permute16.v{bytes}i8");
+            if !ok || !cx.selects_intrinsic(&name) {
+                continue;
+            }
+            let bty = vec_ty(cx, bytes, i8t);
+            let es: Vec<ConstId> = idx
+                .iter()
+                .map(|&x| {
+                    cx.m.consts.intern(Constant { ty: i8t, kind: ConstKind::Int(epitome_ir::apint::ApInt::from_i64(8, x)) })
+                })
+                .collect();
+            let ix = Value::Const(cx.m.consts.intern(Constant { ty: bty, kind: ConstKind::Vector(es) }));
+            let mut bld = Builder { f, new: Vec::new() };
+            let cast = |bld: &mut Builder, v: Value, ty: TypeId| {
+                bld.op(Op::Cast { op: CastOp::BitCast, flags: IntFlags::NONE, fmf: FastMath::default(), value: v }, Some(ty))
+            };
+            let t = if aty == bty { a } else { cast(&mut bld, a, bty) };
+            let callee = declare(cx, &name, bty, &[bty, bty]);
+            let p = call_value(&mut bld, cx, callee, vec![t, ix], bty, bty);
+            let out = if rty == bty { p } else { cast(&mut bld, p, rty) };
+            let new = bld.new;
+            let n = new.len();
+            f.replace_uses(Value::Local(r), out);
+            f.blocks[blk.index()].insts.splice(k - 1..k, new);
+            k += n - 1;
+        }
+    }
+}
+
+/// A shuffle of two 16-byte vectors that is a window of their bytes, `a`'s
+/// then `b`'s, from byte `s` on: `b` shifted up 16 - s bytes where `a`'s
+/// bytes taken are zeros, `a` shifted down s where `b`'s are, else both
+/// (`llvm.epitome.window16`, x86's palignr), where the description has it.
+/// The instructions in place of the shuffle, its uses replaced.
+#[allow(clippy::too_many_arguments)]
+fn byte_window(
+    cx: &mut Ctx,
+    f: &mut Function,
+    a: Value,
+    b: Value,
+    lanes: &[i32],
+    eb: u32,
+    rty: TypeId,
+    r: LocalId,
+) -> Option<Vec<InstId>> {
+    // Each byte's source in the two together, or None for poison.
+    let src: Vec<Option<u32>> =
+        (0..16u32).map(|p| lanes[(p / eb) as usize].ge(&0).then(|| lanes[(p / eb) as usize] as u32 * eb + p % eb)).collect();
+    let first = src.iter().enumerate().find_map(|(p, s)| s.map(|s| s as i64 - p as i64))?;
+    if !(1..16).contains(&first) || src.iter().enumerate().any(|(p, s)| s.is_some_and(|s| s as i64 != p as i64 + first)) {
+        return None;
+    }
+    let s = first as u32;
+    // Whether the bytes taken from constant `v` (those `taken`) are zeros.
+    let zeros = |cx: &Ctx, v: Value, taken: &dyn Fn(u32) -> bool| -> bool {
+        let Value::Const(c) = v else { return false };
+        match &cx.m.constant(c).kind {
+            ConstKind::Zero => true,
+            ConstKind::Vector(es) => (0..16u32).filter(|&q| taken(q)).all(|q| {
+                match &cx.m.constant(es[(q / eb) as usize]).kind {
+                    ConstKind::Zero | ConstKind::Poison | ConstKind::Undef => true,
+                    ConstKind::Int(x) => (x.low_u64() >> (8 * (q % eb))) & 0xff == 0,
+                    _ => false,
+                }
+            }),
+            _ => false,
+        }
+    };
+    let used = |q: u32| src.iter().any(|x| *x == Some(q));
+    let i8t = cx.m.types.int(8);
+    let bty = vec_ty(cx, 16, i8t);
+    let i64t = cx.m.types.int(64);
+    let (name, args): (&str, Vec<Value>) = if zeros(cx, a, &|q| used(q)) {
+        ("llvm.epitome.shlbytes.v16i8", vec![b, cx.int(i64t, 16 - s as i64)])
+    } else if zeros(cx, b, &|q| used(q + 16)) {
+        ("llvm.epitome.shrbytes.v16i8", vec![a, cx.int(i64t, s as i64)])
+    } else {
+        ("llvm.epitome.window16.v16i8", vec![a, b, cx.int(i64t, s as i64)])
+    };
+    if !cx.selects_intrinsic(name) {
+        return None;
+    }
+    let mut bld = Builder { f, new: Vec::new() };
+    let mut args = args;
+    for k in 0..args.len() {
+        if rty != bty && cx.value_ty(bld.f, args[k]) == rty {
+            let value = args[k];
+            args[k] = bld.op(Op::Cast { op: CastOp::BitCast, flags: IntFlags::NONE, fmf: FastMath::default(), value }, Some(bty));
+        }
+    }
+    let tys: Vec<TypeId> = args.iter().map(|&v| cx.value_ty(bld.f, v)).collect();
+    let callee = declare(cx, name, bty, &tys);
+    let out = call_value(&mut bld, cx, callee, args, bty, bty);
+    let out = if rty == bty {
+        out
+    } else {
+        bld.op(Op::Cast { op: CastOp::BitCast, flags: IntFlags::NONE, fmf: FastMath::default(), value: out }, Some(rty))
+    };
+    let new = bld.new;
+    f.replace_uses(Value::Local(r), out);
+    Some(new)
+}
+
 /// A truncation of a vector to booleans (`trunc <16 x i8> to <16 x i1>`):
 /// a comparison, of each lane's lowest bit with zero, so that the mask has
 /// the lanes' width as one a comparison makes does.
@@ -1423,7 +1656,8 @@ fn is_bool_splat(cx: &Ctx, f: &Function, i: InstId) -> bool {
 ///   right at any width;
 /// - `icmp eq|ne (bitcast mask to iN), 0`, whether any lane is set, is the
 ///   unsigned maximum of the mask's lanes compared with zero (but for a
-///   mask in a mask register, whose bits are the integer: kortestw).
+///   mask in a mask register, whose bits are the integer: kortestw; or
+///   one whose bits an instruction makes: pmovmskb).
 fn fix_masks(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
     let i1 = cx.m.types.int(1);
     let i64t = cx.m.types.int(64);
@@ -1497,7 +1731,10 @@ fn fix_masks(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
                         && let LocalDef::Inst(d) = f.locals[x.index()].def
                         && let Op::Cast { op: CastOp::BitCast, value: m, .. } = f.insts[d.index()].op
                         && is_mask(cx, cx.value_ty(f, m))
-                        && !in_regs(m) =>
+                        && !in_regs(m)
+                        // (Where one instruction makes the bits, they are
+                        // tested.)
+                        && !crate::prepare::mask_bits_selected(cx, f, m, f.locals[x.index()].ty) =>
                 {
                     let (len, _, _) = vec_info(cx, cx.value_ty(f, m)).unwrap();
                     let w = mask_width(cx, f, m, &mut Vec::new()).unwrap_or((cx.vector_bits() / len).max(8));
@@ -1568,6 +1805,7 @@ fn fix_masks(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
 pub fn legalize_vectors(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
     pointer_vectors(cx, f)?;
     canonical_shuffles(cx, f);
+    permuted_shuffles(cx, f);
     scalar_selects(cx, f);
     truncs_to_masks(cx, f);
     vector_fcmps(cx, f);

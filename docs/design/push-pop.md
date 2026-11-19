@@ -18,7 +18,9 @@ better closed by the other changes listed at the end.
 
 Two samples. bench/vs-llc's x86-64 scalar crates (regex-syntax,
 serde_json, ryu and others: rustc's LLVM IR, compiled by `epitome-llc`
-and by llc -O3), after the register allocation work of #199 and #200;
+and by llc -O3), after the register allocation work of #199 and #200
+(the tables of this section; the before and after at the end are
+main's, with #199 but not yet #200);
 and std's hello world (`epitome-rustc2/tests/run/std_hello.rs`, built by
 epitome-rustc2 on x86-64 Linux, as one object, with std). The counts are
 `bench/vs-llc/stack.py`'s: every instruction addressing memory at `rsp`
@@ -168,8 +170,8 @@ are those the subtraction had. This is what llc does (its prologues have
 
 | | bytes, bench/vs-llc scalar crates | std hello world |
 |---|---|---|
-| before | 364,323 (1.240x llc) | 214,913 |
-| after | 363,338 (1.237x llc) | 214,545 |
+| before (main) | 361,954 (1.232x llc) | 214,229 |
+| after | 360,989 (1.229x llc) | 213,861 |
 
 **Not done: push and pop of spills and constant temporaries.** At most
 0.8% of the crates' code before the costs above (alignment at calls,

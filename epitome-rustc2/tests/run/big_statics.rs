@@ -2,6 +2,7 @@
 //! holding one, a struct of zeros and other values (worked out at compile
 //! time), and one whose initialiser runs at start-up (a float the static
 //! evaluator does not work out), each written to and read from. Also
+//! null pointers and `MaybeUninit::uninit()`, which are zeros too, and
 //! array repeats of constants (a static's, and locals') and of a value
 //! known only at run time.
 #![no_std]
@@ -61,6 +62,15 @@ static mut S: Scaled = Scaled { scale: 1.5 * 3.0, words: [9; 4 << 20] };
 // A repeat of a constant that is not zeros: worked out at compile time.
 static mut W: [u32; 1 << 16] = [0x0102_0304; 1 << 16];
 
+// Null pointers and uninitialised memory: zeros too.
+struct Rv {
+    x: [u64; 32],
+    mem: *mut u8,
+    scratch: core::mem::MaybeUninit<[u8; 1 << 20]>,
+}
+
+static mut RV: Rv = Rv { x: [0; 32], mem: core::ptr::null_mut(), scratch: core::mem::MaybeUninit::uninit() };
+
 static ZEROS: ([u16; 1000], (u8, bool, char), [f32; 3]) = ([0; 1000], (0, false, '\0'), [0.0; 3]);
 
 fn sum(b: &[u8]) -> u64 {
@@ -99,6 +109,11 @@ pub extern "C" fn main() -> i32 {
         put_u64(W.iter().map(|&w| w as u64).sum::<u64>());
         W[65535] = 0;
         put_u64(W.iter().map(|&w| w as u64).sum::<u64>());
+
+        put_u64(RV.x.iter().sum::<u64>() + RV.mem.is_null() as u64);
+        RV.mem = MEM.as_mut_ptr();
+        RV.scratch.as_mut_ptr().cast::<u8>().add(1000).write(*RV.mem.add(MB16 / 2));
+        put_u64(*RV.scratch.as_ptr().cast::<u8>().add(1000) as u64);
 
         put_u64(ZEROS.0.iter().map(|&x| x as u64).sum::<u64>() + ZEROS.1.0 as u64 + ZEROS.1.1 as u64 + ZEROS.1.2 as u64 + ZEROS.2[2] as u64);
     }

@@ -346,7 +346,8 @@ pub(crate) fn define_static(cx: &Cx, m: &mut Module, d: DefId, name: &str) -> R<
 }
 
 /// Whether expression `n` (in crate `k`'s file `f`) is plainly all zeros:
-/// an integer, `bool` or `char` constant of zero, a zero float literal, or
+/// an integer, `bool` or `char` constant of zero, a zero float literal, a
+/// null pointer (`ptr::null()`), `MaybeUninit::uninit()` or `zeroed()`, or
 /// an array, repeat, tuple or struct literal of those. Worked out from the
 /// syntax, however large the value, where the static evaluator
 /// (`image.rs`) would have to build it.
@@ -367,6 +368,15 @@ fn zero_init(cx: &Cx, k: u32, f: u32, ast: &Ast, n: NodeId) -> bool {
                 let fk = ast.children(fi);
                 ast.kind(fi) == Kind::FieldInit && fk.get(1).is_some_and(|&e| zero_init(cx, k, f, ast, e))
             })
+        }
+        // A call of no arguments of a function giving zeros (or bytes
+        // that may be anything).
+        Kind::Call if kids.len() == 2 && ast.kind(kids[1]) == Kind::Args && ast.children(kids[1]).is_empty() => {
+            let callee = cx.typeck.types[k as usize][f as usize].get(kids[0].0 as usize).copied().flatten().map(|t| cx.tcx.kind(t));
+            let Some(TyKind::FnDef(d, _)) = callee else { return false };
+            let path = cx.r.def_path(d);
+            matches!(path.as_str(), "core::ptr::null" | "core::ptr::null_mut" | "core::mem::zeroed")
+                || path.starts_with("core::mem::maybe_uninit::") && matches!(cx.r.defs[d.0 as usize].name, "uninit" | "zeroed" | "uninit_array")
         }
         Kind::Literal if matches!(ty, Some(TyKind::Float(_))) => {
             // Zero if every digit is (`0.0`, `0f32`, `0e5`).

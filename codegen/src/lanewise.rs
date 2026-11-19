@@ -116,18 +116,22 @@ fn selectable(cx: &Ctx, f: &Function, op: &Op, r: LocalId, regs: &HashSet<LocalI
         Op::Call(c) => return callee_name(cx.m, c).is_none_or(|n| cx.selects_intrinsic(&n)),
         // (A pattern for the lane, or for any lane, of any vector: not
         // only of zero, as `movd` is.)
-        Op::InsertElement { index, .. } => return lane_pattern(cx, Head::InsertElement(res_hb), 2, *index),
-        Op::ExtractElement { vector, index } => return lane_pattern(cx, Head::ExtractElement(hb(*vector)), 1, *index),
+        Op::InsertElement { vector, index, .. } => {
+            return lane_pattern(cx, Head::InsertElement(res_hb), 2, *vector, *index);
+        }
+        Op::ExtractElement { vector, index } => {
+            return lane_pattern(cx, Head::ExtractElement(hb(*vector)), 1, *vector, *index);
+        }
         _ => return true,
     };
     // Where masks may be kept in mask registers (AVX-512's k), a pattern
     // that takes or makes its masks where they are.
-    let Some(kc) = cx.mask_reg_class() else { return cx.selects_head(|h| *h == head) };
+    let Some(kc) = cx.mask_reg_class() else { return cx.selects_head_unfused(&head) };
     let mut masks = vec![Value::Local(r)];
     op.for_each_value(|v| masks.push(*v));
     let masks: Vec<Value> = masks.into_iter().filter(|v| is_mask(cx, cx.value_ty(f, *v))).collect();
     if masks.is_empty() {
-        return cx.selects_head(|h| *h == head);
+        return cx.selects_head_unfused(&head);
     }
     let in_reg = masks.iter().any(|v| matches!(v, Value::Local(x) if regs.contains(x)));
     let kfile = cx.t.machine.def(kc).file;
@@ -191,13 +195,23 @@ fn shuffle_selectable(cx: &Ctx, f: &Function, a: Value, mask: ConstId, rty: Type
 
 /// Is there a pattern rooted at `head` whose vector is any value and whose
 /// lane (operand `at`) is any, or `index`?
-fn lane_pattern(cx: &Ctx, head: Head, at: usize, index: Value) -> bool {
+fn lane_pattern(cx: &Ctx, head: Head, at: usize, vector: Value, index: Value) -> bool {
     use crate::target::Tree;
     let k = cx.const_int(index);
+    // (Or of a constant vector the pattern names: `movq`'s insert into
+    // zero.)
+    let lit = match vector {
+        Value::Const(c) => crate::target::lit_of(cx.m, c),
+        _ => None,
+    };
     cx.t.patterns.iter().any(|p| match &p.tree {
         Tree::Op(h, kids) if *h == head => {
-            matches!(kids.first(), Some(Tree::Leaf(_)))
-                && match kids.get(at) {
+            let vector_ok = match kids.first() {
+                Some(Tree::Leaf(_)) => true,
+                Some(Tree::Lit(v, b)) => lit == Some((*v, *b)),
+                _ => false,
+            };
+            vector_ok && match kids.get(at) {
                     Some(Tree::Leaf(_)) => true,
                     Some(Tree::Lit(v, _)) => Some(*v) == k,
                     _ => false,
@@ -331,6 +345,8 @@ pub fn lanewise(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
     // (Lane numbers legalisation made as i32s, as i64s.)
     crate::prepare::lane_indices(cx, f);
     let regs = crate::legalize::mask_regs(cx, f);
+    // (Multiply-highs' wide lanes are never made.)
+    let keep = crate::legalize::mul_high_insts(cx, f);
     let mut lanes = Lanes { slots: Vec::new(), regs };
     let blocks: Vec<BlockId> = f.layout.clone();
     // Operations first, then the inserts and extracts left.
@@ -339,7 +355,13 @@ pub fn lanewise(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
             let mut k = 0;
             while k < f.blocks[b.index()].insts.len() {
                 let i = f.blocks[b.index()].insts[k];
-                let n = if pass == 0 { one(cx, f, &mut lanes, i)? } else { one_lane(cx, f, &mut lanes, i) };
+                let n = if keep.contains(&i) {
+                    None
+                } else if pass == 0 {
+                    one(cx, f, &mut lanes, i)?
+                } else {
+                    one_lane(cx, f, &mut lanes, i)
+                };
                 match n {
                     Some(new) => {
                         let n = new.len();

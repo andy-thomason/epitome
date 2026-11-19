@@ -39,6 +39,16 @@ def entry(ret, name, params, enc, asm, body, attrs='', decode=False):
 FLAGS = ' "clobbers"="flags"'
 
 
+def mul_high(ty, ext):
+    """The body of a multiply-high of vector `ty`'s lanes (`ext` zext or
+    sext): the product at twice the width, its high half."""
+    n, et = ty.strip('<>').split(' x ')
+    w = int(et[1:])
+    wide = f'<{n} x i{2 * w}>'
+    return [f'%a = {ext} {ty} %n to {wide}', f'%b = {ext} {ty} %m to {wide}', f'%p = mul {wide} %a, %b',
+            f'%h = lshr {wide} %p, splat (i{2 * w} {w})', f'%r = trunc {wide} %h to {ty}', f'ret {ty} %r']
+
+
 def alu():
     # add, or, adc, sbb, and, sub, xor, cmp: their numbers.
     ops = [('add', 0, 'add'), ('or', 1, 'or'), ('and', 4, 'and'), ('sub', 5, 'sub'), ('xor', 6, 'xor')]
@@ -754,6 +764,14 @@ def sse_vectors():
         rty = rty or ty
         entry(rty, name, [f'{ty} "reg"="{cls}" "tied" %n', f'{ty} "reg"="{cls}" %m'], leg(pre, op, 'd', 'm'),
               f'{mn} {{m}}, {{d}}', body, f' "dclass"="{dcls or cls}"')
+        # The second operand from memory at a base plus a displacement, a
+        # whole register's worth, 16-aligned as legacy SSE's memory
+        # operands must be (the load's alignment says so).
+        if cls == 'xv' and ' x i1>' not in ty:
+            entry(rty, name + 'm', [f'{ty} "reg"="{cls}" "tied" %n', 'ptr "reg"="r64" %mp', 'i64 "imm" %off'],
+                  f'{pre}rex(0, d, 4, mp) | 00001111 | {op} | rm(d, mp, 4, 1, off, 0, 1)', f'{mn} {{off}}({{mp}}), {{d}}',
+                  ['%ma = getelementptr i8, ptr %mp, i64 %off', f'%m = load {ty}, ptr %ma, align 16'] + body,
+                  f' "dclass"="{dcls or cls}"')
     for ty, sfx, eb, n, cls in INT:
         T = tag(ty)
         ops = [('add', 'padd', {8: 'FC', 16: 'FD', 32: 'FE', 64: 'D4'}), ('sub', 'psub', {8: 'F8', 16: 'F9', 32: 'FA', 64: 'FB'})]
@@ -764,6 +782,11 @@ def sse_vectors():
                 [f'%r = {ir} {ty} %n, %m', f'ret {ty} %r'])
         for ir, mn, opc in [('and', 'pand', 0xDB), ('or', 'por', 0xEB), ('xor', 'pxor', 0xEF)]:
             two(ty, cls, f'{mn.upper()}.{T}', P66, bits(opc), mn, [f'%r = {ir} {ty} %n, %m', f'ret {ty} %r'])
+        # The high halves of 16-bit products (legalize.rs keeps the
+        # shape whole, its 32-bit lanes never made).
+        if eb == 16:
+            for ext, mn, opc in [('zext', 'pmulhuw', 0xE4), ('sext', 'pmulhw', 0xE5)]:
+                two(ty, cls, f'{mn.upper()}.{T}', P66, bits(opc), mn, mul_high(ty, ext))
         # Shifts by an immediate (none of bytes; no arithmetic one of i64).
         for ir, r in [('shl', 6), ('lshr', 2), ('ashr', 4)]:
             if eb == 8 or (ir == 'ashr' and eb == 64):
@@ -970,6 +993,56 @@ def sse_vectors():
         entry(full, f'JOIN.{tag(full)}', [f'{half} "reg"="xh" "tied" %a', f'{half} "reg"="xh" %b'], leg(P66, '01101100', 'd', 'b'),
               'punpcklqdq {b}, {d}', [f'%r = shufflevector {half} %a, {half} %b, <{n} x i32> <{both}>', f'ret {full} %r'],
               ' "dclass"="xv"')
+    # Narrowing (trunc), in registers. A 128-bit vector's lanes to a 64-bit
+    # one: the low halves gathered by shuffles (dwords: pshufd; words:
+    # pshuflw and pshufhw, then pshufd), or bytes by clearing the high ones
+    # and packing. Two halves' worth, joined (as legalisation splits wider
+    # ones): each lane's low half sign-extended (words: zero-extended) in
+    # place, so that packing with saturation keeps it, then packed; dwords
+    # by shufps.
+    entry('<8 x i16>', 'PSHUFHW', ['<8 x i16> "reg"="xv" %v', 'i64 "imm" %k'], leg('11110011 | ', '01110000', 'd', 'v') + ' | ib:8=k',
+          'pshufhw ${k}, {v}, {d}', ['ret <8 x i16> %v'], ' "dclass"="xv" "nomatch"')
+    for half, mn in [('<4 x i16>', 'h4xi16'), ('<2 x i32>', 'h2xi32')]:
+        entry(half, f'PSHUFD.{mn}', ['<4 x i32> "reg"="xv" %v', 'i64 "imm" %k'], leg(P66, '01110000', 'd', 'v') + ' | ib:8=k',
+              'pshufd ${k}, {v}, {d}', [f'ret {half} poison'], ' "dclass"="xh" "nomatch"')
+    entry('<8 x i16>', 'PACKSSDW', ['<4 x i32> "reg"="xv" "tied" %n', '<4 x i32> "reg"="xv" %m'], leg(P66, '01101011', 'd', 'm'),
+          'packssdw {m}, {d}', ['ret <8 x i16> poison'], ' "dclass"="xv" "nomatch"')
+    for ty, cls in [('<16 x i8>', 'xv'), ('<8 x i8>', 'xh')]:
+        entry(ty, f'PACKUSWB.{tag(ty)}', ['<8 x i16> "reg"="xv" "tied" %n', '<8 x i16> "reg"="xv" %m'],
+              leg(P66, '01100111', 'd', 'm'), 'packuswb {m}, {d}', [f'ret {ty} poison'], f' "dclass"="{cls}" "nomatch"')
+    entry('<4 x i32>', 'SHUFPS', ['<4 x i32> "reg"="xv" "tied" %n', '<4 x i32> "reg"="xv" %m', 'i64 "imm" %k'],
+          leg('', '11000110', 'd', 'm') + ' | ib:8=k', 'shufps ${k}, {m}, {d}', ['ret <4 x i32> %n'], ' "dclass"="xv" "nomatch"')
+    def recipe(name, ret, params, body, expand):
+        ps = ', '.join(f'{t} "reg"="{c}" %{n}' for t, c, n in params)
+        plain = ', '.join(f'{t} %{n}' for t, c, n in params)
+        out.append(f'define {ret} @{name}({ps}) "recipe"="{name}.expand" {{\n' + ''.join(f'  {l}\n' for l in body) + '}\n')
+        out.append(f'define {ret} @{name}.expand({plain}) {{\n' + ''.join(f'  {l}\n' for l in expand) + '}\n')
+    recipe('trunc.4xi32', '<4 x i16>', [('<4 x i32>', 'xv', 'v')], ['%r = trunc <4 x i32> %v to <4 x i16>', 'ret <4 x i16> %r'],
+           ['%h = bitcast <4 x i32> %v to <8 x i16>', '%l = call <8 x i16> @PSHUFLW(<8 x i16> %h, i64 8)',
+            '%u = call <8 x i16> @PSHUFHW(<8 x i16> %l, i64 8)', '%d = bitcast <8 x i16> %u to <4 x i32>',
+            '%r = call <4 x i16> @PSHUFD.h4xi16(<4 x i32> %d, i64 8)', 'ret <4 x i16> %r'])
+    recipe('trunc.2xi64', '<2 x i32>', [('<2 x i64>', 'xv', 'v')], ['%r = trunc <2 x i64> %v to <2 x i32>', 'ret <2 x i32> %r'],
+           ['%d = bitcast <2 x i64> %v to <4 x i32>', '%r = call <2 x i32> @PSHUFD.h2xi32(<4 x i32> %d, i64 8)', 'ret <2 x i32> %r'])
+    recipe('trunc.8xi16', '<8 x i8>', [('<8 x i16>', 'xv', 'v')], ['%r = trunc <8 x i16> %v to <8 x i8>', 'ret <8 x i8> %r'],
+           ['%a = call <8 x i16> @PSLLWi.8xi16(<8 x i16> %v, i16 8)', '%b = call <8 x i16> @PSRLWi.8xi16(<8 x i16> %a, i16 8)',
+            '%r = call <8 x i8> @PACKUSWB.8xi8(<8 x i16> %b, <8 x i16> %b)', 'ret <8 x i8> %r'])
+    for wide, half, full, n in [('<4 x i32>', '<4 x i16>', '<8 x i16>', 8), ('<8 x i16>', '<8 x i8>', '<16 x i8>', 16),
+                                ('<2 x i64>', '<2 x i32>', '<4 x i32>', 4)]:
+        both = ', '.join(f'i32 {k}' for k in range(n))
+        body = [f'%x = trunc {wide} %a to {half}', f'%y = trunc {wide} %b to {half}',
+                f'%r = shufflevector {half} %x, {half} %y, <{n} x i32> <{both}>', f'ret {full} %r']
+        if n == 8:
+            expand = ['%a1 = call <4 x i32> @PSLLDi.4xi32(<4 x i32> %a, i32 16)', '%a2 = call <4 x i32> @PSRADi.4xi32(<4 x i32> %a1, i32 16)',
+                      '%b1 = call <4 x i32> @PSLLDi.4xi32(<4 x i32> %b, i32 16)', '%b2 = call <4 x i32> @PSRADi.4xi32(<4 x i32> %b1, i32 16)',
+                      '%r = call <8 x i16> @PACKSSDW(<4 x i32> %a2, <4 x i32> %b2)', 'ret <8 x i16> %r']
+        elif n == 16:
+            expand = ['%a1 = call <8 x i16> @PSLLWi.8xi16(<8 x i16> %a, i16 8)', '%a2 = call <8 x i16> @PSRLWi.8xi16(<8 x i16> %a1, i16 8)',
+                      '%b1 = call <8 x i16> @PSLLWi.8xi16(<8 x i16> %b, i16 8)', '%b2 = call <8 x i16> @PSRLWi.8xi16(<8 x i16> %b1, i16 8)',
+                      '%r = call <16 x i8> @PACKUSWB.16xi8(<8 x i16> %a2, <8 x i16> %b2)', 'ret <16 x i8> %r']
+        else:
+            expand = ['%ad = bitcast <2 x i64> %a to <4 x i32>', '%bd = bitcast <2 x i64> %b to <4 x i32>',
+                      '%r = call <4 x i32> @SHUFPS(<4 x i32> %ad, <4 x i32> %bd, i64 136)', 'ret <4 x i32> %r']
+        recipe(f'trunc2.{tag(wide)}', full, [(wide, 'xv', 'a'), (wide, 'xv', 'b')], body, expand)
     # Widening a 64-bit vector's lanes: interleaved with zeros (zext), or
     # with themselves and shifted down (sext; 32 to 64 bits with their signs).
     for nar, wid, k, unp in [('<8 x i8>', '<8 x i16>', 8, '01100000'), ('<4 x i16>', '<4 x i32>', 16, '01100001'),
@@ -1191,6 +1264,9 @@ def avx2():
             ops.append(('mul', 'vpmull'))
         for ir, mn in ops:
             three(ty, f'{mn.upper()}{S}.{T}', f'{mn}{sfx} {{o0}}, {{o1}}, {{o2}}', [f'%r = {ir} {ty} %n, %m', f'ret {ty} %r'])
+        if eb == 16:
+            for ext, mn in [('zext', 'vpmulhuw'), ('sext', 'vpmulhw')]:
+                three(ty, f'{mn.upper()}.{T}', f'{mn} {{o0}}, {{o1}}, {{o2}}', mul_high(ty, ext))
         for ir, mn in [('and', 'vpand'), ('or', 'vpor'), ('xor', 'vpxor')]:
             three(ty, f'{mn.upper()}.{T}', f'{mn} {{o0}}, {{o1}}, {{o2}}', [f'%r = {ir} {ty} %n, %m', f'ret {ty} %r'])
         M = f'<{n} x i1>'
@@ -1291,6 +1367,25 @@ def avx2():
         entry(full, f'VJOIN.{T}', [f'{half} "reg"="xv" %a', f'{half} "reg"="xv" %b'],
               renamed(enc, {'o0': 'b', 'o1': 'a', 'o2': 'd'}).replace('i1:8=c', '00000001'), 'vinserti128 $1, {b}, {a:y}, {d}',
               [f'%r = shufflevector {half} %a, {half} %b, <{n} x i32> <{both}>', f'ret {full} %r'], ' "dclass"="yv"' + feat)
+    # Narrowing 256 bits to 128, in registers: each lane's low half
+    # extended in place (sign for dwords, zero for words), the halves
+    # packed; quadwords' low dwords gathered by shufps.
+    def narrow(name, ty, half, body, expand):
+        out.append(f'define {half} @{name}({ty} "reg"="yv" %v) "recipe"="{name}.expand"{feat} {{\n'
+                   + ''.join(f'  {l}\n' for l in body) + '}\n')
+        out.append(f'define {half} @{name}.expand({ty} %v) {{\n' + ''.join(f'  {l}\n' for l in expand) + '}\n')
+    narrow('trunc.8xi32', '<8 x i32>', '<8 x i16>', ['%r = trunc <8 x i32> %v to <8 x i16>', 'ret <8 x i16> %r'],
+           ['%a = call <8 x i32> @VPSLLDi.8xi32(<8 x i32> %v, i32 16)', '%b = call <8 x i32> @VPSRADi.8xi32(<8 x i32> %a, i32 16)',
+            '%l = call <4 x i32> @VLOW.8xi32(<8 x i32> %b)', '%h = call <4 x i32> @VHIGH.8xi32(<8 x i32> %b)',
+            '%r = call <8 x i16> @PACKSSDW(<4 x i32> %l, <4 x i32> %h)', 'ret <8 x i16> %r'])
+    narrow('trunc.16xi16', '<16 x i16>', '<16 x i8>', ['%r = trunc <16 x i16> %v to <16 x i8>', 'ret <16 x i8> %r'],
+           ['%a = call <16 x i16> @VPSLLWi.16xi16(<16 x i16> %v, i16 8)', '%b = call <16 x i16> @VPSRLWi.16xi16(<16 x i16> %a, i16 8)',
+            '%l = call <8 x i16> @VLOW.16xi16(<16 x i16> %b)', '%h = call <8 x i16> @VHIGH.16xi16(<16 x i16> %b)',
+            '%r = call <16 x i8> @PACKUSWB.16xi8(<8 x i16> %l, <8 x i16> %h)', 'ret <16 x i8> %r'])
+    narrow('trunc.4xi64', '<4 x i64>', '<4 x i32>', ['%r = trunc <4 x i64> %v to <4 x i32>', 'ret <4 x i32> %r'],
+           ['%l = call <2 x i64> @VLOW.4xi64(<4 x i64> %v)', '%h = call <2 x i64> @VHIGH.4xi64(<4 x i64> %v)',
+            '%ld = bitcast <2 x i64> %l to <4 x i32>', '%hd = bitcast <2 x i64> %h to <4 x i32>',
+            '%r = call <4 x i32> @SHUFPS(<4 x i32> %ld, <4 x i32> %hd, i64 136)', 'ret <4 x i32> %r'])
     for src, dst, mn in [('<16 x i8>', '<16 x i16>', 'bw'), ('<8 x i16>', '<8 x i32>', 'wd'), ('<4 x i32>', '<4 x i64>', 'dq')]:
         for ext, pre in [('sext', 'vpmovsx'), ('zext', 'vpmovzx')]:
             enc, _ = xed(f'{pre}{mn} {{o0}}, {{o1}}', ('xe', Y))

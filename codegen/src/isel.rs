@@ -9,7 +9,7 @@ use epitome_ir::types::{Type, TypeId};
 use crate::machine::{Holds, Narrow};
 use crate::mir::*;
 use crate::prepare::{self, Ctx};
-use crate::target::{Class, Head, Key, Kind, Src, Target, bin_bits, sext, wide_bits};
+use crate::target::{Class, Head, Key, Kind, Src, Target, Tree, bin_bits, sext, wide_bits};
 
 /// How many constants a function's loops may use before they are pool
 /// operands rather than registers made before the loop: a register each,
@@ -132,6 +132,9 @@ pub struct Sel<'a, 'b> {
     needed: HashSet<InstId>,
     covered: HashSet<InstId>,
     chosen: HashMap<InstId, Match>,
+    /// The fewest instructions a pattern of `Head` alone emits (of those
+    /// whose features are on), by head, as `alone_cost` finds them.
+    alone: std::cell::RefCell<HashMap<Head, i64>>,
     /// The instructions of each block by their head and first operand, in
     /// block order: where `find_extra` looks for a pattern's extra root,
     /// without scanning the rest of the block for each one.
@@ -421,6 +424,7 @@ impl<'a, 'b> Sel<'a, 'b> {
             needed: HashSet::new(),
             covered: HashSet::new(),
             chosen: HashMap::new(),
+            alone: Default::default(),
             by_head: HashMap::new(),
             cur: 0,
             in_loop: Vec::new(),
@@ -899,6 +903,16 @@ impl<'a, 'b> Sel<'a, 'b> {
         layout_next: Option<BlockId>,
     ) -> Option<Match> {
         let p = &self.t.patterns[pat];
+        // Loads as aligned as the pattern's body says (legacy SSE's memory
+        // operands).
+        if p.align > 1
+            && covered.iter().any(|&x| {
+                matches!(self.f.insts[x.index()].op, Op::Load { align, .. }
+                    if align.map_or(1, |a| a.bytes()) < p.align)
+            })
+        {
+            return None;
+        }
         let mut params: Vec<Option<Term>> = vec![None; p.params.len()];
         let mut next = None;
         for (slot, &t) in p.wild.iter().zip(binds) {
@@ -1055,9 +1069,39 @@ impl<'a, 'b> Sel<'a, 'b> {
         // and an add, not `madd` with both constants made. Ties go to the
         // pattern covering more, since what another leaves uncovered still
         // costs an instruction.
-        let spent = p.emit.len() as i64 + materialize;
+        // (An instruction covered whose own patterns take several
+        // instructions, as x86's narrowing recipes do, saves them all:
+        // pack two truncations' halves at once rather than join the two.)
+        let saved: i64 = covered[1..]
+            .iter()
+            .filter_map(|&x| self.head_of(x))
+            .map(|(h, _)| (self.alone_cost(h) - 1).max(0))
+            .sum();
+        let spent = p.emit.len() as i64 + materialize - saved;
         let cost = (covered.len() as i64 - spent, covered.len(), !extra_branch);
         Some(Match { pat, params, next, covered, cost, extras })
+    }
+
+    /// The fewest instructions emitted by a pattern of `head` over any
+    /// values (no other operation under it), of those whose features are
+    /// on; 1 if there is none.
+    fn alone_cost(&self, head: Head) -> i64 {
+        if let Some(&c) = self.alone.borrow().get(&head) {
+            return c;
+        }
+        let c = self
+            .t
+            .patterns
+            .iter()
+            .filter(|p| {
+                matches!(&p.tree, Tree::Op(h, kids) if *h == head && kids.iter().all(|k| !matches!(k, Tree::Op(..))))
+                    && p.emit.iter().all(|e| self.cx.enabled(e.instr))
+            })
+            .map(|p| p.emit.len() as i64)
+            .min()
+            .unwrap_or(1);
+        self.alone.borrow_mut().insert(head, c);
+        c
     }
 
     fn best_match(&self, root: InstId, layout_next: Option<BlockId>) -> Option<Match> {

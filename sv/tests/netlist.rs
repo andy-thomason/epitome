@@ -1326,7 +1326,7 @@ module creg (input logic clk, input logic [15:0] d, output logic [15:0] q);
   always_ff @(posedge clk) q <= d;
 endmodule
 
-module ctop (input logic clk, input logic en, input logic [15:0] a, output logic [15:0] q, output logic [15:0] s);
+module ctop (input logic clk, input logic en, input logic [15:0] a, output logic [15:0] q, output logic [15:0] s, output logic odd);
   logic bclk, gclk;
   cbuf b (.a(clk), .z(bclk));
   assign gclk = bclk & en;
@@ -1335,6 +1335,9 @@ module ctop (input logic clk, input logic en, input logic [15:0] a, output logic
   creg r1 (.clk(gclk), .d(q0 + a), .q(q));
   // Settling reads the data, not the clock.
   assign s = q0 - a;
+  // An output a child with no registers makes from data: settled, not
+  // worked out with the clock tree.
+  cbuf o (.a(q0[0]), .z(odd));
 endmodule
 "#;
 
@@ -1380,6 +1383,7 @@ fn clock_trees_run_before_clocked_processes() {
         }
         assert_eq!(out[c * ow], q, "cycle {c}: q");
         assert_eq!(out[c * ow + 1], q0.wrapping_sub(a) & 0xFFFF, "cycle {c}: s");
+        assert_eq!(out[c * ow + 2], q0 & 1, "cycle {c}: odd");
     }
     let t = b.time(&io, cycles, 1, &stim, 2);
     let settle = t.profile.iter().find(|p| p.what == "step settle").unwrap();

@@ -1775,9 +1775,6 @@ impl<'d, 'a> Lowering<'d, 'a> {
         if self.arrays.contains_key(&i) || d.spec(c).ports.iter().any(|p| p.object.is_none() || !matches!(p.dir, Dir::Input | Dir::Output)) {
             return Ok(false);
         }
-        if std::env::var_os("SV_NO_FLAT").is_some() {
-            return Ok(false);
-        }
         let current = self.flattening.last().cloned().unwrap_or_default();
         if current.contains(&c) || self.flattening.len() > FLAT_DEPTH {
             return Ok(false);
@@ -4158,10 +4155,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         };
         idle
         };
-        if std::env::var_os("SV_DEBUG_IDLE").is_some() && !idle.is_empty() {
-            eprintln!("idle {} lanes {}: {:?}", d.name(d.spec(key.0).name), key.1, idle.iter().map(|o| d.name(d.object(*o).name)).collect::<Vec<_>>());
-        }
-        self.layouts.get_mut(&key).unwrap().idle_ports = if std::env::var_os("SV_NO_IDLE").is_some() { HashSet::new() } else { idle };
+        self.layouts.get_mut(&key).unwrap().idle_ports = idle;
         let lay = &self.layouts[&key];
         if !lay.clocked {
             return;
@@ -4322,11 +4316,6 @@ impl<'d, 'a> Lowering<'d, 'a> {
             .filter_map(|p| p.object)
             .filter(|o| read.contains(o) && !need.contains(o) && !data.contains(o))
             .collect();
-        if std::env::var_os("SV_DEBUG_ATFF").is_some() && !at_ff.is_empty() {
-            eprintln!("at_ff {}: {:?} clocks {:?}", d.name(d.spec(key.0).name), at_ff.iter().map(|n| self.describe(key, *n)).collect::<Vec<_>>(), clock_ports.iter().map(|o| d.name(d.object(*o).name)).collect::<Vec<_>>());
-        }
-        let at_ff = if std::env::var_os("SV_NO_AT_FF").is_some() { HashSet::new() } else { at_ff };
-        let clock_ports = if std::env::var_os("SV_NO_AT_FF").is_some() { HashSet::new() } else { clock_ports };
         let lay = self.layouts.get_mut(&key).unwrap();
         lay.at_ff = at_ff;
         lay.clock_ports = clock_ports;

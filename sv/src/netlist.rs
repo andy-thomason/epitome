@@ -4158,6 +4158,9 @@ impl<'d, 'a> Lowering<'d, 'a> {
         };
         idle
         };
+        if std::env::var_os("SV_DEBUG_IDLE").is_some() && !idle.is_empty() {
+            eprintln!("idle {} lanes {}: {:?}", d.name(d.spec(key.0).name), key.1, idle.iter().map(|o| d.name(d.object(*o).name)).collect::<Vec<_>>());
+        }
         self.layouts.get_mut(&key).unwrap().idle_ports = if std::env::var_os("SV_NO_IDLE").is_some() { HashSet::new() } else { idle };
         let lay = &self.layouts[&key];
         if !lay.clocked {

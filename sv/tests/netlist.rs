@@ -1437,3 +1437,76 @@ fn small_children_are_written_into_their_parents() {
         assert_eq!(out[c * ow + 1], (d + 1) % 256, "cycle {c}: q");
     }
 }
+
+const WRAPPED_RAMS: &str = r#"
+module wram (input logic clk, input logic ls, input logic cen, input logic wen, input logic [5:0] addr,
+             input logic [63:0] wdata, output logic [63:0] rdata, input logic spare);
+  logic unused_ls, unused_spare;
+  assign unused_ls = ls;
+  assign unused_spare = spare;
+  logic [63:0] ram [64];
+  for (genvar p = 0; p < 1; p++) begin : g_part
+    always_ff @(posedge clk) begin
+      if (!cen && !wen) ram[addr] <= wdata;
+      if (!cen && wen) rdata <= ram[addr];
+      else rdata <= '0;
+    end
+  end
+endmodule
+
+module wwrap (input logic clk, input logic cen, input logic wen, input logic [5:0] addr,
+              input logic [63:0] wdata, output logic [63:0] rdata);
+  wram u (.clk, .ls(1'b0), .cen, .wen, .addr, .wdata, .rdata, .spare(1'b1));
+endmodule
+
+module wtop (input logic clk, input logic [3:0] cen, input logic wen, input logic [5:0] addr,
+             input logic [63:0] wdata, output logic [3:0][63:0] rdata);
+  for (genvar k = 0; k < 4; k++) begin : g
+    wwrap w (.clk, .cen(cen[k]), .wen, .addr, .wdata(wdata ^ 64'(k)), .rdata(rdata[k]));
+  end
+endmodule
+"#;
+
+#[test]
+fn wrapped_rams() {
+    // Memories behind a wrapper, in an array: unused ports, a registered
+    // read, written and read by the same clocked process.
+    let Some(host) = host() else {
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
+        return;
+    };
+    let b = build("wtop", netlist_with(&text("wtop.sv", WRAPPED_RAMS), "wtop", host.options(1)), &host);
+    let io = Io::new(&b.net, Some("clk")).unwrap();
+    let mut rng = Rng(0x2545_F491_4F6C_DD1D);
+    let cycles = 400;
+    let (mut stim, mut ins) = (Vec::new(), Vec::new());
+    for _ in 0..cycles {
+        let (cen, wen, addr, d) = (rng.next() % 16, rng.next() & 1, rng.next() % 64, rng.next());
+        for p in &io.ins {
+            match p.name.as_str() {
+                "cen" => stim.push(cen as u32),
+                "wen" => stim.push(wen as u32),
+                "addr" => stim.push(addr as u32),
+                "wdata" => stim.extend([d as u32, (d >> 32) as u32]),
+                n => panic!("{n}"),
+            }
+        }
+        ins.push((cen, wen, addr as usize, d));
+    }
+    let out = b.run(&io, cycles, 1, &stim);
+    let mut ram = [[0u64; 64]; 4];
+    let mut q = [0u64; 4];
+    let ow = io.out_words();
+    for (c, &(cen, wen, addr, d)) in ins.iter().enumerate() {
+        for k in 0..4 {
+            let on = (cen >> k) & 1 == 0;
+            let old = ram[k][addr];
+            if on && wen == 0 {
+                ram[k][addr] = d ^ k as u64;
+            }
+            q[k] = if on && wen == 1 { old } else { 0 };
+        }
+        let want: Vec<u32> = q.iter().flat_map(|&x| [x as u32, (x >> 32) as u32]).collect();
+        assert_eq!(&out[c * ow..c * ow + 8], &want[..], "cycle {c}");
+    }
+}

@@ -262,6 +262,10 @@ pub struct Netlist {
     pub profile: Vec<Counter>,
     /// One clocked step's code, piece by piece (see [`Steps`]).
     pub steps: Steps,
+    /// The groups of nodes that wait on each other (a combinational loop,
+    /// real or false), each run until it settles: the specialisation, and
+    /// each node, with what it reads of the others' writes.
+    pub loops: Vec<(String, Vec<String>)>,
     /// The top's inputs its settling reads, each with where it first does
     /// (an instance path, and what reads it there): a change of any other
     /// input (a clock, say) needs no settling.
@@ -815,7 +819,8 @@ pub fn compile_with(d: &Design, top: InstId, opts: &Options) -> Result<Netlist, 
         .collect();
     functions.sort_by(|a, b| a.name.cmp(&b.name));
     let steps = n.steps(key);
-    Ok(Netlist { module, entry, size, lanes: sims, ports, dropped, profile, functions, watched, steps })
+    let loops = n.cycles.take();
+    Ok(Netlist { module, entry, size, lanes: sims, ports, dropped, profile, functions, watched, steps, loops })
 }
 
 impl<'d, 'a> Lowering<'d, 'a> {
@@ -843,6 +848,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
             settled: 0,
             called: RefCell::default(),
             traces: RefCell::default(),
+            cycles: RefCell::default(),
             codes: HashMap::new(),
             arrays: HashMap::new(),
             memories: HashMap::new(),
@@ -1322,6 +1328,8 @@ struct Lowering<'d, 'a> {
     /// What each function of each specialisation runs, by suffix, as it
     /// was written: its own code and its calls (see [`Steps`]).
     traces: RefCell<HashMap<(Key, &'static str), Vec<Step>>>,
+    /// For [`Netlist::loops`].
+    cycles: RefCell<Vec<(String, Vec<String>)>>,
     /// Each specialisation's static values and code, as `collect` finds
     /// them.
     codes: HashMap<SpecId, (Vec<ObjId>, Vec<Node>)>,
@@ -3434,6 +3442,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                         }
                     }
                 }
+                self.note_loop(key, ms);
                 let mut done = HashSet::new();
                 order.push(Node::Repeat(ms.len() as u32 + 1));
                 while done.len() < ms.len() {
@@ -3456,6 +3465,44 @@ impl<'d, 'a> Lowering<'d, 'a> {
             }
         }
         (order.iter().filter(|x| !matches!(x, Node::Repeat(_) | Node::RepeatEnd)).count() == n).then_some(order)
+    }
+
+    /// Notes a group of nodes that wait on each other, for
+    /// [`Netlist::loops`]: each with the bits it reads that others of the
+    /// group write.
+    fn note_loop(&self, key: Key, ms: &[usize]) {
+        let d = self.d;
+        let nodes = &self.layouts[&key].code;
+        let acc: Vec<(Vec<Span>, Vec<Span>)> = ms.iter().map(|&v| self.access(key, nodes[v])).collect();
+        let lines = ms
+            .iter()
+            .enumerate()
+            .map(|(k, &v)| {
+                let mut via: Vec<String> = Vec::new();
+                for (j, (_, w)) in acc.iter().enumerate() {
+                    if j == k {
+                        continue;
+                    }
+                    for r in &acc[k].0 {
+                        for t in w {
+                            if r.0 == t.0 && r.1 < t.2 && t.1 < r.2 {
+                                let s = format!("{}[{}:{}]", d.name(d.object(r.0).name), r.1.max(t.1), r.2.min(t.2));
+                                if !via.contains(&s) {
+                                    via.push(s);
+                                }
+                            }
+                        }
+                    }
+                }
+                via.truncate(6);
+                format!("{} <- {}", self.describe(key, nodes[v]), via.join(" "))
+            })
+            .collect();
+        let mut loops = self.cycles.borrow_mut();
+        let name = d.name(d.spec(key.0).name).to_string();
+        if !loops.iter().any(|(n, _)| *n == name) {
+            loops.push((name, lines));
+        }
     }
 
     /// The order of a specialisation's nodes, each after those whose

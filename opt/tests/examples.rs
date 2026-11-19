@@ -32,6 +32,7 @@ fn options(src: &str) -> (Options, bool) {
             "--no-sroa" => opts.sroa = false,
             "--no-simplifycfg" => opts.simplifycfg = false,
             "--no-loops" => opts.loops = false,
+            "--no-implied" => opts.implied = false,
             s if s.starts_with("--passes=") => {
                 let list: Vec<&str> = s["--passes=".len()..].split(',').collect();
                 opts.inline = list.contains(&"inline");
@@ -44,6 +45,7 @@ fn options(src: &str) -> (Options, bool) {
                 opts.sroa = list.contains(&"sroa");
                 opts.simplifycfg = list.contains(&"simplifycfg");
                 opts.loops = list.contains(&"loops");
+                opts.implied = list.contains(&"implied");
                 if !list.contains(&"recursion") {
                     opts.recursion = RecursionMode::Off;
                 }

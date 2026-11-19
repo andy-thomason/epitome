@@ -20,6 +20,11 @@ use epitome_opt::combine::eval::{self, Env, Folded, IntConst, mask};
 
 const UNCHECKED: &[&str] = &[
     "zext_zext",
+    "icmp_ne_zext_zero",
+    "icmp_eq_zext_one",
+    "icmp_eq_zext_zero",
+    "icmp_ne_zext_one",
+    "select_zext",
     "sext_sext",
     "sext_zext",
     "trunc_trunc",

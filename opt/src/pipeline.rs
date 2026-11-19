@@ -49,6 +49,8 @@ pub struct Options {
     pub mem2reg: bool,
     pub sroa: bool,
     pub simplifycfg: bool,
+    /// Folding what dominating branches imply (`implied.rs`).
+    pub implied: bool,
     /// Loop rotation, then induction variables and trip counts.
     pub loops: bool,
     pub recursion: RecursionMode,
@@ -72,6 +74,7 @@ impl Default for Options {
             mem2reg: true,
             sroa: true,
             simplifycfg: true,
+            implied: true,
             loops: true,
             recursion: RecursionMode::Tail,
             chop: None,
@@ -102,6 +105,8 @@ pub struct Report {
     pub sroa: crate::sroa::Stats,
     /// What CFG simplification did, over the whole module.
     pub simplifycfg: crate::simplifycfg::Stats,
+    /// What dominating branches implied, over the whole module.
+    pub implied: crate::implied::Stats,
     pub rotated: usize,
     pub indvars: crate::indvars::Stats,
     pub tail_calls: usize,
@@ -257,6 +262,7 @@ fn optimise(m: &mut Module, opts: &Options) -> Report {
     let m2r_stats = std::sync::Mutex::new(crate::mem2reg::Stats::default());
     let sroa_stats = std::sync::Mutex::new(crate::sroa::Stats::default());
     let cfg_stats = std::sync::Mutex::new(crate::simplifycfg::Stats::default());
+    let implied_stats = std::sync::Mutex::new(crate::implied::Stats::default());
     let extra = opts.extra_rules.as_deref().map(|r| crate::combine::with_extra(r).unwrap_or_else(|e| panic!("{e}")));
     let matcher = extra.as_ref().unwrap_or_else(|| crate::combine::standard());
     let rotated = AtomicUsize::new(0);
@@ -479,6 +485,31 @@ fn optimise(m: &mut Module, opts: &Options) -> Report {
                 // Then the CFG, and the combiner again on what that touched,
                 // which may fold more branches.
                 simplify_cfg(*g, f);
+                // What the branches on the way to each block imply: bounds
+                // checks under a loop's test, before rotation moves the
+                // test to the bottom.
+                if opts.implied {
+                    let s = crate::implied::run(sh, f);
+                    if s.changed() {
+                        sh.remark(
+                            *g,
+                            format!(
+                                "implied: {} comparisons folded, {} selects resolved, {} flags set",
+                                s.folded, s.selects, s.flags
+                            ),
+                        );
+                        {
+                            let mut all = implied_stats.lock().unwrap();
+                            all.folded += s.folded;
+                            all.selects += s.selects;
+                            all.flags += s.flags;
+                        }
+                        if opts.combine {
+                            combine(*g, f, None);
+                        }
+                        simplify_cfg(*g, f);
+                    }
+                }
                 // Loops: rotate them to test at the bottom, tidy what that
                 // copied, then work out counters and trip counts.
                 if opts.loops {
@@ -616,6 +647,7 @@ fn optimise(m: &mut Module, opts: &Options) -> Report {
     report.mem2reg = m2r_stats.into_inner().unwrap();
     report.sroa = sroa_stats.into_inner().unwrap();
     report.simplifycfg = cfg_stats.into_inner().unwrap();
+    report.implied = implied_stats.into_inner().unwrap();
     report.rotated = rotated.into_inner();
     report.indvars = iv_stats.into_inner().unwrap();
     report.tail_calls = tail_calls.into_inner();

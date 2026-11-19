@@ -311,6 +311,272 @@ fn chain_casts(cx: &mut Ctx, f: &mut Function) {
     }
 }
 
+/// An insert into a constant vector whose other lanes are zero or poison
+/// (`insertelement <2 x i64> <i64 poison, i64 0>, i64 %x, i64 0`, as SROA
+/// writes a struct's field into a vector): an insert into zero, which
+/// descriptions have instructions for (x86's `movq` and `movd` clear the
+/// rest), rather than lanes through memory.
+fn inserts_into_zero(cx: &mut Ctx, f: &mut Function) {
+    for i in f.insts_in_order().collect::<Vec<_>>() {
+        let Op::InsertElement { vector: Value::Const(c), index, .. } = f.insts[i.index()].op else { continue };
+        let Some(k) = cx.const_int(index) else { continue };
+        let ConstKind::Vector(es) = &cx.m.constant(c).kind else { continue };
+        let kind = |e: &ConstId| match &cx.m.constant(*e).kind {
+            ConstKind::Zero | ConstKind::Null => Some(true),
+            ConstKind::Int(a) => a.is_zero().then_some(true),
+            ConstKind::Float(raw) => (*raw == 0).then_some(true),
+            ConstKind::Poison | ConstKind::Undef => Some(false),
+            _ => None,
+        };
+        let others: Option<Vec<bool>> =
+            es.iter().enumerate().filter(|&(l, _)| l as i64 != k).map(|(_, e)| kind(e)).collect();
+        if others.is_some_and(|o| o.contains(&true)) {
+            let ty = cx.m.constant(c).ty;
+            let zero = cx.m.consts.intern(Constant { ty, kind: ConstKind::Zero });
+            if let Op::InsertElement { vector, .. } = &mut f.insts[i.index()].op {
+                *vector = Value::Const(zero);
+            }
+        }
+    }
+}
+
+/// The value a multiply-high's operand is, at the narrow lanes: what was
+/// extended (and how), or a constant lane that fits them.
+enum Narrow {
+    Ext(CastOp, Value),
+    Const(i64),
+}
+
+fn narrow_operand(cx: &Ctx, f: &Function, v: Value, ty: TypeId) -> Option<Narrow> {
+    match v {
+        Value::Local(x) => match f.locals[x.index()].def {
+            LocalDef::Inst(d) => match f.insts[d.index()].op {
+                Op::Cast { op: op @ (CastOp::ZExt | CastOp::SExt), value, .. } if cx.value_ty(f, value) == ty => {
+                    Some(Narrow::Ext(op, value))
+                }
+                _ => None,
+            },
+            _ => None,
+        },
+        Value::Const(c) => match cx.m.constant(c).kind {
+            ConstKind::Splat(e) => cx.const_int(Value::Const(e)).map(Narrow::Const),
+            _ => None,
+        },
+        Value::Metadata(_) => None,
+    }
+}
+
+/// How many times each local is used.
+fn use_counts(f: &Function) -> Vec<u32> {
+    let mut n = vec![0u32; f.locals.len()];
+    for i in f.insts_in_order() {
+        f.insts[i.index()].op.for_each_value(|v| {
+            if let Value::Local(x) = v {
+                n[x.index()] += 1;
+            }
+        });
+    }
+    n
+}
+
+/// The high halves of products of extended lanes, `trunc (lshr (mul (ext
+/// a), (ext b)), C)` with `a` and `b` of `N`-bit lanes and `C` at least
+/// `N` (a constant operand whose lane fits `N` bits will do for one of
+/// them), where the description has an instruction for the high half
+/// (x86's `pmulhuw` and `pmulhw`): made `trunc (lshr (mul ...), N)`, the
+/// shape that instruction's pattern is, then shifted by `C - N` (as the
+/// wide shift was, logically or arithmetically). The products' wide lanes
+/// are never made: splitting and the lane-by-lane pass leave the shape
+/// alone (`mul_high_insts`). A vector of more than a register's lanes is
+/// done a part at a time, the parts joined.
+fn mul_highs(cx: &mut Ctx, f: &mut Function) {
+    let mut uses = use_counts(f);
+    let local_op = |f: &Function, uses: &[u32], v: Value| match v {
+        Value::Local(x) if uses.get(x.index()) == Some(&1) => match f.locals[x.index()].def {
+            LocalDef::Inst(d) => Some((d, f.insts[d.index()].op.clone())),
+            _ => None,
+        },
+        _ => None,
+    };
+    let blocks: Vec<BlockId> = f.layout.clone();
+    for b in blocks {
+        let mut k = 0;
+        while k < f.blocks[b.index()].insts.len() {
+            let i = f.blocks[b.index()].insts[k];
+            k += 1;
+            let Op::Cast { op: CastOp::Trunc, value, .. } = f.insts[i.index()].op else { continue };
+            let r = f.insts[i.index()].result.unwrap();
+            let ty = f.locals[r.index()].ty;
+            let (Some((len, elem, n)), Some((wlen, _, wn))) = (vec_info(cx, ty), vec_info(cx, cx.value_ty(f, value)))
+            else {
+                continue;
+            };
+            if n < 8 || wlen != len || wn != 2 * n {
+                continue;
+            }
+            let Some((sh, Op::Binary { op: sop @ (BinOp::LShr | BinOp::AShr), lhs: p, rhs: c, .. })) = local_op(f, &uses, value)
+            else {
+                continue;
+            };
+            let Some(Narrow::Const(c)) = narrow_operand(cx, f, c, ty) else { continue };
+            if c < n as i64 || c >= wn as i64 {
+                continue;
+            }
+            let Some((mul, Op::Binary { op: BinOp::Mul, lhs: x, rhs: y, .. })) = local_op(f, &uses, p) else { continue };
+            let (Some(nx), Some(ny)) = (narrow_operand(cx, f, x, ty), narrow_operand(cx, f, y, ty)) else { continue };
+            let ext = match (&nx, &ny) {
+                (Narrow::Ext(a, _), Narrow::Ext(b, _)) if a == b => *a,
+                (Narrow::Ext(a, _), Narrow::Const(_)) | (Narrow::Const(_), Narrow::Ext(a, _)) => *a,
+                _ => continue,
+            };
+            let signed = ext == CastOp::SExt;
+            // (Already the shape, but for a vector to be split.)
+            if c == n as i64
+                && sop == BinOp::LShr
+                && matches!((&nx, &ny), (Narrow::Ext(..), Narrow::Ext(..)))
+                && split_count(cx, ty).is_none()
+            {
+                continue;
+            }
+            // A constant's lane must be what extending a narrow lane gives.
+            let fits = |k: i64| {
+                if signed { (-(1i64 << (n - 1))..1i64 << (n - 1)).contains(&k) } else { (0..1i64 << n).contains(&k) }
+            };
+            if [&nx, &ny].iter().any(|o| matches!(o, Narrow::Const(k) if !fits(*k))) {
+                continue;
+            }
+            let (count, pt) = match split_count(cx, ty) {
+                None => (1, ty),
+                Some(count) => {
+                    let pt = part(cx, len, elem, n);
+                    if !is_vec(cx, pt) {
+                        continue;
+                    }
+                    (count, pt)
+                }
+            };
+            if !cx.selects_mul_high(pt, signed) {
+                continue;
+            }
+            let plen = len / count as u32;
+            let wide_elem = cx.m.types.int(wn);
+            let wpt = vec_ty(cx, plen, wide_elem);
+            let half = cx.int(wide_elem, n as i64);
+            let Value::Const(half) = half else { unreachable!() };
+            let half = Value::Const(cx.m.consts.intern(Constant { ty: wpt, kind: ConstKind::Splat(half) }));
+            let mut bld = Builder { f, new: Vec::new() };
+            let operand = |bld: &mut Builder, cx: &mut Ctx, o: &Narrow, j: usize| match o {
+                Narrow::Ext(_, a) if count == 1 => *a,
+                Narrow::Ext(_, a) => {
+                    let lanes: Vec<i32> = (j as i32 * plen as i32..(j as i32 + 1) * plen as i32).collect();
+                    let p = poison(cx, ty);
+                    shuffle(bld, cx, *a, p, &lanes, pt)
+                }
+                Narrow::Const(k) => {
+                    let e = cx.int(elem, *k);
+                    let Value::Const(e) = e else { unreachable!() };
+                    Value::Const(cx.m.consts.intern(Constant { ty: pt, kind: ConstKind::Splat(e) }))
+                }
+            };
+            let mut highs = Vec::new();
+            for j in 0..count {
+                let a = operand(&mut bld, cx, &nx, j);
+                let bv = operand(&mut bld, cx, &ny, j);
+                let cast = |bld: &mut Builder, op, value, to| {
+                    bld.op(Op::Cast { op, flags: IntFlags::NONE, fmf: FastMath::default(), value }, Some(to))
+                };
+                let bin = |bld: &mut Builder, op, lhs, rhs, to| {
+                    bld.op(Op::Binary { op, flags: IntFlags::NONE, fmf: FastMath::default(), lhs, rhs }, Some(to))
+                };
+                let wa = cast(&mut bld, ext, a, wpt);
+                let wb = cast(&mut bld, ext, bv, wpt);
+                let m = bin(&mut bld, BinOp::Mul, wa, wb, wpt);
+                let h = bin(&mut bld, BinOp::LShr, m, half, wpt);
+                highs.push(cast(&mut bld, CastOp::Trunc, h, pt));
+            }
+            // The parts joined, two at a time.
+            while highs.len() > 1 {
+                let mut next = Vec::new();
+                for two in highs.chunks(2) {
+                    let l = cx.value_ty(bld.f, two[0]);
+                    let (pl, _, _) = vec_info(cx, l).unwrap();
+                    let jt = vec_ty(cx, 2 * pl, elem);
+                    let lanes: Vec<i32> = (0..2 * pl as i32).collect();
+                    next.push(shuffle(&mut bld, cx, two[0], two[1], &lanes, jt));
+                }
+                highs = next;
+            }
+            let mut v = highs[0];
+            if c > n as i64 {
+                let e = cx.int(elem, c - n as i64);
+                let Value::Const(e) = e else { unreachable!() };
+                let amount = Value::Const(cx.m.consts.intern(Constant { ty, kind: ConstKind::Splat(e) }));
+                v = bld.op(
+                    Op::Binary { op: sop, flags: IntFlags::NONE, fmf: FastMath::default(), lhs: v, rhs: amount },
+                    Some(ty),
+                );
+            }
+            let new = bld.new;
+            f.replace_uses(Value::Local(r), v);
+            // The old shape goes (its extensions too, where only it used
+            // them).
+            let mut dead = vec![i, sh, mul];
+            for o in [x, y] {
+                if let Value::Local(l) = o
+                    && uses[l.index()] == 1
+                    && let LocalDef::Inst(d) = f.locals[l.index()].def
+                {
+                    dead.push(d);
+                }
+            }
+            f.blocks[b.index()].insts.splice(k - 1..k, new);
+            for blk in f.layout.clone() {
+                f.blocks[blk.index()].insts.retain(|j| !dead.contains(j));
+            }
+            // (From the start of the block again: positions moved.)
+            k = 0;
+            uses = use_counts(f);
+        }
+    }
+}
+
+/// The instructions of the multiply-high shapes `mul_highs` made that the
+/// description selects whole (the `trunc`, and the extensions, product and
+/// shift under it): they are left as they are, their wide lanes never
+/// made.
+pub(crate) fn mul_high_insts(cx: &Ctx, f: &Function) -> std::collections::HashSet<InstId> {
+    let mut out = std::collections::HashSet::new();
+    let def = |v: Value| match v {
+        Value::Local(x) => match f.locals[x.index()].def {
+            LocalDef::Inst(d) => Some(d),
+            _ => None,
+        },
+        _ => None,
+    };
+    for i in f.insts_in_order() {
+        let Op::Cast { op: CastOp::Trunc, value, .. } = f.insts[i.index()].op else { continue };
+        let ty = f.locals[f.insts[i.index()].result.unwrap().index()].ty;
+        let Some((_, _, n)) = vec_info(cx, ty) else { continue };
+        let Some(sh) = def(value) else { continue };
+        let Op::Binary { op: BinOp::LShr, lhs: p, rhs: c, .. } = f.insts[sh.index()].op else { continue };
+        if !matches!(narrow_operand(cx, f, c, ty), Some(Narrow::Const(k)) if k == n as i64) {
+            continue;
+        }
+        let Some(mul) = def(p) else { continue };
+        let Op::Binary { op: BinOp::Mul, lhs: x, rhs: y, .. } = f.insts[mul.index()].op else { continue };
+        let (Some(Narrow::Ext(ea, _)), Some(Narrow::Ext(eb, _))) =
+            (narrow_operand(cx, f, x, ty), narrow_operand(cx, f, y, ty))
+        else {
+            continue;
+        };
+        if ea != eb || !cx.selects_mul_high(ty, ea == CastOp::SExt) {
+            continue;
+        }
+        out.extend([i, sh, mul, def(x).unwrap(), def(y).unwrap()]);
+    }
+    out
+}
+
 /// Extensions of masks to lanes of another width than the comparison that
 /// made them: first to the comparison's own lanes (free: the lanes are
 /// already all ones or zeros), then `and` with 1 for `zext`, then widened
@@ -673,6 +939,239 @@ fn native_shuffle(cx: &Ctx, f: &Function, i: InstId) -> bool {
         LocalDef::Inst(d) if matches!(f.insts[d.index()].op, Op::InsertElement { .. })));
     let src_bits = crate::target::type_bits(cx.m, cx.value_ty(f, *a));
     crate::target::mask_lanes(cx.m, *mask).is_some_and(|lanes| cx.t.has_shuffle(&lanes, hb, src_bits, of_insert))
+}
+
+/// Shuffles of one vector filling a register (not of masks) that no
+/// pattern has, as a permutation of its bytes within each 16 (lane by lane
+/// otherwise): `llvm.epitome.permute16.vNi8(%table, %indices)`, byte k of
+/// the result byte `indices[k]` of the table's 16 bytes that byte k is in,
+/// where the description has it (x86's `pshufb`). The indices are
+/// constants; a byte the mask leaves poison takes byte 0.
+fn permuted_shuffles(cx: &mut Ctx, f: &mut Function) {
+    let i8t = cx.m.types.int(8);
+    for blk in f.layout.clone() {
+        let mut k = 0;
+        while k < f.blocks[blk.index()].insts.len() {
+            let i = f.blocks[blk.index()].insts[k];
+            k += 1;
+            let Op::ShuffleVector { a, b, mask } = f.insts[i.index()].op else { continue };
+            let is_poison = |v: Value| matches!(v, Value::Const(c) if matches!(cx.m.constant(c).kind, ConstKind::Poison | ConstKind::Undef));
+            let Some(r) = f.insts[i.index()].result else { continue };
+            let rty = f.locals[r.index()].ty;
+            let aty = cx.value_ty(f, a);
+            let Some(lanes) = crate::target::mask_lanes(cx.m, mask) else { continue };
+            let Some((len, _, bits)) = vec_info(cx, rty) else { continue };
+            let eb = bits / 8;
+            let bytes = len * eb;
+            if !is_poison(b) {
+                if aty == rty && bits % 8 == 0 && bytes == 16 && !native_shuffle(cx, f, i)
+                    && let Some(new) = byte_window(cx, f, a, b, &lanes, eb, rty, r)
+                {
+                    let n = new.len();
+                    f.blocks[blk.index()].insts.splice(k - 1..k, new);
+                    k += n - 1;
+                }
+                continue;
+            }
+            if aty != rty
+                || bits % 8 != 0
+                || !matches!(bytes, 16 | 32)
+                || bytes * 8 > cx.vector_bits()
+                || matches!(cx.m.types.get(rty), Type::Vector { elem, .. } if matches!(cx.m.types.get(*elem), Type::Int(1)))
+                || native_shuffle(cx, f, i)
+            {
+                continue;
+            }
+            // Each result byte's source byte (a poison byte: its own).
+            let src: Vec<u32> = (0..bytes)
+                .map(|p| {
+                    let l = lanes[(p / eb) as usize];
+                    if l < 0 { p } else { l as u32 * eb + p % eb }
+                })
+                .collect();
+            // As lanes of `w` bytes, if each moves whole: lane j's source.
+            let units = |w: u32| -> Option<Vec<u32>> {
+                (0..bytes / w)
+                    .map(|j| {
+                        let s0 = src[(j * w) as usize];
+                        (s0 % w == 0 && (0..w).all(|b| src[(j * w + b) as usize] == s0 + b)).then_some(s0 / w)
+                    })
+                    .collect()
+            };
+            let mut bld = Builder { f, new: Vec::new() };
+            fn cast(cx: &Ctx, bld: &mut Builder, v: Value, ty: TypeId) -> Value {
+                if cx.value_ty(bld.f, v) == ty {
+                    v
+                } else {
+                    bld.op(Op::Cast { op: CastOp::BitCast, flags: IntFlags::NONE, fmf: FastMath::default(), value: v }, Some(ty))
+                }
+            }
+            let i64t = cx.m.types.int(64);
+            // An immediate of four 2-bit lane numbers, each of four lanes
+            // within its group of four.
+            let imm4 = |u: &[u32], at: usize| -> i64 { (0..4).map(|j| i64::from(u[at + j] % 4) << (2 * j)).sum() };
+            let mut out = None;
+            // 32-bit lanes, the same permutation in each four (pshufd).
+            let i32t = cx.m.types.int(32);
+            if let Some(u) = units(4)
+                && u.chunks(4).enumerate().all(|(g, c)| c.iter().all(|&x| x / 4 == g as u32))
+                && u.chunks(4).all(|c| c.iter().zip(&u[..4]).all(|(a, b)| a % 4 == b % 4))
+            {
+                let name = format!("llvm.epitome.permute4.v{}i32", bytes / 4);
+                if cx.selects_intrinsic(&name) {
+                    let vt = vec_ty(cx, bytes / 4, i32t);
+                    let v = cast(cx, &mut bld, a, vt);
+                    let callee = declare(cx, &name, vt, &[vt, i64t]);
+                    let k = cx.int(i64t, imm4(&u, 0));
+                    out = Some(call_value(&mut bld, cx, callee, vec![v, k], vt, vt));
+                }
+            }
+            // 16-bit lanes of 128 bits, the low four among themselves and
+            // the high four (pshuflw, pshufhw).
+            let i16t = cx.m.types.int(16);
+            if out.is_none()
+                && bytes == 16
+                && let Some(u) = units(2)
+                && u[..4].iter().all(|&x| x < 4)
+                && u[4..].iter().all(|&x| x >= 4)
+                && cx.selects_intrinsic("llvm.epitome.permute4lo.v8i16")
+                && cx.selects_intrinsic("llvm.epitome.permute4hi.v8i16")
+            {
+                let vt = vec_ty(cx, 8, i16t);
+                let mut v = cast(cx, &mut bld, a, vt);
+                for (half, at) in [("lo", 0), ("hi", 4)] {
+                    let k = imm4(&u, at);
+                    // (0xe4: each lane its own.)
+                    if k == 0xe4 {
+                        continue;
+                    }
+                    let name = format!("llvm.epitome.permute4{half}.v8i16");
+                    let callee = declare(cx, &name, vt, &[vt, i64t]);
+                    let k = cx.int(i64t, k);
+                    v = call_value(&mut bld, cx, callee, vec![v, k], vt, vt);
+                }
+                out = Some(v);
+            }
+            if let Some(v) = out {
+                let v = cast(cx, &mut bld, v, rty);
+                let new = bld.new;
+                let n = new.len();
+                f.replace_uses(Value::Local(r), v);
+                f.blocks[blk.index()].insts.splice(k - 1..k, new);
+                k += n - 1;
+                continue;
+            }
+            drop(bld);
+            // Each result byte's source byte, within its 16.
+            let mut idx: Vec<i64> = Vec::with_capacity(bytes as usize);
+            let mut ok = true;
+            for p in 0..bytes {
+                let l = lanes[(p / eb) as usize];
+                let src = if l < 0 { (p / 16) * 16 } else { l as u32 * eb + p % eb };
+                ok &= src / 16 == p / 16;
+                idx.push(i64::from(src % 16));
+            }
+            let name = format!("llvm.epitome.permute16.v{bytes}i8");
+            if !ok || !cx.selects_intrinsic(&name) {
+                continue;
+            }
+            let bty = vec_ty(cx, bytes, i8t);
+            let es: Vec<ConstId> = idx
+                .iter()
+                .map(|&x| {
+                    cx.m.consts.intern(Constant { ty: i8t, kind: ConstKind::Int(epitome_ir::apint::ApInt::from_i64(8, x)) })
+                })
+                .collect();
+            let ix = Value::Const(cx.m.consts.intern(Constant { ty: bty, kind: ConstKind::Vector(es) }));
+            let mut bld = Builder { f, new: Vec::new() };
+            let cast = |bld: &mut Builder, v: Value, ty: TypeId| {
+                bld.op(Op::Cast { op: CastOp::BitCast, flags: IntFlags::NONE, fmf: FastMath::default(), value: v }, Some(ty))
+            };
+            let t = if aty == bty { a } else { cast(&mut bld, a, bty) };
+            let callee = declare(cx, &name, bty, &[bty, bty]);
+            let p = call_value(&mut bld, cx, callee, vec![t, ix], bty, bty);
+            let out = if rty == bty { p } else { cast(&mut bld, p, rty) };
+            let new = bld.new;
+            let n = new.len();
+            f.replace_uses(Value::Local(r), out);
+            f.blocks[blk.index()].insts.splice(k - 1..k, new);
+            k += n - 1;
+        }
+    }
+}
+
+/// A shuffle of two 16-byte vectors that is a window of their bytes, `a`'s
+/// then `b`'s, from byte `s` on: `b` shifted up 16 - s bytes where `a`'s
+/// bytes taken are zeros, `a` shifted down s where `b`'s are, else both
+/// (`llvm.epitome.window16`, x86's palignr), where the description has it.
+/// The instructions in place of the shuffle, its uses replaced.
+#[allow(clippy::too_many_arguments)]
+fn byte_window(
+    cx: &mut Ctx,
+    f: &mut Function,
+    a: Value,
+    b: Value,
+    lanes: &[i32],
+    eb: u32,
+    rty: TypeId,
+    r: LocalId,
+) -> Option<Vec<InstId>> {
+    // Each byte's source in the two together, or None for poison.
+    let src: Vec<Option<u32>> =
+        (0..16u32).map(|p| lanes[(p / eb) as usize].ge(&0).then(|| lanes[(p / eb) as usize] as u32 * eb + p % eb)).collect();
+    let first = src.iter().enumerate().find_map(|(p, s)| s.map(|s| s as i64 - p as i64))?;
+    if !(1..16).contains(&first) || src.iter().enumerate().any(|(p, s)| s.is_some_and(|s| s as i64 != p as i64 + first)) {
+        return None;
+    }
+    let s = first as u32;
+    // Whether the bytes taken from constant `v` (those `taken`) are zeros.
+    let zeros = |cx: &Ctx, v: Value, taken: &dyn Fn(u32) -> bool| -> bool {
+        let Value::Const(c) = v else { return false };
+        match &cx.m.constant(c).kind {
+            ConstKind::Zero => true,
+            ConstKind::Vector(es) => (0..16u32).filter(|&q| taken(q)).all(|q| {
+                match &cx.m.constant(es[(q / eb) as usize]).kind {
+                    ConstKind::Zero | ConstKind::Poison | ConstKind::Undef => true,
+                    ConstKind::Int(x) => (x.low_u64() >> (8 * (q % eb))) & 0xff == 0,
+                    _ => false,
+                }
+            }),
+            _ => false,
+        }
+    };
+    let used = |q: u32| src.iter().any(|x| *x == Some(q));
+    let i8t = cx.m.types.int(8);
+    let bty = vec_ty(cx, 16, i8t);
+    let i64t = cx.m.types.int(64);
+    let (name, args): (&str, Vec<Value>) = if zeros(cx, a, &|q| used(q)) {
+        ("llvm.epitome.shlbytes.v16i8", vec![b, cx.int(i64t, 16 - s as i64)])
+    } else if zeros(cx, b, &|q| used(q + 16)) {
+        ("llvm.epitome.shrbytes.v16i8", vec![a, cx.int(i64t, s as i64)])
+    } else {
+        ("llvm.epitome.window16.v16i8", vec![a, b, cx.int(i64t, s as i64)])
+    };
+    if !cx.selects_intrinsic(name) {
+        return None;
+    }
+    let mut bld = Builder { f, new: Vec::new() };
+    let mut args = args;
+    for k in 0..args.len() {
+        if rty != bty && cx.value_ty(bld.f, args[k]) == rty {
+            let value = args[k];
+            args[k] = bld.op(Op::Cast { op: CastOp::BitCast, flags: IntFlags::NONE, fmf: FastMath::default(), value }, Some(bty));
+        }
+    }
+    let tys: Vec<TypeId> = args.iter().map(|&v| cx.value_ty(bld.f, v)).collect();
+    let callee = declare(cx, name, bty, &tys);
+    let out = call_value(&mut bld, cx, callee, args, bty, bty);
+    let out = if rty == bty {
+        out
+    } else {
+        bld.op(Op::Cast { op: CastOp::BitCast, flags: IntFlags::NONE, fmf: FastMath::default(), value: out }, Some(rty))
+    };
+    let new = bld.new;
+    f.replace_uses(Value::Local(r), out);
+    Some(new)
 }
 
 /// A truncation of a vector to booleans (`trunc <16 x i8> to <16 x i1>`):
@@ -1423,7 +1922,8 @@ fn is_bool_splat(cx: &Ctx, f: &Function, i: InstId) -> bool {
 ///   right at any width;
 /// - `icmp eq|ne (bitcast mask to iN), 0`, whether any lane is set, is the
 ///   unsigned maximum of the mask's lanes compared with zero (but for a
-///   mask in a mask register, whose bits are the integer: kortestw).
+///   mask in a mask register, whose bits are the integer: kortestw; or
+///   one whose bits an instruction makes: pmovmskb).
 fn fix_masks(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
     let i1 = cx.m.types.int(1);
     let i64t = cx.m.types.int(64);
@@ -1497,7 +1997,10 @@ fn fix_masks(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
                         && let LocalDef::Inst(d) = f.locals[x.index()].def
                         && let Op::Cast { op: CastOp::BitCast, value: m, .. } = f.insts[d.index()].op
                         && is_mask(cx, cx.value_ty(f, m))
-                        && !in_regs(m) =>
+                        && !in_regs(m)
+                        // (Where one instruction makes the bits, they are
+                        // tested.)
+                        && !crate::prepare::mask_bits_selected(cx, f, m, f.locals[x.index()].ty) =>
                 {
                     let (len, _, _) = vec_info(cx, cx.value_ty(f, m)).unwrap();
                     let w = mask_width(cx, f, m, &mut Vec::new()).unwrap_or((cx.vector_bits() / len).max(8));
@@ -1568,15 +2071,19 @@ fn fix_masks(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
 pub fn legalize_vectors(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
     pointer_vectors(cx, f)?;
     canonical_shuffles(cx, f);
+    permuted_shuffles(cx, f);
     scalar_selects(cx, f);
     truncs_to_masks(cx, f);
     vector_fcmps(cx, f);
     rewrite_vector_ops(cx, f);
+    inserts_into_zero(cx, f);
+    mul_highs(cx, f);
     fix_masks(cx, f)?;
     crate::prepare::bool_vector_casts(cx, f);
     mask_constants(cx, f);
     widen_masks(cx, f);
     chain_casts(cx, f);
+    let keep = mul_high_insts(cx, f);
     let mut parts: HashMap<LocalId, Vec<Value>> = HashMap::new();
     let mut pending_phis: Vec<(Vec<InstId>, InstId)> = Vec::new();
     // In an order where values come before their uses (but phis'), as the
@@ -1592,6 +2099,10 @@ pub fn legalize_vectors(cx: &mut Ctx, f: &mut Function) -> Result<(), String> {
         let mut k = 0;
         while k < f.blocks[blk.index()].insts.len() {
             let i = f.blocks[blk.index()].insts[k];
+            if keep.contains(&i) {
+                k += 1;
+                continue;
+            }
             let res = f.insts[i.index()].result;
             let res_ty = res.map(|r| f.locals[r.index()].ty);
             let mut uses_split = false;

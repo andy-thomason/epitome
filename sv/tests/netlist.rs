@@ -1097,7 +1097,7 @@ fn profiled_by_instance() {
     let b = build("ptop", netlist_with(&src, "ptop", opts), &host);
     assert!(b.net.watched.is_empty(), "settling reads {:?}", b.net.watched);
     // (A design whose settling reads its clock says where.)
-    let gated = "module gtop (input logic clk, input logic en, output logic q);\n  logic g;\n  assign g = clk & en;\n  leaf l (.clk(g), .a(32'(en)), .q());\n  assign q = g;\nendmodule\n";
+    let gated = "module gtop (input logic clk, input logic en, input logic d, output logic q, output logic [31:0] lq);\n  logic g;\n  assign g = clk & en;\n  leaf l (.clk(g), .a(32'(en)), .q(lq));\n  assign q = g & d;\nendmodule\n";
     let w = netlist_with(&text("gtop.sv", &format!("{PROFILED}{gated}")), "gtop", host.options(1)).watched;
     assert!(w.iter().any(|(n, why)| n == "clk" && why.contains("assign writing g")), "{w:?}");
     let plain = build("ptop_plain", netlist_with(&src, "ptop", host.options(1)), &host);
@@ -1117,6 +1117,7 @@ fn profiled_by_instance() {
         assert_eq!(&out[c * 4..c * 4 + 4], &q[..], "cycle {c}");
     }
     let t = b.time(&io, cycles, 1, &stim, 2);
+    assert!(t.pieces.is_empty(), "pieces are timed only when asked");
     for p in &t.profile {
         eprintln!("{:8.1} {:8.1} {:5.2}  {}", p.ticks, p.own, p.calls, p.what);
     }
@@ -1127,9 +1128,10 @@ fn profiled_by_instance() {
     // Only clocked processes read the input and the clock: neither a new
     // input nor an edge needs settling, only a commit does.
     assert!(has("step settle").calls < 0.5, "settles {} times a cycle", has("step settle").calls);
-    // The array may be called as one or an instance at a time.
+    // The array may be called as one or an instance at a time, and a
+    // leaf may be written into its parent.
     let leaves: Vec<_> = t.profile.iter().filter(|p| p.counter.func == "ff" && p.counter.spec == "leaf").collect();
-    assert!(leaves.len() == 2 || leaves.len() == 8, "{} leaves' ff counters", leaves.len());
+    assert!(!leaves.is_empty() && leaves.len() <= 8, "{} leaves' ff counters", leaves.len());
     for p in &leaves {
         assert!(p.counter.path.starts_with("g[") && p.counter.path.contains(".m.l"), "{}", p.counter.path);
         let within = &t.profile[p.counter.within.expect("a leaf's ff is within its parent's")];
@@ -1139,5 +1141,414 @@ fn profiled_by_instance() {
     }
     for p in &t.profile {
         assert!(p.own >= 0.0, "{}: own {} of {}", p.what, p.own, p.ticks);
+    }
+    // Each piece timed, where asked: every leaf's clocked process runs
+    // once a cycle in each of the eight leaves.
+    let mut po = host.options(1);
+    po.profile = Some(epitome_sv::model::TICKS);
+    po.pieces = true;
+    let pb = build("ptop_pieces", netlist_with(&src, "ptop", po), &host);
+    assert_eq!(pb.run(&io, cycles, 1, &stim), out);
+    let tp = pb.time(&io, cycles, 1, &stim, 2);
+    let leaf_ff = tp.pieces.iter().find(|p| p.2 == "leaf_ff clocked processes").expect("the leaf's clocked processes are timed");
+    assert!(leaf_ff.1 > 0.0, "{leaf_ff:?}");
+}
+
+/// A block of arithmetic heavy enough to be worth a task, registered.
+const HEAVY: &str = r#"
+module heavy (input logic clk, input logic [63:0] a, output logic [63:0] q, output logic [63:0] c);
+  logic [63:0] t [8];
+  always_comb begin
+    t[0] = a * 64'h9E37_79B9_7F4A_7C15;
+    for (int k = 1; k < 8; k++) t[k] = (t[k-1] ^ (t[k-1] >> 29)) * 64'hBF58_476D_1CE4_E5B9 + 64'(k);
+  end
+  assign c = t[7];
+  always_ff @(posedge clk) q <= t[7];
+endmodule
+"#;
+
+/// Eight `heavy`s side by side (`chain` false), or each fed what the one
+/// before works out.
+fn heavies(chain: bool) -> String {
+    let mut s = String::from(HEAVY);
+    s += "module eight (input logic clk, input logic [63:0] a, output logic [511:0] q);\n  logic [63:0] c [9];\n  assign c[0] = a;\n";
+    for k in 0..8 {
+        let input = if chain { format!("c[{k}]") } else { format!("a ^ 64'd{k}") };
+        s += &format!("  heavy u{k} (.clk, .a({input}), .q(q[{k}*64 +: 64]), .c(c[{}]));\n", k + 1);
+    }
+    s + "endmodule\n"
+}
+
+#[test]
+fn steps_cut_into_tasks() {
+    // One clocked step's code, piece by piece with the bytes each reads and
+    // writes, cut into tasks: eight blocks side by side run about eight
+    // times as fast on eight threads; chained, not much faster than one.
+    let Some(host) = host() else {
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
+        return;
+    };
+    let speedup = |chain: bool| {
+        let net = netlist_with(&text("eight.sv", &heavies(chain)), "eight", host.options(1));
+        let s = &net.steps;
+        let funcs: Vec<&str> = s.calls.iter().filter(|c| c.parent.is_none()).map(|c| c.func.as_str()).collect();
+        assert_eq!(funcs, ["step settle", "step ff", "step commit", "step settle again"]);
+        for (k, it) in s.items.iter().enumerate() {
+            assert!(s.calls[it.call].items.contains(&k), "piece {k} is outside its call");
+            assert!(!it.writes.is_empty() || !it.reads.is_empty(), "piece {k} touches nothing");
+        }
+        assert!(s.calls.iter().any(|c| c.path == "u7" && c.func == "settle"));
+        let costs = epitome_sv::tasks::costs(s, &[]);
+        for budget in [50.0, 200.0, 1000.0] {
+            let g = epitome_sv::tasks::cut(s, &costs, budget, budget);
+            assert!(g.well_formed(s.items.len()), "budget {budget}");
+        }
+        let (work, plans) = epitome_sv::tasks::plans(s, &costs, &[1, 8], 2.0, 0.0, 0.0);
+        for p in &plans {
+            eprintln!("chain {chain}: {} threads, {} tasks, {} edges, span {:.0}, time {:.0} of {work:.0}", p.threads, p.tasks, p.edges, p.span, p.time);
+        }
+        assert!((plans[0].time - work).abs() < 1e-6 * work, "one thread does all the work");
+        work / plans[1].time
+    };
+    let side = speedup(false);
+    let chained = speedup(true);
+    assert!(side > 4.0, "side by side: {side:.2}x on 8 threads");
+    assert!(chained < 2.0, "chained: {chained:.2}x on 8 threads");
+}
+
+const DEAD: &str = r#"
+module checks (input logic clk, input logic [7:0] a);
+  logic [7:0] seen;
+  always_ff @(posedge clk) seen <= seen ^ a;
+endmodule
+
+module spare (input logic [7:0] a, output logic [7:0] q);
+  assign q = a * 8'd3;
+endmodule
+
+module dtop (input logic clk, input logic [7:0] a, output logic [7:0] q);
+  logic [7:0] unused_sink, r, spent;
+  assign unused_sink = ^a ? a : ~a;
+  always_ff @(posedge clk) spent <= spent + a;
+  always_ff @(posedge clk) r <= a + 8'd1;
+  assign q = r;
+  checks c (.clk, .a);
+  spare s (.a, .q());
+endmodule
+"#;
+
+#[test]
+fn dead_code_is_left_out() {
+    // What no output needs is not run: a child with no outputs, a child
+    // whose outputs are unread, a value nothing reads, and a register
+    // nothing reads.
+    let Some(host) = host() else {
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
+        return;
+    };
+    let net = netlist_with(&text("dtop.sv", DEAD), "dtop", host.options(1));
+    let paths: Vec<&str> = net.steps.calls.iter().map(|c| c.path.as_str()).collect();
+    assert!(paths.iter().all(|p| p.is_empty()), "calls of {paths:?}");
+    let names: Vec<&str> = net.steps.items.iter().map(|p| p.name.as_str()).collect();
+    assert!(names.iter().all(|n| !n.contains("unused_sink") && !n.contains("spent")), "{names:?}");
+    let b = build("dtop", net, &host);
+    let io = Io::new(&b.net, Some("clk")).unwrap();
+    let stim: Vec<u32> = (0..20u32).map(|c| c * 37 % 256).collect();
+    let out = b.run(&io, 20, 1, &stim);
+    for (c, &a) in stim.iter().enumerate() {
+        assert_eq!(out[c], (a + 1) % 256, "cycle {c}");
+    }
+}
+
+const SPLIT_ARRAY: &str = r#"
+module stage (input logic clk, input logic en, input logic [31:0] a, output logic [31:0] q);
+  always_ff @(posedge clk) if (en) q <= a * 32'd3 + 32'd1;
+endmodule
+
+module sgtop (input logic clk, input logic [7:0][31:0] a, output logic [7:0][31:0] q, output logic stop);
+  logic en;
+  logic [7:0][31:0] qs;
+  for (genvar k = 0; k < 8; k++) begin : g
+    stage u (.clk, .en, .a(a[k]), .q(qs[k]));
+  end
+  // The enable is made from the array's outputs: a loop through the array
+  // as one call, but not through any bit, as the outputs are registers.
+  assign stop = qs[0][0] & qs[7][1];
+  assign en = !stop;
+  assign q = qs;
+endmodule
+"#;
+
+#[test]
+fn arrays_split_where_they_loop() {
+    // An array whose inputs are made from its outputs, where each output
+    // is a register: still called as one, twice, not an instance at a time.
+    let Some(host) = host() else {
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
+        return;
+    };
+    let net = netlist_with(&text("sgtop.sv", SPLIT_ARRAY), "sgtop", host.options(1));
+    assert!(net.steps.calls.iter().any(|c| c.path == "g[*].u"), "{:?}", net.steps.calls.iter().map(|c| &c.path).collect::<Vec<_>>());
+    assert!(net.loops.is_empty(), "{:?}", net.loops);
+    let b = build("sgtop", net, &host);
+    let io = Io::new(&b.net, Some("clk")).unwrap();
+    let mut rng = Rng(0x510E_527F_ADE6_82D1);
+    let cycles = 200;
+    let mut stim = Vec::new();
+    let mut ins = Vec::new();
+    for _ in 0..cycles {
+        let a: Vec<u32> = (0..8).map(|_| rng.next() as u32).collect();
+        stim.extend(&a);
+        ins.push(a);
+    }
+    let out = b.run(&io, cycles, 1, &stim);
+    let mut q = [0u32; 8];
+    let ow = io.out_words();
+    for (c, a) in ins.iter().enumerate() {
+        let stop = q[0] & 1 & (q[7] >> 1);
+        if stop == 0 {
+            for k in 0..8 {
+                q[k] = a[k].wrapping_mul(3).wrapping_add(1);
+            }
+        }
+        let stop = q[0] & 1 & (q[7] >> 1);
+        assert_eq!(&out[c * ow..c * ow + 8], &q[..], "cycle {c}");
+        assert_eq!(out[c * ow + 8], stop, "cycle {c}: stop");
+    }
+}
+
+const CLOCK_TREE: &str = r#"
+module cbuf (input logic a, output logic z);
+  assign z = a;
+endmodule
+
+module creg (input logic clk, input logic [15:0] d, output logic [15:0] q);
+  always_ff @(posedge clk) q <= d;
+endmodule
+
+module ctop (input logic clk, input logic en, input logic [15:0] a, output logic [15:0] q, output logic [15:0] s, output logic odd);
+  logic bclk, gclk;
+  cbuf b (.a(clk), .z(bclk));
+  assign gclk = bclk & en;
+  logic [15:0] q0;
+  creg r0 (.clk(bclk), .d(a ^ 16'h5a5a), .q(q0));
+  creg r1 (.clk(gclk), .d(q0 + a), .q(q));
+  // Settling reads the data, not the clock.
+  assign s = q0 - a;
+  // An output a child with no registers makes from data: settled, not
+  // worked out with the clock tree.
+  cbuf o (.a(q0[0]), .z(odd));
+endmodule
+"#;
+
+#[test]
+fn clock_trees_run_before_clocked_processes() {
+    // A clock through a buffer and a gate: worked out before the clocked
+    // processes, so settling reads no clock and an edge alone needs no
+    // settling.
+    let Some(host) = host() else {
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
+        return;
+    };
+    let src = text("ctop.sv", CLOCK_TREE);
+    let mut opts = host.options(1);
+    opts.profile = Some(epitome_sv::model::TICKS);
+    let net = netlist_with(&src, "ctop", opts);
+    let watched: Vec<&str> = net.watched.iter().map(|w| w.0.as_str()).collect();
+    assert!(!watched.contains(&"clk") && watched.contains(&"a"), "settling reads {:?}", net.watched);
+    let b = build("ctop", net, &host);
+    let io = Io::new(&b.net, Some("clk")).unwrap();
+    let mut rng = Rng(0x9B05_688C_2B3E_6C1F);
+    let cycles = 100;
+    let (mut stim, mut ins) = (Vec::new(), Vec::new());
+    for _ in 0..cycles {
+        let (en, a) = ((rng.next() & 1) as u32, (rng.next() & 0xFFFF) as u32);
+        for p in &io.ins {
+            match p.name.as_str() {
+                "en" => stim.push(en),
+                "a" => stim.push(a),
+                n => panic!("{n}"),
+            }
+        }
+        ins.push((en, a));
+    }
+    let out = b.run(&io, cycles, 1, &stim);
+    let (mut q0, mut q) = (0u32, 0u32);
+    let ow = io.out_words();
+    for (c, &(en, a)) in ins.iter().enumerate() {
+        let d1 = (q0 + a) & 0xFFFF;
+        q0 = a ^ 0x5a5a;
+        if en == 1 {
+            q = d1;
+        }
+        assert_eq!(out[c * ow], q, "cycle {c}: q");
+        assert_eq!(out[c * ow + 1], q0.wrapping_sub(a) & 0xFFFF, "cycle {c}: s");
+        assert_eq!(out[c * ow + 2], q0 & 1, "cycle {c}: odd");
+    }
+    let t = b.time(&io, cycles, 1, &stim, 2);
+    let settle = t.profile.iter().find(|p| p.what == "step settle").unwrap();
+    assert!(settle.calls < 1.5, "settles {} times a cycle besides after commits", settle.calls);
+    // A clock that goes into a child written into its parent, in an array:
+    // still a clock of the array's.
+    let arr = "module cmid (input logic clk, input logic [15:0] d, output logic [15:0] q);\n  creg r (.clk, .d, .q);\nendmodule\nmodule catop (input logic clk, input logic [3:0][15:0] d, output logic [3:0][15:0] q);\n  for (genvar k = 0; k < 4; k++) begin : g\n    cmid m (.clk, .d(d[k]), .q(q[k]));\n  end\nendmodule\n";
+    let net = netlist_with(&text("catop.sv", &format!("{CLOCK_TREE}{arr}")), "catop", host.options(1));
+    assert!(!net.watched.iter().any(|w| w.0 == "clk"), "settling reads {:?}", net.watched);
+}
+
+const HANDSHAKE: &str = r#"
+module pass (input logic valid_i, output logic ready_o, input logic ready_i, output logic valid_o,
+             input logic [7:0] d_i, output logic [7:0] d_o);
+  assign ready_o = ready_i;
+  assign valid_o = valid_i;
+  assign d_o = d_i + 8'd1;
+endmodule
+
+module hs (input logic req, input logic rdy, input logic [7:0] d, output logic valid, output logic [7:0] q);
+  logic v0, ready0;
+  // The sender offers only when the slice is ready: a loop through the
+  // slice as a whole, but not through any port.
+  assign v0 = req & ready0;
+  pass u (.valid_i(v0), .ready_o(ready0), .ready_i(rdy), .valid_o(valid), .d_i(d), .d_o(q));
+endmodule
+"#;
+
+#[test]
+fn small_children_are_written_into_their_parents() {
+    // A child alone of its kind is written into its parent, a port at a
+    // time: a handshake through it is no loop.
+    let Some(host) = host() else {
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
+        return;
+    };
+    let net = netlist_with(&text("hs.sv", HANDSHAKE), "hs", host.options(1));
+    assert!(net.loops.is_empty(), "{:?}", net.loops);
+    assert!(net.steps.calls.iter().all(|c| c.path.is_empty()), "the slice is still called");
+    let b = build("hs", net, &host);
+    let io = Io::new(&b.net, None).unwrap();
+    let mut stim = Vec::new();
+    let mut ins = Vec::new();
+    for c in 0..16u32 {
+        let (req, rdy, d) = (c & 1, (c >> 1) & 1, c * 29 % 256);
+        for p in &io.ins {
+            match p.name.as_str() {
+                "req" => stim.push(req),
+                "rdy" => stim.push(rdy),
+                "d" => stim.push(d),
+                n => panic!("{n}"),
+            }
+        }
+        ins.push((req, rdy, d));
+    }
+    let out = b.run(&io, 16, 1, &stim);
+    let ow = io.out_words();
+    for (c, &(req, rdy, d)) in ins.iter().enumerate() {
+        assert_eq!(out[c * ow], req & rdy, "cycle {c}: valid");
+        assert_eq!(out[c * ow + 1], (d + 1) % 256, "cycle {c}: q");
+    }
+}
+
+const WRAPPED_RAMS: &str = r#"
+module wram (input logic clk, input logic ls, input logic cen, input logic wen, input logic [5:0] addr,
+             input logic [63:0] wdata, output logic [63:0] rdata, input logic spare);
+  logic unused_ls, unused_spare;
+  assign unused_ls = ls;
+  assign unused_spare = spare;
+  logic [63:0] ram [64];
+  for (genvar p = 0; p < 1; p++) begin : g_part
+    always_ff @(posedge clk) begin
+      if (!cen && !wen) ram[addr][((p+1)*64)-1:(p*64)] <= wdata[((p+1)*64)-1:(p*64)];
+      if (!cen && wen) rdata[((p+1)*64)-1:(p*64)] <= ram[addr][((p+1)*64)-1:(p*64)];
+      else rdata[((p+1)*64)-1:(p*64)] <= '0;
+    end
+  end
+endmodule
+
+module wwrap (input logic clk, input logic cen, input logic wen, input logic [5:0] addr,
+              input logic [63:0] wdata, output logic [63:0] rdata);
+  // (The address made, not connected whole: copied to the child.)
+  wram u (.clk, .ls(1'b0), .cen, .wen, .addr({addr[0], addr[5:1]}), .wdata, .rdata, .spare(1'b1));
+endmodule
+
+module wtop (input logic clk, input logic [3:0] cen, input logic wen, input logic [5:0] addr,
+             input logic [63:0] wdata, output logic [3:0][63:0] rdata);
+  for (genvar k = 0; k < 4; k++) begin : g
+    wwrap w (.clk, .cen(cen[k]), .wen, .addr, .wdata(wdata ^ 64'(k)), .rdata(rdata[k]));
+  end
+endmodule
+"#;
+
+#[test]
+fn wrapped_rams() {
+    // Memories behind a wrapper, in an array: unused ports, a registered
+    // read, written and read by the same clocked process.
+    let Some(host) = host() else {
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
+        return;
+    };
+    let b = build("wtop", netlist_with(&text("wtop.sv", WRAPPED_RAMS), "wtop", host.options(1)), &host);
+    let io = Io::new(&b.net, Some("clk")).unwrap();
+    let mut rng = Rng(0x2545_F491_4F6C_DD1D);
+    let cycles = 400;
+    let (mut stim, mut ins) = (Vec::new(), Vec::new());
+    for _ in 0..cycles {
+        let (cen, wen, addr, d) = (rng.next() % 16, rng.next() & 1, rng.next() % 64, rng.next());
+        for p in &io.ins {
+            match p.name.as_str() {
+                "cen" => stim.push(cen as u32),
+                "wen" => stim.push(wen as u32),
+                "addr" => stim.push(addr as u32),
+                "wdata" => stim.extend([d as u32, (d >> 32) as u32]),
+                n => panic!("{n}"),
+            }
+        }
+        ins.push((cen, wen, addr as usize, d));
+    }
+    let out = b.run(&io, cycles, 1, &stim);
+    let mut ram = [[0u64; 64]; 4];
+    let mut q = [0u64; 4];
+    let ow = io.out_words();
+    for (c, &(cen, wen, addr, d)) in ins.iter().enumerate() {
+        let addr = (addr & 1) << 5 | addr >> 1;
+        for k in 0..4 {
+            let on = (cen >> k) & 1 == 0;
+            let old = ram[k][addr];
+            if on && wen == 0 {
+                ram[k][addr] = d ^ k as u64;
+            }
+            q[k] = if on && wen == 1 { old } else { 0 };
+        }
+        let want: Vec<u32> = q.iter().flat_map(|&x| [x as u32, (x >> 32) as u32]).collect();
+        assert_eq!(&out[c * ow..c * ow + 8], &want[..], "cycle {c}");
+    }
+}
+
+
+const TABLE: &str = r#"
+module tbl (input logic [4:0] idx, output logic [69:0] y);
+  localparam logic [19:0][69:0] T = {70'h0a8e1e08c47287358f, 70'h0a3fe68f0af33cb97a, 70'h0b91af155173f23d65, 70'h08e3779b97f4a7c150, 70'h09b54021de755d453b, 70'h084708a824f612c926, 70'h08d8d12e6b76c84d11, 70'h07aa99b4b1f77dd0fc, 70'h067c623af8783354e7, 70'h068e2ac13ef8e8d8d2, 70'h051ff34785799e5cbd, 70'h0471bbcdcbfa53e0a8, 70'h04238454127b096493, 70'h03d54cda58fbbee87e, 70'h034715609f7c746c69, 70'h0238dde6e5fd29f054, 70'h01eaa66d2c7ddf743f, 70'h011c6ef372fe94f82a, 70'h008e3779b97f4a7c15, 70'h000000000000000000};
+  assign y = T[idx];
+endmodule
+"#;
+
+#[test]
+fn constant_tables_by_address() {
+    // An element of a constant selected by a value: a load from a table;
+    // out of range, 0.
+    let Some(host) = host() else {
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
+        return;
+    };
+    let net = netlist_with(&text("tbl.sv", TABLE), "tbl", host.options(1));
+    assert!(net.ir().contains("sv_table_"), "no table");
+    let b = build("tbl", net, &host);
+    let io = Io::new(&b.net, None).unwrap();
+    let vals: [u128; 20] = [0x0, 0x8e3779b97f4a7c15, 0x11c6ef372fe94f82a, 0x1eaa66d2c7ddf743f, 0x238dde6e5fd29f054, 0x34715609f7c746c69, 0x3d54cda58fbbee87e, 0x4238454127b096493, 0x471bbcdcbfa53e0a8, 0x51ff34785799e5cbd, 0x68e2ac13ef8e8d8d2, 0x67c623af8783354e7, 0x7aa99b4b1f77dd0fc, 0x8d8d12e6b76c84d11, 0x84708a824f612c926, 0x9b54021de755d453b, 0x8e3779b97f4a7c150, 0xb91af155173f23d65, 0xa3fe68f0af33cb97a, 0xa8e1e08c47287358f];
+    let stim: Vec<u32> = (0..32).collect();
+    let out = b.run(&io, 32, 1, &stim);
+    let ow = io.out_words();
+    for i in 0..32usize {
+        let want = if i < 20 { vals[i] } else { 0 };
+        let got = out[i * ow] as u128 | (out[i * ow + 1] as u128) << 32 | (out[i * ow + 2] as u128) << 64;
+        assert_eq!(got, want, "T[{i}]");
     }
 }

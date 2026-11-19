@@ -151,6 +151,45 @@ impl Ctx<'_> {
         })
     }
 
+    /// Is there a pattern, of instructions that are on, for the high halves
+    /// of products of vector `ty`'s lanes, `trunc (lshr (mul (ext a), (ext
+    /// b)), N)` at twice their width `N` (x86's `pmulhuw`, `pmulhw`)?
+    pub fn selects_mul_high(&self, ty: TypeId, signed: bool) -> bool {
+        let hb = crate::target::head_bits(self.m, ty);
+        let ext = if signed { CastOp::SExt } else { CastOp::ZExt };
+        let is_ext = |t: &Tree| matches!(t, Tree::Op(Head::Cast(op, from, _), _) if *op == ext && *from == hb);
+        self.t.patterns.iter().any(|p| {
+            matches!(&p.tree, Tree::Op(Head::Cast(CastOp::Trunc, _, to), kids)
+                if *to == crate::target::wide_bits(hb)
+                    && matches!(kids.as_slice(), [Tree::Op(Head::Bin(BinOp::LShr, _), sh)]
+                        if matches!(sh.as_slice(), [Tree::Op(Head::Bin(BinOp::Mul, _), m), Tree::Lit(..)]
+                            if m.len() == 2 && m.iter().all(is_ext))))
+                && p.emit.iter().all(|e| self.enabled(e.instr))
+        })
+    }
+
+    /// Is there a pattern, of instructions that are on, with an IR node
+    /// `head`, not counting those it is the root of only over what other
+    /// operations made (`pmulhuw`'s `trunc` of a product's high half,
+    /// which takes no `trunc` of any value)?
+    pub fn selects_head_unfused(&self, head: &Head) -> bool {
+        fn inner(t: &Tree, head: &Head) -> bool {
+            match t {
+                Tree::Op(h, kids) => h == head || kids.iter().any(|k| inner(k, head)),
+                _ => false,
+            }
+        }
+        self.t.patterns.iter().any(|p| {
+            let Tree::Op(h, kids) = &p.tree else { return false };
+            let here = if h == head {
+                kids.iter().all(|k| !matches!(k, Tree::Op(..)))
+            } else {
+                false
+            };
+            (here || kids.iter().any(|k| inner(k, head))) && p.emit.iter().all(|e| self.enabled(e.instr))
+        })
+    }
+
     /// Is there an instruction for intrinsic `name` (`llvm.ctlz.i64`)?
     pub fn selects_intrinsic(&self, name: &str) -> bool {
         match self.t.intrinsics.iter().position(|n| n == name) {
@@ -5448,6 +5487,45 @@ fn expand_intrinsics(cx: &mut Ctx, f: &mut Function) {
                     continue;
                 }
             }
+            // Where the description counts only nonzero inputs (x86's bsf
+            // for cttz, and bsr, the highest set bit's number, of which
+            // ctlz is xor w - 1): the count of a nonzero input, and for
+            // zero, where it is not poison, the width.
+            let highbit = format!("llvm.epitome.highbit.i{bits}");
+            let nonzero_form = scalar
+                && args.len() == 2
+                && !cx.selects_intrinsic_with(&name, 0)
+                && (base == "llvm.cttz" && cx.selects_intrinsic_with(&name, -1)
+                    || base == "llvm.ctlz" && cx.selects_intrinsic(&highbit));
+            if nonzero_form {
+                let zero_poison = cx.const_int(args[1]).is_some_and(|v| v != 0);
+                if base == "llvm.cttz" && zero_poison {
+                    k += 1;
+                    continue;
+                }
+                let count = if base == "llvm.cttz" {
+                    let yes = cx.int(i1, 1);
+                    call_intrinsic(cx, &mut s, &name, vec![args[0], yes], ty)
+                } else {
+                    let top = cx.int(ty, i64::from(bits) - 1);
+                    let bit = call_intrinsic(cx, &mut s, &highbit, vec![args[0]], ty);
+                    s.bin(BinOp::Xor, bit, top, ty)
+                };
+                let v = if zero_poison {
+                    count
+                } else {
+                    let zero = cx.int(ty, 0);
+                    let is_zero = s.op(Op::ICmp { pred: ICmpPred::Eq, samesign: false, lhs: args[0], rhs: zero }, i1);
+                    let width = cx.int(ty, i64::from(bits));
+                    s.op(Op::Select { fmf: FastMath::default(), cond: is_zero, then_value: width, else_value: count }, ty)
+                };
+                let new = std::mem::take(&mut s.new);
+                f.replace_uses(Value::Local(r), v);
+                let n = new.len();
+                f.blocks[b.index()].insts.splice(k..=k, new);
+                k += n;
+                continue;
+            }
             // ctlz and cttz may say a zero input gives poison; giving the
             // full width instead is always allowed, and is what clz does.
             if (base == "llvm.ctlz" || base == "llvm.cttz") && args.len() == 2 {
@@ -6107,6 +6185,48 @@ fn offset_ptr(cx: &mut Ctx, s: &mut Seq, p: Value, off: u64, i8t: TypeId, i64t: 
     }
 }
 
+/// Whether selection makes the bits of mask `m` as an integer `to` in one
+/// instruction: a mask of bytes filling a register (16 lanes of 128 bits,
+/// 32 of 256), where the description has its bitcast (x86's `pmovmskb`).
+pub(crate) fn mask_bits_selected(cx: &Ctx, f: &Function, m: Value, to: TypeId) -> bool {
+    let from = cx.value_ty(f, m);
+    let Type::Vector { len, elem, scalable: false } = *cx.m.types.get(from) else { return false };
+    matches!(cx.m.types.get(elem), Type::Int(1))
+        && matches!(cx.m.types.get(to), Type::Int(w) if *w == len)
+        && (len == 16 || len == 32)
+        && len * 8 <= cx.vector_bits()
+        && byte_mask(cx, f, m, 0)
+        && cx.selects_head(|h| {
+            *h == Head::Cast(
+                CastOp::BitCast,
+                crate::target::head_bits(cx.m, from),
+                crate::target::wide_bits(crate::target::head_bits(cx.m, to)),
+            )
+        })
+}
+
+/// Whether mask `v` is made only of comparisons of bytes (through `and`,
+/// `or`, `xor` and `freeze`, with constants): one whose lanes are bytes
+/// whatever legalisation does, as one combined with a split comparison's
+/// is not.
+fn byte_mask(cx: &Ctx, f: &Function, v: Value, depth: u32) -> bool {
+    let Value::Local(x) = v else { return true };
+    let LocalDef::Inst(d) = f.locals[x.index()].def else { return false };
+    if depth > 16 {
+        return false;
+    }
+    match &f.insts[d.index()].op {
+        Op::ICmp { lhs, .. } => {
+            matches!(cx.m.types.get(cx.value_ty(f, *lhs)), Type::Vector { elem, .. } if matches!(cx.m.types.get(*elem), Type::Int(8)))
+        }
+        Op::Binary { op: BinOp::And | BinOp::Or | BinOp::Xor, lhs, rhs, .. } => {
+            byte_mask(cx, f, *lhs, depth + 1) && byte_mask(cx, f, *rhs, depth + 1)
+        }
+        Op::Freeze(x) => byte_mask(cx, f, *x, depth + 1),
+        _ => false,
+    }
+}
+
 /// Bit casts between a vector of booleans and an integer of as many bits
 /// (`bitcast <16 x i1> %m to i16`, a vector comparison's lanes as a mask),
 /// lane by lane: the lanes extended to bytes, each extracted, extended and
@@ -6154,6 +6274,10 @@ pub(crate) fn bool_vector_casts(cx: &mut Ctx, f: &mut Function) {
                 Type::Int(w) if *w <= 64 => Some(*w),
                 _ => None,
             };
+            if mask_bits_selected(cx, f, value, to) {
+                k += 1;
+                continue;
+            }
             let mut s = Seq { f, new: Vec::new() };
             let out = match (lanes_of(cx, from), bits_of(cx, to), bits_of(cx, from), lanes_of(cx, to)) {
                 (Some(n), Some(w), _, _)

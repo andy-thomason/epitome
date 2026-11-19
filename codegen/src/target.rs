@@ -489,6 +489,22 @@ pub struct Pattern {
     /// tree another IR instruction in the block must match, with the
     /// parameters shared, and the operand of `emit[0]` that receives it.
     pub extra: Vec<(Tree, usize)>,
+    /// The alignment, in bytes, its body's loads say they have (`load
+    /// <8 x i16>, ptr %a, align 16`), which the loads it covers must have:
+    /// legacy SSE's memory operands must be 16-aligned. 0 for none.
+    pub align: u64,
+}
+
+/// The greatest alignment a body's plain loads say they have, in bytes.
+/// (An atomic one's is its width's, which IR's atomics have.)
+fn body_align(f: &Function) -> u64 {
+    f.insts_in_order()
+        .filter_map(|i| match &f.insts[i.index()].op {
+            Op::Load { align: Some(a), atomic: None, .. } => Some(a.bytes()),
+            _ => None,
+        })
+        .max()
+        .unwrap_or(0)
 }
 
 pub struct Target {
@@ -525,6 +541,9 @@ pub struct Fold {
     /// Its operands: the register form's (by index), or the address's
     /// base or offset.
     pub ops: Vec<FoldOp>,
+    /// The alignment its load says the address has, in bytes (legacy
+    /// SSE's 16), which the slot read must have.
+    pub align: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1232,7 +1251,11 @@ impl Target {
                         }
                     })
                     .collect();
-                out.entry(rk).or_default().push(Fold { operand: j, mem: mk, ops });
+                let align = match &f.insts[load.index()].op {
+                    Op::Load { align: Some(a), .. } => a.bytes(),
+                    _ => 0,
+                };
+                out.entry(rk).or_default().push(Fold { operand: j, mem: mk, ops, align });
             }
         }
         out
@@ -1880,7 +1903,8 @@ impl Target {
                             }
                         }
                     }
-                    out.push(Pattern { name: ins.name.clone(), tree, params, emit, nodes: 0, wild: vec![], extra });
+                    let align = body_align(f);
+                    out.push(Pattern { name: ins.name.clone(), tree, params, emit, nodes: 0, wild: vec![], extra, align });
                 }
                 Some(cp) => {
                     // Each condition form, on the flags of each comparison
@@ -1925,6 +1949,7 @@ impl Target {
                                 nodes: 0,
                                 wild: vec![],
                                 extra: vec![],
+                                align: 0,
                             });
                         }
                     }
@@ -1961,6 +1986,7 @@ impl Target {
                 nodes: 0,
                 wild: vec![],
                 extra: vec![],
+                align: body_align(f),
             });
         }
 

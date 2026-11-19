@@ -435,6 +435,35 @@ define void @STI8i(i8 "imm" %imm, ptr "reg"="r64" %n, i64 "imm" %off) "enc"="rex
   ret void
 }
 
+; Bit scans: the number of the lowest set bit (bsf, trailing zeros) or the
+; highest (bsr: `llvm.epitome.highbit`, ctlz xor 31 or 63), of a nonzero
+; value; for zero the result is undefined (preparation selects the width
+; there where it must).
+define i32 @BSF32(i32 "reg"="r32" %n) "enc"="rex(0, d, 0, n) | 00001111 | 10111100 | rr(d, n)" "asm"="bsfl {n}, {d}" "clobbers"="flags" "nodecode" {
+  %r = call i32 @llvm.cttz.i32(i32 %n, i1 true)
+  ret i32 %r
+}
+
+define i64 @BSF64(i64 "reg"="r64" %n) "enc"="rex(1, d, 0, n) | 00001111 | 10111100 | rr(d, n)" "asm"="bsfq {n}, {d}" "clobbers"="flags" "nodecode" {
+  %r = call i64 @llvm.cttz.i64(i64 %n, i1 true)
+  ret i64 %r
+}
+
+define i32 @BSR32(i32 "reg"="r32" %n) "enc"="rex(0, d, 0, n) | 00001111 | 10111101 | rr(d, n)" "asm"="bsrl {n}, {d}" "clobbers"="flags" "nodecode" {
+  %r = call i32 @llvm.epitome.highbit.i32(i32 %n)
+  ret i32 %r
+}
+
+define i64 @BSR64(i64 "reg"="r64" %n) "enc"="rex(1, d, 0, n) | 00001111 | 10111101 | rr(d, n)" "asm"="bsrq {n}, {d}" "clobbers"="flags" "nodecode" {
+  %r = call i64 @llvm.epitome.highbit.i64(i64 %n)
+  ret i64 %r
+}
+
+declare i32 @llvm.epitome.highbit.i32(i32)
+declare i64 @llvm.epitome.highbit.i64(i64)
+declare i32 @llvm.cttz.i32(i32, i1)
+declare i64 @llvm.cttz.i64(i64, i1)
+
 define void @STP(ptr "reg"="r64" %t, ptr "reg"="r64" %n, i64 "imm" %off) "enc"="rex(1, t, 4, n) | 10001001 | rm(t, n, 4, 1, off, 0, 1)" "asm"="movq {t}, {off}({n})" "nodecode" {
   %a = getelementptr i8, ptr %n, i64 %off
   store ptr %t, ptr %a
@@ -2783,7 +2812,21 @@ define <16 x i8> @PADDB.16xi8(<16 x i8> "reg"="xv" "tied" %n, <16 x i8> "reg"="x
   ret <16 x i8> %r
 }
 
+define <16 x i8> @PADDB.16xi8m(<16 x i8> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="01100110 | rex(0, d, 4, mp) | 00001111 | 11111100 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="paddb {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <16 x i8>, ptr %ma, align 16
+  %r = add <16 x i8> %n, %m
+  ret <16 x i8> %r
+}
+
 define <16 x i8> @PSUBB.16xi8(<16 x i8> "reg"="xv" "tied" %n, <16 x i8> "reg"="xv" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 11111000 | rr(d, m)" "asm"="psubb {m}, {d}" "dclass"="xv" "nodecode" {
+  %r = sub <16 x i8> %n, %m
+  ret <16 x i8> %r
+}
+
+define <16 x i8> @PSUBB.16xi8m(<16 x i8> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="01100110 | rex(0, d, 4, mp) | 00001111 | 11111000 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="psubb {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <16 x i8>, ptr %ma, align 16
   %r = sub <16 x i8> %n, %m
   ret <16 x i8> %r
 }
@@ -2793,7 +2836,21 @@ define <16 x i8> @PAND.16xi8(<16 x i8> "reg"="xv" "tied" %n, <16 x i8> "reg"="xv
   ret <16 x i8> %r
 }
 
+define <16 x i8> @PAND.16xi8m(<16 x i8> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="01100110 | rex(0, d, 4, mp) | 00001111 | 11011011 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="pand {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <16 x i8>, ptr %ma, align 16
+  %r = and <16 x i8> %n, %m
+  ret <16 x i8> %r
+}
+
 define <16 x i8> @POR.16xi8(<16 x i8> "reg"="xv" "tied" %n, <16 x i8> "reg"="xv" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 11101011 | rr(d, m)" "asm"="por {m}, {d}" "dclass"="xv" "nodecode" {
+  %r = or <16 x i8> %n, %m
+  ret <16 x i8> %r
+}
+
+define <16 x i8> @POR.16xi8m(<16 x i8> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="01100110 | rex(0, d, 4, mp) | 00001111 | 11101011 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="por {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <16 x i8>, ptr %ma, align 16
   %r = or <16 x i8> %n, %m
   ret <16 x i8> %r
 }
@@ -2803,7 +2860,21 @@ define <16 x i8> @PXOR.16xi8(<16 x i8> "reg"="xv" "tied" %n, <16 x i8> "reg"="xv
   ret <16 x i8> %r
 }
 
+define <16 x i8> @PXOR.16xi8m(<16 x i8> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="01100110 | rex(0, d, 4, mp) | 00001111 | 11101111 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="pxor {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <16 x i8>, ptr %ma, align 16
+  %r = xor <16 x i8> %n, %m
+  ret <16 x i8> %r
+}
+
 define <16 x i1> @PCMPEQB.16xi8(<16 x i8> "reg"="xv" "tied" %n, <16 x i8> "reg"="xv" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 01110100 | rr(d, m)" "asm"="pcmpeqb {m}, {d}" "dclass"="xv" "nodecode" {
+  %r = icmp eq <16 x i8> %n, %m
+  ret <16 x i1> %r
+}
+
+define <16 x i1> @PCMPEQB.16xi8m(<16 x i8> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="01100110 | rex(0, d, 4, mp) | 00001111 | 01110100 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="pcmpeqb {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <16 x i8>, ptr %ma, align 16
   %r = icmp eq <16 x i8> %n, %m
   ret <16 x i1> %r
 }
@@ -2813,7 +2884,21 @@ define <16 x i1> @PCMPGTB.16xi8(<16 x i8> "reg"="xv" "tied" %n, <16 x i8> "reg"=
   ret <16 x i1> %r
 }
 
+define <16 x i1> @PCMPGTB.16xi8m(<16 x i8> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="01100110 | rex(0, d, 4, mp) | 00001111 | 01100100 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="pcmpgtb {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <16 x i8>, ptr %ma, align 16
+  %r = icmp sgt <16 x i8> %n, %m
+  ret <16 x i1> %r
+}
+
 define <8 x i16> @PADDW.8xi16(<8 x i16> "reg"="xv" "tied" %n, <8 x i16> "reg"="xv" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 11111101 | rr(d, m)" "asm"="paddw {m}, {d}" "dclass"="xv" "nodecode" {
+  %r = add <8 x i16> %n, %m
+  ret <8 x i16> %r
+}
+
+define <8 x i16> @PADDW.8xi16m(<8 x i16> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="01100110 | rex(0, d, 4, mp) | 00001111 | 11111101 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="paddw {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <8 x i16>, ptr %ma, align 16
   %r = add <8 x i16> %n, %m
   ret <8 x i16> %r
 }
@@ -2823,10 +2908,24 @@ define <8 x i16> @PSUBW.8xi16(<8 x i16> "reg"="xv" "tied" %n, <8 x i16> "reg"="x
   ret <8 x i16> %r
 }
 
+define <8 x i16> @PSUBW.8xi16m(<8 x i16> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="01100110 | rex(0, d, 4, mp) | 00001111 | 11111001 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="psubw {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <8 x i16>, ptr %ma, align 16
+  %r = sub <8 x i16> %n, %m
+  ret <8 x i16> %r
+}
+
 define <8 x i16> @PMULLW.8xi16(<8 x i16> "reg"="xv" "tied" %n, <8 x i16> "reg"="xv" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 11010101 | rr(d, m)" "asm"="pmullw {m}, {d}" "dclass"="xv" "nodecode" {
   %r = mul <8 x i16> %n, %m
   ret <8 x i16> %r
 }
+define <8 x i16> @PMULLW.8xi16m(<8 x i16> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="01100110 | rex(0, d, 4, mp) | 00001111 | 11010101 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="pmullw {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <8 x i16>, ptr %ma, align 16
+  %r = mul <8 x i16> %n, %m
+  ret <8 x i16> %r
+}
+
 define <4 x i32> @PMULLD.4xi32(<4 x i32> "reg"="xv" "tied" %n, <4 x i32> "reg"="xv" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 00111000 | 01000000 | rr(d, m)" "asm"="pmulld {m}, {d}" "dclass"="xv" "feature"="sse4.1" "nodecode" {
   %r = mul <4 x i32> %n, %m
   ret <4 x i32> %r
@@ -2837,13 +2936,74 @@ define <8 x i16> @PAND.8xi16(<8 x i16> "reg"="xv" "tied" %n, <8 x i16> "reg"="xv
   ret <8 x i16> %r
 }
 
+define <8 x i16> @PAND.8xi16m(<8 x i16> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="01100110 | rex(0, d, 4, mp) | 00001111 | 11011011 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="pand {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <8 x i16>, ptr %ma, align 16
+  %r = and <8 x i16> %n, %m
+  ret <8 x i16> %r
+}
+
 define <8 x i16> @POR.8xi16(<8 x i16> "reg"="xv" "tied" %n, <8 x i16> "reg"="xv" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 11101011 | rr(d, m)" "asm"="por {m}, {d}" "dclass"="xv" "nodecode" {
+  %r = or <8 x i16> %n, %m
+  ret <8 x i16> %r
+}
+
+define <8 x i16> @POR.8xi16m(<8 x i16> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="01100110 | rex(0, d, 4, mp) | 00001111 | 11101011 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="por {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <8 x i16>, ptr %ma, align 16
   %r = or <8 x i16> %n, %m
   ret <8 x i16> %r
 }
 
 define <8 x i16> @PXOR.8xi16(<8 x i16> "reg"="xv" "tied" %n, <8 x i16> "reg"="xv" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 11101111 | rr(d, m)" "asm"="pxor {m}, {d}" "dclass"="xv" "nodecode" {
   %r = xor <8 x i16> %n, %m
+  ret <8 x i16> %r
+}
+
+define <8 x i16> @PXOR.8xi16m(<8 x i16> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="01100110 | rex(0, d, 4, mp) | 00001111 | 11101111 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="pxor {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <8 x i16>, ptr %ma, align 16
+  %r = xor <8 x i16> %n, %m
+  ret <8 x i16> %r
+}
+
+define <8 x i16> @PMULHUW.8xi16(<8 x i16> "reg"="xv" "tied" %n, <8 x i16> "reg"="xv" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 11100100 | rr(d, m)" "asm"="pmulhuw {m}, {d}" "dclass"="xv" "nodecode" {
+  %a = zext <8 x i16> %n to <8 x i32>
+  %b = zext <8 x i16> %m to <8 x i32>
+  %p = mul <8 x i32> %a, %b
+  %h = lshr <8 x i32> %p, splat (i32 16)
+  %r = trunc <8 x i32> %h to <8 x i16>
+  ret <8 x i16> %r
+}
+
+define <8 x i16> @PMULHUW.8xi16m(<8 x i16> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="01100110 | rex(0, d, 4, mp) | 00001111 | 11100100 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="pmulhuw {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <8 x i16>, ptr %ma, align 16
+  %a = zext <8 x i16> %n to <8 x i32>
+  %b = zext <8 x i16> %m to <8 x i32>
+  %p = mul <8 x i32> %a, %b
+  %h = lshr <8 x i32> %p, splat (i32 16)
+  %r = trunc <8 x i32> %h to <8 x i16>
+  ret <8 x i16> %r
+}
+
+define <8 x i16> @PMULHW.8xi16(<8 x i16> "reg"="xv" "tied" %n, <8 x i16> "reg"="xv" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 11100101 | rr(d, m)" "asm"="pmulhw {m}, {d}" "dclass"="xv" "nodecode" {
+  %a = sext <8 x i16> %n to <8 x i32>
+  %b = sext <8 x i16> %m to <8 x i32>
+  %p = mul <8 x i32> %a, %b
+  %h = lshr <8 x i32> %p, splat (i32 16)
+  %r = trunc <8 x i32> %h to <8 x i16>
+  ret <8 x i16> %r
+}
+
+define <8 x i16> @PMULHW.8xi16m(<8 x i16> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="01100110 | rex(0, d, 4, mp) | 00001111 | 11100101 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="pmulhw {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <8 x i16>, ptr %ma, align 16
+  %a = sext <8 x i16> %n to <8 x i32>
+  %b = sext <8 x i16> %m to <8 x i32>
+  %p = mul <8 x i32> %a, %b
+  %h = lshr <8 x i32> %p, splat (i32 16)
+  %r = trunc <8 x i32> %h to <8 x i16>
   ret <8 x i16> %r
 }
 
@@ -2867,7 +3027,21 @@ define <8 x i1> @PCMPEQW.8xi16(<8 x i16> "reg"="xv" "tied" %n, <8 x i16> "reg"="
   ret <8 x i1> %r
 }
 
+define <8 x i1> @PCMPEQW.8xi16m(<8 x i16> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="01100110 | rex(0, d, 4, mp) | 00001111 | 01110101 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="pcmpeqw {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <8 x i16>, ptr %ma, align 16
+  %r = icmp eq <8 x i16> %n, %m
+  ret <8 x i1> %r
+}
+
 define <8 x i1> @PCMPGTW.8xi16(<8 x i16> "reg"="xv" "tied" %n, <8 x i16> "reg"="xv" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 01100101 | rr(d, m)" "asm"="pcmpgtw {m}, {d}" "dclass"="xv" "nodecode" {
+  %r = icmp sgt <8 x i16> %n, %m
+  ret <8 x i1> %r
+}
+
+define <8 x i1> @PCMPGTW.8xi16m(<8 x i16> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="01100110 | rex(0, d, 4, mp) | 00001111 | 01100101 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="pcmpgtw {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <8 x i16>, ptr %ma, align 16
   %r = icmp sgt <8 x i16> %n, %m
   ret <8 x i1> %r
 }
@@ -2882,7 +3056,21 @@ define <4 x i32> @PADDD.4xi32(<4 x i32> "reg"="xv" "tied" %n, <4 x i32> "reg"="x
   ret <4 x i32> %r
 }
 
+define <4 x i32> @PADDD.4xi32m(<4 x i32> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="01100110 | rex(0, d, 4, mp) | 00001111 | 11111110 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="paddd {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <4 x i32>, ptr %ma, align 16
+  %r = add <4 x i32> %n, %m
+  ret <4 x i32> %r
+}
+
 define <4 x i32> @PSUBD.4xi32(<4 x i32> "reg"="xv" "tied" %n, <4 x i32> "reg"="xv" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 11111010 | rr(d, m)" "asm"="psubd {m}, {d}" "dclass"="xv" "nodecode" {
+  %r = sub <4 x i32> %n, %m
+  ret <4 x i32> %r
+}
+
+define <4 x i32> @PSUBD.4xi32m(<4 x i32> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="01100110 | rex(0, d, 4, mp) | 00001111 | 11111010 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="psubd {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <4 x i32>, ptr %ma, align 16
   %r = sub <4 x i32> %n, %m
   ret <4 x i32> %r
 }
@@ -2892,12 +3080,33 @@ define <4 x i32> @PAND.4xi32(<4 x i32> "reg"="xv" "tied" %n, <4 x i32> "reg"="xv
   ret <4 x i32> %r
 }
 
+define <4 x i32> @PAND.4xi32m(<4 x i32> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="01100110 | rex(0, d, 4, mp) | 00001111 | 11011011 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="pand {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <4 x i32>, ptr %ma, align 16
+  %r = and <4 x i32> %n, %m
+  ret <4 x i32> %r
+}
+
 define <4 x i32> @POR.4xi32(<4 x i32> "reg"="xv" "tied" %n, <4 x i32> "reg"="xv" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 11101011 | rr(d, m)" "asm"="por {m}, {d}" "dclass"="xv" "nodecode" {
   %r = or <4 x i32> %n, %m
   ret <4 x i32> %r
 }
 
+define <4 x i32> @POR.4xi32m(<4 x i32> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="01100110 | rex(0, d, 4, mp) | 00001111 | 11101011 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="por {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <4 x i32>, ptr %ma, align 16
+  %r = or <4 x i32> %n, %m
+  ret <4 x i32> %r
+}
+
 define <4 x i32> @PXOR.4xi32(<4 x i32> "reg"="xv" "tied" %n, <4 x i32> "reg"="xv" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 11101111 | rr(d, m)" "asm"="pxor {m}, {d}" "dclass"="xv" "nodecode" {
+  %r = xor <4 x i32> %n, %m
+  ret <4 x i32> %r
+}
+
+define <4 x i32> @PXOR.4xi32m(<4 x i32> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="01100110 | rex(0, d, 4, mp) | 00001111 | 11101111 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="pxor {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <4 x i32>, ptr %ma, align 16
   %r = xor <4 x i32> %n, %m
   ret <4 x i32> %r
 }
@@ -2922,7 +3131,21 @@ define <4 x i1> @PCMPEQD.4xi32(<4 x i32> "reg"="xv" "tied" %n, <4 x i32> "reg"="
   ret <4 x i1> %r
 }
 
+define <4 x i1> @PCMPEQD.4xi32m(<4 x i32> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="01100110 | rex(0, d, 4, mp) | 00001111 | 01110110 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="pcmpeqd {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <4 x i32>, ptr %ma, align 16
+  %r = icmp eq <4 x i32> %n, %m
+  ret <4 x i1> %r
+}
+
 define <4 x i1> @PCMPGTD.4xi32(<4 x i32> "reg"="xv" "tied" %n, <4 x i32> "reg"="xv" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 01100110 | rr(d, m)" "asm"="pcmpgtd {m}, {d}" "dclass"="xv" "nodecode" {
+  %r = icmp sgt <4 x i32> %n, %m
+  ret <4 x i1> %r
+}
+
+define <4 x i1> @PCMPGTD.4xi32m(<4 x i32> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="01100110 | rex(0, d, 4, mp) | 00001111 | 01100110 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="pcmpgtd {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <4 x i32>, ptr %ma, align 16
   %r = icmp sgt <4 x i32> %n, %m
   ret <4 x i1> %r
 }
@@ -2937,7 +3160,21 @@ define <2 x i64> @PADDQ.2xi64(<2 x i64> "reg"="xv" "tied" %n, <2 x i64> "reg"="x
   ret <2 x i64> %r
 }
 
+define <2 x i64> @PADDQ.2xi64m(<2 x i64> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="01100110 | rex(0, d, 4, mp) | 00001111 | 11010100 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="paddq {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <2 x i64>, ptr %ma, align 16
+  %r = add <2 x i64> %n, %m
+  ret <2 x i64> %r
+}
+
 define <2 x i64> @PSUBQ.2xi64(<2 x i64> "reg"="xv" "tied" %n, <2 x i64> "reg"="xv" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 11111011 | rr(d, m)" "asm"="psubq {m}, {d}" "dclass"="xv" "nodecode" {
+  %r = sub <2 x i64> %n, %m
+  ret <2 x i64> %r
+}
+
+define <2 x i64> @PSUBQ.2xi64m(<2 x i64> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="01100110 | rex(0, d, 4, mp) | 00001111 | 11111011 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="psubq {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <2 x i64>, ptr %ma, align 16
   %r = sub <2 x i64> %n, %m
   ret <2 x i64> %r
 }
@@ -2947,12 +3184,33 @@ define <2 x i64> @PAND.2xi64(<2 x i64> "reg"="xv" "tied" %n, <2 x i64> "reg"="xv
   ret <2 x i64> %r
 }
 
+define <2 x i64> @PAND.2xi64m(<2 x i64> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="01100110 | rex(0, d, 4, mp) | 00001111 | 11011011 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="pand {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <2 x i64>, ptr %ma, align 16
+  %r = and <2 x i64> %n, %m
+  ret <2 x i64> %r
+}
+
 define <2 x i64> @POR.2xi64(<2 x i64> "reg"="xv" "tied" %n, <2 x i64> "reg"="xv" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 11101011 | rr(d, m)" "asm"="por {m}, {d}" "dclass"="xv" "nodecode" {
   %r = or <2 x i64> %n, %m
   ret <2 x i64> %r
 }
 
+define <2 x i64> @POR.2xi64m(<2 x i64> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="01100110 | rex(0, d, 4, mp) | 00001111 | 11101011 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="por {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <2 x i64>, ptr %ma, align 16
+  %r = or <2 x i64> %n, %m
+  ret <2 x i64> %r
+}
+
 define <2 x i64> @PXOR.2xi64(<2 x i64> "reg"="xv" "tied" %n, <2 x i64> "reg"="xv" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 11101111 | rr(d, m)" "asm"="pxor {m}, {d}" "dclass"="xv" "nodecode" {
+  %r = xor <2 x i64> %n, %m
+  ret <2 x i64> %r
+}
+
+define <2 x i64> @PXOR.2xi64m(<2 x i64> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="01100110 | rex(0, d, 4, mp) | 00001111 | 11101111 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="pxor {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <2 x i64>, ptr %ma, align 16
   %r = xor <2 x i64> %n, %m
   ret <2 x i64> %r
 }
@@ -3034,6 +3292,24 @@ define <4 x i16> @POR.4xi16(<4 x i16> "reg"="xh" "tied" %n, <4 x i16> "reg"="xh"
 
 define <4 x i16> @PXOR.4xi16(<4 x i16> "reg"="xh" "tied" %n, <4 x i16> "reg"="xh" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 11101111 | rr(d, m)" "asm"="pxor {m}, {d}" "dclass"="xh" "nodecode" {
   %r = xor <4 x i16> %n, %m
+  ret <4 x i16> %r
+}
+
+define <4 x i16> @PMULHUW.4xi16(<4 x i16> "reg"="xh" "tied" %n, <4 x i16> "reg"="xh" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 11100100 | rr(d, m)" "asm"="pmulhuw {m}, {d}" "dclass"="xh" "nodecode" {
+  %a = zext <4 x i16> %n to <4 x i32>
+  %b = zext <4 x i16> %m to <4 x i32>
+  %p = mul <4 x i32> %a, %b
+  %h = lshr <4 x i32> %p, splat (i32 16)
+  %r = trunc <4 x i32> %h to <4 x i16>
+  ret <4 x i16> %r
+}
+
+define <4 x i16> @PMULHW.4xi16(<4 x i16> "reg"="xh" "tied" %n, <4 x i16> "reg"="xh" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 11100101 | rr(d, m)" "asm"="pmulhw {m}, {d}" "dclass"="xh" "nodecode" {
+  %a = sext <4 x i16> %n to <4 x i32>
+  %b = sext <4 x i16> %m to <4 x i32>
+  %p = mul <4 x i32> %a, %b
+  %h = lshr <4 x i32> %p, splat (i32 16)
+  %r = trunc <4 x i32> %h to <4 x i16>
   ret <4 x i16> %r
 }
 
@@ -3137,6 +3413,13 @@ define <16 x i1> @PXOR.m16(<16 x i1> "reg"="xv" "tied" %n, <16 x i1> "reg"="xv" 
   ret <16 x i1> %r
 }
 
+; A mask's bits as an integer: its lanes' top bits. A mask of 16 lanes in
+; an xmm register, or 32 in a ymm one, is of bytes (no lane is narrower).
+define i16 @PMOVMSKB.m16(<16 x i1> "reg"="xv" %n) "enc"="01100110 | rex(0, d, 0, n) | 00001111 | 11010111 | 11 reg:3=d&7 rm:3=n&7" "asm"="pmovmskb {n}, {d}" "dclass"="r32" "zext"="16" "feature"="sse2" "nodecode" {
+  %r = bitcast <16 x i1> %n to i16
+  ret i16 %r
+}
+
 define <8 x i1> @PAND.m8(<8 x i1> "reg"="xv" "tied" %n, <8 x i1> "reg"="xv" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 11011011 | rr(d, m)" "asm"="pand {m}, {d}" "dclass"="xv" "nodecode" {
   %r = and <8 x i1> %n, %m
   ret <8 x i1> %r
@@ -3188,6 +3471,14 @@ define <2 x i64> @PANDN.xv(<2 x i64> "reg"="xv" "tied" %n, <2 x i64> "reg"="xv" 
   ret <2 x i64> %r
 }
 
+define <2 x i64> @PANDN.xvm(<2 x i64> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="01100110 | rex(0, d, 4, mp) | 00001111 | 11011111 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="pandn {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <2 x i64>, ptr %ma, align 16
+  %x = xor <2 x i64> %n, splat (i64 -1)
+  %r = and <2 x i64> %x, %m
+  ret <2 x i64> %r
+}
+
 define <2 x i32> @PANDN.xh(<2 x i32> "reg"="xh" "tied" %n, <2 x i32> "reg"="xh" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 11011111 | rr(d, m)" "asm"="pandn {m}, {d}" "dclass"="xh" "nodecode" {
   %x = xor <2 x i32> %n, splat (i32 -1)
   %r = and <2 x i32> %x, %m
@@ -3199,7 +3490,21 @@ define <4 x float> @FADDPS.4xf32(<4 x float> "reg"="xv" "tied" %n, <4 x float> "
   ret <4 x float> %r
 }
 
+define <4 x float> @FADDPS.4xf32m(<4 x float> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="rex(0, d, 4, mp) | 00001111 | 01011000 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="addps {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <4 x float>, ptr %ma, align 16
+  %r = fadd <4 x float> %n, %m
+  ret <4 x float> %r
+}
+
 define <4 x float> @FSUBPS.4xf32(<4 x float> "reg"="xv" "tied" %n, <4 x float> "reg"="xv" %m) "enc"="rex(0, d, 0, m) | 00001111 | 01011100 | rr(d, m)" "asm"="subps {m}, {d}" "dclass"="xv" "nodecode" {
+  %r = fsub <4 x float> %n, %m
+  ret <4 x float> %r
+}
+
+define <4 x float> @FSUBPS.4xf32m(<4 x float> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="rex(0, d, 4, mp) | 00001111 | 01011100 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="subps {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <4 x float>, ptr %ma, align 16
   %r = fsub <4 x float> %n, %m
   ret <4 x float> %r
 }
@@ -3209,7 +3514,21 @@ define <4 x float> @FMULPS.4xf32(<4 x float> "reg"="xv" "tied" %n, <4 x float> "
   ret <4 x float> %r
 }
 
+define <4 x float> @FMULPS.4xf32m(<4 x float> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="rex(0, d, 4, mp) | 00001111 | 01011001 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="mulps {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <4 x float>, ptr %ma, align 16
+  %r = fmul <4 x float> %n, %m
+  ret <4 x float> %r
+}
+
 define <4 x float> @FDIVPS.4xf32(<4 x float> "reg"="xv" "tied" %n, <4 x float> "reg"="xv" %m) "enc"="rex(0, d, 0, m) | 00001111 | 01011110 | rr(d, m)" "asm"="divps {m}, {d}" "dclass"="xv" "nodecode" {
+  %r = fdiv <4 x float> %n, %m
+  ret <4 x float> %r
+}
+
+define <4 x float> @FDIVPS.4xf32m(<4 x float> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="rex(0, d, 4, mp) | 00001111 | 01011110 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="divps {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <4 x float>, ptr %ma, align 16
   %r = fdiv <4 x float> %n, %m
   ret <4 x float> %r
 }
@@ -3286,7 +3605,21 @@ define <2 x double> @FADDPD.2xf64(<2 x double> "reg"="xv" "tied" %n, <2 x double
   ret <2 x double> %r
 }
 
+define <2 x double> @FADDPD.2xf64m(<2 x double> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="01100110 | rex(0, d, 4, mp) | 00001111 | 01011000 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="addpd {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <2 x double>, ptr %ma, align 16
+  %r = fadd <2 x double> %n, %m
+  ret <2 x double> %r
+}
+
 define <2 x double> @FSUBPD.2xf64(<2 x double> "reg"="xv" "tied" %n, <2 x double> "reg"="xv" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 01011100 | rr(d, m)" "asm"="subpd {m}, {d}" "dclass"="xv" "nodecode" {
+  %r = fsub <2 x double> %n, %m
+  ret <2 x double> %r
+}
+
+define <2 x double> @FSUBPD.2xf64m(<2 x double> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="01100110 | rex(0, d, 4, mp) | 00001111 | 01011100 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="subpd {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <2 x double>, ptr %ma, align 16
   %r = fsub <2 x double> %n, %m
   ret <2 x double> %r
 }
@@ -3296,7 +3629,21 @@ define <2 x double> @FMULPD.2xf64(<2 x double> "reg"="xv" "tied" %n, <2 x double
   ret <2 x double> %r
 }
 
+define <2 x double> @FMULPD.2xf64m(<2 x double> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="01100110 | rex(0, d, 4, mp) | 00001111 | 01011001 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="mulpd {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <2 x double>, ptr %ma, align 16
+  %r = fmul <2 x double> %n, %m
+  ret <2 x double> %r
+}
+
 define <2 x double> @FDIVPD.2xf64(<2 x double> "reg"="xv" "tied" %n, <2 x double> "reg"="xv" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 01011110 | rr(d, m)" "asm"="divpd {m}, {d}" "dclass"="xv" "nodecode" {
+  %r = fdiv <2 x double> %n, %m
+  ret <2 x double> %r
+}
+
+define <2 x double> @FDIVPD.2xf64m(<2 x double> "reg"="xv" "tied" %n, ptr "reg"="r64" %mp, i64 "imm" %off) "enc"="01100110 | rex(0, d, 4, mp) | 00001111 | 01011110 | rm(d, mp, 4, 1, off, 0, 1)" "asm"="divpd {off}({mp}), {d}" "dclass"="xv" "nodecode" {
+  %ma = getelementptr i8, ptr %mp, i64 %off
+  %m = load <2 x double>, ptr %ma, align 16
   %r = fdiv <2 x double> %n, %m
   ret <2 x double> %r
 }
@@ -4103,6 +4450,117 @@ define <2 x float> @HIGH.4xf32(<4 x float> "reg"="xv" %v) "enc"="01100110 | rex(
 define <4 x float> @JOIN.4xf32(<2 x float> "reg"="xh" "tied" %a, <2 x float> "reg"="xh" %b) "enc"="01100110 | rex(0, d, 0, b) | 00001111 | 01101100 | rr(d, b)" "asm"="punpcklqdq {b}, {d}" "dclass"="xv" "nodecode" {
   %r = shufflevector <2 x float> %a, <2 x float> %b, <4 x i32> <i32 0, i32 1, i32 2, i32 3>
   ret <4 x float> %r
+}
+
+define <8 x i16> @PSHUFHW(<8 x i16> "reg"="xv" %v, i64 "imm" %k) "enc"="11110011 | rex(0, d, 0, v) | 00001111 | 01110000 | rr(d, v) | ib:8=k" "asm"="pshufhw ${k}, {v}, {d}" "dclass"="xv" "nomatch" "nodecode" {
+  ret <8 x i16> %v
+}
+
+define <4 x i16> @PSHUFD.h4xi16(<4 x i32> "reg"="xv" %v, i64 "imm" %k) "enc"="01100110 | rex(0, d, 0, v) | 00001111 | 01110000 | rr(d, v) | ib:8=k" "asm"="pshufd ${k}, {v}, {d}" "dclass"="xh" "nomatch" "nodecode" {
+  ret <4 x i16> poison
+}
+
+define <2 x i32> @PSHUFD.h2xi32(<4 x i32> "reg"="xv" %v, i64 "imm" %k) "enc"="01100110 | rex(0, d, 0, v) | 00001111 | 01110000 | rr(d, v) | ib:8=k" "asm"="pshufd ${k}, {v}, {d}" "dclass"="xh" "nomatch" "nodecode" {
+  ret <2 x i32> poison
+}
+
+define <8 x i16> @PACKSSDW(<4 x i32> "reg"="xv" "tied" %n, <4 x i32> "reg"="xv" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 01101011 | rr(d, m)" "asm"="packssdw {m}, {d}" "dclass"="xv" "nomatch" "nodecode" {
+  ret <8 x i16> poison
+}
+
+define <16 x i8> @PACKUSWB.16xi8(<8 x i16> "reg"="xv" "tied" %n, <8 x i16> "reg"="xv" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 01100111 | rr(d, m)" "asm"="packuswb {m}, {d}" "dclass"="xv" "nomatch" "nodecode" {
+  ret <16 x i8> poison
+}
+
+define <8 x i8> @PACKUSWB.8xi8(<8 x i16> "reg"="xv" "tied" %n, <8 x i16> "reg"="xv" %m) "enc"="01100110 | rex(0, d, 0, m) | 00001111 | 01100111 | rr(d, m)" "asm"="packuswb {m}, {d}" "dclass"="xh" "nomatch" "nodecode" {
+  ret <8 x i8> poison
+}
+
+define <4 x i32> @SHUFPS(<4 x i32> "reg"="xv" "tied" %n, <4 x i32> "reg"="xv" %m, i64 "imm" %k) "enc"="rex(0, d, 0, m) | 00001111 | 11000110 | rr(d, m) | ib:8=k" "asm"="shufps ${k}, {m}, {d}" "dclass"="xv" "nomatch" "nodecode" {
+  ret <4 x i32> %n
+}
+
+define <4 x i16> @trunc.4xi32(<4 x i32> "reg"="xv" %v) "recipe"="trunc.4xi32.expand" {
+  %r = trunc <4 x i32> %v to <4 x i16>
+  ret <4 x i16> %r
+}
+
+define <4 x i16> @trunc.4xi32.expand(<4 x i32> %v) {
+  %h = bitcast <4 x i32> %v to <8 x i16>
+  %l = call <8 x i16> @PSHUFLW(<8 x i16> %h, i64 8)
+  %u = call <8 x i16> @PSHUFHW(<8 x i16> %l, i64 8)
+  %d = bitcast <8 x i16> %u to <4 x i32>
+  %r = call <4 x i16> @PSHUFD.h4xi16(<4 x i32> %d, i64 8)
+  ret <4 x i16> %r
+}
+
+define <2 x i32> @trunc.2xi64(<2 x i64> "reg"="xv" %v) "recipe"="trunc.2xi64.expand" {
+  %r = trunc <2 x i64> %v to <2 x i32>
+  ret <2 x i32> %r
+}
+
+define <2 x i32> @trunc.2xi64.expand(<2 x i64> %v) {
+  %d = bitcast <2 x i64> %v to <4 x i32>
+  %r = call <2 x i32> @PSHUFD.h2xi32(<4 x i32> %d, i64 8)
+  ret <2 x i32> %r
+}
+
+define <8 x i8> @trunc.8xi16(<8 x i16> "reg"="xv" %v) "recipe"="trunc.8xi16.expand" {
+  %r = trunc <8 x i16> %v to <8 x i8>
+  ret <8 x i8> %r
+}
+
+define <8 x i8> @trunc.8xi16.expand(<8 x i16> %v) {
+  %a = call <8 x i16> @PSLLWi.8xi16(<8 x i16> %v, i16 8)
+  %b = call <8 x i16> @PSRLWi.8xi16(<8 x i16> %a, i16 8)
+  %r = call <8 x i8> @PACKUSWB.8xi8(<8 x i16> %b, <8 x i16> %b)
+  ret <8 x i8> %r
+}
+
+define <8 x i16> @trunc2.4xi32(<4 x i32> "reg"="xv" %a, <4 x i32> "reg"="xv" %b) "recipe"="trunc2.4xi32.expand" {
+  %x = trunc <4 x i32> %a to <4 x i16>
+  %y = trunc <4 x i32> %b to <4 x i16>
+  %r = shufflevector <4 x i16> %x, <4 x i16> %y, <8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7>
+  ret <8 x i16> %r
+}
+
+define <8 x i16> @trunc2.4xi32.expand(<4 x i32> %a, <4 x i32> %b) {
+  %a1 = call <4 x i32> @PSLLDi.4xi32(<4 x i32> %a, i32 16)
+  %a2 = call <4 x i32> @PSRADi.4xi32(<4 x i32> %a1, i32 16)
+  %b1 = call <4 x i32> @PSLLDi.4xi32(<4 x i32> %b, i32 16)
+  %b2 = call <4 x i32> @PSRADi.4xi32(<4 x i32> %b1, i32 16)
+  %r = call <8 x i16> @PACKSSDW(<4 x i32> %a2, <4 x i32> %b2)
+  ret <8 x i16> %r
+}
+
+define <16 x i8> @trunc2.8xi16(<8 x i16> "reg"="xv" %a, <8 x i16> "reg"="xv" %b) "recipe"="trunc2.8xi16.expand" {
+  %x = trunc <8 x i16> %a to <8 x i8>
+  %y = trunc <8 x i16> %b to <8 x i8>
+  %r = shufflevector <8 x i8> %x, <8 x i8> %y, <16 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 6, i32 7, i32 8, i32 9, i32 10, i32 11, i32 12, i32 13, i32 14, i32 15>
+  ret <16 x i8> %r
+}
+
+define <16 x i8> @trunc2.8xi16.expand(<8 x i16> %a, <8 x i16> %b) {
+  %a1 = call <8 x i16> @PSLLWi.8xi16(<8 x i16> %a, i16 8)
+  %a2 = call <8 x i16> @PSRLWi.8xi16(<8 x i16> %a1, i16 8)
+  %b1 = call <8 x i16> @PSLLWi.8xi16(<8 x i16> %b, i16 8)
+  %b2 = call <8 x i16> @PSRLWi.8xi16(<8 x i16> %b1, i16 8)
+  %r = call <16 x i8> @PACKUSWB.16xi8(<8 x i16> %a2, <8 x i16> %b2)
+  ret <16 x i8> %r
+}
+
+define <4 x i32> @trunc2.2xi64(<2 x i64> "reg"="xv" %a, <2 x i64> "reg"="xv" %b) "recipe"="trunc2.2xi64.expand" {
+  %x = trunc <2 x i64> %a to <2 x i32>
+  %y = trunc <2 x i64> %b to <2 x i32>
+  %r = shufflevector <2 x i32> %x, <2 x i32> %y, <4 x i32> <i32 0, i32 1, i32 2, i32 3>
+  ret <4 x i32> %r
+}
+
+define <4 x i32> @trunc2.2xi64.expand(<2 x i64> %a, <2 x i64> %b) {
+  %ad = bitcast <2 x i64> %a to <4 x i32>
+  %bd = bitcast <2 x i64> %b to <4 x i32>
+  %r = call <4 x i32> @SHUFPS(<4 x i32> %ad, <4 x i32> %bd, i64 136)
+  ret <4 x i32> %r
 }
 
 define <8 x i16> @UNPCKLz.8xi8(<8 x i8> "reg"="xh" "tied" %v, <2 x i64> "reg"="xv" %z) "enc"="01100110 | rex(0, d, 0, z) | 00001111 | 01100000 | rr(d, z)" "asm"="punpcklbw {z}, {d}" "dclass"="xv" "nomatch" "nodecode" {
@@ -5271,6 +5729,11 @@ define <32 x i1> @VPAND.ym32(<32 x i1> "reg"="yv" %n, <32 x i1> "reg"="yv" %m) "
   ret <32 x i1> %r
 }
 
+define i32 @VPMOVMSKB.ym32(<32 x i1> "reg"="yv" %n) "enc"="vex(d, 0, n, 1, 0, 0, 1, 1) | 11010111 | 11 reg:3=d&7 rm:3=n&7" "asm"="vpmovmskb {n}, {d}" "dclass"="r32" "feature"="avx2" "nodecode" {
+  %r = bitcast <32 x i1> %n to i32
+  ret i32 %r
+}
+
 define <32 x i1> @VPOR.ym32(<32 x i1> "reg"="yv" %n, <32 x i1> "reg"="yv" %m) "enc"="{ if(m<8) vex(d, 0, m, 1, 0, n, 1, 1) | 11101011 | 11 reg:3=d&7 rm:3=m&7 ; if(n<8) vex(d, 0, n, 1, 0, m, 1, 1) | 11101011 | 11 reg:3=d&7 rm:3=n&7 ; vex(d, 0, m, 1, 0, n, 1, 1) | 11101011 | 11 reg:3=d&7 rm:3=m&7 ; vex(d, 0, n, 1, 0, m, 1, 1) | 11101011 | 11 reg:3=d&7 rm:3=n&7 }" "asm"="vpor {m}, {n}, {d}" "dclass"="yv" "feature"="avx2" "nodecode" {
   %r = or <32 x i1> %n, %m
   ret <32 x i1> %r
@@ -5381,6 +5844,24 @@ define <16 x i16> @VPSUBW.16xi16(<16 x i16> "reg"="yv" %n, <16 x i16> "reg"="yv"
 
 define <16 x i16> @VPMULLW.16xi16(<16 x i16> "reg"="yv" %n, <16 x i16> "reg"="yv" %m) "enc"="{ if(m<8) vex(d, 0, m, 1, 0, n, 1, 1) | 11010101 | 11 reg:3=d&7 rm:3=m&7 ; if(n<8) vex(d, 0, n, 1, 0, m, 1, 1) | 11010101 | 11 reg:3=d&7 rm:3=n&7 ; vex(d, 0, m, 1, 0, n, 1, 1) | 11010101 | 11 reg:3=d&7 rm:3=m&7 ; evexr(d, m, 1, 0, n, 1, 1, 0, 0, 0) | 11010101 | 11 reg:3=d&7 rm:3=m&7 ; vex(d, 0, n, 1, 0, m, 1, 1) | 11010101 | 11 reg:3=d&7 rm:3=n&7 }" "asm"="vpmullw {m}, {n}, {d}" "dclass"="yv" "feature"="avx2" "nodecode" {
   %r = mul <16 x i16> %n, %m
+  ret <16 x i16> %r
+}
+
+define <16 x i16> @VPMULHUW.16xi16(<16 x i16> "reg"="yv" %n, <16 x i16> "reg"="yv" %m) "enc"="{ if(m<8) vex(d, 0, m, 1, 0, n, 1, 1) | 11100100 | 11 reg:3=d&7 rm:3=m&7 ; if(n<8) vex(d, 0, n, 1, 0, m, 1, 1) | 11100100 | 11 reg:3=d&7 rm:3=n&7 ; vex(d, 0, m, 1, 0, n, 1, 1) | 11100100 | 11 reg:3=d&7 rm:3=m&7 ; evexr(d, m, 1, 0, n, 1, 1, 0, 0, 0) | 11100100 | 11 reg:3=d&7 rm:3=m&7 ; vex(d, 0, n, 1, 0, m, 1, 1) | 11100100 | 11 reg:3=d&7 rm:3=n&7 }" "asm"="vpmulhuw {m}, {n}, {d}" "dclass"="yv" "feature"="avx2" "nodecode" {
+  %a = zext <16 x i16> %n to <16 x i32>
+  %b = zext <16 x i16> %m to <16 x i32>
+  %p = mul <16 x i32> %a, %b
+  %h = lshr <16 x i32> %p, splat (i32 16)
+  %r = trunc <16 x i32> %h to <16 x i16>
+  ret <16 x i16> %r
+}
+
+define <16 x i16> @VPMULHW.16xi16(<16 x i16> "reg"="yv" %n, <16 x i16> "reg"="yv" %m) "enc"="{ if(m<8) vex(d, 0, m, 1, 0, n, 1, 1) | 11100101 | 11 reg:3=d&7 rm:3=m&7 ; if(n<8) vex(d, 0, n, 1, 0, m, 1, 1) | 11100101 | 11 reg:3=d&7 rm:3=n&7 ; vex(d, 0, m, 1, 0, n, 1, 1) | 11100101 | 11 reg:3=d&7 rm:3=m&7 ; evexr(d, m, 1, 0, n, 1, 1, 0, 0, 0) | 11100101 | 11 reg:3=d&7 rm:3=m&7 ; vex(d, 0, n, 1, 0, m, 1, 1) | 11100101 | 11 reg:3=d&7 rm:3=n&7 }" "asm"="vpmulhw {m}, {n}, {d}" "dclass"="yv" "feature"="avx2" "nodecode" {
+  %a = sext <16 x i16> %n to <16 x i32>
+  %b = sext <16 x i16> %m to <16 x i32>
+  %p = mul <16 x i32> %a, %b
+  %h = lshr <16 x i32> %p, splat (i32 16)
+  %r = trunc <16 x i32> %h to <16 x i16>
   ret <16 x i16> %r
 }
 
@@ -6000,6 +6481,48 @@ define <2 x double> @VHIGH.4xf64(<4 x double> "reg"="yv" %v) "enc"="vex(v, 0, d,
 define <4 x double> @VJOIN.4xf64(<2 x double> "reg"="xv" %a, <2 x double> "reg"="xv" %b) "enc"="vex(d, 0, b, 3, 0, a, 1, 1) | 00111000 | 11 reg:3=d&7 rm:3=b&7 | 00000001" "asm"="vinserti128 $1, {b}, {a:y}, {d}" "dclass"="yv" "feature"="avx2" "nodecode" {
   %r = shufflevector <2 x double> %a, <2 x double> %b, <4 x i32> <i32 0, i32 1, i32 2, i32 3>
   ret <4 x double> %r
+}
+
+define <8 x i16> @trunc.8xi32(<8 x i32> "reg"="yv" %v) "recipe"="trunc.8xi32.expand" "feature"="avx2" {
+  %r = trunc <8 x i32> %v to <8 x i16>
+  ret <8 x i16> %r
+}
+
+define <8 x i16> @trunc.8xi32.expand(<8 x i32> %v) {
+  %a = call <8 x i32> @VPSLLDi.8xi32(<8 x i32> %v, i32 16)
+  %b = call <8 x i32> @VPSRADi.8xi32(<8 x i32> %a, i32 16)
+  %l = call <4 x i32> @VLOW.8xi32(<8 x i32> %b)
+  %h = call <4 x i32> @VHIGH.8xi32(<8 x i32> %b)
+  %r = call <8 x i16> @PACKSSDW(<4 x i32> %l, <4 x i32> %h)
+  ret <8 x i16> %r
+}
+
+define <16 x i8> @trunc.16xi16(<16 x i16> "reg"="yv" %v) "recipe"="trunc.16xi16.expand" "feature"="avx2" {
+  %r = trunc <16 x i16> %v to <16 x i8>
+  ret <16 x i8> %r
+}
+
+define <16 x i8> @trunc.16xi16.expand(<16 x i16> %v) {
+  %a = call <16 x i16> @VPSLLWi.16xi16(<16 x i16> %v, i16 8)
+  %b = call <16 x i16> @VPSRLWi.16xi16(<16 x i16> %a, i16 8)
+  %l = call <8 x i16> @VLOW.16xi16(<16 x i16> %b)
+  %h = call <8 x i16> @VHIGH.16xi16(<16 x i16> %b)
+  %r = call <16 x i8> @PACKUSWB.16xi8(<8 x i16> %l, <8 x i16> %h)
+  ret <16 x i8> %r
+}
+
+define <4 x i32> @trunc.4xi64(<4 x i64> "reg"="yv" %v) "recipe"="trunc.4xi64.expand" "feature"="avx2" {
+  %r = trunc <4 x i64> %v to <4 x i32>
+  ret <4 x i32> %r
+}
+
+define <4 x i32> @trunc.4xi64.expand(<4 x i64> %v) {
+  %l = call <2 x i64> @VLOW.4xi64(<4 x i64> %v)
+  %h = call <2 x i64> @VHIGH.4xi64(<4 x i64> %v)
+  %ld = bitcast <2 x i64> %l to <4 x i32>
+  %hd = bitcast <2 x i64> %h to <4 x i32>
+  %r = call <4 x i32> @SHUFPS(<4 x i32> %ld, <4 x i32> %hd, i64 136)
+  ret <4 x i32> %r
 }
 
 define <16 x i16> @VPMOVSXBW(<16 x i8> "reg"="xv" %n) "enc"="{ vex(d, 0, n, 2, 0, 0, 1, 1) | 00100000 | 11 reg:3=d&7 rm:3=n&7 ; evexr(d, n, 2, 0, 0, 1, 1, 0, 0, 0) | 00100000 | 11 reg:3=d&7 rm:3=n&7 }" "asm"="vpmovsxbw {n}, {d}" "dclass"="yv" "feature"="avx2" "nodecode" {
@@ -13732,6 +14255,49 @@ define <4 x float> @X86.sse.min.ss(<4 x float> "reg"="xv" "tied" %a0, <4 x float
 
 declare <4 x float> @llvm.x86.sse.min.ss(<4 x float>, <4 x float>)
 
+; The movemask intrinsics: each lane's top bit.
+define i32 @X86.sse2.pmovmskb.128(<16 x i8> "reg"="xv" %a0) "enc"="01100110 | rex(0, d, 0, a0) | 00001111 | 11010111 | 11 reg:3=d&7 rm:3=a0&7" "asm"="pmovmskb {a0}, {d}" "dclass"="r32" "feature"="sse2" "nodecode" {
+  %r = call i32 @llvm.x86.sse2.pmovmskb.128(<16 x i8> %a0)
+  ret i32 %r
+}
+
+declare i32 @llvm.x86.sse2.pmovmskb.128(<16 x i8>)
+
+define i32 @X86.avx2.pmovmskb(<32 x i8> "reg"="yv" %a0) "enc"="vex(d, 0, a0, 1, 0, 0, 1, 1) | 11010111 | 11 reg:3=d&7 rm:3=a0&7" "asm"="vpmovmskb {a0}, {d}" "dclass"="r32" "feature"="avx2" "nodecode" {
+  %r = call i32 @llvm.x86.avx2.pmovmskb(<32 x i8> %a0)
+  ret i32 %r
+}
+
+declare i32 @llvm.x86.avx2.pmovmskb(<32 x i8>)
+
+define i32 @X86.sse.movmsk.ps(<4 x float> "reg"="xv" %a0) "enc"="rex(0, d, 0, a0) | 00001111 | 01010000 | 11 reg:3=d&7 rm:3=a0&7" "asm"="movmskps {a0}, {d}" "dclass"="r32" "feature"="sse" "nodecode" {
+  %r = call i32 @llvm.x86.sse.movmsk.ps(<4 x float> %a0)
+  ret i32 %r
+}
+
+declare i32 @llvm.x86.sse.movmsk.ps(<4 x float>)
+
+define i32 @X86.sse2.movmsk.pd(<2 x double> "reg"="xv" %a0) "enc"="01100110 | rex(0, d, 0, a0) | 00001111 | 01010000 | 11 reg:3=d&7 rm:3=a0&7" "asm"="movmskpd {a0}, {d}" "dclass"="r32" "feature"="sse2" "nodecode" {
+  %r = call i32 @llvm.x86.sse2.movmsk.pd(<2 x double> %a0)
+  ret i32 %r
+}
+
+declare i32 @llvm.x86.sse2.movmsk.pd(<2 x double>)
+
+define i32 @X86.avx.movmsk.ps.256(<8 x float> "reg"="yv" %a0) "enc"="vex(d, 0, a0, 1, 0, 0, 1, 0) | 01010000 | 11 reg:3=d&7 rm:3=a0&7" "asm"="vmovmskps {a0}, {d}" "dclass"="r32" "feature"="avx" "nodecode" {
+  %r = call i32 @llvm.x86.avx.movmsk.ps.256(<8 x float> %a0)
+  ret i32 %r
+}
+
+declare i32 @llvm.x86.avx.movmsk.ps.256(<8 x float>)
+
+define i32 @X86.avx.movmsk.pd.256(<4 x double> "reg"="yv" %a0) "enc"="vex(d, 0, a0, 1, 0, 0, 1, 1) | 01010000 | 11 reg:3=d&7 rm:3=a0&7" "asm"="vmovmskpd {a0}, {d}" "dclass"="r32" "feature"="avx" "nodecode" {
+  %r = call i32 @llvm.x86.avx.movmsk.pd.256(<4 x double> %a0)
+  ret i32 %r
+}
+
+declare i32 @llvm.x86.avx.movmsk.pd.256(<4 x double>)
+
 define <4 x float> @X86.sse.rcp.ps(<4 x float> "reg"="xv" %a0) "enc"="rex(0, d, 0, a0) | 00001111 | 01010011 | 11 reg:3=d&7 rm:3=a0&7" "asm"="rcpps {a0}, {d}" "dclass"="xv" "feature"="sse" "nodecode" {
   %r = call <4 x float> @llvm.x86.sse.rcp.ps(<4 x float> %a0)
   ret <4 x float> %r
@@ -14109,6 +14675,76 @@ define <8 x i16> @X86.ssse3.pmul.hr.sw.128(<8 x i16> "reg"="xv" "tied" %a0, <8 x
 }
 
 declare <8 x i16> @llvm.x86.ssse3.pmul.hr.sw.128(<8 x i16>, <8 x i16>)
+
+; Permutations of four lanes by an immediate (`legalize::permuted_shuffles`):
+; lane j of each four is lane (k >> 2j) & 3 of those four; of 16-bit lanes,
+; of the low four or the high four, the others kept.
+define <4 x i32> @PERMUTE4.4xi32(<4 x i32> "reg"="xv" %v, i64 "imm" %k) "enc"="01100110 | rex(0, d, 0, v) | 00001111 | 01110000 | rr(d, v) | ib:8=k" "asm"="pshufd ${k}, {v}, {d}" "dclass"="xv" "feature"="sse2" "nodecode" {
+  %r = call <4 x i32> @llvm.epitome.permute4.v4i32(<4 x i32> %v, i64 %k)
+  ret <4 x i32> %r
+}
+
+declare <4 x i32> @llvm.epitome.permute4.v4i32(<4 x i32>, i64)
+
+define <8 x i32> @PERMUTE4.8xi32(<8 x i32> "reg"="yv" %v, i64 "imm" %k) "enc"="vex(d, 0, v, 1, 0, 0, 1, 1) | 01110000 | 11 reg:3=d&7 rm:3=v&7 | ib:8=k" "asm"="vpshufd ${k}, {v}, {d}" "dclass"="yv" "feature"="avx2" "nodecode" {
+  %r = call <8 x i32> @llvm.epitome.permute4.v8i32(<8 x i32> %v, i64 %k)
+  ret <8 x i32> %r
+}
+
+declare <8 x i32> @llvm.epitome.permute4.v8i32(<8 x i32>, i64)
+
+define <8 x i16> @PERMUTE4LO.8xi16(<8 x i16> "reg"="xv" %v, i64 "imm" %k) "enc"="11110010 | rex(0, d, 0, v) | 00001111 | 01110000 | rr(d, v) | ib:8=k" "asm"="pshuflw ${k}, {v}, {d}" "dclass"="xv" "feature"="sse2" "nodecode" {
+  %r = call <8 x i16> @llvm.epitome.permute4lo.v8i16(<8 x i16> %v, i64 %k)
+  ret <8 x i16> %r
+}
+
+declare <8 x i16> @llvm.epitome.permute4lo.v8i16(<8 x i16>, i64)
+
+define <8 x i16> @PERMUTE4HI.8xi16(<8 x i16> "reg"="xv" %v, i64 "imm" %k) "enc"="11110011 | rex(0, d, 0, v) | 00001111 | 01110000 | rr(d, v) | ib:8=k" "asm"="pshufhw ${k}, {v}, {d}" "dclass"="xv" "feature"="sse2" "nodecode" {
+  %r = call <8 x i16> @llvm.epitome.permute4hi.v8i16(<8 x i16> %v, i64 %k)
+  ret <8 x i16> %r
+}
+
+declare <8 x i16> @llvm.epitome.permute4hi.v8i16(<8 x i16>, i64)
+
+; Windows of bytes (`legalize::permuted_shuffles`): of two vectors, bytes s
+; to s + 15 of the two together (lo first); of one, its bytes shifted up or
+; down by n, zeros in.
+define <16 x i8> @WINDOW16.16xi8(<16 x i8> "reg"="xv" "tied" %hi, <16 x i8> "reg"="xv" %lo, i64 "imm" %s) "enc"="01100110 | rex(0, d, 0, lo) | 00001111 | 00111010 | 00001111 | 11 reg:3=d&7 rm:3=lo&7 | ib:8=s" "asm"="palignr ${s}, {lo}, {d}" "dclass"="xv" "feature"="ssse3" "nodecode" {
+  %r = call <16 x i8> @llvm.epitome.window16.v16i8(<16 x i8> %lo, <16 x i8> %hi, i64 %s)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.epitome.window16.v16i8(<16 x i8>, <16 x i8>, i64)
+
+define <16 x i8> @SHLBYTES.16xi8(<16 x i8> "reg"="xv" "tied" %x, i64 "imm" %n) "enc"="01100110 | rex(0, 0, 0, d) | 00001111 | 01110011 | rr(7, d) | ib:8=n" "asm"="pslldq ${n}, {d}" "dclass"="xv" "feature"="sse2" "nodecode" {
+  %r = call <16 x i8> @llvm.epitome.shlbytes.v16i8(<16 x i8> %x, i64 %n)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.epitome.shlbytes.v16i8(<16 x i8>, i64)
+
+define <16 x i8> @SHRBYTES.16xi8(<16 x i8> "reg"="xv" "tied" %x, i64 "imm" %n) "enc"="01100110 | rex(0, 0, 0, d) | 00001111 | 01110011 | rr(3, d) | ib:8=n" "asm"="psrldq ${n}, {d}" "dclass"="xv" "feature"="sse2" "nodecode" {
+  %r = call <16 x i8> @llvm.epitome.shrbytes.v16i8(<16 x i8> %x, i64 %n)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.epitome.shrbytes.v16i8(<16 x i8>, i64)
+
+; A permutation of bytes within each 16 (`legalize::permuted_shuffles`).
+define <16 x i8> @PERMUTE16.16xi8(<16 x i8> "reg"="xv" "tied" %t, <16 x i8> "reg"="xv" %i) "enc"="01100110 | rex(0, d, 0, i) | 00001111 | 00111000 | 00000000 | 11 reg:3=d&7 rm:3=i&7" "asm"="pshufb {i}, {d}" "dclass"="xv" "feature"="ssse3" "nodecode" {
+  %r = call <16 x i8> @llvm.epitome.permute16.v16i8(<16 x i8> %t, <16 x i8> %i)
+  ret <16 x i8> %r
+}
+
+declare <16 x i8> @llvm.epitome.permute16.v16i8(<16 x i8>, <16 x i8>)
+
+define <32 x i8> @PERMUTE16.32xi8(<32 x i8> "reg"="yv" %t, <32 x i8> "reg"="yv" %i) "enc"="vex(d, 0, i, 2, 0, t, 1, 1) | 00000000 | 11 reg:3=d&7 rm:3=i&7" "asm"="vpshufb {i}, {t}, {d}" "dclass"="yv" "feature"="avx2" "nodecode" {
+  %r = call <32 x i8> @llvm.epitome.permute16.v32i8(<32 x i8> %t, <32 x i8> %i)
+  ret <32 x i8> %r
+}
+
+declare <32 x i8> @llvm.epitome.permute16.v32i8(<32 x i8>, <32 x i8>)
 
 define <16 x i8> @X86.ssse3.pshuf.b.128(<16 x i8> "reg"="xv" "tied" %a0, <16 x i8> "reg"="xv" %a1) "enc"="01100110 | rex(0, d, 0, a1) | 00001111 | 00111000 | 00000000 | 11 reg:3=d&7 rm:3=a1&7" "asm"="pshufb {a1}, {d}" "dclass"="xv" "feature"="ssse3" "nodecode" {
   %r = call <16 x i8> @llvm.x86.ssse3.pshuf.b.128(<16 x i8> %a0, <16 x i8> %a1)

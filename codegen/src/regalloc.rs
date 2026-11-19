@@ -899,6 +899,9 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
     };
     // Each instruction's number, as the positions above count them.
     let mut pos = 0u32;
+    // (Each slot's alignment, for reads folded into instructions.)
+    let slot_align: Vec<u64> = f.slots.iter().map(|s| s.align).collect();
+    let f_slots_align = |k: usize| slot_align[k];
     for (bi, b) in f.blocks.iter_mut().enumerate() {
         let old = std::mem::take(&mut b.insts);
         let mut new = Vec::with_capacity(old.len());
@@ -996,6 +999,7 @@ fn allocate_with(t: &Target, f: &mut MFunc, bail: bool, coalescing: bool) -> Res
                     let Some(&MOp::Reg(Reg::V(v))) = inst.ops.get(fo.operand) else { continue };
                     let Some(&slot) = slot_of.get(&v) else { continue };
                     if held(Reg::V(v))
+                        || f_slots_align(slot) < fo.align
                         || inst.ops.iter().filter(|o| **o == MOp::Reg(Reg::V(v))).count() != 1
                         || inst.ops.len() + 2 != fo.ops.len() + 1
                         || !epitome_ir::chop::allow(|| format!("{fname}: read a spilled value from its slot"))

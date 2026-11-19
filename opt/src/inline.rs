@@ -210,7 +210,9 @@ impl<'a> Inliner<'a> {
             .filter(|&i| {
                 let Some(call) = f.insts[i.index()].op.call() else { return false };
                 let Some(callee) = sh.direct_callee(call) else { return false };
-                !self.same_scc(g, callee) && sh.published(callee).is_some_and(|c| c.has_body)
+                // Within the SCC, only calls the cut left (`cut.rs`) to
+                // members already finished.
+                (!self.same_scc(g, callee) || !crate::cut::is_cut(call)) && sh.published(callee).is_some_and(|c| c.has_body)
             })
             .collect();
 
@@ -244,7 +246,8 @@ impl<'a> Inliner<'a> {
             let first = start_blocks[site.index()].expect("call site not in a block");
             let block = tail[first.index()].unwrap_or(first);
 
-            let decision = self.decide(sh, f, site, block, &caller_attrs, callee_g, callee, summary);
+            let own = self.same_scc(g, callee_g);
+            let decision = self.decide(sh, f, site, block, &caller_attrs, callee_g, callee, summary, own);
             let Decision::Inline { cost, bonus, threshold, last_call } = decision else {
                 if let Decision::No(reason) = decision {
                     sh.remark(g, format!("not inlined @{callee_name}: {reason}"));
@@ -326,6 +329,7 @@ impl<'a> Inliner<'a> {
         callee_g: GlobalId,
         callee: &Function,
         s: &Summary,
+        own_scc: bool,
     ) -> Decision {
         let m = sh.module;
         let inst = &caller.insts[site.index()];
@@ -333,7 +337,9 @@ impl<'a> Inliner<'a> {
         if let Some(r) = s.blocker {
             return Decision::No(r.into());
         }
-        if s.in_cycle {
+        // Inside the callee's own SCC, the calls that close the cycle are
+        // cut and stay calls, so inlining it unrolls nothing.
+        if s.in_cycle && !own_scc {
             return Decision::No("callee is part of a call-graph cycle".into());
         }
         match &inst.op {
@@ -439,7 +445,7 @@ fn is_alloca(f: &Function, l: LocalId) -> bool {
 
 /// True if every path from `b` reaches `unreachable` without branching:
 /// a cheap stand-in for profile data saying the call is cold.
-fn ends_in_unreachable(f: &Function, mut b: BlockId) -> bool {
+pub(crate) fn ends_in_unreachable(f: &Function, mut b: BlockId) -> bool {
     for _ in 0..8 {
         let Some(t) = f.terminator(b) else { return false };
         match f.insts[t.index()].op {

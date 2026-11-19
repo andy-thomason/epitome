@@ -340,6 +340,9 @@ fn main() -> ExitCode {
             report.cycles_left.len(),
             sizes(&report.cycles_left)
         );
+        for (size, calls, cold) in &report.cuts {
+            eprintln!("; cut: a cycle of {size} functions, {calls} calls cut ({cold} cold)");
+        }
         let c = report.simplifycfg;
         if c.total() > 0 {
             eprintln!(

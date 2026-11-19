@@ -489,6 +489,22 @@ pub struct Pattern {
     /// tree another IR instruction in the block must match, with the
     /// parameters shared, and the operand of `emit[0]` that receives it.
     pub extra: Vec<(Tree, usize)>,
+    /// The alignment, in bytes, its body's loads say they have (`load
+    /// <8 x i16>, ptr %a, align 16`), which the loads it covers must have:
+    /// legacy SSE's memory operands must be 16-aligned. 0 for none.
+    pub align: u64,
+}
+
+/// The greatest alignment a body's plain loads say they have, in bytes.
+/// (An atomic one's is its width's, which IR's atomics have.)
+fn body_align(f: &Function) -> u64 {
+    f.insts_in_order()
+        .filter_map(|i| match &f.insts[i.index()].op {
+            Op::Load { align: Some(a), atomic: None, .. } => Some(a.bytes()),
+            _ => None,
+        })
+        .max()
+        .unwrap_or(0)
 }
 
 pub struct Target {
@@ -1712,7 +1728,8 @@ impl Target {
                             }
                         }
                     }
-                    out.push(Pattern { name: ins.name.clone(), tree, params, emit, nodes: 0, wild: vec![], extra });
+                    let align = body_align(f);
+                    out.push(Pattern { name: ins.name.clone(), tree, params, emit, nodes: 0, wild: vec![], extra, align });
                 }
                 Some(cp) => {
                     // Each condition form, on the flags of each comparison
@@ -1757,6 +1774,7 @@ impl Target {
                                 nodes: 0,
                                 wild: vec![],
                                 extra: vec![],
+                                align: 0,
                             });
                         }
                     }
@@ -1793,6 +1811,7 @@ impl Target {
                 nodes: 0,
                 wild: vec![],
                 extra: vec![],
+                align: body_align(f),
             });
         }
 

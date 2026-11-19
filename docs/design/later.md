@@ -193,6 +193,19 @@ these are for after.
   instruction's memory form could be found from their bodies); stores of
   immediates made in a register first (`movq $imm, mem` has no pattern);
   switches tested case by case where llc jumps through a table.
+- **x86's vector memory operands, further** (`targets/x86_64/gen_sel.py`):
+  loads fold into SSE2's two-address operations when 16-aligned
+  (`Pattern::align`), but not into AVX's (VEX forms take any alignment,
+  and none has a memory entry for selection yet), nor at a base plus a
+  scaled index; spill reloads of vectors could be folded the same way
+  as scalars' (PR #201's pairing found from the bodies), where the slot
+  is 16-aligned. Aligned loads are `movups`, where llc writes `movdqa`
+  or `movaps` (the same length and speed; only the text differs).
+- **gen_sel.py and 10-integer.ll disagree**: entries added to
+  `10-integer.ll` by hand (`PMULLD`, AVX2's mask logic `VPAND.ym*`,
+  AVX-512's `VPMOVDB`/`VPMOVDW`/`VPMOVZX*z`, `VPMULLQ`) are not in the
+  generator, so running it drops them; new generated entries are spliced
+  in instead. The generator should write them all again.
 - **Registers chosen for encodings' size**: x86's r8-r15 need a REX
   prefix, and some instructions have shorter forms for rax (the
   descriptions' `acc:0=d` alternatives, already there); RISC-V's
@@ -201,6 +214,26 @@ these are for after.
   uncompressed instructions that fit, as LLVM's does with C on. The allocator could weigh each register by the bytes its uses
   and definitions would take in it, from the encodings, preferring the
   cheaper for the values used most.
+- **x86's vector lanes** (`legalize.rs`, `prepare.rs`, `lanewise.rs`,
+  `targets/x86_64/`): a mask's bits (`bitcast <16 x i1> to i16`, a
+  movemask) are one `pmovmskb` where the mask is of bytes filling a
+  register (16 lanes of 128 bits, 32 of 256 with AVX2), and so is a test
+  of them against zero; one-vector shuffles are `pshufd` (and AVX2's
+  `vpshufd`), `pshuflw`/`pshufhw`, or, with SSSE3, `pshufb` by a constant
+  (`llvm.epitome.permute16`, within each 16 bytes); two-vector windows of
+  bytes are `pslldq`/`psrldq` against zeros, else `palignr`; and bit scans
+  `bsf`/`bsr` (`llvm.epitome.highbit`, with a `cmov` where zero must give
+  the width). Over
+  `bench/vs-llc`'s vector crates, against llc's instructions: memchr 7,634
+  against 5,674 (from 50,602), rand_chacha 4,753 against 2,442 (from
+  70,411), crc32fast 2,457 against 1,303, hashbrown 137 against 120. Left:
+  masks of other widths (`<4 x i1>` of 32-bit lanes is `movmskps`, of
+  16-bit lanes `packsswb` first) still lane by lane; shuffles of two
+  vectors other than windows, and those crossing 128-bit halves (AVX2's
+  `vpermd`, `vperm2i128`); vector constants made in general registers and
+  joined (`movabsq`, `movq`, `punpcklqdq`) where llc loads them from
+  read-only data; bit counts without `popcnt`, `tzcnt` and `lzcnt` where
+  the CPU has them but the function does not say so.
 - **Small memsets and memcpys with AVX-512 BW** (`prepare.rs`,
   `expand_small_mem_ops`): up to 64 bytes, of a constant length or not,
   is one masked store (`vmovdqu8` under a k mask of the length's bytes),

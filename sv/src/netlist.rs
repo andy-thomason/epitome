@@ -871,6 +871,9 @@ impl<'d, 'a> Lowering<'d, 'a> {
             called: RefCell::default(),
             traces: RefCell::default(),
             cycles: RefCell::default(),
+            tables: RefCell::default(),
+            flat: HashMap::new(),
+            flattening: Vec::new(),
             edge_canon: RefCell::default(),
             piece_prof: Cell::new(None),
             piece_names: RefCell::default(),
@@ -963,6 +966,17 @@ struct Layout {
     /// Of those, the registers: nonblocking assignments store their next
     /// values in place, as no clocked process reads them.
     in_place: HashSet<ObjId>,
+    /// Its clock tree: the nodes that work out only clocks (what edges of
+    /// its clocked processes, and its children's clock inputs, read), run
+    /// before the clocked processes, not when settling, so that a change
+    /// of a clock alone needs no settling. A child here is one with no
+    /// registers (a buffer, say), called there.
+    at_ff: HashSet<Node>,
+    /// Its inputs only its clock tree and its edges read.
+    clock_ports: HashSet<ObjId>,
+    /// Its inputs nothing in it reads (say, a clock only properties used):
+    /// not copied to it, and not read where they are worked out.
+    idle_ports: HashSet<ObjId>,
     /// The rest of them, in scalar code: a clocked process reads them, so
     /// each nonblocking assignment to one is queued, and the queue written
     /// in place once every process has run (rather than the whole value
@@ -1079,6 +1093,9 @@ impl Layout {
             pads: HashMap::new(),
             kept: HashSet::new(),
             in_place: HashSet::new(),
+            at_ff: HashSet::new(),
+            clock_ports: HashSet::new(),
+            idle_ports: HashSet::new(),
             queued: HashSet::new(),
             part: None,
         }
@@ -1184,6 +1201,11 @@ enum Node {
     /// call needs, and that call with the outputs it gives.
     Pre(InstId),
     Early(InstId),
+    /// A child written into its parent (see `Lowering::flatten`): what an
+    /// input port of it (by index) is connected to, copied to the port's
+    /// value, and an output port's value copied to what it is connected to.
+    PortIn(InstId, u32),
+    PortOut(InstId, u32),
     /// A run of a generate loop's iterations, rolled back into a loop.
     Loop(usize),
     /// A run of a generate loop's iterations that reverses the bits of a
@@ -1278,6 +1300,12 @@ fn runs(mut v: Vec<(u64, u64)>) -> Vec<(u64, u64)> {
     out
 }
 
+/// Most nodes of a child written into its parent (see
+/// `Lowering::flatten`); a larger one is called.
+const FLAT_MAX: usize = 400;
+/// Most levels of children written into one another.
+const FLAT_DEPTH: usize = 16;
+
 /// The top's step's calls, each with a counter when profiling.
 const STEPS: [&str; 4] = ["step settle", "step ff", "step commit", "step settle again"];
 /// Fewest instructions, for one register of lanes, of an arm of an `if` or
@@ -1360,6 +1388,14 @@ struct Lowering<'d, 'a> {
     /// expression that does: every process waiting on an edge of it shares
     /// that one's slot of its last value (see [`Self::edge_expr`]).
     edge_canon: RefCell<HashMap<ObjId, ExprId>>,
+    /// The specialisations written into each specialisation's code (see
+    /// [`Self::flatten`]), and those being written into the one being
+    /// collected.
+    flat: HashMap<SpecId, HashSet<SpecId>>,
+    flattening: Vec<HashSet<SpecId>>,
+    /// The constant tables written into the code's data (see
+    /// `Func::table_read`), by their bytes.
+    tables: RefCell<HashMap<Vec<u8>, GlobalId>>,
     /// For [`Netlist::loops`].
     cycles: RefCell<Vec<(String, Vec<String>)>>,
     /// With [`Options::pieces`], the global of the pieces' counters, and
@@ -1729,6 +1765,58 @@ impl<'d, 'a> Lowering<'d, 'a> {
         Ok(b)
     }
 
+    /// Writes child `i` into the code being collected, if it is small and
+    /// alone: not an array's, with only inputs and outputs, of a
+    /// specialisation not yet written into this code (its values are its
+    /// specialisation's, one set a state). Its values become the parent's,
+    /// its nodes the parent's, and a node for each port joins them: so
+    /// ports are values the parent orders bit by bit, with no call, no
+    /// copies to a slot and back, and no loop through the child as a whole.
+    fn flatten(&mut self, i: InstId, objs: &mut Vec<ObjId>, code: &mut Vec<Node>) -> Result<bool, String> {
+        let d = self.d;
+        let inst = d.instance(i);
+        let c = inst.spec;
+        if self.arrays.contains_key(&i) || d.spec(c).ports.iter().any(|p| p.object.is_none() || !matches!(p.dir, Dir::Input | Dir::Output)) {
+            return Ok(false);
+        }
+        let current = self.flattening.last().cloned().unwrap_or_default();
+        if current.contains(&c) || self.flattening.len() > FLAT_DEPTH {
+            return Ok(false);
+        }
+        let (cobjs, ccode) = self.code_of(c)?;
+        let inner = self.flat.get(&c).cloned().unwrap_or_default();
+        if ccode.len() > FLAT_MAX || !inner.is_disjoint(&current) {
+            return Ok(false);
+        }
+        let set = self.flattening.last_mut().unwrap();
+        set.insert(c);
+        set.extend(inner);
+        objs.extend(cobjs);
+        for (k, p) in d.spec(c).ports.iter().enumerate() {
+            let connected = inst.connections.iter().any(|x| x.port == p.name && x.expr.is_some());
+            if p.dir == Dir::Input && connected {
+                code.push(Node::PortIn(i, k as u32));
+            }
+        }
+        code.extend(ccode);
+        for (k, p) in d.spec(c).ports.iter().enumerate() {
+            let connected = inst.connections.iter().any(|x| x.port == p.name && x.expr.is_some());
+            if p.dir == Dir::Output && connected {
+                code.push(Node::PortOut(i, k as u32));
+            }
+        }
+        Ok(true)
+    }
+
+    /// Port `k` of child `i`: its value, and what it is connected to.
+    fn port_of(&self, i: InstId, k: u32) -> (ObjId, ExprId) {
+        let d = self.d;
+        let inst = d.instance(i);
+        let p = &d.spec(inst.spec).ports[k as usize];
+        let e = inst.connections.iter().find(|x| x.port == p.name).and_then(|x| x.expr).expect("a connected port");
+        (p.object.unwrap(), e)
+    }
+
     /// A specialisation's static values and code, found once.
     fn code_of(&mut self, spec: SpecId) -> Result<(Vec<ObjId>, Vec<Node>), String> {
         if let Some(c) = self.codes.get(&spec) {
@@ -1737,7 +1825,11 @@ impl<'d, 'a> Lowering<'d, 'a> {
         let d = self.d;
         let mut objs = Vec::new();
         let mut code = Vec::new();
-        self.collect(d.spec(spec).scope, &mut objs, &mut code)?;
+        self.flattening.push(HashSet::new());
+        let collected = self.collect(d.spec(spec).scope, &mut objs, &mut code);
+        let flat = self.flattening.pop().unwrap();
+        collected?;
+        self.flat.insert(spec, flat);
         for &o in &objs {
             let ob = d.object(o);
             if tw(&d.types, ob.ty) == 0 {
@@ -1800,6 +1892,16 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     Node::Rev(v) => {
                         r.push((self.revs[v].s, 0, 0));
                         w.push((self.revs[v].d, 0, 0));
+                    }
+                    Node::PortIn(i, k) => {
+                        let (o, e) = self.port_of(i, k);
+                        self.reads(e, &mut r);
+                        w.push((o, 0, 0));
+                    }
+                    Node::PortOut(i, k) => {
+                        let (o, e) = self.port_of(i, k);
+                        r.push((o, 0, 0));
+                        self.writes(e, &mut w, &mut r);
                     }
                     Node::In(i) => {
                         // (Every instance of an array the node stands for.)
@@ -1934,6 +2036,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     ops.selects += self.branches(body);
                 }
                 Node::In(i) | Node::Call(i) | Node::Pre(i) | Node::Early(i) => kids.push(d.instance(i).spec),
+                Node::PortIn(i, k) | Node::PortOut(i, k) => exprs.push(self.port_of(i, k).1),
                 Node::Rev(_) => {}
             }
         }
@@ -2200,6 +2303,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         }
         lay.clocked = !lay.ff.is_empty() || lay.kid_keys.values().any(|k| self.layouts[k].clocked);
         self.layouts.insert(key, lay);
+        self.clock_tree(key);
         self.split_calls(key)?;
         if let Some(split) = self.parts.get(&spec).cloned() {
             let part = self.part_of(key, &split);
@@ -2291,6 +2395,14 @@ impl<'d, 'a> Lowering<'d, 'a> {
             }
         }
         local.retain(|o| !ff_ins.iter().any(|t| t.0 == *o));
+        // (Nor what the clock tree reads or writes: it runs apart.)
+        let mut tree = Vec::new();
+        for &n in &self.layouts[&key].at_ff {
+            let (r, w) = self.access(key, n);
+            tree.extend(r);
+            tree.extend(w);
+        }
+        local.retain(|o| !tree.iter().any(|t| t.0 == *o));
         let fresh = self.fresh_values(key)?;
         let mut lay = self.layouts.remove(&key).unwrap();
         let piece = sh.piece_lane();
@@ -2627,7 +2739,11 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     code.push(Node::Driver(dr));
                 }
                 // An array's instances are one node, its first's.
-                Item::Instance(i) if !self.arrays.values().any(|m| m[0] != i && m.contains(&i)) => code.push(Node::In(i)),
+                Item::Instance(i) if !self.arrays.values().any(|m| m[0] != i && m.contains(&i)) => {
+                    if !self.flatten(i, objs, code)? {
+                        code.push(Node::In(i));
+                    }
+                }
                 Item::Instance(_) => {}
                 Item::Cell(_) => return Err("gates and UDPs are not supported yet".into()),
                 Item::Scope(s) => match d.scope(s).kind {
@@ -2772,6 +2888,11 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     uses.insert(self.revs[r].s, None);
                 }
                 Node::Proc(p) => self.stmt_uses(d.processes[p.0 as usize].body, &mut uses),
+                Node::PortIn(i, k) | Node::PortOut(i, k) => {
+                    let (o, e) = self.port_of(i, k);
+                    uses.insert(o, None);
+                    self.expr_uses(e, &mut uses);
+                }
                 Node::In(i) | Node::Call(i) | Node::Pre(i) | Node::Early(i) => {
                     for m in self.candidates(i) {
                         for c in &d.instance(m).connections {
@@ -3401,7 +3522,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
             }
             None => match this.layouts[&key].part.clone() {
                 None => {
-                    let order = this.order(key)?;
+                    let order = this.settle_order(key)?;
                     let mut f = Func::new(this, m, key, &name, None);
                     f.body(&order)?;
                     f.finish().map_err(fail)?;
@@ -3410,7 +3531,8 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 Some((a, b)) => {
                     for (part, nodes) in [("_a", &a), ("_b", &b)] {
                         let mut g = Func::new(this, m, key, &format!("{name}{part}"), None);
-                        g.body(nodes)?;
+                        let nodes: Vec<Node> = nodes.iter().copied().filter(|n| !this.layouts[&key].at_ff.contains(n)).collect();
+                        g.body(&nodes)?;
                         g.finish().map_err(fail)?;
                     }
                     let mut f = Func::new(this, m, key, &name, None);
@@ -3843,6 +3965,16 @@ impl<'d, 'a> Lowering<'d, 'a> {
                 r.push((v.s, v.s_lo, v.s_lo + v.n));
                 w.push((v.d, v.d_lo, v.d_lo + v.n));
             }
+            Node::PortIn(i, k) => {
+                let (o, e) = self.port_of(i, k);
+                self.reads(e, &mut r);
+                w.push(whole(o));
+            }
+            Node::PortOut(i, k) => {
+                let (o, e) = self.port_of(i, k);
+                r.push(whole(o));
+                self.writes(e, &mut w, &mut r);
+            }
             Node::In(i) | Node::Pre(i) => {
                 let pre = if let Node::Pre(_) = node { lay.splits.get(&i) } else { None };
                 for (p, e) in self.member_connections(key, i) {
@@ -3873,7 +4005,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
         }
         let lay = &self.layouts[&key];
         let mut r = lay.known.is_some();
-        for &node in &lay.code {
+        for &node in lay.code.iter().filter(|n| !lay.at_ff.contains(n)) {
             match node {
                 // An input the parent copies to a slot is read where it
                 // settles, whatever the child does with it; one the child
@@ -3887,7 +4019,8 @@ impl<'d, 'a> Lowering<'d, 'a> {
                         let k = self.d.spec(child.0).ports.iter().position(|q| q.name == p.name);
                         let copied = !matches!(args.zip(k).map(|(a, k)| a[k]), Some(Arg::Alias(_)));
                         let at_ff = copied && self.ff_input(child, p);
-                        if p.dir == Dir::Input && rs.iter().any(|t| t.0 == o) && (copied && !at_ff || p.object.is_some_and(|q| self.comb_reads(child, q))) {
+                        let idle = p.object.is_some_and(|q| self.layouts[&child].idle_ports.contains(&q));
+                        if p.dir == Dir::Input && !idle && rs.iter().any(|t| t.0 == o) && (copied && !at_ff || p.object.is_some_and(|q| self.comb_reads(child, q))) {
                             r = true;
                         }
                     }
@@ -3964,6 +4097,238 @@ impl<'d, 'a> Lowering<'d, 'a> {
         format!("{what} writing {}{}", names.join(", "), if more { ", ..." } else { "" })
     }
 
+    /// The order of a specialisation's settling: its nodes' order without
+    /// its clock tree.
+    fn settle_order(&self, key: Key) -> Result<Vec<Node>, String> {
+        let at = &self.layouts[&key].at_ff;
+        Ok(self.order(key)?.into_iter().filter(|n| !at.contains(n)).collect())
+    }
+
+    /// Finds a specialisation's clock tree and clock inputs (see
+    /// `Layout::at_ff`): the nodes all of whose writes are read only by
+    /// edges, by children's clock inputs, or by other such nodes.
+    fn clock_tree(&mut self, key: Key) {
+        let d = self.d;
+        // The inputs nothing reads.
+        let idle = {
+        let lay = &self.layouts[&key];
+        let code = lay.code.clone();
+        let members = |i: InstId| lay.groups.get(&i).cloned().unwrap_or_else(|| vec![i]);
+        let mut any = Vec::new();
+        for &n in &code {
+            match n {
+                Node::In(i) | Node::Pre(i) => {
+                    let idle = &self.layouts[&lay.kid_keys[&i]].idle_ports;
+                    for m in members(i) {
+                        for (p, e) in self.connections(m) {
+                            if p.dir == Dir::Input && !p.object.is_some_and(|o| idle.contains(&o)) {
+                                self.reads(e, &mut any);
+                            }
+                        }
+                    }
+                }
+                Node::Proc(p) if self.clocked(p).is_some() => {
+                    let (terms, body) = self.clocked(p).unwrap();
+                    self.stmt_access(body, &mut any, &mut Vec::new(), &mut Vec::new());
+                    for t in terms {
+                        self.reads(t.expr, &mut any);
+                        if let Some(c) = t.iff {
+                            self.reads(c, &mut any);
+                        }
+                    }
+                }
+                Node::Call(_) | Node::Early(_) => {}
+                _ => any.extend(self.access(key, n).0),
+            }
+        }
+        // (The clocked processes are not among the nodes.)
+        for &p in &lay.ff {
+            let (terms, body) = self.clocked(p).unwrap();
+            self.stmt_access(body, &mut any, &mut Vec::new(), &mut Vec::new());
+            for t in terms {
+                self.reads(t.expr, &mut any);
+                if let Some(c) = t.iff {
+                    self.reads(c, &mut any);
+                }
+            }
+        }
+        let idle: HashSet<ObjId> = if lay.known.is_some() {
+            HashSet::new()
+        } else {
+            d.spec(key.0).ports.iter().filter(|p| p.dir == Dir::Input).filter_map(|p| p.object).filter(|o| !any.iter().any(|t| t.0 == *o)).collect()
+        };
+        idle
+        };
+        self.layouts.get_mut(&key).unwrap().idle_ports = idle;
+        let lay = &self.layouts[&key];
+        if !lay.clocked {
+            return;
+        }
+        let code = lay.code.clone();
+        let members = |i: InstId| lay.groups.get(&i).cloned().unwrap_or_else(|| vec![i]);
+        // What needs a value other than as a clock: the outputs, what the
+        // clocked processes' bodies read, and below what the rest reads.
+        let mut fixed: HashSet<ObjId> = d.spec(key.0).ports.iter().filter(|p| p.dir != Dir::Input).filter_map(|p| p.object).collect();
+        // (What the clocked processes' bodies read: a copy to a port may
+        // be made for them before they run, but nothing else is.)
+        let mut body_reads: HashSet<ObjId> = HashSet::new();
+        let mut edges = Vec::new();
+        for &p in &lay.ff {
+            let (terms, body) = self.clocked(p).unwrap();
+            let mut r = Vec::new();
+            self.stmt_access(body, &mut r, &mut Vec::new(), &mut Vec::new());
+            body_reads.extend(r.into_iter().map(|t| t.0));
+            for t in terms {
+                self.reads(t.expr, &mut edges);
+                if let Some(c) = t.iff {
+                    self.reads(c, &mut edges);
+                }
+            }
+        }
+        // Each node's reads (of what it needs as other than a clock) and
+        // writes, and whether it may be in the tree.
+        let mut r: Vec<Vec<ObjId>> = Vec::new();
+        let mut w: Vec<Vec<ObjId>> = Vec::new();
+        let mut at: Vec<bool> = Vec::new();
+        // (What children's clock inputs read: read as clocks.)
+        let mut to_clocks = Vec::new();
+        for &n in &code {
+            let (mut nr, mut nw) = (Vec::new(), Vec::new());
+            let ok = match n {
+                Node::In(i) | Node::Pre(i) => {
+                    let ck = lay.kid_keys[&i];
+                    let clocks = &self.layouts[&ck].clock_ports;
+                    let idle = &self.layouts[&ck].idle_ports;
+                    for m in members(i) {
+                        for (p, e) in self.connections(m) {
+                            if p.dir != Dir::Input || p.object.is_some_and(|o| idle.contains(&o)) {
+                                continue;
+                            }
+                            if p.object.is_some_and(|o| clocks.contains(&o)) {
+                                self.reads(e, &mut to_clocks);
+                            } else {
+                                self.reads(e, &mut nr);
+                            }
+                        }
+                    }
+                    !self.layouts[&ck].clocked
+                }
+                Node::Call(i) | Node::Early(i) => {
+                    for m in members(i) {
+                        for (p, e) in self.connections(m) {
+                            if p.dir == Dir::Output {
+                                self.writes(e, &mut nw, &mut Vec::new());
+                            }
+                        }
+                    }
+                    !self.layouts[&lay.kid_keys[&i]].clocked
+                }
+                Node::Proc(p) if self.clocked(p).is_some() => false,
+                Node::Proc(_) | Node::Driver(_) | Node::Loop(_) | Node::Rev(_) | Node::PortIn(..) | Node::PortOut(..) => {
+                    let (a, b) = self.access(key, n);
+                    nr = a;
+                    nw = b;
+                    true
+                }
+                _ => false,
+            };
+            r.push(nr.into_iter().map(|t| t.0).collect());
+            w.push(nw.into_iter().map(|t| t.0).collect());
+            at.push(ok);
+        }
+        // At the top, an output that only a clock makes (a clock passed
+        // out) is worked out with the clock tree: that runs every step.
+        if self.top == Some(key) {
+            let clockish: HashSet<ObjId> = edges.iter().chain(&to_clocks).map(|t| t.0).collect();
+            for p in d.spec(key.0).ports.iter().filter(|p| p.dir == Dir::Output) {
+                let Some(o) = p.object else { continue };
+                let writers: Vec<usize> = (0..code.len()).filter(|&k| w[k].contains(&o)).collect();
+                // (A child's call reads what its inputs do.)
+                let reads_of = |k: usize| -> Vec<ObjId> {
+                    match code[k] {
+                        Node::Call(i) | Node::Early(i) => (0..code.len())
+                            .filter(|&j| matches!(code[j], Node::In(x) | Node::Pre(x) if x == i))
+                            .flat_map(|j| r[j].iter().copied())
+                            .collect(),
+                        _ => r[k].clone(),
+                    }
+                };
+                if !writers.is_empty() && writers.iter().all(|&k| at[k] && reads_of(k).iter().all(|x| clockish.contains(x))) {
+                    fixed.remove(&o);
+                }
+            }
+        }
+        // A copy to a port of a child written in here may be made before
+        // the clocked processes where only they, or clocks, read the port;
+        // what it reads is then read there as data, not as a clock.
+        let port_in: Vec<bool> = code.iter().map(|n| matches!(n, Node::PortIn(..))).collect();
+        // (Read as data: what the bodies read, and what such copies read
+        // for a port read as data.)
+        let data_of = |at: &[bool]| -> HashSet<ObjId> {
+            let mut data = body_reads.clone();
+            loop {
+                let more: Vec<ObjId> = (0..code.len())
+                    .filter(|&k| at[k] && port_in[k] && w[k].iter().any(|o| data.contains(o)))
+                    .flat_map(|k| r[k].iter().copied())
+                    .filter(|o| !data.contains(o))
+                    .collect();
+                if more.is_empty() {
+                    return data;
+                }
+                data.extend(more);
+            }
+        };
+        loop {
+            let need: HashSet<ObjId> = fixed.iter().copied().chain((0..code.len()).filter(|&k| !at[k]).flat_map(|k| r[k].iter().copied())).collect();
+            let data = data_of(&at);
+            let mut changed = false;
+            for k in 0..code.len() {
+                let child_in = matches!(code[k], Node::In(_) | Node::Pre(_));
+                if at[k] && (w[k].is_empty() && !child_in || w[k].iter().any(|o| need.contains(o) || !port_in[k] && data.contains(o))) {
+                    at[k] = false;
+                    changed = true;
+                }
+            }
+            // (A child's calls and its inputs go together.)
+            for k in 0..code.len() {
+                if let Node::In(i) | Node::Pre(i) | Node::Call(i) | Node::Early(i) = code[k]
+                    && at[k]
+                    && code.iter().enumerate().any(|(j, &m)| !at[j] && matches!(m, Node::In(x) | Node::Pre(x) | Node::Call(x) | Node::Early(x) if x == i))
+                {
+                    at[k] = false;
+                    changed = true;
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        let need: HashSet<ObjId> = fixed.iter().copied().chain((0..code.len()).filter(|&k| !at[k]).flat_map(|k| r[k].iter().copied())).collect();
+        let data = data_of(&at);
+        let at_ff: HashSet<Node> = (0..code.len()).filter(|&k| at[k]).map(|k| code[k]).collect();
+        let read: HashSet<ObjId> = edges
+            .iter()
+            .chain(&to_clocks)
+            .map(|t| t.0)
+            .chain(
+                (0..code.len())
+                    .filter(|&k| at[k] && (!port_in[k] || !w[k].iter().any(|o| data.contains(o))))
+                    .flat_map(|k| r[k].iter().copied()),
+            )
+            .collect();
+        let clock_ports: HashSet<ObjId> = d
+            .spec(key.0)
+            .ports
+            .iter()
+            .filter(|p| p.dir == Dir::Input)
+            .filter_map(|p| p.object)
+            .filter(|o| read.contains(o) && !need.contains(o) && !data.contains(o))
+            .collect();
+        let lay = self.layouts.get_mut(&key).unwrap();
+        lay.at_ff = at_ff;
+        lay.clock_ports = clock_ports;
+    }
+
     /// Whether a clocked child's input, copied to a slot, is copied only
     /// before its clocked processes run, not where it settles: only they
     /// read it (a clock, say), so a change of it alone needs no settling.
@@ -3998,7 +4363,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     }
                 }
                 Node::In(_) | Node::Pre(_) | Node::Early(_) => {}
-                Node::Driver(_) | Node::Loop(_) | Node::Rev(_) => {
+                Node::Driver(_) | Node::Loop(_) | Node::Rev(_) | Node::PortIn(..) | Node::PortOut(..) => {
                     let (r, w) = self.access(key, node);
                     out.push(Dep { node: n, w, r });
                 }
@@ -4418,9 +4783,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
             ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_) => {
                 if let Some(r) = self.span(e) {
                     out.push(r);
-                    for &a in &x.args[1..] {
-                        self.reads(a, out);
-                    }
+                    self.index_reads(e, out);
                 } else {
                     for &a in &x.args {
                         self.reads(a, out);
@@ -4432,6 +4795,18 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     self.reads(a, out);
                 }
             }
+        }
+    }
+
+    /// What the indices of a chain of selects read: each select's own, and
+    /// those of the selects it is made from (`addr` in `m[addr][7:0]`).
+    fn index_reads(&self, e: ExprId, out: &mut Vec<(ObjId, u32, u32)>) {
+        let mut x = self.d.expr(e);
+        while matches!(x.kind, ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_)) {
+            for &a in &x.args[1..] {
+                self.reads(a, out);
+            }
+            x = self.d.expr(x.args[0]);
         }
     }
 
@@ -4449,9 +4824,7 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     w.push(s);
                 }
                 if matches!(x.kind, ExprKind::Index | ExprKind::Part { .. } | ExprKind::Member(_)) {
-                    for &a in &x.args[1..] {
-                        self.reads(a, r);
-                    }
+                    self.index_reads(e, r);
                 }
             }
         }
@@ -5551,6 +5924,22 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
                 Ok(())
             }
             Node::In(_) | Node::Pre(_) => self.inputs(n, false),
+            Node::PortIn(i, k) => {
+                let (o, e) = self.l.port_of(i, k);
+                let v = self.expr(e)?;
+                let w = tw(&d.types, d.object(o).ty);
+                let v = self.resize(&v, w, d.types.is_signed(d.expr(e).ty));
+                self.set(o, v);
+                Ok(())
+            }
+            Node::PortOut(i, k) => {
+                let (o, e) = self.l.port_of(i, k);
+                let ty = d.object(o).ty;
+                let v = self.read(o);
+                let v = self.logical(o, &v);
+                let v = self.resize(&v, tw(&d.types, d.expr(e).ty), d.types.is_signed(ty));
+                self.assign(e, v)
+            }
             Node::Call(i) | Node::Early(i) => {
                 let ck = self.lay().kid_keys[&i];
                 let child = &self.l.layouts[&ck];
@@ -5605,7 +5994,10 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
             // Values connected whole are where the child reads them;
             // an unconnected input's slot stays zero.
             let (Dir::Input, Arg::Slot(at)) = (port.dir, arg) else { continue };
-            if pre.is_some_and(|s| port.object.is_none_or(|o| !s.ins.contains(&o))) || self.l.ff_input(ck, port) != ff {
+            if pre.is_some_and(|s| port.object.is_none_or(|o| !s.ins.contains(&o)))
+                || self.l.ff_input(ck, port) != ff
+                || port.object.is_some_and(|o| child.idle_ports.contains(&o))
+            {
                 continue;
             }
             let o = port.object.ok_or("interface ports are not supported yet")?;
@@ -6983,6 +7375,13 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
             let (p, z) = (self.at(fired), self.b.const_int(self.t.i8, 0));
             self.st(z, p, 1);
         }
+        // The clock tree, worked out from the settled values before any
+        // clocked process looks for its edges.
+        if phase == Phase::Ff && !self.lay().at_ff.is_empty() {
+            let at = &self.lay().at_ff;
+            let tree: Vec<Node> = self.l.order(self.key)?.into_iter().filter(|n| at.contains(n)).collect();
+            self.body(&tree)?;
+        }
         for n in self.lay().code.clone() {
             if let Node::Call(i) = n
                 && self.l.layouts[&self.lay().kid_keys[&i]].clocked
@@ -7473,6 +7872,76 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
         ok = self.mand(ok, b);
         let i = if l >= r { self.bin("sub", k, self.k(r)) } else { self.bin("sub", self.k(r), k) };
         Ok((i, ok))
+    }
+
+    /// In scalar code, an element of a constant (a table, say) selected by
+    /// a value: loaded from a copy of the table in the code's data by its
+    /// address, not picked out by comparing the index with each element's.
+    fn table_read(&mut self, e: ExprId) -> Option<Val> {
+        let d = self.d();
+        if !self.sc() {
+            return None;
+        }
+        let x = d.expr(e);
+        let base = x.args[0];
+        let c = self.l.fold(base)?;
+        let bits = const_bits(&c, tw(&d.types, d.expr(base).ty))?;
+        let (off, w) = self.offset(e).ok()?;
+        let Off::Dec { i, n, stride, add, ok } = off else { return None };
+        if n <= 4 || w > 256 || w == 0 {
+            return None;
+        }
+        let span = w.div_ceil(64) as usize;
+        let mut bytes = Vec::with_capacity(n as usize * span * 8);
+        for k in 0..n {
+            let b = bits.slice(k * stride + add, w);
+            for j in 0..span as u32 {
+                let word = (0..64u32).filter(|t| j * 64 + t < w && b.bit(j * 64 + t) == Logic::One).fold(0u64, |a, t| a | 1 << t);
+                bytes.extend(word.to_le_bytes());
+            }
+        }
+        let g = {
+            let mut tables = self.l.tables.borrow_mut();
+            let next = tables.len();
+            match tables.get(&bytes) {
+                Some(&g) => g,
+                None => {
+                    let m = self.b.module();
+                    let Value::Const(init) = m.const_bytes(&bytes) else { unreachable!() };
+                    let i8t = m.types.int(8);
+                    let ty = m.types.array(bytes.len() as u64, i8t);
+                    let g = m.add_global(epitome_ir::module::Global::variable(&format!("sv_table_{next}"), ty, Some(init), true));
+                    if let epitome_ir::module::GlobalKind::Variable(v) = &mut m.globals[g.index()].kind {
+                        v.align = Some(8);
+                    }
+                    tables.insert(bytes, g);
+                    g
+                }
+            }
+        };
+        // (The index clamped into range: out of it, what is loaded is not
+        // used.)
+        let ix = self.lane0(i);
+        let last = self.i64k(n as i64 - 1);
+        let big = self.b.icmp(ICmpPred::Ugt, ix, last);
+        let ix = self.b.select(big, last, ix);
+        let row = self.i64k(span as i64 * 8);
+        let at = self.b.mul(ix, row);
+        let gv = self.b.module().global_value(g);
+        let p0 = self.b.gep(self.t.i8, gv, &[at]);
+        let p: Vec<P> = (0..span)
+            .map(|j| {
+                let a = self.off(p0, 8 * j as u64);
+                let v = self.ld(self.t.i64, a, 8);
+                P::V(self.reg(v))
+            })
+            .collect();
+        let v = self.extract(&Val { w: 64 * span as u32, p }, 0, w);
+        if ok == M::K(true) {
+            return Some(v);
+        }
+        let z = self.zero(w);
+        Some(self.select(ok, &v, &z))
     }
 
     /// `o[...]` read, for an object kept an element to a slot.
@@ -8831,6 +9300,9 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
                 }
                 if let Some((o, off, w)) = self.read_place(e)? {
                     return Ok(self.read_at(o, off, w));
+                }
+                if let Some(v) = self.table_read(e) {
+                    return Ok(v);
                 }
                 let base = self.expr(x.args[0])?;
                 let (off, w) = self.offset(e)?;
@@ -10542,6 +11014,20 @@ impl<'s, 'd, 'a> Sym<'s, 'd, 'a> {
                 Node::Rev(r) => self.l.revs[r].all.iter().try_for_each(|&dr| self.driver(dr))?,
                 Node::Proc(p) => self.stmt(d.processes[p.0 as usize].body)?,
                 Node::In(_) => {}
+                Node::PortIn(i, k) => {
+                    let (o, e) = self.l.port_of(i, k);
+                    let w = tw(&d.types, d.object(o).ty) as usize;
+                    let v = self.expr(e)?;
+                    let v = self.resize(&v, w, false);
+                    self.env.insert(o, v);
+                }
+                Node::PortOut(i, k) => {
+                    let (o, e) = self.l.port_of(i, k);
+                    let ty = d.object(o).ty;
+                    let v = self.env.get(&o).cloned().unwrap_or_else(|| vec![FALSE; tw(&d.types, ty) as usize]);
+                    let v = self.resize(&v, tw(&d.types, d.expr(e).ty) as usize, d.types.is_signed(ty));
+                    self.assign(e, v)?;
+                }
                 Node::Call(i) => self.l.members(self.key, i).into_iter().try_for_each(|m| self.call(m))?,
                 Node::Pre(_) | Node::Early(_) => return Err(Unproved),
             }

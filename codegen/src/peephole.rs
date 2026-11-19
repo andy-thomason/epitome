@@ -575,7 +575,7 @@ pub fn shared_constants(t: &Target, mf: &mut MFunc) -> usize {
 
 /// Each block's immediate dominator (the entry's, and an unreachable
 /// block's, the entry).
-fn dominators(mf: &MFunc) -> Vec<usize> {
+pub(crate) fn dominators(mf: &MFunc) -> Vec<usize> {
     let n = mf.blocks.len();
     let mut preds = vec![Vec::new(); n];
     for (b, blk) in mf.blocks.iter().enumerate() {

@@ -236,6 +236,13 @@ fn main() -> ExitCode {
             (get(&NANOS) - get(&WALK_NANOS)) as f64 / roots.max(1) as f64,
             total.as_secs_f64() * 1e3
         );
+        eprintln!(
+            "; allocation: {} spill loads, {} spill stores, {} register moves, {} spill code weighted by loop depth",
+            get(&SPILL_LOADS),
+            get(&SPILL_STORES),
+            get(&MOVES),
+            get(&SPILL_WEIGHTED)
+        );
         use epitome_codegen::timing;
         let ms = |c| timing::get(c) as f64 / 1e6;
         eprintln!(

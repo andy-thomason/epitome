@@ -1295,7 +1295,7 @@ pub const BRANCH_MIN: usize = 8;
 /// Most expression nodes, over all iterations, of a run of iterations
 /// left unrolled: each iteration of a rolled loop is a pass over the
 /// group's state, which costs more than a small body written out.
-const UNROLL_MAX: usize = 1024;
+const UNROLL_MAX: usize = 16384;
 /// Most expression nodes in one iteration for which [`UNROLL_TINY_MAX`]
 /// holds instead. A body this small is a select or two (a loop that moves
 /// one bit an iteration, as a bit reversal does): rolled, each iteration
@@ -1306,7 +1306,7 @@ const TINY_BODY: usize = 32;
 /// Most expression nodes, over all iterations, of a run of iterations with
 /// a tiny body left unrolled: past this even they roll, so the code stays
 /// bounded by the source however many iterations a parameter asks for.
-const UNROLL_TINY_MAX: usize = 8192;
+const UNROLL_TINY_MAX: usize = 131072;
 
 struct Lowering<'d, 'a> {
     opts: Options,

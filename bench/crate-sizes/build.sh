@@ -8,8 +8,8 @@
 #   bench/crate-sizes/build.sh [OUT] [crate...]
 #
 # OUT defaults to target/crate-sizes. Crates come from crates.txt and the
-# Cargo registry (~/.cargo/registry/src/*); fetch them with
-# `cargo fetch` in any project that depends on them if they are missing.
+# Cargo registry (~/.cargo/registry/src/*); if any are missing,
+# `cargo fetch --manifest-path bench/crate-sizes/fetch/Cargo.toml`.
 # EPITOME_RUSTC2 overrides target/release/epitome-rustc2.
 
 HERE=$(cd "$(dirname "$0")" && pwd)

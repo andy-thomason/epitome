@@ -1,0 +1,24 @@
+# Not built: `cargo fetch --manifest-path bench/crate-sizes/fetch/Cargo.toml`
+# puts the crates crates.txt names (and the demangler) in the registry.
+[package]
+name = "crate-sizes-fetch"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+itoa = "=1.0.15"
+ryu = "=1.0.20"
+fnv = "=1.0.7"
+smallvec = "=1.15.1"
+arrayvec = "=0.7.6"
+hex = "=0.4.3"
+base64 = "=0.22.1"
+memchr = "=2.7.4"
+semver = "=1.0.26"
+unicode-width = "=0.2.1"
+heck = "=0.5.0"
+strsim = "=0.11.1"
+rustc-demangle = "=0.1.24"

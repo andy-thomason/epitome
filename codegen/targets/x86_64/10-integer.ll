@@ -409,6 +409,32 @@ define void @STI8(i8 "reg"="r32" %t, ptr "reg"="r64" %n, i64 "imm" %off) "enc"="
   ret void
 }
 
+; Stores of immediates (C7 /0 and C6 /0): a constant stored is not made
+; in a register first. movq's is sign-extended from 32 bits.
+define void @STI64i(i64 "imm" %imm, ptr "reg"="r64" %n, i64 "imm" %off) "enc"="rex(1, 0, 4, n) | 11000111 | rm(0, n, 4, 1, off, 0, 1) | iv:s32=imm" "asm"="movq ${imm}, {off}({n})" "nodecode" {
+  %a = getelementptr i8, ptr %n, i64 %off
+  store i64 %imm, ptr %a
+  ret void
+}
+
+define void @STI32i(i32 "imm" %imm, ptr "reg"="r64" %n, i64 "imm" %off) "enc"="rex(0, 0, 4, n) | 11000111 | rm(0, n, 4, 1, off, 0, 1) | iv:s32=imm" "asm"="movl ${imm}, {off}({n})" "nodecode" {
+  %a = getelementptr i8, ptr %n, i64 %off
+  store i32 %imm, ptr %a
+  ret void
+}
+
+define void @STI16i(i16 "imm" %imm, ptr "reg"="r64" %n, i64 "imm" %off) "enc"="01100110 | rex(0, 0, 4, n) | 11000111 | rm(0, n, 4, 1, off, 0, 1) | iw:s16=imm" "asm"="movw ${imm}, {off}({n})" "nodecode" {
+  %a = getelementptr i8, ptr %n, i64 %off
+  store i16 %imm, ptr %a
+  ret void
+}
+
+define void @STI8i(i8 "imm" %imm, ptr "reg"="r64" %n, i64 "imm" %off) "enc"="rex(0, 0, 4, n) | 11000110 | rm(0, n, 4, 1, off, 0, 1) | ib:s8=imm" "asm"="movb ${imm}, {off}({n})" "nodecode" {
+  %a = getelementptr i8, ptr %n, i64 %off
+  store i8 %imm, ptr %a
+  ret void
+}
+
 ; Bit scans: the number of the lowest set bit (bsf, trailing zeros) or the
 ; highest (bsr: `llvm.epitome.highbit`, ctlz xor 31 or 63), of a nonzero
 ; value; for zero the result is undefined (preparation selects the width

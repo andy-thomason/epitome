@@ -1,22 +1,22 @@
 ; @fill: implied: 0 comparisons folded, 0 selects resolved, 2 flags set
 ; @fill: rotate: 2 loops rotated
 ; @fill: combine: (folded) x2, br_true x2
-; @fill: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 2 blocks merged
+; @fill: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 2 blocks merged, 0 edges into unreachable dropped
 ; @fill: licm: 1 moved out of loops (0 loads)
 ; @fill: indvars: loop %col runs 10 times when entered
 ; @fill: indvars: loop %cols.preheader runs 4 times when entered
 ; @fill: indvars: 2 exact exit tests, 0 exit values, 0 counters widened
 ; @fill: loopidiom: 1 loops made memsets
 ; @fill: combine: (dead) x3, (folded) x4, add_zero x1, mul_mul_const x1
-; @fill: simplifycfg: 0 unreachable blocks removed, 1 empty blocks bypassed, 0 selects made, 1 blocks merged
+; @fill: simplifycfg: 0 unreachable blocks removed, 1 empty blocks bypassed, 0 selects made, 1 blocks merged, 0 edges into unreachable dropped
 ; @fill: loopidiom: 1 loops made memsets
 ; @fill: combine: (dead) x2, (folded) x5
-; @fill: simplifycfg: 0 unreachable blocks removed, 1 empty blocks bypassed, 0 selects made, 1 blocks merged
+; @fill: simplifycfg: 0 unreachable blocks removed, 1 empty blocks bypassed, 0 selects made, 1 blocks merged, 0 edges into unreachable dropped
 ; @ones: indvars: loop %loop runs %n times when entered
 ; @ones: indvars: 1 exact exit tests, 0 exit values, 0 counters widened
 ; @ones: loopidiom: 1 loops made memsets
 ; @ones: combine: (dead) x2, (folded) x2, mul_pow2 x1, sub_zero x1
-; @ones: simplifycfg: 0 unreachable blocks removed, 1 empty blocks bypassed, 0 selects made, 0 blocks merged
+; @ones: simplifycfg: 0 unreachable blocks removed, 1 empty blocks bypassed, 0 selects made, 0 blocks merged, 0 edges into unreachable dropped
 ; @not_a_byte: indvars: loop %loop runs 16 times when entered
 ; @not_a_byte: indvars: 1 exact exit tests, 0 exit values, 0 counters widened
 ; @not_a_byte: lsr: 1 arrays stepped by pointer, 1 counters counting down

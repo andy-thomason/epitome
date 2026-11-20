@@ -1,7 +1,7 @@
 ; @fact: recursion: 1 accumulator call(s) now jump back to the start, folding with mul
 ; @fact: combine: mul_one x1, sub_const x1
 ; @fact: rotate: 1 loops rotated
-; @fact: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged
+; @fact: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged, 0 edges into unreachable dropped
 ; @fact: indvars: loop %recur runs %n.arg - 1 times when entered
 ; @main: inlined @fact: cost 6, bonus 18, threshold 100
 ; @main: combine: (folded) x2, br_false x1

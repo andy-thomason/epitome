@@ -323,11 +323,31 @@ fn main() -> ExitCode {
             report.frame_calls,
             report.deleted.len()
         );
+        let p = report.prefold;
+        if p.branches > 0 {
+            eprintln!(
+                "; prefold: {} branches on constants folded, {} blocks removed, before the call graph",
+                p.branches, p.blocks
+            );
+        }
+        let sizes = |v: &[usize]| v.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(", ");
+        let mut before: Vec<usize> = report.cycle_sizes.clone();
+        before.sort_unstable_by(|a, b| b.cmp(a));
+        eprintln!(
+            "; cycles: {} of sizes {} in the call graph; {} of sizes {} left once split",
+            before.len(),
+            sizes(&before),
+            report.cycles_left.len(),
+            sizes(&report.cycles_left)
+        );
+        for (size, calls, cold) in &report.cuts {
+            eprintln!("; cut: a cycle of {size} functions, {calls} calls cut ({cold} cold)");
+        }
         let c = report.simplifycfg;
         if c.total() > 0 {
             eprintln!(
-                "; simplifycfg: {} unreachable blocks removed, {} empty blocks bypassed, {} selects made, {} blocks merged",
-                c.unreachable, c.bypassed, c.selects, c.merged
+                "; simplifycfg: {} unreachable blocks removed, {} empty blocks bypassed, {} selects made, {} blocks merged, {} edges into unreachable dropped",
+                c.unreachable, c.bypassed, c.selects, c.merged, c.dead_edges
             );
         }
         let im = report.implied;

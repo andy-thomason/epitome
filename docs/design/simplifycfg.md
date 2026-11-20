@@ -56,6 +56,16 @@ replacement must go to the same block.
   selects with no branch.
 - **Straight lines** merge: a block that is the only successor of its only
   predecessor joins it.
+- **Edges into `unreachable`** go. A block that is nothing but
+  `unreachable` cannot be reached without undefined behaviour, so a
+  conditional branch to one becomes a plain branch to its other target,
+  and a switch loses its cases that lead there. A default that leads there
+  is replaced by the first live case's target, and that target's cases
+  then go too. A branch whose every edge leads there becomes `unreachable`
+  itself, so this works back through chains of tests. A block that does
+  something first, such as calling a function that does not return, is a
+  real path and stays. `Option::unwrap_unchecked`, a test of the tag and
+  a branch to `unreachable` for `None`, becomes a single move.
 
 Functions whose blocks have their address taken are left alone, since a
 `blockaddress` may name any block.
@@ -64,7 +74,14 @@ In the pipeline, each function is combined, then simplified, then
 combined again from the selects and phis the simplification touched, for
 up to three rounds, before CSE.
 
-`opt/tests/examples/simplifycfg.ll` shows each case.
+`opt/tests/examples/simplifycfg.ll` shows each case, and
+`unreachable_edges.ll` the edges into `unreachable`.
+
+Before the call graph is built, `opt/src/prefold.rs` folds branches and
+switches on constants (and on comparisons of two constants) and deletes
+the blocks left unreachable, so that calls that can never run do not tie
+functions into call-graph cycles (see [parallel.md](parallel.md)).
+`prefold.ll` shows it.
 
 ## Effect
 

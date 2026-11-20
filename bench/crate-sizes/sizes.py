@@ -214,6 +214,11 @@ MIXES = {}
 def main():
     st = status()
     summary = []
+    hello = {}
+    for t in ('ep-default', 'ep-ndebug', 'ep-abort', 'rustc-O3', 'rustc-Os'):
+        e = os.path.join(OUT, 'hello', t + '.exe')
+        if os.path.exists(e):
+            hello[t] = text_section(e)[1]
     for name in crates():
         if ONLY and name != ONLY:
             continue
@@ -234,6 +239,11 @@ def main():
         print('| text | ' + ' | '.join(kb(texts[t]) for t in exes) + f' | {texts["ep-ndebug"] / texts["rustc-O3"]:.2f} |')
         print("| crate's code | " + ' | '.join(f'{code[t]:,}' for t in exes) +
               f' | {code["ep-ndebug"] / max(code["rustc-O3"], 1):.2f} |')
+        if len(hello) == len(exes):
+            over = {t: texts[t] - hello[t] for t in exes}
+            print("| text over hello world | " + ' | '.join(f'{over[t]:,}' for t in exes) +
+                  f' | {over["ep-ndebug"] / max(over["rustc-O3"], 1):.2f} |')
+            texts.update({t + '+': over[t] for t in exes})
         print()
         summary.append((name, runs, texts, code))
         if MIX:
@@ -271,11 +281,13 @@ def main():
         print()
     if len(summary) > 1:
         print('## Summary\n')
-        print("| crate | runs | text ep ndebug | rustc -O | crate's code: ep default | ep ndebug | ep abort | rustc -O | rustc -Os | ndebug / rustc -O |")
+        if hello:
+            print(f'Hello world\'s text: ' + ', '.join(f'{t} {v:,}' for t, v in hello.items()) + '.\n')
+        print("| crate | runs | text over hello: ep ndebug | rustc -O | crate's code: ep default | ep ndebug | ep abort | rustc -O | rustc -Os | ndebug / rustc -O |")
         print('|---|---|---|---|---|---|---|---|---|---|')
         tot = {}
         for name, runs, t, c in summary:
-            print(f'| {name} | {runs} | {kb(t["ep-ndebug"])} | {kb(t["rustc-O3"])} | '
+            print(f'| {name} | {runs} | {t.get("ep-ndebug+", 0):,} | {t.get("rustc-O3+", 0):,} | '
                   f'{c["ep-default"]:,} | {c["ep-ndebug"]:,} | {c["ep-abort"]:,} | {c["rustc-O3"]:,} | {c["rustc-Os"]:,} | '
                   f'{c["ep-ndebug"] / max(c["rustc-O3"], 1):.2f} |')
             for k, v in c.items():

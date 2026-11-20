@@ -31,6 +31,15 @@ mkdir -p "$OUT/tools"
       rustc --edition 2021 -O --extern rustc_demangle="$OUT/tools/librustc_demangle.rlib" -o "$OUT/tools/demangle" "$HERE/demangle.rs"; } ||
     echo "warning: could not build the demangler from $DM"
 
+# The baseline: a hello world, built the same ways.
+h="$OUT/hello"; mkdir -p "$h"
+for lvl in 3 s; do
+    rustc --edition 2021 -C opt-level=$lvl -C panic=abort -C symbol-mangling-version=v0 -o "$h/rustc-O$lvl.exe" "$HERE/progs/hello.rs"
+done
+"$B" --std --edition 2021 -o "$h/ep-default.exe" "$HERE/progs/hello.rs"
+"$B" --std --edition 2021 -C debug-assertions=off -o "$h/ep-ndebug.exe" "$HERE/progs/hello.rs"
+"$B" --std --edition 2021 -C debug-assertions=off -Cpanic=immediate-abort -o "$h/ep-abort.exe" "$HERE/progs/hello.rs"
+
 grep -v '^#' "$HERE/crates.txt" | while read -r name dir edition cfgs; do
     [ -n "$name" ] || continue
     if [ $# -gt 0 ] && ! printf '%s\n' "$@" | grep -qx "$name"; then continue; fi

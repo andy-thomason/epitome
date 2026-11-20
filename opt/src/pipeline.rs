@@ -1,7 +1,9 @@
 //! The pipeline: inlining, recursion removal and combines, run bottom-up
 //! over the call graph on many threads.
 //!
-//! 1. Build the call graph and find its SCCs (in parallel per function).
+//! 1. Fold branches on constants (`prefold.rs`), so that calls that can
+//!    never run make no cycles; then build the call graph and find its
+//!    SCCs (in parallel per function).
 //! 2. Declare the intrinsics the passes may call, while the module can
 //!    still change.
 //! 3. Split the module for parallel work (`ctx::parallel_phase`) and run
@@ -11,6 +13,11 @@
 //!    - if the SCC is a cycle, collapses it to one function and turns the
 //!      remaining self-calls into loops;
 //!    - runs the combiner on each function;
+//!    - if the SCC was a cycle, finds the SCCs of the calls left among its
+//!      functions: the passes may have deleted the ones that closed it.
+//!      If it split, each piece is finished in turn, callees first, as if
+//!      it were a task of its own: its calls to the pieces before it are
+//!      inlined, it is simplified again, and it splits again if it can;
 //!    - publishes the bodies, which unblocks the SCCs that call them.
 //! 4. Put the module back together, merge identical metadata, and delete
 //!    internal functions that nothing refers to any more.
@@ -90,6 +97,16 @@ pub struct Report {
     pub sccs: usize,
     /// One line per call-graph cycle, as found before the passes ran.
     pub cycles: Vec<String>,
+    /// The number of functions in each of those cycles.
+    pub cycle_sizes: Vec<usize>,
+    /// What was folded before the call graph was built.
+    pub prefold: crate::prefold::Stats,
+    /// The sizes of the cycles left once the SCCs' tasks had split them
+    /// where the passes deleted the calls that closed them.
+    pub cycles_left: Vec<usize>,
+    /// For each cycle cut so that the rest could be inlined (`cut.rs`):
+    /// its size, the calls cut, and how many of those were cold.
+    pub cuts: Vec<(usize, usize, usize)>,
     pub inlined: usize,
     /// How often each combine rule fired, over the whole module.
     pub combines: crate::combine::Stats,
@@ -239,12 +256,33 @@ fn optimise(m: &mut Module, opts: &Options) -> Report {
         timings.push((name, now - clock));
         clock = now;
     };
+    // Autochop: functions with bodies are numbered in module order, and
+    // each one's elective changes are counted while its passes run.
+    let chop_order: Vec<GlobalId> = m
+        .global_order
+        .iter()
+        .copied()
+        .filter(|&g| matches!(&m.global(g).kind, GlobalKind::Function(f) if f.has_body))
+        .collect();
+    let mut chop_index = vec![usize::MAX; m.globals.len()];
+    for (k, g) in chop_order.iter().enumerate() {
+        chop_index[g.index()] = k;
+    }
+    let chop = epitome_ir::chop::Session::new(chop_order.len(), opts.chop);
+    let counted = |g: GlobalId| chop.enter(chop_index[g.index()]);
+    // Branches on constants go first, so that the calls behind them do
+    // not make cycles in the call graph.
+    let (prefold, prefold_remarks) =
+        if opts.simplifycfg { crate::prefold::run(m, threads, counted) } else { Default::default() };
+    lap("prefold");
     let cg = CallGraph::build(m, threads);
     let mut report = Report {
+        prefold,
         threads,
         functions: cg.nodes.len(),
         sccs: cg.sccs.len(),
         cycles: cg.describe_cycles(m),
+        cycle_sizes: (0..cg.sccs.len()).filter(|&s| cg.is_recursive(s)).map(|s| cg.sccs[s].len()).collect(),
         ..Default::default()
     };
     let intrinsics = declare_intrinsics(m);
@@ -271,23 +309,14 @@ fn optimise(m: &mut Module, opts: &Options) -> Report {
     let tail_marked = AtomicUsize::new(0);
     let accumulator_calls = AtomicUsize::new(0);
     let frame_calls = AtomicUsize::new(0);
+    let cycles_left = std::sync::Mutex::new(Vec::new());
+    let cuts = std::sync::Mutex::new(Vec::new());
     let task_nanos: Vec<std::sync::atomic::AtomicU64> = (0..cg.sccs.len()).map(|_| Default::default()).collect();
-    // Autochop: functions with bodies are numbered in module order, and
-    // each one's elective changes are counted while its passes run.
-    let chop_order: Vec<GlobalId> = m
-        .global_order
-        .iter()
-        .copied()
-        .filter(|&g| matches!(&m.global(g).kind, GlobalKind::Function(f) if f.has_body))
-        .collect();
-    let mut chop_index = vec![usize::MAX; m.globals.len()];
-    for (k, g) in chop_order.iter().enumerate() {
-        chop_index[g.index()] = k;
-    }
-    let chop = epitome_ir::chop::Session::new(chop_order.len(), opts.chop);
-    let counted = |g: GlobalId| chop.enter(chop_index[g.index()]);
 
     let ((), remarks) = parallel_phase(m, intrinsics, |sh| {
+        for (g, line) in prefold_remarks {
+            sh.remark(g, line);
+        }
         par::run_dag(&deps, &priority, threads, |s| {
             let started = std::time::Instant::now();
             let mut bodies: Vec<(GlobalId, Box<Function>)> = cg.sccs[s]
@@ -343,56 +372,57 @@ fn optimise(m: &mut Module, opts: &Options) -> Report {
                     }
                 }
             }
-            if opts.recursion != RecursionMode::Off && cg.is_recursive(s) && !bodies.is_empty() {
-                let remove = |g: GlobalId, f: &mut Function| {
-                    let m = sh.module;
-                    if attrs::has(m, &f.fn_attrs, "optnone") {
-                        return;
-                    }
-                    let mode = if attrs::has(m, &f.fn_attrs, "minsize") { RecursionMode::Tail } else { opts.recursion };
-                    if !epitome_ir::chop::allow(|| format!("recursion: remove @{}'s recursion", sh.name(g))) {
-                        return;
-                    }
-                    let block_addresses = cg.node(g).is_some_and(|n| cg.has_blockaddress[n]);
-                    match recursion::eliminate(sh, g, f, mode, block_addresses) {
-                        Ok(o) => {
-                            tail_calls.fetch_add(o.tail_calls, Ordering::Relaxed);
-                            accumulator_calls.fetch_add(o.accumulator_calls, Ordering::Relaxed);
-                            frame_calls.fetch_add(o.frame_calls.len(), Ordering::Relaxed);
-                            if o.accumulator_calls > 0 {
-                                let op = o.accumulator_op.map_or("", |op| op.keyword());
-                                sh.remark(
-                                    g,
-                                    format!(
-                                        "recursion: {} accumulator call(s) now jump back to the start, folding with {op}",
-                                        o.accumulator_calls
-                                    ),
-                                );
-                            }
-                            if o.tail_calls > 0 {
-                                sh.remark(
-                                    g,
-                                    format!("recursion: {} tail call(s) now jump back to the start", o.tail_calls),
-                                );
-                            }
-                            if !o.frame_calls.is_empty() {
-                                let sizes: Vec<String> = o.frame_calls.iter().map(|n| n.to_string()).collect();
-                                sh.remark(
-                                    g,
-                                    format!(
-                                        "recursion: {} call(s) now push a frame on an explicit stack (values saved per frame: {})",
-                                        o.frame_calls.len(),
-                                        sizes.join(", ")
-                                    ),
-                                );
-                            }
-                            if o.kept > 0 {
-                                sh.remark(g, format!("recursion: {} recursive call(s) kept", o.kept));
-                            }
+            // Recursion removal for one function: self-calls become loops.
+            let remove = |g: GlobalId, f: &mut Function| {
+                let m = sh.module;
+                if attrs::has(m, &f.fn_attrs, "optnone") {
+                    return;
+                }
+                let mode = if attrs::has(m, &f.fn_attrs, "minsize") { RecursionMode::Tail } else { opts.recursion };
+                if !epitome_ir::chop::allow(|| format!("recursion: remove @{}'s recursion", sh.name(g))) {
+                    return;
+                }
+                let block_addresses = cg.node(g).is_some_and(|n| cg.has_blockaddress[n]);
+                match recursion::eliminate(sh, g, f, mode, block_addresses) {
+                    Ok(o) => {
+                        tail_calls.fetch_add(o.tail_calls, Ordering::Relaxed);
+                        accumulator_calls.fetch_add(o.accumulator_calls, Ordering::Relaxed);
+                        frame_calls.fetch_add(o.frame_calls.len(), Ordering::Relaxed);
+                        if o.accumulator_calls > 0 {
+                            let op = o.accumulator_op.map_or("", |op| op.keyword());
+                            sh.remark(
+                                g,
+                                format!(
+                                    "recursion: {} accumulator call(s) now jump back to the start, folding with {op}",
+                                    o.accumulator_calls
+                                ),
+                            );
                         }
-                        Err(e) => sh.remark(g, format!("recursion: not removed: {e}")),
+                        if o.tail_calls > 0 {
+                            sh.remark(
+                                g,
+                                format!("recursion: {} tail call(s) now jump back to the start", o.tail_calls),
+                            );
+                        }
+                        if !o.frame_calls.is_empty() {
+                            let sizes: Vec<String> = o.frame_calls.iter().map(|n| n.to_string()).collect();
+                            sh.remark(
+                                g,
+                                format!(
+                                    "recursion: {} call(s) now push a frame on an explicit stack (values saved per frame: {})",
+                                    o.frame_calls.len(),
+                                    sizes.join(", ")
+                                ),
+                            );
+                        }
+                        if o.kept > 0 {
+                            sh.remark(g, format!("recursion: {} recursive call(s) kept", o.kept));
+                        }
                     }
-                };
+                    Err(e) => sh.remark(g, format!("recursion: not removed: {e}")),
+                }
+            };
+            if opts.recursion != RecursionMode::Off && cg.is_recursive(s) && !bodies.is_empty() {
                 // Self-calls first, so that inlining members into each other
                 // below terminates.
                 for (g, f) in &mut bodies {
@@ -400,12 +430,18 @@ fn optimise(m: &mut Module, opts: &Options) -> Report {
                     remove(*g, f);
                 }
                 // Collapsing the cycle is one step, of its first function.
-                let collapse = bodies.len() > 1 && {
+                // It inlines every other member at least once, so a cycle
+                // of more than `COLLAPSE_INLINES + 1` cannot collapse.
+                if bodies.len() > COLLAPSE_INLINES + 1 {
+                    let line = format!("recursion: cycle of {} functions not collapsed: too many", bodies.len());
+                    sh.remark(bodies[0].0, line);
+                }
+                let collapse = bodies.len() > 1 && bodies.len() <= COLLAPSE_INLINES + 1 && {
                     let _counted = counted(bodies[0].0);
                     epitome_ir::chop::allow(|| format!("recursion: collapse the cycle of @{}", sh.name(bodies[0].0)))
                 };
                 if collapse {
-                    for (e, result) in recursion::collapse_scc(sh, &cg, &mut bodies, 64) {
+                    for (e, result) in recursion::collapse_scc(sh, &cg, &mut bodies, COLLAPSE_INLINES) {
                         let g = bodies[e].0;
                         match result {
                             Ok(()) => {
@@ -452,8 +488,8 @@ fn optimise(m: &mut Module, opts: &Options) -> Report {
                     sh.remark(
                             g,
                             format!(
-                                "simplifycfg: {} unreachable blocks removed, {} empty blocks bypassed, {} selects made, {} blocks merged",
-                                s.unreachable, s.bypassed, s.selects, s.merged
+                                "simplifycfg: {} unreachable blocks removed, {} empty blocks bypassed, {} selects made, {} blocks merged, {} edges into unreachable dropped",
+                                s.unreachable, s.bypassed, s.selects, s.merged, s.dead_edges
                             ),
                         );
                     {
@@ -463,6 +499,7 @@ fn optimise(m: &mut Module, opts: &Options) -> Report {
                         all.selects += s.selects;
                         all.speculated += s.speculated;
                         all.merged += s.merged;
+                        all.dead_edges += s.dead_edges;
                     }
                     if !opts.combine || out.touched.is_empty() {
                         break;
@@ -470,21 +507,21 @@ fn optimise(m: &mut Module, opts: &Options) -> Report {
                     combine(g, f, Some(&out.touched));
                 }
             };
-            for (g, f) in &mut bodies {
-                let _counted = counted(*g);
+            // Everything after inlining and recursion, for one function.
+            let simplify = |g: GlobalId, f: &mut Function| {
                 if opts.combine {
-                    combine(*g, f, None);
+                    combine(g, f, None);
                     // Calls on constants that can be worked out, now that
                     // the arguments are folded.
-                    let n = crate::constcall::run(sh, *g, f);
+                    let n = crate::constcall::run(sh, g, f);
                     if n > 0 {
-                        sh.remark(*g, format!("constcall: {n} calls worked out"));
-                        combine(*g, f, None);
+                        sh.remark(g, format!("constcall: {n} calls worked out"));
+                        combine(g, f, None);
                     }
                 }
                 // Then the CFG, and the combiner again on what that touched,
                 // which may fold more branches.
-                simplify_cfg(*g, f);
+                simplify_cfg(g, f);
                 // What the branches on the way to each block imply: bounds
                 // checks under a loop's test, before rotation moves the
                 // test to the bottom.
@@ -492,7 +529,7 @@ fn optimise(m: &mut Module, opts: &Options) -> Report {
                     let s = crate::implied::run(sh, f);
                     if s.changed() {
                         sh.remark(
-                            *g,
+                            g,
                             format!(
                                 "implied: {} comparisons folded, {} selects resolved, {} flags set",
                                 s.folded, s.selects, s.flags
@@ -505,9 +542,9 @@ fn optimise(m: &mut Module, opts: &Options) -> Report {
                             all.flags += s.flags;
                         }
                         if opts.combine {
-                            combine(*g, f, None);
+                            combine(g, f, None);
                         }
-                        simplify_cfg(*g, f);
+                        simplify_cfg(g, f);
                     }
                 }
                 // Loops: rotate them to test at the bottom, tidy what that
@@ -515,35 +552,35 @@ fn optimise(m: &mut Module, opts: &Options) -> Report {
                 if opts.loops {
                     let r = crate::rotate::run(sh, f);
                     if r.rotated > 0 {
-                        sh.remark(*g, format!("rotate: {} loops rotated", r.rotated));
+                        sh.remark(g, format!("rotate: {} loops rotated", r.rotated));
                         rotated.fetch_add(r.rotated, Ordering::Relaxed);
                         if opts.combine {
-                            combine(*g, f, None);
+                            combine(g, f, None);
                         }
-                        simplify_cfg(*g, f);
+                        simplify_cfg(g, f);
                     }
                     // What does not change round a loop, out of it.
                     let h = crate::licm::run(sh, f);
                     if h.hoisted > 0 {
-                        sh.remark(*g, format!("licm: {} moved out of loops ({} loads)", h.hoisted, h.loads));
+                        sh.remark(g, format!("licm: {} moved out of loops ({} loads)", h.hoisted, h.loads));
                         let mut all = licm_stats.lock().unwrap();
                         all.hoisted += h.hoisted;
                         all.loads += h.loads;
                     }
                     let s = crate::indvars::run(sh, f);
                     for (h, n) in &s.trip_counts {
-                        sh.remark(*g, format!("indvars: loop {h} runs {n} times when entered"));
+                        sh.remark(g, format!("indvars: loop {h} runs {n} times when entered"));
                     }
                     if s.changed() {
                         sh.remark(
-                            *g,
+                            g,
                             format!(
                                 "indvars: {} exact exit tests, {} exit values, {} counters widened",
                                 s.exact_exits, s.exit_values, s.widened
                             ),
                         );
                         if opts.combine {
-                            combine(*g, f, None);
+                            combine(g, f, None);
                         }
                     }
                     // Loops that only set memory to a byte, as memsets; then
@@ -555,24 +592,24 @@ fn optimise(m: &mut Module, opts: &Options) -> Report {
                             if s.memsets == 0 {
                                 break;
                             }
-                            sh.remark(*g, format!("loopidiom: {} loops made memsets", s.memsets));
+                            sh.remark(g, format!("loopidiom: {} loops made memsets", s.memsets));
                             if opts.combine {
-                                combine(*g, f, None);
+                                combine(g, f, None);
                             }
-                            simplify_cfg(*g, f);
+                            simplify_cfg(g, f);
                         }
                     }
                     let r = crate::lsr::run(sh, f);
                     if r.changed() {
                         sh.remark(
-                            *g,
+                            g,
                             format!(
                                 "lsr: {} arrays stepped by pointer, {} counters counting down",
                                 r.pointers, r.countdowns
                             ),
                         );
                         if opts.combine {
-                            combine(*g, f, None);
+                            combine(g, f, None);
                         }
                     }
                     let mut all = iv_stats.lock().unwrap();
@@ -585,7 +622,7 @@ fn optimise(m: &mut Module, opts: &Options) -> Report {
                     let crate::cse::Outcome { stats: s, changed } = crate::cse::run(sh, f);
                     if s.total() > 0 {
                         sh.remark(
-                            *g,
+                            g,
                             format!(
                                 "cse: {} merged, {} loads reused, {} stores forwarded",
                                 s.merged, s.loads, s.forwarded
@@ -597,7 +634,7 @@ fn optimise(m: &mut Module, opts: &Options) -> Report {
                         all.forwarded += s.forwarded;
                         drop(all);
                         if opts.combine {
-                            combine(*g, f, Some(&changed));
+                            combine(g, f, Some(&changed));
                         }
                     }
                 }
@@ -606,10 +643,10 @@ fn optimise(m: &mut Module, opts: &Options) -> Report {
                 if opts.memory {
                     let s = crate::memcpyopt::run(sh, f);
                     if s.memsets > 0 {
-                        sh.remark(*g, format!("memcpyopt: {} stores made {} memsets", s.stores, s.memsets));
+                        sh.remark(g, format!("memcpyopt: {} stores made {} memsets", s.stores, s.memsets));
                         // The stores' addresses may now be unused.
                         if opts.combine {
-                            combine(*g, f, None);
+                            combine(g, f, None);
                         }
                         let mut all = memcpy_stats.lock().unwrap();
                         all.memsets += s.memsets;
@@ -622,9 +659,114 @@ fn optimise(m: &mut Module, opts: &Options) -> Report {
                     let n = crate::tailmark::run(sh, f);
                     tail_marked.fetch_add(n, Ordering::Relaxed);
                 }
+            };
+            for (g, f) in &mut bodies {
+                let _counted = counted(*g);
+                simplify(*g, f);
             }
-            for (g, f) in bodies {
-                sh.publish(g, f);
+            // The passes above may have deleted calls that were all that
+            // held the cycle together: a check behind a constant, say, on
+            // the way to the panic machinery. Split what is left into its
+            // SCCs and treat each piece as a task of its own, callees
+            // first: publish it once its calls to the pieces before it are
+            // inlined and it is simplified again, and split it in turn if
+            // it is still a cycle and changed.
+            let mut next_piece = 0u32;
+            // Pieces to finish, the next on top: its members, how many
+            // splits deep it is, and whether its calls are still to inline.
+            let mut stack: Vec<(Vec<(GlobalId, Box<Function>)>, usize, bool)> = vec![(bodies, 0, false)];
+            while let Some((mut piece, depth, fresh)) = stack.pop() {
+                let mut changed = false;
+                if fresh && opts.inline {
+                    for (g, f) in &mut piece {
+                        let _counted = counted(*g);
+                        let n = inliner.run_on(sh, *g, f);
+                        inlined.fetch_add(n, Ordering::Relaxed);
+                        if n > 0 {
+                            if opts.mem2reg || opts.sroa {
+                                promote(*g, f);
+                            }
+                            simplify(*g, f);
+                            changed = true;
+                        }
+                    }
+                }
+                let parts = if piece.len() > 1 && depth < MAX_SPLITS && (!fresh || changed) {
+                    split_cycle(sh, &piece)
+                } else {
+                    vec![]
+                };
+                if parts.len() <= 1 && piece.len() > 1 && opts.inline {
+                    // Still a cycle: cut the calls that close it, and finish
+                    // the members in the order the rest allows, each
+                    // inlining the uncut calls to those before it.
+                    let cut = crate::cut::choose(sh, &mut piece);
+                    sh.remark(
+                        piece[0].0,
+                        format!(
+                            "recursion: cut {} calls ({} cold) and {} self-calls to order the cycle of {}",
+                            cut.calls,
+                            cut.cold,
+                            cut.self_calls,
+                            piece.len()
+                        ),
+                    );
+                    cuts.lock().unwrap().push((piece.len(), cut.calls, cut.cold));
+                    cycles_left.lock().unwrap().push(piece.len());
+                    next_piece += 1;
+                    for (g, _) in &piece {
+                        inliner.set_piece(*g, next_piece);
+                    }
+                    let mut slots: Vec<Option<(GlobalId, Box<Function>)>> = piece.into_iter().map(Some).collect();
+                    for k in cut.order {
+                        let (g, mut f) = slots[k].take().unwrap();
+                        let _counted = counted(g);
+                        let n = inliner.run_on(sh, g, &mut f);
+                        inlined.fetch_add(n, Ordering::Relaxed);
+                        if n > 0 {
+                            if opts.mem2reg || opts.sroa {
+                                promote(g, &mut f);
+                            }
+                            // Inlining a member whose cut call leads back
+                            // here makes a self-call.
+                            let calls_itself = f
+                                .insts_in_order()
+                                .any(|i| f.insts[i.index()].op.call().and_then(|c| sh.direct_callee(c)) == Some(g));
+                            if calls_itself && opts.recursion != RecursionMode::Off {
+                                remove(g, &mut f);
+                            }
+                            simplify(g, &mut f);
+                        }
+                        sh.publish(g, f);
+                    }
+                    continue;
+                }
+                if parts.len() <= 1 {
+                    let calls_itself = |(g, f): &(GlobalId, Box<Function>)| {
+                        f.insts_in_order()
+                            .any(|i| f.insts[i.index()].op.call().and_then(|c| sh.direct_callee(c)) == Some(*g))
+                    };
+                    if cg.is_recursive(s) && (piece.len() > 1 || calls_itself(&piece[0])) {
+                        cycles_left.lock().unwrap().push(piece.len());
+                    }
+                    for (g, f) in piece {
+                        sh.publish(g, f);
+                    }
+                    continue;
+                }
+                let sizes: Vec<String> = parts.iter().map(|p| p.len().to_string()).collect();
+                let line = format!("recursion: the cycle splits into pieces of {}", sizes.join(", "));
+                sh.remark(piece[0].0, line);
+                let mut slots: Vec<Option<(GlobalId, Box<Function>)>> = piece.into_iter().map(Some).collect();
+                for part in parts.into_iter().rev() {
+                    next_piece += 1;
+                    let members: Vec<(GlobalId, Box<Function>)> =
+                        part.iter().map(|&k| slots[k].take().unwrap()).collect();
+                    for (g, _) in &members {
+                        inliner.set_piece(*g, next_piece);
+                    }
+                    stack.push((members, depth + 1, true));
+                }
             }
             task_nanos[s].store(started.elapsed().as_nanos() as u64, Ordering::Relaxed);
         });
@@ -640,6 +782,12 @@ fn optimise(m: &mut Module, opts: &Options) -> Report {
     report.task_time = std::time::Duration::from_nanos(nanos.iter().sum());
     report.task_critical_path = std::time::Duration::from_nanos(finish.iter().copied().max().unwrap_or(0));
     report.inlined = inlined.into_inner();
+    report.cycles_left = cycles_left.into_inner().unwrap();
+    report.cycles_left.sort_unstable_by(|a, b| b.cmp(a));
+    report.cuts = cuts.into_inner().unwrap();
+    report.cuts.sort_unstable_by(|a, b| b.cmp(a));
+    // The cut marks were only for the inliner.
+    crate::cut::strip(m);
     report.combines = combines.into_inner().unwrap();
     report.cse = cse_stats.into_inner().unwrap();
     report.memcpyopt = memcpy_stats.into_inner().unwrap();
@@ -698,6 +846,32 @@ fn optimise(m: &mut Module, opts: &Options) -> Report {
     report.chop_next = chop.refused_first();
     report.timings = timings;
     report
+}
+
+/// The most inlines `recursion::collapse_scc` makes into each member.
+const COLLAPSE_INLINES: usize = 64;
+
+/// How many times a cycle may split into pieces, and each piece again.
+const MAX_SPLITS: usize = 4;
+
+/// The SCCs of the calls among `members` as their bodies are now, callees
+/// first, as indices into `members`.
+fn split_cycle(sh: &crate::ctx::Shared, members: &[(GlobalId, Box<Function>)]) -> Vec<Vec<usize>> {
+    let index: crate::fx::FxHashMap<GlobalId, usize> = members.iter().enumerate().map(|(k, (g, _))| (*g, k)).collect();
+    let succ: Vec<Vec<usize>> = members
+        .iter()
+        .map(|(_, f)| {
+            let mut out: Vec<usize> = f
+                .insts_in_order()
+                .filter_map(|i| f.insts[i.index()].op.call().and_then(|c| sh.direct_callee(c)))
+                .filter_map(|t| index.get(&t).copied())
+                .collect();
+            out.sort_unstable();
+            out.dedup();
+            out
+        })
+        .collect();
+    crate::callgraph::tarjan(&succ)
 }
 
 /// Finds or declares `llvm.stacksave.p0` and `llvm.stackrestore.p0`.

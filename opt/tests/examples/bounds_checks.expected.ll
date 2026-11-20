@@ -2,10 +2,10 @@
 ; @sum: combine: (dead) x2, icmp_eq_zext_one x1, icmp_ne_zext_zero x1, select_zext x1
 ; @sum: implied: 1 comparisons folded, 4 selects resolved, 0 flags set
 ; @sum: combine: (dead) x3, br_true x1
-; @sum: simplifycfg: 1 unreachable blocks removed, 1 empty blocks bypassed, 0 selects made, 0 blocks merged
+; @sum: simplifycfg: 1 unreachable blocks removed, 1 empty blocks bypassed, 0 selects made, 0 blocks merged, 0 edges into unreachable dropped
 ; @sum: rotate: 1 loops rotated
 ; @sum: combine: (constant to the right) x1, icmp_ugt_zero x1
-; @sum: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged
+; @sum: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged, 0 edges into unreachable dropped
 ; @sum: indvars: loop %ok runs %len times when entered
 ; @sum: indvars: 1 exact exit tests, 0 exit values, 0 counters widened
 ; @sum: lsr: 1 arrays stepped by pointer, 1 counters counting down
@@ -13,10 +13,10 @@
 ; @dot: not inlined @panic_bounds_check: noinline
 ; @dot: implied: 2 comparisons folded, 7 selects resolved, 0 flags set
 ; @dot: combine: (dead) x4, br_true x2
-; @dot: simplifycfg: 2 unreachable blocks removed, 1 empty blocks bypassed, 0 selects made, 1 blocks merged
+; @dot: simplifycfg: 2 unreachable blocks removed, 1 empty blocks bypassed, 0 selects made, 1 blocks merged, 0 edges into unreachable dropped
 ; @dot: rotate: 1 loops rotated
 ; @dot: combine: (constant to the right) x1, icmp_ugt_zero x1
-; @dot: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged
+; @dot: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged, 0 edges into unreachable dropped
 ; @dot: indvars: loop %ok.a runs %n times when entered
 ; @dot: indvars: 1 exact exit tests, 0 exit values, 0 counters widened
 ; @dot: lsr: 2 arrays stepped by pointer, 1 counters counting down
@@ -24,10 +24,10 @@
 ; @rev: not inlined @panic_bounds_check: noinline
 ; @rev: implied: 2 comparisons folded, 5 selects resolved, 2 flags set
 ; @rev: combine: (dead) x4, br_true x2
-; @rev: simplifycfg: 2 unreachable blocks removed, 1 empty blocks bypassed, 0 selects made, 1 blocks merged
+; @rev: simplifycfg: 2 unreachable blocks removed, 1 empty blocks bypassed, 0 selects made, 1 blocks merged, 0 edges into unreachable dropped
 ; @rev: rotate: 1 loops rotated
 ; @rev: combine: (constant to the right) x1, icmp_ugt_zero x1
-; @rev: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged
+; @rev: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged, 0 edges into unreachable dropped
 ; @rev: indvars: loop %body runs %half times when entered
 ; @rev: indvars: 1 exact exit tests, 0 exit values, 0 counters widened
 ; @kept: not inlined @panic_bounds_check: noinline
@@ -35,7 +35,7 @@
 ; @kept: implied: 0 comparisons folded, 0 selects resolved, 1 flags set
 ; @kept: rotate: 1 loops rotated
 ; @kept: combine: (constant to the right) x1, (dead) x1, (reassociated) x1, icmp_ugt_zero x1
-; @kept: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged
+; @kept: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged, 0 edges into unreachable dropped
 ; @kept: licm: 2 moved out of loops (0 loads)
 ; @kept: indvars: loop %body runs %n times when entered
 ; @kept: indvars: 1 exact exit tests, 0 exit values, 0 counters widened

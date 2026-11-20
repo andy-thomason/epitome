@@ -1214,6 +1214,7 @@ impl Session {
                 }
             }
         }
+        mark_unnamed_addr(&mut m);
         let decls = cx.fns.iter().map(|(&it, d)| (it, d.g)).collect();
         Lowered { module: m, functions, failures, partial, notes, titles, decls }
     }
@@ -1464,6 +1465,25 @@ fn mark_cold_calls(m: &mut Module, cold: &FastSet<GlobalId>) {
             {
                 c.fn_attrs.push(Attr::Word("cold".into()));
             }
+        }
+    }
+}
+
+/// Marks every function defined, and every private constant (string
+/// literals, vtables, promoted constants: not `static`s, which are
+/// internal), `unnamed_addr`, as rustc does: Rust promises neither a
+/// function's nor a constant's address is unique, so the optimiser may
+/// merge identical ones.
+fn mark_unnamed_addr(m: &mut Module) {
+    use epitome_ir::module::{GlobalKind, UnnamedAddr};
+    for g in &mut m.globals {
+        let ours = match &g.kind {
+            GlobalKind::Function(f) => f.has_body,
+            GlobalKind::Variable(v) => v.constant && g.props.linkage == Linkage::Private,
+            _ => false,
+        };
+        if ours {
+            g.props.unnamed_addr = UnnamedAddr::Global;
         }
     }
 }

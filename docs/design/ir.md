@@ -219,7 +219,7 @@ lack a feature.
 | `lower-global-dtors` | Turns global destructors into constructors that register them with `__cxa_atexit`. | Later |
 | `break-crit-edges` | Splits critical edges by adding empty blocks. | Planned |
 | `rel-lookup-table-converter` | Turns lookup tables into position-independent relative tables. | Later |
-| `block-placement` | Orders blocks so the likely branch falls through, using profile data. | Later |
+| `block-placement` | Orders blocks so the likely branch falls through, using profile data. Epitome places cold blocks (panics, cold calls, unlikely branches by their weights) after the rest; see [codegen](codegen.md). Profile counts are not read. | Partial |
 
 ### Stripping
 

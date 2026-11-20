@@ -1352,7 +1352,8 @@ impl<'s, 'm, 'f> Combiner<'s, 'm, 'f> {
                 self.push_def(v);
             }
         }
-        self.f.insts[i.index()].op = new;
+        let old = std::mem::replace(&mut self.f.insts[i.index()].op, new);
+        crate::expect::retarget(self.sh, self.f, i, &old);
         self.add_uses(i);
         for s in removed {
             for k in 0..self.f.blocks[s.index()].insts.len() {

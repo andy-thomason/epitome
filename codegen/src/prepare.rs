@@ -240,6 +240,8 @@ impl Ctx<'_> {
 /// Puts a copy of `f` into selection form.
 pub fn prepare(cx: &mut Ctx, f: &Function, fname: &str) -> Result<Function, String> {
     let mut f = f.clone();
+    // `llvm.expect` as weights on its branches, before anything moves it.
+    crate::cold::lower_expect(cx.m, &mut f);
     // (Scalable vectors of more than a register as parts first, before
     // what follows takes their lanes as countable.)
     // (Streaming mode and ZA first: the calls of their switches.)

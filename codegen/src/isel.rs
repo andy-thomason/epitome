@@ -407,7 +407,7 @@ impl<'a, 'b> Sel<'a, 'b> {
         let mut bmap = HashMap::new();
         for (k, &b) in f.layout.iter().enumerate() {
             bmap.insert(b, k);
-            mf.blocks.push(MBlock { label: String::new(), insts: Vec::new(), succs: Vec::new(), term_start: 0 });
+            mf.blocks.push(MBlock { label: String::new(), insts: Vec::new(), succs: Vec::new(), term_start: 0, cold: false });
         }
         Sel {
             t,
@@ -3419,6 +3419,15 @@ impl<'a, 'b> Sel<'a, 'b> {
             {
                 continue;
             }
+            // Nor after a trap (`llvm.trap`'s): one is enough.
+            if matches!(inst.op, Op::Unreachable)
+                && self.mf.blocks[self.cur]
+                    .insts
+                    .last()
+                    .is_some_and(|l| matches!(l.op, Opcode::Instr(k) if self.t.has_role(k, "trap")))
+            {
+                continue;
+            }
             if self.covered.contains(&i) {
                 continue;
             }
@@ -4040,7 +4049,7 @@ fn has_mark(attrs: &[Attr], word: &str) -> bool {
 }
 
 /// Whether `attrs` (with their groups) has the keyword attribute `word`.
-fn has_word(m: &Module, attrs: &[Attr], word: &str) -> bool {
+pub(crate) fn has_word(m: &Module, attrs: &[Attr], word: &str) -> bool {
     attrs.iter().any(|a| match a {
         Attr::Word(w) => w == word,
         Attr::Group(g) => m.attr_groups.iter().find(|x| x.id == *g).is_some_and(|x| has_word(m, &x.attrs, word)),

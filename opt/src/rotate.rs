@@ -275,6 +275,8 @@ fn rotate(sh: &Shared, f: &mut Function, names: &mut Names, l: &Loop) -> bool {
     f.layout.insert(at + 1, bottom);
     let latch_t = f.terminator(latch).unwrap();
     f.insts[latch_t.index()].op = Op::Br(bottom);
+    // (Branch weights are per successor: a plain branch has none.)
+    f.insts[latch_t.index()].attachments.retain(|a| a.kind != "prof");
     copy_header(f, names, h, bottom, &mut on_repeat);
     f.push_inst(bottom, branch(look(&on_repeat, cond)), None);
 

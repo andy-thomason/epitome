@@ -119,7 +119,20 @@ impl Fx<'_, '_, '_, '_> {
             "assume" | "cold_path" | "forget" | "assert_inhabited" | "assert_zero_valid" | "assert_mem_uninitialized_valid" => {
                 Ok(Pv::Val(self.unit()))
             }
-            "likely" | "unlikely" | "black_box" => Ok(Pv::Val(args[0])),
+            // `llvm.expect.i1` of what is expected: the optimiser turns it
+            // into weights on the branch that tests it.
+            "likely" | "unlikely" => {
+                let x = self.imm(args[0])?;
+                let it = self.b.type_of(x);
+                let i1 = self.b.module().types.int(1);
+                let c = self.int_to(x, i1, false);
+                let g = self.b.module().declare("llvm.expect.i1", i1, &[i1, i1], false);
+                let want = self.b.const_int(i1, (name == "likely") as i64);
+                let r = self.b.call(g, &[c, want]).unwrap();
+                let r = self.int_to(r, it, false);
+                imm(r)
+            }
+            "black_box" => Ok(Pv::Val(args[0])),
             // Allocation at compile time: at run time, none (null), and
             // nothing to free.
             "const_allocate" => {

@@ -95,6 +95,8 @@ pub fn run<G>(m: &mut Module, threads: usize, counted: impl Fn(GlobalId) -> G) -
                 }
             }
             f.insts[t.index()].op = Op::Br(target);
+            // (Branch weights are per successor: a plain branch has none.)
+            f.insts[t.index()].attachments.retain(|a| a.kind != "prof");
             folded += 1;
         }
         if folded > 0 {

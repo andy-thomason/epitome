@@ -164,6 +164,39 @@ pipeline is ours to design.
 | Tail call optimisation | Code generator | Guaranteed tail calls for `fastcc`, `tailcc`, or with `-tailcallopt`. | Later |
 | Sibling call optimisation | Code generator | A narrower tail call that needs no flag, when conventions and stack arguments allow. | Planned |
 
+### Block placement
+
+Blocks are placed after allocation and frames (`codegen/src/layout.rs`),
+from what the IR says about which are rarely run (`codegen/src/cold.rs`,
+from the prepared IR, recorded on each machine block as `cold`). A block
+is cold when:
+
+- every path from it ends in `unreachable`, `llvm.trap` or a call that is
+  `noreturn` (on the call or the callee): panics, aborts, failed bounds
+  checks, and the blocks that only lead to them (building a panic's
+  message);
+- it calls a `cold` function, or makes a call marked `cold`;
+- it is an exception handling pad;
+- every edge into it is cold: from a cold block, or unlikely by its
+  branch's `!prof` weights (a share of at most 1/64). `llvm.expect` becomes
+  weights before preparing (as in the optimiser, see
+  [simplifycfg](simplifycfg.md)). This is found as the greatest fixed
+  point, so a loop that only cold code reaches is cold, and a block a cold
+  block dominates is cold; the entry block never is.
+
+Placement chains the hot blocks first: from each block, a hot successor
+not yet placed, preferring one that does not leave the function (so loops
+stay together); when there is none, the first hot block not yet placed, in
+the IR's order. Returns are hot like anything else and are not put off to
+the end. Then the cold blocks are chained the same way after all the hot
+ones, so each cold region stays together. A conditional branch into cold
+code thus has its hot side falling through, and the taken branch goes to
+the end of the function, as LLVM lays out rustc's panics. Tail merging
+keeps a merged copy cold only if both blocks were.
+
+`unreachable` after a trap (`llvm.trap`) or after a call that does not
+return emits nothing: the block already ends there.
+
 Targets can add passes at fixed points in the pipeline. The documented hooks
 are "add instruction selector" and "add before emission".
 

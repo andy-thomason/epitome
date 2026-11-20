@@ -959,6 +959,8 @@ impl<'s, 'm> Transform<'s, 'm> {
                     ret_incoming.push((v, b));
                 }
                 f.insts[t.index()].op = Op::Br(dispatch);
+                // (Branch weights are per successor: a plain branch has none.)
+                f.insts[t.index()].attachments.retain(|a| a.kind != "prof");
             }
             if returns_value {
                 let phi = f.push_inst(

@@ -362,6 +362,10 @@ fn optimise(m: &mut Module, opts: &Options) -> Report {
                     promote(*g, f);
                 }
             }
+            // `llvm.expect` becomes weights on the branches that test it.
+            for (_, f) in &mut bodies {
+                crate::expect::lower(sh, f);
+            }
             if opts.inline {
                 for (g, f) in &mut bodies {
                     let _counted = counted(*g);

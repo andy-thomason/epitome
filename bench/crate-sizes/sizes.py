@@ -7,8 +7,10 @@ OUT is build.sh's directory (default target/crate-sizes). For each crate it
 prints the size of the text section of each build, the bytes of the
 functions written in the crate and its demo program (the crate's code),
 and the functions where Epitome's code is biggest against rustc -O's,
-matched by name. --all lists every function of the crate's code, and --mix the
-instruction mix of the crate's code (mix.py).
+matched by name. --all lists every function of the crate's code, --mix the
+instruction mix of the crate's code (mix.py), and --new the biggest
+functions of any crate (std's generics included) that the program has and
+hello world hasn't.
 
 A function's size is the distance to the next symbol in the text section
 (alignment padding included, as for both compilers). Epitome's functions
@@ -39,7 +41,8 @@ TOP = int(opt('--top', '12'))
 ONLY = opt('--crate')
 ALL = '--all' in ARGS
 MIX = '--mix' in ARGS
-ARGS = [a for a in ARGS if a not in ('--all', '--mix')]
+NEW = '--new' in ARGS
+ARGS = [a for a in ARGS if a not in ('--all', '--mix', '--new')]
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = ARGS[0] if ARGS else os.path.join(HERE, '..', '..', 'target', 'crate-sizes')
 DEMANGLE = os.path.join(OUT, 'tools', 'demangle')
@@ -263,6 +266,17 @@ def main():
                 for k in mix.KEYS:
                     MIXES[t][k] += tot[k]
             print()
+        if NEW:
+            for t in ('ep-ndebug', 'rustc-O3'):
+                he = os.path.join(OUT, 'hello', t + '.exe')
+                base = {}
+                for krate, fk, size, _ in (ours(he, os.path.join(OUT, 'hello', t + '.crates')) if t.startswith('ep') else theirs(he)):
+                    base[(krate, fk)] = base.get((krate, fk), 0) + size
+                grown = {}
+                for krate, fk, size, _ in rows[t]:
+                    grown[(krate, fk)] = grown.get((krate, fk), 0) + size
+                diff = sorted(((v - base.get(k, 0), k) for k, v in grown.items()), reverse=True)[:TOP]
+                print(f'{t}, beyond hello world: ' + ', '.join(f'{k[0]} `{k[1]}` {v:,}' for v, k in diff) + '\n')
         # By function: ours (ndebug) against rustc -O.
         a, b = {}, {}
         for k, rs in (('ep-ndebug', a), ('rustc-O3', b)):

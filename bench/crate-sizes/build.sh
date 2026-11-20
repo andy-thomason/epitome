@@ -36,9 +36,9 @@ h="$OUT/hello"; mkdir -p "$h"
 for lvl in 3 s; do
     rustc --edition 2021 -C opt-level=$lvl -C panic=abort -C symbol-mangling-version=v0 -o "$h/rustc-O$lvl.exe" "$HERE/progs/hello.rs"
 done
-"$B" --std --edition 2021 -o "$h/ep-default.exe" "$HERE/progs/hello.rs"
-"$B" --std --edition 2021 -C debug-assertions=off -o "$h/ep-ndebug.exe" "$HERE/progs/hello.rs"
-"$B" --std --edition 2021 -C debug-assertions=off -Cpanic=immediate-abort -o "$h/ep-abort.exe" "$HERE/progs/hello.rs"
+"$B" --std --edition 2021 --fn-crates "$h/ep-default.crates" -o "$h/ep-default.exe" "$HERE/progs/hello.rs"
+"$B" --std --edition 2021 -C debug-assertions=off --fn-crates "$h/ep-ndebug.crates" -o "$h/ep-ndebug.exe" "$HERE/progs/hello.rs"
+"$B" --std --edition 2021 -C debug-assertions=off -Cpanic=immediate-abort --fn-crates "$h/ep-abort.crates" -o "$h/ep-abort.exe" "$HERE/progs/hello.rs"
 
 grep -v '^#' "$HERE/crates.txt" | while read -r name dir edition cfgs; do
     [ -n "$name" ] || continue

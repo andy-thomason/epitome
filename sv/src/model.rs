@@ -336,6 +336,15 @@ impl Model {
         let code = load::load(t, c, resolve).map_err(|e| format!("loading: {e}"))?;
         let eval = unsafe { code.function(&net.entry) }.ok_or_else(|| format!("no {}", net.entry))?;
         let pieces = code.address("sv_pieces").map_or(std::ptr::null_mut(), |p| p as *mut i64);
+        // (`EPITOME_SV_SYMBOLS=file`: where each function was loaded, as a
+        // perf map: `address size name`, in hex.)
+        if let Some(path) = std::env::var_os("EPITOME_SV_SYMBOLS") {
+            let map: String = functions
+                .iter()
+                .filter_map(|(name, size)| code.address(name).map(|a| format!("{:x} {size:x} {name}\n", a as usize)))
+                .collect();
+            let _ = std::fs::write(path, map);
+        }
         times.load = started.elapsed();
         Ok(Model { net, eval, functions, pieces, times, _code: Some(code), cross: None })
     }

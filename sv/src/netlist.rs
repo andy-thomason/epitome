@@ -668,6 +668,12 @@ pub struct Options {
     /// `sv_pieces`, named in [`Netlist::pieces`]: every instance of a
     /// specialisation adds to the same one.
     pub pieces: bool,
+    /// Most bits an instance of an array may move through its ports for
+    /// each expression node of its code for the array to be called as one,
+    /// its instances lanes (see `Lowering::group_costs`): past that, copying
+    /// its values to lanes and back costs more than running it in lanes
+    /// saves. `usize::MAX` calls every array as one.
+    pub pack_per_work: usize,
     /// Lanes as vectors ([`Shape::vector_of`]), not side by side in an
     /// `i64` ([`Shape::of`]).
     pub vectors: bool,
@@ -679,7 +685,7 @@ pub struct Options {
 
 impl Default for Options {
     fn default() -> Self {
-        Options { bit_planes: true, recognise: true, guard_min: GUARD_MIN, branch_min: BRANCH_MIN, sims: 1, profile: None, pieces: false, vectors: true, lane_bits: None }
+        Options { bit_planes: true, recognise: true, guard_min: GUARD_MIN, branch_min: BRANCH_MIN, sims: 1, profile: None, pieces: false, pack_per_work: PACK_PER_WORK, vectors: true, lane_bits: None }
     }
 }
 
@@ -1300,6 +1306,9 @@ fn runs(mut v: Vec<(u64, u64)>) -> Vec<(u64, u64)> {
     out
 }
 
+/// The default of [`Options::pack_per_work`].
+pub const PACK_PER_WORK: usize = 2;
+
 /// Most nodes of a child written into its parent (see
 /// `Lowering::flatten`); a larger one is called.
 const FLAT_MAX: usize = 400;
@@ -1734,6 +1743,35 @@ impl<'d, 'a> Lowering<'d, 'a> {
         }
         parts.reverse();
         parts.join(".")
+    }
+
+    /// For an array of children `i` stands for: the work one does settling
+    /// (expression nodes of its code, its children's too), and the bits
+    /// its ports move to and from lanes.
+    fn group_costs(&mut self, i: InstId) -> (usize, usize) {
+        let d = self.d;
+        let c = d.instance(i).spec;
+        let pack: usize = d.spec(c).ports.iter().filter_map(|p| p.object).map(|o| tw(&d.types, d.object(o).ty) as usize).sum();
+        fn work(l: &mut Lowering, spec: SpecId) -> usize {
+            let d = l.d;
+            let Ok((_, code)) = l.code_of(spec) else { return 0 };
+            let mut n = 0;
+            for node in code {
+                n += match node {
+                    Node::Driver(dr) => l.expr_size(d.drivers[dr.0 as usize].rhs) + l.expr_size(d.drivers[dr.0 as usize].lhs),
+                    Node::Proc(p) => {
+                        let mut ex = Vec::new();
+                        let body = l.clocked(p).map_or(d.processes[p.0 as usize].body, |c| c.1);
+                        l.stmt_exprs(body, &mut ex);
+                        ex.iter().map(|&e| l.expr_size(e)).sum()
+                    }
+                    Node::In(k) => work(l, d.instance(k).spec),
+                    _ => 1,
+                };
+            }
+            n
+        }
+        (work(self, c), pack)
     }
 
     /// Whether a specialisation, or one below it, holds a memory: an array
@@ -2204,8 +2242,12 @@ impl<'d, 'a> Lowering<'d, 'a> {
             // (Not those holding memories: one at a time, each is scalar
             // code, which selects their words by address.)
             let mut keep = HashMap::new();
+            // (Nor those whose ports move more than they work: copying
+            // their values to lanes and back costs more than lanes save.)
             for (&i, m) in &lay.groups {
-                if !self.holds_memories(d.instance(i).spec)? {
+                let (work, pack) = self.group_costs(i);
+                let lanes_pay = self.opts.pack_per_work == usize::MAX || pack <= self.opts.pack_per_work.saturating_mul(work);
+                if !self.holds_memories(d.instance(i).spec)? && lanes_pay {
                     keep.insert(i, m.clone());
                 }
             }
@@ -5527,11 +5569,6 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
                 spans.push((p, n));
             }
         }
-        let words: u64 = spans.iter().map(|&(_, n)| n.div_ceil(8)).sum();
-        let scratch = (words > 0).then(|| {
-            let ty = self.b.module().types.array(words, self.t.i64);
-            self.b.alloca(ty)
-        });
         let (prev, lp) = (self.block, self.new_block("repeat"));
         self.b.br(lp);
         self.enter(lp);
@@ -5539,37 +5576,22 @@ impl<'l, 'd, 'a, 'm> Func<'l, 'd, 'a, 'm> {
         let c = self.b.phi(self.t.i64, &[(zero, prev)]);
         // (Each span a word at a time, and its last bytes one at a time.)
         let units = |n: u64| -> Vec<(u64, bool)> { (0..n / 8).map(|w| (8 * w, true)).chain((8 * (n / 8)..n).map(|b| (b, false))).collect() };
-        if let Some(sc) = scratch {
-            let mut at = 0;
-            for &(p, n) in &spans {
-                for (off, word) in units(n) {
-                    let ty = if word { self.t.i64 } else { self.t.i8 };
-                    let src = self.off(p, off);
-                    let x = self.ld(ty, src, 1);
-                    let dst = self.off(sc, at);
-                    self.st(x, dst, 1);
-                    at += if word { 8 } else { 1 };
-                }
+        // (What the pass starts from, as values: the loop's head comes
+        // before all of the pass, so they reach its end.)
+        let mut before = Vec::new();
+        for &(p, n) in &spans {
+            for (off, word) in units(n) {
+                let ty = if word { self.t.i64 } else { self.t.i8 };
+                let a = self.off(p, off);
+                before.push((ty, a, self.ld(ty, a, 1)));
             }
         }
         self.body(inner)?;
-        let mut changed = self.b.const_int(self.t.i1, 0);
-        if let Some(sc) = scratch {
-            let mut at = 0;
-            for &(p, n) in &spans {
-                for (off, word) in units(n) {
-                    let ty = if word { self.t.i64 } else { self.t.i8 };
-                    let a = self.off(p, off);
-                    let x = self.ld(ty, a, 1);
-                    let b = self.off(sc, at);
-                    let y = self.ld(ty, b, 1);
-                    let ne = self.b.icmp(ICmpPred::Ne, x, y);
-                    changed = self.b.or(changed, ne);
-                    at += if word { 8 } else { 1 };
-                }
-            }
-        } else {
-            changed = self.b.const_int(self.t.i1, 1);
+        let mut changed = self.b.const_int(self.t.i1, before.is_empty() as i64);
+        for (ty, a, y) in before {
+            let x = self.ld(ty, a, 1);
+            let ne = self.b.icmp(ICmpPred::Ne, x, y);
+            changed = self.b.or(changed, ne);
         }
         let one = self.i64k(1);
         let next = self.b.add(c, one);

@@ -63,7 +63,7 @@ pub fn netlist_options() -> netlist::Options {
     // mask registers.)
     let vectors = std::env::var("NETLIST_SWAR").map_or(true, |v| v != "1");
     let lane_bits = std::env::var("NETLIST_LANE_BITS").ok().and_then(|v| v.parse().ok());
-    netlist::Options { bit_planes: masks || !vectors, recognise, guard_min, branch_min, sims, profile, pieces: false, vectors, lane_bits }
+    netlist::Options { bit_planes: masks || !vectors, recognise, guard_min, branch_min, sims, profile, pieces: false, pack_per_work: netlist::PACK_PER_WORK, vectors, lane_bits }
 }
 
 /// [`netlist_options`] for `sims` simulations at once.

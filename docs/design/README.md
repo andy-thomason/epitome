@@ -59,6 +59,10 @@ short) has to do to work like LLVM. They are split into two halves:
   matches rules, and the combiner pass.
 - [Code generation: what is left](backend-plan.md): the gap to clang,
   measured, and the plan for allocation, scheduling and machine passes.
+- [Code size on real crates](crate-sizes.md): epitome-rustc2's programs
+  against rustc's on twelve crates.io crates, Mac and x86-64, and what
+  makes the difference (now booleans made into values, inlining, and
+  x86-64's moves and stack traffic).
 - [Correct, but not yet good](later.md): code generation that gives the
   right answers the long way (through memory, lane by lane), and what
   would be better.

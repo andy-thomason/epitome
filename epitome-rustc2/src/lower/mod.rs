@@ -223,6 +223,24 @@ impl Lowered {
         }
     }
 
+    /// Each function of a Rust function or closure, by symbol, with the
+    /// crate it is written in and its heading (for `--fn-crates`); drop
+    /// glue and shims are left out.
+    pub fn fn_crates(&self, r: &Resolver) -> Vec<(String, u32, &str)> {
+        let mut v: Vec<(String, u32, &str)> = (self.decls.iter())
+            .filter_map(|(it, &g)| {
+                let d = match *it {
+                    Item::Fn(d, _) | Item::Closure(_, d, _) => d,
+                    _ => return None,
+                };
+                let title = self.titles.get(&g).map_or("", String::as_str);
+                Some((self.module.globals[g.index()].name.clone()?, r.defs[d.0 as usize].krate, title))
+            })
+            .collect();
+        v.sort();
+        v
+    }
+
     /// Makes the functions `items` are external (those lowered), so that
     /// optimising keeps them, as for a library's.
     pub fn export(&mut self, items: &[Item]) {

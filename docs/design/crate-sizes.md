@@ -4,30 +4,36 @@ How big epitome-rustc2's programs are against rustc's, on twelve small
 crates from crates.io, on the Mac (AArch64) and on x86-64 Linux, and where
 the difference is. `bench/crate-sizes/` reproduces it.
 
-The short answer: whole programs are smaller than rustc's (rustc's
-precompiled `std` carries 144 KB of backtrace support), but the code a
-crate itself brings is **3.2× rustc -O's on the Mac and 3.7× on x86-64**
-(the eight crates whose own code lowers completely), far worse than the
-1.8× a hello world's functions suggested. Three things make most of it,
-in this order:
+The short answer, on main at 3347eba: the code a crate brings is **2.0×
+rustc -O's on the Mac and 2.5× on x86-64** (the eight crates whose own
+code lowers completely). Whole programs are much smaller than rustc's
+(a hello world is 59 KB of code against 217 KB; rustc's precompiled `std`
+carries its backtrace support).
 
-1. **Aggregates through memory.** `Result`, `Option`, `Layout`, slices and
-   small structs are kept in allocas and copied slot to slot; frames of
-   1–3 KB in the functions that matter. Stack loads and stores are 29% of
-   our instructions on the Mac (16.2k, rustc 2.6k) and 37% on x86-64
-   (26.0k, rustc 2.6k): over half of the whole excess.
-2. **AArch64 frame addressing.** 16-byte slots sit at offsets ≡ 8 (mod 16),
-   and half the offsets are past 4 KB, so a `q`-register access takes
-   `mov x15, #off; add x15, sp, x15; ldr q0, [x15]`. That is **17% of all
-   our instructions** in the crates' code on the Mac (9.5k of 56k), and a
-   cheap fix.
-3. **`#[derive(Debug)]` expands to builder chains**
-   (`f.debug_tuple("N").field(..).finish()`) where rustc's derive calls
-   `Formatter::debug_tuple_field1_finish` and kin: every derived `Debug`
-   is 3–13× rustc's, in core and std as well as the crates.
+The first measurement, on main at 6907286, found 3.2× and 3.7×, and three
+causes: aggregates kept in allocas and copied slot to slot, AArch64 frame
+addressing of 16-byte slots, and `#[derive(Debug)]` expanded as builder
+chains. PRs #210 (alloca forwarding and SROA), #211 (frame slots shared
+and ordered), #215 (inlining growth) and #218 (derive through
+`debug_*_finish`) took out most of all three:
 
-Then x86 vector code lowered lane by lane (memchr: 5.9×), inlining
-choices, and missed CSE. Details and follow-ups below.
+| | 6907286, Mac | 3347eba, Mac | 6907286, x86-64 | 3347eba, x86-64 | rustc -O, Mac / x86-64 |
+|---|---|---|---|---|---|
+| hello world's text | 135,400 | 58,972 | 116,599 | 64,038 | 216,892 / 241,827 |
+| the eight crates' code | 199,396 | 124,096 | 234,680 | 158,540 | 61,940 / 64,194 |
+| against rustc -O | 3.22× | **2.00×** | 3.66× | **2.47×** | |
+| stack loads and stores, all twelve | 16,247 | 4,984 | 25,959 | 10,569 | 2,559 / 2,615 |
+| AArch64 frame addresses in `x15` | 9,534 | 797 | — | — | 9 |
+
+What is left is different in kind. On the Mac, stack traffic is now 2.4k
+of the 10.9k extra instructions; the biggest part is **booleans made into
+values**: compares turned into `cset`/`csel` bytes, zero-extended with
+`uxtb`, combined with `orr` and tested again, where rustc branches on the
+flags (`cset` +1.2k, `csel` +1.4k, `uxtb` +1.0k, `cmp` +2.1k, `orr`
++0.7k), with folds missed among them. Then inlining (each crate's `main`
+is several times rustc's), x86-64's register moves and stack traffic, and
+x86 vector code lowered lane by lane (memchr). Details and follow-ups
+below.
 
 ## Method
 
@@ -35,7 +41,7 @@ Each crate has a demo program (`bench/crate-sizes/progs/<crate>_demo.rs`)
 that exercises its main API and prints the results. The inputs go through
 `std::env::args().len()` (1 when run), so neither compiler can fold the
 program into its output: rustc -O folded the first version of itoa's
-demo to 856 bytes of `puts`-like code. `build.sh` builds each program:
+demo to 856 bytes. `build.sh` builds each program:
 
 - epitome-rustc2, `--std`, as it builds by default (**ep default**: the
   crates keep `debug_assertions`), with `-C debug-assertions=off` (**ep
@@ -54,8 +60,8 @@ It runs every build and checks it prints what rustc -O's does.
   costs, `std`'s generic code instantiated for it included;
 - **the crate's code**: the bytes of the functions written in the crate or
   in its demo program. A function's size is the distance to the next
-  symbol. Ours are put down to crates by the new `epitome-rustc2
-  --fn-crates FILE` (a symbol of an impl's method, `_R.Buffer..format…`,
+  symbol. Ours are put down to crates by `epitome-rustc2 --fn-crates
+  FILE` (new here: a symbol of an impl's method, `_R.Buffer..format…`,
   doesn't name its crate); rustc's by the first crate root in the v0
   symbol. Generic instances of `std` functions count as `std`'s on both
   sides;
@@ -74,8 +80,7 @@ bench/crate-sizes/sizes.py --mix --new > sizes.md
 bench/crate-sizes/mix.py target/crate-sizes/smallvec/ep-ndebug.exe try_grow --code
 ```
 
-The numbers here are from main at 6907286 plus this branch, on an Apple M1
-and on mandelbrot.
+The numbers are from an Apple M1 and from mandelbrot.
 
 ### Caveats
 
@@ -94,50 +99,52 @@ and on mandelbrot.
 
 ## Results
 
-Hello world's text: Mac ours 135,400 (immediate-abort 45,904), rustc
-216,892; x86-64 ours 116,599 (40,649), rustc 241,827.
-
 ### Mac (AArch64)
 
 | crate | output | text over hello: ep ndebug | rustc -O | crate's code: ep default | ep ndebug | ep abort | rustc -O | rustc -Os | ndebug / rustc -O |
 |---|---|---|---|---|---|---|---|---|---|
-| itoa | ok | 7,484 | 4,096 | 9,132 | 8,576 | 8,076 | 3,340 | 3,200 | 2.57 |
-| ryu | ok | 10,448 | 6,784 | 12,192 | 11,384 | 11,008 | 6,968 | 5,508 | 1.63 |
-| fnv | traps | — | 14,080 | 1,000 | 1,000 | 616 | 2,860 | 1,332 | — |
-| smallvec | ok | 36,776 | 11,328 | 37,524 | 32,852 | 31,880 | 6,320 | 5,920 | 5.20 |
-| arrayvec | traps | 5,620 | 2,688 | 5,556 | 5,472 | 3,704 | 1,860 | 2,060 | 2.94 |
-| hex | traps | 16,104 | 5,760 | 9,372 | 9,372 | 8,520 | 3,244 | 2,960 | 2.89 |
-| base64 | traps | 45,216 | 7,616 | 38,896 | 38,608 | 34,992 | 6,048 | 5,700 | 6.38 |
-| memchr | traps | — | 17,792 | 1,280 | 1,280 | 1,144 | 16,116 | 9,092 | — |
-| semver | ok | 59,228 | 24,320 | 48,504 | 51,280 | 49,448 | 15,912 | 11,900 | 3.22 |
-| unicode-width | traps | 4,936 | 10,880 | 5,492 | 5,492 | 4,952 | 10,576 | 8,076 | — |
-| heck | wrong | 55,012 | 20,608 | 41,852 | 41,852 | 41,092 | 18,248 | 13,020 | 2.29 |
-| strsim | traps | 10,868 | 29,824 | 18,632 | 18,632 | 17,012 | 10,780 | 6,880 | — |
-| the eight | | 235,888 | 83,200 | 203,028 | 199,396 | 188,720 | 61,940 | 50,268 | **3.22** |
+| itoa | ok | 6,456 | 4,096 | 8,288 | 7,648 | 7,580 | 3,340 | 3,200 | 2.29 |
+| ryu | ok | 10,060 | 6,784 | 12,052 | 11,256 | 11,272 | 6,968 | 5,508 | 1.62 |
+| fnv | traps | — | 14,080 | 1,268 | 1,268 | 1,284 | 2,860 | 1,332 | — |
+| smallvec | ok | 42,656 | 11,328 | 20,188 | 18,216 | 17,168 | 6,320 | 5,920 | 2.88 |
+| arrayvec | traps | 2,520 | 2,688 | 3,520 | 3,432 | 3,004 | 1,860 | 2,060 | 1.85 |
+| hex | traps | 10,740 | 5,760 | 3,244 | 3,244 | 3,192 | 3,244 | 2,960 | 1.00 |
+| base64 | traps | 29,632 | 7,616 | 17,812 | 17,268 | 16,308 | 6,048 | 5,700 | 2.86 |
+| memchr | traps | — | 17,792 | 1,804 | 1,804 | 1,848 | 16,116 | 9,092 | — |
+| semver | ok | 52,388 | 24,320 | 28,500 | 28,500 | 27,116 | 15,912 | 11,900 | 1.79 |
+| unicode-width | traps | 13,956 | 10,880 | 3,716 | 3,716 | 3,640 | 10,576 | 8,076 | — |
+| heck | wrong | 54,944 | 20,608 | 34,532 | 34,532 | 34,132 | 18,248 | 13,020 | 1.89 |
+| strsim | traps | 10,236 | 29,824 | 13,960 | 13,960 | 14,092 | 10,780 | 6,880 | — |
+| the eight | | 209,396 | 83,200 | 128,136 | 124,096 | 119,772 | 61,940 | 50,268 | **2.00** |
 
 ### x86-64 Linux
 
 | crate | output | text over hello: ep ndebug | rustc -O | crate's code: ep default | ep ndebug | ep abort | rustc -O | rustc -Os | ndebug / rustc -O |
 |---|---|---|---|---|---|---|---|---|---|
-| itoa | ok | 9,440 | 3,379 | 11,876 | 10,756 | 9,968 | 3,312 | 3,080 | 3.25 |
-| ryu | ok | 12,516 | 7,232 | 14,708 | 13,652 | 13,068 | 7,401 | 5,639 | 1.84 |
-| fnv | traps | — | 16,752 | 1,292 | 1,292 | 772 | 4,080 | 1,504 | — |
-| smallvec | ok | 68,812 | 11,840 | 44,192 | 41,136 | 38,128 | 6,584 | 6,031 | 6.25 |
-| arrayvec | traps | 6,240 | 2,672 | 6,104 | 6,012 | 4,064 | 2,150 | 2,112 | 2.80 |
-| hex | traps | 43,680 | 5,840 | 11,952 | 11,952 | 10,404 | 3,585 | 3,287 | 3.33 |
-| base64 | traps | 72,044 | 8,960 | 40,508 | 40,196 | 36,544 | 7,226 | 6,466 | 5.56 |
-| memchr | wrong | 149,656 | 21,280 | 128,952 | 115,308 | 111,612 | 19,492 | 14,231 | 5.92 |
-| semver | ok | 88,676 | 26,832 | 56,508 | 59,072 | 57,700 | 16,640 | 12,300 | 3.55 |
-| unicode-width | traps | 25,980 | 8,944 | 6,052 | 6,052 | 5,376 | 8,865 | 6,809 | — |
-| heck | wrong | 89,484 | 19,376 | 51,904 | 51,904 | 52,108 | 17,296 | 14,293 | 3.00 |
-| strsim | traps | 14,204 | 40,544 | 20,608 | 20,608 | 21,356 | 12,752 | 8,007 | — |
-| the eight | | 390,892 | 86,131 | 237,752 | 234,680 | 221,984 | 64,194 | 53,208 | **3.66** |
+| itoa | ok | 8,200 | 3,379 | 11,000 | 9,860 | 9,764 | 3,312 | 3,080 | 2.98 |
+| ryu | ok | 11,740 | 7,232 | 14,372 | 13,408 | 13,400 | 7,401 | 5,639 | 1.81 |
+| fnv | traps | — | 16,752 | 1,600 | 1,600 | 1,588 | 4,080 | 1,504 | — |
+| smallvec | ok | 53,488 | 11,840 | 25,660 | 24,020 | 22,464 | 6,584 | 6,031 | 3.65 |
+| arrayvec | traps | 2,668 | 2,672 | 4,308 | 4,204 | 3,580 | 2,150 | 2,112 | 1.96 |
+| hex | traps | 13,224 | 5,840 | 4,240 | 4,240 | 4,368 | 3,585 | 3,287 | 1.18 |
+| base64 | traps | 36,984 | 8,960 | 23,272 | 22,948 | 20,400 | 7,226 | 6,466 | 3.18 |
+| memchr | wrong | 95,460 | 21,280 | 83,176 | 76,720 | 74,464 | 19,492 | 14,231 | 3.94 |
+| semver | ok | 64,396 | 26,832 | 36,516 | 36,388 | 34,160 | 16,640 | 12,300 | 2.19 |
+| unicode-width | traps | 16,300 | 8,944 | 4,240 | 4,240 | 4,108 | 8,865 | 6,809 | — |
+| heck | wrong | 67,712 | 19,376 | 43,472 | 43,472 | 43,420 | 17,296 | 14,293 | 2.51 |
+| strsim | traps | 13,196 | 40,544 | 17,972 | 17,972 | 18,372 | 12,752 | 8,007 | — |
+| the eight | | 258,412 | 86,131 | 162,840 | 158,540 | 151,556 | 64,194 | 53,208 | **2.47** |
 
 ("The eight" are itoa, ryu, smallvec, arrayvec, hex, base64, semver and
-heck; memchr builds on x86-64, but only prints nothing.)
+heck; memchr builds on x86-64, but prints nothing.)
 
-`debug_assertions` cost little (1.8% of the crates' code) and
-immediate-abort 5% more: almost none of the excess is panic code.
+`debug_assertions` cost 3% of the crates' code and immediate-abort saves
+3–4% more: almost none of the excess is panic code. "Text over hello
+world" is now well above the crate's code on our side (Mac 209 KB against
+124 KB): `std`'s generic code grows with the crate, `core`'s `quicksort`
+(6.5 KB for smallvec's `sort_unstable_by`, against rustc's 2.2 KB),
+`<char>::escape_debug_ext` (4.7 KB) and `unicode_data`'s `lookup_slow`
+(2.7 KB) for `{:?}` of strings, all in rustc's hello world already.
 
 ### The instruction mix
 
@@ -145,15 +152,29 @@ The crates' code, all twelve crates, ep ndebug against rustc -O:
 
 | | insts | stack loads | stack stores | frame addresses | other memory | calls | branches | traps | vector | moves |
 |---|---|---|---|---|---|---|---|---|---|---|
-| Mac, ours | 56,450 | 7,755 | 8,492 | 9,534 | 2,484 | 989 | 5,222 | 238 | 7,404 | 1,504 |
+| Mac, ours | 36,211 | 2,312 | 2,672 | 797 | 1,452 | 910 | 4,693 | 192 | 1,035 | 1,507 |
 | Mac, rustc | 25,357 | 1,382 | 1,177 | 9 | 1,916 | 890 | 4,351 | 0 | 1,088 | 1,740 |
-| x86-64, ours | 69,736 | 12,482 | 13,477 | — | 2,067 | 1,614 | 6,598 | 305 | 11,202 | 4,283 |
+| x86-64, ours | 57,911 | 4,876 | 5,693 | — | 2,018 | 1,405 | 5,895 | 275 | 2,557 | 4,716 |
 | x86-64, rustc | 27,389 | 1,195 | 1,420 | — | 1,731 | 854 | 4,200 | 806 | 1,372 | 2,591 |
 
-Of the Mac's 31k extra instructions, 13.7k are stack loads and stores and
-9.5k frame addresses; most of the 6.3k extra vector instructions are
-16-byte copies between slots (`ldr q`/`str q`), so the same thing again.
-Calls and branches are close to rustc's: control flow is not the problem.
+(x86-64's include memchr's 77 KB; without it the ratio is the 2.47 above.)
+
+By opcode, the Mac's eight crates (31.0k instructions against 15.3k):
+
+| opcode | ours | rustc | + |
+|---|---|---|---|
+| `mov` | 4,851 | 2,392 | 2,459 |
+| `cmp` | 3,283 | 1,196 | 2,087 |
+| `str` | 1,904 | 383 | 1,521 |
+| `add` | 3,295 | 1,896 | 1,399 |
+| `csel` | 1,486 | 118 | 1,368 |
+| `cset` | 1,279 | 67 | 1,212 |
+| `ldr` | 1,838 | 712 | 1,126 |
+| `uxtb` | 995 | 0 | 995 |
+| `b` | 2,988 | 2,004 | 984 |
+| `orr` | 1,008 | 267 | 741 |
+| `cbnz` / `cbz` / `tst` | 989 | 277 | 712 |
+| `brk` | 152 | 0 | 152 |
 
 ## Per crate
 
@@ -165,173 +186,168 @@ compiler inlined.
 
 | | ep default | ep ndebug | ep abort | rustc -O | rustc -Os | ndebug / -O |
 |---|---|---|---|---|---|---|
-| Mac | 9,132 | 8,576 | 8,076 | 3,340 | 3,200 | 2.57 |
-| x86-64 | 11,876 | 10,756 | 9,968 | 3,312 | 3,080 | 3.25 |
+| Mac | 8,288 | 7,648 | 7,580 | 3,340 | 3,200 | 2.29 |
+| x86-64 | 11,000 | 9,860 | 9,764 | 3,312 | 3,080 | 2.98 |
 
-Everything is inlined into `main` on both sides (8.6 KB against 3.3 KB on
-the Mac). Ours has 300 stack accesses against 58 and 184 frame-address
-instructions; on x86-64, 366 register moves against 106. The default
-build also keeps itoa's `debug_assert_eq!`s in `udiv128` (eight calls of
-`assert_failed::<u128, u128>`).
+Everything is inlined into `main` on both sides (7.6 KB against 3.3 KB on
+the Mac). The default build also keeps itoa's `debug_assert_eq!`s in
+`udiv128`.
 
 ### ryu
 
 | | ep default | ep ndebug | ep abort | rustc -O | rustc -Os | ndebug / -O |
 |---|---|---|---|---|---|---|
-| Mac | 12,192 | 11,384 | 11,008 | 6,968 | 5,508 | 1.63 |
-| x86-64 | 14,708 | 13,652 | 13,068 | 7,401 | 5,639 | 1.84 |
+| Mac | 12,052 | 11,256 | 11,272 | 6,968 | 5,508 | 1.62 |
+| x86-64 | 14,372 | 13,408 | 13,400 | 7,401 | 5,639 | 1.81 |
 
 | function | Mac ep | Mac rustc | x86 ep | x86 rustc |
 |---|---|---|---|---|
-| `main` | 6,552 | 1,140 | 7,312 | 1,568 |
-| `<Buffer>::format_finite` | 5,408 | — | 6,340 | — |
+| `main` | 6,060 | 1,140 | 7,168 | 1,568 |
+| `<Buffer>::format_finite` | 5,196 | — | 6,240 | — |
 | `format32` + `format64` + `write_mantissa_long` | — | 5,828 | — | 5,833 |
 
-The best of the twelve, and nearly free of stack traffic: the excess is
-selection and folds. `format_finite::<f64>` is 1,352 instructions against
-rustc's `format64` 606: `write_mantissa_long` is inlined into each of
-`format64`'s branches (rustc calls it), `x / 100` is computed twice
-(`umull; lsr #37` repeated), and constants (`#10000`, `#100`) are made
-again in each block. `main` has `format_finite::<f32>` inlined where
-rustc calls `format32`.
+Nearly free of stack traffic from the start: the excess is selection and
+folds. In `format_finite::<f64>`, `write_mantissa_long` is inlined into
+each of `format64`'s branches (rustc calls it), `x / 100` is computed
+twice (`umull; lsr #37` repeated) and constants (`#10000`, `#100`) are
+made again in each block. `main` has `format_finite::<f32>` inlined
+where rustc calls `format32`.
 
 ### smallvec
 
 | | ep default | ep ndebug | ep abort | rustc -O | rustc -Os | ndebug / -O |
 |---|---|---|---|---|---|---|
-| Mac | 37,524 | 32,852 | 31,880 | 6,320 | 5,920 | 5.20 |
-| x86-64 | 44,192 | 41,136 | 38,128 | 6,584 | 6,031 | 6.25 |
+| Mac | 20,188 | 18,216 | 17,168 | 6,320 | 5,920 | 2.88 |
+| x86-64 | 25,660 | 24,020 | 22,464 | 6,584 | 6,031 | 3.65 |
 
 | function | Mac ep | Mac rustc | x86 ep | x86 rustc |
 |---|---|---|---|---|
-| `main` | 18,860 | 2,260 | 23,480 | 2,672 |
-| `<SmallVec>::try_grow` | 9,288 | 952 | 12,556 | 992 |
-| `<SmallVec as Debug>::fmt` | 3,080 | 412 | 3,464 | 472 |
-| `<SmallVec as Deref>::deref` | 328 | — | 328 | — |
-| `<SmallVec>::len`, `set_len`, `as_mut_ptr`, `infallible` | 520 | — | 456 | — |
+| `main` | 11,772 | 2,260 | 15,992 | 2,672 |
+| `<SmallVec>::try_grow` | 3,292 | 952 | 4,720 | 992 |
+| `<SmallVec as Debug>::fmt` | 2,248 | 412 | 2,456 | 472 |
+| `<SmallVec as Deref>::deref` | 256 | — | 224 | — |
+| `<SmallVec>::reserve_one_unchecked` | 392 | 280 | 400 | 288 |
 
-The worst ratio. `try_grow::<[u32; 4]>` is 1,104 instructions against
-111 (479 stack accesses, 250 frame addresses), with a 2.5 KB frame: `Result<(), CollectionAllocErr>`, `Layout` and
-`Result<Layout, LayoutError>` are each built in a slot, copied to
-another, reloaded and copied again; `str x23, [sp, #0x98]; ldr x1, [sp,
-#0x98]` back to back; and every 16-byte copy at an offset ≡ 8 (mod 16)
-past 2 KB takes three instructions. The tiny accessors (`deref`, `len`,
-`set_len`, `as_mut_ptr`: 100–330 bytes each) stay out of line, where
-rustc inlines them all: before folding, smallvec's "inline or spilled"
-test makes them look big to the inliner.
+`try_grow::<[u32; 4]>` went from 1,104 instructions (479 stack accesses,
+a 2.5 KB frame) to 412, against rustc's 111; it has 26 stack accesses
+now. What is left is booleans and missed folds:
+
+```
+add  x1, x20, #0xc         ; a pointer into *self: never null
+cmp  x1, xzr
+csel x23, xzr, x1, eq      ; ... tested for null anyway
+cmp  x23, xzr
+cset w1, ne
+cmp  x23, #0x1
+cset w2, eq
+orr  w1, w1, w2            ; x != 0 || x == 1, which is x != 0
+tbz  w1, #0, ...
+```
+
+and `Layout::array::<u32>(n)`'s overflow test made with `umulh` and three
+`csel`s, where `n >> 62` would do. `<SmallVec as Debug>::fmt` is
+`debug_list().entries(self.iter())`: the iterator inlined. The small
+accessors (`deref`, `infallible`) still stay out of line.
 
 ### arrayvec
 
 | | ep default | ep ndebug | ep abort | rustc -O | rustc -Os | ndebug / -O |
 |---|---|---|---|---|---|---|
-| Mac | 5,556 | 5,472 | 3,704 | 1,860 | 2,060 | 2.94 |
-| x86-64 | 6,104 | 6,012 | 4,064 | 2,150 | 2,112 | 2.80 |
+| Mac | 3,520 | 3,432 | 3,004 | 1,860 | 2,060 | 1.85 |
+| x86-64 | 4,308 | 4,204 | 3,580 | 2,150 | 2,112 | 1.96 |
 
 | function | Mac ep | Mac rustc | x86 ep | x86 rustc |
 |---|---|---|---|---|
-| `main` | 4,224 | 1,612 | 4,572 | 1,888 |
-| `<ArrayVec as Debug>::fmt` | 896 | 116 | 972 | 144 |
-| `<CapacityError as Debug>::fmt` | 352 | 64 | 468 | 64 |
-
-The derived `Debug` impls are 7.7× and 5.5× rustc's (below).
+| `main` | 2,640 | 1,612 | 3,352 | 1,888 |
+| `<ArrayVec as Debug>::fmt` | 660 | 116 | 720 | 144 |
+| `<CapacityError as Debug>::fmt` | 132 | 64 | 132 | 64 |
 
 ### hex
 
 | | ep default | ep ndebug | ep abort | rustc -O | rustc -Os | ndebug / -O |
 |---|---|---|---|---|---|---|
-| Mac | 9,372 | 9,372 | 8,520 | 3,244 | 2,960 | 2.89 |
-| x86-64 | 11,952 | 11,952 | 10,404 | 3,585 | 3,287 | 3.33 |
+| Mac | 3,244 | 3,244 | 3,192 | 3,244 | 2,960 | 1.00 |
+| x86-64 | 4,240 | 4,240 | 4,368 | 3,585 | 3,287 | 1.18 |
 
-`main` 8,144 against 2,392 (Mac). Beyond hello world the program's
-biggest growth on our side is `core`'s `<Result as Debug>::fmt` (4,376
-against 252) and `<u8 as Debug>::fmt` (2,040): derived and hand-written
-`Debug` in core, inlined builder chains.
+At parity in its own code (`main` 2,264 against 2,392 on the Mac), but
+`decode` traps in `std`'s `Vec::from_iter` (below), so `from_hex`'s code
+is missing on our side.
 
 ### base64
 
 | | ep default | ep ndebug | ep abort | rustc -O | rustc -Os | ndebug / -O |
 |---|---|---|---|---|---|---|
-| Mac | 38,896 | 38,608 | 34,992 | 6,048 | 5,700 | 6.38 |
-| x86-64 | 40,508 | 40,196 | 36,544 | 7,226 | 6,466 | 5.56 |
+| Mac | 17,812 | 17,268 | 16,308 | 6,048 | 5,700 | 2.86 |
+| x86-64 | 23,272 | 22,948 | 20,400 | 7,226 | 6,466 | 3.18 |
 
 | function | Mac ep | Mac rustc | x86 ep | x86 rustc |
 |---|---|---|---|---|
-| `encode`'s `inner` (with `internal_encode`) | 18,136 | 1,868 | 20,028 | 2,122 |
-| `main` (with `internal_decode`) | 17,252 | 3,932 | 16,564 | 4,880 |
-| `<DecodeError as Debug>::fmt` | 3,220 | 248 | 3,604 | 224 |
+| `main` (with `internal_decode`) | 9,256 | 3,932 | 11,960 | 4,880 |
+| `encode`'s `inner` (with `internal_encode`) | 6,888 | 1,868 | 9,384 | 2,122 |
+| `<GeneralPurpose>::new` | 644 | — | 1,152 | — |
 
-`inner::<GeneralPurpose>` is 4,032 instructions with 1,564 stack
-accesses, 1,460 frame addresses and 1,020 vector instructions: the encoder's 8-byte and 6-byte chunks go
-through slots, and `[u8; N]` temporaries are copied by `q` registers.
+`inner::<GeneralPurpose>` went from 4,032 instructions (1,564 stack
+accesses, 1,460 frame addresses, 1,020 vector copies of the 8-byte and
+6-byte chunks) to 1,331, with 214 stack accesses and no vector copies.
 
 ### semver
 
 | | ep default | ep ndebug | ep abort | rustc -O | rustc -Os | ndebug / -O |
 |---|---|---|---|---|---|---|
-| Mac | 48,504 | 51,280 | 49,448 | 15,912 | 11,900 | 3.22 |
-| x86-64 | 56,508 | 59,072 | 57,700 | 16,640 | 12,300 | 3.55 |
+| Mac | 28,500 | 28,500 | 27,116 | 15,912 | 11,900 | 1.79 |
+| x86-64 | 36,516 | 36,388 | 34,160 | 16,640 | 12,300 | 2.19 |
 
 | function | Mac ep | Mac rustc | x86 ep | x86 rustc |
 |---|---|---|---|---|
-| `version_req` | 14,200 | 1,012 | 15,484 | 1,056 |
-| `main` | 9,720 | 1,864 | 12,060 | 2,464 |
-| `<Version>::parse` | 8,944 | 4 | 10,332 | 16 |
-| `<Prerelease as PartialOrd>::partial_cmp` | 2,708 | — | 3,120 | — |
-| `<VersionReq>::parse` | 2,572 | 4 | 3,032 | 16 |
-| `<Error as Display>::fmt` | 3,212 | 712 | 3,856 | 720 |
+| `main` | 7,632 | 1,864 | 10,028 | 2,464 |
+| `version_req` | 6,556 | 1,012 | 8,856 | 1,056 |
+| `<Version>::parse` | 3,268 | 4 | 4,296 | 16 |
+| `<Prerelease as PartialOrd>::partial_cmp` | 2,256 | — | 2,828 | — |
+| `<Version as Display>::fmt` | 1,996 | 48 | 2,392 | 32 |
+| `<VersionReq>::parse` | 1,624 | 4 | 2,104 | 16 |
 
 The parser returns `Result<(T, Position, &str), Error>` from every
-function. `version_req` is 3,550 instructions: 1,250 stack accesses,
-1,102 frame addresses and 531 vector copies, against 253 instructions in
-all for rustc (which keeps `comparator` out of line). rustc's `Version::parse`
-is a 4-byte tail call into `FromStr`; ours has the parser inlined.
-(Building semver without `debug_assertions` made it *bigger*, 51.3 KB
-against 48.5 KB: inlining decisions moved.)
+function. `version_req` went from 3,550 instructions (1,250 stack
+accesses, 1,102 frame addresses) to 1,639 (119 stack accesses), against
+253 for rustc, which keeps `comparator` out of line. rustc's
+`Version::parse` is a tail call into `FromStr`; ours has the parser
+inlined.
 
 ### heck
 
 | | ep default | ep ndebug | ep abort | rustc -O | rustc -Os | ndebug / -O |
 |---|---|---|---|---|---|---|
-| Mac | 41,852 | 41,852 | 41,092 | 18,248 | 13,020 | 2.29 |
-| x86-64 | 51,904 | 51,904 | 52,108 | 17,296 | 14,293 | 3.00 |
+| Mac | 34,532 | 34,532 | 34,132 | 18,248 | 13,020 | 1.89 |
+| x86-64 | 43,472 | 43,472 | 43,420 | 17,296 | 14,293 | 2.51 |
 
-| function | Mac ep | Mac rustc |
-|---|---|---|
-| `main` (all seven conversions inlined) | 35,708 | 708 |
-| the seven `to_*_case` (rustc: out of line) | — | 16,288 |
-| `lowercase`, `uppercase`, `capitalize` | 5,464 | 1,252 |
+| function | Mac ep | Mac rustc | x86 ep | x86 rustc |
+|---|---|---|---|---|
+| `main` (all seven conversions inlined) | 31,188 | 708 | 39,972 | 1,024 |
+| the seven `to_*_case` (rustc: out of line) | — | 16,288 | — | |
+| `lowercase` | 1,772 | 560 | 1,840 | 592 |
 
-Each conversion is used once, so inlining them all is fair; each is 2×
-rustc's inside `main` (1,286 stack loads, 1,057 stores, 736 frame
-addresses in `main`).
+Each conversion is used once, so inlining them all is fair; `main` is
+7,797 instructions with 1,358 branches against rustc's ~4,250 and ~940
+for the same work, and on x86-64 1,076 register moves against 395.
 
 ### memchr, unicode-width, strsim, fnv
 
 These trap where a function couldn't be lowered, so their sizes say
 little (below). On x86-64, where memchr's SSE2 and AVX2 paths do lower,
-its code is 5.9× rustc's: `<Searcher>::new` 10,364 against 1,256,
-`find_raw_sse2`/`avx2` of `Two` and `Three` 4–6 KB each where rustc's
-whole `find_avx2` is 4.5 KB, and 9.1k stack accesses: the vector code is
-lowered through memory, lane by lane (`docs/design/later.md`), and
-`std_detect`'s `avx2` check is 9.6 KB against rustc's 1.8 KB
-`detect_and_initialize`.
+its code is 3.9× rustc's (5.9× before): its vector code is lowered
+through memory, lane by lane (`docs/design/later.md`).
 
 ## Where we're biggest, by cause
 
 | | Mac | x86-64 | for |
 |---|---|---|---|
-| Aggregates through memory: allocas the optimiser leaves, copied slot to slot, stores reloaded at once | 13.7k extra stack loads/stores of 31k extra instructions (+ most of 6.3k vector copies) | 23.3k of 42k | opt (SROA through memcpy, store-to-load forwarding: **opt-forward-and-remove-l**, PR #210), frame slots (**frames-share-alloca-slot**) |
-| AArch64 frame addresses: 16-byte slots at offsets ≡ 8 (mod 16), half past 4 KB | 9.5k instructions, 17% | — | codegen: align 16-byte slots to 16, `add x15, sp, #hi, lsl #12` for the rest, smaller frames |
-| `#[derive(Debug)]` as builder chains | `Debug` impls 3–13× | same | epitome-rustc2's derive (follow-up 1) |
-| x86 vector code lane by lane | — | memchr 5.9×, `std_detect` 5× | x86-vector-lanes |
-| Inlining: tiny accessors left out of line; once-used big functions duplicated into branches | smallvec accessors ~0.5 KB; ryu's `write_mantissa_long` ×4 | same | **inline-size-policy** |
-| Missed CSE and constants remade per block | ryu: `x / 100` twice, `mov #10000` per block | 4.3k register moves vs 2.6k | opt CSE across blocks, remat |
-| `brk` after calls that don't return | 238 instructions | 305 | codegen (opt-dead-cycles found the same) |
-
-Cold placement (**cold-placement**) and function merging
-(**merge-functions**) don't show here: these programs have little panic
-code (immediate-abort saves 5% of the crates' code) and few identical
-instances.
+| Booleans as values: `cmp; cset; uxtb; orr; tst; b` where rustc branches on flags, with missed folds (`x != 0 \|\| x == 1`, a null test of `p + 12`, overflow of `n * 4` by `umulh`) | `cset`/`csel`/`uxtb`/`orr` +4.3k, `cmp` +2.1k, of +15.7k | similar | opt (combine: `or` of compares, `nonnull` of inbounds GEPs, `umul.with.overflow` by a power of 2), isel (fuse compare and branch through `zext`/`or`) |
+| Stack traffic still left | +2.4k loads and stores | +8.0k | opt (forwarding across blocks), x86 regalloc |
+| Inlining: once-used functions duplicated into branches, small accessors kept out of line; `main` 3–40× rustc's where rustc keeps the crate's functions out of line | ryu, heck, semver | same | inliner |
+| x86-64 register moves | — | 4.7k against 2.6k | regalloc coalescing |
+| x86 vector code lane by lane | — | memchr 3.9× | x86-vector-lanes |
+| `std` generics instantiated for the crate | `quicksort` 6.5 KB against 2.2 KB | | the same causes, in core |
+| `brk` after calls that don't return | 152 | 275 | codegen |
 
 ## What doesn't build or run, and why
 
@@ -340,11 +356,13 @@ Fixed on this branch (small):
 - **itoa** didn't build: `i128::MAX_STR_LEN` in an array length, an
   associated constant of a trait impl on a primitive (`impl Integer for
   i128`); the evaluator searched only inherent impls (`consteval.rs`).
-- **hex, base64**: `println!("{}", a == b)` failed to expand, "expected an
-  expression, found `=`": `a`, `=`, `=` was taken for a named argument
-  (`expand/format.rs`). `tests/run/std_hello.rs` now covers it.
+- `-C debug-assertions=yes|no`, so the comparison with rustc -O is like
+  for like, and `--fn-crates FILE`.
 
-Not fixed (proposed as follow-ups):
+(The same branch fixed `println!("{}", a == b)`, which #212 also fixed on
+main; main's fix is kept.)
+
+Not fixed (follow-ups):
 
 - **char case mapping is wrong**: `'Ä'.to_lowercase()` gives `Ä` (heck's
   only difference). core's `conversions::to_lower` finds nothing in
@@ -359,8 +377,7 @@ Not fixed (proposed as follow-ups):
   loop).
 - **Specialised and blanket trait methods**: `<[u8] as TryInto<[u8;
   8]>>` (base64's `read_u64`), `SpecFromIter` for `GenericShunt` (hex's
-  `decode`), `StableSmallSortTypeImpl::small_sort_threshold` and
-  `IsFreeze` (sorting a `Vec<Version>`): "built-in … on …", so they trap.
+  `decode`): "built-in … on …", so they trap.
 - **arrayvec**: `extend_from_iter`'s `ScopeExitGuard` closure has
   untyped captures.
 - **unicode-width**: a `match` whose arms are `&` arrays of different
@@ -370,21 +387,20 @@ Not fixed (proposed as follow-ups):
   `vshrn_n_u16` with a const generic, `umaxp`): no SIMD lowering on
   AArch64 yet.
 - **Compiler stack**: fnv's program overflows epitome-rustc2's stack;
-  `build.sh` sets `RUST_MIN_STACK=256M` (inline-hints found the same).
+  `build.sh` sets `RUST_MIN_STACK=256M`.
 
 ## Follow-ups, by size of win
 
-1. AArch64: align 16-byte frame slots to 16 and make far offsets with one
-   `add x15, sp, #hi, lsl #12`: up to 17% of the crates' code, and the
-   same in `std` (`set_current_info`). Small and local to frame layout.
-2. Aggregates through memory: SROA through `memcpy` between allocas and
-   store-to-load forwarding (PR #210's direction), then slot sharing.
-   The biggest, but already in hand.
-3. `#[derive(Debug)]` via `Formatter::debug_{struct,tuple}_field{1..5}_finish`
-   and `debug_struct_fields_finish`, as rustc's derive expands: shrinks
-   every derived `Debug` in core, std and the crates 3–10×.
-4. char case mapping (correctness), then `HashMap::entry` and
+1. Booleans: fold `or`/`and` of compares of one value, `icmp ne (gep
+   inbounds nonnull p, k), null`, and `umul.with.overflow` by a power of
+   two; select compare-and-branch through `zext i1`/`or i1` rather than
+   making bytes. About 6k of the Mac's 15.7k extra instructions are this
+   shape.
+2. Inlining: don't duplicate a big function called once into several
+   branches (ryu), keep a crate's large once-used functions (`to_*_case`,
+   `comparator`) out of line at `-O` as rustc does when that is smaller,
+   and inline accessors whose bodies fold away.
+3. x86-64: the remaining stack traffic (8k extra loads and stores) and
+   register moves (2.1k extra).
+4. Correctness: char case mapping, then `HashMap::entry` and
    `Group::WIDTH`-length arrays, which most real programs need.
-5. Inlining: treat a function whose body folds to a few instructions
-   once its argument is known (smallvec's accessors) as small; don't
-   duplicate a big once-called function into several branches.

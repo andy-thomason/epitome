@@ -286,6 +286,10 @@ pub(super) struct FnCtxt<'a, 's> {
     reported: FastSet<NodeId>,
     /// What the body may assume (`traits.rs`).
     pub(super) env_preds: Vec<Pred>,
+    /// While ranking specialising impls: a generic parameter has only the
+    /// auto traits and `Freeze` its bounds give it, so that `impl<T:
+    /// FreezeMarker>` is more specific than `impl<T>` (`traits.rs`).
+    pub(super) params_strict: bool,
     /// Predicates on variables, from generic items used in the body.
     pub(super) obligations: Vec<Pred>,
     /// Projections waiting for their types to be known: `<args>::assoc`
@@ -345,6 +349,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
             errors: FastMap::default(),
             reported: FastSet::default(),
             env_preds: Vec::new(),
+            params_strict: false,
             obligations: Vec::new(),
             pending: Vec::new(),
             pending_traits: Vec::new(),

@@ -54,9 +54,6 @@ fn main() {
     println!("{} + {} = {}", 2, 3, 2 + 3);
     let p = Point { x: 3, y: -4 };
     println!("point {p}, width {:>6}|", p.x);
-    let q = Point { x: 3, y: -4 };
-    let (a, b) = (p.x, q.y);
-    println!("{} {}", a == b, a == q.x);
     let v: Vec<i32> = (1..=5).collect();
     println!("{:?} sum {}", v, v.iter().sum::<i32>());
     let doubled: Vec<i32> = v.iter().map(|x| x * 2).filter(|x| x % 3 != 0).collect();

@@ -50,6 +50,9 @@ short) has to do to work like LLVM. They are split into two halves:
   trip counts.
 - [Ranges](ranges.md): what dominating branches imply (bounds checks
   under a loop's test), and what each integer can be.
+- [Merging functions](merge.md): identical functions and constants
+  kept once, the others made aliases of them, or thunks where an
+  address must stay its own.
 - [CSE](cse.md): common-subexpression elimination by hashing a canonical
   key for each instruction.
 - [Combines](combine.md): the rule language, the discrimination tree that

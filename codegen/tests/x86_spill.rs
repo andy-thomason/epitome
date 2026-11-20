@@ -40,3 +40,33 @@ fn three_spilled_vector_operands() {
     }
     assert_eq!(out[0], out[1], "our build of three_operands.ll differs from clang's");
 }
+
+/// A compare the same as one before it in its block goes
+/// (`peephole::redundant_compares`), and so does an address of a slot
+/// made once and used across the function (`frame_addresses`); the block
+/// must still say where its terminator starts, as the register allocator
+/// puts a spilled value's load for leaving the block there. With the
+/// terminator's start left one too far, the load went after the jump and
+/// never ran, and a loop that read the value never ended. The allocator
+/// now refuses a block whose terminator is not where it says.
+#[test]
+fn removed_compare_keeps_the_terminator_start() {
+    let ll = "
+define i64 @f(i64 %a, i64 %b) {
+entry:
+  %c1 = icmp ult i64 %a, %b
+  %s1 = select i1 %c1, i64 %a, i64 %b
+  %c2 = icmp ult i64 %a, %b
+  %s2 = select i1 %c2, i64 1, i64 2
+  %r = add i64 %s1, %s2
+  br label %next
+
+next:
+  ret i64 %r
+}
+";
+    for (t, triple) in [(Target::x86_64(), "x86_64-unknown-linux-gnu"), (Target::aarch64(), "arm64-apple-macosx14.0.0")] {
+        let mut m = epitome_ir::parse_module(&format!("target triple = \"{triple}\"\n{ll}")).unwrap();
+        compile(&t, &mut m, &Options::default()).unwrap_or_else(|e| panic!("{triple}: {e}"));
+    }
+}

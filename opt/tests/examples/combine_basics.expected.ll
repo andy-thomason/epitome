@@ -7,6 +7,9 @@
 ; @casts: combine: (dead) x1, trunc_zext_same x1
 ; @floats: combine: (dead) x1, fadd_neg_zero x1, fmul_one x1, fneg_fneg x1
 ; @folding: combine: (folded) x4
+; @int_ptr_round_trip: combine: (dead) x1, inttoptr_ptrtoint x1
+; @ptr_int_round_trip: combine: (dead) x1, ptrtoint_inttoptr x1
+; @null_from_zero: combine: (folded) x1
 
 
 define i32 @add_zero(i32 %x) {
@@ -48,4 +51,17 @@ define double @floats(double %x) {
 
 define i32 @folding() {
   ret i32 84
+}
+
+define ptr @int_ptr_round_trip(ptr %p) {
+  ret ptr %p
+}
+
+define i64 @ptr_int_round_trip(i64 %i) {
+  ret i64 %i
+}
+
+define i1 @null_from_zero(ptr %p) {
+  %c = icmp eq ptr %p, null
+  ret i1 %c
 }

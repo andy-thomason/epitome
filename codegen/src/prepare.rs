@@ -7,8 +7,9 @@
 //! - `switch` becomes a chain of `icmp eq` and conditional branches.
 //! - Edges from a block with several successors to a block with phis are
 //!   split, so that the phis' copies have somewhere to go.
-//! - Calls to intrinsics that do nothing in code (`llvm.lifetime.*`,
-//!   `llvm.dbg.*`, `llvm.assume`) are removed.
+//! - Calls to intrinsics that do nothing in code (`llvm.dbg.*`,
+//!   `llvm.assume`) are removed, and `llvm.lifetime.*` but for those frame
+//!   lowering uses (`lifetime_markers`).
 //! - Comparisons, divisions and right shifts of values narrower than 32
 //!   bits are done on 32-bit extensions of them: a narrow value lives in a
 //!   W register with its upper bits undefined, so these operations, which
@@ -239,6 +240,8 @@ impl Ctx<'_> {
 /// Puts a copy of `f` into selection form.
 pub fn prepare(cx: &mut Ctx, f: &Function, fname: &str) -> Result<Function, String> {
     let mut f = f.clone();
+    // `llvm.expect` as weights on its branches, before anything moves it.
+    crate::cold::lower_expect(cx.m, &mut f);
     // (Scalable vectors of more than a register as parts first, before
     // what follows takes their lanes as countable.)
     // (Streaming mode and ZA first: the calls of their switches.)
@@ -4142,23 +4145,113 @@ pub fn callee_name(m: &Module, call: &Call) -> Option<String> {
 }
 
 fn drop_noop_calls(cx: &Ctx, f: &mut Function) {
+    let markers = lifetime_markers(cx, f);
     let order: Vec<BlockId> = f.layout.clone();
     for b in order {
         let insts = f.blocks[b.index()].insts.clone();
         let keep: Vec<InstId> = insts
             .into_iter()
             .filter(|&i| match &f.insts[i.index()].op {
-                Op::Call(call) => !callee_name(cx.m, call).is_some_and(|n| {
-                    n.starts_with("llvm.lifetime.")
-                        || n.starts_with("llvm.dbg.")
-                        || n == "llvm.assume"
-                        || n.starts_with("llvm.experimental.noalias")
-                }),
+                Op::Call(call) => markers.contains(&i)
+                    || !callee_name(cx.m, call).is_some_and(|n| {
+                        n.starts_with("llvm.lifetime.")
+                            || n.starts_with("llvm.dbg.")
+                            || n == "llvm.assume"
+                            || n.starts_with("llvm.experimental.noalias")
+                    }),
                 _ => true,
             })
             .collect();
         f.blocks[b.index()].insts = keep;
     }
+}
+
+/// The calls of `llvm.lifetime.start` and `.end` kept for frame lowering,
+/// which lets stack slots whose lifetimes do not overlap share memory (see
+/// `frame.rs`): those naming a fixed-size alloca of the entry block, whole, that something
+/// besides them uses. None if any names something else (a pointer into an
+/// alloca, or one chosen at run time), as an alloca's markers are then not
+/// all known. An end with only other ends and then a return after it (or a
+/// branch to a block that only returns) is dropped: nothing after it reads
+/// the stack, and the call before it may then be a tail call.
+pub fn lifetime_markers(cx: &Ctx, f: &Function) -> std::collections::HashSet<InstId> {
+    let is_marker = |i: InstId| -> Option<bool> {
+        let Op::Call(call) = &f.insts[i.index()].op else { return None };
+        match callee_name(cx.m, call)?.as_str() {
+            n if n.starts_with("llvm.lifetime.start") => Some(true),
+            n if n.starts_with("llvm.lifetime.end") => Some(false),
+            _ => None,
+        }
+    };
+    let mut markers = Vec::new();
+    let mut other_uses = vec![false; f.locals.len()];
+    for i in f.insts_in_order() {
+        if is_marker(i).is_some() {
+            markers.push(i);
+        } else {
+            f.insts[i.index()].op.for_each_value(|v| {
+                if let Value::Local(x) = v {
+                    other_uses[x.index()] = true;
+                }
+            });
+        }
+    }
+    let entry = &f.blocks[f.entry().index()].insts;
+    let mut keep = std::collections::HashSet::new();
+    for &i in &markers {
+        let Op::Call(call) = &f.insts[i.index()].op else { unreachable!() };
+        let Some(Value::Local(p)) = call.args.last().map(|a| a.value) else { return std::collections::HashSet::new() };
+        let LocalDef::Inst(a) = f.locals[p.index()].def else { return std::collections::HashSet::new() };
+        // (One in the entry block, which selection reaches first.)
+        let Op::Alloca { ty, count, .. } = &f.insts[a.index()].op else { return std::collections::HashSet::new() };
+        if !entry.contains(&a) {
+            return std::collections::HashSet::new();
+        }
+        let n = match count {
+            None => 1,
+            Some(c) => match cx.const_int(*c) {
+                Some(n) => n as u64,
+                // A dynamic alloca's: it has no slot.
+                None => continue,
+            },
+        };
+        let Ok(size) = cx.size_of(*ty) else { return std::collections::HashSet::new() };
+        // (The older form's size, -1 for all of it.)
+        if call.args.len() == 2
+            && let Some(k) = cx.const_int(call.args[0].value)
+            && k != -1
+            && (k as u64) < size * n
+        {
+            return std::collections::HashSet::new();
+        }
+        if other_uses[p.index()] {
+            keep.insert(i);
+        }
+    }
+    // Ends before a return.
+    let returns = |b: BlockId| {
+        f.blocks[b.index()].insts.iter().filter(|&&k| !f.insts[k.index()].op.is_phi()).count() == 1
+            && matches!(f.terminator(b).map(|t| &f.insts[t.index()].op), Some(Op::Ret(_)))
+    };
+    for &b in &f.layout {
+        let insts = &f.blocks[b.index()].insts;
+        let Some(&last) = insts.last() else { continue };
+        let leaves = match &f.insts[last.index()].op {
+            Op::Ret(_) | Op::Unreachable => true,
+            Op::Br(d) => returns(*d),
+            _ => false,
+        };
+        if !leaves {
+            continue;
+        }
+        for &k in insts[..insts.len() - 1].iter().rev() {
+            if is_marker(k) != Some(false) {
+                break;
+            }
+            keep.remove(&k);
+        }
+    }
+    keep
 }
 
 /// Edges to a block that is only `unreachable` are never taken (taking one

@@ -368,7 +368,7 @@ pub fn format_args<'s>(
     let mut named: Vec<(String, Vec<Token<'s>>)> = Vec::new();
     for &p in rest {
         match p {
-            // (`a == b` comes as `a`, `=`, `=`, `b`: not a name.)
+            // `a == b` comes as two `=` tokens: not `a = (= b)`.
             [n, eq, e @ ..] if n.is_ident() && eq.0 == "=" && e.first().is_some_and(|t| t.0 != "=") => {
                 named.push((n.0.to_string(), e.to_vec()))
             }

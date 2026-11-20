@@ -26,6 +26,19 @@ since they may now fold. A `switch` on a constant, or whose targets are all
 the same, becomes a `br`. This is built in, because a switch has any number
 of operands.
 
+A branch's weights (`!prof` `branch_weights`, one per successor) stay
+right through these edits: `br_not` swaps them with the targets, and a
+branch that becomes plain, or whose targets change otherwise, loses them
+(here and wherever a pass makes a branch plain). The weights come from the
+front end, or from `llvm.expect`, which each function's task turns into
+weights before anything else (after promoting its locals, so the branch
+testing the expected value is in sight), as LLVM's `lower-expect` does:
+the side expected gets 2000 and the other 1 (or the given probability, for
+`llvm.expect.with.probability`), seen through casts, `icmp eq`/`ne` and
+`xor` with constants; then the call is replaced by its value
+(`opt/src/expect.rs`, `ir/src/prof.rs`). The code generator places
+blocks by them ([codegen](codegen.md)).
+
 When a comparison folds to a constant, the branch using it is one of its
 users, so it goes back on the list and the branch rule fires: constants
 flow into control flow without a separate pass.

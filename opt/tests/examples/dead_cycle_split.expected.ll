@@ -1,8 +1,8 @@
 ; cycle: @fail -> @write -> @unwrap -> @hint -> @fail   (SCC of 4: @fail, @hint, @unwrap, @write)
 ; @fail: recursion: the cycle splits into pieces of 1, 1, 1, 1
-; @fail: inlined @write: cost 1, bonus 9, threshold 100
+; @fail: inlined @write: cost 1, bonus 9, threshold 0
 ; @fail: combine: (folded) x1
-; @hint: inlined @checks: cost 0, bonus 10, threshold 100
+; @hint: inlined @checks: cost 0, bonus 10, threshold 0
 ; @hint: combine: (folded) x1, br_false x1
 ; @hint: simplifycfg: 1 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged, 0 edges into unreachable dropped
 ; @unwrap: inlined @hint: cost 0, bonus 10, threshold 0

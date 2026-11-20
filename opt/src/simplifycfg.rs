@@ -249,6 +249,8 @@ fn fold_same_targets(f: &mut Function, out: &mut Outcome) {
             continue;
         }
         f.insts[t.index()].op = Op::Br(then_dest);
+        // (Branch weights are per successor: a plain branch has none.)
+        f.insts[t.index()].attachments.retain(|a| a.kind != "prof");
         for phi in phis(f, then_dest) {
             if let Op::Phi { incoming, .. } = &mut f.insts[phi.index()].op
                 && let Some(at) = incoming.iter().position(|(_, from)| *from == b)
@@ -451,6 +453,8 @@ fn select_all(sh: &Shared, f: &mut Function, out: &mut Outcome) {
             replaced[r.index()] = Some(v);
         }
         f.insts[t.index()].op = Op::Br(join);
+        // (Branch weights are per successor: a plain branch has none.)
+        f.insts[t.index()].attachments.retain(|a| a.kind != "prof");
         // `a` now goes straight to the join; the arms lose it.
         for x in [then_dest, else_dest] {
             if x != join {

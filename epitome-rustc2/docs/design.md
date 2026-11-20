@@ -1071,6 +1071,16 @@ any other; then each is defined.
   `std` formatting 12% slower on the Mac and a hello world 3 KB bigger.
   A `std` hello world's code went from 136,824 to 133,156 bytes on the
   Mac and from 112,351 to 111,159 on x86-64, its build time unchanged.
+- **`unnamed_addr`.** Every function defined, and every private
+  constant (string literals, vtables, promoted constants), is
+  `unnamed_addr`, as rustc makes them: Rust promises neither a unique
+  address. epitome-opt then merges identical ones
+  (`docs/design/merge.md`): `<u64 as Display>::fmt` and `<usize as
+  Display>::fmt`, `drop_in_place` of types that drop the same way, and
+  string literals and vtables with the same contents. `static`s are not
+  private and stay without it. A `std` hello world's code went from
+  133,156 to 131,956 bytes on the Mac and from 111,159 to 109,983 on
+  x86-64, its constants from 10,500 to 8,775 and 7,617 to 6,606.
 - **Symbols** are the item's path and arguments, made safe for an
   assembler, and a hash of where the item is written and of its
   arguments in full; `#[no_mangle]`, `#[export_name]` and foreign items

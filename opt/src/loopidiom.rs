@@ -425,6 +425,8 @@ fn try_loop(sh: &Shared, f: &mut Function, l: &Loop, pre: BlockId, dry: bool) ->
     // The loop no longer sets anything, and goes round once.
     f.blocks[h.index()].insts.retain(|&i| i != e.inst);
     f.insts[branch.index()].op = Op::Br(exit);
+    // (Branch weights are per successor: a plain branch has none.)
+    f.insts[branch.index()].attachments.retain(|a| a.kind != "prof");
     if let Op::Phi { incoming, .. } = &mut f.insts[phi.index()].op {
         incoming.retain(|(_, b)| *b != h);
     }

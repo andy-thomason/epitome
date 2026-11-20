@@ -30,7 +30,7 @@
 ; @squares: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged, 0 edges into unreachable dropped
 ; @squares: indvars: loop %for.body runs 10 times when entered
 ; @squares: indvars: 1 exact exit tests, 0 exit values, 0 counters widened
-; @main: mem2reg: 1 allocas promoted (0 loads, 1 stores removed)
+; @main: sroa: 1 allocas split into 0 pieces
 ; @main: constcall: 3 calls worked out
 ; @main: combine: (dead) x2, (folded) x3, add_add_const x2
 

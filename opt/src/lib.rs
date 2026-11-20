@@ -27,6 +27,8 @@
 //! - `ipo`: after the bottom-up passes, what they cannot see: constant
 //!   returns and arguments across calls, argument promotion, and leaf
 //!   functions inlined within call-graph cycles.
+//! - `merge`: identical functions and constants kept once, the others
+//!   made aliases of them (or thunks, where an address must stay its own).
 //! - `cfg`, `ssa`, `cleanup`: analyses and helpers the passes share.
 //!
 //! See `docs/design/parallel.md` for the design.
@@ -39,6 +41,7 @@ pub mod cleanup;
 pub mod combine;
 pub mod constcall;
 pub mod cse;
+pub mod expect;
 pub mod cut;
 pub mod ctx;
 pub mod fx;
@@ -52,6 +55,7 @@ pub mod loops;
 pub mod lsr;
 pub mod mem2reg;
 pub mod memcpyopt;
+pub mod merge;
 pub mod memssa;
 pub mod par;
 pub mod pipeline;

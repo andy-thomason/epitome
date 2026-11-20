@@ -54,7 +54,7 @@ mod intrinsic;
 mod pat;
 mod quad;
 
-use crate::hash::FastMap;
+use crate::hash::{FastMap, FastSet};
 use crate::layout::{Abi, Layout, LayoutCx, Prim, TargetData};
 use crate::mono::{Item, MonoItems};
 use crate::resolve::{DefId, DefKind, Resolver};
@@ -756,6 +756,81 @@ impl<'a, 's> Cx<'a, 's> {
         (!out.is_empty()).then(|| out.join(","))
     }
 
+    /// The IR attributes for the inlining and coldness of each function
+    /// and closure in `items`, by item: `#[inline(never)]` is `noinline`,
+    /// `#[inline(always)]` `alwaysinline` and `#[cold]` `cold`, as rustc
+    /// gives them (`cfg_attr`s are expanded by now). A closure has its own
+    /// (`#[inline(never)] |x| ...`, an `AttrExpr` around it), not its
+    /// function's. Shims and drop glue have none.
+    ///
+    /// A plain `#[inline]` gives nothing, where rustc gives `inlinehint`:
+    /// it is there to make a body available to other crates, which a
+    /// whole-program build has anyway, and the inliner's bonus for it made
+    /// `std`'s formatting 12% slower and a hello world 3 KB bigger.
+    pub fn inline_attrs<'i>(&self, items: impl Iterator<Item = &'i Item>) -> FastMap<Item, Vec<&'static str>> {
+        let items: Vec<Item> = items.copied().collect();
+        // The `AttrExpr` around each closure, in the files closures are in.
+        let mut wrapped: FastMap<(u32, u32, crate::ast::NodeId), crate::ast::NodeId> = FastMap::default();
+        let mut files: Vec<(u32, u32)> = items
+            .iter()
+            .filter_map(|it| match *it {
+                Item::Closure(c, _, _) => {
+                    let (k, f, _) = self.tcx.closure_at(c);
+                    Some((k, f))
+                }
+                _ => None,
+            })
+            .collect();
+        files.sort_unstable();
+        files.dedup();
+        for (k, f) in files {
+            let ast = &self.crates[k as usize].files[f as usize].ast;
+            for n in 0..ast.nodes.len() as u32 {
+                let n = crate::ast::NodeId(n);
+                if ast.kind(n) == crate::ast::Kind::AttrExpr
+                    && let Some(&e) = ast.children(n).last()
+                    && ast.kind(e) == crate::ast::Kind::Closure
+                {
+                    wrapped.insert((k, f, e), n);
+                }
+            }
+        }
+        let mut out = FastMap::default();
+        for it in items {
+            let (ast, node) = match it {
+                Item::Fn(d, _) => {
+                    let (_, _, ast, node) = self.def_ast(d);
+                    (ast, node)
+                }
+                Item::Closure(c, _, _) => {
+                    let (k, f, node) = self.tcx.closure_at(c);
+                    let Some(&w) = wrapped.get(&(k, f, node)) else { continue };
+                    (&self.crates[k as usize].files[f as usize].ast, w)
+                }
+                _ => continue,
+            };
+            let mut words = Vec::new();
+            for (name, a) in crate::session::attributes(ast, node) {
+                let w = match name.as_str() {
+                    "cold" => "cold",
+                    "inline" => match ast.child(a, crate::ast::Kind::TokenTree).map(|tt| ast.text(tt)) {
+                        Some(t) if t.contains("never") => "noinline",
+                        Some(t) if t.contains("always") => "alwaysinline",
+                        _ => continue,
+                    },
+                    _ => continue,
+                };
+                if !words.contains(&w) {
+                    words.push(w);
+                }
+            }
+            if !words.is_empty() {
+                out.insert(it, words);
+            }
+        }
+        out
+    }
+
     /// The name a function (or static) has in the object file: its own for
     /// `#[no_mangle]`, `#[export_name]` and foreign items, else its path and
     /// arguments, made safe for an assembler, with a hash that tells
@@ -1114,6 +1189,20 @@ impl Session {
                 add_target_features(&mut m, decl.g, fs);
             }
         }
+        // Each function's `#[inline(never)]`, `#[inline(always)]` and
+        // `#[cold]` (a closure has its own, not its function's), then the
+        // calls of cold functions.
+        let mut cold = FastSet::default();
+        for (it, words) in cx.inline_attrs(cx.fns.keys()) {
+            let decl = &cx.fns[&it];
+            if words.contains(&"cold") {
+                cold.insert(decl.g);
+            }
+            if let epitome_ir::module::GlobalKind::Function(f) = &mut m.globals[decl.g.index()].kind {
+                f.fn_attrs.extend(words.into_iter().map(|w| epitome_ir::module::Attr::Word(w.into())));
+            }
+        }
+        mark_cold_calls(&mut m, &cold);
         // Every function defined: the target's CPU.
         if let Some(cpu) = target.cpu {
             for g in &mut m.globals {
@@ -1355,6 +1444,30 @@ fn x86_64_features() -> &'static FastMap<String, Vec<String>> {
     })
 }
 
+/// Marks each direct call of a function in `cold` `cold` too, as rustc
+/// does, so that the inliner treats the path to it as cold whether or not
+/// it looks at the callee.
+fn mark_cold_calls(m: &mut Module, cold: &FastSet<GlobalId>) {
+    use epitome_ir::module::{Attr, ConstKind, GlobalKind, Value};
+    if cold.is_empty() {
+        return;
+    }
+    let consts = &m.consts;
+    for g in &mut m.globals {
+        let GlobalKind::Function(f) = &mut g.kind else { continue };
+        for i in &mut f.insts {
+            if let Some(c) = i.op.call_mut()
+                && let Value::Const(k) = c.callee
+                && let ConstKind::Global(callee) = consts.get(k).kind
+                && cold.contains(&callee)
+                && !c.fn_attrs.iter().any(|a| matches!(a, Attr::Word(w) if w == "cold"))
+            {
+                c.fn_attrs.push(Attr::Word("cold".into()));
+            }
+        }
+    }
+}
+
 /// Gives function `g` the attribute `"target-features"="fs"`.
 fn add_target_features(m: &mut Module, g: GlobalId, fs: String) {
     if let epitome_ir::module::GlobalKind::Function(f) = &mut m.globals[g.index()].kind {
@@ -1419,6 +1532,76 @@ mod tests {
         let root = std::path::PathBuf::from(String::from_utf8(out.stdout).ok()?.trim());
         let core = root.join("lib/rustlib/src/rust/library/core/src/lib.rs");
         core.exists().then_some(core)
+    }
+
+    /// `#[inline(never)]`, `#[inline(always)]` and `#[cold]` (written
+    /// directly, through `cfg_attr`, and on a closure) become `noinline`,
+    /// `alwaysinline` and `cold`; a plain `#[inline]` gives nothing; and a
+    /// call of a cold function is cold.
+    #[test]
+    fn inline_and_cold_attributes() {
+        let Some(core) = core_src() else {
+            eprintln!("no rust-src: skipped");
+            return;
+        };
+        let dir = std::env::temp_dir().join(format!("epitome-rustc2-inline-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("attrs.rs");
+        std::fs::write(
+            &file,
+            "#![no_std]\n#![no_main]\n#![feature(stmt_expr_attributes)]\n\
+             #[inline(never)] fn never(x: i32) -> i32 { x + 1 }\n\
+             #[inline(always)] fn always(x: i32) -> i32 { x + 2 }\n\
+             #[inline] fn hint(x: i32) -> i32 { x + 3 }\n\
+             #[cold] #[inline(never)] fn chilly(x: i32) -> i32 { x + 4 }\n\
+             #[cfg_attr(all(), inline(never), cold)] fn via_cfg_attr(x: i32) -> i32 { x + 5 }\n\
+             #[track_caller] #[cold] fn tracked(x: i32) -> i32 { core::panic::Location::caller().line() as i32 + x }\n\
+             #[unsafe(no_mangle)] pub extern \"C\" fn main() -> i32 {\n\
+                 let k = #[inline(never)] |y: i32| y * 3;\n\
+                 never(1) + always(2) + hint(3) + chilly(4) + via_cfg_attr(5) + tracked(6) + k(7)\n\
+             }\n\
+             #[panic_handler] fn panic(_: &core::panic::PanicInfo) -> ! { loop {} }\n",
+        )
+        .unwrap();
+        let mut options = Options { threads: 2, ..Default::default() };
+        options.cfg = Some(crate::cfg::CfgSet::x86_64_linux());
+        let session = Session::new(options);
+        let roots = vec![CrateRoot::new("core", &core), CrateRoot::new("program", &file)];
+        let program = roots.len() as u32 - 1;
+        let mut crates = session.parse_crates(roots);
+        session.expand(&mut crates);
+        let r = session.resolve(&crates);
+        let tcx = session.collect_types(&crates, &r);
+        let index = crate::typeck::Index::new(&tcx, &r);
+        let res = session.typeck_with(&crates, &r, &tcx, &index);
+        let roots = crate::mono::roots(&r, &tcx, &crates, program, false);
+        let mono = session.collect_mono_items(&crates, &r, &tcx, &index, &res, roots);
+        let lowered = session.lower(&crates, &r, &tcx, &index, &res, &mono, super::Target::x86_64_linux());
+        let _ = std::fs::remove_dir_all(&dir);
+        let text = lowered.module.to_string();
+        // Each function's attributes, by the name it is defined under.
+        let attrs = |name: &str| -> String {
+            let line = text.lines().find(|l| l.starts_with("define") && l.contains(&format!("program.{name}."))).unwrap_or_else(|| panic!("no {name} in\n{text}"));
+            line[line.rfind(')').unwrap()..].to_string()
+        };
+        assert!(attrs("never").contains(" noinline"), "{}", attrs("never"));
+        assert!(attrs("always").contains(" alwaysinline"), "{}", attrs("always"));
+        assert!(!attrs("hint").contains("inline"), "{}", attrs("hint"));
+        assert!(attrs("chilly").contains(" cold noinline"), "{}", attrs("chilly"));
+        assert!(attrs("via_cfg_attr").contains(" noinline cold"), "{}", attrs("via_cfg_attr"));
+        assert!(attrs("tracked").contains(" cold"), "{}", attrs("tracked"));
+        // The closure has its own `#[inline(never)]`; `main` has none.
+        let closure = text.lines().find(|l| l.starts_with("define") && l.contains("@main.closure.")).unwrap_or_else(|| panic!("no closure in\n{text}"));
+        assert!(closure.contains(") noinline"), "{closure}");
+        let main = text.lines().find(|l| l.starts_with("define i32 @main(")).unwrap();
+        assert!(!main.contains("noinline"), "{main}");
+        // The calls of the cold functions are cold; the others are not.
+        let calls: Vec<&str> = text.lines().filter(|l| l.contains("call ") && l.contains("@_Rprogram.")).collect();
+        for c in &calls {
+            let cold = ["chilly", "via_cfg_attr", "tracked"].iter().any(|n| c.contains(&format!("program.{n}.")));
+            assert_eq!(c.trim_end().ends_with(" cold"), cold, "{c}");
+        }
+        assert!(calls.len() >= 6, "{calls:#?}");
     }
 
     /// Each program of `tests/run` lowers with `core`: none of its own

@@ -29,8 +29,11 @@
 //!
 //! A call is inlined when `cost - bonus <= threshold`. The threshold comes
 //! from the optimisation level and is lowered for size-optimised callers
-//! (`optsize`, `minsize`), cold callees and calls on paths that end in
-//! `unreachable`, and raised for `inlinehint`. `alwaysinline` skips the
+//! (`optsize`, `minsize`), cold callees, calls on paths that end in
+//! `unreachable` and callers that only run on the way to one (the call
+//! graph's `cold`), and raised for `inlinehint`. At `-Os` and `-Oz`, a
+//! callee that stays in the program because it has other callers is only
+//! inlined where the copy is no bigger than the call. `alwaysinline` skips the
 //! comparison; `noinline` and `optnone` callees are never inlined.
 //!
 //! As a guard against blow-up, a caller may grow to at most
@@ -88,6 +91,11 @@ pub struct InlineParams {
     pub threshold: i64,
     /// Threshold for size-optimised callers, cold callees and cold calls.
     pub cold_threshold: i64,
+    /// Threshold for a callee that is called from more than one place (or
+    /// whose address is taken), and so stays in the program: each copy
+    /// inlined adds to its size. Lower than `threshold` only at `-Os` and
+    /// `-Oz`.
+    pub shared_threshold: i64,
     /// Bonus added to the threshold for `inlinehint` callees.
     pub hint_bonus: i64,
     pub growth_factor: usize,
@@ -114,7 +122,11 @@ impl InlineParams {
             OptLevel::Oz => (0, 1, 20),
         };
         let cold_threshold = threshold.min(0);
-        InlineParams { threshold, cold_threshold, hint_bonus: threshold / 2, growth_factor, growth_slack }
+        let shared_threshold = match level {
+            OptLevel::Os | OptLevel::Oz => cold_threshold,
+            _ => threshold,
+        };
+        InlineParams { threshold, cold_threshold, shared_threshold, hint_bonus: threshold / 2, growth_factor, growth_slack }
     }
 }
 
@@ -202,6 +214,8 @@ impl<'a> Inliner<'a> {
         let mut names: Option<Names> = None;
         let mut count = 0;
         let mut memo = DebugMemo::default();
+        // Only reached on the way to a panic or an error report.
+        let caller_cold = self.cg.node(g).is_some_and(|n| self.cg.cold[n]);
 
         // The calls to consider, in layout order. Calls exposed by inlining
         // are not revisited: the callee's own inliner already decided them.
@@ -247,7 +261,7 @@ impl<'a> Inliner<'a> {
             let block = tail[first.index()].unwrap_or(first);
 
             let own = self.same_scc(g, callee_g);
-            let decision = self.decide(sh, f, site, block, &caller_attrs, callee_g, callee, summary, own);
+            let decision = self.decide(sh, f, site, block, &caller_attrs, caller_cold, callee_g, callee, summary, own);
             let Decision::Inline { cost, bonus, threshold, last_call } = decision else {
                 if let Decision::No(reason) = decision {
                     sh.remark(g, format!("not inlined @{callee_name}: {reason}"));
@@ -326,6 +340,7 @@ impl<'a> Inliner<'a> {
         site: InstId,
         block: BlockId,
         caller_attrs: &[Attr],
+        caller_cold: bool,
         callee_g: GlobalId,
         callee: &Function,
         s: &Summary,
@@ -386,11 +401,13 @@ impl<'a> Inliner<'a> {
         let p = &InlineParams::for_caller(m, caller_attrs, self.params);
         let cold_site = ends_in_unreachable(caller, block);
         let mut threshold = p.threshold;
+        let mut why = if caller_cold { " (caller only runs on the way to a panic)" } else { "" };
         if attrs::has(m, caller_attrs, "minsize")
             || attrs::has(m, caller_attrs, "optsize")
             || attrs::has(m, &callee.fn_attrs, "cold")
             || attrs::has(m, &call.fn_attrs, "cold")
             || cold_site
+            || caller_cold
         {
             threshold = threshold.min(p.cold_threshold);
         } else if attrs::has(m, &callee.fn_attrs, "inlinehint") {
@@ -421,10 +438,21 @@ impl<'a> Inliner<'a> {
             }
         }
 
+        // A callee that stays in the program anyway, because something else
+        // calls it or takes its address, is copied into every caller that
+        // inlines it.
+        if !last_call
+            && let Some(n) = self.cg.node(callee_g)
+            && self.cg.call_sites[n] as usize + self.cg.address_taken[n] as usize > 1
+            && p.shared_threshold < threshold
+        {
+            threshold = p.shared_threshold;
+            why = " (callee is called from elsewhere too)";
+        }
         if s.cost - bonus <= threshold {
             Decision::Inline { cost: s.cost, bonus, threshold, last_call }
         } else {
-            Decision::No(format!("cost {} - bonus {} > threshold {}", s.cost, bonus, threshold))
+            Decision::No(format!("cost {} - bonus {} > threshold {}{why}", s.cost, bonus, threshold))
         }
     }
 }

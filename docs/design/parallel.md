@@ -270,11 +270,46 @@ A call is inlined when `cost - bonus <= threshold`.
 | `-Oz` | 0 | 1 | 20 |
 
 The threshold drops to at most 0 for callers marked `optsize` or `minsize`,
-for `cold` callees or call sites, and for calls in a block that leads only
-to `unreachable`, which stands in for profile data. At 0, a call is
-inlined only if it makes the code no bigger. An `inlinehint` callee gets
-half the threshold again. `alwaysinline` skips the comparison but not the
-legality checks.
+for `cold` callees or call sites, for calls in a block that leads only
+to `unreachable`, which stands in for profile data, and for callers that
+only run on the way to a panic (below). At 0, a call is inlined only if it
+makes the code no bigger. An `inlinehint` callee gets half the threshold
+again. `alwaysinline` skips the comparison but not the legality checks.
+
+**Callers that only run on the way to a panic.** The call graph
+(`callgraph.rs`) finds the functions warm code can reach: start from the
+globals visible outside the module, and follow the calls and references
+(an address taken, a variable whose initialiser names functions, such as a
+vtable) in each warm function's blocks, except blocks from which every
+path ends in `unreachable`. A function never reached is *cold*: the `Debug`
+impl handed to `unwrap_failed`, `escape_debug`'s Unicode tables, the
+backtrace printer and its demangler. Inlining into a cold function uses the
+cold threshold. The `cold` attribute plays no part: the standard library
+puts it on `RawVec`'s `do_reserve_and_handle`, which every `String` that
+grows runs, and treating it as cold made a string benchmark 25% slower.
+
+**A callee called from elsewhere too.** At `-Os` and `-Oz`, a callee with
+more than one call site, or whose address is taken, stays in the program
+whatever this call does, so every copy inlined adds to the program: it is
+inlined only at the cold threshold, when the copy is no bigger than the
+call. rustc gets much the same from compiling the standard library
+separately, where only `#[inline]` and generic functions cross a crate
+boundary. At `-O2` the same rule (and gentler ones: a threshold of 25 or
+50, or a budget shared out between the call sites) cut hello world by
+another 6–10% but slowed a `format!`-and-`String` benchmark by 15–25%, by
+leaving the allocator's `grow_amortized` and `Allocator::allocate` out of
+line on its hot path. The rule is per caller, so a crate built at `-Os`
+in a program at `-O2` gets it for its own functions.
+
+Std hello world on the Mac (`__text`, bytes): `-O2` 133,156 → 116,968,
+`-Os` (every crate) 116,664 → 107,600, `-Oz` unchanged at 108,644. The
+BTreeMap, formatting and string benchmarks of PR #209 run at the same
+speed at `-O2`. Some wrappers are still far bigger than rustc's for other
+reasons: `<ErrorKind as Debug>::fmt` (489 instructions to rustc's 5) is a
+chain of 44 compares, each arm storing a `&str` to memory and calling
+`write_str`, where LLVM sinks the common call and makes a lookup table;
+`<u64 as Display>::fmt` and `<usize as Display>::fmt` are identical copies
+for function merging to fold.
 
 A caller may grow to at most `growth factor × starting size + growth
 slack` instructions, whatever the individual decisions say. Inlining the

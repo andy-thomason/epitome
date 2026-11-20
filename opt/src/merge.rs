@@ -125,8 +125,10 @@ impl Rewrite {
     fn apply(&self, m: &mut Module) -> Vec<GlobalId> {
         let mut consts = ConstRewriter { full: &self.full, memo: HashMap::new() };
         let mut changed = Vec::new();
-        for k in 0..m.globals.len() {
-            let g = GlobalId(k as u32);
+        // Deleted globals are out of `global_order`, their bodies left.
+        for k in 0..m.global_order.len() {
+            let g = m.global_order[k];
+            let k = g.index();
             // The constants this global's own definition names.
             let mut own: Vec<&mut ConstId> = Vec::new();
             let (globals, cs) = (&mut m.globals, &mut m.consts);

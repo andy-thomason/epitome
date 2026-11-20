@@ -78,10 +78,20 @@ pub fn weights_of(env: &impl Tables, inst: &Inst) -> Option<Vec<u64>> {
     (w.len() == inst.op.successors().len()).then_some(w)
 }
 
-/// Puts `weights` on `inst` as its `!prof` (replacing any).
-pub fn set_weights(env: &mut impl Env, inst: &mut Inst, weights: &[u64]) {
+/// Whether node `id` says its weights came from `llvm.expect`.
+fn is_expected(env: &impl Tables, id: MdId) -> bool {
+    let Metadata::Tuple { ops, .. } = env.md(id) else { return false };
+    ops.get(1).copied().flatten().is_some_and(|x| env.md(x) == Metadata::String(b"expected".to_vec()))
+}
+
+/// Puts `weights` on `inst` as its `!prof` (replacing any), marked as
+/// from `llvm.expect` if `expected`.
+pub fn set_weights(env: &mut impl Env, inst: &mut Inst, weights: &[u64], expected: bool) {
     let name = env.add_md(Metadata::String(b"branch_weights".to_vec()));
     let mut ops = vec![Some(name)];
+    if expected {
+        ops.push(Some(env.add_md(Metadata::String(b"expected".to_vec()))));
+    }
     for &w in weights {
         let v = env.i32(w.min(u32::MAX as u64) as u32);
         ops.push(Some(env.add_md(Metadata::Value(v))));
@@ -95,7 +105,8 @@ pub fn set_weights(env: &mut impl Env, inst: &mut Inst, weights: &[u64]) {
 /// conditional branch whose targets were swapped swaps them; any other
 /// change but an unchanged list of successors drops them.
 pub fn retarget(env: &mut impl Env, inst: &mut Inst, old: &Op) {
-    let Some(w) = prof_of(inst).and_then(|id| branch_weights(env, id)) else {
+    let id = prof_of(inst);
+    let Some(w) = id.and_then(|id| branch_weights(env, id)) else {
         inst.attachments.retain(|a| a.kind != "prof");
         return;
     };
@@ -109,7 +120,8 @@ pub fn retarget(env: &mut impl Env, inst: &mut Inst, old: &Op) {
         && b == c
         && w.len() == 2
     {
-        set_weights(env, inst, &[w[1], w[0]]);
+        let expected = is_expected(env, id.unwrap());
+        set_weights(env, inst, &[w[1], w[0]], expected);
         return;
     }
     inst.attachments.retain(|a| a.kind != "prof");
@@ -251,7 +263,7 @@ pub fn lower_expect(env: &mut impl Env, f: &mut Function) -> usize {
         };
         if let Some(w) = weights {
             let mut inst = f.insts[t.index()].clone();
-            set_weights(env, &mut inst, &w);
+            set_weights(env, &mut inst, &w, true);
             f.insts[t.index()] = inst;
         }
     }

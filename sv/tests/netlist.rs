@@ -1287,7 +1287,9 @@ fn arrays_split_where_they_loop() {
         eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
         return;
     };
-    let net = netlist_with(&text("sgtop.sv", SPLIT_ARRAY), "sgtop", host.options(1));
+    // (Every array as lanes: this is about splitting one.)
+    let opts = epitome_sv::netlist::Options { pack_per_work: usize::MAX, ..host.options(1) };
+    let net = netlist_with(&text("sgtop.sv", SPLIT_ARRAY), "sgtop", opts);
     assert!(net.steps.calls.iter().any(|c| c.path == "g[*].u"), "{:?}", net.steps.calls.iter().map(|c| &c.path).collect::<Vec<_>>());
     assert!(net.loops.is_empty(), "{:?}", net.loops);
     let b = build("sgtop", net, &host);
@@ -1551,4 +1553,43 @@ fn constant_tables_by_address() {
         let got = out[i * ow] as u128 | (out[i * ow + 1] as u128) << 32 | (out[i * ow + 2] as u128) << 64;
         assert_eq!(got, want, "T[{i}]");
     }
+}
+
+
+const PACKING: &str = r#"
+module wide_pass (input logic [255:0] d, output logic [255:0] q);
+  assign q = d ^ 256'd1;
+endmodule
+
+module busy (input logic [31:0] a, output logic [31:0] q);
+  logic [31:0] t [6];
+  always_comb begin
+    t[0] = a * 32'h9E37_79B9;
+    for (int k = 1; k < 6; k++) t[k] = (t[k-1] ^ (t[k-1] >> 13)) * 32'h85EB_CA6B + 32'(k);
+  end
+  assign q = t[5];
+endmodule
+
+module ptop2 (input logic [7:0][255:0] d, input logic [7:0][31:0] a, output logic [7:0][255:0] q, output logic [7:0][31:0] b);
+  for (genvar k = 0; k < 8; k++) begin : gw
+    wide_pass w (.d(d[k]), .q(q[k]));
+  end
+  for (genvar k = 0; k < 8; k++) begin : gb
+    busy u (.a(a[k]), .q(b[k]));
+  end
+endmodule
+"#;
+
+#[test]
+fn arrays_as_lanes_where_that_pays() {
+    // An array whose instances mostly move their ports is called an
+    // instance at a time; one whose instances work is called as one.
+    let Some(host) = host() else {
+        eprintln!("needs an AArch64 Mac or x86-64 Linux; skipping");
+        return;
+    };
+    let net = netlist_with(&text("ptop2.sv", PACKING), "ptop2", host.options(1));
+    let paths: Vec<&str> = net.steps.calls.iter().map(|c| c.path.as_str()).collect();
+    assert!(paths.contains(&"gb[*].u"), "the busy array is not one call: {paths:?}");
+    assert!(!paths.iter().any(|p| p.starts_with("gw[*]")), "the passing array is one call: {paths:?}");
 }

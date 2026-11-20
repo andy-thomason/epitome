@@ -668,6 +668,12 @@ pub struct Options {
     /// `sv_pieces`, named in [`Netlist::pieces`]: every instance of a
     /// specialisation adds to the same one.
     pub pieces: bool,
+    /// Most bits an instance of an array may move through its ports for
+    /// each expression node of its code for the array to be called as one,
+    /// its instances lanes (see `Lowering::group_costs`): past that, copying
+    /// its values to lanes and back costs more than running it in lanes
+    /// saves. `usize::MAX` calls every array as one.
+    pub pack_per_work: usize,
     /// Lanes as vectors ([`Shape::vector_of`]), not side by side in an
     /// `i64` ([`Shape::of`]).
     pub vectors: bool,
@@ -679,7 +685,7 @@ pub struct Options {
 
 impl Default for Options {
     fn default() -> Self {
-        Options { bit_planes: true, recognise: true, guard_min: GUARD_MIN, branch_min: BRANCH_MIN, sims: 1, profile: None, pieces: false, vectors: true, lane_bits: None }
+        Options { bit_planes: true, recognise: true, guard_min: GUARD_MIN, branch_min: BRANCH_MIN, sims: 1, profile: None, pieces: false, pack_per_work: PACK_PER_WORK, vectors: true, lane_bits: None }
     }
 }
 
@@ -1300,6 +1306,9 @@ fn runs(mut v: Vec<(u64, u64)>) -> Vec<(u64, u64)> {
     out
 }
 
+/// The default of [`Options::pack_per_work`].
+pub const PACK_PER_WORK: usize = 2;
+
 /// Most nodes of a child written into its parent (see
 /// `Lowering::flatten`); a larger one is called.
 const FLAT_MAX: usize = 400;
@@ -1752,7 +1761,8 @@ impl<'d, 'a> Lowering<'d, 'a> {
                     Node::Driver(dr) => l.expr_size(d.drivers[dr.0 as usize].rhs) + l.expr_size(d.drivers[dr.0 as usize].lhs),
                     Node::Proc(p) => {
                         let mut ex = Vec::new();
-                        l.stmt_exprs(d.processes[p.0 as usize].body, &mut ex);
+                        let body = l.clocked(p).map_or(d.processes[p.0 as usize].body, |c| c.1);
+                        l.stmt_exprs(body, &mut ex);
                         ex.iter().map(|&e| l.expr_size(e)).sum()
                     }
                     Node::In(k) => work(l, d.instance(k).spec),
@@ -2232,14 +2242,12 @@ impl<'d, 'a> Lowering<'d, 'a> {
             // (Not those holding memories: one at a time, each is scalar
             // code, which selects their words by address.)
             let mut keep = HashMap::new();
-            let ungroup = std::env::var("SV_UNGROUP").unwrap_or_default();
+            // (Nor those whose ports move more than they work: copying
+            // their values to lanes and back costs more than lanes save.)
             for (&i, m) in &lay.groups {
-                let c = d.instance(i).spec;
-                if std::env::var_os("SV_GROUP_STATS").is_some() {
-                    let (work, pack) = self.group_costs(i);
-                    eprintln!("group {} x{} in {}: work {} pack {}", d.name(d.spec(c).name), m.len(), d.name(d.spec(spec).name), work, pack);
-                }
-                if !self.holds_memories(c)? && !ungroup.split(',').any(|n| n == d.name(d.spec(c).name)) {
+                let (work, pack) = self.group_costs(i);
+                let lanes_pay = self.opts.pack_per_work == usize::MAX || pack <= self.opts.pack_per_work.saturating_mul(work);
+                if !self.holds_memories(d.instance(i).spec)? && lanes_pay {
                     keep.insert(i, m.clone());
                 }
             }

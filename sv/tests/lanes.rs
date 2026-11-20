@@ -126,7 +126,8 @@ fn arrays_of_instances() {
     let mut v = None;
     for sims in [1, 2, 5, 16, 33] {
         let name = format!("arrays_{sims}");
-        let net = netlist_with(&src, "arrays_top", options_for(sims));
+        // (Every array as lanes: what this tests, whatever they cost.)
+        let net = netlist_with(&src, "arrays_top", epitome_sv::netlist::Options { pack_per_work: usize::MAX, ..options_for(sims) });
         if sims == 1 {
             // The cells one call of five lanes, each row's leaves one of
             // four, the chain's links one lane each, six calls.

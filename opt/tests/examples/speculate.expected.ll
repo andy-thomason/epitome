@@ -1,4 +1,4 @@
-; @clamp: simplifycfg: 1 unreachable blocks removed, 0 empty blocks bypassed, 1 selects made, 1 blocks merged
+; @clamp: simplifycfg: 1 unreachable blocks removed, 0 empty blocks bypassed, 1 selects made, 1 blocks merged, 0 edges into unreachable dropped
 ; @main: constcall: 3 calls worked out
 ; @main: combine: (folded) x2
 

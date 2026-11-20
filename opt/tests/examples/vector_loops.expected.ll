@@ -1,9 +1,9 @@
 ; @mul: combine: (constant to the right) x3, add_zero x3
-; @mul: simplifycfg: 0 unreachable blocks removed, 1 empty blocks bypassed, 0 selects made, 0 blocks merged
+; @mul: simplifycfg: 0 unreachable blocks removed, 1 empty blocks bypassed, 0 selects made, 0 blocks merged, 0 edges into unreachable dropped
 ; @mul: implied: 0 comparisons folded, 0 selects resolved, 2 flags set
 ; @mul: rotate: 2 loops rotated
 ; @mul: combine: (folded) x2, br_true x2
-; @mul: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 2 blocks merged
+; @mul: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 2 blocks merged, 0 edges into unreachable dropped
 ; @mul: licm: 3 moved out of loops (0 loads)
 ; @mul: indvars: loop %loop.preheader runs 64 times when entered
 ; @mul: indvars: 2 exact exit tests, 0 exit values, 0 counters widened
@@ -13,7 +13,7 @@
 ; @sum: implied: 0 comparisons folded, 0 selects resolved, 13 flags set
 ; @sum: rotate: 2 loops rotated
 ; @sum: combine: (dead) x3, (folded) x6, (reassociated) x3, br_true x2
-; @sum: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 2 blocks merged
+; @sum: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 2 blocks merged, 0 edges into unreachable dropped
 ; @sum: licm: 4 moved out of loops (0 loads)
 ; @sum: indvars: loop a loop runs 64 times when entered
 ; @sum: indvars: 2 exact exit tests, 0 exit values, 0 counters widened
@@ -22,7 +22,7 @@
 ; @sum: cse: 1 merged, 0 loads reused, 0 stores forwarded
 ; @main: inlined @mul: cost 14, bonus 8, threshold 100
 ; @main: inlined @sum: cost 30, bonus 7, threshold 100
-; @main: simplifycfg: 0 unreachable blocks removed, 2 empty blocks bypassed, 0 selects made, 0 blocks merged
+; @main: simplifycfg: 0 unreachable blocks removed, 2 empty blocks bypassed, 0 selects made, 0 blocks merged, 0 edges into unreachable dropped
 ; @main: indvars: loop %fill runs 98304 times when entered
 ; @main: indvars: loop %loop.preheader.i runs 64 times when entered
 ; @main: indvars: loop a loop runs 64 times when entered

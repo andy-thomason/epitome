@@ -1,7 +1,7 @@
 ; @sum: recursion: 1 accumulator call(s) now jump back to the start, folding with add
 ; @sum: combine: add_zero x1
 ; @sum: rotate: 1 loops rotated
-; @sum: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged
+; @sum: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged, 0 edges into unreachable dropped
 
 
 %node = type { i32, ptr }

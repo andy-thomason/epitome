@@ -171,11 +171,14 @@ these are for after.
   spill placement does (a block of several predecessors, one of which is
   another block's of several successors, cannot be entered). Better:
   splitting within blocks around calls, and edges split for loads.
-- **Frames** (`frame.rs`): every alloca has its own slot for the whole
-  function (a serde_json deserializer: 1,088 bytes of slots to llc's 336
-  for its whole frame), where slots of allocas whose lifetimes
-  (`llvm.lifetime.start` and `.end`) do not meet could share, as LLVM's
-  stack colouring does; and spill slots are never shared.
+- **Frames** (`frame.rs`): slots share memory where they are not in use
+  at once (allocas by their `llvm.lifetime` markers, slots only loaded
+  and stored by liveness), and the busiest per byte are nearest sp. What
+  is left: allocas whose address is taken and that have no markers are
+  in use everywhere, as all of epitome-rustc2's are (it emits no
+  markers): std's hello world gains a tenth of what rustc's crates do.
+  Markers from its lowering (MIR's `StorageLive` and `StorageDead`) would
+  let them share.
 - **Conditions combined** (`isel.rs`, `00-base.ll`): an `and` or `or` of
   two comparisons that a branch or select reads is each compare made into
   a boolean (`cset`), the two combined and tested again (`cmp`, `cset`,

@@ -49,6 +49,10 @@ pub enum Opcode {
     },
     /// A rule of the unwind tables, for the instructions after it: no code.
     Cfi(crate::unwind::Cfi),
+    /// `llvm.lifetime.start` (true) or `.end` of the slot of its one
+    /// operand, a `MOp::Frame`: no code; frame lowering lets slots whose
+    /// lifetimes do not overlap share their memory, and removes these.
+    Lifetime(bool),
 }
 
 /// A function's exception handling. A call that can unwind to a landing
@@ -172,7 +176,7 @@ impl MInst {
                 defs.push(0);
                 uses.push(1);
             }
-            Opcode::Cfi(_) => {}
+            Opcode::Cfi(_) | Opcode::Lifetime(_) => {}
             Opcode::Asm { outs, .. } => {
                 for (k, op) in self.ops.iter().enumerate() {
                     if matches!(op, MOp::Reg(_)) {
@@ -388,6 +392,13 @@ pub fn format_inst(t: &Target, f: &MFunc, inst: &MInst) -> String {
             format!("COPY {}, {}", r(&inst.ops[0]), r(&inst.ops[1]))
         }
         Opcode::Asm { id, .. } => render_asm(t, f, inst, &f.asms[id as usize]),
+        Opcode::Lifetime(start) => {
+            let what = if start { "start" } else { "end" };
+            match inst.ops.first() {
+                Some(MOp::Frame(s, _)) => format!("LIFETIME_{} frame{s}", what.to_uppercase()),
+                _ => format!("LIFETIME_{}", what.to_uppercase()),
+            }
+        }
         Opcode::Cfi(c) => {
             let m = &t.machine;
             match c {
@@ -692,7 +703,7 @@ pub fn encode_function(t: &Target, f: &MFunc) -> Result<Code, String> {
         let mut pc = starts[bi];
         for (k, inst) in b.insts.iter().enumerate() {
             let i = match inst.op {
-                Opcode::Cfi(_) => continue,
+                Opcode::Cfi(_) | Opcode::Lifetime(_) => continue,
                 Opcode::Instr(i) => i,
                 Opcode::Copy => return Err(format!("{}: a copy left after allocation", f.name)),
                 Opcode::Asm { .. } => {

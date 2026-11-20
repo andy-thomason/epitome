@@ -55,21 +55,13 @@ pub fn lower(t: &Target, f: &mut MFunc) -> Result<(), String> {
     };
     saved.sort();
     if f.slots.iter().any(|s| s.scalable) {
+        drop_lifetimes(f);
         return scalable_frame(t, f, saved, base);
     }
     // Arguments for calls go at the bottom, where the callee finds them;
-    // then the slots, smallest first, so that the most of them (spill
-    // slots, small locals) are near enough sp for pairs' offsets.
-    let mut off: i64 = f.out_size;
-    let mut order: Vec<usize> = (0..f.slots.len()).collect();
-    order.sort_by_key(|&k| (f.slots[k].size, k));
-    for k in order {
-        let s = &mut f.slots[k];
-        let a = s.align as i64;
-        off = (off + a - 1) / a * a;
-        s.offset = off;
-        off += s.size as i64;
-    }
+    // then the slots (`place_slots`).
+    let mut off = place_slots(t, f, f.out_size);
+    drop_lifetimes(f);
     off = (off + 7) / 8 * 8;
     let save_at: Vec<(u8, i64)> = saved.iter().enumerate().map(|(k, &r)| (r, off + 8 * k as i64)).collect();
     off += 8 * saved.len() as i64;
@@ -708,4 +700,365 @@ fn free_scratch(t: &Target, scratch: &[u8], inst: &MInst, rest: &[MInst]) -> Opt
         }
         true
     })
+}
+
+/// Removes the lifetime markers (`Opcode::Lifetime`).
+fn drop_lifetimes(f: &mut MFunc) {
+    for b in &mut f.blocks {
+        b.insts.retain(|i| !matches!(i.op, Opcode::Lifetime(_)));
+    }
+}
+
+/// How a slot's memory is known to be in use.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Use {
+    /// Not at all: nothing reads or writes it.
+    None,
+    /// Between its lifetime markers (from a start, until an end).
+    Markers,
+    /// Where it may be read before it is next written whole: every access
+    /// is a load or store of it at sp plus an offset (its address is not
+    /// taken), as for spill slots.
+    Live,
+    /// Everywhere.
+    All,
+}
+
+/// A slot access of an instruction: (slot, writes the whole slot).
+/// `Err(slot)` where the slot's address is taken (or an operand names it
+/// any other way).
+fn accesses(t: &Target, f: &MFunc, inst: &MInst) -> Vec<Result<(usize, bool), usize>> {
+    let sp = MOp::Reg(Reg::P(t.machine.sp));
+    let mut out = Vec::new();
+    for (k, op) in inst.ops.iter().enumerate() {
+        let MOp::Frame(s, o) = *op else { continue };
+        let access = match inst.op {
+            Opcode::Instr(i) => {
+                let d = &t.instrs[i];
+                match d.base_offset {
+                    Some((b, off)) if off == k && d.memory && !d.address_of && inst.ops.get(b) == Some(&sp) => {
+                        Some(o == 0 && d.store_bytes >= f.slots[s].size)
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+        out.push(access.map(|whole| (s, whole)).ok_or(s));
+    }
+    out
+}
+
+/// Lays the slots out from `start`, returning where they end. Slots in use
+/// at no point in common share memory: those with lifetime markers are in
+/// use between them; those only loaded and stored (spill slots, locals
+/// whose address is never taken), where a load may read what is there;
+/// the rest, everywhere. They are put into groups, largest first, each
+/// into the first group it can share with; and the groups are laid out by
+/// their accesses per byte (weighted by loop depth), most first, so that
+/// the busiest are nearest sp (on x86, within a byte's displacement).
+fn place_slots(t: &Target, f: &mut MFunc, start: i64) -> i64 {
+    let n = f.slots.len();
+    let words = n.div_ceil(64);
+    let freq = crate::regalloc::block_freqs(f);
+    let mut how = vec![Use::None; n];
+    let mut weight = vec![0f64; n];
+    let mut started_at_entry = vec![false; n];
+    let mut has_start = vec![false; n];
+    for (bi, b) in f.blocks.iter().enumerate() {
+        for inst in &b.insts {
+            if let Opcode::Lifetime(st) = inst.op {
+                if let Some(&MOp::Frame(s, _)) = inst.ops.first() {
+                    has_start[s] |= st;
+                    if how[s] == Use::None {
+                        how[s] = Use::Markers;
+                    }
+                }
+                continue;
+            }
+            for a in accesses(t, f, inst) {
+                let s = match a {
+                    Ok((s, _)) => s,
+                    Err(s) => s,
+                };
+                weight[s] += freq[bi];
+            }
+        }
+    }
+    // Marked slots stay so; the others are Live unless their address is
+    // taken, and None if nothing touches them.
+    let mut touched = vec![false; n];
+    let mut escapes = vec![false; n];
+    for b in &f.blocks {
+        for inst in &b.insts {
+            if matches!(inst.op, Opcode::Lifetime(_)) {
+                continue;
+            }
+            for a in accesses(t, f, inst) {
+                match a {
+                    Ok((s, _)) => touched[s] = true,
+                    Err(s) => {
+                        touched[s] = true;
+                        escapes[s] = true;
+                    }
+                }
+            }
+        }
+    }
+    for s in 0..n {
+        how[s] = match how[s] {
+            _ if !touched[s] => Use::None,
+            Use::Markers => Use::Markers,
+            _ if escapes[s] => Use::All,
+            _ => Use::Live,
+        };
+        // A slot with ends and no start is in use from the entry.
+        started_at_entry[s] = how[s] == Use::Markers && !has_start[s];
+    }
+    if f.slots.iter().any(|s| s.scalable) {
+        how.iter_mut().for_each(|h| *h = Use::All);
+    }
+    let shared: Vec<usize> = (0..n).filter(|&s| matches!(how[s], Use::Markers | Use::Live)).collect();
+    let mut conflict = vec![vec![0u64; words]; n];
+    if shared.len() > 1 {
+        conflicts(t, f, &how, &started_at_entry, &mut conflict);
+    }
+
+    // Groups: largest first, each slot into the first it can join.
+    let mut groups: Vec<(Vec<usize>, Vec<u64>)> = Vec::new();
+    let mut order = shared.clone();
+    order.sort_by(|&a, &b| f.slots[b].size.cmp(&f.slots[a].size).then(weight[b].total_cmp(&weight[a])).then(a.cmp(&b)));
+    for s in order {
+        let free = |m: &Vec<u64>| m.iter().zip(&conflict[s]).all(|(x, y)| x & y == 0);
+        match groups.iter_mut().find(|g| free(&g.1)) {
+            Some(g) => {
+                g.0.push(s);
+                g.1[s / 64] |= 1 << (s % 64);
+            }
+            None => {
+                let mut m = vec![0u64; words];
+                m[s / 64] |= 1 << (s % 64);
+                groups.push((vec![s], m));
+            }
+        }
+    }
+    let mut units: Vec<Vec<usize>> = groups.into_iter().map(|g| g.0).collect();
+    units.extend((0..n).filter(|&s| how[s] == Use::All).map(|s| vec![s]));
+    let size = |u: &Vec<usize>| u.iter().map(|&s| f.slots[s].size).max().unwrap_or(0);
+    let align = |u: &Vec<usize>| u.iter().map(|&s| f.slots[s].align).max().unwrap_or(1).max(1);
+    let heat = |u: &Vec<usize>| u.iter().map(|&s| weight[s]).sum::<f64>() / size(u).max(1) as f64;
+    let mut keyed: Vec<(f64, u64, usize, u64, Vec<usize>)> =
+        units.into_iter().map(|u| (heat(&u), size(&u), u[0], align(&u), u)).collect();
+    keyed.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2)));
+    let mut off = start;
+    for (_, sz, _, a, u) in &keyed {
+        let a = *a as i64;
+        off = (off + a - 1) / a * a;
+        for &s in u {
+            f.slots[s].offset = off;
+        }
+        off += *sz as i64;
+    }
+    // Slots nothing touches: anywhere.
+    for s in 0..n {
+        if how[s] == Use::None {
+            f.slots[s].offset = start;
+        }
+    }
+    off
+}
+
+/// Which of the slots that may share (`Use::Markers` and `Use::Live`) are
+/// in use at a point in common: `conflict[a]` has bit b set, and the other
+/// way round. A slot is in use at an instruction where it is in use before
+/// or after it, or the instruction accesses it; two conflict where both
+/// are, which is first seen where one of them comes into use (or at the
+/// start of a block).
+fn conflicts(t: &Target, f: &MFunc, how: &[Use], started_at_entry: &[bool], conflict: &mut [Vec<u64>]) {
+    let n = how.len();
+    let words = n.div_ceil(64);
+    let nb = f.blocks.len();
+    let set = |m: &mut Vec<u64>, s: usize| m[s / 64] |= 1 << (s % 64);
+    let clear = |m: &mut Vec<u64>, s: usize| m[s / 64] &= !(1 << (s % 64));
+    let or = |m: &mut Vec<u64>, o: &[u64]| m.iter_mut().zip(o).for_each(|(x, y)| *x |= y);
+    let mut preds = vec![Vec::new(); nb];
+    for (b, blk) in f.blocks.iter().enumerate() {
+        for &s in &blk.succs {
+            if s < nb {
+                preds[s].push(b);
+            }
+        }
+    }
+    // Each instruction's effect: markers (slot, start), accesses (slot,
+    // whole write) of Live slots.
+    let marker = |inst: &MInst| match (inst.op, inst.ops.first()) {
+        (Opcode::Lifetime(st), Some(&MOp::Frame(s, _))) if how[s] == Use::Markers => Some((s, st)),
+        _ => None,
+    };
+    let live_access = |inst: &MInst| -> Vec<(usize, bool)> {
+        if matches!(inst.op, Opcode::Lifetime(_)) {
+            return vec![];
+        }
+        accesses(t, f, inst).into_iter().filter_map(|a| a.ok()).filter(|&(s, _)| how[s] == Use::Live).collect()
+    };
+    // Started (Markers), forwards: in = the union of the predecessors' out.
+    let mut entry_state = vec![0u64; words];
+    for s in 0..n {
+        if started_at_entry[s] {
+            set(&mut entry_state, s);
+        }
+    }
+    // Those in use from the entry conflict with each other.
+    let mut marked = vec![0u64; words];
+    for s in 0..n {
+        if how[s] == Use::Markers {
+            set(&mut marked, s);
+        }
+        if started_at_entry[s] {
+            or(&mut conflict[s], &entry_state);
+        }
+    }
+    let mut st_in = vec![vec![0u64; words]; nb];
+    let mut st_out = vec![vec![0u64; words]; nb];
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for b in 0..nb {
+            let mut cur = if b == 0 { entry_state.clone() } else { vec![0u64; words] };
+            for &p in &preds[b] {
+                or(&mut cur, &st_out[p]);
+            }
+            st_in[b] = cur.clone();
+            for inst in &f.blocks[b].insts {
+                if let Some((s, st)) = marker(inst) {
+                    if st { set(&mut cur, s) } else { clear(&mut cur, s) }
+                }
+            }
+            if cur != st_out[b] {
+                st_out[b] = cur;
+                changed = true;
+            }
+        }
+    }
+    // Live (loads and stores), backwards. A call may unwind to a landing
+    // pad, which is a successor of its block: what the successors read is
+    // in use at each call of a block (where the function has landing pads).
+    let eh = f.eh.is_some();
+    let step_back = |cur: &mut Vec<u64>, inst: &MInst, succ_in: &[u64]| {
+        let acc = live_access(inst);
+        for &(s, whole) in &acc {
+            if whole {
+                clear(cur, s);
+            }
+        }
+        for &(s, whole) in &acc {
+            if !whole {
+                set(cur, s);
+            }
+        }
+        if eh && inst.is_call(t) {
+            or(cur, succ_in);
+        }
+    };
+    let mut lv_in = vec![vec![0u64; words]; nb];
+    let succ_union = |lv_in: &Vec<Vec<u64>>, b: usize| {
+        let mut m = vec![0u64; words];
+        for &s in &f.blocks[b].succs {
+            if s < nb {
+                or(&mut m, &lv_in[s]);
+            }
+        }
+        m
+    };
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for b in (0..nb).rev() {
+            let out = succ_union(&lv_in, b);
+            let mut cur = out.clone();
+            for inst in f.blocks[b].insts.iter().rev() {
+                step_back(&mut cur, inst, &out);
+            }
+            if cur != lv_in[b] {
+                lv_in[b] = cur;
+                changed = true;
+            }
+        }
+    }
+    // Each block, forwards: what is in use at each instruction.
+    for b in 0..nb {
+        let insts = &f.blocks[b].insts;
+        let out = succ_union(&lv_in, b);
+        // Live after each instruction.
+        let mut after = vec![Vec::new(); insts.len()];
+        let mut cur = out.clone();
+        for (k, inst) in insts.iter().enumerate().rev() {
+            after[k] = cur.clone();
+            step_back(&mut cur, inst, &out);
+        }
+        let mut live_before = cur;
+        let mut started = st_in[b].clone();
+        let mut prev: Option<Vec<u64>> = None;
+        for (k, inst) in insts.iter().enumerate() {
+            let mut occ = started.clone();
+            if let Some((s, st)) = marker(inst) {
+                // Two marked slots conflict where one starts while the
+                // other may be in use: if both are on some path, the
+                // later start sees the earlier.
+                if st {
+                    for w in 0..words {
+                        let mut o = started[w];
+                        while o != 0 {
+                            let y = w * 64 + o.trailing_zeros() as usize;
+                            o &= o - 1;
+                            set(&mut conflict[y], s);
+                            set(&mut conflict[s], y);
+                        }
+                    }
+                    set(&mut started, s);
+                } else {
+                    clear(&mut started, s);
+                }
+                or(&mut occ, &started);
+            }
+            or(&mut occ, &live_before);
+            or(&mut occ, &after[k]);
+            // (And what it accesses, in use or not.)
+            if !matches!(inst.op, Opcode::Lifetime(_)) {
+                for a in accesses(t, f, inst) {
+                    let (Ok((s, _)) | Err(s)) = a;
+                    if matches!(how[s], Use::Markers | Use::Live) {
+                        set(&mut occ, s);
+                    }
+                }
+            }
+            // Those coming into use here, with the rest in use (two
+            // marked slots are taken care of above: the union of paths
+            // where blocks meet, as where landing pads meet to resume,
+            // would have them all in use at once).
+            for w in 0..words {
+                let mut new = occ[w] & !prev.as_ref().map_or(0, |p| p[w]);
+                while new != 0 {
+                    let s = w * 64 + new.trailing_zeros() as usize;
+                    new &= new - 1;
+                    let others = |x: usize| if how[s] == Use::Markers { occ[x] & !marked[x] } else { occ[x] };
+                    for x in 0..words {
+                        let o = others(x);
+                        conflict[s][x] |= o;
+                        let mut o = o;
+                        while o != 0 {
+                            let y = x * 64 + o.trailing_zeros() as usize;
+                            o &= o - 1;
+                            set(&mut conflict[y], s);
+                        }
+                    }
+                }
+            }
+            live_before = after[k].clone();
+            prev = Some(occ);
+        }
+    }
+    for s in 0..n {
+        clear(&mut conflict[s], s);
+    }
 }

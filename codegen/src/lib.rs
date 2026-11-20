@@ -12,6 +12,7 @@ pub mod bitfn3;
 pub mod bitmaps;
 pub mod bundle;
 pub mod check;
+pub mod cold;
 pub mod divconst;
 pub mod eh;
 pub mod elf;
@@ -291,9 +292,14 @@ fn compile_function(t: &Target, abi: &abi::Abi, cx: &mut Ctx, job: &Job, opts: &
     if !problems.is_empty() {
         return Err(problems.join("\n"));
     }
+    let cold = cold::blocks(cx.m, &prepared);
     let now = Instant::now();
     let mut mf = isel::Sel::new(t, abi, cx, &prepared, &job.name, job.global).run()?;
     timing::add(&timing::SELECT, now);
+    // (Selection makes a block for each of the IR's, in its order.)
+    for (b, c) in mf.blocks.iter_mut().zip(cold) {
+        b.cold = c;
+    }
     // What the description says instructions clobber.
     for b in &mut mf.blocks {
         for inst in &mut b.insts {

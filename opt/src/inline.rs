@@ -29,8 +29,11 @@
 //!
 //! A call is inlined when `cost - bonus <= threshold`. The threshold comes
 //! from the optimisation level and is lowered for size-optimised callers
-//! (`optsize`, `minsize`), cold callees and calls on paths that end in
-//! `unreachable`, and raised for `inlinehint`. `alwaysinline` skips the
+//! (`optsize`, `minsize`), cold callees, calls on paths that end in
+//! `unreachable` and callers that only run on the way to one (the call
+//! graph's `cold`), and raised for `inlinehint`. At `-Os` and `-Oz`, a
+//! callee that stays in the program because it has other callers is only
+//! inlined where the copy is no bigger than the call. `alwaysinline` skips the
 //! comparison; `noinline` and `optnone` callees are never inlined.
 //!
 //! As a guard against blow-up, a caller may grow to at most
@@ -41,6 +44,7 @@
 
 use crate::fx::FxHashMap as HashMap;
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use epitome_ir::edit::Names;
 use epitome_ir::module::*;
@@ -87,6 +91,11 @@ pub struct InlineParams {
     pub threshold: i64,
     /// Threshold for size-optimised callers, cold callees and cold calls.
     pub cold_threshold: i64,
+    /// Threshold for a callee that is called from more than one place (or
+    /// whose address is taken), and so stays in the program: each copy
+    /// inlined adds to its size. Lower than `threshold` only at `-Os` and
+    /// `-Oz`.
+    pub shared_threshold: i64,
     /// Bonus added to the threshold for `inlinehint` callees.
     pub hint_bonus: i64,
     pub growth_factor: usize,
@@ -113,7 +122,11 @@ impl InlineParams {
             OptLevel::Oz => (0, 1, 20),
         };
         let cold_threshold = threshold.min(0);
-        InlineParams { threshold, cold_threshold, hint_bonus: threshold / 2, growth_factor, growth_slack }
+        let shared_threshold = match level {
+            OptLevel::Os | OptLevel::Oz => cold_threshold,
+            _ => threshold,
+        };
+        InlineParams { threshold, cold_threshold, shared_threshold, hint_bonus: threshold / 2, growth_factor, growth_slack }
     }
 }
 
@@ -142,15 +155,46 @@ pub struct Inliner<'a> {
     pub params: InlineParams,
     pub cg: &'a CallGraph,
     summaries: Vec<OnceLock<Summary>>,
+    /// Which piece of its SCC each node is in, once the SCC's task has
+    /// found that dead calls held it together and split it (see
+    /// `set_piece`); 0 until then.
+    pieces: Vec<AtomicU32>,
 }
 
 impl<'a> Inliner<'a> {
     pub fn new(params: InlineParams, cg: &'a CallGraph, globals: usize) -> Self {
-        Inliner { params, cg, summaries: (0..globals).map(|_| OnceLock::new()).collect() }
+        Inliner {
+            params,
+            cg,
+            summaries: (0..globals).map(|_| OnceLock::new()).collect(),
+            pieces: (0..cg.nodes.len()).map(|_| AtomicU32::new(0)).collect(),
+        }
     }
 
     fn summary(&self, sh: &Shared, g: GlobalId, f: &Function) -> &Summary {
-        self.summaries[g.index()].get_or_init(|| summarize(sh, self.cg, g, f))
+        self.summaries[g.index()].get_or_init(|| summarize(sh, self, g, f))
+    }
+
+    /// Puts `g` in piece `piece` of its SCC. Only the task of `g`'s SCC
+    /// calls this, before it publishes `g`, and with a number no other
+    /// piece of that SCC has had: from then on `g` and the members left in
+    /// other pieces count as in different SCCs, so calls between them may
+    /// be inlined.
+    pub fn set_piece(&self, g: GlobalId, piece: u32) {
+        if let Some(n) = self.cg.node(g) {
+            self.pieces[n].store(piece, Ordering::Relaxed);
+        }
+    }
+
+    /// True if `a` and `b` are in the same SCC (and the same piece of it).
+    pub fn same_scc(&self, a: GlobalId, b: GlobalId) -> bool {
+        match (self.cg.node(a), self.cg.node(b)) {
+            (Some(x), Some(y)) => {
+                self.cg.scc_of[x] == self.cg.scc_of[y]
+                    && self.pieces[x].load(Ordering::Relaxed) == self.pieces[y].load(Ordering::Relaxed)
+            }
+            _ => false,
+        }
     }
 
     /// Inlines the calls in `f`, which is function `g`, that are worth it.
@@ -162,7 +206,6 @@ impl<'a> Inliner<'a> {
         if attrs::has(m, &caller_attrs, "optnone") {
             return 0;
         }
-        let my_scc = self.cg.node(g).map(|n| self.cg.scc_of[n]);
         let start_size = live_size(f);
         let params = InlineParams::for_caller(m, &caller_attrs, self.params);
         let limit = start_size * params.growth_factor + params.growth_slack;
@@ -171,6 +214,8 @@ impl<'a> Inliner<'a> {
         let mut names: Option<Names> = None;
         let mut count = 0;
         let mut memo = DebugMemo::default();
+        // Only reached on the way to a panic or an error report.
+        let caller_cold = self.cg.node(g).is_some_and(|n| self.cg.cold[n]);
 
         // The calls to consider, in layout order. Calls exposed by inlining
         // are not revisited: the callee's own inliner already decided them.
@@ -179,8 +224,9 @@ impl<'a> Inliner<'a> {
             .filter(|&i| {
                 let Some(call) = f.insts[i.index()].op.call() else { return false };
                 let Some(callee) = sh.direct_callee(call) else { return false };
-                let other_scc = self.cg.node(callee).map(|n| self.cg.scc_of[n]) != my_scc;
-                other_scc && sh.published(callee).is_some_and(|c| c.has_body)
+                // Within the SCC, only calls the cut left (`cut.rs`) to
+                // members already finished.
+                (!self.same_scc(g, callee) || !crate::cut::is_cut(call)) && sh.published(callee).is_some_and(|c| c.has_body)
             })
             .collect();
 
@@ -214,7 +260,8 @@ impl<'a> Inliner<'a> {
             let first = start_blocks[site.index()].expect("call site not in a block");
             let block = tail[first.index()].unwrap_or(first);
 
-            let decision = self.decide(sh, f, site, block, &caller_attrs, callee_g, callee, summary);
+            let own = self.same_scc(g, callee_g);
+            let decision = self.decide(sh, f, site, block, &caller_attrs, caller_cold, callee_g, callee, summary, own);
             let Decision::Inline { cost, bonus, threshold, last_call } = decision else {
                 if let Decision::No(reason) = decision {
                     sh.remark(g, format!("not inlined @{callee_name}: {reason}"));
@@ -293,9 +340,11 @@ impl<'a> Inliner<'a> {
         site: InstId,
         block: BlockId,
         caller_attrs: &[Attr],
+        caller_cold: bool,
         callee_g: GlobalId,
         callee: &Function,
         s: &Summary,
+        own_scc: bool,
     ) -> Decision {
         let m = sh.module;
         let inst = &caller.insts[site.index()];
@@ -303,7 +352,9 @@ impl<'a> Inliner<'a> {
         if let Some(r) = s.blocker {
             return Decision::No(r.into());
         }
-        if s.in_cycle {
+        // Inside the callee's own SCC, the calls that close the cycle are
+        // cut and stay calls, so inlining it unrolls nothing.
+        if s.in_cycle && !own_scc {
             return Decision::No("callee is part of a call-graph cycle".into());
         }
         match &inst.op {
@@ -350,11 +401,13 @@ impl<'a> Inliner<'a> {
         let p = &InlineParams::for_caller(m, caller_attrs, self.params);
         let cold_site = ends_in_unreachable(caller, block);
         let mut threshold = p.threshold;
+        let mut why = if caller_cold { " (caller only runs on the way to a panic)" } else { "" };
         if attrs::has(m, caller_attrs, "minsize")
             || attrs::has(m, caller_attrs, "optsize")
             || attrs::has(m, &callee.fn_attrs, "cold")
             || attrs::has(m, &call.fn_attrs, "cold")
             || cold_site
+            || caller_cold
         {
             threshold = threshold.min(p.cold_threshold);
         } else if attrs::has(m, &callee.fn_attrs, "inlinehint") {
@@ -385,10 +438,21 @@ impl<'a> Inliner<'a> {
             }
         }
 
+        // A callee that stays in the program anyway, because something else
+        // calls it or takes its address, is copied into every caller that
+        // inlines it.
+        if !last_call
+            && let Some(n) = self.cg.node(callee_g)
+            && self.cg.call_sites[n] as usize + self.cg.address_taken[n] as usize > 1
+            && p.shared_threshold < threshold
+        {
+            threshold = p.shared_threshold;
+            why = " (callee is called from elsewhere too)";
+        }
         if s.cost - bonus <= threshold {
             Decision::Inline { cost: s.cost, bonus, threshold, last_call }
         } else {
-            Decision::No(format!("cost {} - bonus {} > threshold {}", s.cost, bonus, threshold))
+            Decision::No(format!("cost {} - bonus {} > threshold {}{why}", s.cost, bonus, threshold))
         }
     }
 }
@@ -409,7 +473,7 @@ fn is_alloca(f: &Function, l: LocalId) -> bool {
 
 /// True if every path from `b` reaches `unreachable` without branching:
 /// a cheap stand-in for profile data saying the call is cold.
-fn ends_in_unreachable(f: &Function, mut b: BlockId) -> bool {
+pub(crate) fn ends_in_unreachable(f: &Function, mut b: BlockId) -> bool {
     for _ in 0..8 {
         let Some(t) = f.terminator(b) else { return false };
         match f.insts[t.index()].op {
@@ -447,7 +511,8 @@ fn is_free_intrinsic(name: &str) -> bool {
         .any(|p| name.starts_with(p))
 }
 
-fn summarize(sh: &Shared, cg: &CallGraph, g: GlobalId, f: &Function) -> Summary {
+fn summarize(sh: &Shared, inliner: &Inliner, g: GlobalId, f: &Function) -> Summary {
+    let cg = inliner.cg;
     let m = sh.module;
     let n_params = f.params.len();
     let mut s = Summary {
@@ -514,8 +579,7 @@ fn summarize(sh: &Shared, cg: &CallGraph, g: GlobalId, f: &Function) -> Summary 
                     block("musttail call");
                 }
                 let target = sh.direct_callee(call);
-                let my_scc = cg.node(g).map(|n| cg.scc_of[n]);
-                if target.and_then(|t| cg.node(t)).is_some_and(|n| Some(cg.scc_of[n]) == my_scc) {
+                if target.is_some_and(|t| inliner.same_scc(g, t)) {
                     s.in_cycle = true;
                 }
                 let twice = attrs::has(m, &call.fn_attrs, "returns_twice")

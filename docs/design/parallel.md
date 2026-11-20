@@ -67,9 +67,11 @@ function is an independent task.
 The inliner needs the final form of a callee before it decides whether to
 inline it, so it works bottom-up over the call graph:
 
-1. `CallGraph::build` scans function bodies (in parallel) for direct calls
-   and for uses of function addresses. An edge is a direct call; calls
-   through pointers are not edges, because they cannot be inlined.
+1. `prefold::run` folds branches on constants and deletes the blocks they
+   leave unreachable (see [Cycles held by dead calls](#cycles-held-by-dead-calls)).
+   Then `CallGraph::build` scans function bodies (in parallel) for direct
+   calls and for uses of function addresses. An edge is a direct call;
+   calls through pointers are not edges, because they cannot be inlined.
 2. Tarjan's algorithm finds the strongly connected components (SCCs). A
    recursive SCC (more than one function, or a function that calls itself)
    is a cycle. `--print-cycles` lists one path through each.
@@ -81,8 +83,9 @@ inline it, so it works bottom-up over the call graph:
    path.
 
 The task for an SCC takes its bodies, inlines calls into finished SCCs,
-removes recursion if the SCC is a cycle, and publishes the bodies, which
-may make the SCCs that call it ready.
+removes recursion if the SCC is a cycle, simplifies the bodies, splits
+the cycle where the passes deleted the calls that closed it, and
+publishes the bodies, which may make the SCCs that call it ready.
 
 ### Measurements
 
@@ -267,11 +270,46 @@ A call is inlined when `cost - bonus <= threshold`.
 | `-Oz` | 0 | 1 | 20 |
 
 The threshold drops to at most 0 for callers marked `optsize` or `minsize`,
-for `cold` callees or call sites, and for calls in a block that leads only
-to `unreachable`, which stands in for profile data. At 0, a call is
-inlined only if it makes the code no bigger. An `inlinehint` callee gets
-half the threshold again. `alwaysinline` skips the comparison but not the
-legality checks.
+for `cold` callees or call sites, for calls in a block that leads only
+to `unreachable`, which stands in for profile data, and for callers that
+only run on the way to a panic (below). At 0, a call is inlined only if it
+makes the code no bigger. An `inlinehint` callee gets half the threshold
+again. `alwaysinline` skips the comparison but not the legality checks.
+
+**Callers that only run on the way to a panic.** The call graph
+(`callgraph.rs`) finds the functions warm code can reach: start from the
+globals visible outside the module, and follow the calls and references
+(an address taken, a variable whose initialiser names functions, such as a
+vtable) in each warm function's blocks, except blocks from which every
+path ends in `unreachable`. A function never reached is *cold*: the `Debug`
+impl handed to `unwrap_failed`, `escape_debug`'s Unicode tables, the
+backtrace printer and its demangler. Inlining into a cold function uses the
+cold threshold. The `cold` attribute plays no part: the standard library
+puts it on `RawVec`'s `do_reserve_and_handle`, which every `String` that
+grows runs, and treating it as cold made a string benchmark 25% slower.
+
+**A callee called from elsewhere too.** At `-Os` and `-Oz`, a callee with
+more than one call site, or whose address is taken, stays in the program
+whatever this call does, so every copy inlined adds to the program: it is
+inlined only at the cold threshold, when the copy is no bigger than the
+call. rustc gets much the same from compiling the standard library
+separately, where only `#[inline]` and generic functions cross a crate
+boundary. At `-O2` the same rule (and gentler ones: a threshold of 25 or
+50, or a budget shared out between the call sites) cut hello world by
+another 6–10% but slowed a `format!`-and-`String` benchmark by 15–25%, by
+leaving the allocator's `grow_amortized` and `Allocator::allocate` out of
+line on its hot path. The rule is per caller, so a crate built at `-Os`
+in a program at `-O2` gets it for its own functions.
+
+Std hello world on the Mac (`__text`, bytes): `-O2` 133,156 → 116,968,
+`-Os` (every crate) 116,664 → 107,600, `-Oz` unchanged at 108,644. The
+BTreeMap, formatting and string benchmarks of PR #209 run at the same
+speed at `-O2`. Some wrappers are still far bigger than rustc's for other
+reasons: `<ErrorKind as Debug>::fmt` (489 instructions to rustc's 5) is a
+chain of 44 compares, each arm storing a `&str` to memory and calling
+`write_str`, where LLVM sinks the common call and makes a lookup table;
+`<u64 as Display>::fmt` and `<usize as Display>::fmt` are identical copies
+for function merging to fold.
 
 A caller may grow to at most `growth factor × starting size + growth
 slack` instructions, whatever the individual decisions say. Inlining the
@@ -347,11 +385,96 @@ inlining a member that calls itself would bring the self-call along every
 time and never finish. Once a cycle is gone, its function is an ordinary
 callee, and the SCCs above it can inline it.
 
+Collapsing inlines every other member into an entry at least once, and
+makes at most 64 inlines per entry, so a cycle of more than 65 functions
+is not tried.
+
 **Open:** a cycle among non-entry members that does not pass through the
 entry (A calls B, B and C call each other) cannot be collapsed this way;
 it needs a second level of SCCs inside the first. A general alternative is
 to merge the whole SCC into one function with a selector argument and
 thin entry functions.
+
+### Cycles held by dead calls
+
+The call graph is built from the bodies as they come in, before any pass
+has run, so a call that can never run is an edge like any other. In
+Rust's `std`, such edges tie the formatting and panic machinery into one
+large SCC. `Option::unwrap_unchecked` calls `hint::unreachable_unchecked`,
+which calls `precondition_check` only if `ub_checks()`; that can panic,
+the panic handler formats, and formatting (`core::fmt::write`) calls
+`unwrap_unchecked`. `ub_checks()` is a call to a function that returns 0
+once it is optimised, but that is not known when the graph is built. The
+inliner never inlines between members of one SCC, so `core::fmt::write`
+kept two calls to `unwrap_unchecked`, a function that is one move.
+
+Two steps break such cycles.
+
+**Before the call graph** (`opt/src/prefold.rs`), each function's
+conditional branches on a constant, or on an `icmp` of two integer
+constants, and its `switch`es on a constant, become plain branches, and
+the blocks no longer reached are deleted. That is what can be seen without
+looking at memory or at other functions: `if cfg!(debug_assertions)`,
+lowered as `icmp ne i8 0, 0`, but not `ub_checks()`. It takes about 1 ms
+on a `std` hello world.
+
+**In the SCC's task**, after the passes have run on every member, the
+calls the members still make among themselves are found again and Tarjan
+is run on that sub-graph. If the SCC splits, its pieces are finished in
+order, callees first, as tasks of their own would be: each piece inlines
+its calls to the pieces published before it, is promoted and simplified
+again if anything was inlined, and is published. A piece that is still a
+cycle and changed is split again, up to 4 times. Splitting is seen by the
+inliner through a piece number per function (`Inliner::set_piece`): two
+functions count as in the same SCC only if they are in the same piece.
+Only the SCC's own task sets its members' pieces, before publishing them,
+so the result is still the same for any number of threads.
+
+**Cutting what is left** (`opt/src/cut.rs`). A piece that is still a
+cycle of several functions is cut: a set of its calls is chosen such that
+the members' other calls among themselves are acyclic, and every other
+call within the cycle may be inlined. The members are finished in the
+order the uncut calls allow, callees first, each inlining its uncut calls
+to the members published before it. A cut call is marked with the
+call-site attribute `"epitome-cycle-cut"`, so that when its body is
+inlined elsewhere the copy is still a call to the same function and still
+not inlined: inlining never unrolls the cycle, and so it ends. The marks
+are removed after the bottom-up passes. A member that inlines its way
+round to a call to itself has the recursion pass run on it again.
+
+The calls cut are those cheapest to leave as calls. A cold call (in a
+block that leads only to `unreachable`, or to a `noreturn` function) costs
+1 to cut; another costs 10 plus 1000 divided by one more than the callee's
+size, so calls to big functions are cut first. The members are ordered by
+Eades, Lin and Smyth's greedy heuristic for a minimum feedback arc set,
+with those costs as weights: functions only called go to one end,
+functions that only call to the other, and otherwise the one whose
+outgoing calls outweigh its incoming ones most goes next. The calls that
+go the wrong way in that order are the cut; then each that closes no cycle
+is put back, the costliest first. A self-call is always cut. `--stats`
+prints each cut's size.
+
+On the `std` hello world (`epitome-rustc2 --std`, AArch64 macOS):
+
+| | Before | Split | Split and cut |
+| --- | --- | --- | --- |
+| Cycles in the call graph | 513, 31, 5, 5, 1 | 465, 31, 5, 5, 1 | 465, 31, 5, 5, 1 |
+| Cycles left after splitting | | 216, 31, 1, 1 | 216, 31, 1, 1 |
+| Calls cut | | | 3 of the 216 (all cold), 15 of the 31 |
+| Calls inlined | 8,224 | 8,510 | 8,785 |
+| `core::fmt::write` | 187 instructions, 2 calls to `unwrap_unchecked` | 175, none | 175, none |
+| `__text` | 131,112 bytes | 128,476 bytes | 136,856 bytes |
+
+The 465 split into 298 pieces at once; the 216 left are real recursion:
+the panic handler runs the hook, which takes an `RwLock`, which can panic.
+Three cold calls on the way into the panic path are enough to cut it. The
+two 5-cycles split into single functions; the 31 (the symbol demangler's
+printer) is mutual recursion through its own data and needs 15 warm cuts.
+
+Cutting inlines more, and on this program that costs size: the panic and
+thread set-up code is inlined into its callers in the cycle
+(`thread_info::set_current_info` grows by 4.4 KB, `panic_with_hook` by
+1 KB), much of it on paths that run once.
 
 ## 6. Recursion with an explicit stack
 

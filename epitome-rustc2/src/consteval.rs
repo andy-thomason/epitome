@@ -316,17 +316,21 @@ impl Eval<'_, '_, '_> {
     }
 
     /// The associated constant `name` of primitive type `t`, from its
-    /// inherent impls.
+    /// inherent impls, or else its trait impls (`i128::MAX_STR_LEN` of
+    /// itoa's `impl Integer for i128`; the first trait that has one).
     fn prim_assoc_const(&self, t: TyKind, name: &str) -> Option<Value> {
         let cx = self.cx;
         let tcx = cx.tcx;
-        tcx.impls.iter().filter(|i| i.trait_ref.is_none() && tcx.kind(i.self_ty) == t).find_map(|i| {
-            let m = cx.r.defs[i.def.0 as usize].module?;
-            match cx.r.modules[m.0 as usize].names.get(&(name, crate::resolve::Ns::Value)).map(|b| &b.res) {
-                Some(Res::Def(d)) if cx.r.defs[d.0 as usize].kind == DefKind::AssocConst => cx.eval_item(*d),
-                _ => None,
-            }
-        })
+        let of = |inherent: bool| {
+            tcx.impls.iter().filter(|i| i.trait_ref.is_none() == inherent && tcx.kind(i.self_ty) == t).find_map(|i| {
+                let m = cx.r.defs[i.def.0 as usize].module?;
+                match cx.r.modules[m.0 as usize].names.get(&(name, crate::resolve::Ns::Value)).map(|b| &b.res) {
+                    Some(Res::Def(d)) if cx.r.defs[d.0 as usize].kind == DefKind::AssocConst => cx.eval_item(*d),
+                    _ => None,
+                }
+            })
+        };
+        of(true).or_else(|| of(false))
     }
 
     /// The integer type of expression `n`, as far as its syntax says: a

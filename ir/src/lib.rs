@@ -24,6 +24,7 @@ pub mod module;
 pub mod narrow;
 pub mod parser;
 pub mod printer;
+pub mod prof;
 pub mod types;
 
 pub use module::Module;

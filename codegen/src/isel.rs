@@ -117,6 +117,8 @@ pub struct Sel<'a, 'b> {
     vreg: HashMap<LocalId, VReg>,
     bmap: HashMap<BlockId, usize>,
     uses: Vec<u32>,
+    /// Each alloca's stack slot.
+    alloca_slots: HashMap<LocalId, usize>,
     inst_block: Vec<Option<BlockId>>,
     pos: Vec<usize>,
     /// Each local's last two uses, in layout order: a post-increment of a
@@ -405,7 +407,7 @@ impl<'a, 'b> Sel<'a, 'b> {
         let mut bmap = HashMap::new();
         for (k, &b) in f.layout.iter().enumerate() {
             bmap.insert(b, k);
-            mf.blocks.push(MBlock { label: String::new(), insts: Vec::new(), succs: Vec::new(), term_start: 0 });
+            mf.blocks.push(MBlock { label: String::new(), insts: Vec::new(), succs: Vec::new(), term_start: 0, cold: false });
         }
         Sel {
             t,
@@ -444,6 +446,7 @@ impl<'a, 'b> Sel<'a, 'b> {
             va_areas: None,
             va_sysv: None,
             tail_blocks: HashSet::new(),
+            alloca_slots: HashMap::new(),
             landing_next: None,
             mask_regs,
             mask_reg_class,
@@ -3416,6 +3419,15 @@ impl<'a, 'b> Sel<'a, 'b> {
             {
                 continue;
             }
+            // Nor after a trap (`llvm.trap`'s): one is enough.
+            if matches!(inst.op, Op::Unreachable)
+                && self.mf.blocks[self.cur]
+                    .insts
+                    .last()
+                    .is_some_and(|l| matches!(l.op, Opcode::Instr(k) if self.t.has_role(k, "trap")))
+            {
+                continue;
+            }
             if self.covered.contains(&i) {
                 continue;
             }
@@ -3425,6 +3437,19 @@ impl<'a, 'b> Sel<'a, 'b> {
                 // trap (`!target.lacks` trap): reaching it is undefined.
                 Op::Unreachable if self.t.role("trap").is_none() => {
                     self.push(MInst::new(self.t.by_role("ret"), vec![]));
+                    continue;
+                }
+                // The lifetime markers prepare kept (`lifetime_markers`):
+                // for frame lowering.
+                Op::Call(call)
+                    if prepare::callee_name(self.cx.m, call).is_some_and(|n| n.starts_with("llvm.lifetime.")) =>
+                {
+                    let start = prepare::callee_name(self.cx.m, call).is_some_and(|n| n.starts_with("llvm.lifetime.start"));
+                    let Some(Value::Local(p)) = call.args.last().map(|a| a.value) else {
+                        return self.err("a lifetime marker of something not an alloca".to_string());
+                    };
+                    let slot = *self.alloca_slots.get(&p).ok_or("a lifetime marker before its alloca")?;
+                    self.push(MInst { op: Opcode::Lifetime(start), ..MInst::new(0, vec![MOp::Frame(slot, 0)]) });
                     continue;
                 }
                 Op::Call(call)
@@ -3618,6 +3643,7 @@ impl<'a, 'b> Sel<'a, 'b> {
                     let align = align.map_or(8, Align::bytes);
                     self.mf.slots.push(Slot { size: size.max(1), align, offset: 0, scalable: false });
                     let slot = self.mf.slots.len() - 1;
+                    self.alloca_slots.insert(r, slot);
                     let d = self.vreg_of(r);
                     self.push(MInst::new(
                         self.t.by_role("addi"),
@@ -4023,7 +4049,7 @@ fn has_mark(attrs: &[Attr], word: &str) -> bool {
 }
 
 /// Whether `attrs` (with their groups) has the keyword attribute `word`.
-fn has_word(m: &Module, attrs: &[Attr], word: &str) -> bool {
+pub(crate) fn has_word(m: &Module, attrs: &[Attr], word: &str) -> bool {
     attrs.iter().any(|a| match a {
         Attr::Word(w) => w == word,
         Attr::Group(g) => m.attr_groups.iter().find(|x| x.id == *g).is_some_and(|x| has_word(m, &x.attrs, word)),

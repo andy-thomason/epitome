@@ -15,7 +15,6 @@
 
 use crate::ast::{Ast, Kind, NodeId};
 use crate::pretty::pretty_node;
-use std::fmt::Write;
 
 /// The derives this module writes.
 pub const BUILTIN_DERIVES: &[&str] =
@@ -185,26 +184,42 @@ fn field_names(f: &Fields) -> Vec<Option<String>> {
     }
 }
 
-/// `f.debug_struct("N").field("a", a)...finish()` and the like, for values
-/// already references.
+/// The body of `Debug::fmt` for values already references, as rustc
+/// derives it: `write_str` for no fields; up to five fields through
+/// `Formatter::debug_struct_fieldN_finish` / `debug_tuple_fieldN_finish`;
+/// more through slices of names and `&dyn Debug` values and
+/// `debug_struct_fields_finish` / `debug_tuple_fields_finish`. The last
+/// value is borrowed once more (`&&self.b`), so that an unsized last field
+/// is passed as a sized reference.
 fn debug_expr(name: &str, f: &Fields, values: &[String]) -> String {
     let names = field_names(f);
-    match f {
-        Fields::Unit => format!("::core::fmt::Formatter::write_str(f, \"{name}\")"),
-        Fields::Named(_) => {
-            let mut s = format!("::core::fmt::Formatter::debug_struct(f, \"{name}\")");
-            for (n, v) in names.iter().zip(values) {
-                let _ = write!(s, ".field(\"{}\", {v})", n.as_deref().unwrap_or(""));
-            }
-            s + ".finish()"
-        }
-        Fields::Tuple(_) => {
-            let mut s = format!("::core::fmt::Formatter::debug_tuple(f, \"{name}\")");
-            for v in values {
-                let _ = write!(s, ".field({v})");
-            }
-            s + ".finish()"
-        }
+    if values.is_empty() {
+        return format!("::core::fmt::Formatter::write_str(f, \"{name}\")");
+    }
+    let mut vals: Vec<String> = values.to_vec();
+    if let Some(last) = vals.last_mut() {
+        *last = format!("&{last}");
+    }
+    let named = matches!(f, Fields::Named(_));
+    if vals.len() <= 5 {
+        let n = vals.len();
+        let args: Vec<String> = if named {
+            names.iter().zip(&vals).map(|(k, v)| format!("\"{}\", {v}", k.as_deref().unwrap_or(""))).collect()
+        } else {
+            vals.clone()
+        };
+        let which = if named { "struct" } else { "tuple" };
+        return format!("::core::fmt::Formatter::debug_{which}_field{n}_finish(f, \"{name}\", {})", args.join(", "));
+    }
+    let values = format!("let values: &[&dyn ::core::fmt::Debug] = &[{}];", vals.join(", "));
+    if named {
+        let list: Vec<String> = names.iter().map(|k| format!("\"{}\"", k.as_deref().unwrap_or(""))).collect();
+        format!(
+            "{{ let names: &'static _ = &[{}]; {values} ::core::fmt::Formatter::debug_struct_fields_finish(f, \"{name}\", names, values) }}",
+            list.join(", ")
+        )
+    } else {
+        format!("{{ {values} ::core::fmt::Formatter::debug_tuple_fields_finish(f, \"{name}\", values) }}")
     }
 }
 
@@ -459,7 +474,10 @@ mod tests {
                 .contains("Self { x: ::core::clone::Clone::clone(&self.x), y: ::core::clone::Clone::clone(&self.y) }")
         );
         let t = derive_all("struct T(u8, u16);");
-        assert!(t[2].contains("::core::fmt::Formatter::debug_tuple(f, \"T\").field(&self.0).field(&self.1).finish()"));
+        assert!(t[2].contains("::core::fmt::Formatter::debug_tuple_field2_finish(f, \"T\", &self.0, &&self.1)"));
+        let six = derive_all("struct Six { a: u8, b: u8, c: u8, d: u8, e: u8, f: u8 }");
+        assert!(six[2].contains("let names: &'static _ = &[\"a\", \"b\", \"c\", \"d\", \"e\", \"f\"];"));
+        assert!(six[2].contains("::core::fmt::Formatter::debug_struct_fields_finish(f, \"Six\", names, values)"));
         let u = derive_all("struct U;");
         assert!(u[4].contains("fn eq(&self, other: &Self) -> bool { true }"));
     }
@@ -475,6 +493,14 @@ mod tests {
         assert!(impls[3].contains("fn default() -> Self { Self::C }"));
         assert!(impls[4].contains("(Self::B(__self_0), Self::B(__arg1_0)) => *__self_0 == *__arg1_0,"));
         assert!(impls[6].contains("let __self_discr = match self { Self::A => 0isize, Self::B(..) => 1isize,"));
+        // `Debug`, as rustc derives it (checked against its
+        // `-Zunpretty=expanded`).
+        assert!(impls[2].contains("Self::A => ::core::fmt::Formatter::write_str(f, \"A\"),"));
+        assert!(impls[2].contains("::core::fmt::Formatter::debug_tuple_field1_finish(f, \"B\", &__self_0)"));
+        assert!(impls[2].contains("::core::fmt::Formatter::debug_struct_field1_finish(f, \"D\", \"x\", &__self_0)"));
+        let wide = derive_all("enum W { A(u8, u8, u8, u8, u8, u8) }");
+        assert!(wide[2].contains("let values: &[&dyn ::core::fmt::Debug] = &[__self_0, __self_1, __self_2, __self_3, __self_4, &__self_5];"));
+        assert!(wide[2].contains("::core::fmt::Formatter::debug_tuple_fields_finish(f, \"A\", values)"));
         // An enum without `#[default]` has no `Default`.
         assert_eq!(derive_all("enum F { A }").len(), 8);
     }

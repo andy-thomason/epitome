@@ -1,36 +1,36 @@
 ; @sum_to: mem2reg: 4 allocas promoted (7 loads, 6 stores removed)
-; @sum_to: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged
+; @sum_to: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged, 0 edges into unreachable dropped
 ; @sum_to: implied: 0 comparisons folded, 0 selects resolved, 1 flags set
 ; @sum_to: rotate: 1 loops rotated
 ; @sum_to: combine: (constant to the right) x1
-; @sum_to: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged
+; @sum_to: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged, 0 edges into unreachable dropped
 ; @sum_to: indvars: loop %for.body runs %n times when entered
 ; @sum_to: indvars: 1 exact exit tests, 0 exit values, 1 counters widened
 ; @sum_to: lsr: 1 arrays stepped by pointer, 1 counters counting down
 ; @last: mem2reg: 2 allocas promoted (4 loads, 3 stores removed)
-; @last: simplifycfg: 0 unreachable blocks removed, 1 empty blocks bypassed, 0 selects made, 0 blocks merged
+; @last: simplifycfg: 0 unreachable blocks removed, 1 empty blocks bypassed, 0 selects made, 0 blocks merged, 0 edges into unreachable dropped
 ; @last: implied: 0 comparisons folded, 0 selects resolved, 1 flags set
 ; @last: rotate: 1 loops rotated
 ; @last: combine: (constant to the right) x1
-; @last: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged
+; @last: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged, 0 edges into unreachable dropped
 ; @last: indvars: loop %for.inc runs %n times when entered
 ; @last: indvars: 1 exact exit tests, 1 exit values, 0 counters widened
 ; @count_down: mem2reg: 3 allocas promoted (6 loads, 5 stores removed)
 ; @count_down: combine: icmp_ugt_zero x1
-; @count_down: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged
+; @count_down: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged, 0 edges into unreachable dropped
 ; @count_down: rotate: 1 loops rotated
-; @count_down: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged
+; @count_down: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged, 0 edges into unreachable dropped
 ; @count_down: indvars: loop %for.body runs %n times when entered
 ; @count_down: indvars: 1 exact exit tests, 0 exit values, 0 counters widened
 ; @squares: mem2reg: 2 allocas promoted (6 loads, 4 stores removed)
-; @squares: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged
+; @squares: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged, 0 edges into unreachable dropped
 ; @squares: implied: 0 comparisons folded, 0 selects resolved, 2 flags set
 ; @squares: rotate: 1 loops rotated
 ; @squares: combine: (folded) x2, br_true x1
-; @squares: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged
+; @squares: simplifycfg: 0 unreachable blocks removed, 0 empty blocks bypassed, 0 selects made, 1 blocks merged, 0 edges into unreachable dropped
 ; @squares: indvars: loop %for.body runs 10 times when entered
 ; @squares: indvars: 1 exact exit tests, 0 exit values, 0 counters widened
-; @main: mem2reg: 1 allocas promoted (0 loads, 1 stores removed)
+; @main: sroa: 1 allocas split into 0 pieces
 ; @main: constcall: 3 calls worked out
 ; @main: combine: (dead) x2, (folded) x3, add_add_const x2
 

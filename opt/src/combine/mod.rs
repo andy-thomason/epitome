@@ -991,6 +991,21 @@ impl<'s, 'm, 'f> Combiner<'s, 'm, 'f> {
         // Overwritten before it can be read, on every path.
         let local = mem.aa.is_local_object(self.f, ptr);
         let start = mem.walk.block_of(i)?;
+        // The blocks that compute the store's address again: past one of
+        // them (round a loop whose header's phi makes the index), the
+        // address is another one, and comparing accesses with it would
+        // compare different iterations (`a[i] = x` read next time round as
+        // `a[i - 1]`). The search stops there and keeps the store.
+        // (An instruction made since memory SSA was built has no block
+        // known here: then the store stays.)
+        let mut moves: Vec<BlockId> = Vec::new();
+        for v in mem.aa.address_parts(self.f, ptr) {
+            if let Value::Local(l) = v
+                && let LocalDef::Inst(d) = self.f.locals[l.index()].def
+            {
+                moves.push(mem.walk.block_of(d)?);
+            }
+        }
         let first = mem.pos[i.index()] as usize + 1;
         let m = self.sh.module;
         let mut budget = DSE_BUDGET;
@@ -1058,6 +1073,9 @@ impl<'s, 'm, 'f> Combiner<'s, 'm, 'f> {
                     Op::Unreachable => ended = true,
                     op if op.is_terminator() => {
                         for s in op.successors() {
+                            if moves.contains(&s) {
+                                return None;
+                            }
                             if entered.insert(s) {
                                 work.push((s, 0));
                             }
@@ -1334,7 +1352,8 @@ impl<'s, 'm, 'f> Combiner<'s, 'm, 'f> {
                 self.push_def(v);
             }
         }
-        self.f.insts[i.index()].op = new;
+        let old = std::mem::replace(&mut self.f.insts[i.index()].op, new);
+        crate::expect::retarget(self.sh, self.f, i, &old);
         self.add_uses(i);
         for s in removed {
             for k in 0..self.f.blocks[s.index()].insts.len() {
@@ -1486,6 +1505,16 @@ impl<'s, 'm, 'f> Combiner<'s, 'm, 'f> {
                     && FloatKind::of(sh.types().get(sh.consts().get(c).ty)).is_some_and(|k| k.bits() == w)
                 {
                     return self.int_value(ty, raw as u64);
+                }
+                // Zero as a pointer is null, and null as an integer zero.
+                if op == CastOp::IntToPtr
+                    && matches!(sh.types().get(ty), Type::Ptr(_))
+                    && self.int(c).is_some_and(|k| k.value == 0)
+                {
+                    return Some(Value::Const(sh.intern_const(Constant { ty, kind: ConstKind::Null })));
+                }
+                if op == CastOp::PtrToInt && matches!(sh.consts().get(c).kind, ConstKind::Null) {
+                    return self.int_value(ty, 0);
                 }
                 let x = self.int(c)?;
                 let to = eval::int_bits(sh.types(), ty)?;
@@ -1916,23 +1945,31 @@ impl<'s, 'm, 'f> Combiner<'s, 'm, 'f> {
     }
 
     fn place(&mut self, i: InstId, out: &mut Vec<InstId>) {
-        if let Some(list) = self.before.remove(&i) {
-            for n in list {
-                self.place(n, out);
+        // What goes before an instruction is placed first, and may have
+        // its own; the chains can be long, so this walks them with a
+        // stack instead of recursing. `true` marks one whose list is out.
+        let mut stack = vec![(i, false)];
+        while let Some((i, listed)) = stack.pop() {
+            if !listed {
+                stack.push((i, true));
+                if let Some(list) = self.before.remove(&i) {
+                    stack.extend(list.into_iter().rev().map(|n| (n, false)));
+                }
+                continue;
             }
-        }
-        if !self.erased[i.index()] {
-            out.push(i);
-        } else if !self.f.insts[i.index()].debug_records.is_empty() {
-            // The records of an erased instruction move to the next one.
-            let records = std::mem::take(&mut self.f.insts[i.index()].debug_records);
-            self.pending_records.extend(records);
-            return;
-        }
-        if !self.erased[i.index()] && !self.pending_records.is_empty() {
-            let mut records = std::mem::take(&mut self.pending_records);
-            records.append(&mut self.f.insts[i.index()].debug_records);
-            self.f.insts[i.index()].debug_records = records;
+            if !self.erased[i.index()] {
+                out.push(i);
+            } else if !self.f.insts[i.index()].debug_records.is_empty() {
+                // The records of an erased instruction move to the next one.
+                let records = std::mem::take(&mut self.f.insts[i.index()].debug_records);
+                self.pending_records.extend(records);
+                continue;
+            }
+            if !self.erased[i.index()] && !self.pending_records.is_empty() {
+                let mut records = std::mem::take(&mut self.pending_records);
+                records.append(&mut self.f.insts[i.index()].debug_records);
+                self.f.insts[i.index()].debug_records = records;
+            }
         }
     }
 }

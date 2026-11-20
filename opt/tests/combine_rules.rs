@@ -36,6 +36,8 @@ const UNCHECKED: &[&str] = &[
     "trunc_sext_narrow",
     "bitcast_same",
     "bitcast_bitcast",
+    "inttoptr_ptrtoint",
+    "ptrtoint_inttoptr",
     "freeze_freeze",
 ];
 

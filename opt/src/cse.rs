@@ -29,6 +29,10 @@
 //! remembered may modify the load's location. Entering a block that can be
 //! reached other than from its dominator adds an "unknown" entry to the
 //! log, which nothing gets past, since another path in may have written.
+//! A value remembered at the same address as another type becomes a cast:
+//! a pointer stored and loaded as an integer of its size is `ptrtoint`, and
+//! the reverse `inttoptr`; on a little-endian machine an integer loaded
+//! from where a wider one was stored is a `trunc` of it.
 //!
 //! `freeze` is never merged: two freezes of the same poison may give
 //! different values.
@@ -37,7 +41,7 @@ use crate::fx::FxHashMap as HashMap;
 use std::hash::Hash;
 
 use epitome_ir::module::*;
-use epitome_ir::types::TypeId;
+use epitome_ir::types::{Type, TypeId};
 
 use crate::aa::{BasicAa, Location};
 use crate::cfg::DomTree;
@@ -266,6 +270,35 @@ fn still_there(aa: &BasicAa, f: &Function, writes: &[Option<InstId>], loc: Locat
         })
 }
 
+/// The types whose values, cast, give a load of `ty` at the same address,
+/// and the casts.
+fn wider_value(sh: &Shared, ty: TypeId) -> Vec<(TypeId, CastOp)> {
+    let (dl, types) = (&sh.layout, sh.types());
+    let ptr = sh.intern_type(Type::Ptr(0));
+    let ptr_bits = dl.size_in_bits(types, ptr);
+    match types.get(ty).clone() {
+        Type::Ptr(0) => match ptr_bits {
+            Some(b) => vec![(sh.intern_type(Type::Int(b as u32)), CastOp::IntToPtr)],
+            None => Vec::new(),
+        },
+        Type::Int(n) if n % 8 == 0 => {
+            let mut out = Vec::new();
+            if ptr_bits == Some(n as u64) {
+                out.push((ptr, CastOp::PtrToInt));
+            }
+            if !dl.big_endian {
+                for m in [16, 32, 64, 128] {
+                    if m > n {
+                        out.push((sh.intern_type(Type::Int(m)), CastOp::Trunc));
+                    }
+                }
+            }
+            out
+        }
+        _ => Vec::new(),
+    }
+}
+
 /// Runs CSE on one function.
 pub fn run(sh: &Shared, f: &mut Function) -> Outcome {
     let mut stats = Stats::default();
@@ -363,7 +396,28 @@ pub fn run(sh: &Shared, f: &mut Function) -> Outcome {
                         map.insert(r, v);
                         erased[i.index()] = true;
                     }
-                    _ => memory.insert((ptr, ty), (Value::Local(r), writes.len())),
+                    _ => {
+                        // The same address stored or loaded as another type
+                        // that covers the load's bytes: an integer as a
+                        // pointer or back, or a wider integer whose low
+                        // bytes, on a little-endian machine, are the ones
+                        // loaded. The load becomes a cast of that value.
+                        let wider = wider_value(sh, ty).into_iter().find_map(|(other, op)| {
+                            let &(v, since) = memory.get(&(ptr, other))?;
+                            still_there(&aa, f, &writes[since..], loc).then_some((v, op))
+                        });
+                        if let Some((v, op)) = wider
+                            && epitome_ir::chop::allow(|| {
+                                format!("cse: the load {} casts a value", epitome_ir::printer::inst_name(f, i))
+                            })
+                        {
+                            f.insts[i.index()].op =
+                                Op::Cast { op, flags: IntFlags::NONE, fmf: FastMath::default(), value: v };
+                            stats.forwarded += 1;
+                            rewritten.push(i);
+                        }
+                        memory.insert((ptr, ty), (Value::Local(r), writes.len()));
+                    }
                 }
                 continue;
             }

@@ -39,6 +39,9 @@ pub struct CallGraph {
     pub has_blockaddress: Vec<bool>,
     /// The instruction count of each node.
     pub size: Vec<usize>,
+    /// No warm code reaches the node (see `warm_globals`): it only runs on
+    /// the way to a panic or an error report.
+    pub cold: Vec<bool>,
     /// SCCs, each a list of nodes in module order. Callees come before
     /// callers: an SCC appears after every SCC it calls.
     pub sccs: Vec<Vec<usize>>,
@@ -50,6 +53,8 @@ pub struct CallGraph {
 struct Scan {
     calls: Vec<GlobalId>,
     refs: Vec<GlobalId>,
+    /// The calls and references outside cold blocks, repeats included.
+    warm: Vec<GlobalId>,
     size: usize,
 }
 
@@ -132,6 +137,9 @@ impl CallGraph {
             }
         }
 
+        let warm = warm_globals(m, &mentions, &scans, &nodes);
+        let cold = nodes.iter().map(|&g| !warm[g.index()]).collect();
+
         let sccs = tarjan(&callees);
         let mut scc_of = vec![0; n];
         for (s, members) in sccs.iter().enumerate() {
@@ -159,6 +167,7 @@ impl CallGraph {
             refs,
             has_blockaddress,
             size,
+            cold,
             sccs,
             scc_of,
         }
@@ -267,34 +276,94 @@ impl CallGraph {
 }
 
 fn scan(m: &Module, mentions: &[Vec<GlobalId>], f: &Function, is_fn: &dyn Fn(GlobalId) -> bool) -> Scan {
-    let mut out = Scan { calls: Vec::new(), refs: Vec::new(), size: 0 };
+    let mut out = Scan { calls: Vec::new(), refs: Vec::new(), warm: Vec::new(), size: 0 };
     let refer = |v: &Value, out: &mut Scan| {
         if let Value::Const(c) = v {
             out.refs.extend_from_slice(&mentions[c.index()]);
         }
     };
-    for i in f.insts_in_order() {
-        out.size += 1;
-        let op = &f.insts[i.index()].op;
-        let Some(call) = op.call() else {
-            op.for_each_value(|v| refer(v, &mut out));
-            continue;
-        };
-        let direct = match call.callee {
-            Value::Const(c) => match m.consts.get(c).kind {
-                ConstKind::Global(g) if is_fn(g) => Some(g),
+    for &b in &f.layout {
+        let cold_block = crate::inline::ends_in_unreachable(f, b);
+        for &i in &f.blocks[b.index()].insts {
+            out.size += 1;
+            let (calls, refs) = (out.calls.len(), out.refs.len());
+            let op = &f.insts[i.index()].op;
+            let Some(call) = op.call() else {
+                op.for_each_value(|v| refer(v, &mut out));
+                if !cold_block {
+                    out.warm.extend_from_slice(&out.refs[refs..]);
+                }
+                continue;
+            };
+            let direct = match call.callee {
+                Value::Const(c) => match m.consts.get(c).kind {
+                    ConstKind::Global(g) if is_fn(g) => Some(g),
+                    _ => None,
+                },
                 _ => None,
-            },
-            _ => None,
-        };
-        match direct {
-            Some(g) => out.calls.push(g),
-            None => refer(&call.callee, &mut out),
+            };
+            match direct {
+                Some(g) => out.calls.push(g),
+                None => refer(&call.callee, &mut out),
+            }
+            call.args.iter().for_each(|a| refer(&a.value, &mut out));
+            call.bundles.iter().flat_map(|b| &b.inputs).for_each(|v| refer(v, &mut out));
+            if !cold_block {
+                out.warm.extend_from_slice(&out.calls[calls..]);
+                out.warm.extend_from_slice(&out.refs[refs..]);
+            }
         }
-        call.args.iter().for_each(|a| refer(&a.value, &mut out));
-        call.bundles.iter().flat_map(|b| &b.inputs).for_each(|v| refer(v, &mut out));
     }
     out
+}
+
+/// Which globals warm code may reach, by `GlobalId`: those visible outside
+/// the module, and whatever a warm function calls or refers to outside its
+/// cold blocks, or a warm variable's initialiser mentions. A block is cold
+/// when every path from it ends in `unreachable` (a panic, say).
+///
+/// What is left only ever runs on the way to a panic or an error report:
+/// `Debug` impls passed to `unwrap_failed`, the backtrace printer, and so
+/// on. The inliner treats such callers as cold (see `inline.rs`).
+///
+/// The `cold` attribute is not used: the standard library puts it on
+/// functions that are cold in most programs but hot in some, such as
+/// `RawVec`'s `do_reserve_and_handle`, which every growing `String` runs.
+fn warm_globals(m: &Module, mentions: &[Vec<GlobalId>], scans: &[Scan], nodes: &[GlobalId]) -> Vec<bool> {
+    let mut scan_of: Vec<Option<&Scan>> = vec![None; m.globals.len()];
+    for (s, &g) in scans.iter().zip(nodes) {
+        scan_of[g.index()] = Some(s);
+    }
+    let mut warm = vec![false; m.globals.len()];
+    let mut work: Vec<GlobalId> = Vec::new();
+    for &g in &m.global_order {
+        if !matches!(m.global(g).props.linkage, Linkage::Internal | Linkage::Private) {
+            warm[g.index()] = true;
+            work.push(g);
+        }
+    }
+    while let Some(g) = work.pop() {
+        let mut reach = |h: GlobalId, work: &mut Vec<GlobalId>| {
+            if !warm[h.index()] {
+                warm[h.index()] = true;
+                work.push(h);
+            }
+        };
+        let consts: Vec<ConstId> = match &m.global(g).kind {
+            GlobalKind::Variable(v) => v.init.into_iter().collect(),
+            GlobalKind::Alias { aliasee, .. } => vec![*aliasee],
+            GlobalKind::IFunc { resolver, .. } => vec![*resolver],
+            GlobalKind::Function(f) => {
+                if let Some(s) = scan_of[g.index()] {
+                    s.warm.iter().for_each(|&h| reach(h, &mut work));
+                }
+                [f.prefix, f.prologue, f.personality].into_iter().flatten().collect()
+            }
+            GlobalKind::Forward => vec![],
+        };
+        consts.iter().for_each(|c| mentions[c.index()].iter().for_each(|&h| reach(h, &mut work)));
+    }
+    warm
 }
 
 /// For each constant, the globals it mentions, directly or through its
@@ -345,7 +414,7 @@ pub(crate) fn const_mentions(consts: &Constants) -> Vec<Vec<GlobalId>> {
 }
 
 /// Tarjan's algorithm, without recursion. SCCs come out callees first.
-fn tarjan(succ: &[Vec<usize>]) -> Vec<Vec<usize>> {
+pub(crate) fn tarjan(succ: &[Vec<usize>]) -> Vec<Vec<usize>> {
     let n = succ.len();
     let mut index = vec![u32::MAX; n];
     let mut low = vec![0u32; n];

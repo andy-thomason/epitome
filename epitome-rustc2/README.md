@@ -63,6 +63,8 @@ $B -o prog $L/core/src/lib.rs prog.rs        # an executable, through Epitome (t
 $B --std -o prog prog.rs                     # one with `std` from rust-src
 $B --std -Cpanic=immediate-abort -o prog prog.rs  # smaller: panics abort without a message
 $B --std -O0 -o prog prog.rs                 # prog unoptimised, std optimised (--crate-opt std=0 for both)
+$B --std -C debug-assertions=off -o prog prog.rs   # prog without debug_assertions, as rustc -O
+$B --std --fn-crates prog.crates -o prog prog.rs  # also list each function's symbol and crate
 $B --std -o prog prog.rs                     # #[epitome::target("riscv64")] fns: compiled for RV64, launched from the host
                                              # (see tests/kernels/riscv_kernels.rs)
 

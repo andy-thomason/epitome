@@ -61,3 +61,23 @@ define i32 @folding() {
   %d = select i1 %c, i32 %b, i32 0
   ret i32 %d
 }
+
+; A pointer through an integer and back, as SROA leaves it where one slot
+; is accessed as both; and zero as a pointer.
+define ptr @int_ptr_round_trip(ptr %p) {
+  %i = ptrtoint ptr %p to i64
+  %q = inttoptr i64 %i to ptr
+  ret ptr %q
+}
+
+define i64 @ptr_int_round_trip(i64 %i) {
+  %p = inttoptr i64 %i to ptr
+  %j = ptrtoint ptr %p to i64
+  ret i64 %j
+}
+
+define i1 @null_from_zero(ptr %p) {
+  %z = inttoptr i64 0 to ptr
+  %c = icmp eq ptr %p, %z
+  ret i1 %c
+}

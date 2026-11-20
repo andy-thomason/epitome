@@ -17,7 +17,8 @@ const USAGE: &str = "usage: epitome-opt [options] <file.ll>
                           stdout; an input of - is stdin)
   --passes=<list>         which passes to run, from sroa, mem2reg, inline,
                           recursion, combine, simplifycfg, implied,
-                          loops, cse,
+                          loops, cse, ipo, merge (identical functions
+                          and constants kept once),
                           memory (the combiner's memory rules) and
                           tailmark (marking calls tail),
                           separated by commas (default: all)
@@ -32,6 +33,7 @@ const USAGE: &str = "usage: epitome-opt [options] <file.ll>
   --no-loops              do not rotate loops or simplify their counters
   --no-implied            do not fold what dominating branches imply
                           (bounds checks under a loop's test)
+  --no-merge              do not merge identical functions and constants
   --recursion=<mode>      off; tail (default): tail and accumulator calls
                           become loops, other recursion stays; or stack:
                           all recursion, with an explicit stack
@@ -113,6 +115,7 @@ fn main() -> ExitCode {
             "--no-simplifycfg" => opts.simplifycfg = false,
             "--no-loops" => opts.loops = false,
             "--no-implied" => opts.implied = false,
+            "--no-merge" => opts.merge = false,
             s if s.starts_with("--passes=") => {
                 let list: Vec<&str> = s["--passes=".len()..].split(',').filter(|p| !p.is_empty()).collect();
                 if let Some(bad) = list.iter().find(|p| {
@@ -129,6 +132,7 @@ fn main() -> ExitCode {
                         "memory",
                         "tailmark",
                         "ipo",
+                        "merge",
                     ]
                     .contains(p)
                 }) {
@@ -145,6 +149,7 @@ fn main() -> ExitCode {
                 opts.simplifycfg = list.contains(&"simplifycfg");
                 opts.loops = list.contains(&"loops");
                 opts.implied = list.contains(&"implied");
+                opts.merge = list.contains(&"merge");
                 if !list.contains(&"recursion") {
                     opts.recursion = RecursionMode::Off;
                 }
@@ -323,11 +328,31 @@ fn main() -> ExitCode {
             report.frame_calls,
             report.deleted.len()
         );
+        let p = report.prefold;
+        if p.branches > 0 {
+            eprintln!(
+                "; prefold: {} branches on constants folded, {} blocks removed, before the call graph",
+                p.branches, p.blocks
+            );
+        }
+        let sizes = |v: &[usize]| v.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(", ");
+        let mut before: Vec<usize> = report.cycle_sizes.clone();
+        before.sort_unstable_by(|a, b| b.cmp(a));
+        eprintln!(
+            "; cycles: {} of sizes {} in the call graph; {} of sizes {} left once split",
+            before.len(),
+            sizes(&before),
+            report.cycles_left.len(),
+            sizes(&report.cycles_left)
+        );
+        for (size, calls, cold) in &report.cuts {
+            eprintln!("; cut: a cycle of {size} functions, {calls} calls cut ({cold} cold)");
+        }
         let c = report.simplifycfg;
         if c.total() > 0 {
             eprintln!(
-                "; simplifycfg: {} unreachable blocks removed, {} empty blocks bypassed, {} selects made, {} blocks merged",
-                c.unreachable, c.bypassed, c.selects, c.merged
+                "; simplifycfg: {} unreachable blocks removed, {} empty blocks bypassed, {} selects made, {} blocks merged, {} edges into unreachable dropped",
+                c.unreachable, c.bypassed, c.selects, c.merged, c.dead_edges
             );
         }
         let im = report.implied;
@@ -371,6 +396,13 @@ fn main() -> ExitCode {
             eprintln!(
                 "; ipo: {} constant returns, {} leaf calls inlined, {} parameters promoted into {}, {} constant arguments, in {} rounds",
                 ipo.returns, ipo.inlined, ipo.promoted, ipo.promoted_into, ipo.arguments, ipo.rounds
+            );
+        }
+        let mg = &report.merge;
+        if mg.functions() + mg.constants > 0 {
+            eprintln!(
+                "; merge: {} functions made aliases, {} thunks, {} kept with their calls redirected; {} constants merged; in {} rounds",
+                mg.aliases, mg.thunks, mg.calls_only, mg.constants, mg.rounds
             );
         }
         if report.tail_marked > 0 {

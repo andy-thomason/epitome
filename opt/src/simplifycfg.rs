@@ -19,6 +19,13 @@
 //!   anyway (pure, unable to trap); they move before the branch.
 //! - **Straight lines** merge: a block that is the only successor of its
 //!   only predecessor joins it.
+//! - **Edges into `unreachable`** go: a block that is nothing but
+//!   `unreachable` cannot be reached in a run without undefined behaviour,
+//!   so a conditional branch to it is a plain branch to its other target,
+//!   and a switch loses the cases that lead there (a default that does is
+//!   replaced by one of the cases). A branch whose every edge leads there is
+//!   `unreachable` itself. A block that does something first, such as
+//!   calling a function that does not return, is a real path and stays.
 //!
 //! These repeat until nothing changes. Functions whose blocks have their
 //! address taken are left alone, since a `blockaddress` may name any block.
@@ -36,11 +43,13 @@ pub struct Stats {
     /// Instructions run before a branch, so that an arm became empty.
     pub speculated: usize,
     pub merged: usize,
+    /// Branch and switch edges into blocks that are only `unreachable`.
+    pub dead_edges: usize,
 }
 
 impl Stats {
     pub fn total(&self) -> usize {
-        self.unreachable + self.bypassed + self.selects + self.merged
+        self.unreachable + self.bypassed + self.selects + self.merged + self.dead_edges
     }
 }
 
@@ -64,6 +73,7 @@ pub fn run(sh: &Shared, f: &mut Function, block_addresses: bool) -> Outcome {
         let n = f.layout.len();
         cleanup::remove_unreachable(f);
         out.stats.unreachable += n - f.layout.len();
+        drop_dead_edges(f, &mut out);
         while bypass_all(f, &mut out) {}
         fold_same_targets(f, &mut out);
         select_all(sh, f, &mut out);
@@ -127,6 +137,97 @@ fn speculates_to(sh: &Shared, f: &Function, b: BlockId) -> Option<BlockId> {
         .then_some(next)
 }
 
+/// True if block `b` is nothing but `unreachable`.
+fn only_unreachable(f: &Function, b: BlockId) -> bool {
+    matches!(f.blocks[b.index()].insts[..], [only] if matches!(f.insts[only.index()].op, Op::Unreachable))
+}
+
+/// Drops the edges of conditional branches and switches into blocks that
+/// are only `unreachable` (see the module's notes). The phis of the
+/// targets keep one entry per edge that is left. The blocks that lose
+/// their last predecessor go in the next round.
+fn drop_dead_edges(f: &mut Function, out: &mut Outcome) {
+    for k in 0..f.layout.len() {
+        let b = f.layout[k];
+        let Some(t) = f.terminator(b) else { continue };
+        let new = match &f.insts[t.index()].op {
+            Op::CondBr { then_dest, else_dest, .. } => {
+                match (only_unreachable(f, *then_dest), only_unreachable(f, *else_dest)) {
+                    (true, true) => Op::Unreachable,
+                    (true, false) => Op::Br(*else_dest),
+                    (false, true) => Op::Br(*then_dest),
+                    (false, false) => continue,
+                }
+            }
+            Op::Switch { value, default, cases } => {
+                let dead_default = only_unreachable(f, *default);
+                let mut live: Vec<(ConstId, BlockId)> =
+                    cases.iter().copied().filter(|&(_, d)| !only_unreachable(f, d)).collect();
+                if !dead_default && live.len() == cases.len() {
+                    continue;
+                }
+                let mut default = *default;
+                if dead_default {
+                    // The default is never taken: any case's target will do,
+                    // and that target's cases are then the default's.
+                    if let Some(&(_, d)) = live.first() {
+                        default = d;
+                    }
+                    live.retain(|&(_, d)| d != default);
+                }
+                if dead_default && only_unreachable(f, default) {
+                    Op::Unreachable
+                } else if live.is_empty() {
+                    Op::Br(default)
+                } else {
+                    Op::Switch { value: *value, default, cases: live.into_boxed_slice() }
+                }
+            }
+            _ => continue,
+        };
+        if !epitome_ir::chop::allow(|| {
+            format!(
+                "simplifycfg: drop the edges into unreachable from {}",
+                epitome_ir::printer::local_name(f, f.blocks[b.index()].local)
+            )
+        }) {
+            continue;
+        }
+        let old_succs = f.insts[t.index()].op.successors();
+        let mut cond = None;
+        f.insts[t.index()].op.for_each_value(|v| cond = Some(*v));
+        let new_succs = new.successors();
+        out.stats.dead_edges += old_succs.len() - new_succs.len();
+        f.insts[t.index()].op = new;
+        let mut seen: Vec<BlockId> = Vec::new();
+        for s in old_succs {
+            if seen.contains(&s) {
+                continue;
+            }
+            seen.push(s);
+            let keep = new_succs.iter().filter(|&&x| x == s).count();
+            for phi in phis(f, s) {
+                if let Op::Phi { incoming, .. } = &mut f.insts[phi.index()].op {
+                    let mut n = 0;
+                    incoming.retain(|(_, from)| {
+                        if *from != b {
+                            return true;
+                        }
+                        n += 1;
+                        n <= keep
+                    });
+                }
+            }
+        }
+        // The condition may now be unused.
+        if let Some(Value::Local(l)) = cond
+            && let LocalDef::Inst(d) = f.locals[l.index()].def
+        {
+            out.touched.push(d);
+        }
+    }
+}
+
 /// A conditional branch whose targets bypassing made the same is a plain
 /// branch; one of its two edges' phi entries goes. The combiner's
 /// `br_same` rule does this for branches it visits, but bypassing makes
@@ -148,6 +249,8 @@ fn fold_same_targets(f: &mut Function, out: &mut Outcome) {
             continue;
         }
         f.insts[t.index()].op = Op::Br(then_dest);
+        // (Branch weights are per successor: a plain branch has none.)
+        f.insts[t.index()].attachments.retain(|a| a.kind != "prof");
         for phi in phis(f, then_dest) {
             if let Op::Phi { incoming, .. } = &mut f.insts[phi.index()].op
                 && let Some(at) = incoming.iter().position(|(_, from)| *from == b)
@@ -350,6 +453,8 @@ fn select_all(sh: &Shared, f: &mut Function, out: &mut Outcome) {
             replaced[r.index()] = Some(v);
         }
         f.insts[t.index()].op = Op::Br(join);
+        // (Branch weights are per successor: a plain branch has none.)
+        f.insts[t.index()].attachments.retain(|a| a.kind != "prof");
         // `a` now goes straight to the join; the arms lose it.
         for x in [then_dest, else_dest] {
             if x != join {

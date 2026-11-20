@@ -17,23 +17,36 @@
 //! The pass looks at every fixed-size alloca in the entry block:
 //!
 //! 1. It follows the alloca through `getelementptr`s with constant indices
-//!    and `bitcast`s, and records every load and store as a byte range.
-//!    Any other use (a call, a variable index, a stored address, a volatile
-//!    access, `memcpy`) leaves the alloca alone.
+//!    and `bitcast`s, and records every load and store as a byte range,
+//!    and every `memcpy`, `memmove` and `memset` of a constant length to
+//!    or from another pointer. Any other use (a call, a variable index, a
+//!    stored address, a volatile access) leaves the alloca alone. An
+//!    alloca nothing reads goes, with everything that writes it.
 //! 2. Overlapping ranges merge into *partitions*: pieces of the alloca used
 //!    independently of each other. Bytes nothing touches are dropped.
+//!    Bytes only copied, in and then out again (an enum's payload passed
+//!    along whole), get integer partitions of their own, of up to eight
+//!    bytes aligned to their offsets; these wait until nothing else splits,
+//!    as by then the other side of the copy has often split into fields of
+//!    better types. Bytes a copy out reads but nothing writes (padding, or
+//!    a payload the variant leaves unset) are undefined and not copied.
 //! 3. Each partition becomes a new alloca:
 //!    - *Uniform*: every access covers the whole partition. The new alloca
-//!      has the accessed type. Integer and float accesses of the same size
-//!      share an integer type, with `bitcast`s at the floats.
-//!    - *Packed integer*: some accesses cover only part of it, all integers
-//!      or floats, and the partition is at most 128 bits. The new alloca is
-//!      one integer of the partition's width. A narrower load shifts and
+//!      has the accessed type. Integer, float and pointer accesses of the
+//!      same size share one type: a pointer if any access is one (an
+//!      `Option<&T>` written as `0` and read as a pointer, or its niche
+//!      tested as an integer), with `inttoptr` and `ptrtoint` at the
+//!      integers; otherwise an integer, with `bitcast`s at the floats.
+//!    - *Packed integer*: some accesses cover only part of it, all integers,
+//!      floats or pointers, and the partition is at most 128 bits. The new
+//!      alloca is one integer of the partition's width. A narrower load shifts and
 //!      truncates; a narrower store masks and merges, the shifts following
 //!      the data layout's byte order. This is how a struct returned in a
 //!      register (stored as one `i64`, read as two `i32`s) gets promoted.
 //!
-//!    If any partition fits neither, the alloca is left as it is.
+//!    If any partition fits neither, the alloca is left as it is. Copies
+//!    become a load and a store per partition, which may let the alloca
+//!    on the other side split in the next round.
 //!
 //! The pass runs before `mem2reg`, which promotes the new allocas.
 
@@ -259,11 +272,19 @@ struct Partition {
     accesses: Vec<Access>,
 }
 
-fn scalar_kind(sh: &Shared, ty: TypeId) -> Option<bool> {
-    // Some(true) for an integer, Some(false) for a float.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Scalar {
+    Int,
+    Float,
+    /// A pointer in address space 0.
+    Ptr,
+}
+
+fn scalar_kind(sh: &Shared, ty: TypeId) -> Option<Scalar> {
     match sh.types().get(ty) {
-        Type::Int(_) => Some(true),
-        Type::Half | Type::BFloat | Type::Float | Type::Double | Type::Fp128 => Some(false),
+        Type::Int(_) => Some(Scalar::Int),
+        Type::Half | Type::BFloat | Type::Float | Type::Double | Type::Fp128 => Some(Scalar::Float),
+        Type::Ptr(0) => Some(Scalar::Ptr),
         _ => None,
     }
 }
@@ -271,22 +292,31 @@ fn scalar_kind(sh: &Shared, ty: TypeId) -> Option<bool> {
 fn plan(sh: &Shared, p: &Partition) -> Option<Kind> {
     let bytes = p.end - p.start;
     let whole = p.accesses.iter().all(|a| a.offset == p.start && a.size == bytes);
+    let kinds: Option<Vec<Scalar>> = p.accesses.iter().map(|a| scalar_kind(sh, a.ty)).collect();
+    // Pointers convert to and from integers, floats to and from integers,
+    // but not pointers to floats.
+    let mixable = kinds
+        .as_ref()
+        .is_some_and(|k| !(k.contains(&Scalar::Ptr) && k.contains(&Scalar::Float)));
     if whole {
         let first = p.accesses[0].ty;
         if p.accesses.iter().all(|a| a.ty == first) {
             return Some(Kind::Uniform(first));
         }
-        // Same size, different types: share an integer, if all are
-        // integers or floats and the size is a whole number of bits.
-        if p.accesses.iter().all(|a| scalar_kind(sh, a.ty).is_some())
-            && p.accesses.iter().all(|a| sh.layout.size_in_bits(sh.types(), a.ty) == Some(bytes * 8))
-        {
+        // Same size, different types: share one type, if all are
+        // integers, floats or pointers and the size is a whole number of
+        // bits. A pointer, if there is one, so that a pointer stored and
+        // loaded again stays one; else an integer.
+        if mixable && p.accesses.iter().all(|a| sh.layout.size_in_bits(sh.types(), a.ty) == Some(bytes * 8)) {
+            if let Some(a) = p.accesses.iter().find(|a| scalar_kind(sh, a.ty) == Some(Scalar::Ptr)) {
+                return Some(Kind::Uniform(a.ty));
+            }
             return Some(Kind::Uniform(sh.intern_type(Type::Int((bytes * 8) as u32))));
         }
         return None;
     }
     let bits_ok = |a: &Access| sh.layout.size_in_bits(sh.types(), a.ty) == Some(a.size * 8);
-    if bytes * 8 <= 128 && p.accesses.iter().all(|a| scalar_kind(sh, a.ty).is_some() && bits_ok(a)) {
+    if bytes * 8 <= 128 && mixable && p.accesses.iter().all(bits_ok) {
         return Some(Kind::Packed((bytes * 8) as u32));
     }
     None
@@ -302,17 +332,23 @@ pub fn run(sh: &Shared, f: &mut Function) -> Stats {
     split_aggregate_accesses(sh, f);
     // Splitting one alloca can turn a copy from another into plain loads,
     // which may let that one split too, so go round until nothing changes.
-    for _round in 0..4 {
+    // Pieces for bytes that are only copied wait until nothing else
+    // splits: by then the other side of the copy may have split, and its
+    // loads and stores give the bytes better types than whole integers.
+    for _round in 0..8 {
         let before = stats.split;
-        split_round(sh, f, entry, &mut stats);
+        split_round(sh, f, entry, &mut stats, false);
         if stats.split == before {
-            break;
+            split_round(sh, f, entry, &mut stats, true);
+            if stats.split == before {
+                break;
+            }
         }
     }
     stats
 }
 
-fn split_round(sh: &Shared, f: &mut Function, entry: BlockId, stats: &mut Stats) {
+fn split_round(sh: &Shared, f: &mut Function, entry: BlockId, stats: &mut Stats, copied_pieces: bool) {
     let candidates: Vec<InstId> = f.blocks[entry.index()].insts.clone();
     let mut names = Names::new(f);
     let mut erased: Vec<InstId> = Vec::new();
@@ -345,10 +381,11 @@ fn split_round(sh: &Shared, f: &mut Function, entry: BlockId, stats: &mut Stats)
             users
         });
         let Some(uses) = collect(sh, f, found, a, size) else { continue };
-        if uses.accesses.is_empty() {
+        let read = uses.accesses.iter().any(|x| !x.is_store)
+            || uses.copies.iter().any(|c| matches!(c.role, Role::OutOf(_)));
+        if !read {
             // Only ever written: the alloca and everything writing it go.
-            if !uses.copies.is_empty()
-                && uses.copies.iter().all(|c| !matches!(c.role, Role::OutOf(_)))
+            if (!uses.copies.is_empty() || !uses.accesses.is_empty())
                 && epitome_ir::chop::allow(|| {
                     format!("sroa: remove {}, only ever written", epitome_ir::printer::local_name(f, a))
                 })
@@ -356,6 +393,7 @@ fn split_round(sh: &Shared, f: &mut Function, entry: BlockId, stats: &mut Stats)
                 erased.push(i);
                 erased.extend(uses.others);
                 erased.extend(uses.copies.iter().map(|c| c.inst));
+                erased.extend(uses.accesses.iter().map(|x| x.inst));
                 stats.split += 1;
                 users = None;
             }
@@ -375,35 +413,76 @@ fn split_round(sh: &Shared, f: &mut Function, entry: BlockId, stats: &mut Stats)
                 _ => parts.push(Partition { start: acc.offset, end: acc.offset + acc.size, accesses: vec![acc] }),
             }
         }
-        let Some(kinds) = parts.iter().map(|p| plan(sh, p)).collect::<Option<Vec<Kind>>>() else { continue };
-        // Each copy must take whole partitions, and a copy out must have
-        // every byte it reads in some partition.
+        let Some(mut kinds) = parts.iter().map(|p| plan(sh, p)).collect::<Option<Vec<Kind>>>() else { continue };
+        // Bytes that are only copied, never loaded or stored: copied in (or
+        // filled) and copied out again. They get integer pieces of their
+        // own, cut where copies begin and end and aligned to their offsets.
+        // Bytes no copy or fill writes are undefined, so a copy out need
+        // not carry them: a struct's padding, or an enum's bytes that its
+        // variant leaves unset.
+        let mut cuts: Vec<u64> = uses.copies.iter().flat_map(|c| [c.offset, c.offset + c.len]).collect();
+        cuts.extend(parts.iter().flat_map(|p| [p.start, p.end]));
+        cuts.sort_unstable();
+        cuts.dedup();
+        let mut copied: Vec<(u64, u64)> = Vec::new();
+        for w in cuts.windows(2) {
+            let (lo, hi) = (w[0], w[1]);
+            let within = |c: &Copy| c.offset <= lo && hi <= c.offset + c.len;
+            if parts.iter().any(|p| p.start < hi && lo < p.end)
+                || !uses.copies.iter().any(|c| within(c) && !matches!(c.role, Role::OutOf(_)))
+                || !uses.copies.iter().any(|c| within(c) && matches!(c.role, Role::OutOf(_)))
+            {
+                continue;
+            }
+            let mut at = lo;
+            while at < hi {
+                let mut n = 8;
+                while n > 1 && (at % n != 0 || at + n > hi) {
+                    n /= 2;
+                }
+                copied.push((at, at + n));
+                at += n;
+            }
+        }
+        if copied.len() > if copied_pieces { MAX_COPIED_PIECES } else { 0 } {
+            continue;
+        }
+        for (start, end) in copied {
+            let k = parts.partition_point(|p| p.start < start);
+            parts.insert(k, Partition { start, end, accesses: Vec::new() });
+            kinds.insert(k, Kind::Uniform(sh.intern_type(Type::Int(((end - start) * 8) as u32))));
+        }
+        // Each copy must take whole partitions.
         let copies_fit = uses.copies.iter().all(|c| {
             let (lo, hi) = (c.offset, c.offset + c.len);
-            let mut covered = 0;
             for (p, kind) in parts.iter().zip(&kinds) {
                 let inside = p.start >= lo && p.end <= hi;
                 if !inside && p.start < hi && lo < p.end {
                     return false;
                 }
-                if inside {
-                    covered += p.end - p.start;
-                    if let Role::Set(byte) = c.role
-                        && byte != 0
-                        && !matches!(kind, Kind::Packed(_))
-                        && !matches!(kind, Kind::Uniform(t) if scalar_kind(sh, *t).is_some())
-                    {
-                        return false;
-                    }
+                // A fill of a byte other than zero, only into integers and
+                // floats.
+                if inside
+                    && let Role::Set(byte) = c.role
+                    && byte != 0
+                    && !matches!(kind, Kind::Packed(_))
+                    && !matches!(kind, Kind::Uniform(t)
+                        if matches!(scalar_kind(sh, *t), Some(Scalar::Int | Scalar::Float)))
+                {
+                    return false;
                 }
             }
-            !matches!(c.role, Role::OutOf(_)) || covered == c.len
+            true
         });
         if !copies_fit {
             continue;
         }
         // Nothing to gain: one piece, already of the alloca's own type.
-        if parts.len() == 1 && matches!(kinds[0], Kind::Uniform(t) if t == ty) && parts[0].start == 0 {
+        if uses.copies.is_empty()
+            && parts.len() == 1
+            && matches!(kinds[0], Kind::Uniform(t) if t == ty)
+            && parts[0].start == 0
+        {
             continue;
         }
         if !epitome_ir::chop::allow(|| {
@@ -505,6 +584,18 @@ fn rewrite(
     };
     let is_float = acc_int != acc.ty;
     let cast = |op, value| Op::Cast { op, flags: IntFlags::NONE, fmf: FastMath::default(), value };
+    // The cast between two scalars of the same size: integer and pointer,
+    // or a bit pattern for floats.
+    let conv = |from: TypeId, to: TypeId| match (scalar_kind(sh, from), scalar_kind(sh, to)) {
+        (_, Some(Scalar::Ptr)) => CastOp::IntToPtr,
+        (Some(Scalar::Ptr), _) => CastOp::PtrToInt,
+        _ => CastOp::BitCast,
+    };
+    // A zero integer stored as a pointer is the null pointer.
+    let zero = |v: Value| match v {
+        Value::Const(c) => crate::combine::eval::int_const(sh.consts(), sh.types(), c).is_some_and(|k| k.value == 0),
+        _ => false,
+    };
     let bin = |op, lhs, rhs| Op::Binary { op, flags: IntFlags::NONE, fmf: FastMath::default(), lhs, rhs };
 
     match kind {
@@ -513,15 +604,21 @@ fn rewrite(
             set_ptr(f, i, piece);
         }
         Kind::Uniform(_) => {
-            // A float access to an integer piece.
+            // A float or pointer access to an integer piece, or an integer
+            // access to a pointer piece.
             if acc.is_store {
                 let Op::Store { value, .. } = f.insts[i.index()].op else { unreachable!() };
-                let as_int = before(f, cast(CastOp::BitCast, value), Some(piece_ty));
-                set_store(f, i, piece, as_int);
+                let op = conv(acc.ty, piece_ty);
+                let as_piece = if op == CastOp::IntToPtr && zero(value) {
+                    sh.null_ptr()
+                } else {
+                    before(f, cast(op, value), Some(piece_ty))
+                };
+                set_store(f, i, piece, as_piece);
             } else {
                 let load =
                     before(f, Op::Load { volatile: false, atomic: None, ptr: piece, align: None }, Some(piece_ty));
-                let back = before(f, cast(CastOp::BitCast, load), Some(acc.ty));
+                let back = before(f, cast(conv(piece_ty, acc.ty), load), Some(acc.ty));
                 replace_load(f, i, back);
             }
         }
@@ -535,7 +632,7 @@ fn rewrite(
                 let Op::Store { value, .. } = f.insts[i.index()].op else { unreachable!() };
                 let mut v = value;
                 if is_float {
-                    v = before(f, cast(CastOp::BitCast, v), Some(acc_int));
+                    v = before(f, cast(conv(acc.ty, acc_int), v), Some(acc_int));
                 }
                 if acc_bits == bits {
                     set_store(f, i, piece, v);
@@ -562,7 +659,7 @@ fn rewrite(
                     v = before(f, cast(CastOp::Trunc, v), Some(acc_int));
                 }
                 if is_float {
-                    v = before(f, cast(CastOp::BitCast, v), Some(acc.ty));
+                    v = before(f, cast(conv(acc_int, acc.ty), v), Some(acc.ty));
                 }
                 replace_load(f, i, v);
             }
@@ -614,7 +711,9 @@ fn split_copy(sh: &Shared, f: &mut Function, names: &mut Names, c: &Copy, delta:
         }
         Role::Set(byte) => {
             let is_int = matches!(sh.types().get(piece_ty), Type::Int(_));
-            let v = if byte == 0 && !is_int {
+            let v = if byte == 0 && matches!(sh.types().get(piece_ty), Type::Ptr(_)) {
+                Value::Const(sh.intern_const(Constant { ty: piece_ty, kind: ConstKind::Null }))
+            } else if byte == 0 && !is_int {
                 Value::Const(sh.intern_const(Constant { ty: piece_ty, kind: ConstKind::Zero }))
             } else {
                 let bits = sh.layout.size_in_bits(sh.types(), piece_ty).unwrap() as u32;
@@ -636,6 +735,9 @@ fn split_copy(sh: &Shared, f: &mut Function, names: &mut Names, c: &Copy, delta:
         }
     }
 }
+
+/// Most pieces made for bytes that are only copied.
+const MAX_COPIED_PIECES: usize = 8;
 
 /// Most elements an aggregate access is split into.
 const MAX_ELEMENTS: u64 = 16;
@@ -801,3 +903,4 @@ fn replace_load(f: &mut Function, i: InstId, v: Value) {
     let next = insts[k];
     f.insts[next.index()].debug_records.splice(0..0, records);
 }
+

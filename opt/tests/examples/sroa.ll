@@ -102,3 +102,51 @@ define i32 @copies() {
   %r = add i32 %s, %w32
   ret i32 %r
 }
+
+; An Option<&T>-like slot: written as an integer and read as a pointer,
+; then written as a pointer and its niche tested as an integer. The piece
+; is a pointer, with casts at the integer accesses.
+define i1 @niche(ptr %q, i1 %c) {
+  %o = alloca [8 x i8]
+  store i64 0, ptr %o
+  %none = load ptr, ptr %o
+  %p = select i1 %c, ptr %q, ptr %none
+  store ptr %p, ptr %o
+  %bits = load i64, ptr %o
+  %some = icmp ne i64 %bits, 0
+  ret i1 %some
+}
+
+; An enum of 24 bytes: a tag byte, then a payload at 8 that only one
+; variant sets. Built in one alloca, copied whole to another and on to a
+; third, which is read. The copies carry bytes that are only copied (the
+; payload, as two i64 pieces in each alloca) and bytes nothing writes
+; (1 to 8, and the payload for the other variant), which they drop.
+define i64 @enum_copies(i1 %which, i64 %a, i64 %b) {
+  %e1 = alloca [24 x i8]
+  %e2 = alloca [24 x i8]
+  %e3 = alloca [24 x i8]
+  br i1 %which, label %some, label %none
+
+some:
+  store i8 1, ptr %e1
+  %pa = getelementptr i8, ptr %e1, i64 8
+  store i64 %a, ptr %pa
+  %pb = getelementptr i8, ptr %e1, i64 16
+  store i64 %b, ptr %pb
+  br label %join
+
+none:
+  store i8 0, ptr %e1
+  br label %join
+
+join:
+  call void @llvm.memcpy.p0.p0.i64(ptr %e2, ptr %e1, i64 24, i1 false)
+  call void @llvm.memcpy.p0.p0.i64(ptr %e3, ptr %e2, i64 24, i1 false)
+  %tag = load i8, ptr %e3
+  %is = icmp eq i8 %tag, 1
+  %x = getelementptr i8, ptr %e3, i64 16
+  %v = load i64, ptr %x
+  %r = select i1 %is, i64 %v, i64 0
+  ret i64 %r
+}

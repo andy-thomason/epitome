@@ -120,6 +120,24 @@ pub fn allocate(t: &Target, f: &mut MFunc) -> Result<(), String> {
     allocate_as(t, f, small)
 }
 
+/// Each block's `term_start` must be where its terminator starts: inside
+/// the block, with no branch (no instruction naming a block) before it.
+/// Spill code for a block's way out goes there (`split_by_blocks`'s loads
+/// before the terminator); a pass that adds or removes instructions before
+/// it without moving it would put that code after a jump, where it never
+/// runs.
+fn check_term_starts(f: &MFunc) -> Result<(), String> {
+    for (bi, b) in f.blocks.iter().enumerate() {
+        let early = b.insts[..b.term_start.min(b.insts.len())]
+            .iter()
+            .any(|i| matches!(i.op, Opcode::Instr(_)) && i.ops.iter().any(|o| matches!(o, MOp::Label(_))));
+        if b.term_start > b.insts.len() || early {
+            return Err(format!("{}: block {bi}'s terminator is not where the block says it starts", f.name));
+        }
+    }
+    Ok(())
+}
+
 /// Allocates registers keeping the scratch registers free: for a frame
 /// that turned out to need one (`frame::NEEDS_SCRATCH`).
 pub fn allocate_keeping_scratch(t: &Target, f: &mut MFunc) -> Result<(), String> {
@@ -127,6 +145,7 @@ pub fn allocate_keeping_scratch(t: &Target, f: &mut MFunc) -> Result<(), String>
 }
 
 fn allocate_as(t: &Target, f: &mut MFunc, try_scratch: bool) -> Result<(), String> {
+    check_term_starts(f)?;
     let before = f.clone();
     if try_scratch && !(f.abi.scratch.is_empty() && f.abi.fp_scratch.is_empty()) {
         let kept = f.abi.clone();

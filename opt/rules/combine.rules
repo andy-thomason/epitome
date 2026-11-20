@@ -195,6 +195,8 @@ trunc_sext_wide:  trunc(sext(x)) -> trunc(x) if bw(x) > bw
 trunc_sext_narrow: trunc(sext(x)) -> sext(x) if bw(x) < bw
 bitcast_same:     bitcast(x) -> x if sametype(x, @)
 bitcast_bitcast:  bitcast(bitcast(x)) -> bitcast(x)
+inttoptr_ptrtoint: inttoptr(ptrtoint(x)) -> x if sametype(x, @)
+ptrtoint_inttoptr: ptrtoint(inttoptr(x)) -> x if sametype(x, @)
 
 # ---------------------------------------------------------------------------
 # Floating point. Only rules that hold for every input, signed zeros and

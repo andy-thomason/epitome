@@ -2,14 +2,18 @@
 ; @fields: mem2reg: 2 allocas promoted (2 loads, 2 stores removed)
 ; @returned: sroa: 1 allocas split into 1 pieces
 ; @returned: mem2reg: 1 allocas promoted (2 loads, 1 stores removed)
-; @mixed: sroa: 1 allocas split into 3 pieces
-; @mixed: mem2reg: 3 allocas promoted (2 loads, 3 stores removed)
+; @mixed: sroa: 2 allocas split into 3 pieces
+; @mixed: mem2reg: 2 allocas promoted (2 loads, 2 stores removed)
 ; @punning: sroa: 1 allocas split into 1 pieces
 ; @punning: mem2reg: 1 allocas promoted (1 loads, 1 stores removed)
 ; @update: sroa: 1 allocas split into 1 pieces
 ; @update: mem2reg: 1 allocas promoted (2 loads, 2 stores removed)
 ; @copies: sroa: 3 allocas split into 5 pieces
 ; @copies: mem2reg: 5 allocas promoted (5 loads, 5 stores removed)
+; @niche: sroa: 1 allocas split into 1 pieces
+; @niche: mem2reg: 1 allocas promoted (2 loads, 2 stores removed)
+; @enum_copies: sroa: 4 allocas split into 9 pieces
+; @enum_copies: mem2reg: 8 allocas promoted (8 loads, 9 stores removed)
 
 target datalayout = "e-m:o-i64:64-i128:128-n32:64-S128"
 
@@ -73,4 +77,29 @@ define i32 @copies() {
   %s = add i32 %sroa3, %sroa5
   %r = add i32 %s, %w32
   ret i32 %r
+}
+
+define i1 @niche(ptr %q, i1 %c) {
+  %p = select i1 %c, ptr %q, ptr null
+  %sroa1 = ptrtoint ptr %p to i64
+  %some = icmp ne i64 %sroa1, 0
+  ret i1 %some
+}
+
+define i64 @enum_copies(i1 %which, i64 %a, i64 %b) {
+  br i1 %which, label %some, label %none
+
+some:                                             ; preds = %0
+  br label %join
+
+none:                                             ; preds = %0
+  br label %join
+
+join:                                             ; preds = %none, %some
+  %e1.16 = phi i64 [ %b, %some ], [ undef, %none ]
+  %e1.8 = phi i64 [ %a, %some ], [ undef, %none ]
+  %e1.0 = phi i8 [ 1, %some ], [ 0, %none ]
+  %is = icmp eq i8 %e1.0, 1
+  %r = select i1 %is, i64 %e1.16, i64 0
+  ret i64 %r
 }

@@ -257,6 +257,12 @@ pub fn place(t: &Target, f: &mut MFunc) {
     // never the way that falls through, and the cold blocks, panics above
     // all, cost the hot ones no room.
     let cold: Vec<bool> = f.blocks.iter().map(|b| b.cold).collect();
+    let mut preds = vec![Vec::new(); n];
+    for (q, part) in parts.iter().enumerate() {
+        for s in succs(&part.1) {
+            preds[s].push(q);
+        }
+    }
     let mut placed = vec![false; n];
     let mut order = vec![0usize];
     placed[0] = true;
@@ -288,7 +294,7 @@ pub fn place(t: &Target, f: &mut MFunc) {
             p != cur
                 && open(p)
                 && matches!(parts[p].1, Exit::Goto(x) if x == next)
-                && (0..n).all(|q| placed[q] || !reached[q] || !succs(&parts[q].1).contains(&p))
+                && preds[p].iter().all(|&q| placed[q] || !reached[q])
         }) {
             placed[arm] = true;
             order.push(arm);

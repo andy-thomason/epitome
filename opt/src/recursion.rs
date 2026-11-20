@@ -34,7 +34,9 @@
 //! live values: no return address, saved registers or spill slots.
 //!
 //! Allocas of the function stay in the old entry block, which is inside the
-//! loop, so each activation gets its own.
+//! loop, so each activation gets its own. An alloca live across a call is
+//! saved in the frame like any other value, so a lifetime marker after the
+//! call would name the reload; such markers are dropped.
 //!
 //! Splitting blocks at the calls leaves values with more than one
 //! definition (the original, and a reload in each pop that restores it), so
@@ -1165,6 +1167,7 @@ impl<'s, 'm> Transform<'s, 'm> {
         candidates.extend(state_phis.iter().map(|&p| (inst_blocks[p.index()].unwrap(), p)));
         candidates.extend(dispatch_phis);
         let replaced = ssa::remove_trivial_phis(f, &candidates);
+        drop_stray_lifetimes(sh, f);
 
         // Debug records: point them at the value that reaches them, if one
         // is known without new phis; otherwise mark them optimised out.
@@ -1180,6 +1183,35 @@ impl<'s, 'm> Transform<'s, 'm> {
             frame_calls: pushed.iter().map(|s| s.saved.len()).collect(),
             kept: 0,
         }
+    }
+}
+
+/// Deletes the lifetime markers whose pointer is no longer an alloca. An
+/// activation's allocas are saved in its frame across a recursive call and
+/// reloaded when the call returns, so after SSA is rebuilt a marker may
+/// name a reload, or a phi of several activations' allocas. The LangRef
+/// allows only an alloca (or poison) there, and the markers are only hints:
+/// without one, the alloca lives until the frame's `llvm.stackrestore`.
+fn drop_stray_lifetimes(sh: &Shared, f: &mut Function) {
+    let is_alloca = |f: &Function, v: Value| match v {
+        Value::Local(l) => matches!(f.locals[l.index()].def,
+            LocalDef::Inst(d) if matches!(f.insts[d.index()].op, Op::Alloca { .. })),
+        Value::Const(c) => matches!(sh.consts().get(c).kind, ConstKind::Poison),
+        Value::Metadata(_) => false,
+    };
+    for b in f.layout.clone() {
+        let mut insts = std::mem::take(&mut f.blocks[b.index()].insts);
+        insts.retain(|&i| {
+            let Op::Call(call) = &f.insts[i.index()].op else { return true };
+            let lifetime = sh
+                .direct_callee(call)
+                .and_then(|g| sh.module.global(g).name.as_deref())
+                .is_some_and(|n| n.starts_with("llvm.lifetime."));
+            // The pointer is the last argument, with or without the size
+            // before it.
+            !lifetime || call.args.last().is_none_or(|a| is_alloca(f, a.value))
+        });
+        f.blocks[b.index()].insts = insts;
     }
 }
 

@@ -1612,7 +1612,7 @@ mod tests {
         assert!(attrs("tracked").contains(" cold"), "{}", attrs("tracked"));
         // The closure has its own `#[inline(never)]`; `main` has none.
         let closure = text.lines().find(|l| l.starts_with("define") && l.contains("@main.closure.")).unwrap_or_else(|| panic!("no closure in\n{text}"));
-        assert!(closure.contains(") noinline"), "{closure}");
+        assert!(closure.contains(") unnamed_addr noinline"), "{closure}");
         let main = text.lines().find(|l| l.starts_with("define i32 @main(")).unwrap();
         assert!(!main.contains("noinline"), "{main}");
         // The calls of the cold functions are cold; the others are not.

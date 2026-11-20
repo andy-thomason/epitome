@@ -60,6 +60,8 @@ pub struct Options {
     pub implied: bool,
     /// Loop rotation, then induction variables and trip counts.
     pub loops: bool,
+    /// Last, merging identical functions and constants (`merge.rs`).
+    pub merge: bool,
     pub recursion: RecursionMode,
     /// Autochop: how far elective changes may go (`epitome_ir::chop`).
     pub chop: Option<epitome_ir::chop::Limit>,
@@ -83,6 +85,7 @@ impl Default for Options {
             simplifycfg: true,
             implied: true,
             loops: true,
+            merge: true,
             recursion: RecursionMode::Tail,
             chop: None,
             extra_rules: None,
@@ -144,6 +147,8 @@ pub struct Report {
     pub ipo: crate::ipo::Stats,
     /// Functions deleted because nothing used them any more.
     pub deleted: Vec<String>,
+    /// What merging identical functions and constants did.
+    pub merge: crate::merge::Stats,
     /// The size of all functions, and of the longest chain of SCCs that
     /// must run one after another, in instructions. Their ratio bounds the
     /// speed-up from threads.
@@ -860,6 +865,25 @@ fn optimise(m: &mut Module, opts: &Options) -> Report {
     lap("merge metadata");
     report.deleted.extend(delete_dead_functions(m, threads, &chop, &chop_index));
     lap("delete dead functions");
+    // Identical functions, once each is as simple as it will get; the
+    // merged ones are then unused, as are the constants merged.
+    if opts.merge {
+        let (stats, remarks) = crate::merge::run(m, &chop, &chop_index);
+        for (g, line) in remarks {
+            let name = m.global(g).name.clone().unwrap_or_else(|| g.0.to_string());
+            match report.remarks.iter_mut().find(|(n, _)| *n == name) {
+                Some((_, l)) => l.push(line),
+                None => report.remarks.push((name, vec![line])),
+            }
+        }
+        let merged = stats.functions() + stats.constants > 0;
+        report.merge = stats;
+        lap("merge functions");
+        if merged {
+            report.deleted.extend(delete_dead_functions(m, threads, &chop, &chop_index));
+            lap("delete dead functions");
+        }
+    }
     report.chop_names =
         chop_order.iter().map(|&g| m.global(g).name.clone().unwrap_or_else(|| g.0.to_string())).collect();
     report.chop_counts = chop.counts();
@@ -939,7 +963,8 @@ fn declare_intrinsics(m: &mut Module) -> Intrinsics {
 /// unused intrinsic declarations. What is kept is found from the globals
 /// other modules can see (and those named by metadata), through what each
 /// function's body and each variable's initialiser mentions, so a vtable
-/// that nothing uses goes with the functions only it named. Returns the
+/// that nothing uses goes with the functions only it named. Internal
+/// aliases nothing uses go too (those `merge.rs` leaves). Returns the
 /// names of the deleted functions, intrinsics aside.
 ///
 /// Deleting a function with a body is an elective change of that function
@@ -980,7 +1005,7 @@ fn delete_dead_functions(
                 let intrinsic = global.name.as_deref().is_some_and(|s| s.starts_with("llvm."));
                 !blockaddress && (local || (intrinsic && !f.has_body))
             }
-            GlobalKind::Variable(_) => local,
+            GlobalKind::Variable(_) | GlobalKind::Alias { .. } => local,
             _ => false,
         }
     };

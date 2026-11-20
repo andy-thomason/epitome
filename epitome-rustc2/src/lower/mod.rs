@@ -1214,6 +1214,7 @@ impl Session {
                 }
             }
         }
+        mark_unnamed_addr(&mut m);
         let decls = cx.fns.iter().map(|(&it, d)| (it, d.g)).collect();
         Lowered { module: m, functions, failures, partial, notes, titles, decls }
     }
@@ -1468,6 +1469,25 @@ fn mark_cold_calls(m: &mut Module, cold: &FastSet<GlobalId>) {
     }
 }
 
+/// Marks every function defined, and every private constant (string
+/// literals, vtables, promoted constants: not `static`s, which are
+/// internal), `unnamed_addr`, as rustc does: Rust promises neither a
+/// function's nor a constant's address is unique, so the optimiser may
+/// merge identical ones.
+fn mark_unnamed_addr(m: &mut Module) {
+    use epitome_ir::module::{GlobalKind, UnnamedAddr};
+    for g in &mut m.globals {
+        let ours = match &g.kind {
+            GlobalKind::Function(f) => f.has_body,
+            GlobalKind::Variable(v) => v.constant && g.props.linkage == Linkage::Private,
+            _ => false,
+        };
+        if ours {
+            g.props.unnamed_addr = UnnamedAddr::Global;
+        }
+    }
+}
+
 /// Gives function `g` the attribute `"target-features"="fs"`.
 fn add_target_features(m: &mut Module, g: GlobalId, fs: String) {
     if let epitome_ir::module::GlobalKind::Function(f) = &mut m.globals[g.index()].kind {
@@ -1592,7 +1612,7 @@ mod tests {
         assert!(attrs("tracked").contains(" cold"), "{}", attrs("tracked"));
         // The closure has its own `#[inline(never)]`; `main` has none.
         let closure = text.lines().find(|l| l.starts_with("define") && l.contains("@main.closure.")).unwrap_or_else(|| panic!("no closure in\n{text}"));
-        assert!(closure.contains(") noinline"), "{closure}");
+        assert!(closure.contains(") unnamed_addr noinline"), "{closure}");
         let main = text.lines().find(|l| l.starts_with("define i32 @main(")).unwrap();
         assert!(!main.contains("noinline"), "{main}");
         // The calls of the cold functions are cold; the others are not.

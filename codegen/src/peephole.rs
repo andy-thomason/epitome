@@ -24,7 +24,12 @@ pub fn redundant_compares(t: &Target, mf: &mut MFunc) -> usize {
     for b in &mut mf.blocks {
         let mut last: Option<MInst> = None;
         let mut keep = Vec::with_capacity(b.insts.len());
-        for inst in std::mem::take(&mut b.insts) {
+        // Where the terminator starts, as instructions before it go.
+        let mut term_start = None;
+        for (k, inst) in std::mem::take(&mut b.insts).into_iter().enumerate() {
+            if k == b.term_start {
+                term_start = Some(keep.len());
+            }
             let sets = matches!(inst.op, Opcode::Instr(i) if t.instrs[i].sets.is_some());
             if sets {
                 // (Never a barrier: x86's fucompi also pops the x87 stack.)
@@ -50,6 +55,7 @@ pub fn redundant_compares(t: &Target, mf: &mut MFunc) -> usize {
             }
             keep.push(inst);
         }
+        b.term_start = term_start.unwrap_or(keep.len());
         b.insts = keep;
     }
     removed
@@ -95,7 +101,12 @@ pub fn frame_addresses(t: &Target, mf: &mut MFunc) -> usize {
     for b in &mut mf.blocks {
         let old = std::mem::take(&mut b.insts);
         let mut new = Vec::with_capacity(old.len());
-        for mut inst in old {
+        // Where the terminator starts, as instructions go and come.
+        let mut term_start = None;
+        for (j, mut inst) in old.into_iter().enumerate() {
+            if j == b.term_start {
+                term_start = Some(new.len());
+            }
             // The definitions themselves go; every use makes its own.
             if let Opcode::Instr(i) = inst.op
                 && (i == addi || t.instrs[i].address_of)
@@ -133,6 +144,7 @@ pub fn frame_addresses(t: &Target, mf: &mut MFunc) -> usize {
             }
             new.push(inst);
         }
+        b.term_start = term_start.unwrap_or(new.len());
         b.insts = new;
     }
     mf.vclass = vclass;

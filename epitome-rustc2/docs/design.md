@@ -1057,6 +1057,20 @@ any other; then each is defined.
   (`caller_location`) gives back. rust-src's paths are named as rustc's
   prebuilt `std` names them (`/rustc/<commit>/library/...`). Not yet: a
   `#[track_caller]` function as a function pointer or in a vtable.
+- **Inlining and coldness.** `#[inline(never)]` gives a function
+  `noinline`, `#[inline(always)]` `alwaysinline` and `#[cold]` `cold`, as
+  rustc gives them, whether written directly or through `cfg_attr` (std's
+  `#[cfg_attr(not(panic = "immediate-abort"), inline(never), cold)]`);
+  a closure has its own (`#[inline(never)] |x| ...`), not its function's.
+  A direct call of a cold function is `cold` too. epitome-opt's inliner
+  honours all three: so `panic_fmt`, `unwrap_failed`, `slice_error_fail`
+  and the other panic entry points stay out of line. A plain `#[inline]`
+  gives nothing, where rustc gives `inlinehint`: it is there to make a
+  body available to other crates, which a whole-program build has
+  anyway (generic or not), and the inliner's bonus for the hint made
+  `std` formatting 12% slower on the Mac and a hello world 3 KB bigger.
+  A `std` hello world's code went from 136,824 to 133,156 bytes on the
+  Mac and from 112,351 to 111,159 on x86-64, its build time unchanged.
 - **Symbols** are the item's path and arguments, made safe for an
   assembler, and a hash of where the item is written and of its
   arguments in full; `#[no_mangle]`, `#[export_name]` and foreign items

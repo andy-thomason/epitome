@@ -392,10 +392,13 @@ impl<'a, 's> FnCtxt<'a, 's> {
     /// items and pointers.
     fn is_builtin_marker(&self, tr: DefId, t: Ty) -> bool {
         let tcx = self.tcx;
+        let is = |name: &str| tcx.lang.get(name) == Some(&tr);
+        if self.params_strict && matches!(tcx.kind(t), TyKind::Param(_)) && (is("freeze") || tcx.traits.get(&tr).is_some_and(|d| d.is_auto)) {
+            return false;
+        }
         if tcx.traits.get(&tr).is_some_and(|d| d.is_auto) {
             return true;
         }
-        let is = |name: &str| tcx.lang.get(name) == Some(&tr);
         if ["sized", "meta_sized", "pointee_sized", "destruct", "freeze", "unsize", "discriminant_kind", "pointee_trait", "transmute_trait", "bikeshed_guaranteed_no_drop"]
             .iter()
             .any(|n| is(n))
@@ -609,6 +612,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     }
                 }
                 let saved = std::mem::replace(&mut self.env_preds, env);
+                let strict = std::mem::replace(&mut self.params_strict, true);
                 let ok = matching.iter().all(|&j| {
                     if j == i {
                         return true;
@@ -619,6 +623,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     ok
                 });
                 self.env_preds = saved;
+                self.params_strict = strict;
                 ok
             })
             .collect();

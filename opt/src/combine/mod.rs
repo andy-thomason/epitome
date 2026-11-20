@@ -1944,23 +1944,31 @@ impl<'s, 'm, 'f> Combiner<'s, 'm, 'f> {
     }
 
     fn place(&mut self, i: InstId, out: &mut Vec<InstId>) {
-        if let Some(list) = self.before.remove(&i) {
-            for n in list {
-                self.place(n, out);
+        // What goes before an instruction is placed first, and may have
+        // its own; the chains can be long, so this walks them with a
+        // stack instead of recursing. `true` marks one whose list is out.
+        let mut stack = vec![(i, false)];
+        while let Some((i, listed)) = stack.pop() {
+            if !listed {
+                stack.push((i, true));
+                if let Some(list) = self.before.remove(&i) {
+                    stack.extend(list.into_iter().rev().map(|n| (n, false)));
+                }
+                continue;
             }
-        }
-        if !self.erased[i.index()] {
-            out.push(i);
-        } else if !self.f.insts[i.index()].debug_records.is_empty() {
-            // The records of an erased instruction move to the next one.
-            let records = std::mem::take(&mut self.f.insts[i.index()].debug_records);
-            self.pending_records.extend(records);
-            return;
-        }
-        if !self.erased[i.index()] && !self.pending_records.is_empty() {
-            let mut records = std::mem::take(&mut self.pending_records);
-            records.append(&mut self.f.insts[i.index()].debug_records);
-            self.f.insts[i.index()].debug_records = records;
+            if !self.erased[i.index()] {
+                out.push(i);
+            } else if !self.f.insts[i.index()].debug_records.is_empty() {
+                // The records of an erased instruction move to the next one.
+                let records = std::mem::take(&mut self.f.insts[i.index()].debug_records);
+                self.pending_records.extend(records);
+                continue;
+            }
+            if !self.erased[i.index()] && !self.pending_records.is_empty() {
+                let mut records = std::mem::take(&mut self.pending_records);
+                records.append(&mut self.f.insts[i.index()].debug_records);
+                self.f.insts[i.index()].debug_records = records;
+            }
         }
     }
 }

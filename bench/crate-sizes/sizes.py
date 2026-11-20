@@ -275,7 +275,7 @@ def main():
                 grown = {}
                 for krate, fk, size, _ in rows[t]:
                     grown[(krate, fk)] = grown.get((krate, fk), 0) + size
-                diff = sorted(((v - base.get(k, 0), k) for k, v in grown.items()), reverse=True)[:TOP]
+                diff = sorted(((v - base.get(k, 0), k) for k, v in grown.items() if v > base.get(k, 0)), reverse=True)[:TOP]
                 print(f'{t}, beyond hello world: ' + ', '.join(f'{k[0]} `{k[1]}` {v:,}' for v, k in diff) + '\n')
         # By function: ours (ndebug) against rustc -O.
         a, b = {}, {}

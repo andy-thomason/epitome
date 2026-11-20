@@ -816,8 +816,9 @@ not coalesce.
 After allocation and frames, blocks are placed so that most branches fall
 through (`codegen/src/layout.rs`): small return blocks are copied into the
 blocks that jump to them, blocks are chained with each followed by a
-successor that stays in the function, and conditional branches are
-inverted where that lets them fall through. Which branch inverts to which
+successor that stays in the function, hot blocks first and cold ones after
+them all (see [codegen](codegen.md), "Block placement"), and conditional
+branches are inverted where that lets them fall through. Which branch inverts to which
 is in the description (`"inverse"`); a condition's inverse is the
 condition form with the inverse comparison.
 

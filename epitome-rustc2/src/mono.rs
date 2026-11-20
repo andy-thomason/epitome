@@ -768,11 +768,15 @@ pub(crate) fn is_drop_glue(tcx: &TyCtxt, d: DefId) -> bool {
     tcx.lang.get("drop_glue") == Some(&d) || tcx.lang.get("drop_in_place") == Some(&d)
 }
 
-/// Whether `d` is a compiler intrinsic.
+/// Whether `d` is a compiler intrinsic. `core::intrinsics::likely` and
+/// `unlikely` are too: in newer `core` they are functions whose untaken
+/// side calls `cold_path`, and lowered as intrinsics, the hint stays at the
+/// branch that tests them (as `llvm.expect`).
 pub(crate) fn is_intrinsic(r: &Resolver, crates: &[ParsedCrate], d: DefId) -> bool {
     let def = &r.defs[d.0 as usize];
     let ast = &crates[def.krate as usize].files[def.file as usize].ast;
     crate::session::has_attribute(ast, def.node, "rustc_intrinsic")
+        || (matches!(def.name, "likely" | "unlikely") && r.def_path(d) == format!("core::intrinsics::{}", def.name))
 }
 
 /// The `core::panicking::panic_const` functions lowering's division

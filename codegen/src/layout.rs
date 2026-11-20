@@ -3,12 +3,14 @@
 //!
 //! First, small blocks that return are copied into the blocks that jump to
 //! them, so a function's `ret` need not be reached by a branch. Then blocks
-//! are chained: each block is followed by a successor not yet placed,
-//! preferring one that does not leave the function, so loops stay together
-//! and returns go last. Finally each block's branches are rewritten for the
-//! new order: a branch to the next block is dropped, and a conditional
-//! branch whose target now follows it is inverted (`"inverse"` in the
-//! description, with its condition inverted) to jump to the other way.
+//! are chained, the hot ones first and the cold ones (`cold.rs`: panics,
+//! cold calls, unlikely branches) after them all: each block is followed by
+//! a successor not yet placed and as hot as it, preferring one that does
+//! not leave the function, so loops stay together. Finally each block's
+//! branches are rewritten for the new order: a branch to the next block is
+//! dropped, and a conditional branch whose target now follows it is
+//! inverted (`"inverse"` in the description, with its condition inverted)
+//! to jump to the other way.
 
 use crate::mir::*;
 use crate::target::{Kind, Target};
@@ -160,10 +162,12 @@ fn merge_tails(f: &mut MFunc, parts: &mut Vec<(Vec<MInst>, Exit)>) {
                 let exit = parts[i].1.clone();
                 parts.push((tail, exit));
                 let label = format!("{}.tail", f.blocks[i].label);
-                f.blocks.push(MBlock { label, insts: Vec::new(), succs: Vec::new(), term_start: 0 });
+                f.blocks.push(MBlock { label, insts: Vec::new(), succs: Vec::new(), term_start: 0, cold: false });
                 parts[i].1 = Exit::Goto(parts.len() - 1);
                 parts.len() - 1
             };
+            // The copy is cold only if both were: hot code runs it now.
+            f.blocks[to].cold = f.blocks[i].cold && f.blocks[j].cold;
             // (Block `i`, split, already goes to the new block.)
             for k in [i, j] {
                 if k != to && !matches!(parts[k].1, Exit::Goto(x) if x == to) {
@@ -246,30 +250,46 @@ pub fn place(t: &Target, f: &mut MFunc) {
         }
     }
 
-    // Chain blocks: after each, a successor not yet placed, staying in the
-    // function rather than leaving it.
+    // Chain the hot blocks, then the cold ones (`cold.rs`) after them all:
+    // after each block, a successor not yet placed and as hot as it,
+    // staying in the function rather than leaving it; when there is none,
+    // the first block not yet placed. A branch into cold code is then
+    // never the way that falls through, and the cold blocks, panics above
+    // all, cost the hot ones no room.
+    let cold: Vec<bool> = f.blocks.iter().map(|b| b.cold).collect();
     let mut placed = vec![false; n];
     let mut order = vec![0usize];
     placed[0] = true;
+    let mut placing_cold = false;
     loop {
         let cur = *order.last().unwrap();
-        let cands: Vec<usize> = succs(&parts[cur].1).into_iter().filter(|&s| !placed[s] && reached[s]).collect();
+        let open = |b: usize| !placed[b] && reached[b] && cold[b] == placing_cold;
+        let cands: Vec<usize> = succs(&parts[cur].1).into_iter().filter(|&s| open(s)).collect();
         let next = cands
             .iter()
             .copied()
             .find(|&s| !leaves(s))
             .or_else(|| cands.first().copied())
-            .or_else(|| (0..n).find(|&b| !placed[b] && reached[b] && !leaves(b)))
-            .or_else(|| (0..n).find(|&b| !placed[b] && reached[b]));
-        let Some(next) = next else { break };
+            .or_else(|| (0..n).find(|&b| open(b)));
+        let Some(next) = next else {
+            if placing_cold {
+                break;
+            }
+            placing_cold = true;
+            continue;
+        };
         // A block earlier in the order that only goes on to `next` (the
         // other arm of a diamond whose first arm the chain went through)
         // goes just before it, falling through into it, rather than after
         // everything else with a branch there and one back: cold code
-        // then touches fewer cache lines.
-        if let Some(arm) = (0..next)
-            .find(|&p| p != cur && !placed[p] && reached[p] && matches!(parts[p].1, Exit::Goto(x) if x == next))
-        {
+        // then touches fewer cache lines. (Only an arm whose way in is
+        // placed: one that more code leads to is put after that code.)
+        if let Some(arm) = (0..next).find(|&p| {
+            p != cur
+                && open(p)
+                && matches!(parts[p].1, Exit::Goto(x) if x == next)
+                && (0..n).all(|q| placed[q] || !reached[q] || !succs(&parts[q].1).contains(&p))
+        }) {
             placed[arm] = true;
             order.push(arm);
         }
@@ -469,5 +489,6 @@ fn insert_after(f: &mut MFunc, bi: usize, mut insts: Vec<MInst>) {
         .iter()
         .flat_map(|i| i.ops.iter().filter_map(|o| if let MOp::Label(x) = o { Some(*x) } else { None }))
         .collect();
-    f.blocks.insert(bi + 1, MBlock { label, insts, succs, term_start: 0 });
+    let cold = f.blocks[bi].cold;
+    f.blocks.insert(bi + 1, MBlock { label, insts, succs, term_start: 0, cold });
 }

@@ -209,6 +209,8 @@ pub struct MBlock {
     /// Where the instructions for the block's terminator start: copies for
     /// the successors' phis go here.
     pub term_start: usize,
+    /// Rarely run (`cold.rs`): placed after the blocks that are not.
+    pub cold: bool,
 }
 
 #[derive(Clone, Debug)]

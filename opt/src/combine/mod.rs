@@ -991,6 +991,21 @@ impl<'s, 'm, 'f> Combiner<'s, 'm, 'f> {
         // Overwritten before it can be read, on every path.
         let local = mem.aa.is_local_object(self.f, ptr);
         let start = mem.walk.block_of(i)?;
+        // The blocks that compute the store's address again: past one of
+        // them (round a loop whose header's phi makes the index), the
+        // address is another one, and comparing accesses with it would
+        // compare different iterations (`a[i] = x` read next time round as
+        // `a[i - 1]`). The search stops there and keeps the store.
+        // (An instruction made since memory SSA was built has no block
+        // known here: then the store stays.)
+        let mut moves: Vec<BlockId> = Vec::new();
+        for v in mem.aa.address_parts(self.f, ptr) {
+            if let Value::Local(l) = v
+                && let LocalDef::Inst(d) = self.f.locals[l.index()].def
+            {
+                moves.push(mem.walk.block_of(d)?);
+            }
+        }
         let first = mem.pos[i.index()] as usize + 1;
         let m = self.sh.module;
         let mut budget = DSE_BUDGET;
@@ -1058,6 +1073,9 @@ impl<'s, 'm, 'f> Combiner<'s, 'm, 'f> {
                     Op::Unreachable => ended = true,
                     op if op.is_terminator() => {
                         for s in op.successors() {
+                            if moves.contains(&s) {
+                                return None;
+                            }
                             if entered.insert(s) {
                                 work.push((s, 0));
                             }

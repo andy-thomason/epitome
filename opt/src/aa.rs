@@ -362,6 +362,16 @@ impl<'s, 'm> BasicAa<'s, 'm> {
         Decomposed { base: v, offset, terms: merged }
     }
 
+    /// The values an address is made from, as `alias` compares it: the
+    /// pointer it is based on and the variable parts of its offset. While
+    /// none of them is computed again, the address is the same one; a loop
+    /// that computes one again (a phi in its header) moves it, and an
+    /// answer about two accesses then holds only within one iteration.
+    pub fn address_parts(&self, f: &Function, ptr: Value) -> Vec<Value> {
+        let d = self.decompose(f, ptr);
+        std::iter::once(d.base).chain(d.terms.iter().map(|&(v, _)| v)).collect()
+    }
+
     /// `x + C` as an index: `x` and `C`, when the addition cannot wrap at a
     /// width other than the address width. `(x + C) * s` is then `x * s +
     /// C * s` exactly.

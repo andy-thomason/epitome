@@ -1,0 +1,13 @@
+# name          registry directory    edition  cfgs (comma-separated, - for none)
+itoa            itoa-1.0.15           2018     -
+ryu             ryu-1.0.20            2018     -
+fnv             fnv-1.0.7             2015     feature="std"
+smallvec        smallvec-1.15.1       2018     -
+arrayvec        arrayvec-0.7.6        2018     feature="std"
+hex             hex-0.4.3             2018     feature="std",feature="alloc"
+base64          base64-0.22.1         2018     feature="std",feature="alloc"
+memchr          memchr-2.7.4          2021     feature="std",feature="alloc"
+semver          semver-1.0.26         2018     feature="std"
+unicode_width   unicode-width-0.2.1   2021     feature="cjk"
+heck            heck-0.5.0            2021     -
+strsim          strsim-0.11.1         2015     -

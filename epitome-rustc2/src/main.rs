@@ -57,6 +57,9 @@
 //!   (those from rust-src) are optimised at 2 whatever this is, and built
 //!   without `debug_assertions`, as rustc's prebuilt `std` is; a generic
 //!   function is optimised as the crate it is written in is.
+//! - `-C debug-assertions=yes|no`: whether the crates given are built
+//!   with `cfg(debug_assertions)` (default yes, at every level; the
+//!   standard library's never are). rustc's `-O` turns them off.
 //! - `--crate-opt name=level`: crate `name`'s own optimisation level, in
 //!   place of the above (`--crate-opt std=0`, `--crate-opt prog=3`).
 //! - `-C panic=unwind|abort|immediate-abort` (also `-Cpanic=...`): the
@@ -65,6 +68,12 @@
 //!   without formatting or printing its message, which leaves the
 //!   message-formatting code out of the program.
 //! - `--emit=obj`: with `-o`, write the object file to `PATH`, unlinked.
+//! - `--fn-crates FILE`: with `-o` or `--dump-ir`, write each function
+//!   lowered from a Rust function or closure to `FILE`, a line each: its
+//!   symbol, the name of the crate it is written in, and its heading
+//!   (`fn <Buffer>::format<f32> (mod.rs)`), tab-separated (so code size
+//!   can be put down to crates: a symbol of an impl's method does not
+//!   name its crate).
 //! - Kernels: a function of the last crate marked
 //!   `#[epitome::target("riscv64")]` is compiled for that machine too (see
 //!   `device`), into the object `PATH.riscv64.o`, linked into an image the
@@ -111,6 +120,7 @@ fn main() -> ExitCode {
     let (mut dump_mono, mut mono_stats) = (false, false);
     let (mut dump_ir, mut lower_stats) = (false, false);
     let mut output: Option<PathBuf> = None;
+    let mut fn_crates: Option<PathBuf> = None;
     let mut link = Link::default();
     let (mut emit_obj, mut lib, mut emit_kernels) = (false, false, false);
     let mut launch_runtime = true;
@@ -148,6 +158,7 @@ fn main() -> ExitCode {
             "--mono-stats" => mono_stats = true,
             "--dump-ir" => dump_ir = true,
             "-O0" => opt_level = "0".to_string(),
+            _ if arg.starts_with("--fn-crates") => fn_crates = value("--fn-crates").map(PathBuf::from),
             _ if arg.starts_with("--crate-opt") => {
                 let v = value("--crate-opt").unwrap_or_default();
                 match v.split_once('=') {
@@ -181,6 +192,18 @@ fn main() -> ExitCode {
                     _ if v.starts_with("link-arg=") => link.args.push(v["link-arg=".len()..].to_string()),
                     _ if v.starts_with("link-args=") => link.args.extend(v["link-args=".len()..].split_whitespace().map(str::to_string)),
                     _ if v.strip_prefix("opt-level=").is_some_and(level_ok) => opt_level = v["opt-level=".len()..].to_string(),
+                    _ if v.starts_with("debug-assertions=") => match &v["debug-assertions=".len()..] {
+                        "y" | "yes" | "on" | "true" => {
+                            cfg.set("debug_assertions");
+                        }
+                        "n" | "no" | "off" | "false" => {
+                            cfg.unset("debug_assertions");
+                        }
+                        _ => {
+                            eprintln!("error: `-C debug-assertions` takes yes or no, not `{v}`");
+                            return ExitCode::FAILURE;
+                        }
+                    },
                     _ => {
                         eprintln!("error: unknown codegen option `{v}`");
                         return ExitCode::FAILURE;
@@ -494,6 +517,14 @@ fn main() -> ExitCode {
                 let elapsed = t.elapsed();
                 if dump_ir {
                     print!("{}", lowered.dump());
+                }
+                if let Some(path) = &fn_crates {
+                    let text: String =
+                        lowered.fn_crates(&r).iter().map(|(f, k, t)| format!("{f}\t{}\t{t}\n", crates[*k as usize].name)).collect();
+                    if let Err(e) = std::fs::write(path, text) {
+                        eprintln!("error: {}: {e}", path.display());
+                        return ExitCode::FAILURE;
+                    }
                 }
                 if lower_stats {
                     eprintln!(

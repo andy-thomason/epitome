@@ -38,7 +38,7 @@ def classify(ins):
             c['frame_addr'] += 1
         if re.search(r'\b[qv]\d+|%[xyz]mm', i):
             c['vector'] += 1
-        if (op == 'mov' and re.match(r'mov\s+[wx]\d+, [wx]\d+$', i)) or re.match(r'movq?\s+%r\w+, %r\w+$', i):
+        if (op == 'mov' and re.match(r'mov\s+[wx]\d+, [wx]\d+$', i)) or re.match(r'mov[lq]?\s+%[re]\w+,\s*%[re]\w+$', i):
             c['moves'] += 1
     return c
 

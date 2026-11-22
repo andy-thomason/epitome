@@ -46,8 +46,6 @@ rfcs/rfc-2565-param-attrs/param-attrs-pretty.rs: error: proc macro `attr_extern`
 rust-2018/suggestions-not-always-applicable.rs: import not resolved: __ui_test_40::test: use crate::foo::foo (as foo)
 specialization/source-impl-requires-constraining-predicates-ambig.rs#next: type check: mismatched types
 specialization/spec-influences-inference-issue-36262.rs#next: type check: a type left unknown
-traits/next-solver/closure-signature-inference-hr-ambig-alias-naming-self.rs#current: type check: method not found
-traits/next-solver/closure-signature-inference-hr-ambig-alias-naming-self.rs#next: type check: method not found
 traits/next-solver/cycles/leak-check-coinductive-cycle.rs: type check: a type left unknown
 traits/next-solver/cycles/provisional-result-done.rs: type check: a type left unknown
 traits/next-solver/generalize/alias-with-bound-vars-incomplete-generalization.rs#next: type check: mismatched types

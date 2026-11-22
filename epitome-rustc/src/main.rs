@@ -1,4 +1,4 @@
-//! `epitome-rustc2 [options] root.rs...`: for now, loads each crate (its
+//! `epitome-rustc [options] root.rs...`: for now, loads each crate (its
 //! root file and the files of its modules, all parsed in parallel) and
 //! reports every error with its position.
 //!
@@ -96,14 +96,14 @@
 //!   `Cargo.toml`. With `--roundtrip`, each file is also printed and
 //!   parsed again, and must give the same tree.
 
-use epitome_rustc2::ast::Ast;
-use epitome_rustc2::cfg::CfgSet;
-use epitome_rustc2::hash::FastMap;
-use epitome_rustc2::lexer::{Edition, lex};
-use epitome_rustc2::parse::parse_str;
-use epitome_rustc2::pretty::{first_difference, pretty};
-use epitome_rustc2::session::{CrateRoot, Options, Session};
-use epitome_rustc2::source::Source;
+use epitome_rustc::ast::Ast;
+use epitome_rustc::cfg::CfgSet;
+use epitome_rustc::hash::FastMap;
+use epitome_rustc::lexer::{Edition, lex};
+use epitome_rustc::parse::parse_str;
+use epitome_rustc::pretty::{first_difference, pretty};
+use epitome_rustc::session::{CrateRoot, Options, Session};
+use epitome_rustc::source::Source;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -218,7 +218,7 @@ fn main() -> ExitCode {
                     None => (None, v.as_str()),
                 };
                 let name = name.rsplit(':').next().unwrap_or(name).to_string();
-                link.libs.push(epitome_rustc2::session::NativeLib { name, kind });
+                link.libs.push(epitome_rustc::session::NativeLib { name, kind });
             }
             _ if arg.starts_with("-L") => {
                 let v = if arg == "-L" { value("-L").unwrap_or_default() } else { arg[2..].to_string() };
@@ -274,7 +274,7 @@ fn main() -> ExitCode {
         return parse_tree(&dir, edition, roundtrip, options);
     }
     if files.is_empty() {
-        eprintln!("usage: epitome-rustc2 [--edition N] [--threads N] [--dump-ast | --sexp | --pretty] root.rs...");
+        eprintln!("usage: epitome-rustc [--edition N] [--threads N] [--dump-ast | --sexp | --pretty] root.rs...");
         return ExitCode::FAILURE;
     }
     if tokens {
@@ -284,9 +284,9 @@ fn main() -> ExitCode {
     // `std` and its crates first, as rust-src has them.
     let mut std_roots = Vec::new();
     if with_std {
-        let roots = epitome_rustc2::sysroot::rust_src()
+        let roots = epitome_rustc::sysroot::rust_src()
             .ok_or_else(|| "no rust-src: `rustup component add rust-src`".to_string())
-            .and_then(|lib| epitome_rustc2::sysroot::std_crates(&lib));
+            .and_then(|lib| epitome_rustc::sysroot::std_crates(&lib));
         match roots {
             Ok(r) => std_roots = r,
             Err(e) => {
@@ -294,13 +294,13 @@ fn main() -> ExitCode {
                 return ExitCode::FAILURE;
             }
         }
-        for (n, v) in epitome_rustc2::sysroot::std_cfg() {
+        for (n, v) in epitome_rustc::sysroot::std_cfg() {
             match v {
                 Some(v) => cfg.set_value(n, v),
                 None => cfg.set(n),
             };
         }
-        options.env.extend(epitome_rustc2::sysroot::std_env(std::env::consts::ARCH));
+        options.env.extend(epitome_rustc::sysroot::std_env(std::env::consts::ARCH));
     }
     // The standard library's crates (from rust-src) are built as rustc's
     // prebuilt `std` is: without `debug_assertions`.
@@ -314,7 +314,7 @@ fn main() -> ExitCode {
         options.cfg = Some(cfg);
     }
     if !externs.is_empty() && options.proc_macro_server.is_none() {
-        options.proc_macro_server = epitome_rustc2::proc_macro::Server::from_rustc();
+        options.proc_macro_server = epitome_rustc::proc_macro::Server::from_rustc();
     }
     let session = Session::new(options);
     // A program with kernels gets the launch runtime, as a crate before
@@ -327,7 +327,7 @@ fn main() -> ExitCode {
         && std::fs::read_to_string(last).is_ok_and(|t| t.contains("epitome::target"))
     {
         let text = include_str!("../runtime/rv64.rs");
-        let path = std::env::temp_dir().join(format!("epitome-launch-rv64-{:016x}.rs", epitome_rustc2::hash::fnv(text.as_bytes())));
+        let path = std::env::temp_dir().join(format!("epitome-launch-rv64-{:016x}.rs", epitome_rustc::hash::fnv(text.as_bytes())));
         if std::fs::read_to_string(&path).ok().as_deref() != Some(text)
             && let Err(e) = std::fs::write(&path, text)
         {
@@ -399,7 +399,7 @@ fn main() -> ExitCode {
         let tcx = session.collect_types(&crates, &r);
         let elapsed = t.elapsed();
         if dump_sigs {
-            print!("{}", epitome_rustc2::ty::dump_signatures(&tcx, &r));
+            print!("{}", epitome_rustc::ty::dump_signatures(&tcx, &r));
         }
         if types_stats {
             let s = tcx.stats();
@@ -416,8 +416,8 @@ fn main() -> ExitCode {
             }
         }
         if dump_layout {
-            let index = epitome_rustc2::typeck::Index::new(&tcx, &r);
-            let cx = epitome_rustc2::layout::LayoutCx::new(&tcx, &r, &crates, &index, Default::default());
+            let index = epitome_rustc::typeck::Index::new(&tcx, &r);
+            let cx = epitome_rustc::layout::LayoutCx::new(&tcx, &r, &crates, &index, Default::default());
             print!("{}", cx.dump(Some(crates.len() as u32 - 1)));
         }
         // The kernels, each machine's in a module of its own, linked into
@@ -425,17 +425,17 @@ fn main() -> ExitCode {
         let mut images: Vec<(String, Vec<u8>)> = Vec::new();
         if let Some(out) = &output {
             let last = crates.len() as u32 - 1;
-            let mut machines: Vec<String> = epitome_rustc2::device::kernels(&r, &crates, last).into_iter().map(|(_, t)| t).collect();
+            let mut machines: Vec<String> = epitome_rustc::device::kernels(&r, &crates, last).into_iter().map(|(_, t)| t).collect();
             machines.sort();
             machines.dedup();
             let program = files.last().expect("a crate root");
             for name in machines {
-                let Some(machine) = epitome_rustc2::device::machine(&name) else {
+                let Some(machine) = epitome_rustc::device::machine(&name) else {
                     eprintln!("error: no machine `{name}` for `#[epitome::target]` (there is `riscv64`)");
                     return ExitCode::FAILURE;
                 };
                 let level = levels.last().cloned().unwrap_or_else(|| "2".to_string());
-                let mut lowered = match epitome_rustc2::device::compile(program, &crate_name(program), edition, &machine, session.options.threads, &level) {
+                let mut lowered = match epitome_rustc::device::compile(program, &crate_name(program), edition, &machine, session.options.threads, &level) {
                     Ok(l) => l,
                     Err(e) => {
                         eprintln!("error: {e}");
@@ -475,13 +475,13 @@ fn main() -> ExitCode {
             }
         }
         if dump_mono || mono_stats || dump_ir || lower_stats || output.is_some() {
-            let index = epitome_rustc2::typeck::Index::new(&tcx, &r);
+            let index = epitome_rustc::typeck::Index::new(&tcx, &r);
             // Only the bodies the program reaches are type checked, as
             // monomorphisation finds them.
             // (`EPITOME_TYPECK_ALL` checks every body first, as before.)
-            let mut res = epitome_rustc2::typeck::TypeckResults::empty(&crates);
+            let mut res = epitome_rustc::typeck::TypeckResults::empty(&crates);
             let t = std::time::Instant::now();
-            let roots = epitome_rustc2::mono::roots(&r, &tcx, &crates, crates.len() as u32 - 1, lib);
+            let roots = epitome_rustc::mono::roots(&r, &tcx, &crates, crates.len() as u32 - 1, lib);
             let mono = if std::env::var_os("EPITOME_TYPECK_ALL").is_some() {
                 res = session.typeck_with(&crates, &r, &tcx, &index);
                 session.collect_mono_items(&crates, &r, &tcx, &index, &res, roots.clone())
@@ -509,7 +509,7 @@ fn main() -> ExitCode {
             }
             if dump_ir || lower_stats || output.is_some() {
                 let t = std::time::Instant::now();
-                let target = epitome_rustc2::lower::Target::host();
+                let target = epitome_rustc::lower::Target::host();
                 let mut lowered = session.lower(&crates, &r, &tcx, &index, &res, &mono, target);
                 if lib {
                     lowered.export(&roots);
@@ -669,8 +669,8 @@ fn main() -> ExitCode {
 }
 
 /// The crate an item is defined in.
-fn item_crate(r: &epitome_rustc2::resolve::Resolver, it: epitome_rustc2::mono::Item) -> Option<u32> {
-    use epitome_rustc2::mono::Item;
+fn item_crate(r: &epitome_rustc::resolve::Resolver, it: epitome_rustc::mono::Item) -> Option<u32> {
+    use epitome_rustc::mono::Item;
     let d = match it {
         Item::Fn(d, _) | Item::Closure(_, d, _) | Item::Static(d) | Item::Foreign(d) | Item::Intrinsic(d, _) | Item::Const(d, _) => d,
         Item::VTable(..) | Item::DropGlue(_) => return None,
@@ -682,7 +682,7 @@ fn item_crate(r: &epitome_rustc2::resolve::Resolver, it: epitome_rustc2::mono::I
 /// them, and arguments for `cc`.
 #[derive(Clone, Debug, Default)]
 struct Link {
-    libs: Vec<epitome_rustc2::session::NativeLib>,
+    libs: Vec<epitome_rustc::session::NativeLib>,
     dirs: Vec<PathBuf>,
     frameworks: Vec<PathBuf>,
     args: Vec<String>,
@@ -694,7 +694,7 @@ struct Link {
 /// (unless `emit_obj`, when the object file is `out`).
 fn build(
     m: &mut epitome_ir::Module,
-    target: epitome_rustc2::lower::Target,
+    target: epitome_rustc::lower::Target,
     out: &Path,
     level: Option<epitome_opt::inline::OptLevel>,
     emit_obj: bool,

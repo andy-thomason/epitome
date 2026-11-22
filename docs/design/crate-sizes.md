@@ -1,6 +1,6 @@
 # Code size on real crates
 
-How big epitome-rustc2's programs are against rustc's, on twelve small
+How big epitome-rustc's programs are against rustc's, on twelve small
 crates from crates.io, on the Mac (AArch64) and on x86-64 Linux, and where
 the difference is. `bench/crate-sizes/` reproduces it.
 
@@ -43,7 +43,7 @@ that exercises its main API and prints the results. The inputs go through
 program into its output: rustc -O folded the first version of itoa's
 demo to 856 bytes. `build.sh` builds each program:
 
-- epitome-rustc2, `--std`, as it builds by default (**ep default**: the
+- epitome-rustc, `--std`, as it builds by default (**ep default**: the
   crates keep `debug_assertions`), with `-C debug-assertions=off` (**ep
   ndebug**, the like-for-like build: rustc's `-O` turns them off), and with
   that and `-Cpanic=immediate-abort` (**ep abort**);
@@ -60,7 +60,7 @@ It runs every build and checks it prints what rustc -O's does.
   costs, `std`'s generic code instantiated for it included;
 - **the crate's code**: the bytes of the functions written in the crate or
   in its demo program. A function's size is the distance to the next
-  symbol. Ours are put down to crates by `epitome-rustc2 --fn-crates
+  symbol. Ours are put down to crates by `epitome-rustc --fn-crates
   FILE` (new here: a symbol of an impl's method, `_R.Buffer..format…`,
   doesn't name its crate); rustc's by the first crate root in the v0
   symbol. Generic instances of `std` functions count as `std`'s on both
@@ -73,7 +73,7 @@ It runs every build and checks it prints what rustc -O's does.
 - with `--new`, the biggest functions the program has beyond hello world.
 
 ```sh
-cargo build --release -p epitome-rustc2
+cargo build --release -p epitome-rustc
 cargo fetch --manifest-path bench/crate-sizes/fetch/Cargo.toml   # if crates are missing
 bench/crate-sizes/build.sh             # target/crate-sizes; or build.sh OUT crate...
 bench/crate-sizes/sizes.py --mix --new > sizes.md
@@ -94,7 +94,7 @@ The numbers are from an Apple M1 and from mandelbrot.
   differently: rustc keeps `ryu::pretty::format64` and inlines
   `Buffer::format_finite` into `main`; we do the opposite. The crate
   totals don't depend on it.
-- Two demos are written around epitome-rustc2 bugs (each place says so
+- Two demos are written around epitome-rustc bugs (each place says so
   in a comment): semver's and fnv's.
 
 ## Results
@@ -386,7 +386,7 @@ Not fixed (follow-ups):
 - **memchr on the Mac**: NEON intrinsics (`simd_splat`, `simd_eq`,
   `vshrn_n_u16` with a const generic, `umaxp`): no SIMD lowering on
   AArch64 yet.
-- **Compiler stack**: fnv's program overflows epitome-rustc2's stack;
+- **Compiler stack**: fnv's program overflows epitome-rustc's stack;
   `build.sh` sets `RUST_MIN_STACK=256M`.
 
 ## Follow-ups, by size of win

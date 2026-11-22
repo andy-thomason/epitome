@@ -1,5 +1,5 @@
 ; implied: slice bounds checks under a loop's own test, in the shape
-; epitome-rustc2 gives `for i in 0..n { ... v[i] ... }` once `Range::next`
+; epitome-rustc gives `for i in 0..n { ... v[i] ... }` once `Range::next`
 ; is inlined: the test makes an `Option` (a bool byte and a payload that is
 ; `undef` when there is none), and each index is checked against the
 ; length, with a branch to a call that does not return. The checks go, the

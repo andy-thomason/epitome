@@ -2,7 +2,7 @@
 
 Progress towards building the 1,000 most downloaded crates on crates.io
 (by all-time downloads, as listed on 2026-11-03) with Epitome, through
-`epitome-rustc`.
+`epitome-rustc-wrapper`.
 
 ## Where we are
 
@@ -28,10 +28,10 @@ Progress towards building the 1,000 most downloaded crates on crates.io
 
 On x86-64 Linux with Rust 1.99.1, in the crate's published package:
 `cargo test --release` with plain rustc, then again with
-`RUSTC_WRAPPER=epitome-rustc`, both with `RUSTFLAGS=--cap-lints=warn` (old
+`RUSTC_WRAPPER=epitome-rustc-wrapper`, both with `RUSTFLAGS=--cap-lints=warn` (old
 crates deny warnings that new rustc gives). A crate passes when its test
 counts match rustc's (its own failing tests are its own) and the
-`epitome-rustc` log shows no `ours failed` for any crate in the build.
+`epitome-rustc-wrapper` log shows no `ours failed` for any crate in the build.
 
 ## To fix
 

@@ -1582,7 +1582,7 @@ mod tests {
             eprintln!("no rust-src: skipped");
             return;
         };
-        let dir = std::env::temp_dir().join(format!("epitome-rustc2-inline-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("epitome-rustc-inline-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("attrs.rs");
         std::fs::write(

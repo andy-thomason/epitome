@@ -1,7 +1,7 @@
-//! `epitome-rustc`: Epitome as the code generator for Cargo builds.
+//! `epitome-rustc-wrapper`: Epitome as the code generator for Cargo builds.
 //!
 //! ```sh
-//! RUSTC_WRAPPER=/path/to/epitome-rustc cargo test
+//! RUSTC_WRAPPER=/path/to/epitome-rustc-wrapper cargo test
 //! ```
 //!
 //! Cargo runs a `RUSTC_WRAPPER` with rustc's command line. For each crate
@@ -13,27 +13,27 @@
 //! - **A binary or test harness**: rustc is given this program as its
 //!   linker (`-C linker`), which compiles the IR, already written by then,
 //!   and links with our object in place of rustc's for the crate, then
-//!   runs the real linker (`cc`, or `EPITOME_RUSTC_LINKER`).
+//!   runs the real linker (`cc`, or `EPITOME_RUSTC_WRAPPER_LINKER`).
 //!
 //! What stays rustc's (LLVM's): the standard library, which comes built;
 //! the allocator shim; proc-macro crates and build scripts, which run
-//! inside the build (`EPITOME_RUSTC_BUILD_SCRIPTS=1` takes build scripts
+//! inside the build (`EPITOME_RUSTC_WRAPPER_BUILD_SCRIPTS=1` takes build scripts
 //! too); crates built with link-time optimisation, and libraries built
 //! with bitcode for it (without `-C embed-bitcode=no`), as it is LLVM's
 //! of the bitcode our objects do not have; and any crate whose IR we
-//! cannot compile, which keeps rustc's object. Every crate's outcome is a line in `EPITOME_RUSTC_LOG`
-//! (default `epitome-rustc.log` beside the target directory's `deps`).
+//! cannot compile, which keeps rustc's object. Every crate's outcome is a line in `EPITOME_RUSTC_WRAPPER_LOG`
+//! (default `epitome-rustc-wrapper.log` beside the target directory's `deps`).
 //!
-//! `EPITOME_RUSTC_OPT=1` asks rustc for its IR before LLVM's passes
+//! `EPITOME_RUSTC_WRAPPER_OPT=1` asks rustc for its IR before LLVM's passes
 //! (`-C no-prepopulate-passes`) and runs Epitome's own pipeline on it;
 //! otherwise the IR is LLVM's, optimised as the profile says, and only
-//! code generation is ours. `EPITOME_RUSTC_SKIP=a,b` leaves those crates
-//! alone; `EPITOME_RUSTC_ONLY=a,b` takes only those. `EPITOME_LLC_CHOP`
+//! code generation is ours. `EPITOME_RUSTC_WRAPPER_SKIP=a,b` leaves those crates
+//! alone; `EPITOME_RUSTC_WRAPPER_ONLY=a,b` takes only those. `EPITOME_LLC_CHOP`
 //! limits elective changes as for epitome-llc (`epitome_ir::chop`), to
 //! search for the change that miscompiles a crate.
 //!
 //! Cargo already builds several crates at once, so each compilation here
-//! uses `EPITOME_RUSTC_THREADS` threads (default 2), not one per core:
+//! uses `EPITOME_RUSTC_WRAPPER_THREADS` threads (default 2), not one per core:
 //! with one per core, a dozen crates at once each running a dozen threads,
 //! each thread with its own copy of the module, can run a machine out of
 //! memory.
@@ -53,9 +53,9 @@ use epitome_codegen::{Options, compile};
 
 /// Set in rustc's environment for the link: the crate's IR, and the start
 /// of the names of rustc's objects for the crate.
-const LL_VAR: &str = "EPITOME_RUSTC_LL";
-const PREFIX_VAR: &str = "EPITOME_RUSTC_PREFIX";
-const LOG_VAR: &str = "EPITOME_RUSTC_LOG_FILE";
+const LL_VAR: &str = "EPITOME_RUSTC_WRAPPER_LL";
+const PREFIX_VAR: &str = "EPITOME_RUSTC_WRAPPER_PREFIX";
+const LOG_VAR: &str = "EPITOME_RUSTC_WRAPPER_LOG_FILE";
 
 /// A runaway compilation stops at a memory limit (`epitome_ir::memlimit`;
 /// `EPITOME_MEMORY_LIMIT_MB`, default 4096) rather than taking the machine
@@ -70,7 +70,7 @@ fn main() -> ExitCode {
         return link(&ll, &args[1..]);
     }
     if args.len() < 2 {
-        eprintln!("usage: RUSTC_WRAPPER=epitome-rustc cargo build (or test)");
+        eprintln!("usage: RUSTC_WRAPPER=epitome-rustc-wrapper cargo build (or test)");
         return ExitCode::FAILURE;
     }
     wrap(&args[1], &args[2..])
@@ -136,9 +136,9 @@ fn wrap(rustc: &str, args: &[String]) -> ExitCode {
     let Some(out_dir) = option(args, "--out-dir").map(PathBuf::from) else {
         return pass("", None, &krate);
     };
-    let log = std::env::var("EPITOME_RUSTC_LOG")
+    let log = std::env::var("EPITOME_RUSTC_WRAPPER_LOG")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| out_dir.parent().unwrap_or(&out_dir).join("epitome-rustc.log"));
+        .unwrap_or_else(|_| out_dir.parent().unwrap_or(&out_dir).join("epitome-rustc-wrapper.log"));
     let emit = option(args, "--emit").unwrap_or("link").to_string();
     if !emit.split(',').any(|e| e == "link") {
         return pass("no code asked for", Some(&log), &krate);
@@ -171,17 +171,17 @@ fn wrap(rustc: &str, args: &[String]) -> ExitCode {
     if library && codegen_option(args, "embed-bitcode") != Some("no") {
         return pass("bitcode for link-time optimisation", Some(&log), &krate);
     }
-    if krate.starts_with("build_script_") && std::env::var("EPITOME_RUSTC_BUILD_SCRIPTS").is_err() {
+    if krate.starts_with("build_script_") && std::env::var("EPITOME_RUSTC_WRAPPER_BUILD_SCRIPTS").is_err() {
         return pass("a build script", Some(&log), &krate);
     }
-    if list("EPITOME_RUSTC_SKIP").is_some_and(|l| l.contains(&krate))
-        || list("EPITOME_RUSTC_ONLY").is_some_and(|l| !l.contains(&krate))
+    if list("EPITOME_RUSTC_WRAPPER_SKIP").is_some_and(|l| l.contains(&krate))
+        || list("EPITOME_RUSTC_WRAPPER_ONLY").is_some_and(|l| !l.contains(&krate))
     {
         return pass("skipped", Some(&log), &krate);
     }
     let extra = codegen_option(args, "extra-filename").unwrap_or("").to_string();
     let binary = args.iter().any(|a| a == "--test") || types.contains(&"bin");
-    let ours_opt = std::env::var("EPITOME_RUSTC_OPT").is_ok_and(|v| v == "1");
+    let ours_opt = std::env::var("EPITOME_RUSTC_WRAPPER_OPT").is_ok_and(|v| v == "1");
 
     // rustc as asked, with the IR too, in one codegen unit, not incremental.
     let mut new = without_codegen(args, &["codegen-units", "incremental"]);
@@ -203,7 +203,7 @@ fn wrap(rustc: &str, args: &[String]) -> ExitCode {
     if binary {
         let me = std::env::current_exe().expect("this program's path");
         if let Some(l) = codegen_option(args, "linker") {
-            cmd.env("EPITOME_RUSTC_LINKER", l);
+            cmd.env("EPITOME_RUSTC_WRAPPER_LINKER", l);
         }
         new = without_codegen(&new, &["linker", "linker-flavor"]);
         new.extend(["-C".into(), format!("linker={}", me.display()), "-C".into(), "linker-flavor=gcc".into()]);
@@ -239,7 +239,7 @@ fn wrap(rustc: &str, args: &[String]) -> ExitCode {
 /// Compiles the IR at `ll` to an object. A panic in the compiler is an
 /// error like any other: the crate keeps rustc's object.
 fn object_of(ll: &Path, ours_opt: bool) -> Result<Vec<u8>, String> {
-    let quiet = std::env::var("EPITOME_RUSTC_PANICS").is_err();
+    let quiet = std::env::var("EPITOME_RUSTC_WRAPPER_PANICS").is_err();
     if quiet {
         std::panic::set_hook(Box::new(|_| {}));
     }
@@ -256,13 +256,13 @@ fn object_of(ll: &Path, ours_opt: bool) -> Result<Vec<u8>, String> {
 fn object_of_inner(ll: &Path, ours_opt: bool) -> Result<Vec<u8>, String> {
     let text = std::fs::read_to_string(ll).map_err(|e| format!("{}: {e}", ll.display()))?;
     let mut m = epitome_ir::parse_module(&text).map_err(|e| format!("parsing: {e:?}"))?;
-    let threads = std::env::var("EPITOME_RUSTC_THREADS").ok().and_then(|v| v.parse().ok()).unwrap_or(2);
+    let threads = std::env::var("EPITOME_RUSTC_WRAPPER_THREADS").ok().and_then(|v| v.parse().ok()).unwrap_or(2);
     if ours_opt {
         epitome_opt::pipeline::run(&mut m, &epitome_opt::pipeline::Options { threads, ..Default::default() });
     }
     let t = if cfg!(target_arch = "x86_64") { Target::x86_64() } else { Target::aarch64() };
     // A chop limit, as epitome-llc takes, to search a miscompiled crate
-    // (with `EPITOME_RUSTC_ONLY` naming it).
+    // (with `EPITOME_RUSTC_WRAPPER_ONLY` naming it).
     let chop = epitome_ir::chop::limit_from(None, "EPITOME_LLC_CHOP")?;
     let compiled = compile(&t, &mut m, &Options { threads, chop, ..Options::default() })?;
     if !compiled.errors.is_empty() {
@@ -329,7 +329,7 @@ fn link(ll: &str, args: &[String]) -> ExitCode {
     let prefix = std::env::var(PREFIX_VAR).unwrap_or_default();
     let log = std::env::var(LOG_VAR).map(PathBuf::from).ok();
     let krate = prefix.split('-').next().unwrap_or("").trim_end_matches('.').to_string();
-    let ours_opt = std::env::var("EPITOME_RUSTC_OPT").is_ok_and(|v| v == "1");
+    let ours_opt = std::env::var("EPITOME_RUSTC_WRAPPER_OPT").is_ok_and(|v| v == "1");
     let is_mine = |a: &str| {
         let name = Path::new(a).file_name().and_then(|n| n.to_str()).unwrap_or("");
         name.starts_with(&prefix) && name.ends_with("-cgu.0.rcgu.o")
@@ -375,7 +375,7 @@ fn link(ll: &str, args: &[String]) -> ExitCode {
             }
         }
     }
-    let linker = std::env::var("EPITOME_RUSTC_LINKER").unwrap_or_else(|_| "cc".into());
+    let linker = std::env::var("EPITOME_RUSTC_WRAPPER_LINKER").unwrap_or_else(|_| "cc".into());
     status(Command::new(linker).args(&args).env_remove(LL_VAR))
 }
 
@@ -384,7 +384,7 @@ fn status(cmd: &mut Command) -> ExitCode {
         Ok(s) if s.success() => ExitCode::SUCCESS,
         Ok(s) => ExitCode::from(s.code().unwrap_or(1).clamp(1, 255) as u8),
         Err(e) => {
-            eprintln!("epitome-rustc: {cmd:?}: {e}");
+            eprintln!("epitome-rustc-wrapper: {cmd:?}: {e}");
             ExitCode::FAILURE
         }
     }

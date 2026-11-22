@@ -1,6 +1,6 @@
 #!/bin/bash
 # Builds each crate's demo program (progs/<crate>_demo.rs) with
-# epitome-rustc2 (by default, -C debug-assertions=off, and that with
+# epitome-rustc (by default, -C debug-assertions=off, and that with
 # -Cpanic=immediate-abort) and with rustc
 # (-O -C panic=abort, and opt-level=s), runs them, and checks that they
 # print the same.
@@ -10,13 +10,13 @@
 # OUT defaults to target/crate-sizes. Crates come from crates.txt and the
 # Cargo registry (~/.cargo/registry/src/*); if any are missing,
 # `cargo fetch --manifest-path bench/crate-sizes/fetch/Cargo.toml`.
-# EPITOME_RUSTC2 overrides target/release/epitome-rustc2.
+# EPITOME_RUSTC overrides target/release/epitome-rustc.
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
 OUT=${1:-$ROOT/target/crate-sizes}; shift || true
 export RUST_MIN_STACK=${RUST_MIN_STACK:-268435456}   # deep programs overflow its stack
-B=${EPITOME_RUSTC2:-$ROOT/target/release/epitome-rustc2}
+B=${EPITOME_RUSTC:-$ROOT/target/release/epitome-rustc}
 REG=$(ls -d "$HOME"/.cargo/registry/src/*/ | head -1)
 mkdir -p "$OUT/crates"
 OUT=$(cd "$OUT" && pwd)
@@ -45,7 +45,7 @@ grep -v '^#' "$HERE/crates.txt" | while read -r name dir edition cfgs; do
     if [ $# -gt 0 ] && ! printf '%s\n' "$@" | grep -qx "$name"; then continue; fi
     src="$REG$dir"
     if [ ! -d "$src" ]; then echo "$name missing $dir" | tee -a "$STATUS"; continue; fi
-    # epitome-rustc2 names a crate after the directory above src/.
+    # epitome-rustc names a crate after the directory above src/.
     ln -sfn "$src" "$OUT/crates/$name"
     d="$OUT/$name"; mkdir -p "$d"
     prog="$HERE/progs/${name}_demo.rs"
@@ -65,7 +65,7 @@ grep -v '^#' "$HERE/crates.txt" | while read -r name dir edition cfgs; do
             --extern "$name=$rd/lib$name.rlib" -L "$rd" -o "$d/rustc-O$lvl.exe" "$prog" 2>> "$rd/build.log" ||
             echo "$name rustc-O$lvl build-failed" >> "$STATUS"
     done
-    # default: as epitome-rustc2 builds by default (the crates keep
+    # default: as epitome-rustc builds by default (the crates keep
     # debug_assertions); ndebug: without them, as rustc -O; abort: that
     # and -Cpanic=immediate-abort.
     for mode in default ndebug abort; do

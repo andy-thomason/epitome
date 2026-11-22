@@ -133,9 +133,9 @@ these are for after.
 - **Half-precision NEON operations** (`fabd`, `fmulx`, the pairwise ones,
   `fmlal`...) on `<4 x half>`/`<8 x half>`: not done, as vectors of halves
   are integers here (`prepare::half_as_int`).
-- **Reporting to the user** (`epitome-rustc`): a crate Epitome cannot
+- **Reporting to the user** (`epitome-rustc-wrapper`): a crate Epitome cannot
   compile keeps rustc's object and says why only in
-  `epitome-rustc.log`. Better: errors and warnings on stderr in rustc's
+  `epitome-rustc-wrapper.log`. Better: errors and warnings on stderr in rustc's
   form (its JSON when Cargo asks for `--error-format=json`), at the Rust
   source line from the IR's debug information (`!dbg`) where the crate has
   it. rustc's own mechanism (LLVM's diagnostic handler, inline
@@ -175,7 +175,7 @@ these are for after.
   at once (allocas by their `llvm.lifetime` markers, slots only loaded
   and stored by liveness), and the busiest per byte are nearest sp. What
   is left: allocas whose address is taken and that have no markers are
-  in use everywhere, as all of epitome-rustc2's are (it emits no
+  in use everywhere, as all of epitome-rustc's are (it emits no
   markers): std's hello world gains a tenth of what rustc's crates do.
   Markers from its lowering (MIR's `StorageLive` and `StorageDead`) would
   let them share.

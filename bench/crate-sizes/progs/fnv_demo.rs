@@ -5,7 +5,7 @@ fn main() {
     let mut m: fnv::FnvHashMap<String, usize> = fnv::FnvHashMap::default();
     let words = "the quick brown fox jumps over the lazy dog the end";
     for w in words[n - 1..].split(' ') {
-        // (Not `entry`: epitome-rustc2 has no layout for hashbrown's Entry yet.)
+        // (Not `entry`: epitome-rustc has no layout for hashbrown's Entry yet.)
         match m.get_mut(w) {
             Some(c) => *c += 1,
             None => {

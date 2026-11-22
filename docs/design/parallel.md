@@ -454,7 +454,7 @@ go the wrong way in that order are the cut; then each that closes no cycle
 is put back, the costliest first. A self-call is always cut. `--stats`
 prints each cut's size.
 
-On the `std` hello world (`epitome-rustc2 --std`, AArch64 macOS):
+On the `std` hello world (`epitome-rustc --std`, AArch64 macOS):
 
 | | Before | Split | Split and cut |
 | --- | --- | --- | --- |

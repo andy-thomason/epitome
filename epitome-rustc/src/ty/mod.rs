@@ -565,7 +565,7 @@ mod tests {
 
     /// The signatures of `src` as a crate `t` (one file).
     fn sigs(src: &str) -> String {
-        let dir = std::env::temp_dir().join(format!("epitome-rustc2-ty-{}-{}", std::process::id(), src.len()));
+        let dir = std::env::temp_dir().join(format!("epitome-rustc-ty-{}-{}", std::process::id(), src.len()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("lib.rs");
         std::fs::write(&file, src).unwrap();

@@ -135,7 +135,7 @@ bound the counter.
 ### Results
 
 `opt/tests/examples/bounds_checks.ll` has `sum`, `dot` and `rev` in the
-shape epitome-rustc2 gives them, and a function whose checks must stay. All
+shape epitome-rustc gives them, and a function whose checks must stay. All
 three checked loops lose their checks, rotate and get exact exit tests;
 `sum` and `dot` then step by pointer:
 
@@ -152,7 +152,7 @@ ok:                                               ; preds = %ok, %start
   br i1 %lt, label %ok, label %done
 ```
 
-`epitome-rustc2/tests/run/bounds.rs` runs the three, and loops whose
+`epitome-rustc/tests/run/bounds.rs` runs the three, and loops whose
 checks stay, over slices of every length.
 
 ### What it cannot do

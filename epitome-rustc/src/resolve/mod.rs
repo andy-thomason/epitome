@@ -498,7 +498,7 @@ mod tests {
 
     /// Resolves `src` as a crate `t` (one file) and returns the dump.
     fn dump(src: &str) -> String {
-        let dir = std::env::temp_dir().join(format!("epitome-rustc2-res-{}-{}", std::process::id(), src.len()));
+        let dir = std::env::temp_dir().join(format!("epitome-rustc-res-{}-{}", std::process::id(), src.len()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("lib.rs");
         std::fs::write(&file, src).unwrap();
@@ -563,7 +563,7 @@ mod tests {
     #[test]
     fn pub_in_path() {
         let session = Session::new(Options { threads: 1, ..Default::default() });
-        let dir = std::env::temp_dir().join(format!("epitome-rustc2-vis-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("epitome-rustc-vis-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("lib.rs");
         std::fs::write(&file, "mod a { pub mod b { pub(in crate::a) fn f() {} pub(super) fn g() {} } }").unwrap();
@@ -596,7 +596,7 @@ mod tests {
     /// (`std::sm!()`).
     #[test]
     fn edition_2015_root_paths() {
-        let dir = std::env::temp_dir().join(format!("epitome-rustc2-2015-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("epitome-rustc-2015-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let write = |name: &str, src: &str| {
             let file = dir.join(name);

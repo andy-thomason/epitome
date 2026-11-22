@@ -87,13 +87,13 @@ clang hello.o -o hello && ./hello
 
 ### Hello, world in Rust
 
-`epitome-rustc` compiles each crate's code in place of LLVM (see
+`epitome-rustc-wrapper` compiles each crate's code in place of LLVM (see
 [Building Rust crates with Epitome](#building-rust-crates-with-epitome)):
 
 ```sh
 cargo new hello-rs && cd hello-rs
-RUSTC_WRAPPER=$E/epitome-rustc cargo run --release
-cat target/release/epitome-rustc.log    # hello_rs: ours (binary)
+RUSTC_WRAPPER=$E/epitome-rustc-wrapper cargo run --release
+cat target/release/epitome-rustc-wrapper.log    # hello_rs: ours (binary)
 cd ..
 ```
 
@@ -215,12 +215,12 @@ Optimisations in `epitome-llc`:
 
 ## Crates
 
-- `epitome` (the root package): `epitome-rustc`, which builds Rust crates
+- `epitome` (the root package): `epitome-rustc-wrapper`, which builds Rust crates
   with Epitome (see below), and `examples/factorial.rs`.
-- `epitome-rustc2`: a Rust compiler that does not use rustc. Parsing,
+- `epitome-rustc`: a Rust compiler that does not use rustc. Parsing,
   macro expansion, name resolution and type checking work, and run on
   `core`, `alloc` and `std` in 1.3 s; lowering to Epitome IR is next. See
-  `epitome-rustc2/README.md`.
+  `epitome-rustc/README.md`.
 - `ir` (`epitome-ir`): the IR, with a parser and printer for `.ll` files,
   and builders for making it in code (`epitome_ir::build`).
 - `opt` (`epitome-opt`): optimisation passes, run on many functions in
@@ -255,8 +255,8 @@ cargo run --release --example factorial -- --run
 
 # Run a Rust crate's tests with its code compiled by Epitome (from this
 # directory; see "Building Rust crates with Epitome").
-cargo build --release --bin epitome-rustc
-W=$PWD/target/release/epitome-rustc
+cargo build --release --bin epitome-rustc-wrapper
+W=$PWD/target/release/epitome-rustc-wrapper
 (cd /path/to/some-crate && RUSTC_WRAPPER=$W cargo test)
 
 # Read a .ll file and print it back.
@@ -358,25 +358,25 @@ cargo run --release --example factorial -- --run
 
 ## Building Rust crates with Epitome
 
-`epitome-rustc` (in this package) is a `RUSTC_WRAPPER`: Cargo runs it with
+`epitome-rustc-wrapper` (in this package) is a `RUSTC_WRAPPER`: Cargo runs it with
 each rustc command line. It runs rustc as asked, also writing the crate's
 LLVM IR in one codegen unit, compiles that IR with Epitome, and puts our
 object in place of rustc's: in the `.rlib` for a library, and at the link
 (it is given as rustc's linker) for a binary or test harness.
 
 ```sh
-cargo build --release --bin epitome-rustc
+cargo build --release --bin epitome-rustc-wrapper
 cd some-crate
-RUSTC_WRAPPER=/path/to/epitome/target/release/epitome-rustc cargo test
-cat target/debug/epitome-rustc.log   # which crates are ours, and why not
+RUSTC_WRAPPER=/path/to/epitome/target/release/epitome-rustc-wrapper cargo test
+cat target/debug/epitome-rustc-wrapper.log   # which crates are ours, and why not
 ```
 
 Rust's standard library comes built and stays LLVM's, and so do
-proc-macro crates and build scripts (`EPITOME_RUSTC_BUILD_SCRIPTS=1` takes
+proc-macro crates and build scripts (`EPITOME_RUSTC_WRAPPER_BUILD_SCRIPTS=1` takes
 build scripts too). A crate whose IR Epitome cannot compile yet keeps
-rustc's object, and the log says why. `EPITOME_RUSTC_OPT=1` runs Epitome's
-optimiser on rustc's unoptimised IR as well; `EPITOME_RUSTC_SKIP` and
-`EPITOME_RUSTC_ONLY` take comma-separated crate names. This is a wrapper,
+rustc's object, and the log says why. `EPITOME_RUSTC_WRAPPER_OPT=1` runs Epitome's
+optimiser on rustc's unoptimised IR as well; `EPITOME_RUSTC_WRAPPER_SKIP` and
+`EPITOME_RUSTC_WRAPPER_ONLY` take comma-separated crate names. This is a wrapper,
 not a rustc codegen backend (`-Zcodegen-backend`), which would have to be
 built against rustc's internals and turn its MIR into our IR.
 
@@ -388,7 +388,7 @@ Copyright (c) 2026 Amy Thomason. No license has been chosen yet; see
 ## Crates that build
 
 These crates' own tests (`cargo test --release`) pass with their code,
-and their dependencies', compiled by Epitome through `epitome-rustc` (see
+and their dependencies', compiled by Epitome through `epitome-rustc-wrapper` (see
 [Building Rust crates with Epitome](#building-rust-crates-with-epitome)),
 on an AArch64 Mac with Rust 1.99.1: 256 crates, at the versions given.
 chrono's pass too, but for 8 tests of time-zone files its package leaves

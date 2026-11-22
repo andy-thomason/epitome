@@ -1,7 +1,7 @@
 //! The launch runtime for RISC-V kernels: an RV64 interpreter (I, M, A
 //! and the basic F and D operations) that runs a kernel of an image the
 //! compiler linked (`epitome_codegen::flat`) in memory of its own.
-//! epitome-rustc2 compiles this crate into a host program that calls
+//! epitome-rustc compiles this crate into a host program that calls
 //! kernels; a program can give its own `__epitome_launch` (a driver for a
 //! real machine) instead (`--launch-runtime none`).
 //!

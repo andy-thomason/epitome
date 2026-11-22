@@ -3,10 +3,10 @@
 //! rustc builds from the same file prints them. Skipped where rustc or
 //! rust-src is missing.
 
-use epitome_rustc2::cfg::CfgSet;
-use epitome_rustc2::layout::{LayoutCx, TargetData};
-use epitome_rustc2::resolve::DefKind;
-use epitome_rustc2::session::{CrateRoot, Options, Session};
+use epitome_rustc::cfg::CfgSet;
+use epitome_rustc::layout::{LayoutCx, TargetData};
+use epitome_rustc::resolve::DefKind;
+use epitome_rustc::session::{CrateRoot, Options, Session};
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -35,14 +35,14 @@ fn layouts_match_rustc() {
     session.expand(&mut crates);
     let r = session.resolve(&crates);
     let tcx = session.collect_types(&crates, &r);
-    let index = epitome_rustc2::typeck::Index::new(&tcx, &r);
+    let index = epitome_rustc::typeck::Index::new(&tcx, &r);
     let cx = LayoutCx::new(&tcx, &r, &crates, &index, TargetData::default());
     let mut ours = Vec::new();
     for (i, def) in r.defs.iter().enumerate() {
         if def.krate != 1 || def.kind != DefKind::TypeAlias {
             continue;
         }
-        let d = epitome_rustc2::resolve::DefId(i as u32);
+        let d = epitome_rustc::resolve::DefId(i as u32);
         let t = tcx.type_of(d).expect("alias type");
         let l = cx.layout_of(t).unwrap_or_else(|e| panic!("no layout for {}: {e:?}", def.name));
         ours.push((def.name.to_string(), l.size, l.align));
@@ -50,7 +50,7 @@ fn layouts_match_rustc() {
     assert!(ours.len() > 30, "too few aliases: {}", ours.len());
 
     // rustc's: the same file as a program that prints them.
-    let dir = std::env::temp_dir().join(format!("epitome-rustc2-layout-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("epitome-rustc-layout-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let mut program: String = source.lines().filter(|l| !l.starts_with("#![no_std]")).collect::<Vec<_>>().join("\n");
     program.push_str("\nfn main() {\n");

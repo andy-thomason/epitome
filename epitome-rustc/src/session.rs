@@ -2,7 +2,7 @@
 //! share (the source map, the options), and loads crates in parallel.
 //!
 //! ```no_run
-//! use epitome_rustc2::session::{CrateRoot, Options, Session};
+//! use epitome_rustc::session::{CrateRoot, Options, Session};
 //! let session = Session::new(Options::default());
 //! let mut crates = session.parse_crates(vec![CrateRoot::new("hello", "src/main.rs")]);
 //! let stats = session.expand(&mut crates);
@@ -692,7 +692,7 @@ mod tests {
     /// Writes files under a fresh directory in the system's temporary
     /// directory, and returns it.
     fn tree(name: &str, files: &[(&str, &str)]) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("epitome-rustc2-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("epitome-rustc-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         for (path, text) in files {
             let p = dir.join(path);

@@ -2,11 +2,11 @@
 //! `tests/proc_macro/use_hello.rs` with it, through the toolchain's
 //! proc-macro server. Skipped where rustc or the server is missing.
 
-use epitome_rustc2::cfg::CfgSet;
-use epitome_rustc2::lexer::Edition;
-use epitome_rustc2::pretty::pretty;
-use epitome_rustc2::proc_macro::Server;
-use epitome_rustc2::session::{CrateRoot, Options, Session};
+use epitome_rustc::cfg::CfgSet;
+use epitome_rustc::lexer::Edition;
+use epitome_rustc::pretty::pretty;
+use epitome_rustc::proc_macro::Server;
+use epitome_rustc::session::{CrateRoot, Options, Session};
 use std::path::Path;
 use std::process::Command;
 
@@ -14,7 +14,7 @@ use std::process::Command;
 fn derive_function_and_attribute_macros() {
     let Some(server) = Server::from_rustc() else { return };
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/proc_macro");
-    let out = std::env::temp_dir().join(format!("epitome-rustc2-pm-{}", std::process::id()));
+    let out = std::env::temp_dir().join(format!("epitome-rustc-pm-{}", std::process::id()));
     std::fs::create_dir_all(&out).unwrap();
     let lib = out.join(if cfg!(target_os = "macos") { "libhello.dylib" } else { "libhello.so" });
     let status = Command::new("rustc")

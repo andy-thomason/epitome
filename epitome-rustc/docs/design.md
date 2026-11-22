@@ -75,7 +75,7 @@ Everything after that is a plan.
 - **Stay linear in the size of the input.**
 - **Clean room** (section 13).
 
-Not goals for now: borrow checking (a program rustc rejects for
+Not goals for now: borrow checking (planned: ; a program rustc rejects for
 lifetimes or borrows may compile here; we compile programs rustc has
 accepted), incremental compilation, and diagnostics as good as rustc's.
 Errors point at the line and column and say what was expected; that is

@@ -116,6 +116,7 @@ fn main() -> ExitCode {
     let (mut resolve_stats, mut dump_res) = (false, false);
     let (mut dump_sigs, mut types_stats) = (false, false);
     let (mut dump_types, mut typeck_stats) = (false, false);
+    let mut borrowck = false;
     let mut dump_layout = false;
     let (mut dump_mono, mut mono_stats) = (false, false);
     let (mut dump_ir, mut lower_stats) = (false, false);
@@ -153,6 +154,7 @@ fn main() -> ExitCode {
             "--types-stats" => types_stats = true,
             "--dump-types" => dump_types = true,
             "--typeck-stats" => typeck_stats = true,
+            "--borrowck" => borrowck = true,
             "--dump-layout" => dump_layout = true,
             "--dump-mono" => dump_mono = true,
             "--mono-stats" => mono_stats = true,
@@ -393,7 +395,7 @@ fn main() -> ExitCode {
             }
         }
     }
-    if dump_sigs || types_stats || dump_types || typeck_stats || dump_layout || dump_mono || mono_stats || dump_ir || lower_stats || output.is_some() {
+    if dump_sigs || types_stats || dump_types || typeck_stats || borrowck || dump_layout || dump_mono || mono_stats || dump_ir || lower_stats || output.is_some() {
         let r = session.resolve(&crates);
         let t = std::time::Instant::now();
         let tcx = session.collect_types(&crates, &r);
@@ -576,6 +578,17 @@ fn main() -> ExitCode {
                         return ExitCode::FAILURE;
                     }
                 }
+            }
+        }
+        if borrowck {
+            // The last crate given is the program; the others are libraries.
+            let res = session.typeck(&crates, &r, &tcx);
+            let diags = session.borrowck(&crates, &r, &tcx, &res, &[crates.len() as u32 - 1]);
+            for d in &diags {
+                println!("{d}");
+            }
+            if !diags.is_empty() {
+                return ExitCode::FAILURE;
             }
         }
         if dump_types || typeck_stats {

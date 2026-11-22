@@ -1,6 +1,12 @@
 //! rustc's `check-pass` UI tests: programs rustc accepts, so they must
 //! parse, expand, resolve and type check here without errors.
 //!
+//! The same machinery measures the borrow checker (`borrowck_expected_errors
+//! _are_found`, `tests/ui_borrowck_todo.txt`): the tests that expect errors,
+//! all of them borrow-checking ones (`epitome_rustc::borrowck::CODES`), whose
+//! `.stderr` says which (code and line). Each must type check, and
+//! `Session::borrowck` must give those errors and no others.
+//!
 //! Set `EPITOME_RUST` to a checkout of rust-lang/rust with `tests/ui`,
 //! `tests/auxiliary` and `library` (a sparse checkout of those is
 //! enough), at the commit named
@@ -89,6 +95,70 @@ struct Aux {
 
 /// The crates every test and auxiliary crate may use (and `proc_macro`,
 /// loaded only for tests that name it).
+/// What the tests are for.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Want {
+    /// `check-pass`: accepted.
+    Pass,
+    /// Tests that expect borrow-checking errors: found exactly.
+    Borrowck,
+}
+
+impl Want {
+    fn from_env() -> Want {
+        if std::env::var("EPITOME_UI_WANT").is_ok_and(|v| v == "borrowck") { Want::Borrowck } else { Want::Pass }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Want::Pass => "check-pass",
+            Want::Borrowck => "borrowck",
+        }
+    }
+}
+
+/// The errors a test expects, from its `.stderr` (the revision's, if it has
+/// one): each as (error code, line). `None` unless it expects errors and
+/// all of them are borrow-checking ones in the test's own file.
+fn expected_errors(path: &Path, rev: Option<&str>) -> Option<Vec<(String, usize)>> {
+    let stem = path.file_stem()?.to_string_lossy().into_owned();
+    let name = path.file_name()?.to_string_lossy().into_owned();
+    let stderr = match rev {
+        Some(r) => path.with_file_name(format!("{stem}.{r}.stderr")),
+        None => path.with_extension("stderr"),
+    };
+    let text = std::fs::read_to_string(stderr).ok()?;
+    let mut out = Vec::new();
+    // The code of the error whose `-->` line is next.
+    let mut pending: Option<String> = None;
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix("error[") {
+            pending = Some(rest.split(']').next()?.to_string());
+        } else if line.starts_with("error") {
+            // An error with no code: not a borrow-checking one, except the
+            // closing count.
+            if !line.starts_with("error: aborting due to") && !line.starts_with("error: could not compile") {
+                return None;
+            }
+            pending = None;
+        } else if line.starts_with("warning") {
+            pending = None;
+        } else if let Some(at) = line.trim_start().strip_prefix("--> ")
+            && let Some(code) = pending.take()
+        {
+            // `$DIR/name.rs:LINE:COL`: in this test's own file.
+            let mut f = at.rsplitn(3, ':');
+            let (_col, line_no, file) = (f.next()?, f.next()?, f.next()?);
+            if file.rsplit('/').next()? != name {
+                return None;
+            }
+            out.push((code, line_no.parse().ok()?));
+        }
+    }
+    let codes = epitome_rustc::borrowck::CODES;
+    (!out.is_empty() && out.iter().all(|(c, _)| codes.contains(&c.as_str()))).then_some(out)
+}
+
 const STD: [&str; 4] = ["core", "alloc", "std", "proc_macro"];
 
 /// How many tests a child process takes at a time.
@@ -118,7 +188,7 @@ const MODES: [&str; 6] = ["check-pass", "build-pass", "run-pass", "check-fail", 
 /// each revision), with what each needs. A directive `//@[a,b] name`
 /// applies to revisions `a` and `b` only; each revision is compiled with
 /// `--cfg rev` as well as its own flags.
-fn select(ui: &Path, path: &Path) -> Vec<(String, Selected)> {
+fn select(ui: &Path, path: &Path, want: Want) -> Vec<(String, Selected)> {
     let Ok(text) = std::fs::read_to_string(path) else { return Vec::new() };
     // Each directive: the revisions it is for (all if `None`), its name
     // and its value.
@@ -146,7 +216,7 @@ fn select(ui: &Path, path: &Path) -> Vec<(String, Selected)> {
         .collect();
     if revisions.is_empty() {
         let all: Vec<(&str, &str)> = directives.iter().map(|d| (d.1, d.2)).collect();
-        return select_one(path, rel, &all, None).into_iter().collect();
+        return select_one(path, rel, &all, None, want).into_iter().collect();
     }
     revisions
         .iter()
@@ -157,17 +227,27 @@ fn select(ui: &Path, path: &Path) -> Vec<(String, Selected)> {
             mine.extend(
                 directives.iter().filter(|d| d.0.as_ref().is_some_and(|r| r.contains(&rev))).map(|d| (d.1, d.2)),
             );
-            select_one(path, format!("{rel}#{rev}"), &mine, Some(rev))
+            select_one(path, format!("{rel}#{rev}"), &mine, Some(rev), want)
         })
         .collect()
 }
 
 /// What one test (or revision) whose directives are `directives` needs;
 /// `None` if it is not a `check-pass` test.
-fn select_one(path: &Path, name: String, directives: &[(&str, &str)], rev: Option<&str>) -> Option<(String, Selected)> {
+fn select_one(path: &Path, name: String, directives: &[(&str, &str)], rev: Option<&str>, want: Want) -> Option<(String, Selected)> {
     let mode = directives.iter().rev().find(|d| MODES.contains(&d.0)).map(|d| d.0);
-    if mode != Some("check-pass") {
-        return None;
+    match want {
+        Want::Pass => {
+            if mode != Some("check-pass") {
+                return None;
+            }
+        }
+        // No mode is a test of errors; so are `check-fail` and `build-fail`.
+        Want::Borrowck => {
+            if !matches!(mode, None | Some("check-fail") | Some("build-fail")) || expected_errors(path, rev).is_none() {
+                return None;
+            }
+        }
     }
     let mut ignored = false;
     // The first reason the test cannot run here.
@@ -593,7 +673,7 @@ impl Stage {
 /// Runs `tests` in one session: for each, `None` if it passed, or why not.
 /// The tests' auxiliary crates are loaded once each, by name (the batch
 /// has no two different crates of one name).
-fn run(library: &Path, tests: &[&Test]) -> Vec<Option<String>> {
+fn run(library: &Path, tests: &[&Test], want: Want) -> Vec<Option<String>> {
     // The toolchain's proc-macro server, if any crate uses proc macros.
     let uses_pm = tests.iter().any(|t| !t.pm.is_empty() || t.aux.iter().any(|a| !a.pm.is_empty()));
     let server = if uses_pm { epitome_rustc::proc_macro::Server::from_rustc() } else { None };
@@ -643,6 +723,10 @@ fn run(library: &Path, tests: &[&Test]) -> Vec<Option<String>> {
     let r = session.resolve(&crates);
     let tcx = session.collect_types(&crates, &r);
     let res = session.typeck(&crates, &r, &tcx);
+    // The borrow checker, over the tests' crates.
+    // (Also for a `check-pass` test, where it must find nothing.)
+    let only: Vec<u32> = (first as u32..crates.len() as u32).collect();
+    let diagnostics = session.borrowck(&crates, &r, &tcx, &res, &only);
     // How far rustc goes: `-Zunpretty=expanded` stops after expansion,
     // `-Zunpretty=hir` after name resolution (see `Stage`).
     let verdict = |k: usize, stage: Stage| {
@@ -686,13 +770,48 @@ fn run(library: &Path, tests: &[&Test]) -> Vec<Option<String>> {
         .enumerate()
         .map(|(i, t)| {
             // An auxiliary crate that fails fails the test.
-            let stage = Stage::of(&t.cfg);
+            let stage = if want == Want::Borrowck { Stage::Check } else { Stage::of(&t.cfg) };
             for a in &t.aux {
                 if let Some(why) = verdict(aux_index[a.name.as_str()], Stage::Check) {
                     return Some(format!("auxiliary crate `{}`: {why}", a.name));
                 }
             }
-            verdict(first + i, stage)
+            let v = verdict(first + i, stage);
+            if want == Want::Pass {
+                // The borrow checker never rejects what rustc accepts.
+                if v.is_none() {
+                    let found: Vec<String> =
+                        diagnostics.iter().filter(|d| d.krate as usize == first + i).map(|d| format!("{}@{}", d.code, d.line)).collect();
+                    if !found.is_empty() {
+                        return Some(format!("borrowck rejects it ({})", found.join(" ")));
+                    }
+                }
+                return v;
+            }
+            // A test of the borrow checker must get to it.
+            if let Some(why) = v {
+                return Some(format!("before borrowck: {why}"));
+            }
+            let rev = t.rel.split_once('#').map(|x| x.1);
+            let mut expected = expected_errors(&t.path, rev).unwrap_or_default();
+            let mut got: Vec<(String, usize)> =
+                diagnostics.iter().filter(|d| d.krate as usize == first + i).map(|d| (d.code.to_string(), d.line)).collect();
+            expected.sort();
+            got.sort();
+            if expected == got {
+                return None;
+            }
+            // Each side's errors the other lacks.
+            let (mut missing, mut extra) = (expected.clone(), got.clone());
+            missing.retain(|e| { let k = got.iter().position(|g| g == e); if let Some(k) = k { got.remove(k); false } else { true } });
+            let mut left = expected.clone();
+            extra.retain(|g| { let k = left.iter().position(|e| e == g); if let Some(k) = k { left.remove(k); false } else { true } });
+            let show = |v: &[(String, usize)]| v.iter().map(|(c, l)| format!("{c}@{l}")).collect::<Vec<_>>().join(" ");
+            Some(if extra.is_empty() {
+                format!("no diagnostics (missing {})", show(&missing))
+            } else {
+                format!("wrong diagnostics (missing {}; extra {})", show(&missing), show(&extra))
+            })
         })
         .collect()
 }
@@ -702,9 +821,9 @@ fn run(library: &Path, tests: &[&Test]) -> Vec<Option<String>> {
 /// a stack overflow) or makes it hang cannot take the others with it.
 /// When the child fails, the tests are split in two and run again, until
 /// the test that fails is found.
-fn run_isolated(library: &Path, tests: &[&Test], out: &mut Vec<Option<String>>) {
+fn run_isolated(library: &Path, tests: &[&Test], out: &mut Vec<Option<String>>, want: Want) {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"));
-    let (batch, results) = (dir.join("ui_check_pass.batch"), dir.join("ui_check_pass.results"));
+    let (batch, results) = (dir.join(format!("ui_{}.batch", want.name())), dir.join(format!("ui_{}.results", want.name())));
     let mut list = String::new();
     for t in tests {
         let line = |kind: &str, name: &str, e: Edition, path: &Path, cfg: &[String], deps: &[String]| {
@@ -725,6 +844,7 @@ fn run_isolated(library: &Path, tests: &[&Test], out: &mut Vec<Option<String>>) 
     let mut child = Command::new(std::env::current_exe().unwrap())
         .args(["check_pass_tests_are_accepted", "--exact", "--nocapture"])
         .env("EPITOME_UI_BATCH", &batch)
+        .env("EPITOME_UI_WANT", want.name())
         .env("EPITOME_UI_RESULTS", &results)
         .env("EPITOME_RUST_LIBRARY", library)
         .stdout(std::process::Stdio::null())
@@ -776,8 +896,8 @@ fn run_isolated(library: &Path, tests: &[&Test], out: &mut Vec<Option<String>>) 
         return;
     }
     let (a, b) = tests.split_at(tests.len() / 2);
-    run_isolated(library, a, out);
-    run_isolated(library, b, out);
+    run_isolated(library, a, out, want);
+    run_isolated(library, b, out, want);
 }
 
 /// In a child process: runs the tests `EPITOME_UI_BATCH` lists and writes
@@ -810,7 +930,7 @@ fn child(batch: &Path) {
     // A compiler's stack: deep expressions recurse deeply.
     let verdicts = std::thread::Builder::new()
         .stack_size(256 << 20)
-        .spawn(move || run(&library, &tests.iter().collect::<Vec<_>>()))
+        .spawn(move || run(&library, &tests.iter().collect::<Vec<_>>(), Want::from_env()))
         .unwrap()
         .join()
         .unwrap();
@@ -829,13 +949,50 @@ fn check_pass_tests_are_accepted() {
     if let Some(batch) = std::env::var_os("EPITOME_UI_BATCH") {
         return child(Path::new(&batch));
     }
+    drive(Want::Pass);
+}
+
+/// `core`, `alloc` and `std` are accepted by the borrow checker.
+#[test]
+fn borrowck_accepts_the_standard_library() {
+    let Some(rust) = std::env::var_os("EPITOME_RUST").map(PathBuf::from) else {
+        eprintln!("EPITOME_RUST not set: skipped");
+        return;
+    };
+    let library = rust.join("library");
+    let session = Session::new(Options { cfg: Some(CfgSet::host()), ..Default::default() });
+    let roots: Vec<CrateRoot> = STD[..3]
+        .iter()
+        .map(|n| CrateRoot::new(*n, library.join(n).join("src/lib.rs")).edition(Edition::E2024))
+        .collect();
+    let mut crates = session.parse_crates(roots);
+    session.expand(&mut crates);
+    let r = session.resolve(&crates);
+    let tcx = session.collect_types(&crates, &r);
+    let res = session.typeck(&crates, &r, &tcx);
+    let found = session.borrowck(&crates, &r, &tcx, &res, &[0, 1, 2]);
+    let shown: Vec<String> = found.iter().take(20).map(|d| d.to_string()).collect();
+    assert!(found.is_empty(), "{} errors in the standard library, such as:\n{}", found.len(), shown.join("\n"));
+}
+
+/// The tests that expect borrow-checking errors: each gets exactly those.
+#[test]
+fn borrowck_expected_errors_are_found() {
+    drive(Want::Borrowck);
+}
+
+fn drive(want: Want) {
     let Some(rust) = std::env::var_os("EPITOME_RUST").map(PathBuf::from) else {
         eprintln!("EPITOME_RUST not set: skipped");
         return;
     };
     let (ui, library) = (rust.join("tests/ui"), rust.join("library"));
     assert!(ui.is_dir() && library.is_dir(), "{} needs tests/ui and library", rust.display());
-    let list_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/ui_check_pass_todo.txt");
+    let list_name = match want {
+        Want::Pass => "tests/ui_check_pass_todo.txt",
+        Want::Borrowck => "tests/ui_borrowck_todo.txt",
+    };
+    let list_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(list_name);
     let list = std::fs::read_to_string(&list_path).unwrap_or_default();
     let pinned = list.lines().next().and_then(|l| l.strip_prefix("# rust-lang/rust ")).unwrap_or("").to_string();
     let head = Command::new("git").arg("-C").arg(&rust).args(["rev-parse", "HEAD"]).output().ok();
@@ -857,7 +1014,7 @@ fn check_pass_tests_are_accepted() {
         if !f.to_string_lossy().contains(&filter) {
             continue;
         }
-        for (name, what) in select(&ui, f) {
+        for (name, what) in select(&ui, f, want) {
             match what {
                 Selected::Run(t) => tests.push(t),
                 Selected::Ignored => ignored += 1,
@@ -890,7 +1047,7 @@ fn check_pass_tests_are_accepted() {
     }
     let mut verdicts = Vec::new();
     for b in batches.iter().filter(|b| !b.is_empty()) {
-        run_isolated(&library, b, &mut verdicts);
+        run_isolated(&library, b, &mut verdicts, want);
     }
     let elapsed = t.elapsed();
 
@@ -905,8 +1062,9 @@ fn check_pass_tests_are_accepted() {
     }
     let failed = verdicts.iter().filter(|v| v.is_some()).count();
     eprintln!(
-        "{} check-pass tests: {} pass, {failed} fail, {} left out ({ignored} not for this host), in {:.1} s",
+        "{} {} tests: {} pass, {failed} fail, {} left out ({ignored} not for this host), in {:.1} s",
         tests.len() + todo.len() - failed,
+        want.name(),
         tests.len() - failed,
         todo.len() - failed,
         elapsed.as_secs_f64(),
@@ -922,7 +1080,8 @@ fn check_pass_tests_are_accepted() {
         assert!(filter.is_empty(), "EPITOME_UI_BLESS writes the whole list: unset EPITOME_UI_FILTER");
         let mut out = format!(
             "# rust-lang/rust {head}\n\
-             # The check-pass UI tests that do not pass yet, and why (tests/ui_check_pass.rs).\n"
+             # The {} UI tests that do not pass yet, and why (tests/ui_check_pass.rs).\n",
+            want.name()
         );
         for (p, why) in &todo {
             out.push_str(&format!("{p}: {why}\n"));

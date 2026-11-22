@@ -572,6 +572,17 @@ mod tests {
     }
 
     #[test]
+    fn coinductive_cycle_settles_unknowns() {
+        let Some(core) = core_src() else {
+            eprintln!("no rust-src: skipped");
+            return;
+        };
+        let s = plain(&dump_with("tests/typeck/coinductive.rs", "coinductive", Some(core)));
+        let want = "impls_trait::<_, _> : fn item coinductive::impls_trait<u32, u32>";
+        assert!(s.lines().any(|l| l == want), "no `{want}` in:\n{s}");
+    }
+
+    #[test]
     fn impl_where_clauses_in_any_order() {
         let Some(core) = core_src() else {
             eprintln!("no rust-src: skipped");

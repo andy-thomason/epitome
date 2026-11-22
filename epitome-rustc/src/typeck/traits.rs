@@ -1154,6 +1154,10 @@ impl<'a, 's> FnCtxt<'a, 's> {
         let tcx = self.tcx;
         // Trait predicates whose arguments are variables: one impl
         // matching settles them.
+        // (Those an impl's `where` clauses have added this time round, as
+        // they were then: a cycle back to one (`(U, T): Trait` from `(T,
+        // U): Trait`, and again) is not added a second time.)
+        let mut seen: Vec<(Ty, DefId, Vec<Ty>)> = Vec::new();
         let mut i = 0;
         while i < self.pending_traits.len() {
             let (t, tr, l) = self.pending_traits[i];
@@ -1185,6 +1189,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 // FromResidual<Result<!, ?E>>` needs `(): From<?E>`).
                 Select::Yes(Source::Impl(imp, iargs)) => {
                     self.pending_traits.swap_remove(i);
+                    seen.push((rt, tr, args.iter().map(|&a| self.infer.resolve(a)).collect()));
                     let def = tcx.impls[imp].def;
                     let params = tcx.all_params(def);
                     for p in &tcx.predicates[def.0 as usize] {
@@ -1194,8 +1199,19 @@ impl<'a, 's> FnCtxt<'a, 's> {
                         }
                         let pt = subst(tcx, *pt, &params, &iargs);
                         let pa: Vec<Ty> = tcx.tys(ptr.args).into_iter().map(|x| subst(tcx, x, &params, &iargs)).collect();
-                        if !tcx.has_infer(self.infer.resolve(pt)) && pa.iter().any(|&a| tcx.has_infer(self.infer.resolve(a))) {
+                        let rpt = self.infer.resolve(pt);
+                        let unknown_args = pa.iter().any(|&a| tcx.has_infer(self.infer.resolve(a)));
+                        // A type with unknowns in it (`(?U, u32): Trait`)
+                        // is queued as well: once the rest settles `?U`
+                        // it settles the others, as in a cycle. (Not a
+                        // bare variable, which says nothing yet.)
+                        let partly = tcx.has_infer(rpt) && self.infer.var_kind(self.infer.shallow(pt)).is_none();
+                        if (!tcx.has_infer(rpt) && unknown_args) || partly {
                             let pa = self.full_trait_args(ptr.def, pt, pa);
+                            let key = (rpt, ptr.def, pa.iter().map(|&a| self.infer.resolve(a)).collect::<Vec<_>>());
+                            if partly && seen.contains(&key) {
+                                continue;
+                            }
                             self.pending_traits.push((pt, ptr.def, tcx.list(pa)));
                         }
                     }

@@ -21,6 +21,7 @@ pub mod lexer;
 pub mod lower;
 pub mod mono;
 pub mod parse;
+pub mod regions;
 pub mod pool;
 pub mod pretty;
 pub mod proc_macro;

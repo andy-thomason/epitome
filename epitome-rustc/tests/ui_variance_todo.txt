@@ -1,0 +1,11 @@
+# rust-lang/rust a69a63265cfd9e006d43137f98301b8d274ad4c9 on x86_64-linux
+# The variance UI tests that do not pass yet, and why (tests/ui_check_pass.rs).
+attributes/doc_examples/rustc_dump_variances_of_opaques.rs: wrong variances (expected 10:['a: *] 12:['a: *, 'a: o] 14:[] 16:['a: o]; got )
+impl-trait/capture-lifetime-not-in-hir.rs: wrong variances (expected 8:['a: o, T: o] 14:['a: o, T: o, 'a: o]; got )
+impl-trait/implicit-capture-late.rs: wrong variances (expected 9:['a: o]; got )
+impl-trait/in-trait/variance.rs: wrong variances (expected 6:[Self: o, 'i: o, 'a: *, 'i: o, 'a: o] 9:[Self: o, 'i: o, 'a: *, 'i: o, 'a: o] 12:[Self: o, 'i: o, 'a: *, 'i: o] 15:[Self: o, 'i: o, 'i: o, 'a: o] 18:[Self: o, 'i: o, 'i: o, 'a: o] 21:[Self: o, 'i: o, 'i: o]; got )
+impl-trait/precise-capturing/capturing-implicit.rs: wrong variances (expected 7:['_: o] 7:['_: o]; got )
+impl-trait/variance.rs#e2024: wrong variances (expected 11:['a: *, 'a: o] 15:['a: *, 'a: o] 17:['a: o] 21:['a: o]; got )
+impl-trait/variance.rs#old: wrong variances (expected 11:['a: *] 15:['a: *, 'a: o] 17:[] 21:['a: o]; got )
+traits/const-traits/variance.rs: wrong variances (expected 9:['a: *]; got )
+type-alias-impl-trait/variance.rs: wrong variances (expected 8:['a: *, 'a: o] 11:['a: *, 'a: o] 14:['a: *, 'a: o, 'b: o] 18:['a: *, 'a: o, 'b: o] 22:['a: *, 'b: *, T: o, 'a: o, 'b: o] 34:['i: *, 'a: *, 'i: o, 'a: o] 37:['i: *, 'a: *, 'i: o, 'a: o] 40:['i: *, 'a: *, 'i: o, 'a: o] 45:['i: *, 'a: *, 'i: o, 'a: o] 48:['i: *, 'a: *, 'i: o, 'a: o] 51:['i: *, 'a: *, 'i: o, 'a: o] 62:['a: *, 'a: o] 64:['a: *, 'a: o] 66:['a: *, 'a: o] 68:['a: *, 'a: o] 70:['a: *, 'a: o]; got )

@@ -164,6 +164,12 @@ pub enum StmtKind {
 
 #[derive(Clone, Debug)]
 pub struct Stmt {
+    /// A mutable borrow that only reserves until the call it is an argument
+    /// of (an autoref receiver).
+    pub two_phase: bool,
+    /// A `CaptureRef` of what the closure captures by value (a field of it,
+    /// moved): no borrow.
+    pub moved: bool,
     pub kind: StmtKind,
     /// Where in the source, for errors.
     pub node: NodeId,

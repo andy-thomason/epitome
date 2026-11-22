@@ -11,6 +11,7 @@
 //! `alloc` and `std`, are checked and must have no diagnostics.
 
 pub mod build;
+pub mod loans;
 pub mod cfg;
 pub mod moves;
 pub mod mutability;
@@ -65,12 +66,15 @@ impl Session {
         let built = self.cfgs(crates, r, tcx, res, only);
         let fn_mut = mutability::mutating_closures(&built.cfgs);
         let index = crate::typeck::Index::new(tcx, r);
+        let var = self.variances(crates, r, tcx);
+        let uses = loans::closure_uses(&built.cfgs, tcx);
         // A compiler's stack: the solver recurses deeply on some types.
         let mut out: Vec<Diagnostic> = std::thread::scope(|sc| {
             std::thread::Builder::new()
                 .stack_size(512 << 20)
                 .spawn_scoped(sc, || {
                     let mut out = Vec::new();
+                    let lcx = loans::Cx::new(tcx, r, crates, &var, &uses);
                     for cfg in &built.cfgs {
                         let ast = &crates[cfg.krate as usize].files[cfg.file as usize].ast;
                         let found = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -78,6 +82,9 @@ impl Session {
                             let order = |n: NodeId| ast.origin_of(ast.node(n).first as usize);
                             let mut v = moves::check(cfg, tcx, &mut solver, &order);
                             v.extend(mutability::check(cfg, tcx, &fn_mut));
+                            if std::env::var_os("EPITOME_NO_LOANS").is_none() {
+                                v.extend(loans::check(&lcx, cfg, &mut solver, &|n| ast.is_original(n)));
+                            }
                             v
                         }))
                         .unwrap_or_default();
@@ -405,6 +412,12 @@ mod tests {
     #[test]
     fn mutability() {
         assert_errors_as_annotated("tests/borrowck/mutability.rs");
+    }
+
+    /// Loans: the conflicts it says, and no others.
+    #[test]
+    fn loans() {
+        assert_errors_as_annotated("tests/borrowck/loans.rs");
     }
 
     /// The rendering is Rust: `rustc` takes it (for numbers and references).

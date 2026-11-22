@@ -209,6 +209,47 @@ exactly what rustc does (`EPITOME_UI_WANT=variance`,
 every function of `core` has its signature read, none with a lifetime left
 out; and so has every function of the 4,300 check-pass programs.
 
+## Loans (milestone 5)
+
+`src/borrowck/loans.rs`. `Ty` has no regions, so a value's regions are kept as
+*slots*: one for each place a lifetime can be in its type (`&'a Vec<&'b T>` has two;
+a struct has one for each lifetime parameter, then those of its type arguments).
+Each local has, for each slot, the set of loans its region may hold: a flow-sensitive
+stand-in for rustc's region inference, computed by dataflow over the graph.
+
+- **Loans.** `r = &place` is a loan; `r`'s outer slot holds it and the rest hold what
+  `place` holds. A reborrow `&*q` also holds what `q`'s outer slot holds, back to the
+  first shared reference. A closure capture is a loan of each part of the variable the
+  closure uses (a field path, `(*p).a`), mutable if the closure changes it.
+- **Flow.** Copies and aggregates move sets between slots (a field's slots are found
+  from `regions::sig::adt_fields`). A call's result gets what the signature ties to it:
+  an input slot and an output slot with the same lifetime or type parameter. A `&mut`
+  argument gets what other arguments tie to what it points to (`v.push(&x)`), and so
+  do the places it borrows. What a signature cannot say (an associated type, an
+  `impl Trait`) takes the slots the type has; `Fn(A) -> B` bounds tie nothing.
+- **Live.** A loan is live where a local that holds it is live (used later; the
+  arguments and the result are used at the return). An assignment to a variable ends
+  the loans of what it pointed to; so does the end of its scope.
+- **Conflicts.** An access to a place (read, write, move, `&`, `&mut`, a `&mut`
+  argument reborrowed, the end of the variable's scope) conflicts with a live loan of
+  an overlapping place: E0499, E0502, E0503, E0505, E0506, and E0597 (E0716 for a
+  temporary, E0515 if what is returned holds it, E0373 if a closure's capture). A
+  two-phase borrow (an autoref receiver) only reserves, as a shared borrow, until its
+  call. Slice-pattern elements and fields are disjoint where rustc's are. A call that
+  wants `'static` (`&'static T`, `F: 'static`) of an argument that holds a borrow of the
+  function's own data is E0597 or E0373.
+- **Left out so that nothing is wrongly rejected:** what a constant or static borrows
+  (promoted to `'static`; so is `&[]`, `&0`, `&Foo { x: 1 }`); borrows behind a shared
+  reference; the locals macros declare; what a closure returns of its arguments.
+
+The gate is the same: nothing in `core`, `alloc` and `std`, and in the check-pass
+programs. The rest, in the order they appear in the tests that fail: drops as uses
+(E0597 and E0505 for types with `Drop`), annotated lifetimes in bodies (`let x: &'static
+T`), universal regions (E0521, E0621), closures called through `FnMut` and what they
+return (E0373 from `move` closures), borrows that outlive a `match` (E0510, E0713).
+
+`tests/borrowck/loans.rs` has the cases.
+
 ## What is in the way
 
 - No MIR, and no lifetimes in `Ty::Ref`: see above for where they are kept.
@@ -224,7 +265,7 @@ out; and so has every function of the 4,300 check-pass programs.
 | 2 | Moves and initialisation: E0381 E0382 E0384 E0507 E0508 E0509, closure captures; maybe-uninit and moved dataflow over place paths | no | **done**: 67% of the 345 tests that expect only these (see below) |
 | 3 | Mutability: E0596 E0594 E0384, from binding modes, `&` against `&mut`, closures, `ref` patterns | no | **done**: 74% of the 156 tests that expect only mutability errors |
 | 4 | Regions in signatures: keep what `ty/lower` drops (lifetime parameters, `'a: 'b`, `T: 'a`, elision, `'static`, `dyn Trait + 'a` defaults, higher-ranked bounds); variance of ADT parameters; region-annotated types for borrowck only, leaving the shared `Ty` alone | yes | **done**: variance matches rustc's on its tests; `core` and the check-pass programs read |
-| 5 | Loans (NLL): region variables per body, subtyping constraints with variance, liveness, outlives solving, loan scopes and kills, two-phase borrows, reborrows, closure captures: E0499 E0502 E0503 E0505 E0506 E0597 E0515 E0716 E0521 | yes | most of the borrowck and nll tests |
+| 5 | Loans (NLL): region variables per body, subtyping constraints with variance, liveness, outlives solving, loan scopes and kills, two-phase borrows, reborrows, closure captures: E0499 E0502 E0503 E0505 E0506 E0597 E0515 E0716 E0521 | yes | **started**: loans, flow, conflicts, closure captures, `'static` calls (see below) |
 | 6 | Associated types and `impl Trait` with regions, implied bounds, the higher-ranked leak check, unsafe and raw-pointer boundaries | yes | the rest |
 
 Milestones 2 and 3 need no regions and cover most of the E0381, E0382, E0384,

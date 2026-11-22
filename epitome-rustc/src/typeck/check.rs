@@ -2615,7 +2615,10 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     // .. })` as a `Box<dyn Future>`: no argument is that.)
                     if hint != want
                         && self.infer.var_kind(self.infer.shallow(want)).is_some()
-                        && !self.tcx.has_infer(self.infer.resolve(hint))
+                        // (Known, or a raw pointer to something not yet: `Some(&mut y)`
+                        // as `Option<*mut ?T>`, which makes `?T` what `y` is.)
+                        && (!self.tcx.has_infer(self.infer.resolve(hint))
+                            || matches!(self.tcx.kind(self.infer.shallow(hint)), TyKind::Ptr(..)))
                         && !matches!(
                             self.tcx.kind(self.infer.shallow(hint)),
                             TyKind::Dyn(_) | TyKind::Slice(_) | TyKind::Str

@@ -572,6 +572,17 @@ mod tests {
     }
 
     #[test]
+    fn argument_coerces_to_a_pointer_hint_with_unknowns() {
+        let Some(core) = core_src() else {
+            eprintln!("no rust-src: skipped");
+            return;
+        };
+        let s = plain(&dump_with("tests/typeck/ptr_hint.rs", "ptr_hint", Some(core)));
+        let want = "Some : fn item core::option::Option::Some<*mut u8>";
+        assert!(s.lines().any(|l| l == want), "no `{want}` in:\n{s}");
+    }
+
+    #[test]
     fn closure_input_from_the_bound_not_naming_it() {
         let Some(core) = core_src() else {
             eprintln!("no rust-src: skipped");

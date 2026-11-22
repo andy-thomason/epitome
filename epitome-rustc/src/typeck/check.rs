@@ -1708,8 +1708,27 @@ impl<'a, 's> FnCtxt<'a, 's> {
     /// Traits in scope are tried along the whole chain first, then (in
     /// case scope was missed) any trait.
     fn method_call(&mut self, n: NodeId, recv_node: NodeId, recv_ty: Ty, name: &str) -> Option<(DefId, Vec<Ty>, Ty)> {
+        let s = self.probe();
         let steps = self.autoderef(recv_ty);
-        self.method_call_in(n, recv_node, &steps, name, true).or_else(|| self.method_call_in(n, recv_node, &steps, name, false))
+        let found = self.method_call_in(n, recv_node, &steps, name, true).or_else(|| self.method_call_in(n, recv_node, &steps, name, false));
+        if found.is_some() || steps.len() < 2 && !steps.iter().any(|&(t, _)| self.reveal_own(t) != t) {
+            return found;
+        }
+        // Not found. Working out the deref chain may itself have settled
+        // unknowns (`Foo<?T, _>` through `impl Deref for Foo<u32, U>`
+        // makes `?T` `u32`), which a method of the receiver itself
+        // (`Foo<i32, i32>`) does not want: try that without the chain.
+        // (And with the `impl Trait` this body is finding the hidden type
+        // of, in the receiver, as its variable.)
+        self.rollback(s);
+        let first = self.norm(recv_ty);
+        for t in [first, self.reveal_own(first)] {
+            let steps = [(t, None)];
+            if let Some(f) = self.method_call_in(n, recv_node, &steps, name, true).or_else(|| self.method_call_in(n, recv_node, &steps, name, false)) {
+                return Some(f);
+            }
+        }
+        None
     }
 
     fn method_call_in(&mut self, n: NodeId, recv_node: NodeId, steps: &[(Ty, Option<Adjust>)], name: &str, scoped: bool) -> Option<(DefId, Vec<Ty>, Ty)> {

@@ -572,6 +572,18 @@ mod tests {
     }
 
     #[test]
+    fn method_found_before_deref_chain_settles_unknowns() {
+        let Some(core) = core_src() else {
+            eprintln!("no rust-src: skipped");
+            return;
+        };
+        let s = plain(&dump_with("tests/typeck/deref_chain_unknowns.rs", "deref_chain_unknowns", Some(core)));
+        let calls: Vec<&str> = s.lines().filter(|l| l.starts_with("x.method()")).collect();
+        let want = "x.method() : ()  [deref_chain_unknowns::{impl}::method]";
+        assert!(calls.len() == 2 && calls.iter().all(|&l| l == want), "want two `{want}` in:\n{s}");
+    }
+
+    #[test]
     fn assumed_bounds_do_not_pick_for_unknowns() {
         let Some(core) = core_src() else {
             eprintln!("no rust-src: skipped");

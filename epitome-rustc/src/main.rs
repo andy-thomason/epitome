@@ -117,6 +117,7 @@ fn main() -> ExitCode {
     let (mut dump_sigs, mut types_stats) = (false, false);
     let (mut dump_types, mut typeck_stats) = (false, false);
     let (mut borrowck, mut borrowck_all) = (false, false);
+    let mut dump_variances = false;
     let (mut dump_cfg, mut cfg_stats, mut cfg_compilable, mut dump_cfg_rust) = (false, false, false, false);
     let mut dump_layout = false;
     let (mut dump_mono, mut mono_stats) = (false, false);
@@ -155,6 +156,7 @@ fn main() -> ExitCode {
             "--types-stats" => types_stats = true,
             "--dump-types" => dump_types = true,
             "--typeck-stats" => typeck_stats = true,
+            "--dump-variances" => dump_variances = true,
             "--borrowck" => borrowck = true,
             "--borrowck-all" => {
                 borrowck = true;
@@ -407,7 +409,7 @@ fn main() -> ExitCode {
             }
         }
     }
-    if dump_sigs || types_stats || dump_types || typeck_stats || borrowck || dump_cfg || cfg_stats || dump_layout || dump_mono || mono_stats || dump_ir || lower_stats || output.is_some() {
+    if dump_variances || dump_sigs || types_stats || dump_types || typeck_stats || borrowck || dump_cfg || cfg_stats || dump_layout || dump_mono || mono_stats || dump_ir || lower_stats || output.is_some() {
         let r = session.resolve(&crates);
         let t = std::time::Instant::now();
         let tcx = session.collect_types(&crates, &r);
@@ -624,6 +626,18 @@ fn main() -> ExitCode {
                 );
                 for (why, n, example) in out.reasons().iter().take(40) {
                     eprintln!("  {n:6} {why}   (e.g. {example})");
+                }
+            }
+        }
+        if dump_variances {
+            // The structs, enums, unions, aliases and functions of the last crate.
+            let v = session.variances(&crates, &r, &tcx);
+            let last = crates.len() as u32 - 1;
+            for (i, def) in r.defs.iter().enumerate() {
+                if def.krate == last
+                    && let Some(text) = v.show(epitome_rustc::resolve::DefId(i as u32))
+                {
+                    println!("{:<40} {text}", r.def_path(epitome_rustc::resolve::DefId(i as u32)));
                 }
             }
         }

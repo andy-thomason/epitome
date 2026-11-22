@@ -700,7 +700,7 @@ fn lifetime_params<'a>(ast: &'a Ast, node: NodeId) -> Vec<(&'a str, NodeId)> {
 }
 
 /// The impl or trait an associated item is in.
-fn parent_of(r: &Resolver, d: DefId) -> Option<DefId> {
+pub(crate) fn parent_of(r: &Resolver, d: DefId) -> Option<DefId> {
     let def = &r.defs[d.0 as usize];
     if !matches!(def.kind, DefKind::AssocFn | DefKind::AssocConst | DefKind::AssocType) {
         return None;

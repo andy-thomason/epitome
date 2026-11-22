@@ -88,6 +88,10 @@ pub struct Builder<'a, 's> {
     /// The place being built is to be changed (assigned to, borrowed with
     /// `&mut`): `DerefMut` and `IndexMut`, not `Deref` and `Index`.
     mut_use: bool,
+    /// The next statement is a two-phase borrow (an autoref receiver).
+    next_two_phase: bool,
+    /// The next statement borrows a variable a closure captures by value.
+    next_moved: bool,
     /// The closure expressions met, to build bodies for.
     pub closures: Vec<NodeId>,
 }
@@ -193,6 +197,8 @@ impl<'a, 's> Builder<'a, 's> {
             extend: None,
             depth: 0,
             mut_use: false,
+            next_two_phase: false,
+            next_moved: false,
             closures: Vec::new(),
         }
     }
@@ -319,7 +325,8 @@ impl<'a, 's> Builder<'a, 's> {
 
     fn emit(&mut self, kind: StmtKind, node: NodeId) {
         let b = self.block();
-        self.cfg.blocks[b.0 as usize].stmts.push(Stmt { kind, node });
+        let two_phase = std::mem::take(&mut self.next_two_phase);
+        self.cfg.blocks[b.0 as usize].stmts.push(Stmt { kind, node, two_phase, moved: std::mem::take(&mut self.next_moved) });
     }
 
     fn assign(&mut self, p: &Place, rv: Rvalue, node: NodeId) {
@@ -609,6 +616,43 @@ impl<'a, 's> Builder<'a, 's> {
         Ok(Operand::Use(self.expr_place(n)?))
     }
 
+    /// The operands of `nodes`, in order: each one that is not the last is
+    /// copied (or moved) into a temporary where it is evaluated, as rustc
+    /// does, so that what is evaluated after it cannot change what it is.
+    fn operands(&mut self, nodes: &[NodeId]) -> R<Vec<Operand>> {
+        let mut out = Vec::new();
+        for (i, &e) in nodes.iter().enumerate() {
+            let o = self.expr_operand(e)?;
+            // (Unless what is evaluated after it cannot change it.)
+            out.push(if nodes[i + 1..].iter().any(|&n| !self.is_pure(n)) { self.freeze(o, e) } else { o });
+        }
+        Ok(out)
+    }
+
+    /// Whether evaluating `n` cannot change anything: a literal or a path.
+    fn is_pure(&self, n: NodeId) -> bool {
+        match self.ast.kind(n) {
+            Kind::Literal | Kind::PathExpr => true,
+            Kind::Paren => self.ast.children(n).first().is_some_and(|&c| self.is_pure(c)),
+            _ => false,
+        }
+    }
+
+    /// A place operand copied into a temporary.
+    fn freeze(&mut self, o: Operand, node: NodeId) -> Operand {
+        let Operand::Use(p) = &o else { return o };
+        if p.proj.is_empty() && self.cfg.locals[p.local.0 as usize].kind == LocalKind::Temp {
+            return o;
+        }
+        // (What is moved, or only used by reference, stays where it is.)
+        if self.tcx().has_error(p.ty) || self.tcx().has_infer(p.ty) || !self.solver.may_be_copy(p.ty) {
+            return o;
+        }
+        let t = self.temp(p.ty, node);
+        self.assign(&t, Rvalue::Use(o), node);
+        Operand::Use(t)
+    }
+
     /// `n` if it is a constant that needs no place.
     fn const_operand(&mut self, n: NodeId) -> R<Option<Operand>> {
         let kids = self.kids(n);
@@ -650,6 +694,7 @@ impl<'a, 's> Builder<'a, 's> {
                     let rm = if mutable { Mutbl::Mut } else { Mutbl::Not };
                     let recv_t = tcx.mk(TyKind::Ref(rm, p.ty));
                     let recv = self.temp(recv_t, n);
+                    self.next_two_phase = true;
                     self.assign(&recv, Rvalue::Ref(rm, p.clone()), n);
                     let out = self.call_temp(Callee::Fn(m, m_args), vec![Operand::Use(recv)], m_ret, n);
                     p = self.deref(&out)?;
@@ -657,6 +702,7 @@ impl<'a, 's> Builder<'a, 's> {
                 Adjust::Borrow(m) => {
                     let rt = tcx.mk(TyKind::Ref(*m, p.ty));
                     let t = self.temp(rt, n);
+                    self.next_two_phase = true;
                     self.assign(&t, Rvalue::Ref(*m, p.clone()), n);
                     p = t;
                 }
@@ -707,7 +753,9 @@ impl<'a, 's> Builder<'a, 's> {
                     let rm = if mutable { Mutbl::Mut } else { Mutbl::Not };
                     let recv_t = self.tcx().mk(TyKind::Ref(rm, base.ty));
                     let recv = self.temp(recv_t, n);
-                    self.assign(&recv, Rvalue::Ref(rm, base), n);
+                    self.next_two_phase = true;
+                    self.next_two_phase = true;
+            self.assign(&recv, Rvalue::Ref(rm, base), n);
                     let out_t = self.tcx().mk(TyKind::Ref(rm, self.ty(n)?));
                     let out = self.call_temp(Callee::Fn(m, margs), vec![Operand::Use(recv)], out_t, n);
                     return self.deref(&out);
@@ -754,6 +802,7 @@ impl<'a, 's> Builder<'a, 's> {
             let rm = if mutable { Mutbl::Mut } else { Mutbl::Not };
             let recv_t = tcx.mk(TyKind::Ref(rm, base.ty));
             let recv = self.temp(recv_t, n);
+            self.next_two_phase = true;
             self.assign(&recv, Rvalue::Ref(rm, base), n);
             let out_t = tcx.mk(TyKind::Ref(rm, self.ty(n)?));
             let out = self.call_temp(Callee::Fn(m, margs), vec![Operand::Use(recv), idx], out_t, n);
@@ -800,11 +849,11 @@ impl<'a, 's> Builder<'a, 's> {
                 self.expr_into(e, dest)?;
             }
             Kind::Tuple => {
-                let ops = kids.iter().map(|&e| self.expr_operand(e)).collect::<R<Vec<_>>>()?;
+                let ops = self.operands(&kids)?;
                 self.assign(dest, Rvalue::Aggregate(AggKind::Tuple, ops), n);
             }
             Kind::Array => {
-                let ops = kids.iter().map(|&e| self.expr_operand(e)).collect::<R<Vec<_>>>()?;
+                let ops = self.operands(&kids)?;
                 self.assign(dest, Rvalue::Aggregate(AggKind::Array, ops), n);
             }
             Kind::ArrayRepeat => {
@@ -853,10 +902,9 @@ impl<'a, 's> Builder<'a, 's> {
             Kind::Call => self.call_expr(n, &kids, dest)?,
             Kind::MethodCall => {
                 let &(m, margs) = self.tables.methods.get(&n).ok_or("method call without a method")?;
-                let mut args = vec![self.expr_operand(kids[0])?];
-                for a in self.kids(kids[2]) {
-                    args.push(self.expr_operand(a)?);
-                }
+                let mut nodes = vec![kids[0]];
+                nodes.extend(self.kids(kids[2]));
+                let args = self.operands(&nodes)?;
                 self.call_into(Callee::Fn(m, margs), args, dest, n);
             }
             Kind::Field | Kind::Index => {
@@ -1090,6 +1138,7 @@ impl<'a, 's> Builder<'a, 's> {
                     {
                         let rt = tcx.mk(TyKind::Ref(Mutbl::Mut, p.ty));
                         let recv = self.temp(rt, n);
+                        self.next_two_phase = true;
                         self.assign(&recv, Rvalue::Ref(Mutbl::Mut, p), n);
                         let u = self.unit();
                         let sink = self.temp(u, n);
@@ -1101,6 +1150,7 @@ impl<'a, 's> Builder<'a, 's> {
                     return Ok(());
                 }
                 let a = self.expr_operand(kids[0])?;
+                let a = if self.is_pure(kids[2]) { a } else { self.freeze(a, kids[0]) };
                 let b = self.expr_operand(kids[2])?;
                 let cmp = matches!(op.as_str(), "==" | "!=" | "<" | "<=" | ">" | ">=");
                 if let Some(&(m, margs)) = self.tables.methods.get(&n)
@@ -1206,13 +1256,14 @@ impl<'a, 's> Builder<'a, 's> {
                 Kind::FieldInit => {
                     let name = self.ast.token(fk[0]).0;
                     let i = names.iter().position(|&x| x == name).ok_or_else(|| format!("no field `{name}`"))?;
-                    given[i] = Some(match fk.get(1) {
+                    let o = match fk.get(1) {
                         Some(&e) => self.expr_operand(e)?,
                         None => {
                             let Some(Res::Local(lp)) = self.res(fk[0]) else { return Err("shorthand field without a local".into()) };
                             Operand::Use(self.place_of_local(*lp)?)
                         }
-                    });
+                    };
+                    given[i] = Some(if kids.len() > 2 { self.freeze(o, f) } else { o });
                 }
                 Kind::StructBase => base = fk.first().copied(),
                 _ => {}
@@ -1270,12 +1321,13 @@ impl<'a, 's> Builder<'a, 's> {
                 "call_mut" => {
                     let rt = tcx.mk(TyKind::Ref(Mutbl::Mut, callee.ty));
                     let r = self.temp(rt, n);
+                    self.next_two_phase = true;
                     self.assign(&r, Rvalue::Ref(Mutbl::Mut, callee), n);
                     Operand::Use(r)
                 }
                 _ => Operand::Use(callee),
             };
-            let ops = arg_nodes.iter().map(|&a| self.expr_operand(a)).collect::<R<Vec<_>>>()?;
+            let ops = self.operands(&arg_nodes)?;
             let tuple_t = tcx.mk(TyKind::Tuple(tcx.list(ops.iter().map(|o| self.operand_ty(o)).collect())));
             let tuple = self.temp(tuple_t, n);
             self.assign(&tuple, Rvalue::Aggregate(AggKind::Tuple, ops), n);
@@ -1283,7 +1335,7 @@ impl<'a, 's> Builder<'a, 's> {
             return Ok(());
         }
         let ct = self.ty(kids[0])?;
-        let args = arg_nodes.iter().map(|&a| self.expr_operand(a)).collect::<R<Vec<_>>>()?;
+        let args = self.operands(&arg_nodes)?;
         match tcx.kind(ct) {
             TyKind::FnDef(d, l) => match self.cx.r.defs[d.0 as usize].kind {
                 DefKind::Struct => {
@@ -1422,7 +1474,10 @@ impl<'a, 's> Builder<'a, 's> {
         let stmt_scope = self.scopes.len() - 1;
         let result = (|| -> R<()> {
             if let Some(&els) = rest.get(1) {
-                let p = self.expr_place_mut(init, self.binds_mut(pat))?;
+                self.extend = Some(block_scope);
+                let p = self.expr_place_mut(init, self.binds_mut(pat));
+                self.extend = None;
+                let p = p?;
                 let fail = self.new_block();
                 let ok = self.new_block();
                 let mark = self.binds.len();
@@ -1797,6 +1852,7 @@ impl<'a, 's> Builder<'a, 's> {
                 // (Shared: whether it is changed through is not recorded.)
                 let rt = self.tcx().mk(TyKind::Ref(Mutbl::Not, src.ty));
                 let t = self.temp(rt, n);
+                self.next_moved = cap.by_value || uses;
                 self.assign(&t, Rvalue::CaptureRef(src), n);
                 ops.push(Operand::Use(t));
             }

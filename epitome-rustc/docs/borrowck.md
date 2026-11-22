@@ -174,9 +174,44 @@ has no `DerefMut`.
 
 `tests/borrowck/mutability.rs` has the cases.
 
+## Regions in signatures (milestone 4)
+
+`src/regions/`. `Ty` still has no lifetimes, and that does not change: the
+shared type table is for type checking and code generation, which never need
+them. Lifetimes are read again from the source where they are written, and
+kept beside `Ty`, for borrow checking only.
+
+- **Variance** (`variance.rs`): `Session::variances`, rustc's algorithm. Each
+  parameter of a struct, enum, union, alias or free function starts bivariant;
+  each use in a field adds "at least this", composed with the variance of the
+  parameter of the type it is an argument of (so the constraints are solved
+  together, to a fixed point). `&mut T`, `*mut T`, trait arguments, projections
+  and array lengths are invariant, a function pointer's arguments flip.
+  `PhantomData` is covariant and `UnsafeCell` invariant by lang item. Bounds add
+  nothing. `Session::dump_variances` prints what `#[rustc_dump_variances]` does.
+- **Signatures** (`sig.rs`): `fn_regions(def)` gives a function's lifetime
+  parameters (early or late bound, and those of its impl or trait), its
+  parameter and return types as `RTy` (a `Region` in every `&`, lifetime
+  argument and `dyn Trait + 'a`), `'a: 'b` and `T: 'a`, and trait bounds with
+  their arguments (`F: for<'x> Fn(&'x T) -> &'x U`). `adt_fields(def)` gives
+  the fields of a type likewise.
+- **Elision**: each elided lifetime in an argument is its own (`Elided(i)`,
+  hidden lifetime arguments of paths too); the result's is `&self`'s, or the
+  only one in the arguments. A function pointer or `Fn(A) -> B` binds its own.
+  An elided lifetime in an impl header (`impl Tr for &T`) is a parameter of
+  the impl (`ImplAnon`). Type aliases are expanded.
+- **Not yet**: `impl Trait` and associated types with regions (milestone 6);
+  `Region::Unknown` is left for what has nothing to be.
+
+Measured: the 12 variance UI tests that do not involve `impl Trait` print
+exactly what rustc does (`EPITOME_UI_WANT=variance`,
+`tests/ui_variance_todo.txt`; the rest print the variances of opaque types);
+every function of `core` has its signature read, none with a lifetime left
+out; and so has every function of the 4,300 check-pass programs.
+
 ## What is in the way
 
-- No MIR, and no lifetimes in types: `Ty::Ref` has no region.
+- No MIR, and no lifetimes in `Ty::Ref`: see above for where they are kept.
 - What helps: typeck records autoref, deref and reborrow adjustments per node;
   `lower/drop.rs` already works out moves, partial moves and temporary scopes.
 
@@ -188,7 +223,7 @@ has no `DerefMut`.
 | 1 | A control-flow graph of a body, for borrow checking only (places: local, field, deref, index, downcast; uses, borrows, assignments, drops, calls, scope ends), built on demand from the typed tree | no | **done**: 99.9% of `core` (see below) |
 | 2 | Moves and initialisation: E0381 E0382 E0384 E0507 E0508 E0509, closure captures; maybe-uninit and moved dataflow over place paths | no | **done**: 67% of the 345 tests that expect only these (see below) |
 | 3 | Mutability: E0596 E0594 E0384, from binding modes, `&` against `&mut`, closures, `ref` patterns | no | **done**: 74% of the 156 tests that expect only mutability errors |
-| 4 | Regions in signatures: keep what `ty/lower` drops (lifetime parameters, `'a: 'b`, `T: 'a`, elision, `'static`, `dyn Trait + 'a` defaults, higher-ranked bounds); variance of ADT parameters; region-annotated types for borrowck only, leaving the shared `Ty` alone | yes | signatures and variance match rustc |
+| 4 | Regions in signatures: keep what `ty/lower` drops (lifetime parameters, `'a: 'b`, `T: 'a`, elision, `'static`, `dyn Trait + 'a` defaults, higher-ranked bounds); variance of ADT parameters; region-annotated types for borrowck only, leaving the shared `Ty` alone | yes | **done**: variance matches rustc's on its tests; `core` and the check-pass programs read |
 | 5 | Loans (NLL): region variables per body, subtyping constraints with variance, liveness, outlives solving, loan scopes and kills, two-phase borrows, reborrows, closure captures: E0499 E0502 E0503 E0505 E0506 E0597 E0515 E0716 E0521 | yes | most of the borrowck and nll tests |
 | 6 | Associated types and `impl Trait` with regions, implied bounds, the higher-ranked leak check, unsafe and raw-pointer boundaries | yes | the rest |
 

@@ -102,19 +102,52 @@ enum Want {
     Pass,
     /// Tests that expect borrow-checking errors: found exactly.
     Borrowck,
+    /// Tests with `#[rustc_dump_variances]`: the variances printed are
+    /// rustc's.
+    Variance,
 }
 
 impl Want {
     fn from_env() -> Want {
-        if std::env::var("EPITOME_UI_WANT").is_ok_and(|v| v == "borrowck") { Want::Borrowck } else { Want::Pass }
+        match std::env::var("EPITOME_UI_WANT").as_deref() {
+            Ok("borrowck") => Want::Borrowck,
+            Ok("variance") => Want::Variance,
+            _ => Want::Pass,
+        }
     }
 
     fn name(self) -> &'static str {
         match self {
             Want::Pass => "check-pass",
             Want::Borrowck => "borrowck",
+            Want::Variance => "variance",
         }
     }
+}
+
+/// The variances a test expects, from its `.stderr`: each as (line, text),
+/// for `error: ['a: +, T: o]` lines. `None` if it prints none.
+fn expected_variances(path: &Path, rev: Option<&str>) -> Option<Vec<(usize, String)>> {
+    let stem = path.file_stem()?.to_string_lossy().into_owned();
+    let stderr = match rev {
+        Some(r) => path.with_file_name(format!("{stem}.{r}.stderr")),
+        None => path.with_extension("stderr"),
+    };
+    let text = std::fs::read_to_string(stderr).ok()?;
+    let mut out = Vec::new();
+    let mut pending: Option<String> = None;
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix("error: ") {
+            pending = (rest.starts_with('[') && rest.ends_with(']')).then(|| rest.to_string());
+        } else if let Some(at) = line.trim_start().strip_prefix("--> ")
+            && let Some(t) = pending.take()
+        {
+            let mut f = at.rsplitn(3, ':');
+            let (_col, line_no) = (f.next()?, f.next()?);
+            out.push((line_no.parse().ok()?, t));
+        }
+    }
+    (!out.is_empty()).then_some(out)
 }
 
 /// The errors a test expects, from its `.stderr` (the revision's, if it has
@@ -245,6 +278,11 @@ fn select_one(path: &Path, name: String, directives: &[(&str, &str)], rev: Optio
         // No mode is a test of errors; so are `check-fail` and `build-fail`.
         Want::Borrowck => {
             if !matches!(mode, None | Some("check-fail") | Some("build-fail")) || expected_errors(path, rev).is_none() {
+                return None;
+            }
+        }
+        Want::Variance => {
+            if expected_variances(path, rev).is_none() || !std::fs::read_to_string(path).is_ok_and(|t| t.contains("rustc_dump_variances")) {
                 return None;
             }
         }
@@ -726,7 +764,8 @@ fn run(library: &Path, tests: &[&Test], want: Want) -> Vec<Option<String>> {
     // The borrow checker, over the tests' crates.
     // (Also for a `check-pass` test, where it must find nothing.)
     let only: Vec<u32> = (first as u32..crates.len() as u32).collect();
-    let diagnostics = session.borrowck(&crates, &r, &tcx, &res, &only);
+    let diagnostics = if want == Want::Variance { Vec::new() } else { session.borrowck(&crates, &r, &tcx, &res, &only) };
+    let dumped = if want == Want::Variance { session.dump_variances(&crates, &r, &tcx, &only) } else { Vec::new() };
     // How far rustc goes: `-Zunpretty=expanded` stops after expansion,
     // `-Zunpretty=hir` after name resolution (see `Stage`).
     let verdict = |k: usize, stage: Stage| {
@@ -770,7 +809,11 @@ fn run(library: &Path, tests: &[&Test], want: Want) -> Vec<Option<String>> {
         .enumerate()
         .map(|(i, t)| {
             // An auxiliary crate that fails fails the test.
-            let stage = if want == Want::Borrowck { Stage::Check } else { Stage::of(&t.cfg) };
+            let stage = match want {
+                Want::Borrowck => Stage::Check,
+                Want::Variance => Stage::Resolve,
+                Want::Pass => Stage::of(&t.cfg),
+            };
             for a in &t.aux {
                 if let Some(why) = verdict(aux_index[a.name.as_str()], Stage::Check) {
                     return Some(format!("auxiliary crate `{}`: {why}", a.name));
@@ -781,6 +824,21 @@ fn run(library: &Path, tests: &[&Test], want: Want) -> Vec<Option<String>> {
                 // The borrow checker never rejects what rustc accepts (if it
                 // goes as far, which a test that only prints does not).
                 if v.is_none() && stage == Stage::Check {
+                    // Every region of a signature is read.
+                    let me = (first + i) as u32;
+                    for (j, def) in r.defs.iter().enumerate() {
+                        if def.krate != me {
+                            continue;
+                        }
+                        if let Some(f) = epitome_rustc::regions::sig::fn_regions(&crates, &r, &tcx, epitome_rustc::resolve::DefId(j as u32)) {
+                            let mut regs = Vec::new();
+                            f.output.regions(&mut regs);
+                            f.inputs.iter().for_each(|t| t.regions(&mut regs));
+                            if regs.contains(&epitome_rustc::regions::sig::Region::Unknown) {
+                                return Some(format!("regions: `{}` has a lifetime left out: {}", r.def_path(epitome_rustc::resolve::DefId(j as u32)), f.show(&r, &tcx)));
+                            }
+                        }
+                    }
                     let found: Vec<String> =
                         diagnostics.iter().filter(|d| d.krate as usize == first + i).map(|d| format!("{}@{}", d.code, d.line)).collect();
                     if !found.is_empty() {
@@ -794,6 +852,18 @@ fn run(library: &Path, tests: &[&Test], want: Want) -> Vec<Option<String>> {
                 return Some(format!("before borrowck: {why}"));
             }
             let rev = t.rel.split_once('#').map(|x| x.1);
+            if want == Want::Variance {
+                let mut expected = expected_variances(&t.path, rev).unwrap_or_default();
+                let mut got: Vec<(usize, String)> =
+                    dumped.iter().filter(|d| d.krate as usize == first + i).map(|d| (d.line, d.text.clone())).collect();
+                expected.sort();
+                got.sort();
+                if expected == got {
+                    return None;
+                }
+                let show = |v: &[(usize, String)]| v.iter().map(|(l, t)| format!("{l}:{t}")).collect::<Vec<_>>().join(" ");
+                return Some(format!("wrong variances (expected {}; got {})", show(&expected), show(&got)));
+            }
             let mut expected = expected_errors(&t.path, rev).unwrap_or_default();
             let mut got: Vec<(String, usize)> =
                 diagnostics.iter().filter(|d| d.krate as usize == first + i).map(|d| (d.code.to_string(), d.line)).collect();
@@ -976,6 +1046,12 @@ fn borrowck_accepts_the_standard_library() {
     assert!(found.is_empty(), "{} errors in the standard library, such as:\n{}", found.len(), shown.join("\n"));
 }
 
+/// The tests that print variances: each prints rustc's.
+#[test]
+fn variances_match_rustc() {
+    drive(Want::Variance);
+}
+
 /// The tests that expect borrow-checking errors: each gets exactly those.
 #[test]
 fn borrowck_expected_errors_are_found() {
@@ -992,6 +1068,7 @@ fn drive(want: Want) {
     let list_name = match want {
         Want::Pass => "tests/ui_check_pass_todo.txt",
         Want::Borrowck => "tests/ui_borrowck_todo.txt",
+        Want::Variance => "tests/ui_variance_todo.txt",
     };
     let list_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(list_name);
     let list = std::fs::read_to_string(&list_path).unwrap_or_default();

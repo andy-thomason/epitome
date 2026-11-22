@@ -3,8 +3,6 @@
 attributes/duplicated-attributes.rs: import not resolved: : use test::Bencher (as Bencher)
 attributes/z-crate-attr/cfg-false.rs: left out: flags that change the crate
 check-cfg/values-target-json.rs: left out: a target rustc does not know
-coinduction/canonicalization-rerun.rs#next: type check: a type left unknown
-coinduction/canonicalization-rerun.rs#old: type check: a type left unknown
 compile-flags/invalid/crate-type-flag.rs#proc_dash_macro: left out: proc-macro crate
 const-generics/associated-const-bindings/equality_bound_with_infer.rs: type check: a type left unknown
 const-generics/issues/issue-85031-2.rs: type check: a type left unknown
@@ -53,7 +51,6 @@ specialization/spec-influences-inference-issue-36262.rs#next: type check: a type
 traits/issue-66768.rs: type check: method not found
 traits/next-solver/closure-signature-inference-hr-ambig-alias-naming-self.rs#current: type check: method not found
 traits/next-solver/closure-signature-inference-hr-ambig-alias-naming-self.rs#next: type check: method not found
-traits/next-solver/cycles/inductive-cycle-discarded-coinductive-constraints.rs: type check: a type left unknown
 traits/next-solver/cycles/leak-check-coinductive-cycle.rs: type check: a type left unknown
 traits/next-solver/cycles/provisional-result-done.rs: type check: a type left unknown
 traits/next-solver/generalize/alias-with-bound-vars-incomplete-generalization.rs#next: type check: mismatched types

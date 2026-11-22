@@ -317,12 +317,25 @@ fn predicates(l: &mut Lower, item: NodeId, preds: &mut Vec<Pred>) {
 }
 
 /// `t: tr`, and `<t as tr>::A == B` for each of its bindings.
-fn push_trait(tcx: &TyCtxt, preds: &mut Vec<Pred>, t: Ty, tr: TraitRef) {
+fn push_trait(tcx: &TyCtxt, preds: &mut Vec<Pred>, t: Ty, mut tr: TraitRef) {
+    // An associated const's binding (`Foo<ASSOC<N> = 10>`) is written by
+    // the lowering as a tuple of its value (a `ConstArg`) then its own
+    // arguments: a projection with those after the trait's, to the value.
+    let is_const = |b: Ty| matches!(tcx.kind(b), TyKind::Tuple(l) if tcx.tys(l).first().is_some_and(|&v| matches!(tcx.kind(v), TyKind::ConstArg(_))));
     for &(assoc, b) in &tr.bindings {
         let mut args = vec![t];
         args.extend(tcx.tys(tr.args));
+        if is_const(b)
+            && let TyKind::Tuple(l) = tcx.kind(b)
+        {
+            let parts = tcx.tys(l);
+            args.extend_from_slice(&parts[1..]);
+            preds.push(Pred::Projection(t, assoc, tcx.list(args), parts[0]));
+            continue;
+        }
         preds.push(Pred::Projection(t, assoc, tcx.list(args), b));
     }
+    tr.bindings.retain(|&(_, b)| !is_const(b));
     // `T: Iterator<Item: Copy>`: `<T as Iterator>::Item: Copy`.
     for (assoc, b) in &tr.assoc_bounds {
         let mut args = vec![t];
@@ -552,6 +565,16 @@ pub(crate) fn alias_ty<'s>(tcx: &TyCtxt<'s>, env: &Env<'_, 's>, expanding: &mut 
 
 /// The associated item `name` of trait `t` or one of its supertraits:
 /// the item and the trait it is in.
+/// The associated const `name` of trait `t`.
+pub(crate) fn find_assoc_const(env: &Env, t: DefId, name: &str) -> Option<DefId> {
+    let r = env.r;
+    let m = r.defs[t.0 as usize].module?;
+    match r.lookup(m, name, Ns::Value, m) {
+        Some(Res::Def(a)) if r.defs[a.0 as usize].kind == DefKind::AssocConst => Some(a),
+        _ => None,
+    }
+}
+
 pub(crate) fn find_assoc(env: &Env, t: DefId, name: &str) -> Option<(DefId, DefId)> {
     let mut seen = FastSet::default();
     find_assoc_in(env, t, name, &mut seen)

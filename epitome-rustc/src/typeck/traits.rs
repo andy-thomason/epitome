@@ -315,6 +315,15 @@ impl<'a, 's> FnCtxt<'a, 's> {
                         Pred::Projection(sub(self, t), a, tcx.list(l2), sub(self, b))
                     }
                 };
+                // `<T as Foo>::ASSOC<?N> == 10` (an associated const's
+                // binding): the impl'"'"'s value for it, equal to 10, settles `?N`.
+                if let Pred::Projection(t, a, l, b) = &p
+                    && self.r.defs[a.0 as usize].kind == DefKind::AssocConst
+                {
+                    let args = tcx.tys(*l);
+                    self.solve_const_projection(*a, &args, *b);
+                    let _ = t;
+                }
                 // Unknowns in it (`C<?N>: Foo<3>`): the one impl that fits
                 // may settle them.
                 if let Pred::Trait(t, tr) = &p
@@ -328,6 +337,53 @@ impl<'a, 's> FnCtxt<'a, 's> {
             }
             o = tcx.generics[x.0 as usize].parent;
         }
+    }
+
+    /// `<args[0] as Trait<..>>::assoc<own..> == want` for an associated
+    /// const: what the impl gives it, made equal to `want`.
+    fn solve_const_projection(&mut self, assoc: DefId, args: &[Ty], want: Ty) {
+        let tcx = self.tcx;
+        let Some(tr) = self.trait_of(assoc) else { return };
+        let ntr = tcx.all_params(tr).len();
+        if args.len() < ntr {
+            return;
+        }
+        let name = self.r.defs[assoc.0 as usize].name;
+        let Select::Yes(Source::Impl(i, iargs)) = self.select(args[0], tr, &args[1..ntr], 0) else { return };
+        let Some(item) = self.impl_item(i, name, Ns::Value) else { return };
+        let Some(value) = self.const_item_value(item) else { return };
+        // The impl'"'"'s own arguments, then the const'"'"'s.
+        let params = tcx.all_params(item);
+        let mut a = iargs;
+        a.extend_from_slice(&args[ntr..]);
+        if a.len() != params.len() {
+            return;
+        }
+        let c = crate::ty::collect::subst_const(tcx, value, &params, &a);
+        let got = self.mk(TyKind::ConstArg(c));
+        self.infer.unify(got, want);
+    }
+
+    /// The value of a `const` item, as a constant: its initializer, if it
+    /// is a literal or a const parameter.
+    fn const_item_value(&self, item: DefId) -> Option<crate::ty::ConstId> {
+        let (k, f, node) = self.env.at_of(item);
+        let ast = self.env.ast(k, f);
+        let e = ast.children(node).iter().rev().copied().find(|&c| {
+            matches!(ast.kind(c), Kind::Literal | Kind::PathExpr | Kind::Unary | Kind::Block)
+        })?;
+        let mut l = crate::ty::lower::Lower {
+            tcx: self.tcx,
+            env: &self.env,
+            expanding: crate::hash::FastSet::default(),
+            impl_self: None,
+            holes: false,
+            k,
+            file: f,
+            owner: item,
+            failed: false,
+        };
+        Some(l.konst(e))
     }
 
     /// A snapshot of inference and of the obligations.

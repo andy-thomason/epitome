@@ -13,6 +13,7 @@
 pub mod build;
 pub mod cfg;
 pub mod moves;
+pub mod mutability;
 
 use crate::ast::{Ast, NodeId};
 use crate::resolve::DefId;
@@ -62,6 +63,7 @@ impl Session {
         only: &[u32],
     ) -> Vec<Diagnostic> {
         let built = self.cfgs(crates, r, tcx, res, only);
+        let fn_mut = mutability::mutating_closures(&built.cfgs);
         let index = crate::typeck::Index::new(tcx, r);
         // A compiler's stack: the solver recurses deeply on some types.
         let mut out: Vec<Diagnostic> = std::thread::scope(|sc| {
@@ -74,7 +76,9 @@ impl Session {
                         let found = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                             let mut solver = crate::typeck::Solver::for_owner(tcx, r, crates, &index, cfg.owner);
                             let order = |n: NodeId| ast.origin_of(ast.node(n).first as usize);
-                            moves::check(cfg, tcx, &mut solver, &order)
+                            let mut v = moves::check(cfg, tcx, &mut solver, &order);
+                            v.extend(mutability::check(cfg, tcx, &fn_mut));
+                            v
                         }))
                         .unwrap_or_default();
                         for raw in found {
@@ -370,26 +374,37 @@ mod tests {
         v
     }
 
-    /// Moves and initialisation: the errors it says, and no others.
-    #[test]
-    fn moves_and_initialisation() {
+    /// The errors `borrowck` finds in a file of the tests, and no others than
+    /// the file says.
+    fn assert_errors_as_annotated(file: &str) {
         let Some(core) = core_src() else {
             eprintln!("no rust-src: skipped");
             return;
         };
-        let file = "tests/borrowck/moves.rs";
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(file);
         let mut want = annotated(&path);
         want.sort();
         let session = Session::new(Options { threads: 4, cfg: Some(crate::cfg::CfgSet::host()), ..Default::default() });
-        let mut crates = session.parse_crates(vec![CrateRoot::new("core", core), CrateRoot::new("moves", &path)]);
+        let mut crates = session.parse_crates(vec![CrateRoot::new("core", core), CrateRoot::new("tested", &path)]);
         session.expand(&mut crates);
         let r = session.resolve(&crates);
         let tcx = session.collect_types(&crates, &r);
         let res = session.typeck(&crates, &r, &tcx);
         let mut got: Vec<(usize, String)> = session.borrowck(&crates, &r, &tcx, &res, &[1]).iter().map(|d| (d.line, d.code.to_string())).collect();
         got.sort();
-        assert_eq!(got, want, "found (left), annotated (right)");
+        assert_eq!(got, want, "{file}: found (left), annotated (right)");
+    }
+
+    /// Moves and initialisation: the errors it says, and no others.
+    #[test]
+    fn moves_and_initialisation() {
+        assert_errors_as_annotated("tests/borrowck/moves.rs");
+    }
+
+    /// Mutability: the errors it says, and no others.
+    #[test]
+    fn mutability() {
+        assert_errors_as_annotated("tests/borrowck/mutability.rs");
     }
 
     /// The rendering is Rust: `rustc` takes it (for numbers and references).

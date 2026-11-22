@@ -513,6 +513,10 @@ impl<'a, 'b, 's> An<'a, 'b, 's> {
         let node = p.at.unwrap_or(node);
         let Some((path, stop)) = self.locate(p) else { return };
         self.check_use(path, node, st);
+        if self.cfg.locals[p.local.0 as usize].kind == LocalKind::Static {
+            self.err("E0507", node, "cannot move out of a static item", None);
+            return;
+        }
         // What cannot be moved out of. (An element of an array or slice is
         // the more particular error, behind a reference or not.)
         let mut behind = false;

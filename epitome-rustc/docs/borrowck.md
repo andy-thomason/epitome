@@ -141,6 +141,39 @@ closures moved twice, and a `&mut` moved.
 
 `tests/borrowck/moves.rs` has the cases, annotated with `//~ E0382` and the like.
 
+## Mutability (milestone 3)
+
+`src/borrowck/mutability.rs`. A place can change by rustc's rule: a variable if
+it is `mut` (a temporary always is), a field or element if what it is part of
+is, `*r` of a `&mut T` however `r` is declared (but not if `r` is itself behind a
+`&`), never `*r` of a `&T` or `*const T`, always of a `*mut T`, a `Box`'s contents
+if the box is. Then:
+
+| | |
+|---|---|
+| E0596 | `&mut p` (or `&raw mut p`, or an autoref'd method receiver, or a `ref mut` binding) of a place that cannot change |
+| E0594 | `p.f = v`, `*r = v`, `a[i] = v`, `p.f += v` where it cannot |
+
+(A whole variable assigned twice is E0384, in `moves`.) What decides is how a
+place is *used*, which typeck does not say: it records `Deref::deref` and
+`Index::index` and leaves `DerefMut` and `IndexMut` to the context. So the
+builder knows when a place is to be changed (assigned to, `&mut`, a compound
+assignment, a `ref mut` pattern, a callee called through `FnMut`) and picks the
+`_mut` method then, where the type has one: `*rc = 1` is an error because `Rc`
+has no `DerefMut`.
+
+- **Closures.** A closure's captured variable is the place in its environment
+  (the field, and the `*` after it if held by reference); whether it can change
+  is whether the variable it came from was declared `mut`. A closure whose body
+  changes what it captured is `FnMut`, and calling one needs its variable to be
+  mutable.
+- **Statics** are places of their own: not `static mut`, they cannot change
+  (and cannot be moved out of: E0507).
+- **Parameters**: one that is not just a name (`(ref mut a, b): (A, B)`) is a
+  `mut` local, as in rustc.
+
+`tests/borrowck/mutability.rs` has the cases.
+
 ## What is in the way
 
 - No MIR, and no lifetimes in types: `Ty::Ref` has no region.
@@ -154,7 +187,7 @@ closures moved twice, and a `&mut` moved.
 | 0 | The harness and interface above | no | done |
 | 1 | A control-flow graph of a body, for borrow checking only (places: local, field, deref, index, downcast; uses, borrows, assignments, drops, calls, scope ends), built on demand from the typed tree | no | **done**: 99.9% of `core` (see below) |
 | 2 | Moves and initialisation: E0381 E0382 E0384 E0507 E0508 E0509, closure captures; maybe-uninit and moved dataflow over place paths | no | **done**: 67% of the 345 tests that expect only these (see below) |
-| 3 | Mutability: E0596 E0594 E0384, from binding modes, `&` against `&mut`, closures, `ref` patterns | no | most of the ~210 tests |
+| 3 | Mutability: E0596 E0594 E0384, from binding modes, `&` against `&mut`, closures, `ref` patterns | no | **done**: 74% of the 156 tests that expect only mutability errors |
 | 4 | Regions in signatures: keep what `ty/lower` drops (lifetime parameters, `'a: 'b`, `T: 'a`, elision, `'static`, `dyn Trait + 'a` defaults, higher-ranked bounds); variance of ADT parameters; region-annotated types for borrowck only, leaving the shared `Ty` alone | yes | signatures and variance match rustc |
 | 5 | Loans (NLL): region variables per body, subtyping constraints with variance, liveness, outlives solving, loan scopes and kills, two-phase borrows, reborrows, closure captures: E0499 E0502 E0503 E0505 E0506 E0597 E0515 E0716 E0521 | yes | most of the borrowck and nll tests |
 | 6 | Associated types and `impl Trait` with regions, implied bounds, the higher-ranked leak check, unsafe and raw-pointer boundaries | yes | the rest |

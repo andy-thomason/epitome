@@ -38,6 +38,8 @@ pub enum LocalKind {
     Var,
     /// A temporary the builder made.
     Temp,
+    /// A static item, as used here (`mutable` if it is `static mut`).
+    Static,
 }
 
 #[derive(Clone, Debug)]
@@ -224,6 +226,10 @@ pub struct Cfg {
     pub locals: Vec<LocalDecl>,
     pub arg_count: usize,
     pub blocks: Vec<BlockData>,
+    /// In a closure: for each variable captured, in order of the fields of its
+    /// environment: whether it was declared `mut`, whether it is held by value,
+    /// and its type.
+    pub upvars: Vec<(bool, bool, Ty)>,
 }
 
 impl Cfg {

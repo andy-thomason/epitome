@@ -7,6 +7,7 @@
 //! their files in parallel on a pool of threads (`pool`).
 
 pub mod ast;
+pub mod borrowck;
 pub mod cfg;
 pub mod device;
 pub mod consteval;

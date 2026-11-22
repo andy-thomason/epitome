@@ -229,6 +229,27 @@ fn defaults<'s>(tcx: &TyCtxt<'s>, env: &Env<'_, 's>, d: DefId) -> Vec<Option<Ty>
 fn impl_header<'s>(tcx: &TyCtxt<'s>, env: &Env<'_, 's>, d: DefId) -> (ImplDef, bool) {
     let (at, ast) = node_of(env, d);
     let kids = ast.children(at.2).to_vec();
+    // `reuse impl Tr for T { .. }`: the trait is the first type, with no
+    // `ImplTrait` around it, and the self type the last.
+    if ast.kind(at.2) == Kind::Delegation {
+        let types: Vec<NodeId> = kids.iter().copied().filter(|&c| is_type(ast.kind(c))).collect();
+        let mut l = Lower { tcx, env, expanding: FastSet::default(), impl_self: None, holes: false, k: at.0, file: at.1, owner: d, failed: false };
+        let self_ty = match types.last() {
+            Some(&t) => l.ty(t),
+            None => l.tcx.error(),
+        };
+        l.impl_self = Some((at, self_ty));
+        let negative = kids.iter().any(|&c| ast.kind(c) == Kind::Op);
+        let trait_ref = if types.len() > 1 {
+            ast.children(types[0]).first().and_then(|&path| l.trait_ref(path))
+        } else {
+            None
+        };
+        if types.len() > 1 && trait_ref.is_none() {
+            l.failed = true;
+        }
+        return (ImplDef { def: d, self_ty, trait_ref, negative }, l.failed);
+    }
     let self_node = kids.iter().rev().copied().find(|&c| is_type(ast.kind(c)));
     let mut l = Lower { tcx, env, expanding: FastSet::default(), impl_self: None, holes: false, k: at.0, file: at.1, owner: d, failed: false };
     let self_ty = match self_node {

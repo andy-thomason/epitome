@@ -329,6 +329,16 @@ impl<'c, 'r, 's> Collector<'c, 'r, 's> {
             }
             // `reuse path;`, `reuse m::{a, b as c};`: functions.
             Kind::Delegation => {
+                // `reuse impl Tr for T { .. }`: an impl of the trait, whose
+                // items are all delegated (calls go through the trait).
+                let is_impl = self.ast.children(item).iter().any(|&c| self.ast.kind(c) == Kind::Keyword && self.ast.token(c).0 == "impl");
+                if is_impl {
+                    let sub = self.r.new_module(self.krate, Some(m), false);
+                    let d = self.def(DefKind::Impl, "", m, item, vis, Some(sub));
+                    self.r.modules[sub.0 as usize].def = Some(d);
+                    self.r.modules[sub.0 as usize].normal = m;
+                    self.r.module_of.insert((self.krate, self.file, item), sub);
+                }
                 for (n, node) in self.delegated(item) {
                     let d = self.def(DefKind::Fn, n, m, node, vis, None);
                     self.r.bind(m, n, Ns::Value, Res::Def(d), vis);

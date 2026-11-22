@@ -1846,7 +1846,22 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     if let Some(&a) = tcx.tys(tr.args).first()
                         && let TyKind::Tuple(l) = tcx.kind(self.infer.shallow(a))
                     {
-                        inputs = Some(tcx.tys(l));
+                        // Not what names the closure's own type (`F:
+                        // Fn(<F as Trait>::Assoc)`), which says nothing yet
+                        // when another bound (`F: Fn(u32)`) does.
+                        // (Or a variable standing for such a projection,
+                        // which is what it already is once registered.)
+                        let own = tcx.tys(l).iter().any(|&x| {
+                            let x = self.infer.shallow(x);
+                            self.projects_from(x, t)
+                                || self.infer.var_kind(x).is_some()
+                                    && self.pending.iter().any(|&(_, pl, v)| {
+                                        self.infer.shallow(v) == x && tcx.tys(pl).first().is_some_and(|&s| self.mentions(s, t))
+                                    })
+                        });
+                        if !own || inputs.is_none() {
+                            inputs = Some(tcx.tys(l));
+                        }
                     }
                 }
                 // Not a projection on the closure's own type (`Fn0: Fn(i32)

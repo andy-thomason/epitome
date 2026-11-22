@@ -572,6 +572,18 @@ mod tests {
     }
 
     #[test]
+    fn closure_input_from_the_bound_not_naming_it() {
+        let Some(core) = core_src() else {
+            eprintln!("no rust-src: skipped");
+            return;
+        };
+        let s = plain(&dump_with("tests/typeck/closure_own_bound.rs", "closure_own_bound", Some(core)));
+        let calls: Vec<&str> = s.lines().filter(|l| l.starts_with("x.into()")).collect();
+        let want = "x.into() : u32  [core::convert::Into::into]";
+        assert!(calls.len() == 2 && calls.iter().all(|&l| l == want), "want two `{want}` in:\n{s}");
+    }
+
+    #[test]
     fn projection_chains_are_followed_far() {
         let Some(core) = core_src() else {
             eprintln!("no rust-src: skipped");

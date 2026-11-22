@@ -68,24 +68,43 @@ pub enum Proj {
     Subslice(u64, u64, bool, Ty),
 }
 
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Debug)]
 pub struct Place {
     pub local: Local,
     pub proj: Vec<Proj>,
     /// The type of the place.
     pub ty: Ty,
+    /// The expression it was named by, where there is one: what an error
+    /// about its use points at. (Not part of what the place is.)
+    pub at: Option<NodeId>,
+}
+
+impl PartialEq for Place {
+    fn eq(&self, o: &Place) -> bool {
+        self.local == o.local && self.proj == o.proj && self.ty == o.ty
+    }
+}
+
+impl Eq for Place {}
+
+impl std::hash::Hash for Place {
+    fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
+        self.local.hash(h);
+        self.proj.hash(h);
+        self.ty.hash(h);
+    }
 }
 
 impl Place {
     pub fn local(local: Local, ty: Ty) -> Place {
-        Place { local, proj: Vec::new(), ty }
+        Place { local, proj: Vec::new(), ty, at: None }
     }
 
     /// This place with `p` added, of type `ty`.
     pub fn project(&self, p: Proj, ty: Ty) -> Place {
         let mut proj = self.proj.clone();
         proj.push(p);
-        Place { local: self.local, proj, ty }
+        Place { local: self.local, proj, ty, at: self.at }
     }
 }
 
@@ -115,6 +134,9 @@ pub enum Rvalue {
     Ref(Mutbl, Place),
     /// `&raw const p` or `&raw mut p`.
     AddrOf(Mutbl, Place),
+    /// A closure's shared capture of a variable: of the parts of it the
+    /// closure uses, which are not known here, so not of the parts.
+    CaptureRef(Place),
     Binary(String, Operand, Operand),
     Unary(String, Operand),
     /// `as`, and the coercions that change a value (unsizing, to `fn`).
@@ -133,6 +155,9 @@ pub enum StmtKind {
     StorageDead(Local),
     /// The value in the place is dropped (if its type needs it).
     Drop(Place),
+    /// The place may have been given a value by code that is not followed
+    /// (an `asm!`'s output).
+    MaybeInit(Place),
 }
 
 #[derive(Clone, Debug)]
@@ -231,7 +256,7 @@ impl Cfg {
                         place_ok(p)?;
                         match rv {
                             Rvalue::Use(o) | Rvalue::Unary(_, o) | Rvalue::Cast(o, _) | Rvalue::Repeat(o, _) => operand_ok(o)?,
-                            Rvalue::Ref(_, p) | Rvalue::AddrOf(_, p) | Rvalue::Discriminant(p) | Rvalue::Len(p) => place_ok(p)?,
+                            Rvalue::Ref(_, p) | Rvalue::AddrOf(_, p) | Rvalue::CaptureRef(p) | Rvalue::Discriminant(p) | Rvalue::Len(p) => place_ok(p)?,
                             Rvalue::Binary(_, a, b) => {
                                 operand_ok(a)?;
                                 operand_ok(b)?
@@ -248,7 +273,7 @@ impl Cfg {
                             return Err(format!("no local _{}", l.0));
                         }
                     }
-                    StmtKind::Drop(p) => place_ok(p)?,
+                    StmtKind::Drop(p) | StmtKind::MaybeInit(p) => place_ok(p)?,
                 }
             }
             let Some((t, _)) = &b.term else { return Err(format!("bb{i} has no terminator")) };
@@ -358,6 +383,7 @@ impl<'a, 's> Show<'a, 's> {
             Rvalue::Ref(Mutbl::Mut, p) => format!("&mut {}", self.place(cfg, p)),
             Rvalue::AddrOf(Mutbl::Not, p) => format!("&raw const {}", self.place(cfg, p)),
             Rvalue::AddrOf(Mutbl::Mut, p) => format!("&raw mut {}", self.place(cfg, p)),
+            Rvalue::CaptureRef(p) => format!("&capture {}", self.place(cfg, p)),
             Rvalue::Binary(op, a, b) => format!("{} {op} {}", self.operand(cfg, a), self.operand(cfg, b)),
             Rvalue::Unary(op, a) => format!("{op}{}", self.operand(cfg, a)),
             Rvalue::Cast(o, t) => format!("{} as {}", self.operand(cfg, o), self.ty(*t)),
@@ -394,6 +420,7 @@ impl<'a, 's> Show<'a, 's> {
             StmtKind::StorageLive(l) => format!("StorageLive({})", self.local(cfg, *l)),
             StmtKind::StorageDead(l) => format!("StorageDead({})", self.local(cfg, *l)),
             StmtKind::Drop(p) => format!("drop({})", self.place(cfg, p)),
+            StmtKind::MaybeInit(p) => format!("maybe_init({})", self.place(cfg, p)),
         }
     }
 
@@ -454,6 +481,7 @@ impl<'a, 's> Show<'a, 's> {
             StmtKind::StorageLive(l) => format!("/* StorageLive({}) */{c}", self.local(cfg, *l)),
             StmtKind::StorageDead(l) => format!("/* StorageDead({}) */{c}", self.local(cfg, *l)),
             StmtKind::Drop(p) => format!("/* drop({}) */{c}", self.place(cfg, p)),
+            StmtKind::MaybeInit(p) => format!("/* maybe initialised by asm!: {} */{c}", self.place(cfg, p)),
         }
     }
 

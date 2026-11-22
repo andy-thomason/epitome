@@ -257,6 +257,34 @@ impl<'a, 's> Builder<'a, 's> {
         }
     }
 
+    /// Whether `t` has no values: `!`, an enum with no variants (or whose
+    /// variants each have such a field), a struct or tuple with such a field.
+    /// (Whether it can be seen to be is not asked: a call past which the code
+    /// is taken as not reached only loses errors.)
+    fn uninhabited(&self, t: Ty, depth: u32) -> bool {
+        let tcx = self.tcx();
+        if depth > 4 {
+            return false;
+        }
+        match tcx.kind(t) {
+            TyKind::Never => true,
+            TyKind::Tuple(l) => tcx.tys(l).into_iter().any(|x| self.uninhabited(x, depth + 1)),
+            TyKind::Adt(d, l) => {
+                let Some(adt) = tcx.adts.get(&d) else { return false };
+                let args = tcx.tys(l);
+                let field_void = |v: &crate::ty::VariantDef| {
+                    v.fields.iter().any(|f| self.uninhabited(subst(tcx, f.ty, &tcx.all_params(d), &args), depth + 1))
+                };
+                match adt.kind {
+                    AdtKind::Enum => adt.variants.iter().all(field_void),
+                    AdtKind::Struct => adt.variants.first().is_some_and(field_void),
+                    AdtKind::Union => false,
+                }
+            }
+            _ => false,
+        }
+    }
+
     fn is_never(&self, t: Ty) -> bool {
         matches!(self.tcx().kind(t), TyKind::Never)
     }
@@ -379,8 +407,20 @@ impl<'a, 's> Builder<'a, 's> {
 
     // ---- places ----
 
+    /// The binding an or-pattern's other alternatives' is the same as: the
+    /// first's, through the nesting.
+    fn canon(&self, mut n: NodeId) -> NodeId {
+        for _ in 0..16 {
+            match self.alias.get(&n) {
+                Some(&m) if m != n => n = m,
+                _ => break,
+            }
+        }
+        n
+    }
+
     fn place_of_local(&mut self, key: NodeId) -> R<Place> {
-        let key = *self.alias.get(&key).unwrap_or(&key);
+        let key = self.canon(key);
         if let Some(&l) = self.locals.get(&key) {
             return Ok(Place::local(l, self.cfg.locals[l.0 as usize].ty));
         }
@@ -489,7 +529,16 @@ impl<'a, 's> Builder<'a, 's> {
     // ---- calls ----
 
     fn call_into(&mut self, func: Callee, args: Vec<Operand>, dest: &Place, node: NodeId) {
-        let diverges = self.is_never(dest.ty);
+        // It does not return if it is to a `!` (not only if where it goes
+        // is: a diverging call's value is made `()` or anything).
+        let returns_never = match &func {
+            Callee::Fn(d, l) => self.ret_ty(*d, *l).is_ok_and(|t| self.is_never(t)),
+            Callee::Value(o) => match self.tcx().kind(self.operand_ty(o)) {
+                TyKind::FnPtr(sig) => self.is_never(self.tcx().sig_of(sig).output),
+                _ => false,
+            },
+        };
+        let diverges = self.is_never(dest.ty) || returns_never || self.uninhabited(dest.ty, 0);
         let target = if diverges { None } else { Some(self.new_block()) };
         self.end(Term::Call { func, args, dest: dest.clone(), target }, node);
         if let Some(t) = target {
@@ -520,10 +569,13 @@ impl<'a, 's> Builder<'a, 's> {
     /// adjusted as typeck says.
     fn expr_place(&mut self, n: NodeId) -> R<Place> {
         let p = self.unadjusted_place(n)?;
-        match self.tables.adjustments.get(&n).cloned() {
-            Some(adj) if !adj.is_empty() => self.adjust(n, p, &adj),
-            _ => Ok(p),
-        }
+        let mut p = match self.tables.adjustments.get(&n).cloned() {
+            Some(adj) if !adj.is_empty() => self.adjust(n, p, &adj)?,
+            _ => p,
+        };
+        // Named by `n`, for an error to point at.
+        p.at = Some(n);
+        Ok(p)
     }
 
     fn expr_operand(&mut self, n: NodeId) -> R<Operand> {
@@ -854,6 +906,20 @@ impl<'a, 's> Builder<'a, 's> {
                     // Its operands are not followed.
                     "asm" | "global_asm" => {
                         let t = self.ty(n)?;
+                        // Any named local in it may be one it gives a value.
+                        let text = self.text(n);
+                        let words: std::collections::HashSet<&str> = text.split(|c: char| !(c.is_alphanumeric() || c == '_')).collect();
+                        let named: Vec<(Local, Ty)> = self
+                            .cfg
+                            .locals
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, d)| matches!(d.kind, LocalKind::Var | LocalKind::Arg) && d.name.as_deref().is_some_and(|nm| words.contains(nm)))
+                            .map(|(i, d)| (Local(i as u32), d.ty))
+                            .collect();
+                        for (l, lt) in named {
+                            self.emit(StmtKind::MaybeInit(Place::local(l, lt)), n);
+                        }
                         self.assign(dest, Rvalue::Use(Operand::Const("asm!(..)".into(), t)), n);
                     }
                     _ => return Err(format!("macro `{name}!`")),
@@ -944,19 +1010,18 @@ impl<'a, 's> Builder<'a, 's> {
         let op = self.text(kids[1]);
         match op.as_str() {
             "&&" | "||" => {
-                self.expr_into(kids[0], dest)?;
-                let rhs = self.new_block();
-                let done = self.new_block();
-                let c = Operand::Use(dest.clone());
-                if op == "&&" {
-                    self.branch(c, rhs, done, n);
-                } else {
-                    self.branch(c, done, rhs, n);
-                }
-                self.at(rhs);
-                self.expr_into(kids[2], dest)?;
-                self.goto(done, n);
-                self.at(done);
+                // As control flow, as it is in a condition: the right side
+                // runs only if the left said so. `dest` is assigned once.
+                let (yes, no, join) = (self.new_block(), self.new_block(), self.new_block());
+                self.cond_branch(n, yes, no)?;
+                let b = self.bool_ty();
+                self.at(yes);
+                self.assign(dest, Rvalue::Use(Operand::Const("true".into(), b)), n);
+                self.goto(join, n);
+                self.at(no);
+                self.assign(dest, Rvalue::Use(Operand::Const("false".into(), b)), n);
+                self.goto(join, n);
+                self.at(join);
             }
             "=" => {
                 let rhs = self.expr_operand(kids[2])?;
@@ -1348,7 +1413,7 @@ impl<'a, 's> Builder<'a, 's> {
 
     /// The variable a binding pattern declares: made (and live) at first.
     fn declare_var(&mut self, pat: NodeId) -> R<Local> {
-        let key = *self.alias.get(&pat).unwrap_or(&pat);
+        let key = self.canon(pat);
         if let Some(&l) = self.locals.get(&key) {
             return Ok(l);
         }
@@ -1376,15 +1441,73 @@ impl<'a, 's> Builder<'a, 's> {
 
     /// Assigns what the patterns matched (from `from`) to their variables.
     fn flush_binds(&mut self, from: usize, node: NodeId) {
+        self.flush_binds_in(from, node, None);
+    }
+
+    /// The same for an arm with a guard: a variable bound by value gets a
+    /// stand-in for the guard to read, and what it is bound to is `rebind`s
+    /// once the guard holds (the guard sees the scrutinee, not a move out of
+    /// it, and an arm after a failed guard still has all of it).
+    fn flush_binds_guarded(&mut self, from: usize, node: NodeId) -> Vec<(Local, Place)> {
+        let mut later = Vec::new();
+        self.flush_binds_in(from, node, Some(&mut later));
+        later
+    }
+
+    fn rebind(&mut self, later: Vec<(Local, Place)>, node: NodeId) {
+        for (l, from) in later {
+            let ty = self.cfg.locals[l.0 as usize].ty;
+            self.emit(StmtKind::StorageLive(l), node);
+            self.assign(&Place::local(l, ty), Rvalue::Use(Operand::Use(from)), node);
+        }
+    }
+
+    fn flush_binds_in(&mut self, from: usize, node: NodeId, mut later: Option<&mut Vec<(Local, Place)>>) {
         let binds: Vec<Bind> = self.binds.drain(from..).collect();
         for b in binds {
             let Ok(l) = self.declare_var(b.pat) else { continue };
-            let place = Place::local(l, self.cfg.locals[l.0 as usize].ty);
-            let rv = match b.mode {
-                BindingMode::Value => Rvalue::Use(Operand::Use(b.place)),
-                BindingMode::Ref(m) => Rvalue::Ref(m, b.place),
+            let ty = self.cfg.locals[l.0 as usize].ty;
+            let place = Place::local(l, ty);
+            let rv = match (b.mode, later.as_deref_mut()) {
+                (BindingMode::Value, Some(later)) => {
+                    later.push((l, b.place));
+                    Rvalue::Use(Operand::Const("<what the guard reads>".into(), ty))
+                }
+                (BindingMode::Value, None) => Rvalue::Use(Operand::Use(b.place)),
+                (BindingMode::Ref(m), _) => Rvalue::Ref(m, b.place),
             };
             self.assign(&place, rv, node);
+        }
+    }
+
+    /// `n` as a condition: control goes to `yes` if it holds and to `no` if
+    /// not, `&&` and `||` by their short-circuiting (no value is made of the
+    /// parts).
+    fn cond_branch(&mut self, n: NodeId, yes: Block, no: Block) -> R<()> {
+        let kids = self.kids(n);
+        match self.ast.kind(n) {
+            Kind::Paren => self.cond_branch(kids[0], yes, no),
+            Kind::Binary if self.text(kids[1]) == "&&" => {
+                let mid = self.new_block();
+                self.cond_branch(kids[0], mid, no)?;
+                self.at(mid);
+                self.cond_branch(kids[2], yes, no)
+            }
+            Kind::Binary if self.text(kids[1]) == "||" => {
+                let mid = self.new_block();
+                self.cond_branch(kids[0], yes, mid)?;
+                self.at(mid);
+                self.cond_branch(kids[2], yes, no)
+            }
+            _ => {
+                self.push_scope(false);
+                let o = self.expr_operand(n)?;
+                let c = self.temp_outside(self.bool_ty(), n);
+                self.assign(&c, Rvalue::Use(o), n);
+                self.pop_scope(n);
+                self.branch(Operand::Use(c), yes, no, n);
+                Ok(())
+            }
         }
     }
 
@@ -1393,6 +1516,12 @@ impl<'a, 's> Builder<'a, 's> {
     fn cond(&mut self, n: NodeId, els: Block) -> R<()> {
         let kids = self.kids(n);
         match self.ast.kind(n) {
+            Kind::Binary if self.text(kids[1]) == "||" => {
+                let then = self.new_block();
+                self.cond_branch(n, then, els)?;
+                self.at(then);
+                Ok(())
+            }
             Kind::Binary if self.text(kids[1]) == "&&" => {
                 self.cond(kids[0], els)?;
                 self.cond(kids[2], els)
@@ -1467,14 +1596,17 @@ impl<'a, 's> Builder<'a, 's> {
             self.push_scope(true);
             let mark = self.binds.len();
             self.match_pat(ak[0], scrut.clone(), Some(next))?;
-            self.flush_binds(mark, arm);
             let mut i = 1;
             if let Some(&g) = ak.get(1)
                 && self.ast.kind(g) == Kind::Guard
             {
+                let later = self.flush_binds_guarded(mark, arm);
                 let ge = self.ast.children(g)[0];
                 self.cond(ge, next)?;
+                self.rebind(later, arm);
                 i = 2;
+            } else {
+                self.flush_binds(mark, arm);
             }
             if let Some(&body) = ak.get(i) {
                 self.expr_into(body, dest)?;
@@ -1589,16 +1721,45 @@ impl<'a, 's> Builder<'a, 's> {
         let mut ops = Vec::new();
         for cap in &caps {
             let src = self.place_of_local(cap.local)?;
-            if cap.by_value {
+            // (A `use ||` closure clones what it uses, where it can.)
+            let uses = self.ast.children(n).iter().any(|&c| self.ast.kind(c) == Kind::Keyword && self.ast.token(c).0 == "use");
+            if cap.by_value && !uses && !self.only_fields_used(n, cap.local) {
                 ops.push(Operand::Use(src));
             } else {
                 // (Shared: whether it is changed through is not recorded.)
-                ops.push(self.borrow_operand(Operand::Use(src), n));
+                let rt = self.tcx().mk(TyKind::Ref(Mutbl::Not, src.ty));
+                let t = self.temp(rt, n);
+                self.assign(&t, Rvalue::CaptureRef(src), n);
+                ops.push(Operand::Use(t));
             }
         }
         self.closures.push(n);
         self.assign(dest, Rvalue::Aggregate(AggKind::Closure(c), ops), n);
         Ok(())
+    }
+
+    /// Whether the closure `n` uses the captured variable `local` only through
+    /// fields (`p.x`): a capture of the whole variable stands for one of those
+    /// fields, whose move leaves the rest of the variable as it was.
+    fn only_fields_used(&self, n: NodeId, local: NodeId) -> bool {
+        let ast = self.ast;
+        let mut stack = vec![(n, n)];
+        let mut found = false;
+        while let Some((x, parent)) = stack.pop() {
+            if ast.kind(x) == Kind::PathExpr
+                && let Some(Res::Local(p)) = ast.children(x).first().and_then(|&path| self.res(path))
+                && *p == local
+            {
+                found = true;
+                if !(ast.kind(parent) == Kind::Field && ast.children(parent).first() == Some(&x)) {
+                    return false;
+                }
+            }
+            for &c in ast.children(x) {
+                stack.push((c, x));
+            }
+        }
+        found
     }
 
     // ---- patterns ----
@@ -1644,7 +1805,12 @@ impl<'a, 's> Builder<'a, 's> {
             p = self.deref(&p)?;
         }
         match self.ast.kind(pat) {
-            Kind::WildPat | Kind::RestPat | Kind::NeverPat => Ok(()),
+            Kind::WildPat | Kind::RestPat => Ok(()),
+            // Nothing is there to match: this way is not taken.
+            Kind::NeverPat => {
+                self.end(Term::Unreachable, pat);
+                Ok(())
+            }
             Kind::ParenPat => self.match_pat(kids[0], p, fail),
             Kind::IdentPat => {
                 if let Some(res) = self.res(pat) {
@@ -1734,7 +1900,9 @@ impl<'a, 's> Builder<'a, 's> {
                     let mut names = Vec::new();
                     self.binding_names(alt, &mut names);
                     for (name, node) in names {
-                        if let Some((_, f)) = first.iter().find(|x| x.0 == name) {
+                        if let Some((_, f)) = first.iter().find(|x| x.0 == name)
+                            && *f != node
+                        {
                             self.alias.insert(node, *f);
                         }
                     }

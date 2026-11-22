@@ -833,8 +833,20 @@ impl<'a, 's> FnCtxt<'a, 's> {
             }
         }
         // A self type through a projection (`Matrix<R, <A as Alloc<R>>::
-        // Buffer>`): worked out where it can be.
+        // Buffer>`): worked out where it can be. A parameter only the `where`
+        // clauses give (`impl<T, U> Copy for G<T, U::B> where T: A<B = U>`)
+        // is found by them first.
         if has_projection(tcx, st) && depth < MAX_DEPTH {
+            for p in &preds {
+                if let Pred::Projection(_, a, l, ty) = p {
+                    let pl: Vec<Ty> = tcx.tys(*l).into_iter().map(|x| subst(tcx, x, &params, &args)).collect();
+                    let pl: Vec<Ty> = pl.into_iter().map(|x| self.normalize(x, depth + 1)).collect();
+                    let ty = subst(tcx, *ty, &params, &args);
+                    if let Some(got) = self.project(*a, &pl, depth + 1) {
+                        let _ = self.infer.unify(got, ty);
+                    }
+                }
+            }
             st = self.normalize(st, depth + 1);
         }
         if !self.infer.unify(st, t) {
@@ -1581,6 +1593,11 @@ impl<'a, 's> FnCtxt<'a, 's> {
             let own = tcx.generics[item.0 as usize].own.len();
             let self_ty = args[0];
             let targs = args[1..params.len() - own].to_vec();
+            let skipped = self.skip_during_dispatch(tr, recv);
+            if skipped {
+                self.rollback(s);
+                continue;
+            }
             let (inputs, output) = match self.callable_sig(item, tcx.list(args.clone())) {
                 Some(x) => x,
                 None => {
@@ -1606,6 +1623,38 @@ impl<'a, 's> FnCtxt<'a, 's> {
             return Some((item, args, inputs[1..].to_vec(), output));
         }
         None
+    }
+
+    /// `IntoIterator` says (`#[rustc_skip_during_method_dispatch(array,
+    /// boxed_slice)]`) not to be a method of an array, before edition 2021, or
+    /// of a boxed slice, before 2024: `boxed.into_iter()` borrows it.
+    fn skip_during_dispatch(&mut self, tr: DefId, recv: Ty) -> bool {
+        let tcx = self.tcx;
+        // The receiver is a reference to the self type, or the self type.
+        let mut t = self.infer.shallow(recv);
+        if let TyKind::Ref(_, x) = tcx.kind(t) {
+            t = self.infer.shallow(x);
+        }
+        let which = match tcx.kind(t) {
+            TyKind::Array(..) => "array",
+            TyKind::Adt(d, l)
+                if tcx.lang.get("owned_box") == Some(&d)
+                    && tcx.tys(l).first().is_some_and(|&x| matches!(tcx.kind(self.infer.shallow(x)), TyKind::Slice(_))) =>
+            {
+                "boxed_slice"
+            }
+            _ => return false,
+        };
+        let edition = self.env.crates[self.k as usize].edition;
+        let old = if which == "array" { edition < crate::lexer::Edition::E2021 } else { edition < crate::lexer::Edition::E2024 };
+        if !old {
+            return false;
+        }
+        let def = &self.r.defs[tr.0 as usize];
+        let ast = &self.env.crates[def.krate as usize].files[def.file as usize].ast;
+        crate::session::attributes(ast, def.node)
+            .filter(|(n, _)| n == "rustc_skip_during_method_dispatch")
+            .any(|(_, a)| ast.tokens_of(a).iter().any(|tk| tk.0 == which))
     }
 
     /// Whether function `item` takes `self`: only those are methods

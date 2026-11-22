@@ -116,7 +116,7 @@ fn main() -> ExitCode {
     let (mut resolve_stats, mut dump_res) = (false, false);
     let (mut dump_sigs, mut types_stats) = (false, false);
     let (mut dump_types, mut typeck_stats) = (false, false);
-    let mut borrowck = false;
+    let (mut borrowck, mut borrowck_all) = (false, false);
     let (mut dump_cfg, mut cfg_stats, mut cfg_compilable, mut dump_cfg_rust) = (false, false, false, false);
     let mut dump_layout = false;
     let (mut dump_mono, mut mono_stats) = (false, false);
@@ -156,6 +156,10 @@ fn main() -> ExitCode {
             "--dump-types" => dump_types = true,
             "--typeck-stats" => typeck_stats = true,
             "--borrowck" => borrowck = true,
+            "--borrowck-all" => {
+                borrowck = true;
+                borrowck_all = true;
+            }
             "--dump-cfg" => dump_cfg = true,
             "--dump-cfg-rust" => {
                 dump_cfg = true;
@@ -591,12 +595,14 @@ fn main() -> ExitCode {
         if dump_cfg || cfg_stats {
             let res = session.typeck(&crates, &r, &tcx);
             // `--dump-cfg` shows the last crate; the statistics, all.
-            let only: Vec<u32> = if cfg_stats { (0..crates.len() as u32).collect() } else { vec![crates.len() as u32 - 1] };
+            // ( shows the bodies of any crate with it in their name.)
+            let filter = std::env::var("EPITOME_CFG_FILTER").ok();
+            let only: Vec<u32> = if cfg_stats || filter.is_some() { (0..crates.len() as u32).collect() } else { vec![crates.len() as u32 - 1] };
             let t = std::time::Instant::now();
             let out = session.cfgs(&crates, &r, &tcx, &res, &only);
             let elapsed = t.elapsed();
             if dump_cfg {
-                for c in &out.cfgs {
+                for c in out.cfgs.iter().filter(|c| filter.as_ref().is_none_or(|f| c.name.contains(f.as_str()))) {
                     if dump_cfg_rust {
                         println!("{}", session.show_cfg(&crates, &r, &tcx, c, cfg_compilable));
                     } else {
@@ -624,7 +630,8 @@ fn main() -> ExitCode {
         if borrowck {
             // The last crate given is the program; the others are libraries.
             let res = session.typeck(&crates, &r, &tcx);
-            let diags = session.borrowck(&crates, &r, &tcx, &res, &[crates.len() as u32 - 1]);
+            let only: Vec<u32> = if borrowck_all { (0..crates.len() as u32).collect() } else { vec![crates.len() as u32 - 1] };
+            let diags = session.borrowck(&crates, &r, &tcx, &res, &only);
             for d in &diags {
                 println!("{d}");
             }

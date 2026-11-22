@@ -101,6 +101,12 @@ impl<'a> Ast<'a> {
         if i < self.original_len as usize { i as u32 } else { self.origin[i - self.original_len as usize] }
     }
 
+    /// The token at index `i`, or if it was made by a macro the file token its
+    /// expansion was called from (where an error about it is shown).
+    pub fn token_origin(&self, i: usize) -> Token<'a> {
+        self.tokens[self.origin_of(i) as usize]
+    }
+
     /// Whether every token of a node is from the file itself, in order.
     pub fn is_original(&self, id: NodeId) -> bool {
         self.node(id).end <= self.original_len

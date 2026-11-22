@@ -418,7 +418,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 up = parent_of.get(&up).copied().unwrap_or(node);
             }
             let first = ast.children(up).first() == Some(&child);
-            let borrowed = matches!(self.adjustments.get(&child).and_then(|a| a.first()), Some(Adjust::Borrow(_) | Adjust::Deref));
+            let borrowed = matches!(self.adjustments.get(&child).and_then(|a| a.first()), Some(Adjust::Borrow(_) | Adjust::Deref | Adjust::OverloadedDeref));
             let place_use = borrowed
                 || match ast.kind(up) {
                     Kind::Borrow | Kind::Unary => true,
@@ -426,6 +426,9 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     // borrowed (`borrowed`, from its adjustments): one taken
                     // by value (`hooks.run()`) is moved.
                     Kind::Field | Kind::Index | Kind::Match => first,
+                    // A function value called: borrowed, unless the call
+                    // consumes it (`FnOnce::call_once`).
+                    Kind::Call => first && !self.methods.iter().any(|m| m.0 == up && self.r.defs[m.1.0 as usize].name == "call_once"),
                     Kind::Let => !first,
                     Kind::Binary => first && ast.children(up).get(1).is_some_and(|&o| ast.text(o).ends_with('=') && !matches!(ast.text(o).as_str(), "==" | "!=" | "<=" | ">=")),
                     _ => false,

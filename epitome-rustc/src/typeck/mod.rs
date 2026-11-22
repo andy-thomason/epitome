@@ -572,6 +572,17 @@ mod tests {
     }
 
     #[test]
+    fn projection_chains_are_followed_far() {
+        let Some(core) = core_src() else {
+            eprintln!("no rust-src: skipped");
+            return;
+        };
+        let s = plain(&dump_with("tests/typeck/deep_projection.rs", "deep_projection", Some(core)));
+        let want = "b.anyone_can_call() : ()  [deep_projection::Trait::anyone_can_call]";
+        assert!(s.lines().any(|l| l == want), "no `{want}` in:\n{s}");
+    }
+
+    #[test]
     fn reuse_impl_is_an_impl() {
         let Some(core) = core_src() else {
             eprintln!("no rust-src: skipped");

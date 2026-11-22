@@ -64,6 +64,8 @@ impl Select {
 
 /// How deep impls' `where` clauses are checked, and projections followed.
 const MAX_DEPTH: u32 = 4;
+/// How deep an associated type that is another projection is followed.
+const MAX_PROJ_NEST: u32 = 64;
 
 /// How deep impls' `where` clauses are checked when a projection's impl is
 /// ambiguous at a body's usual depth.
@@ -997,6 +999,19 @@ impl<'a, 's> FnCtxt<'a, 's> {
                     a.push(self.infer.fresh());
                 }
                 let it = subst(tcx, it, &params, &a);
+                // An associated type that is another projection
+                // (`type Assoc = T::Assoc`, `W<W<W<()>>>` through every
+                // level) is followed to its end, up to a nesting of its own:
+                // not the depth that bounds selection.
+                if matches!(tcx.kind(it), TyKind::Projection(..)) {
+                    if self.proj_nest >= MAX_PROJ_NEST {
+                        return None;
+                    }
+                    self.proj_nest += 1;
+                    let n = self.normalize(it, depth);
+                    self.proj_nest -= 1;
+                    return Some(n);
+                }
                 Some(self.normalize(it, depth + 1))
             }
             Select::Yes(Source::Builtin(Some(out)))

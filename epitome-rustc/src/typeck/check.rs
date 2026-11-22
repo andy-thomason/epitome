@@ -247,6 +247,8 @@ pub(super) struct FnCtxt<'a, 's> {
     /// Selecting for a projection's trait: a bound that could be any of
     /// several is not taken (see `select`).
     pub(super) projecting: bool,
+    /// How many projections that are another projection are being followed.
+    pub(super) proj_nest: u32,
     /// The next `select` leaves out the bounds the body assumes.
     pub(super) skip_assumed: bool,
     /// Types of expressions and patterns, unresolved until the end.
@@ -344,6 +346,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
             closures: Vec::new(),
             where_depth: 2,
             projecting: false,
+            proj_nest: 0,
             skip_assumed: false,
             ret: tcx.unit(),
             coroutine: None,

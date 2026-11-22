@@ -146,6 +146,69 @@ impl Session {
         })
     }
 
+    /// The source of `cfg`'s body, as it is, with what the graph does under
+    /// each line it comes from: `bbN:` and its statements, and where it goes.
+    /// What came from text that is not this file's (a macro's expansion) is
+    /// listed after.
+    pub fn annotate_cfg<'s>(&'s self, crates: &[ParsedCrate<'s>], r: &Resolver<'s>, tcx: &TyCtxt<'s>, cfg: &cfg::Cfg) -> String {
+        use std::fmt::Write;
+        let ast = &crates[cfg.krate as usize].files[cfg.file as usize].ast;
+        let no_pos = |_: NodeId| None;
+        let show = cfg::Show { tcx, r, at: &no_pos, compilable: false };
+        let toks = ast.tokens_of(cfg.node);
+        let (Some(first), Some(last)) = (toks.first(), toks.last()) else { return String::new() };
+        let Some(src) = self.sources.find(first.0) else { return String::new() };
+        let (l0, l1) = (src.locate(first.0).line, src.locate(last.0).line);
+        let lines: Vec<&str> = src.text.lines().collect();
+        // Where a node is in this source: its first line, or its last.
+        let line_of = |n: NodeId, end: bool| -> Option<usize> {
+            let t = ast.tokens_of(n);
+            let tok = if end { t.last() } else { t.first() }?;
+            src.contains(tok.0).then(|| src.locate(tok.0).line)
+        };
+        let mut notes: std::collections::BTreeMap<usize, Vec<(u32, String)>> = std::collections::BTreeMap::new();
+        let mut elsewhere: Vec<(u32, String)> = Vec::new();
+        let mut put = |line: Option<usize>, b: u32, text: String| match line.filter(|l| (l0..=l1).contains(l)) {
+            Some(l) => notes.entry(l).or_default().push((b, text)),
+            None => elsewhere.push((b, text)),
+        };
+        for b in cfg.reachable_sorted() {
+            let data = &cfg.blocks[b.0 as usize];
+            for s in &data.stmts {
+                // Leaving a scope is at the end of what it is the scope of.
+                let end = matches!(s.kind, cfg::StmtKind::StorageDead(_) | cfg::StmtKind::Drop(_));
+                put(line_of(s.node, end), b.0, show.stmt_text(cfg, s));
+            }
+            if let Some((t, node)) = &data.term {
+                let end = matches!(t, cfg::Term::Return);
+                put(line_of(*node, end), b.0, show.term_text(cfg, t));
+            }
+        }
+        let mut out = String::new();
+        let _ = writeln!(out, "// {}: {}", cfg.name, show.legend(cfg));
+        for l in l0..=l1 {
+            let text = lines.get(l - 1).copied().unwrap_or("");
+            let _ = writeln!(out, "{text}");
+            let indent: String = text.chars().take_while(|c| c.is_whitespace()).collect();
+            let mut prev = None;
+            for (b, t) in notes.get(&l).into_iter().flatten() {
+                let tag = if prev == Some(*b) { "     ".to_string() } else { format!("bb{b}: ") };
+                prev = Some(*b);
+                let _ = writeln!(out, "{indent}    //  {tag}{t}");
+            }
+        }
+        if !elsewhere.is_empty() {
+            let _ = writeln!(out, "// from elsewhere (macro expansions, and the like):");
+            let mut prev = None;
+            for (b, t) in &elsewhere {
+                let tag = if prev == Some(*b) { "     ".to_string() } else { format!("bb{b}: ") };
+                prev = Some(*b);
+                let _ = writeln!(out, "//     {tag}{t}");
+            }
+        }
+        out
+    }
+
     /// `cfg` as Rust (see `cfg::Show`); `compilable` initialises its locals.
     pub fn show_cfg<'s>(&'s self, crates: &[ParsedCrate<'s>], r: &Resolver<'s>, tcx: &TyCtxt<'s>, cfg: &cfg::Cfg, compilable: bool) -> String {
         let ast = &crates[cfg.krate as usize].files[cfg.file as usize].ast;
@@ -218,6 +281,40 @@ mod tests {
             // Every `StorageLive` is matched by a `StorageDead` on the way out.
             let first_big = session.show_cfg(crates, r, tcx, find("::first_big"), false);
             assert!(first_big.matches("StorageLive").count() > 0 && first_big.contains("StorageDead"), "{first_big}");
+        });
+    }
+
+    /// The annotated source is the source, with notes under its lines.
+    #[test]
+    fn annotated_source_keeps_the_source() {
+        let Some(core) = core_src() else {
+            eprintln!("no rust-src: skipped");
+            return;
+        };
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/borrowck/cfg_small.rs");
+        let original = std::fs::read_to_string(&path).unwrap();
+        with_cfgs(Some(core), "tests/borrowck/cfg_small.rs", |session, crates, r, tcx, out| {
+            for c in out.cfgs.iter().filter(|c| c.closure.is_none()) {
+                let text = session.annotate_cfg(crates, r, tcx, c);
+                // Taking the notes out leaves lines of the file, in order.
+                let kept: Vec<&str> = text.lines().filter(|l| !l.trim_start().starts_with("//  ") && !l.starts_with("// ")).collect();
+                assert!(!kept.is_empty(), "{}: nothing", c.name);
+                let mut at = 0;
+                for l in &kept {
+                    let found = original.lines().skip(at).position(|o| o == *l);
+                    assert!(found.is_some(), "{}: `{l}` is not the next line of the source", c.name);
+                    at += found.unwrap() + 1;
+                }
+            }
+            let find = |name: &str| out.cfgs.iter().find(|c| c.name.ends_with(name)).unwrap();
+            let abs = session.annotate_cfg(crates, r, tcx, find("::abs"));
+            assert!(abs.contains("pub fn abs(x: i32) -> i32 {"), "{abs}");
+            assert!(abs.contains("//  bb0: "), "{abs}");
+            assert!(abs.contains("_2 = _1 < 0"), "{abs}");
+            // The loop of `sum`: its condition's notes are on its line.
+            let sum = session.annotate_cfg(crates, r, tcx, find("::sum"));
+            let line = sum.lines().position(|l| l.trim() == "while i < n {").expect("the while line");
+            assert!(sum.lines().nth(line + 1).unwrap().contains("//  bb"), "{sum}");
         });
     }
 

@@ -117,7 +117,7 @@ fn main() -> ExitCode {
     let (mut dump_sigs, mut types_stats) = (false, false);
     let (mut dump_types, mut typeck_stats) = (false, false);
     let mut borrowck = false;
-    let (mut dump_cfg, mut cfg_stats, mut cfg_compilable) = (false, false, false);
+    let (mut dump_cfg, mut cfg_stats, mut cfg_compilable, mut dump_cfg_rust) = (false, false, false, false);
     let mut dump_layout = false;
     let (mut dump_mono, mut mono_stats) = (false, false);
     let (mut dump_ir, mut lower_stats) = (false, false);
@@ -157,6 +157,10 @@ fn main() -> ExitCode {
             "--typeck-stats" => typeck_stats = true,
             "--borrowck" => borrowck = true,
             "--dump-cfg" => dump_cfg = true,
+            "--dump-cfg-rust" => {
+                dump_cfg = true;
+                dump_cfg_rust = true;
+            }
             "--cfg-stats" => cfg_stats = true,
             "--cfg-compilable" => cfg_compilable = true,
             "--dump-layout" => dump_layout = true,
@@ -593,7 +597,11 @@ fn main() -> ExitCode {
             let elapsed = t.elapsed();
             if dump_cfg {
                 for c in &out.cfgs {
-                    println!("{}", session.show_cfg(&crates, &r, &tcx, c, cfg_compilable));
+                    if dump_cfg_rust {
+                        println!("{}", session.show_cfg(&crates, &r, &tcx, c, cfg_compilable));
+                    } else {
+                        println!("{}", session.annotate_cfg(&crates, &r, &tcx, c));
+                    }
                 }
                 for (_, name, why) in &out.failed {
                     eprintln!("{name}: not built: {why}");

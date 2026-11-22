@@ -83,6 +83,16 @@ pub struct Builder<'a, 's> {
     /// Scope to put temporaries in instead of the innermost (a `let`'s
     /// extended ones).
     extend: Option<usize>,
+    /// Whether the expression being built is where a `let`'s temporaries
+    /// are extended to the block (`let x = &f();`, not `let x = g(&f());`).
+    extending: bool,
+    /// Before edition 2024 the temporaries of a block's tail expression live to
+    /// the end of the statement the block is in: that scope.
+    tail_outer: Option<(usize, usize)>,
+    /// When each local first got a value (a count of what was emitted): what
+    /// is dropped is dropped in reverse of this, as rustc's temporaries are.
+    first_def: FastMap<u32, u32>,
+    seq: u32,
     /// How deep in expressions: a guard against runaway recursion.
     depth: u32,
     /// The place being built is to be changed (assigned to, borrowed with
@@ -195,6 +205,10 @@ impl<'a, 's> Builder<'a, 's> {
             env: None,
             binds: Vec::new(),
             extend: None,
+            extending: false,
+            tail_outer: None,
+            first_def: FastMap::default(),
+            seq: 0,
             depth: 0,
             mut_use: false,
             next_two_phase: false,
@@ -325,6 +339,10 @@ impl<'a, 's> Builder<'a, 's> {
 
     fn emit(&mut self, kind: StmtKind, node: NodeId) {
         let b = self.block();
+        self.seq += 1;
+        if let StmtKind::Assign(d, _) = &kind {
+            self.first_def.entry(d.local.0).or_insert(self.seq);
+        }
         let two_phase = std::mem::take(&mut self.next_two_phase);
         self.cfg.blocks[b.0 as usize].stmts.push(Stmt { kind, node, two_phase, moved: std::mem::take(&mut self.next_moved) });
     }
@@ -334,6 +352,10 @@ impl<'a, 's> Builder<'a, 's> {
     }
 
     fn end(&mut self, t: Term, node: NodeId) {
+        self.seq += 1;
+        if let Term::Call { dest, .. } = &t {
+            self.first_def.entry(dest.local.0).or_insert(self.seq);
+        }
         let b = self.block();
         self.cfg.blocks[b.0 as usize].term = Some((t, node));
         self.cur = None;
@@ -365,7 +387,7 @@ impl<'a, 's> Builder<'a, 's> {
         let i = if var {
             self.scopes.iter().rposition(|s| s.vars).unwrap_or(0)
         } else {
-            self.extend.unwrap_or(self.scopes.len().saturating_sub(1))
+            self.extend.filter(|_| self.extending).or(self.tail_outer.filter(|&(_, depth)| depth == self.scopes.len()).map(|x| x.0)).unwrap_or(self.scopes.len().saturating_sub(1))
         };
         if let Some(s) = self.scopes.get_mut(i) {
             s.locals.push(l);
@@ -381,8 +403,13 @@ impl<'a, 's> Builder<'a, 's> {
 
     /// What leaving scope `i` does, innermost first.
     fn scope_exit(&mut self, i: usize, node: NodeId) {
-        let locals = self.scopes[i].locals.clone();
-        for &l in locals.iter().rev() {
+        let mut locals = self.scopes[i].locals.clone();
+        // (Reverse of when they got their values, as made; the rest as declared.)
+        let key = |l: &Local, at: usize| self.first_def.get(&l.0).map_or((0, at as u32), |&s| (1, s));
+        let mut keyed: Vec<(Local, (u32, u32))> = locals.iter().enumerate().map(|(at, l)| (*l, key(l, at))).collect();
+        keyed.sort_by_key(|k| std::cmp::Reverse(k.1));
+        locals = keyed.into_iter().map(|k| k.0).collect();
+        for &l in locals.iter() {
             let ty = self.cfg.locals[l.0 as usize].ty;
             if !trivial(self.tcx(), ty) {
                 self.emit(StmtKind::Drop(Place::local(l, ty)), node);
@@ -828,14 +855,19 @@ impl<'a, 's> Builder<'a, 's> {
     fn expr_into_raw(&mut self, n: NodeId, dest: &Place) -> R<()> {
         // (What is made here is a value, not a place that is changed.)
         let saved = std::mem::replace(&mut self.mut_use, false);
+        // What is extended: through what only holds or wraps its operands.
+        let entered = self.extending;
+        let keep = matches!(self.ast.kind(n), Kind::Paren | Kind::Tuple | Kind::Array | Kind::StructExpr | Kind::Cast | Kind::Block | Kind::FieldInit | Kind::AttrExpr);
+        self.extending = entered && keep;
         self.depth += 1;
-        let r = if self.depth > 400 { Err("expressions nested too deep".to_string()) } else { self.expr_into_raw_in(n, dest) };
+        let r = if self.depth > 400 { Err("expressions nested too deep".to_string()) } else { self.expr_into_raw_in(n, dest, entered) };
         self.depth -= 1;
+        self.extending = entered;
         self.mut_use = saved;
         r
     }
 
-    fn expr_into_raw_in(&mut self, n: NodeId, dest: &Place) -> R<()> {
+    fn expr_into_raw_in(&mut self, n: NodeId, dest: &Place, extending: bool) -> R<()> {
         let tcx = self.tcx();
         let kids = self.kids(n);
         match self.ast.kind(n) {
@@ -867,7 +899,11 @@ impl<'a, 's> Builder<'a, 's> {
                 let t = self.ty(n)?;
                 let e = *kids.last().unwrap();
                 let changes = matches!(tcx.kind(t), TyKind::Ref(Mutbl::Mut, _) | TyKind::Ptr(Mutbl::Mut, _));
-                let p = self.expr_place_mut(e, changes)?;
+                // (The operand of a borrow that is extended is extended.)
+                let saved = std::mem::replace(&mut self.extending, extending);
+                let p = self.expr_place_mut(e, changes);
+                self.extending = saved;
+                let p = p?;
                 let rv = match tcx.kind(t) {
                     TyKind::Ref(m, _) => Rvalue::Ref(m, p),
                     TyKind::Ptr(m, _) => Rvalue::AddrOf(m, p),
@@ -1408,6 +1444,13 @@ impl<'a, 's> Builder<'a, 's> {
                 }
                 Kind::EmptyStmt => {}
                 k if is_item(k) => {}
+                _ if Some(i) == last && self.scopes.len() >= 2 && matches!(self.cx.crates[self.cfg.krate as usize].edition, crate::lexer::Edition::E2015 | crate::lexer::Edition::E2018 | crate::lexer::Edition::E2021) => {
+                    let saved = self.tail_outer.replace((self.scopes.len() - 2, self.scopes.len()));
+                    let r = self.expr_into(s, dest);
+                    self.tail_outer = saved;
+                    r?;
+                    valued = true;
+                }
                 _ if Some(i) == last => {
                     self.push_scope(false);
                     self.expr_into(s, dest)?;
@@ -1475,8 +1518,10 @@ impl<'a, 's> Builder<'a, 's> {
         let result = (|| -> R<()> {
             if let Some(&els) = rest.get(1) {
                 self.extend = Some(block_scope);
+                self.extending = true;
                 let p = self.expr_place_mut(init, self.binds_mut(pat));
                 self.extend = None;
+                self.extending = false;
                 let p = p?;
                 let fail = self.new_block();
                 let ok = self.new_block();
@@ -1498,13 +1543,17 @@ impl<'a, 's> Builder<'a, 's> {
                 let l = self.declare_var(pat)?;
                 let place = Place::local(l, self.cfg.locals[l.0 as usize].ty);
                 self.extend = Some(block_scope);
+                self.extending = true;
                 let r = self.expr_into_extending(init, &place);
                 self.extend = None;
+                self.extending = false;
                 return r;
             }
             self.extend = Some(block_scope);
+            self.extending = true;
             let p = self.expr_place_mut(init, self.binds_mut(pat));
             self.extend = None;
+            self.extending = false;
             let p = p?;
             let mark = self.binds.len();
             self.match_pat(pat, p, None)?;

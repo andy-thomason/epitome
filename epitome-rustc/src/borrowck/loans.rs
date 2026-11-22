@@ -406,6 +406,7 @@ pub fn check<'b, 's>(cx: &Cx<'_, 's>, cfg: &Cfg, solver: &mut Solver<'b, 's>, or
     if an.loans.is_empty() || an.loans.len() > MAX_LOANS || cfg.blocks.len() * cfg.locals.len() > 2_000_000 {
         return Vec::new();
     }
+    an.drops(solver);
     an.liveness();
     an.flow();
     an.report(solver)
@@ -433,6 +434,10 @@ struct An<'a, 'c, 's> {
     entry: Vec<Option<State>>,
     copy: FastMap<Ty, bool>,
     out: Vec<Raw>,
+    /// Types whose drop reads the borrows they hold.
+    drop_use: FastMap<Ty, bool>,
+    /// The drops (block, statement) of what may be set, that read them.
+    drop_live: std::collections::HashSet<(u32, u32)>,
     /// The node of the first assignment to each local (for a temporary).
     def_node: FastMap<u32, NodeId>,
 }
@@ -461,6 +466,8 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
             copy: FastMap::default(),
             out: Vec::new(),
             def_node: FastMap::default(),
+            drop_use: FastMap::default(),
+            drop_live: Default::default(),
         };
         let promoted = promotable(cfg, cx);
         for b in cfg.reachable() {
@@ -771,9 +778,148 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
         t
     }
 
+    // ---- drops ----
+
+    /// Whether dropping a value of type `t` reads what it borrows: it has a
+    /// `Drop` of its own that is not `#[may_dangle]` (one of a library's types
+    /// is, for its type parameters, but not for its lifetimes), or holds one.
+    fn drop_uses(&mut self, solver: &mut Solver<'_, '_>, t: Ty, depth: u32) -> bool {
+        if let Some(&c) = self.drop_use.get(&t) {
+            return c;
+        }
+        let cx = self.cx;
+        let c = if cx.slots(t) == 0 || depth > 3 {
+            false
+        } else {
+            match cx.tcx.kind(t) {
+                TyKind::Adt(d, _) if cx.tcx.lang.get("manually_drop") == Some(&d) => false,
+                TyKind::Adt(d, args) => {
+                    let user = !matches!(cx.crates[cx.r.defs[d.0 as usize].krate as usize].name.as_str(), "core" | "alloc" | "std");
+                    let own = (user || cx.lifetimes(d) > 0) && !self.may_dangle(d) && solver.has_drop_impl(t);
+                    // (A type of the program with a `Drop` of its own drops what its
+                    // fields say, not what it is generic in.)
+                    let skip_args = user && solver.has_drop_impl(t);
+                    own || (!skip_args && cx.tcx.tys(args).into_iter().any(|a| self.drop_uses(solver, a, depth + 1))) || {
+                        // What its fields hold.
+                        let params = cx.tcx.all_params(d);
+                        let targs = cx.tcx.tys(args);
+                        let tys: Vec<Ty> = cx.tcx.adts.get(&d).map(|a| a.variants.iter().flat_map(|v| v.fields.iter().map(|f| f.ty)).collect()).unwrap_or_default();
+                        tys.into_iter().any(|f| {
+                            let f = crate::ty::collect::subst(cx.tcx, f, &params, &targs);
+                            self.drop_uses(solver, f, depth + 1)
+                        })
+                    }
+                }
+                TyKind::Tuple(l) => cx.tcx.tys(l).into_iter().any(|a| self.drop_uses(solver, a, depth + 1)),
+                TyKind::Array(e, _) | TyKind::Slice(e) => self.drop_uses(solver, e, depth + 1),
+                TyKind::Dyn(_) => true,
+                _ => false,
+            }
+        };
+        self.drop_use.insert(t, c);
+        c
+    }
+
+    /// A move of all of a local leaves it without a value.
+    fn move_out(&mut self, solver: &mut Solver<'_, '_>, st: &mut Bits, o: &Operand) {
+        // (A part moved out is as the whole: what is left is not for us to say.)
+        if let Operand::Use(p) = o
+            && !self.is_copy(solver, p.ty)
+        {
+            st.set(p.local.0, false);
+        }
+    }
+
+    /// Whether the `Drop` of `d` says `#[may_dangle]` of what it is generic in.
+    fn may_dangle(&self, d: DefId) -> bool {
+        let cx = self.cx;
+        cx.tcx.impls.iter().any(|i| {
+            let is_drop = i.trait_ref.as_ref().is_some_and(|tr| cx.tcx.lang.get("drop") == Some(&tr.def));
+            if !is_drop || !matches!(cx.tcx.kind(i.self_ty), TyKind::Adt(a, _) if a == d) {
+                return false;
+            }
+            let def = &cx.r.defs[i.def.0 as usize];
+            let ast = &cx.crates[def.krate as usize].files[def.file as usize].ast;
+            ast.child(def.node, crate::ast::Kind::Generics).is_some_and(|g| ast.text(g).contains("may_dangle"))
+        })
+    }
+
+    /// The drops whose value may be set and that read what it borrows.
+    fn drops(&mut self, solver: &mut Solver<'_, '_>) {
+        let cfg = self.cfg;
+        let nl = cfg.locals.len();
+        let order = cfg.reachable();
+        // Which locals may have a value: set by an assignment, unset by a move
+        // of all of it, and when its storage comes or goes.
+        let mut entry: Vec<Option<Bits>> = vec![None; cfg.blocks.len()];
+        let mut first = Bits::new(nl);
+        for l in 1..=cfg.arg_count as u32 {
+            first.set(l, true);
+        }
+        entry[0] = Some(first);
+        for round in 0..2 {
+            for _ in 0..30 {
+                let mut changed = false;
+                for &b in &order {
+                    let Some(mut st) = entry[b.0 as usize].clone() else { continue };
+                    let data = &cfg.blocks[b.0 as usize];
+                    for (i, s) in data.stmts.iter().enumerate() {
+                        match &s.kind {
+                            StmtKind::Assign(d, rv) => {
+                                match rv {
+                                    Rvalue::Use(o) | Rvalue::Unary(_, o) | Rvalue::Cast(o, _) | Rvalue::Repeat(o, _) => self.move_out(solver, &mut st, o),
+                                    Rvalue::Binary(_, a, b2) => {
+                                        self.move_out(solver, &mut st, a);
+                                        self.move_out(solver, &mut st, b2);
+                                    }
+                                    Rvalue::Aggregate(_, os) => os.iter().for_each(|o| self.move_out(solver, &mut st, o)),
+                                    _ => {}
+                                }
+                                if d.proj.is_empty() {
+                                    st.set(d.local.0, true);
+                                }
+                            }
+                            StmtKind::StorageLive(l) | StmtKind::StorageDead(l) => st.set(l.0, false),
+                            StmtKind::MaybeInit(p) => st.set(p.local.0, true),
+                            StmtKind::Drop(p) => {
+                                if round == 1 && p.proj.is_empty() && st.get(p.local.0) && self.drop_uses(solver, p.ty, 0) {
+                                    self.drop_live.insert((b.0, i as u32));
+                                }
+                            }
+                        }
+                    }
+                    let Some((t, _)) = &data.term else { continue };
+                    if let Term::Call { func, args, dest, .. } = t {
+                        for a in args {
+                            self.move_out(solver, &mut st, a);
+                        }
+                        if let Callee::Value(o) = func {
+                            self.move_out(solver, &mut st, o);
+                        }
+                        if dest.proj.is_empty() {
+                            st.set(dest.local.0, true);
+                        }
+                    }
+                    for s in t.successors() {
+                        match &mut entry[s.0 as usize] {
+                            Some(e) => changed |= e.or(&st),
+                            slot @ None => {
+                                *slot = Some(st.clone());
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+                if !changed {
+                    break;
+                }
+            }
+        }
+    }
+
     // ---- liveness ----
 
-    fn uses(&self, s: &StmtKind, out: &mut Vec<u32>) {
+    fn uses(&self, s: &StmtKind, pos: (u32, u32), out: &mut Vec<u32>) {
         let place = |p: &Place, out: &mut Vec<u32>| {
             // Assigning to part of a variable is not using it.
             out.push(p.local.0);
@@ -798,7 +944,13 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
                     place(p, out);
                 }
             }
-            StmtKind::Drop(_) | StmtKind::MaybeInit(_) | StmtKind::StorageLive(_) | StmtKind::StorageDead(_) => {}
+            StmtKind::Drop(p) => {
+                // Dropping what may be set and has a `Drop` that reads its borrows.
+                if self.drop_live.contains(&pos) {
+                    out.push(p.local.0);
+                }
+            }
+            StmtKind::MaybeInit(_) | StmtKind::StorageLive(_) | StmtKind::StorageDead(_) => {}
         }
     }
 
@@ -835,14 +987,14 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
     }
 
     /// Applies a statement backwards: what is live before it.
-    fn live_before(&self, s: &StmtKind, live: &mut Bits) {
+    fn live_before(&self, s: &StmtKind, pos: (u32, u32), live: &mut Bits) {
         match s {
             StmtKind::Assign(d, _) if d.proj.is_empty() => live.set(d.local.0, false),
             StmtKind::StorageDead(l) | StmtKind::StorageLive(l) => live.set(l.0, false),
             _ => {}
         }
         let mut u = Vec::new();
-        self.uses(s, &mut u);
+        self.uses(s, pos, &mut u);
         for l in u {
             live.set(l, true);
         }
@@ -876,8 +1028,8 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
                     live.or(&live_in[s.0 as usize]);
                 }
                 self.live_before_term(t, &mut live);
-                for s in data.stmts.iter().rev() {
-                    self.live_before(&s.kind, &mut live);
+                for (i, s) in data.stmts.iter().enumerate().rev() {
+                    self.live_before(&s.kind, (b.0, i as u32), &mut live);
                 }
                 if live != live_in[b.0 as usize] {
                     live_in[b.0 as usize] = live;
@@ -1325,8 +1477,10 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
                     {
                         continue;
                     }
-                    if loan.capture && returns.binary_search(&l).is_ok() {
+                    if loan.capture && returns.binary_search(&l).is_ok() && !self.result_def(pt.0).1 {
                         ("E0373", "closure may outlive the current function, but it borrows a variable".into())
+                    } else if loan.capture && returns.binary_search(&l).is_ok() {
+                        ("E0597", "a borrowed value does not live long enough".into())
                     } else if returns.binary_search(&l).is_ok() {
                         ("E0515", "cannot return a value referencing data owned by the current function".into())
                     } else if self.cfg.locals[local.0 as usize].kind == LocalKind::Temp {
@@ -1338,7 +1492,8 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
                 _ => continue,
             };
             let node = match code {
-                "E0597" | "E0515" => loan.node,
+                "E0515" | "E0373" if returns.binary_search(&l).is_ok() => self.result_def(pt.0).0.unwrap_or(loan.node),
+                "E0597" | "E0515" | "E0373" => loan.node,
                 "E0716" => self.def_node.get(&loan.place.local.0).copied().unwrap_or(loan.node),
                 _ => acc.node,
             };
@@ -1371,7 +1526,7 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
             self.live_before_term(term, &mut cur);
             live[n] = cur.clone();
             for i in (0..n).rev() {
-                self.live_before(&data.stmts[i].kind, &mut cur);
+                self.live_before(&data.stmts[i].kind, (b.0, i as u32), &mut cur);
                 live[i] = cur.clone();
             }
             for (i, s) in data.stmts.iter().enumerate() {
@@ -1445,8 +1600,10 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
                             if loan.ignored || self.through_ref(&loan.place) {
                                 continue;
                             }
-                            let node = loan.node;
-                            let code = if loan.capture { "E0373" } else { "E0515" };
+                            let (rnode, from_var) = self.result_def(b.0);
+                            let node = rnode.unwrap_or(loan.node);
+                            let code = if loan.capture && from_var { "E0597" } else if loan.capture { "E0373" } else { "E0515" };
+                            let node = if code == "E0597" { loan.node } else { node };
                             self.out.push(Raw { code, node, message: "cannot return a value referencing data owned by the current function".into(), local: None });
                         }
                     }
@@ -1458,6 +1615,26 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
         let mut seen = std::collections::HashSet::new();
         self.out.retain(|r| seen.insert((r.code, r.node)));
         self.out
+    }
+
+    /// Where the function's result is given its value: the node (a `return`'s
+    /// operand, the tail), and whether it is copied from a variable (a closure
+    /// returned through a variable is E0597, not E0373). In block `b` if it is
+    /// there, else the last.
+    fn result_def(&self, b: u32) -> (Option<NodeId>, bool) {
+        let find = |data: &BlockData| {
+            data.stmts.iter().rev().find_map(|s| match &s.kind {
+                StmtKind::Assign(d, rv) if d.local == Local(0) && d.proj.is_empty() => {
+                    let from_var = matches!(rv, Rvalue::Use(Operand::Use(p)) if self.cfg.locals[p.local.0 as usize].kind == LocalKind::Var);
+                    Some((Some(s.node), from_var))
+                }
+                _ => None,
+            })
+        };
+        if let Some(r) = find(&self.cfg.blocks[b as usize]) {
+            return r;
+        }
+        self.cfg.reachable().iter().rev().find_map(|x| find(&self.cfg.blocks[x.0 as usize])).unwrap_or((None, false))
     }
 
     /// A call whose signature wants `'static` (`&'static T`, `F: 'static`) of
@@ -1501,7 +1678,8 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
                     {
                         continue;
                     }
-                    let (code, node) = if loan.capture {
+                    let from_var = matches!(&args[j], Operand::Use(p) if self.cfg.locals[p.local.0 as usize].kind == LocalKind::Var);
+                    let (code, node) = if loan.capture && !from_var {
                         ("E0373", loan.node)
                     } else if self.cfg.locals[local.0 as usize].kind == LocalKind::Temp {
                         ("E0716", self.def_node.get(&local.0).copied().unwrap_or(loan.node))
@@ -1625,7 +1803,7 @@ fn promotable(cfg: &Cfg, cx: &Cx) -> FastMap<u32, bool> {
                 _ => false,
             };
             if good {
-                out.insert(*l, matches!(rv, Rvalue::Aggregate(AggKind::Array, os) if os.is_empty()));
+                out.insert(*l, matches!(rv, Rvalue::Aggregate(AggKind::Array | AggKind::Tuple, os) if os.is_empty()));
                 changed = true;
             }
         }

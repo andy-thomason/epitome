@@ -170,3 +170,28 @@ fn loop_reborrow(mut cur: &mut Pair, n: u32) {
     }
     cur.b = 1;
 }
+
+struct Guard<'a>(&'a mut u32);
+impl<'a> Drop for Guard<'a> {
+    fn drop(&mut self) {}
+}
+
+fn drop_is_a_use() {
+    let mut x = 1;
+    let _g = Guard(&mut x);
+    x = 2; //~ E0506
+}
+
+fn moved_guard_is_not_dropped() {
+    let mut x = 1;
+    let g = Guard(&mut x);
+    take(g);
+    x = 2;
+}
+
+fn vec_of_refs_may_dangle() {
+    let mut x = 1;
+    let _r = [&x];
+    x = 2;
+    take(x);
+}

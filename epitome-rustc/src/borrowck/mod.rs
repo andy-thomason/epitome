@@ -1,11 +1,10 @@
 //! Borrow checking.
 //!
-//! Work in progress: the plan, and what each milestone covers, is in
-//! `docs/borrowck.md`. So far there is the interface the checker plugs into
-//! (`Session::borrowck` and `Diagnostic`), the `--borrowck` flag of the
-//! driver, and the expected-errors runner of `tests/ui_check_pass.rs`
-//! (`EPITOME_UI_WANT=borrowck`), which measures it. The checker itself
-//! finds nothing yet.
+//! The plan, and what each milestone covers, is in `docs/borrowck.md`. So
+//! far: the control-flow graph of a body (`cfg`, built by `build`), and
+//! moves and initialisation (`moves`). The interface is `Session::borrowck` and
+//! `Diagnostic`, the driver's `--borrowck`, and the expected-errors runner of
+//! `tests/ui_check_pass.rs` (`EPITOME_UI_WANT=borrowck`) measures it.
 //!
 //! The rule that matters most: it must never reject what rustc accepts.
 //! Every program of the check-pass and run-pass UI tests, and `core`,
@@ -13,6 +12,7 @@
 
 pub mod build;
 pub mod cfg;
+pub mod moves;
 
 use crate::ast::{Ast, NodeId};
 use crate::resolve::DefId;
@@ -51,7 +51,8 @@ pub const CODES: &[&str] = &[
 
 impl Session {
     /// Borrow checks the bodies of the crates `only` names (the others are
-    /// not looked at): rustc's errors, or fewer. Nothing yet.
+    /// not looked at): rustc's errors, or fewer. So far: moves and
+    /// initialisation (`moves`).
     pub fn borrowck<'s>(
         &'s self,
         crates: &[ParsedCrate<'s>],
@@ -60,13 +61,42 @@ impl Session {
         res: &TypeckResults,
         only: &[u32],
     ) -> Vec<Diagnostic> {
-        let _ = (crates, r, tcx, res, only);
-        Vec::new()
+        let built = self.cfgs(crates, r, tcx, res, only);
+        let index = crate::typeck::Index::new(tcx, r);
+        // A compiler's stack: the solver recurses deeply on some types.
+        let mut out: Vec<Diagnostic> = std::thread::scope(|sc| {
+            std::thread::Builder::new()
+                .stack_size(512 << 20)
+                .spawn_scoped(sc, || {
+                    let mut out = Vec::new();
+                    for cfg in &built.cfgs {
+                        let ast = &crates[cfg.krate as usize].files[cfg.file as usize].ast;
+                        let found = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            let mut solver = crate::typeck::Solver::for_owner(tcx, r, crates, &index, cfg.owner);
+                            let order = |n: NodeId| ast.origin_of(ast.node(n).first as usize);
+                            moves::check(cfg, tcx, &mut solver, &order)
+                        }))
+                        .unwrap_or_default();
+                        for raw in found {
+                            out.push(self.diagnostic_at(ast, raw.node, cfg.krate, raw.code, raw.message));
+                        }
+                    }
+                    out
+                })
+                .unwrap()
+                .join()
+                .unwrap()
+        });
+        out.sort_by(|a, b| (a.krate, &a.file, a.line, a.col, a.code).cmp(&(b.krate, &b.file, b.line, b.col, b.code)));
+        out.dedup();
+        out
     }
 
     /// A diagnostic for `node` of `ast` (in crate `krate`).
     pub fn diagnostic_at(&self, ast: &Ast<'_>, node: NodeId, krate: u32, code: &'static str, message: impl Into<String>) -> Diagnostic {
-        let at = self.sources.find(ast.token(node).0).map(|s| s.locate(ast.token(node).0));
+        // (A node a macro made is at the macro's call.)
+        let tok = ast.token_origin(ast.node(node).first as usize).0;
+        let at = self.sources.find(tok).map(|s| s.locate(tok));
         let (file, line, col) = at.map_or((String::new(), 0, 0), |l| (l.name, l.line, l.col));
         Diagnostic { krate, file, line, col, code, message: message.into() }
     }
@@ -160,11 +190,16 @@ impl Session {
         let Some(src) = self.sources.find(first.0) else { return String::new() };
         let (l0, l1) = (src.locate(first.0).line, src.locate(last.0).line);
         let lines: Vec<&str> = src.text.lines().collect();
-        // Where a node is in this source: its first line, or its last.
+        // Where a node is in this source: its first line, or its last (for
+        // what a macro made, where it was called).
         let line_of = |n: NodeId, end: bool| -> Option<usize> {
-            let t = ast.tokens_of(n);
-            let tok = if end { t.last() } else { t.first() }?;
-            src.contains(tok.0).then(|| src.locate(tok.0).line)
+            let node = ast.node(n);
+            if node.end <= node.first {
+                return None;
+            }
+            let i = if end { node.end - 1 } else { node.first } as usize;
+            let tok = ast.token_origin(i).0;
+            src.contains(tok).then(|| src.locate(tok).line)
         };
         let mut notes: std::collections::BTreeMap<usize, Vec<(u32, String)>> = std::collections::BTreeMap::new();
         let mut elsewhere: Vec<(u32, String)> = Vec::new();
@@ -316,6 +351,45 @@ mod tests {
             let line = sum.lines().position(|l| l.trim() == "while i < n {").expect("the while line");
             assert!(sum.lines().nth(line + 1).unwrap().contains("//  bb"), "{sum}");
         });
+    }
+
+    /// What a file says its errors are: the lines with `//~ E0xxx`.
+    fn annotated(path: &std::path::Path) -> Vec<(usize, String)> {
+        let text = std::fs::read_to_string(path).unwrap();
+        let mut v = Vec::new();
+        for (i, l) in text.lines().enumerate() {
+            if let Some(rest) = l.split("//~").nth(1) {
+                for code in rest.split_whitespace() {
+                    let is_code = code.len() == 5 && code.starts_with('E') && code[1..].chars().all(|c| c.is_ascii_digit());
+                    if is_code {
+                        v.push((i + 1, code.to_string()));
+                    }
+                }
+            }
+        }
+        v
+    }
+
+    /// Moves and initialisation: the errors it says, and no others.
+    #[test]
+    fn moves_and_initialisation() {
+        let Some(core) = core_src() else {
+            eprintln!("no rust-src: skipped");
+            return;
+        };
+        let file = "tests/borrowck/moves.rs";
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(file);
+        let mut want = annotated(&path);
+        want.sort();
+        let session = Session::new(Options { threads: 4, cfg: Some(crate::cfg::CfgSet::host()), ..Default::default() });
+        let mut crates = session.parse_crates(vec![CrateRoot::new("core", core), CrateRoot::new("moves", &path)]);
+        session.expand(&mut crates);
+        let r = session.resolve(&crates);
+        let tcx = session.collect_types(&crates, &r);
+        let res = session.typeck(&crates, &r, &tcx);
+        let mut got: Vec<(usize, String)> = session.borrowck(&crates, &r, &tcx, &res, &[1]).iter().map(|d| (d.line, d.code.to_string())).collect();
+        got.sort();
+        assert_eq!(got, want, "found (left), annotated (right)");
     }
 
     /// The rendering is Rust: `rustc` takes it (for numbers and references).

@@ -207,6 +207,57 @@ impl<'a, 's> Solver<'a, 's> {
         Solver { cx }
     }
 
+    /// A solver for the body of `owner`: what it may assume (its `where`
+    /// clauses and its parents') is known.
+    pub fn for_owner(tcx: &'a TyCtxt<'s>, r: &'a Resolver<'s>, crates: &'a [ParsedCrate<'s>], index: &'a Index<'s>, owner: DefId) -> Self {
+        let def = &r.defs[owner.0 as usize];
+        let mut cx = check::FnCtxt::new(tcx, r, crates, index, owner, def.krate, def.file);
+        cx.where_depth = 4;
+        cx.env_predicates();
+        Solver { cx }
+    }
+
+    /// Whether values of `t` may be copied: unless it is known that they
+    /// cannot be. (For deciding what is a move, where a wrong "move" is an
+    /// error that is not there, and a wrong "copy" an error missed.)
+    pub fn may_be_copy(&mut self, t: Ty) -> bool {
+        let tcx = self.cx.tcx;
+        let Some(&copy) = tcx.lang.get("copy") else { return true };
+        if tcx.has_error(t) || tcx.has_infer(t) || matches!(tcx.kind(t), TyKind::Never) {
+            return true;
+        }
+        let s = self.cx.probe();
+        let sel = self.cx.select(t, copy, &[], 0);
+        self.cx.rollback(s);
+        !matches!(sel, traits::Select::No)
+    }
+
+    /// Whether `t` implements the lang-item trait `lang` (taking no arguments).
+    pub fn implements_lang(&mut self, t: Ty, lang: &str) -> bool {
+        let tcx = self.cx.tcx;
+        let Some(&tr) = tcx.lang.get(lang) else { return false };
+        if tcx.has_error(t) || tcx.has_infer(t) {
+            return false;
+        }
+        let s = self.cx.probe();
+        let sel = self.cx.select(t, tr, &[], 0);
+        self.cx.rollback(s);
+        matches!(sel, traits::Select::Yes(_))
+    }
+
+    /// Whether `t` has an impl of `Drop` of its own.
+    pub fn has_drop_impl(&mut self, t: Ty) -> bool {
+        let tcx = self.cx.tcx;
+        let Some(&drop) = tcx.lang.get("drop") else { return false };
+        if tcx.has_error(t) || tcx.has_infer(t) {
+            return false;
+        }
+        let s = self.cx.probe();
+        let sel = self.cx.select(t, drop, &[], 0);
+        self.cx.rollback(s);
+        matches!(sel, traits::Select::Yes(traits::Source::Impl(..)))
+    }
+
     /// `t` with its projections worked out.
     pub fn normalize(&mut self, t: Ty) -> Ty {
         let mut t = t;

@@ -778,8 +778,9 @@ fn run(library: &Path, tests: &[&Test], want: Want) -> Vec<Option<String>> {
             }
             let v = verdict(first + i, stage);
             if want == Want::Pass {
-                // The borrow checker never rejects what rustc accepts.
-                if v.is_none() {
+                // The borrow checker never rejects what rustc accepts (if it
+                // goes as far, which a test that only prints does not).
+                if v.is_none() && stage == Stage::Check {
                     let found: Vec<String> =
                         diagnostics.iter().filter(|d| d.krate as usize == first + i).map(|d| format!("{}@{}", d.code, d.line)).collect();
                     if !found.is_empty() {

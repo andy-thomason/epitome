@@ -572,6 +572,18 @@ mod tests {
     }
 
     #[test]
+    fn assumed_bounds_do_not_pick_for_unknowns() {
+        let Some(core) = core_src() else {
+            eprintln!("no rust-src: skipped");
+            return;
+        };
+        let s = plain(&dump_with("tests/typeck/assumed_ambiguity.rs", "assumed_ambiguity", Some(core)));
+        // `G` is `D2` from `impl Fe<D2> for S`, not `D1` from the first bound.
+        let want = "S.go() : u16  [assumed_ambiguity::Fe::go]";
+        assert!(s.lines().any(|l| l == want), "no `{want}` in:\n{s}");
+    }
+
+    #[test]
     fn coinductive_cycle_settles_unknowns() {
         let Some(core) = core_src() else {
             eprintln!("no rust-src: skipped");

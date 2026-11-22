@@ -50,14 +50,36 @@ for the block; closures get bodies of their own, their captures fields of
 the environment.
 
 ```sh
-epitome-rustc --dump-cfg  core.rs alloc.rs std.rs prog.rs   # the last crate's bodies, as Rust
-epitome-rustc --dump-cfg --cfg-compilable ...               # locals initialised, so rustc takes it
-epitome-rustc --cfg-stats core.rs alloc.rs std.rs prog.rs   # how many built, and why not
+epitome-rustc --dump-cfg      core.rs alloc.rs std.rs prog.rs   # the source, annotated with the graph
+epitome-rustc --dump-cfg-rust core.rs alloc.rs std.rs prog.rs   # the graph, as a Rust function
+epitome-rustc --cfg-stats     core.rs alloc.rs std.rs prog.rs   # how many built, and why not
 ```
 
-A body shows as a Rust function, a state machine with one `match` arm for each
-block (`bb = ..;` goes on, `return _0;` ends). It is Rust that `rustc` takes
-for numbers and references (`borrowck::tests::rendered_bodies_compile`);
+`--dump-cfg` prints each body's source as it is (as the AST has it: after
+expansion, so what a macro made is listed after the function) and, under each
+line, what the graph does for it: the blocks (`bbN:`), their statements and where
+they go. A scope's ends (`StorageDead`, `Drop`, `return`) are on the line that
+closes it.
+
+```text
+// cfg_small::abs: _0: i32 (result), _1: i32 (x)
+pub fn abs(x: i32) -> i32 {
+    if x < 0 { -x } else { x }
+        //  bb0: _2 = _1 < 0
+        //       _3 = _2
+        //       if _3: bb3 else bb1
+        //  bb1: _0 = _1
+        //       goto bb2
+        //  bb3: _0 = -_1
+        //       goto bb2
+}
+    //  bb2: return
+```
+
+`--dump-cfg-rust` is the other view: a body as a Rust function, a state machine
+with one `match` arm for each block (`bb = ..;` goes on, `return _0;` ends).
+With `--cfg-compilable` its locals are initialised, and it is Rust that `rustc`
+takes for numbers and references (`borrowck::tests::rendered_bodies_compile`);
 downcasts (`(_3 as variant#1).0`) are the one thing in it that is not Rust.
 
 What it leaves for the analyses, on purpose:

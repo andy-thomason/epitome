@@ -387,6 +387,66 @@ impl<'a, 's> Show<'a, 's> {
         }
     }
 
+    /// A statement, as one line with no position.
+    pub fn stmt_text(&self, cfg: &Cfg, s: &Stmt) -> String {
+        match &s.kind {
+            StmtKind::Assign(p, rv) => format!("{} = {}", self.place(cfg, p), self.rvalue(cfg, rv)),
+            StmtKind::StorageLive(l) => format!("StorageLive({})", self.local(cfg, *l)),
+            StmtKind::StorageDead(l) => format!("StorageDead({})", self.local(cfg, *l)),
+            StmtKind::Drop(p) => format!("drop({})", self.place(cfg, p)),
+        }
+    }
+
+    /// A terminator, as one line.
+    pub fn term_text(&self, cfg: &Cfg, t: &Term) -> String {
+        match t {
+            Term::Goto(b) => format!("goto bb{}", b.0),
+            Term::Switch { discr, targets, otherwise } => {
+                let d = self.operand(cfg, discr);
+                if targets.len() == 1 && targets[0].0 == 0 && matches!(discr_ty(cfg, discr, self.tcx), Some(TyKind::Bool)) {
+                    format!("if {d}: bb{} else bb{}", otherwise.0, targets[0].1.0)
+                } else {
+                    let arms: Vec<String> = targets.iter().map(|(v, b)| format!("{v} -> bb{}", b.0)).collect();
+                    format!("switch {d}: {}, else bb{}", arms.join(", "), otherwise.0)
+                }
+            }
+            Term::Call { func, args, dest, target } => {
+                let f = match func {
+                    Callee::Fn(d, l) => {
+                        let targs = self.tcx.tys(*l);
+                        if targs.is_empty() {
+                            self.r.def_path(*d)
+                        } else {
+                            let t: Vec<String> = targs.iter().map(|&t| self.ty(t)).collect();
+                            format!("{}::<{}>", self.r.def_path(*d), t.join(", "))
+                        }
+                    }
+                    Callee::Value(o) => format!("({})", self.operand(cfg, o)),
+                };
+                let call = format!("{} = {f}({})", self.place(cfg, dest), self.operands(cfg, args));
+                match target {
+                    Some(b) => format!("{call}, then bb{}", b.0),
+                    None => format!("{call}, never returns"),
+                }
+            }
+            Term::Return => "return".to_string(),
+            Term::Unreachable => "unreachable".to_string(),
+        }
+    }
+
+    /// The locals the program names, and the result, as a comment.
+    pub fn legend(&self, cfg: &Cfg) -> String {
+        let mut parts = Vec::new();
+        for (i, d) in cfg.locals.iter().enumerate() {
+            match (&d.name, d.kind) {
+                (_, LocalKind::Return) => parts.push(format!("_0: {} (result)", self.ty(d.ty))),
+                (Some(n), _) => parts.push(format!("_{i}: {} ({n})", self.ty(d.ty))),
+                _ => {}
+            }
+        }
+        parts.join(", ")
+    }
+
     fn stmt(&self, cfg: &Cfg, s: &Stmt) -> String {
         let c = self.comment(s.node);
         match &s.kind {

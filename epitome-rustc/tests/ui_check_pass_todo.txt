@@ -54,6 +54,4 @@ traits/next-solver/generalize/alias-with-bound-vars-incomplete-generalization.rs
 traits/next-solver/generalize/alias-with-bound-vars-incomplete-generalization.rs#old: type check: mismatched types
 traits/next-solver/method/path_lookup_wf_constraints.rs: type check: a type left unknown
 traits/next-solver/overflow-discards-constraints.rs: type check: a type left unknown
-traits/next-solver/overflow/fcw-on-normalization.rs#next: type check: method not found
-traits/next-solver/overflow/fcw-on-normalization.rs#old: type check: method not found
 wf/unnormalized-projection-guides-inference.rs: type check: a type left unknown

@@ -21,7 +21,6 @@ higher-ranked/leak-check/leak-check-in-selection-5-ambig.rs#next: type check: a 
 higher-ranked/leak-check/leak-check-in-selection-5-ambig.rs#old: type check: a type left unknown
 hygiene/cross-crate-define-and-use.rs: type check: struct literal of something that is not a struct or variant
 hygiene/issue-32922.rs: error: expanding `foo!`: expected the end of the input, found `;` (eager-from-opaque.rs:14:9)
-impl-trait/method/broken-deref-chain.rs#next: type check: method not found
 impl-trait/nested-hkl-lifetime.rs: type check: a type left unknown
 impl-trait/non-defining-uses/ambiguous-ops.rs#next: type check: mismatched types
 impl-trait/precise-capturing/external-macro.rs: path not resolved: element

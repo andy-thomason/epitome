@@ -342,6 +342,12 @@ impl<'a, 's> FnCtxt<'a, 's> {
     /// Whether `t: tr<targs>` is something the body may assume (or an
     /// obligation on `t`), unifying `targs` with it if so.
     fn assumed(&mut self, t: Ty, tr: DefId, targs: &[Ty]) -> bool {
+        self.assumed_with(t, tr, targs, None)
+    }
+
+    /// The same, or (given `all`) what each bound that fits would make
+    /// `targs`, none of them kept.
+    fn assumed_with(&mut self, t: Ty, tr: DefId, targs: &[Ty], mut all: Option<&mut Vec<Vec<Ty>>>) -> bool {
         let tcx = self.tcx;
         let bounds = self.type_bounds(t);
         let n = self.env_preds.len() + self.obligations.len();
@@ -367,7 +373,26 @@ impl<'a, 's> FnCtxt<'a, 's> {
             let s = self.probe();
             let pargs = self.full_trait_args(tr, pt, tcx.tys(pargs));
             if self.self_matches(pt, t) && self.args_unify(&pargs, targs) {
-                return true;
+                match all.as_deref_mut() {
+                    None => return true,
+                    Some(all) => {
+                        // (Equal once normalized: `Into<String>` and `Into<<T
+                        // as Elaborate>::Assoc>` with `Assoc = String`.)
+                        let got: Vec<Ty> = targs
+                            .iter()
+                            .map(|&a| {
+                                let r = self.infer.resolve(a);
+                                let n = self.normalize(r, MAX_DEPTH - 1);
+                                self.infer.resolve(n)
+                            })
+                            .collect();
+                        if !all.contains(&got) {
+                            all.push(got);
+                        }
+                        self.rollback(s);
+                        continue;
+                    }
+                }
             }
             self.rollback(s);
             // A supertrait's arguments may name the bound's own
@@ -413,9 +438,20 @@ impl<'a, 's> FnCtxt<'a, 's> {
         }
     }
 
+    /// `select` for the trait of a projection: a bound that could be any
+    /// of several is not taken (see `select`).
+    fn select_projecting(&mut self, t: Ty, tr: DefId, targs: &[Ty], depth: u32) -> Select {
+        let was = std::mem::replace(&mut self.projecting, true);
+        let sel = self.select(t, tr, targs, depth);
+        self.projecting = was;
+        sel
+    }
+
     /// Whether, and how, `t: tr<targs>`.
     pub(super) fn select(&mut self, t: Ty, tr: DefId, targs: &[Ty], depth: u32) -> Select {
         let tcx = self.tcx;
+        // (Only for this call, not the `where` clauses it checks.)
+        let skip_assumed = std::mem::take(&mut self.skip_assumed);
         let mut t = self.infer.shallow(t);
         // `<Map<I, F> as Iterator>::Item: Tr`: what the projection is.
         if let TyKind::Projection(..) = tcx.kind(t)
@@ -427,7 +463,17 @@ impl<'a, 's> FnCtxt<'a, 's> {
         if depth > MAX_DEPTH || tcx.kind(t) == TyKind::Error {
             return Select::Ambiguous;
         }
-        if self.assumed(t, tr, targs) {
+        // Bounds that would make the unknowns in `targs` different types
+        // (`Allocator<f64, ?G>` against `Allocator<f64, A>` and `Allocator<
+        // f64, B>`): which is meant is not known yet, so none is taken.
+        if self.projecting && targs.iter().any(|&a| tcx.has_infer(self.infer.resolve(a))) {
+            let mut fits = Vec::new();
+            self.assumed_with(t, tr, targs, Some(&mut fits));
+            if fits.len() > 1 {
+                return Select::Ambiguous;
+            }
+        }
+        if !skip_assumed && self.assumed(t, tr, targs) {
             return Select::Yes(Source::Bound);
         }
         let var = self.infer.var_kind(t);
@@ -892,14 +938,14 @@ impl<'a, 's> FnCtxt<'a, 's> {
         // A generic associated type's own arguments follow the trait's.
         let ntr = tcx.all_params(tr).len().min(args.len());
         let (args, own_args) = args.split_at(ntr);
-        let mut sel = self.select(t, tr, &args[1..], depth);
+        let mut sel = self.select_projecting(t, tr, &args[1..], depth);
         // An integer variable's own obligation (`{integer}: SliceIndex<[u8]>`)
         // says nothing of the impl: that is looked for.
         if matches!(sel, Select::Yes(Source::Bound))
             && matches!(self.infer.var_kind(t), Some(VarKind::Int | VarKind::Float))
         {
             let saved = std::mem::take(&mut self.obligations);
-            sel = self.select(t, tr, &args[1..], depth);
+            sel = self.select_projecting(t, tr, &args[1..], depth);
             self.obligations = saved;
         }
         // Two impls that both seem to apply, with every type known: their
@@ -914,13 +960,27 @@ impl<'a, 's> FnCtxt<'a, 's> {
             if known || self.infer.var_kind(t).is_none() {
                 let s = self.probe();
                 let saved = std::mem::replace(&mut self.where_depth, DEEP_WHERE);
-                let deeper = self.select(t, tr, &args[1..], depth);
+                let deeper = self.select_projecting(t, tr, &args[1..], depth);
                 self.where_depth = saved;
                 match deeper {
                     Select::Yes(_) => sel = deeper,
                     _ if known => sel = deeper,
                     _ => self.rollback(s),
                 }
+            }
+        }
+        // A bound the body assumes says nothing of the associated type
+        // unless it binds it (that was looked for above): the impl that
+        // gives it does (`DefaultAlloc: Allocator<Ure, R1>` assumed, and
+        // `impl<N> Allocator<N, R1> for DefaultAlloc { type Buffer = ..; }`).
+        // (Not for a type with a parameter in it, where the bound is all
+        // that is known: `&V: IntoIterator`.)
+        if matches!(sel, Select::Yes(Source::Bound)) && !mentions_rigid(tcx, self.infer.resolve(t)) {
+            self.skip_assumed = true;
+            let by_impl = self.select_projecting(t, tr, &args[1..], depth);
+            self.skip_assumed = false;
+            if matches!(by_impl, Select::Yes(Source::Impl(..))) {
+                sel = by_impl;
             }
         }
         match sel {

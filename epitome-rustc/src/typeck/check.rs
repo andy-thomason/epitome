@@ -244,6 +244,11 @@ pub(super) struct FnCtxt<'a, 's> {
     /// How deep impls' `where` clauses are checked in selection: shallow
     /// in bodies, deeper for concrete types after type checking.
     pub(super) where_depth: u32,
+    /// Selecting for a projection's trait: a bound that could be any of
+    /// several is not taken (see `select`).
+    pub(super) projecting: bool,
+    /// The next `select` leaves out the bounds the body assumes.
+    pub(super) skip_assumed: bool,
     /// Types of expressions and patterns, unresolved until the end.
     types: FastMap<NodeId, Ty>,
     /// What each method call (or overloaded operator) calls, and the
@@ -338,6 +343,8 @@ impl<'a, 's> FnCtxt<'a, 's> {
             hidden: Vec::new(),
             closures: Vec::new(),
             where_depth: 2,
+            projecting: false,
+            skip_assumed: false,
             ret: tcx.unit(),
             coroutine: None,
             coroutine_attr: false,

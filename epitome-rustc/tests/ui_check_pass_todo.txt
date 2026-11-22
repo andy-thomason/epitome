@@ -3,7 +3,6 @@
 attributes/duplicated-attributes.rs: import not resolved: : use test::Bencher (as Bencher)
 attributes/z-crate-attr/cfg-false.rs: left out: flags that change the crate
 check-cfg/values-target-json.rs: left out: a target rustc does not know
-closures/supertrait-hint-cycle.rs: type check: a type left unknown
 coinduction/canonicalization-rerun.rs#next: type check: a type left unknown
 coinduction/canonicalization-rerun.rs#old: type check: a type left unknown
 compile-flags/invalid/crate-type-flag.rs#proc_dash_macro: left out: proc-macro crate

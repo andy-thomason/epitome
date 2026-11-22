@@ -11,7 +11,11 @@
 //! Every program of the check-pass and run-pass UI tests, and `core`,
 //! `alloc` and `std`, are checked and must have no diagnostics.
 
+pub mod build;
+pub mod cfg;
+
 use crate::ast::{Ast, NodeId};
+use crate::resolve::DefId;
 use crate::resolve::Resolver;
 use crate::session::{ParsedCrate, Session};
 use crate::ty::TyCtxt;
@@ -65,5 +69,209 @@ impl Session {
         let at = self.sources.find(ast.token(node).0).map(|s| s.locate(ast.token(node).0));
         let (file, line, col) = at.map_or((String::new(), 0, 0), |l| (l.name, l.line, l.col));
         Diagnostic { krate, file, line, col, code, message: message.into() }
+    }
+}
+
+/// The control-flow graphs of a set of bodies, and those that could not be
+/// built.
+#[derive(Default)]
+pub struct CfgResults {
+    pub cfgs: Vec<cfg::Cfg>,
+    /// The bodies that failed: what they are, and why.
+    pub failed: Vec<(DefId, String, String)>,
+}
+
+impl CfgResults {
+    /// The reasons bodies failed, most common first, each with one such body.
+    pub fn reasons(&self) -> Vec<(String, usize, String)> {
+        let mut m: std::collections::BTreeMap<String, (usize, String)> = std::collections::BTreeMap::new();
+        for (_, name, why) in &self.failed {
+            let e = m.entry(why.clone()).or_insert((0, name.clone()));
+            e.0 += 1;
+        }
+        let mut v: Vec<_> = m.into_iter().map(|(why, (n, ex))| (why, n, ex)).collect();
+        v.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        v
+    }
+}
+
+impl Session {
+    /// The control-flow graph of each body of the crates `only` names (and
+    /// of the closures in them).
+    pub fn cfgs<'s>(
+        &'s self,
+        crates: &[ParsedCrate<'s>],
+        r: &Resolver<'s>,
+        tcx: &TyCtxt<'s>,
+        res: &TypeckResults,
+        only: &[u32],
+    ) -> CfgResults {
+        // A compiler's stack: the solver recurses deeply on some types.
+        std::thread::scope(|sc| {
+            std::thread::Builder::new()
+                .stack_size(512 << 20)
+                .spawn_scoped(sc, || {
+                let trace = std::env::var_os("EPITOME_CFG_TRACE").is_some();
+        let index = crate::typeck::Index::new(tcx, r);
+                let cx = build::Cx { tcx, r, crates, res, index: &index };
+                let mut owners: Vec<DefId> = res.bodies.iter().copied().filter(|d| only.contains(&r.defs[d.0 as usize].krate)).collect();
+                owners.sort();
+                let mut out = CfgResults::default();
+                for owner in owners {
+                    let guarded = |f: &dyn Fn() -> (Result<cfg::Cfg, String>, Vec<NodeId>)| {
+                        std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).unwrap_or_else(|_| (Err("a panic".to_string()), Vec::new()))
+                    };
+                    if trace {
+                        eprintln!("cfg: {}", r.def_path(owner));
+                    }
+                    let (built, mut closures) = guarded(&|| build::build_item(&cx, owner));
+                    match built {
+                        Ok(c) => out.cfgs.push(c),
+                        Err(why) => out.failed.push((owner, r.def_path(owner), why)),
+                    }
+                    while let Some(n) = closures.pop() {
+                        let (built, more) = guarded(&|| build::build_closure(&cx, owner, n));
+                        closures.extend(more);
+                        match built {
+                            Ok(c) => out.cfgs.push(c),
+                            Err(why) => out.failed.push((owner, format!("{}::{{closure@{}}}", r.def_path(owner), n.0), why)),
+                        }
+                    }
+                }
+                    out
+                })
+                .unwrap()
+                .join()
+                .unwrap()
+        })
+    }
+
+    /// `cfg` as Rust (see `cfg::Show`); `compilable` initialises its locals.
+    pub fn show_cfg<'s>(&'s self, crates: &[ParsedCrate<'s>], r: &Resolver<'s>, tcx: &TyCtxt<'s>, cfg: &cfg::Cfg, compilable: bool) -> String {
+        let ast = &crates[cfg.krate as usize].files[cfg.file as usize].ast;
+        let at = |n: NodeId| {
+            let t = ast.token(n).0;
+            self.sources.find(t).map(|s| {
+                let l = s.locate(t);
+                (l.line, l.col)
+            })
+        };
+        cfg::Show { tcx, r, at: &at, compilable }.cfg(cfg)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::session::{CrateRoot, Options};
+
+    /// `core` from the toolchain's rust-src, if it is installed.
+    fn core_src() -> Option<std::path::PathBuf> {
+        let out = std::process::Command::new("rustc").args(["--print", "sysroot"]).output().ok()?;
+        let root = std::path::PathBuf::from(String::from_utf8(out.stdout).ok()?.trim());
+        let core = root.join("lib/rustlib/src/rust/library/core/src/lib.rs");
+        core.exists().then_some(core)
+    }
+
+    /// Runs `f` on the control-flow graphs of the last of `files` (with
+    /// `core`, if given).
+    fn with_cfgs<T>(core: Option<std::path::PathBuf>, file: &str, f: impl FnOnce(&Session, &[ParsedCrate], &Resolver, &TyCtxt, &CfgResults) -> T) -> T {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(file);
+        let session = Session::new(Options { threads: 4, cfg: Some(crate::cfg::CfgSet::host()), ..Default::default() });
+        let mut roots = Vec::new();
+        if let Some(c) = core {
+            roots.push(CrateRoot::new("core", c));
+        }
+        let name = path.file_stem().unwrap().to_string_lossy().into_owned();
+        roots.push(CrateRoot::new(&name, &path));
+        let mut crates = session.parse_crates(roots);
+        session.expand(&mut crates);
+        let r = session.resolve(&crates);
+        let tcx = session.collect_types(&crates, &r);
+        let res = session.typeck(&crates, &r, &tcx);
+        let last = crates.len() as u32 - 1;
+        let out = session.cfgs(&crates, &r, &tcx, &res, &[last]);
+        f(&session, &crates, &r, &tcx, &out)
+    }
+
+    #[test]
+    fn small_bodies_build_and_are_valid() {
+        let Some(core) = core_src() else {
+            eprintln!("no rust-src: skipped");
+            return;
+        };
+        with_cfgs(Some(core), "tests/borrowck/cfg_small.rs", |session, crates, r, tcx, out| {
+            assert!(out.failed.is_empty(), "not built: {:?}", out.failed);
+            assert!(out.cfgs.len() >= 12, "{} bodies", out.cfgs.len());
+            for c in &out.cfgs {
+                c.validate().unwrap_or_else(|e| panic!("{}: {e}", c.name));
+            }
+            let find = |name: &str| out.cfgs.iter().find(|c| c.name.ends_with(name)).unwrap_or_else(|| panic!("no {name}"));
+            let abs = session.show_cfg(crates, r, tcx, find("::abs"), false);
+            // `if x < 0`: a comparison, then a branch on it.
+            assert!(abs.contains("_1 < 0"), "{abs}");
+            assert!(abs.contains("bb = if"), "{abs}");
+            // The loop of `sum` goes back to its head.
+            let sum = find("::sum");
+            let heads: Vec<_> = sum.reachable().into_iter().filter(|b| sum.blocks[b.0 as usize].term.as_ref().is_some_and(|t| t.0.successors().iter().any(|s| s.0 < b.0))).collect();
+            assert!(!heads.is_empty(), "no back edge in sum");
+            // Every `StorageLive` is matched by a `StorageDead` on the way out.
+            let first_big = session.show_cfg(crates, r, tcx, find("::first_big"), false);
+            assert!(first_big.matches("StorageLive").count() > 0 && first_big.contains("StorageDead"), "{first_big}");
+        });
+    }
+
+    /// The rendering is Rust: `rustc` takes it (for numbers and references).
+    #[test]
+    fn rendered_bodies_compile() {
+        let Some(core) = core_src() else {
+            eprintln!("no rust-src: skipped");
+            return;
+        };
+        let text = with_cfgs(Some(core), "tests/borrowck/cfg_small.rs", |session, crates, r, tcx, out| {
+            let mut text = String::from("#![allow(warnings)]\n");
+            for c in &out.cfgs {
+                text += &session.show_cfg(crates, r, tcx, c, true);
+                text.push('\n');
+            }
+            text
+        });
+        let dir = std::env::temp_dir().join(format!("epitome-cfg-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let src = dir.join("rendered.rs");
+        std::fs::write(&src, &text).unwrap();
+        let out = std::process::Command::new("rustc")
+            .args(["--edition", "2021", "--crate-type", "lib", "--emit=metadata", "-o"])
+            .arg(dir.join("rendered.rmeta"))
+            .arg(&src)
+            .output();
+        let Ok(out) = out else {
+            eprintln!("no rustc: skipped");
+            return;
+        };
+        let _ = std::fs::remove_dir_all(&dir).ok();
+        assert!(out.status.success(), "rustc says:\n{}\nfor:\n{text}", String::from_utf8_lossy(&out.stderr));
+    }
+
+    /// Nearly every body of `core` has one (the rest are those type checking
+    /// could not type).
+    #[test]
+    fn core_bodies_build() {
+        let Some(core) = core_src() else {
+            eprintln!("no rust-src: skipped");
+            return;
+        };
+        let session = Session::new(Options { threads: 4, cfg: Some(crate::cfg::CfgSet::host()), ..Default::default() });
+        let mut crates = session.parse_crates(vec![CrateRoot::new("core", core)]);
+        session.expand(&mut crates);
+        let r = session.resolve(&crates);
+        let tcx = session.collect_types(&crates, &r);
+        let res = session.typeck(&crates, &r, &tcx);
+        let out = session.cfgs(&crates, &r, &tcx, &res, &[0]);
+        let invalid: Vec<_> = out.cfgs.iter().filter_map(|c| c.validate().err().map(|e| format!("{}: {e}", c.name))).take(5).collect();
+        assert!(invalid.is_empty(), "invalid: {invalid:?}");
+        let total = out.cfgs.len() + out.failed.len();
+        assert!(total > 20_000, "{total} bodies");
+        assert!(out.cfgs.len() * 1000 >= total * 995, "{} of {total} built; not built: {:?}", out.cfgs.len(), &out.reasons()[..out.reasons().len().min(8)]);
     }
 }

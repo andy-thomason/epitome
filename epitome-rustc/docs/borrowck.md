@@ -35,6 +35,48 @@ EPITOME_UI_FILTER=/borrowck/ ...       # only some tests
 
 Starting point: 1,097 tests (1,078 get as far as the checker).
 
+## The control-flow graph (milestone 1)
+
+`src/borrowck/cfg.rs` is the graph, `src/borrowck/build.rs` builds it from the
+typed tree: a body is basic blocks of statements (`Assign`, `StorageLive`,
+`StorageDead`, `Drop`) ending in a terminator (`Goto`, `Switch`, `Call`,
+`Return`, `Unreachable`); a place is a local and a path of projections
+(`Deref`, `Field`, `Downcast`, `Index`, `ConstIndex`, `Subslice`). Typeck's
+adjustments (autoderef, autoref, unsizing) are applied to the places;
+patterns are tested, then bind; a block's variables and a statement's
+temporaries leave scope with a `StorageDead` (and a `Drop`, unless the type is
+plainly trivial) on every way out; a `let` that borrows a temporary keeps it
+for the block; closures get bodies of their own, their captures fields of
+the environment.
+
+```sh
+epitome-rustc --dump-cfg  core.rs alloc.rs std.rs prog.rs   # the last crate's bodies, as Rust
+epitome-rustc --dump-cfg --cfg-compilable ...               # locals initialised, so rustc takes it
+epitome-rustc --cfg-stats core.rs alloc.rs std.rs prog.rs   # how many built, and why not
+```
+
+A body shows as a Rust function, a state machine with one `match` arm for each
+block (`bb = ..;` goes on, `return _0;` ends). It is Rust that `rustc` takes
+for numbers and references (`borrowck::tests::rendered_bodies_compile`);
+downcasts (`(_3 as variant#1).0`) are the one thing in it that is not Rust.
+
+What it leaves for the analyses, on purpose:
+
+- **Copy or move**: an operand is a `Use` of a place. Which it is needs the
+  body's trait environment, so the move analysis (milestone 2) says.
+- **Drops**: every variable and temporary that is not plainly trivial is
+  dropped on leaving scope; whether its type needs it is for the analyses.
+- **Unwinding**: a call has one successor.
+- **Closure captures by reference** are shared borrows: typeck does not record
+  which are changed through.
+- **`asm!`**: its operands are not followed. A static is a constant, not a
+  place.
+
+Coverage: 26,306 of 26,324 bodies of `core` (99.93%), 33,426 of 33,943 of
+`core`, `alloc` and `std`; all are valid graphs (`Cfg::validate`). Of those not
+built, most have an error type from type checking (the external `libc` crate,
+chiefly), which `--cfg-stats` lists with an example of each.
+
 ## What is in the way
 
 - No MIR, and no lifetimes in types: `Ty::Ref` has no region.
@@ -46,7 +88,7 @@ Starting point: 1,097 tests (1,078 get as far as the checker).
 | | What | Needs regions | Target |
 |---|---|---|---|
 | 0 | The harness and interface above | no | done |
-| 1 | A control-flow graph of a body, for borrow checking only (places: local, field, deref, index, downcast; moves, copies, borrows, assignments, drops, calls, scope ends), built on demand from the typed tree, reusing the place and move classification of `lower/body.rs` | no | builds for all of `core` |
+| 1 | A control-flow graph of a body, for borrow checking only (places: local, field, deref, index, downcast; uses, borrows, assignments, drops, calls, scope ends), built on demand from the typed tree | no | **done**: 99.9% of `core` (see below) |
 | 2 | Moves and initialisation: E0381 E0382 E0384 E0505 E0507 E0509, closure captures; maybe-uninit and moved dataflow over place paths | no | most of the ~360 tests |
 | 3 | Mutability: E0596 E0594 E0384, from binding modes, `&` against `&mut`, closures, `ref` patterns | no | most of the ~210 tests |
 | 4 | Regions in signatures: keep what `ty/lower` drops (lifetime parameters, `'a: 'b`, `T: 'a`, elision, `'static`, `dyn Trait + 'a` defaults, higher-ranked bounds); variance of ADT parameters; region-annotated types for borrowck only, leaving the shared `Ty` alone | yes | signatures and variance match rustc |

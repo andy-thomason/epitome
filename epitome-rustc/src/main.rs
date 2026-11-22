@@ -117,6 +117,7 @@ fn main() -> ExitCode {
     let (mut dump_sigs, mut types_stats) = (false, false);
     let (mut dump_types, mut typeck_stats) = (false, false);
     let mut borrowck = false;
+    let (mut dump_cfg, mut cfg_stats, mut cfg_compilable) = (false, false, false);
     let mut dump_layout = false;
     let (mut dump_mono, mut mono_stats) = (false, false);
     let (mut dump_ir, mut lower_stats) = (false, false);
@@ -155,6 +156,9 @@ fn main() -> ExitCode {
             "--dump-types" => dump_types = true,
             "--typeck-stats" => typeck_stats = true,
             "--borrowck" => borrowck = true,
+            "--dump-cfg" => dump_cfg = true,
+            "--cfg-stats" => cfg_stats = true,
+            "--cfg-compilable" => cfg_compilable = true,
             "--dump-layout" => dump_layout = true,
             "--dump-mono" => dump_mono = true,
             "--mono-stats" => mono_stats = true,
@@ -395,7 +399,7 @@ fn main() -> ExitCode {
             }
         }
     }
-    if dump_sigs || types_stats || dump_types || typeck_stats || borrowck || dump_layout || dump_mono || mono_stats || dump_ir || lower_stats || output.is_some() {
+    if dump_sigs || types_stats || dump_types || typeck_stats || borrowck || dump_cfg || cfg_stats || dump_layout || dump_mono || mono_stats || dump_ir || lower_stats || output.is_some() {
         let r = session.resolve(&crates);
         let t = std::time::Instant::now();
         let tcx = session.collect_types(&crates, &r);
@@ -577,6 +581,35 @@ fn main() -> ExitCode {
                         eprintln!("error: {e}");
                         return ExitCode::FAILURE;
                     }
+                }
+            }
+        }
+        if dump_cfg || cfg_stats {
+            let res = session.typeck(&crates, &r, &tcx);
+            // `--dump-cfg` shows the last crate; the statistics, all.
+            let only: Vec<u32> = if cfg_stats { (0..crates.len() as u32).collect() } else { vec![crates.len() as u32 - 1] };
+            let t = std::time::Instant::now();
+            let out = session.cfgs(&crates, &r, &tcx, &res, &only);
+            let elapsed = t.elapsed();
+            if dump_cfg {
+                for c in &out.cfgs {
+                    println!("{}", session.show_cfg(&crates, &r, &tcx, c, cfg_compilable));
+                }
+                for (_, name, why) in &out.failed {
+                    eprintln!("{name}: not built: {why}");
+                }
+            }
+            if cfg_stats {
+                let bad = out.cfgs.iter().filter(|c| c.validate().is_err()).count();
+                eprintln!(
+                    "cfg: {} built ({} invalid), {} not, in {:.3} s",
+                    out.cfgs.len(),
+                    bad,
+                    out.failed.len(),
+                    elapsed.as_secs_f64()
+                );
+                for (why, n, example) in out.reasons().iter().take(40) {
+                    eprintln!("  {n:6} {why}   (e.g. {example})");
                 }
             }
         }

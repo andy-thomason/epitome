@@ -25,7 +25,7 @@ fn kernels_run_on_riscv() {
         eprintln!("no rust-src: skipped");
         return;
     }
-    let dir = std::env::temp_dir().join(format!("epitome-rustc2-kernels-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("epitome-rustc-kernels-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let programs = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/kernels");
     let mut files: Vec<PathBuf> = std::fs::read_dir(&programs).unwrap().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "rs")).collect();
@@ -44,7 +44,7 @@ fn kernels_run_on_riscv() {
         let out = dir.join(&name);
         if text.contains("//! run on: host") {
             for opt in [&[][..], &["-O0"][..]] {
-                let built = Command::new(env!("CARGO_BIN_EXE_epitome-rustc2")).arg("--std").args(opt).arg("-o").arg(&out).arg(p).output().unwrap();
+                let built = Command::new(env!("CARGO_BIN_EXE_epitome-rustc")).arg("--std").args(opt).arg("-o").arg(&out).arg(p).output().unwrap();
                 if !built.status.success() {
                     failed.push(format!("{name} {opt:?}: not built:\n{}", String::from_utf8_lossy(&built.stderr)));
                     continue;
@@ -57,7 +57,7 @@ fn kernels_run_on_riscv() {
             }
             continue;
         }
-        let built = Command::new(env!("CARGO_BIN_EXE_epitome-rustc2")).arg("--emit=kernels").arg("-o").arg(&out).arg(p).output().unwrap();
+        let built = Command::new(env!("CARGO_BIN_EXE_epitome-rustc")).arg("--emit=kernels").arg("-o").arg(&out).arg(p).output().unwrap();
         if !built.status.success() {
             failed.push(format!("{name}: not built:\n{}", String::from_utf8_lossy(&built.stderr)));
             continue;

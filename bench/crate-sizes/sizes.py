@@ -14,7 +14,7 @@ hello world hasn't.
 
 A function's size is the distance to the next symbol in the text section
 (alignment padding included, as for both compilers). Epitome's functions
-are put down to crates by `epitome-rustc2 --fn-crates` (ep-*.crates);
+are put down to crates by `epitome-rustc --fn-crates` (ep-*.crates);
 rustc's by the first crate root in their v0 symbol (the crate the item, or
 its impl, is written in). Names are matched without paths, generic
 arguments and hashes: `<Buffer>::format`, `<f32 as Sealed>::is_nonfinite`,
@@ -236,7 +236,7 @@ def main():
         code = {t: sum(r[2] for r in rs if r[0] in own) for t, rs in rows.items()}
         runs = st.get((name, 'ep-ndebug'), '?')
         print(f'## {name}\n')
-        print(f'epitome-rustc2 output: {runs}\n')
+        print(f'epitome-rustc output: {runs}\n')
         print('| | ep default | ep ndebug | ep immediate-abort | rustc -O | rustc -Os | ndebug / rustc -O |')
         print('|---|---|---|---|---|---|---|')
         print('| text | ' + ' | '.join(kb(texts[t]) for t in exes) + f' | {texts["ep-ndebug"] / texts["rustc-O3"]:.2f} |')

@@ -1,5 +1,5 @@
 [package]
-name = "epitome-rustc2"
+name = "epitome-rustc"
 version = "0.1.0"
 edition = "2024"
 repository = "https://github.com/andy-thomason/epitome"
@@ -13,5 +13,5 @@ epitome-opt = { path = "../opt" }
 epitome-codegen = { path = "../codegen" }
 
 [[bin]]
-name = "epitome-rustc2"
+name = "epitome-rustc"
 path = "src/main.rs"

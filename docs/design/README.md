@@ -59,7 +59,7 @@ short) has to do to work like LLVM. They are split into two halves:
   matches rules, and the combiner pass.
 - [Code generation: what is left](backend-plan.md): the gap to clang,
   measured, and the plan for allocation, scheduling and machine passes.
-- [Code size on real crates](crate-sizes.md): epitome-rustc2's programs
+- [Code size on real crates](crate-sizes.md): epitome-rustc's programs
   against rustc's on twelve crates.io crates, Mac and x86-64, and what
   makes the difference (now booleans made into values, inlining, and
   x86-64's moves and stack traffic).
@@ -77,7 +77,7 @@ short) has to do to work like LLVM. They are split into two halves:
 - [SystemVerilog on many threads: a plan](sv-threads.md): one large
   design's simulation cut into tasks, a state laid out so that no two
   tasks write the same bytes, and a lock-free runtime to run them.
-- [Rust](../../epitome-rustc2/docs/design.md): `epitome-rustc2`, a Rust
+- [Rust](../../epitome-rustc/docs/design.md): `epitome-rustc`, a Rust
   compiler that does not use rustc: lexing and parsing to an AST, macro
   expansion (including existing proc macros), name resolution and types
   in side tables, and lowering the AST straight to Epitome IR.

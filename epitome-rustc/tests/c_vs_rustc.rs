@@ -1,6 +1,6 @@
 //! Each program in `tests/c/` calls C functions of the C file of its name
 //! (built into `libcNAME.a`, and `NAME.o`, in a directory both compilers
-//! are given with `-L`): it is compiled by `epitome-rustc2` (with `std`
+//! are given with `-L`): it is compiled by `epitome-rustc` (with `std`
 //! from rust-src, optimised and not) and by rustc, and run, and the
 //! outputs must be the same. A line `//@ link: ARGS` gives both compilers
 //! more arguments (`$DIR` is that directory). On x86-64 Linux and AArch64
@@ -20,11 +20,11 @@ fn c_programs_match_rustc() {
         eprintln!("not x86-64 Linux or AArch64 macOS: skipped");
         return;
     }
-    if epitome_rustc2::sysroot::rust_src().is_none() {
+    if epitome_rustc::sysroot::rust_src().is_none() {
         eprintln!("no rust-src: skipped");
         return;
     }
-    let dir = std::env::temp_dir().join(format!("epitome-rustc2-c-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("epitome-rustc-c-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/c");
     let mut c_files: Vec<PathBuf> = std::fs::read_dir(&src).unwrap().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "c")).collect();
@@ -53,7 +53,7 @@ fn c_programs_match_rustc() {
         let want = run(&rc);
         for opt in [true, false] {
             let ep = dir.join(format!("{name}.{}", if opt { "ep" } else { "ep0" }));
-            let mut cmd = Command::new(env!("CARGO_BIN_EXE_epitome-rustc2"));
+            let mut cmd = Command::new(env!("CARGO_BIN_EXE_epitome-rustc"));
             if !opt {
                 cmd.arg("-O0");
             }

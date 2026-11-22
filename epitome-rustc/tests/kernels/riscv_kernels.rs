@@ -2,7 +2,7 @@
 //! marked `#[epitome::target("riscv64")]` are compiled for RV64 and run
 //! there; `main` and everything else runs on the host.
 //!
-//!     epitome-rustc2 --std -o riscv_kernels riscv_kernels.rs && ./riscv_kernels
+//!     epitome-rustc --std -o riscv_kernels riscv_kernels.rs && ./riscv_kernels
 //!
 //! `arch()` is compiled once for each machine, with its own `cfg`, so the
 //! host's says `aarch64` (or `x86_64`) and the kernel's `riscv64`. The

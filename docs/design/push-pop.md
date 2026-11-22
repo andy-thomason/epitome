@@ -21,8 +21,8 @@ serde_json, ryu and others: rustc's LLVM IR, compiled by `epitome-llc`
 and by llc -O3), after the register allocation work of #199 and #200
 (the tables of this section; the before and after at the end are
 main's, with #199 but not yet #200);
-and std's hello world (`epitome-rustc2/tests/run/std_hello.rs`, built by
-epitome-rustc2 on x86-64 Linux, as one object, with std). The counts are
+and std's hello world (`epitome-rustc/tests/run/std_hello.rs`, built by
+epitome-rustc on x86-64 Linux, as one object, with std). The counts are
 `bench/vs-llc/stack.py`'s: every instruction addressing memory at `rsp`
 (or `rbp`), with its bytes, and how many need a 32-bit displacement.
 

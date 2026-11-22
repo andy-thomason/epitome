@@ -44,9 +44,9 @@
 //! tests takes them off in the same commit. `EPITOME_UI_FILTER=substring`
 //! runs only the tests whose path has it in (`EPITOME_UI_FILTER=/ui/fmt/`).
 
-use epitome_rustc2::cfg::CfgSet;
-use epitome_rustc2::lexer::Edition;
-use epitome_rustc2::session::{CrateRoot, Options, Session};
+use epitome_rustc::cfg::CfgSet;
+use epitome_rustc::lexer::Edition;
+use epitome_rustc::session::{CrateRoot, Options, Session};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -596,7 +596,7 @@ impl Stage {
 fn run(library: &Path, tests: &[&Test]) -> Vec<Option<String>> {
     // The toolchain's proc-macro server, if any crate uses proc macros.
     let uses_pm = tests.iter().any(|t| !t.pm.is_empty() || t.aux.iter().any(|a| !a.pm.is_empty()));
-    let server = if uses_pm { epitome_rustc2::proc_macro::Server::from_rustc() } else { None };
+    let server = if uses_pm { epitome_rustc::proc_macro::Server::from_rustc() } else { None };
     let session = Session::new(Options { cfg: Some(CfgSet::host()), proc_macro_server: server, ..Default::default() });
     // Tests whose crates are all `#![no_core]` (over `minicore`) need no
     // standard library, which is most of a session's work: unless they

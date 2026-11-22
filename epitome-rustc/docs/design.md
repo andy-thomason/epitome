@@ -1,11 +1,11 @@
-# epitome-rustc2
+# epitome-rustc
 
-This is the plan for `epitome-rustc2`, a Rust compiler written in Rust
+This is the plan for `epitome-rustc`, a Rust compiler written in Rust
 that does not use rustc. It reads Rust source, expands macros, resolves
 names, infers types and lowers the syntax tree straight to Epitome IR,
 which Epitome's optimiser and code generator compile.
 
-`epitome-rustc` (`src/bin/epitome-rustc.rs`) is a different program: it
+`epitome-rustc-wrapper` (`src/bin/epitome-rustc-wrapper.rs`) is a different program: it
 wraps the real rustc and replaces only LLVM's code generation. It stays
 useful as a reference. The same crate built by both must behave the
 same.
@@ -53,7 +53,7 @@ Everything after that is a plan.
 
 - **Compile real crates.** `core`, `alloc` and `std` from the toolchain's
   `rust-src`, then crates from crates.io, built by Cargo with
-  `epitome-rustc2` as `RUSTC`.
+  `epitome-rustc` as `RUSTC`.
 - **Run existing procedural macros.** Proc-macro crates (`serde_derive`,
   `thiserror`, ...) are built by the real rustc, as Cargo builds them for
   the host, and run unchanged (section 6.6).
@@ -67,7 +67,7 @@ Everything after that is a plan.
   becomes, so each step of lowering can be checked by eye against rustc's
   `-Zunpretty` output (section 12).
 - **A library first.** The compiler is a crate with an API (section
-  11); the `epitome-rustc2` program is a thin command line over it. A
+  11); the `epitome-rustc` program is a thin command line over it. A
   host can compile several crates in one process.
 - **Parallel everywhere** (section 10): files, modules, items, function
   bodies and instances are jobs on one pool of threads, across all the
@@ -87,7 +87,7 @@ all.
   .rs files (crate root + modules)
         │
         ▼
- ┌────────────────────────────── epitome-rustc2 ───────────────────────────┐
+ ┌────────────────────────────── epitome-rustc ───────────────────────────┐
  │ source map ─► lex ─► parse ─► AST                                       │
  │                                 │                                       │
  │      expand: cfg, macro_rules!, built-in macros, derives,               │
@@ -221,7 +221,7 @@ stops the parse. Where a fixed lookahead is not enough (a parameter that
 is `pattern: Type` or only a `Type`; a generic argument that is `Item =
 T` or a type) it tries one reading and backs up.
 
-`epitome-rustc2 --parse-tree dir` parses every `.rs` file under a
+`epitome-rustc --parse-tree dir` parses every `.rs` file under a
 directory and lists the failures: the parse corpus of section 12.
 
 ### 4.3 Printing
@@ -242,7 +242,7 @@ directory and lists the failures: the parse corpus of section 12.
 ## 5. Name resolution
 
 **Done** for items, imports and paths (`src/resolve/`).
-`epitome-rustc2 --dump-res` prints every path with what it resolved to,
+`epitome-rustc --dump-res` prints every path with what it resolved to,
 and `--resolve-stats` counts them.
 
 ### 5.1 Definitions and modules
@@ -517,7 +517,7 @@ library ourselves, which we will do once we compile proc-macro crates
 
 ### 6.7 Loading proc-macro libraries ourselves (later)
 
-Decided (2026-11-05): the server stays until `epitome-rustc2` can
+Decided (2026-11-05): the server stays until `epitome-rustc` can
 compile proc-macro crates itself. Then we build both sides of the
 bridge: the macro library, and the `proc_macro` crate it links against.
 The bridge becomes an interface of our own, not the private one of each
@@ -1153,7 +1153,7 @@ stage's wall time varied from 4.4 s to 4.9 s over five runs.
 
 | Stage | Wall | CPU | Memory | Gives |
 |---|---|---|---|---|
-| `epitome-rustc2 --lib --dump-ir`: parsing to lowering | 4.7 s | 28 s (16 + 12) | 530 MB | 26 MB of IR |
+| `epitome-rustc --lib --dump-ir`: parsing to lowering | 4.7 s | 28 s (16 + 12) | 530 MB | 26 MB of IR |
 | `epitome-opt` | 11 s | 140 s | 380 MB | 17 MB of IR |
 | `epitome-llc --filetype=obj` on the optimised IR | 65 s | 459 s (441 + 18) | 2.1 GB | 4.2 MB object |
 | `epitome-llc --filetype=obj` on the IR not optimised | 84 s | 568 s (552 + 15) | 2.7 GB | 5.6 MB object |
@@ -1283,7 +1283,7 @@ link-args="A B"`) an argument for `cc` after everything else.
 
 `tests/c_vs_rustc.rs` builds each C file of `tests/c/` (`NAME.c` into
 `libcNAME.a` and `NAME.o`) and each program there with
-`epitome-rustc2 --std` (optimised and not) and rustc, with `-L` for that
+`epitome-rustc --std` (optimised and not) and rustc, with `-L` for that
 directory and any arguments a `//@ link:` line gives, and compares their
 output: `structs.rs` passes and returns structs of sixteen shapes to C,
 several at once until they spill to the stack, has C call back into
@@ -1512,7 +1512,7 @@ there.
 - **The runtime.** `runtime/rv64.rs` is a `#![no_std]` RV64 interpreter
   (I, M, A, and F and D but for square roots and fused operations) that
   defines `__epitome_launch`. It is compiled into a program that has
-  kernels, by epitome-rustc2, as a crate before the program's, at
+  kernels, by epitome-rustc, as a crate before the program's, at
   optimisation level 2. It loads the image into memory of its own each
   launch, puts the arguments where the LP64D convention has them, runs
   the kernel to its return, and serves the stubs (`putchar` is the
@@ -1532,7 +1532,7 @@ collected in 7.1), and the AST of every generic and `#[inline]` function,
 so a dependent crate can monomorphise them. The simplest form of the
 latter is the source text of those items plus their resolved paths.
 
-`epitome-rustc2` accepts rustc's command line as far as Cargo uses it
+`epitome-rustc` accepts rustc's command line as far as Cargo uses it
 (`--crate-name`, `--crate-type`, `--edition`, `--cfg`, `--extern`, `-L`,
 `--emit`, `-C`, `--out-dir`, `--error-format=json` messages), so it can
 stand in for `RUSTC`.
@@ -1609,12 +1609,12 @@ they scale until reading the files becomes the limit.
 
 ## 11. The library
 
-`epitome_rustc2` is a library crate; the program is `src/main.rs` over
+`epitome_rustc` is a library crate; the program is `src/main.rs` over
 it. The entry point is a `Session` (`src/session.rs`):
 
 ```rust
-use epitome_rustc2::lexer::Edition;
-use epitome_rustc2::session::{CrateRoot, Options, Session};
+use epitome_rustc::lexer::Edition;
+use epitome_rustc::session::{CrateRoot, Options, Session};
 
 let session = Session::new(Options { threads: 0 }); // 0: one per core
 let crates = session.parse_crates(vec![
@@ -1659,7 +1659,7 @@ is plain `std` threads.
 - **Expansion:** `-Zunpretty=expanded` from the real rustc (run as a
   program) against our `--pretty` after expansion, compared as token
   streams.
-- **Run tests:** programs in `epitome-rustc2/tests/run/`, compiled by
+- **Run tests:** programs in `epitome-rustc/tests/run/`, compiled by
   both rustc and us and run; the outputs must match (section 8.4).
 - **rustc's UI tests:** `tests/ui_check_pass.rs` takes the `check-pass`
   tests of rust-lang/rust's `tests/ui` (programs rustc accepts; used as
@@ -1685,8 +1685,8 @@ is plain `std` threads.
   of the 3,800 check-pass tests for aarch64-macos, 2,539 pass, 435 fail
   and 826 are left out; with revisions counted one by one, 3,357 of
   4,296 pass. A run takes about a minute on 12 cores.
-- **Crates:** `cargo test` of crates with `RUSTC=epitome-rustc2`,
-  compared with `RUSTC_WRAPPER=epitome-rustc`.
+- **Crates:** `cargo test` of crates with `RUSTC=epitome-rustc`,
+  compared with `RUSTC_WRAPPER=epitome-rustc-wrapper`.
 
 Every test has a tight time limit, and everything is built `--release`.
 Tests of parallel stages run on one thread and on several, and compare.

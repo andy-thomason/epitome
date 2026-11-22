@@ -90,9 +90,9 @@ constants, and vtables once the functions in them have merged. The one
 kept takes the greatest alignment of its class. The others are then
 unused, and deleted.
 
-## epitome-rustc2
+## epitome-rustc
 
-Merging only reaches what may be merged, so epitome-rustc2 marks every
+Merging only reaches what may be merged, so epitome-rustc marks every
 function it defines `unnamed_addr`, and every private constant (string
 literals, vtables, promoted constants), as rustc does: Rust promises
 neither functions nor constants a unique address. `static`s are internal
@@ -100,7 +100,7 @@ or external, not private, and stay without it, as in rustc.
 
 ## Measurements
 
-A `std` hello world (`epitome-rustc2 --std`), whose 204 functions are
+A `std` hello world (`epitome-rustc --std`), whose 204 functions are
 what is left after inlining:
 
 | | `__text`/`.text` | constants | file |

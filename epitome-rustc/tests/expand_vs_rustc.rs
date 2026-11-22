@@ -2,10 +2,10 @@
 //! by token, with `rustc -Zunpretty=expanded`. Skipped where `rustc` is not
 //! installed.
 
-use epitome_rustc2::cfg::CfgSet;
-use epitome_rustc2::lexer::{Edition, lex};
-use epitome_rustc2::pretty::pretty;
-use epitome_rustc2::session::{CrateRoot, Options, Session};
+use epitome_rustc::cfg::CfgSet;
+use epitome_rustc::lexer::{Edition, lex};
+use epitome_rustc::pretty::pretty;
+use epitome_rustc::session::{CrateRoot, Options, Session};
 use std::path::Path;
 use std::process::Command;
 

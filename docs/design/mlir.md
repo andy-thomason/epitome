@@ -101,7 +101,7 @@ There are two new tools:
   tests: round trips, and printing the generic form.
 
 `epitome-llc` and `epitome-opt` also take a `.mlir` file directly, by its
-extension. `epitome-rustc` is unaffected.
+extension. `epitome-rustc-wrapper` is unaffected.
 
 ## 3. The in-memory form
 
@@ -161,7 +161,7 @@ dialect and opaque ones.
 **Epitome note:** an unknown dialect is not an error when reading. Its
 operations are kept in their generic form and printed back. It is an
 error when lowering, which says which operation it could not lower and
-where. This is how `epitome-rustc` treats a crate it cannot compile: say
+where. This is how `epitome-rustc-wrapper` treats a crate it cannot compile: say
 why, and stop.
 
 ## 4. Parsing

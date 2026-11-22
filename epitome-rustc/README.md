@@ -1,4 +1,4 @@
-# epitome-rustc2
+# epitome-rustc
 
 A Rust compiler written in Rust that does not use rustc. It reads Rust
 source, expands macros, resolves names and infers types, and will lower
@@ -14,7 +14,7 @@ standard one.
 
 It is a library first: a `Session` loads several crates at once and
 works on their files in parallel. Each stage runs as jobs on a pool of
-threads, and jobs can add more jobs. The `epitome-rustc2` program is a
+threads, and jobs can add more jobs. The `epitome-rustc` program is a
 thin driver over the library.
 
 The plan is in [`docs/design.md`](docs/design.md).
@@ -44,8 +44,8 @@ optimised, in 2.9 s on a Mac.
 ## Trying it
 
 ```sh
-cargo build --release -p epitome-rustc2
-B=target/release/epitome-rustc2
+cargo build --release -p epitome-rustc
+B=target/release/epitome-rustc
 L=$(rustc --print sysroot)/lib/rustlib/src/rust/library   # needs rust-src
 
 $B --sexp file.rs          # the syntax tree, as an s-expression
@@ -244,7 +244,7 @@ is checked against `core`:
 ## Tests
 
 ```sh
-cargo test --release -p epitome-rustc2
+cargo test --release -p epitome-rustc
 ```
 
 The tests cover the parser, expansion against `rustc -Zunpretty=expanded`,

@@ -1,4 +1,4 @@
-//! Each program in `tests/run/` is compiled by `epitome-rustc2` (with
+//! Each program in `tests/run/` is compiled by `epitome-rustc` (with
 //! `core` from rust-src, through Epitome's optimiser and code generator,
 //! and without the optimiser) and by rustc, and run: the outputs and exit
 //! statuses must be the same, and so must what they write to stderr (a
@@ -64,7 +64,7 @@ fn programs_match_rustc() {
         eprintln!("no rust-src: skipped");
         return;
     }
-    let dir = std::env::temp_dir().join(format!("epitome-rustc2-run-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("epitome-rustc-run-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let stub = dir.join("eh.c");
     std::fs::write(&stub, "void rust_eh_personality(void) {}\n").unwrap();
@@ -82,7 +82,7 @@ fn programs_match_rustc() {
         let rc = dir.join(format!("{name}.rustc"));
         let text = std::fs::read_to_string(p).unwrap();
         // A program without `#![no_std]` uses `std`: rustc's own, and
-        // `--std` (rust-src's) for epitome-rustc2.
+        // `--std` (rust-src's) for epitome-rustc.
         let with_std = !text.contains("#![no_std]");
         // `RUSTC_BOOTSTRAP` lets this stable rustc take the features a
         // program uses (`f16`).
@@ -96,7 +96,7 @@ fn programs_match_rustc() {
         let want = run(&rc);
         for opt in [true, false] {
             let ep = dir.join(format!("{name}.{}", if opt { "ep" } else { "ep0" }));
-            let mut cmd = Command::new(env!("CARGO_BIN_EXE_epitome-rustc2"));
+            let mut cmd = Command::new(env!("CARGO_BIN_EXE_epitome-rustc"));
             if !opt {
                 cmd.arg("-O0");
             }

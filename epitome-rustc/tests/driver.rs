@@ -1,18 +1,18 @@
-//! The `epitome-rustc2` program itself: how it fails on bad input.
+//! The `epitome-rustc` program itself: how it fails on bad input.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// A fresh directory under the system's temporary directory.
 fn scratch(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("epitome-rustc2-driver-{name}-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("epitome-rustc-driver-{name}-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }
 
 /// Builds `roots` to an object file: the exit code and what went to stderr.
 fn build(dir: &Path, roots: &[PathBuf]) -> (Option<i32>, String) {
-    let out = Command::new(env!("CARGO_BIN_EXE_epitome-rustc2"))
+    let out = Command::new(env!("CARGO_BIN_EXE_epitome-rustc"))
         .arg("--emit=obj")
         .arg("-o")
         .arg(dir.join("out.o"))

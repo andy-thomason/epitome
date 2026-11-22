@@ -664,6 +664,27 @@ impl<'l, 'c, 's> Lower<'l, 'c, 's> {
                                         }
                                         DEPTH.set(DEPTH.get() - 1);
                                     }
+                                } else if let Some(ca) = super::collect::find_assoc_const(self.env, def, name)
+                                    && let Some(&v) =
+                                        kids.iter().rev().find(|&&v| matches!(ast.kind(v), Kind::Literal | Kind::Unary | Kind::Block))
+                                {
+                                    // `ASSOC<N> = 10`: the value, then its own arguments.
+                                    let value = self.konst(v);
+                                    let mut parts = vec![self.tcx.mk(TyKind::ConstArg(value))];
+                                    if let Some(g) = kids.iter().copied().find(|&k| ast.kind(k) == Kind::GenericArgs) {
+                                        for &x in ast.children(g) {
+                                            match ast.kind(x) {
+                                                Kind::Lifetime => {}
+                                                Kind::Literal | Kind::Unary | Kind::Block => {
+                                                    let c = self.konst(x);
+                                                    parts.push(self.tcx.mk(TyKind::ConstArg(c)));
+                                                }
+                                                _ => parts.push(self.ty(x)),
+                                            }
+                                        }
+                                    }
+                                    let l = self.tcx.list(parts);
+                                    bindings.push((ca, self.tcx.mk(TyKind::Tuple(l))));
                                 }
                             }
                             Kind::Literal | Kind::Unary | Kind::Block => {

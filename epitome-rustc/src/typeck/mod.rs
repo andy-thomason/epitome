@@ -572,6 +572,17 @@ mod tests {
     }
 
     #[test]
+    fn associated_const_binding_settles_a_const_argument() {
+        let Some(core) = core_src() else {
+            eprintln!("no rust-src: skipped");
+            return;
+        };
+        let s = plain(&dump_with("tests/typeck/const_binding.rs", "const_binding", Some(core)));
+        let want = "bar::<_, ()> : fn item const_binding::bar<10, ()>";
+        assert!(s.lines().any(|l| l == want), "no `{want}` in:\n{s}");
+    }
+
+    #[test]
     fn written_projection_requirements_guide_inference() {
         let Some(core) = core_src() else {
             eprintln!("no rust-src: skipped");

@@ -232,6 +232,20 @@ impl<'a, 's> Solver<'a, 's> {
         !matches!(sel, traits::Select::No)
     }
 
+    /// Whether `t` may implement the lang-item trait `lang` at `targs`: unless
+    /// it is known not to.
+    pub fn may_implement(&mut self, t: Ty, lang: &str, targs: &[Ty]) -> bool {
+        let tcx = self.cx.tcx;
+        let Some(&tr) = tcx.lang.get(lang) else { return true };
+        if tcx.has_error(t) || tcx.has_infer(t) || targs.iter().any(|&a| tcx.has_infer(a)) {
+            return true;
+        }
+        let s = self.cx.probe();
+        let sel = self.cx.select(t, tr, targs, 0);
+        self.cx.rollback(s);
+        !matches!(sel, traits::Select::No)
+    }
+
     /// Whether `t` implements the lang-item trait `lang` (taking no arguments).
     pub fn implements_lang(&mut self, t: Ty, lang: &str) -> bool {
         let tcx = self.cx.tcx;

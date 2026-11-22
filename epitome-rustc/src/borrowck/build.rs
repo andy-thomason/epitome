@@ -85,6 +85,9 @@ pub struct Builder<'a, 's> {
     extend: Option<usize>,
     /// How deep in expressions: a guard against runaway recursion.
     depth: u32,
+    /// The place being built is to be changed (assigned to, borrowed with
+    /// `&mut`): `DerefMut` and `IndexMut`, not `Deref` and `Index`.
+    mut_use: bool,
     /// The closure expressions met, to build bodies for.
     pub closures: Vec<NodeId>,
 }
@@ -171,13 +174,13 @@ impl<'a, 's> Builder<'a, 's> {
         let f = &cx.crates[k as usize].files[file as usize];
         Builder {
             cx,
-            solver: Solver::new(cx.tcx, cx.r, cx.crates, cx.index),
+            solver: Solver::for_owner(cx.tcx, cx.r, cx.crates, cx.index, owner),
             ast: &f.ast,
             tables: &cx.res.tables[k as usize][file as usize],
             types: &cx.res.types[k as usize][file as usize],
             k,
             file,
-            cfg: Cfg { owner, krate: k, file, node, closure, name, locals: Vec::new(), arg_count: 0, blocks: Vec::new() },
+            cfg: Cfg { owner, krate: k, file, node, closure, name, locals: Vec::new(), arg_count: 0, blocks: Vec::new(), upvars: Vec::new() },
             cur: None,
             scopes: Vec::new(),
             loops: Vec::new(),
@@ -189,6 +192,7 @@ impl<'a, 's> Builder<'a, 's> {
             binds: Vec::new(),
             extend: None,
             depth: 0,
+            mut_use: false,
             closures: Vec::new(),
         }
     }
@@ -568,14 +572,32 @@ impl<'a, 's> Builder<'a, 's> {
     /// `n` as a place: itself if it is one, else a temporary holding it;
     /// adjusted as typeck says.
     fn expr_place(&mut self, n: NodeId) -> R<Place> {
-        let p = self.unadjusted_place(n)?;
-        let mut p = match self.tables.adjustments.get(&n).cloned() {
-            Some(adj) if !adj.is_empty() => self.adjust(n, p, &adj)?,
-            _ => p,
-        };
+        // Borrowed mutably, by an adjustment, or in a context that changes it.
+        let adj = self.tables.adjustments.get(&n).cloned().unwrap_or_default();
+        let needs_mut = self.mut_use || adj.iter().any(|a| matches!(a, Adjust::Borrow(Mutbl::Mut)));
+        let saved = std::mem::replace(&mut self.mut_use, needs_mut);
+        let r = self.unadjusted_place(n).and_then(|p| if adj.is_empty() { Ok(p) } else { self.adjust(n, p, &adj) });
+        self.mut_use = saved;
+        let mut p = r?;
         // Named by `n`, for an error to point at.
         p.at = Some(n);
         Ok(p)
+    }
+
+    /// `n` as a place that is to be changed (or not).
+    fn expr_place_mut(&mut self, n: NodeId, m: bool) -> R<Place> {
+        let saved = std::mem::replace(&mut self.mut_use, m);
+        let r = self.expr_place(n);
+        self.mut_use = saved;
+        r
+    }
+
+    /// `n` as an operand: its value, not a place that is changed.
+    fn expr_value(&mut self, n: NodeId) -> R<Operand> {
+        let saved = std::mem::replace(&mut self.mut_use, false);
+        let r = self.expr_operand(n);
+        self.mut_use = saved;
+        r
     }
 
     fn expr_operand(&mut self, n: NodeId) -> R<Operand> {
@@ -620,7 +642,7 @@ impl<'a, 's> Builder<'a, 's> {
                 Adjust::OverloadedDeref => {
                     // `Deref::deref(&p)` (or `deref_mut`, if what follows
                     // borrows mutably), then through what it gives.
-                    let mutable = adj[i + 1..].iter().any(|x| matches!(x, Adjust::Borrow(Mutbl::Mut)));
+                    let mutable = self.mut_use && self.solver.may_implement(p.ty, "deref_mut", &[]);
                     let (lang, name) = if mutable { ("deref_mut", "deref_mut") } else { ("deref", "deref") };
                     let m = self.lang_method(lang, name).ok_or("no `Deref` method")?;
                     let m_args = tcx.list(vec![p.ty]);
@@ -678,7 +700,10 @@ impl<'a, 's> Builder<'a, 's> {
                 if let Some(&(m, margs)) = self.tables.methods.get(&n) {
                     // `*x` through `Deref::deref(&x)` (or `deref_mut`).
                     let base = self.expr_place(kids[1])?;
-                    let mutable = self.cx.r.defs[m.0 as usize].name == "deref_mut";
+                    // (Typeck says `deref`; whether it is `deref_mut` is where
+                    // the result is used.)
+                    let mutable = self.mut_use && self.solver.may_implement(base.ty, "deref_mut", &[]);
+                    let m = if mutable { self.lang_method("deref_mut", "deref_mut").unwrap_or(m) } else { m };
                     let rm = if mutable { Mutbl::Mut } else { Mutbl::Not };
                     let recv_t = self.tcx().mk(TyKind::Ref(rm, base.ty));
                     let recv = self.temp(recv_t, n);
@@ -692,6 +717,24 @@ impl<'a, 's> Builder<'a, 's> {
             }
             _ => {}
         }
+        // A static item is a place: of its own, that is `mut` or not.
+        if self.ast.kind(n) == Kind::PathExpr
+            && !self.tables.consts.contains_key(&n)
+            && let Some(Res::Def(d)) = self.res(kids[0])
+            && self.cx.r.defs[d.0 as usize].kind == DefKind::Static
+        {
+            let t = self.ty(n)?;
+            let def = &self.cx.r.defs[d.0 as usize];
+            let sast = &self.cx.crates[def.krate as usize].files[def.file as usize].ast;
+            let mutable = sast.children(def.node).iter().any(|&c| sast.kind(c) == Kind::Keyword && sast.token(c).0 == "mut");
+            let l = self.new_local(t, LocalKind::Static, Some(def.name.to_string()), mutable, None);
+            self.register(l, false);
+            self.emit(StmtKind::StorageLive(l), n);
+            let p = Place::local(l, t);
+            // (It has its value: this is not an assignment of the program's.)
+            self.emit(StmtKind::MaybeInit(p.clone()), n);
+            return Ok(p);
+        }
         let t = self.ty(n)?;
         let tmp = self.temp(t, n);
         self.expr_into_raw(n, &tmp)?;
@@ -702,12 +745,16 @@ impl<'a, 's> Builder<'a, 's> {
         let tcx = self.tcx();
         let base = self.expr_place(kids[0])?;
         if let Some(&(m, margs)) = self.tables.methods.get(&n) {
-            let mutable = self.cx.r.defs[m.0 as usize].name == "index_mut";
+            // (Typeck says `index`; whether it is `index_mut` is where the
+            // result is used.)
+            let idx = self.expr_value(kids[1])?;
+            let idx_ty = self.operand_ty(&idx);
+            let mutable = self.mut_use && self.solver.may_implement(base.ty, "index_mut", &[idx_ty]);
+            let m = if mutable { self.lang_method("index_mut", "index_mut").unwrap_or(m) } else { m };
             let rm = if mutable { Mutbl::Mut } else { Mutbl::Not };
             let recv_t = tcx.mk(TyKind::Ref(rm, base.ty));
             let recv = self.temp(recv_t, n);
             self.assign(&recv, Rvalue::Ref(rm, base), n);
-            let idx = self.expr_operand(kids[1])?;
             let out_t = tcx.mk(TyKind::Ref(rm, self.ty(n)?));
             let out = self.call_temp(Callee::Fn(m, margs), vec![Operand::Use(recv), idx], out_t, n);
             return self.deref(&out);
@@ -716,7 +763,7 @@ impl<'a, 's> Builder<'a, 's> {
             TyKind::Array(e, _) | TyKind::Slice(e) => e,
             _ => return Err(format!("index of {}", tcx.display(self.cx.r, base.ty))),
         };
-        let idx = self.expr_operand(kids[1])?;
+        let idx = self.expr_value(kids[1])?;
         let il = match idx {
             Operand::Use(p) if p.proj.is_empty() => p.local,
             other => {
@@ -730,9 +777,12 @@ impl<'a, 's> Builder<'a, 's> {
 
     /// `n`'s own value (before adjustments) into `dest`.
     fn expr_into_raw(&mut self, n: NodeId, dest: &Place) -> R<()> {
+        // (What is made here is a value, not a place that is changed.)
+        let saved = std::mem::replace(&mut self.mut_use, false);
         self.depth += 1;
         let r = if self.depth > 400 { Err("expressions nested too deep".to_string()) } else { self.expr_into_raw_in(n, dest) };
         self.depth -= 1;
+        self.mut_use = saved;
         r
     }
 
@@ -767,7 +817,8 @@ impl<'a, 's> Builder<'a, 's> {
             Kind::Borrow => {
                 let t = self.ty(n)?;
                 let e = *kids.last().unwrap();
-                let p = self.expr_place(e)?;
+                let changes = matches!(tcx.kind(t), TyKind::Ref(Mutbl::Mut, _) | TyKind::Ptr(Mutbl::Mut, _));
+                let p = self.expr_place_mut(e, changes)?;
                 let rv = match tcx.kind(t) {
                     TyKind::Ref(m, _) => Rvalue::Ref(m, p),
                     TyKind::Ptr(m, _) => Rvalue::AddrOf(m, p),
@@ -1033,7 +1084,7 @@ impl<'a, 's> Builder<'a, 's> {
                 if compound {
                     let base = op.trim_end_matches('=').to_string();
                     let rhs = self.expr_operand(kids[2])?;
-                    let p = self.expr_place(kids[0])?;
+                    let p = self.expr_place_mut(kids[0], true)?;
                     if let Some(&(m, margs)) = self.tables.methods.get(&n)
                         && !(self.is_prim(p.ty) && self.is_prim(self.operand_ty(&rhs)))
                     {
@@ -1116,7 +1167,7 @@ impl<'a, 's> Builder<'a, 's> {
             }
             Kind::StructExpr | Kind::Call | Kind::Array => Err("destructuring assignment of a struct or array".into()),
             _ => {
-                let p = self.expr_place(lhs)?;
+                let p = self.expr_place_mut(lhs, true)?;
                 self.assign(&p, Rvalue::Use(value), node);
                 Ok(())
             }
@@ -1198,7 +1249,22 @@ impl<'a, 's> Builder<'a, 's> {
         if let Some(&(m, margs)) = self.tables.methods.get(&n) {
             // Through the `Fn` traits: `f(a, b)` is `Fn::call(&f, (a, b))`.
             let name = self.cx.r.defs[m.0 as usize].name;
-            let callee = self.expr_place(kids[0])?;
+            let mut callee = self.expr_place_mut(kids[0], name == "call_mut")?;
+            // The callee is what `Self` is: through the references (and boxes)
+            // it is behind (`f: &mut F` calls `F`).
+            let self_ty = tcx.tys(margs).first().copied();
+            let mut guard = 0;
+            while Some(callee.ty) != self_ty && self.pointee(callee.ty).is_some() && guard < 4 {
+                callee = self.deref(&callee)?;
+                guard += 1;
+            }
+            // Through a reference too, where `Self` is the reference (`impl
+            // FnMut for &mut F`): its variable is not borrowed, what it
+            // points to is.
+            while name != "call_once" && matches!(tcx.kind(callee.ty), TyKind::Ref(..)) && guard < 4 {
+                callee = self.deref(&callee)?;
+                guard += 1;
+            }
             let recv = match name {
                 "call" => self.borrow_operand(Operand::Use(callee), n),
                 "call_mut" => {
@@ -1356,7 +1422,7 @@ impl<'a, 's> Builder<'a, 's> {
         let stmt_scope = self.scopes.len() - 1;
         let result = (|| -> R<()> {
             if let Some(&els) = rest.get(1) {
-                let p = self.expr_place(init)?;
+                let p = self.expr_place_mut(init, self.binds_mut(pat))?;
                 let fail = self.new_block();
                 let ok = self.new_block();
                 let mark = self.binds.len();
@@ -1382,7 +1448,7 @@ impl<'a, 's> Builder<'a, 's> {
                 return r;
             }
             self.extend = Some(block_scope);
-            let p = self.expr_place(init);
+            let p = self.expr_place_mut(init, self.binds_mut(pat));
             self.extend = None;
             let p = p?;
             let mark = self.binds.len();
@@ -1528,7 +1594,7 @@ impl<'a, 's> Builder<'a, 's> {
             }
             Kind::Paren => self.cond(kids[0], els),
             Kind::Let => {
-                let p = self.expr_place(kids[1])?;
+                let p = self.expr_place_mut(kids[1], self.binds_mut(kids[0]))?;
                 let mark = self.binds.len();
                 self.match_pat(kids[0], p, Some(els))?;
                 self.flush_binds(mark, n);
@@ -1584,7 +1650,9 @@ impl<'a, 's> Builder<'a, 's> {
     }
 
     fn match_into(&mut self, n: NodeId, kids: &[NodeId], dest: &Place) -> R<()> {
-        let scrut = self.expr_place(kids[0])?;
+        let arm_pats: Vec<NodeId> = kids[1..].iter().filter(|&&a| self.ast.kind(a) == Kind::MatchArm).filter_map(|&a| self.kids(a).first().copied()).collect();
+        let changes = arm_pats.iter().any(|&p| self.binds_mut(p));
+        let scrut = self.expr_place_mut(kids[0], changes)?;
         let join = self.new_block();
         for &arm in &kids[1..] {
             if self.ast.kind(arm) != Kind::MatchArm {
@@ -1929,6 +1997,15 @@ impl<'a, 's> Builder<'a, 's> {
         }
     }
 
+    /// Whether a pattern has a `ref mut` binding (what it matches is then
+    /// to be changed).
+    fn binds_mut(&self, pat: NodeId) -> bool {
+        if self.ast.kind(pat) == Kind::IdentPat && self.tables.bindings.get(&pat) == Some(&BindingMode::Ref(Mutbl::Mut)) {
+            return true;
+        }
+        self.ast.children(pat).iter().any(|&c| (is_pattern(self.ast.kind(c)) || self.ast.kind(c) == Kind::FieldPat) && self.binds_mut(c))
+    }
+
     fn binding_names(&self, pat: NodeId, out: &mut Vec<(String, NodeId)>) {
         if self.ast.kind(pat) == Kind::IdentPat
             && self.res(pat).is_none()
@@ -2099,7 +2176,9 @@ fn build_fn(b: &mut Builder, owner: DefId) -> R<()> {
                 let pat = ast.children(p).iter().copied().find(|&c| is_pattern(ast.kind(c))).ok_or("a parameter without a pattern")?;
                 let simple = ast.kind(pat) == Kind::IdentPat && b.res(pat).is_none();
                 let name = if simple { ast.child(pat, Kind::Name).map(|nm| ast.token(nm).0.to_string()) } else { None };
-                let mutable = simple && ast.children(pat).iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == "mut");
+                // (A parameter that is not just a name is a `mut` local, as
+                // in rustc: its pattern may borrow it mutably.)
+                let mutable = !b.is_simple_binding(pat) || ast.children(pat).iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == "mut");
                 (Some(pat), name, mutable)
             };
             let l = b.new_local(t, LocalKind::Arg, name, mutable, Some(p));
@@ -2161,6 +2240,9 @@ fn build_closure_body(b: &mut Builder, owner: DefId, node: NodeId) -> R<()> {
     for (i, cap) in b.cx.res.captures.get(&c).cloned().unwrap_or_default().iter().enumerate() {
         let ty = b.ty(cap.local)?;
         b.upvars.insert(cap.local, (i, cap.by_value, ty));
+        // Declared `mut`: a `mut` among the binding's own tokens.
+        let mutable = ast.children(cap.local).iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == "mut");
+        b.cfg.upvars.push((mutable, cap.by_value, ty));
     }
     let kids = b.kids(node);
     let params = kids.iter().copied().find(|&c| ast.kind(c) == Kind::ClosureParams);
@@ -2174,7 +2256,8 @@ fn build_closure_body(b: &mut Builder, owner: DefId, node: NodeId) -> R<()> {
         let pat = ast.children(cp).iter().copied().find(|&x| is_pattern(ast.kind(x))).ok_or("a closure parameter without a pattern")?;
         let simple = ast.kind(pat) == Kind::IdentPat && b.res(pat).is_none();
         let name = if simple { ast.child(pat, Kind::Name).map(|nm| ast.token(nm).0.to_string()) } else { None };
-        let l = b.new_local(it, LocalKind::Arg, name, simple && b.is_simple_binding(pat), Some(cp));
+        let mutable = !b.is_simple_binding(pat) || ast.children(pat).iter().any(|&c| ast.kind(c) == Kind::Keyword && ast.token(c).0 == "mut");
+        let l = b.new_local(it, LocalKind::Arg, name, mutable, Some(cp));
         b.cfg.arg_count += 1;
         b.register(l, true);
         if b.is_simple_binding(pat) {

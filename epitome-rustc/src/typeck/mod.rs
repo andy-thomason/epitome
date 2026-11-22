@@ -572,6 +572,17 @@ mod tests {
     }
 
     #[test]
+    fn written_projection_requirements_guide_inference() {
+        let Some(core) = core_src() else {
+            eprintln!("no rust-src: skipped");
+            return;
+        };
+        let s = plain(&dump_with("tests/typeck/wf_projection.rs", "wf_projection", Some(core)));
+        let want = "_ : ()";
+        assert!(s.lines().any(|l| l == want), "no `{want}` in:\n{s}");
+    }
+
+    #[test]
     fn argument_coerces_to_a_pointer_hint_with_unknowns() {
         let Some(core) = core_src() else {
             eprintln!("no rust-src: skipped");

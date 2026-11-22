@@ -50,4 +50,3 @@ traits/next-solver/cycles/leak-check-coinductive-cycle.rs: type check: a type le
 traits/next-solver/cycles/provisional-result-done.rs: type check: a type left unknown
 traits/next-solver/method/path_lookup_wf_constraints.rs: type check: a type left unknown
 traits/next-solver/overflow-discards-constraints.rs: type check: a type left unknown
-wf/unnormalized-projection-guides-inference.rs: type check: a type left unknown

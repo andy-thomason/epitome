@@ -623,7 +623,37 @@ impl<'a, 's> FnCtxt<'a, 's> {
         };
         let t = l.ty(n);
         let t = self.fill_holes(t);
+        self.wf_projections(t);
         self.reveal_defined(t)
+    }
+
+    /// For each projection in a written type with unknowns in it (`<_ as
+    /// Tr<u8>>::Out`), what its trait requires of its arguments: that can
+    /// settle them.
+    fn wf_projections(&mut self, t: Ty) {
+        let tcx = self.tcx;
+        let t = self.infer.shallow(t);
+        match tcx.kind(t) {
+            TyKind::Projection(a, l) => {
+                let args = tcx.tys(l);
+                if args.iter().any(|&x| tcx.has_infer(self.infer.resolve(x)))
+                    && let Some(tr) = self.trait_of(a)
+                    && tcx.tys(l).len() == tcx.all_params(tr).len()
+                {
+                    self.oblige_wf(tr, &args);
+                }
+                for x in args {
+                    self.wf_projections(x);
+                }
+            }
+            TyKind::Adt(_, l) | TyKind::Tuple(l) => {
+                for x in tcx.tys(l) {
+                    self.wf_projections(x);
+                }
+            }
+            TyKind::Ref(_, x) | TyKind::Ptr(_, x) | TyKind::Slice(x) | TyKind::Array(x, _) => self.wf_projections(x),
+            _ => {}
+        }
     }
 
     /// `t` with each type-alias `impl Trait` this body defines replaced by

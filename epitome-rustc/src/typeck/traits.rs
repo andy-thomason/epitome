@@ -267,6 +267,17 @@ impl<'a, 's> FnCtxt<'a, 's> {
     /// The predicates of item `d` (and its parents) at arguments `args`,
     /// as obligations.
     pub(super) fn oblige_item(&mut self, d: DefId, args: &[Ty]) {
+        self.oblige_item_in(d, args, false)
+    }
+
+    /// The well-formedness of `<args[0] as Trait<..>>::Assoc`, written in
+    /// the body: the trait's own bounds on its parameters
+    /// (`U: EqualTo<Ty = Self>`), which can guide inference.
+    pub(super) fn oblige_wf(&mut self, tr: DefId, args: &[Ty]) {
+        self.oblige_item_in(tr, args, true)
+    }
+
+    fn oblige_item_in(&mut self, d: DefId, args: &[Ty], wf: bool) {
         let tcx = self.tcx;
         let params = tcx.all_params(d);
         let mut o = Some(d);
@@ -276,10 +287,14 @@ impl<'a, 's> FnCtxt<'a, 's> {
             // takes); a trait's or a trait impl's are not obligations here.
             let kind = self.r.defs[x.0 as usize].kind;
             let inherent = kind == DefKind::Impl && tcx.impl_index.get(&x).is_some_and(|&i| tcx.impls[i].trait_ref.is_none());
-            if matches!(kind, DefKind::Impl | DefKind::Trait) && !inherent {
+            if matches!(kind, DefKind::Impl | DefKind::Trait) && !inherent && !(wf && x == d) {
                 break;
             }
             for p in tcx.predicates[x.0 as usize].clone() {
+                // (Not `Self: Trait`, which is what is being asked.)
+                if wf && matches!(&p, Pred::Trait(_, tr) if tr.def == d) {
+                    continue;
+                }
                 // Substituted, with projections in them normalised (or
                 // variables standing for them), so that a closure checked
                 // against them sees through `<Self as Iterator>::Item`.

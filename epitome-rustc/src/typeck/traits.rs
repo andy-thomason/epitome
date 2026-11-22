@@ -735,21 +735,37 @@ impl<'a, 's> FnCtxt<'a, 's> {
         // name (`B` of `Map<I, F>`'s `F: FnMut(I::Item) -> B`) would be
         // left unknown.
         if depth < MAX_DEPTH {
-            for p in &preds {
-                if let Pred::Projection(_, a, l, ty) = p {
+            // One clause may name what another settles, whichever comes
+            // first: `Fut: Future<Output = R>` before `F: FnMut() -> Fut`
+            // (`AsyncFn`'s blanket impl) says nothing until the second has
+            // given `Fut`. So the clauses that could not be worked out are
+            // tried again while any makes progress.
+            let mut done = vec![false; preds.len()];
+            loop {
+                let mut progress = false;
+                for (k, p) in preds.iter().enumerate() {
+                    let Pred::Projection(_, a, l, ty) = p else { continue };
+                    if done[k] {
+                        continue;
+                    }
                     let pl: Vec<Ty> = tcx.tys(*l).into_iter().map(|x| subst(tcx, x, &params, &args)).collect();
                     let pl: Vec<Ty> = pl.into_iter().map(|x| self.normalize(x, depth + 1)).collect();
                     let ty = subst(tcx, *ty, &params, &args);
-                    if let Some(got) = self.project(*a, &pl, depth + 1)
-                        && !self.infer.unify(got, ty)
-                    {
-                        // `Item = U::Item`: `U` may be known by now; while
-                        // it cannot be worked out it says nothing.
-                        let n = self.normalize(ty, depth + 1);
-                        if !has_projection(tcx, self.infer.resolve(n)) && !self.infer.unify(got, n) {
-                            return None;
+                    if let Some(got) = self.project(*a, &pl, depth + 1) {
+                        done[k] = true;
+                        progress = true;
+                        if !self.infer.unify(got, ty) {
+                            // `Item = U::Item`: `U` may be known by now; while
+                            // it cannot be worked out it says nothing.
+                            let n = self.normalize(ty, depth + 1);
+                            if !has_projection(tcx, self.infer.resolve(n)) && !self.infer.unify(got, n) {
+                                return None;
+                            }
                         }
                     }
+                }
+                if !progress {
+                    break;
                 }
             }
         }

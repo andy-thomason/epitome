@@ -572,6 +572,20 @@ mod tests {
     }
 
     #[test]
+    fn impl_where_clauses_in_any_order() {
+        let Some(core) = core_src() else {
+            eprintln!("no rust-src: skipped");
+            return;
+        };
+        let s = plain(&dump_with("tests/typeck/impl_where_order.rs", "impl_where_order", Some(core)));
+        // `R` is `usize` from the closure's future, however the impl's
+        // `where` clauses are ordered.
+        for want in ["before(|| ready(1usize)) : Option<usize>", "after(|| ready(1usize)) : Option<usize>"] {
+            assert!(s.lines().any(|l| l == want), "no `{want}` in:\n{s}");
+        }
+    }
+
+    #[test]
     fn traits_methods_and_closures() {
         let Some(core) = core_src() else {
             eprintln!("no rust-src: skipped");

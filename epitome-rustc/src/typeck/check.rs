@@ -1302,16 +1302,57 @@ impl<'a, 's> FnCtxt<'a, 's> {
         // (`Option::<u8>::None`, `Trait::<A>::f` after `Self`).
         let last = written(segs.last());
         let parent = if segs.len() >= 2 { written(segs.get(segs.len() - 2)) } else { Vec::new() };
+        let mut marks: Vec<(usize, NodeId)> = Vec::new();
         let mut put = |cx: &mut Self, start: usize, ts: Vec<NodeId>| {
             for (i, a) in ts.into_iter().enumerate() {
                 if start + i < args.len() {
                     args[start + i] = cx.written_arg(a);
+                    marks.push((start + i, a));
                 }
             }
         };
         put(self, if variant { 0 } else { own_start }, last);
         put(self, if in_trait { 1 } else { 0 }, parent);
+        self.const_param_types(&all, &args, &marks);
         args
+    }
+
+    /// A const argument written with a suffix (`foo::<_, 2_i32>`) is of the
+    /// type its parameter says (`const N: T`): which settles `T`.
+    fn const_param_types(&mut self, all: &[crate::ty::ParamId], args: &[Ty], written: &[(usize, NodeId)]) {
+        let tcx = self.tcx;
+        for &(i, a) in written {
+            if self.ast.kind(a) != Kind::Literal || !tcx.params[all[i].0 as usize].is_const {
+                continue;
+            }
+            // The suffix: `2_i32`, `7usize`.
+            let text = self.ast.token(a).0;
+            let Some(suffix) = ["i128", "i16", "i32", "i64", "i8", "isize", "u128", "u16", "u32", "u64", "u8", "usize"]
+                .into_iter()
+                .find(|&sfx| text.ends_with(sfx))
+            else {
+                continue;
+            };
+            let Some(kind) = crate::consteval::prim_named(suffix) else { continue };
+            let (k, f, node) = tcx.params[all[i].0 as usize].at;
+            let ast = self.env.ast(k, f);
+            let Some(&ty_node) = ast.children(node).iter().find(|&&c| crate::ty::lower::is_type(ast.kind(c))) else { continue };
+            let mut l = Lower {
+                tcx,
+                env: &self.env,
+                expanding: FastSet::default(),
+                impl_self: None,
+                holes: false,
+                k,
+                file: f,
+                owner: tcx.params[all[i].0 as usize].owner,
+                failed: false,
+            };
+            let declared = l.ty(ty_node);
+            let declared = subst(tcx, declared, all, args);
+            let want = self.mk(kind);
+            self.infer.unify(declared, want);
+        }
     }
 
     /// The type of a path used as a value.

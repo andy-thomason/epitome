@@ -572,6 +572,17 @@ mod tests {
     }
 
     #[test]
+    fn const_argument_suffix_settles_the_parameters_type() {
+        let Some(core) = core_src() else {
+            eprintln!("no rust-src: skipped");
+            return;
+        };
+        let s = plain(&dump_with("tests/typeck/const_param_type.rs", "const_param_type", Some(core)));
+        let want = "foo::<_, 2_i32> : fn item const_param_type::foo<i32, 2>";
+        assert!(s.lines().any(|l| l == want), "no `{want}` in:\n{s}");
+    }
+
+    #[test]
     fn associated_const_binding_settles_a_const_argument() {
         let Some(core) = core_src() else {
             eprintln!("no rust-src: skipped");

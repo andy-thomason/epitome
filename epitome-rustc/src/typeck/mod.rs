@@ -572,6 +572,18 @@ mod tests {
     }
 
     #[test]
+    fn reuse_impl_is_an_impl() {
+        let Some(core) = core_src() else {
+            eprintln!("no rust-src: skipped");
+            return;
+        };
+        let s = plain(&dump_with("tests/typeck/reuse_impl.rs", "reuse_impl", Some(core)));
+        for want in ["f.foo() : u8  [reuse_impl::Tr::foo]", "f.bar(1) : ()  [reuse_impl::Tr::bar]"] {
+            assert!(s.lines().any(|l| l == want), "no `{want}` in:\n{s}");
+        }
+    }
+
+    #[test]
     fn method_found_before_deref_chain_settles_unknowns() {
         let Some(core) = core_src() else {
             eprintln!("no rust-src: skipped");

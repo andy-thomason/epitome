@@ -409,7 +409,10 @@ impl<'a, 's> Builder<'a, 's> {
     fn scope_exit(&mut self, i: usize, node: NodeId) {
         let mut locals = self.scopes[i].locals.clone();
         // (Reverse of when they got their values, as made; the rest as declared.)
-        let key = |l: &Local, at: usize| self.first_def.get(&l.0).map_or((0, at as u32), |&s| (1, s));
+        let key = |l: &Local, at: usize| match self.first_def.get(&l.0) {
+            Some(&s) if self.cfg.locals[l.0 as usize].kind == LocalKind::Temp => (1, s),
+            _ => (0, at as u32),
+        };
         let mut keyed: Vec<(Local, (u32, u32))> = locals.iter().enumerate().map(|(at, l)| (*l, key(l, at))).collect();
         keyed.sort_by_key(|k| std::cmp::Reverse(k.1));
         locals = keyed.into_iter().map(|k| k.0).collect();
@@ -923,6 +926,15 @@ impl<'a, 's> Builder<'a, 's> {
             Kind::Cast => {
                 let o = self.expr_operand(kids[0])?;
                 let t = self.ty(n)?;
+                // `(&x) as &'static T`: what it holds must live forever.
+                if let Some(&tn) = kids.last()
+                    && self.ast.kind(tn) == Kind::RefType
+                    && self.ast.children(tn).iter().any(|&c| self.ast.kind(c) == Kind::Lifetime && self.ast.token(c).0 == "'static")
+                    && dest.proj.is_empty()
+                    && !self.cfg.static_vars.contains(&dest.local)
+                {
+                    self.cfg.static_vars.push(dest.local);
+                }
                 self.assign(dest, Rvalue::Cast(o, t), n);
             }
             Kind::Binary => self.binary_into(n, &kids, dest)?,

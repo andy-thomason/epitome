@@ -342,6 +342,8 @@ struct Loan {
     ignored: bool,
     /// Made by a closure capturing a variable.
     capture: bool,
+    /// Not a borrow: what a parameter's region stands for (the caller's).
+    universal: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -416,6 +418,8 @@ pub fn check<'b, 's>(cx: &Cx<'_, 's>, cfg: &Cfg, solver: &mut Solver<'b, 's>, or
 }
 
 struct An<'a, 'c, 's> {
+    /// What the parameters hold on entry.
+    init: State,
     /// The body of a constant or static.
     const_mode: bool,
     /// Types the function says outlive `'static`: they hold no loans.
@@ -456,6 +460,7 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
             .map(|s| s.ty_outlives.iter().filter_map(|(t, r)| if let (RTy::Param(p), Region::Static) = (t, r) { Some(*p) } else { None }).collect())
             .unwrap_or_default();
         let mut an = An {
+            init: State::default(),
             const_mode: false,
             static_proj,
             static_params,
@@ -494,7 +499,7 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
                             || promoted.get(&p.local.0).is_some_and(|&empty_array| *m == Mutbl::Not || empty_array);
                         let id = an.loans.len() as u32;
                         an.rooted[p.local.0 as usize].push(id);
-                        an.loans.push(Loan { place: p.clone(), mutbl: *m, node: p.at.unwrap_or(s.node), block: b.0, idx: i as u32, act, reserved, ignored, capture: false });
+                        an.loans.push(Loan { place: p.clone(), mutbl: *m, node: p.at.unwrap_or(s.node), block: b.0, idx: i as u32, act, reserved, ignored, capture: false, universal: false });
                         an.loan_at.insert((b.0, i as u32), id);
                     }
                 }
@@ -504,7 +509,51 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
             }
             an.captures(b.0, &promoted);
         }
+        an.universals();
         an
+    }
+
+    /// Each region of a parameter (that the signature does not make
+    /// `'static`) is held, on entry, by a loan of the caller's.
+    fn universals(&mut self) {
+        let (cx, cfg) = (self.cx, self.cfg);
+        if cfg.closure.is_some() || self.const_mode {
+            return;
+        }
+        let Some(sig) = cx.sig(cfg.owner) else { return };
+        for a in 1..=cfg.arg_count {
+            let Some(rty) = sig.inputs.get(a - 1) else { continue };
+            let ty = cfg.locals[a].ty;
+            let mut ds = Vec::new();
+            desc(cx, rty, ty, &mut ds);
+            if ds.len() != cx.slots(ty) as usize {
+                continue;
+            }
+            let mut slots: Vec<Set> = vec![Vec::new(); ds.len()];
+            for (k, syms) in ds.iter().enumerate() {
+                let [Sym::Reg(r @ (Region::Param(_) | Region::Elided(_) | Region::ImplAnon(_)))] = syms.as_slice() else { continue };
+                if sig.outlives.iter().any(|(x, y)| x == r && *y == Region::Static) {
+                    continue;
+                }
+                let id = self.loans.len() as u32;
+                self.loans.push(Loan {
+                    place: Place::local(Local(a as u32), ty),
+                    mutbl: Mutbl::Not,
+                    node: cfg.locals[a].node.unwrap_or(cfg.node),
+                    block: 0,
+                    idx: 0,
+                    act: None,
+                    reserved: Default::default(),
+                    ignored: true,
+                    capture: false,
+                    universal: true,
+                });
+                slots[k] = vec![id];
+            }
+            if slots.iter().any(|x| !x.is_empty()) {
+                self.init.held.insert(a as u32, slots);
+            }
+        }
     }
 
     /// The loans of the closure captures made in block `b`: a borrow of
@@ -557,6 +606,7 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
                         reserved: Default::default(),
                         ignored,
                         capture: true,
+                        universal: false,
                     });
                     ids.push(id);
                 }
@@ -752,6 +802,9 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
             let outer = self.read(st, &prefix).first().cloned().unwrap_or_default();
             for l in outer {
                 let loan = &self.loans[l as usize];
+                if loan.universal {
+                    continue;
+                }
                 let mut proj = loan.place.proj.clone();
                 proj.extend_from_slice(&p.proj[d..]);
                 let target = Place { local: loan.place.local, proj, ty: p.ty, at: None };
@@ -1313,7 +1366,7 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
     fn flow(&mut self) {
         let nb = self.cfg.blocks.len();
         self.entry = vec![None; nb];
-        self.entry[0] = Some(State::default());
+        self.entry[0] = Some(self.init.clone());
         let order = self.cfg.reachable();
         for _ in 0..40 {
             let mut changed = false;
@@ -1619,7 +1672,7 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
                     && d.proj.is_empty()
                     && self.cfg.static_vars.contains(&d.local)
                 {
-                    self.static_annotation(d.local, &st);
+                    self.static_annotation(d.local, &st, s.node);
                 }
             }
             // The terminator.
@@ -1651,7 +1704,7 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
                     let w = Access { place: dest.clone(), kind: Kind::Write, node: *term_node, shallow: true };
                     self.conflict(&st, &live[n + 1], &w, None, (b.0, ti), &returns);
                     if let Callee::Fn(d, _) = func {
-                        self.static_requirements(*d, args, &st);
+                        self.static_requirements(*d, args, &st, *term_node);
                     }
                 }
                 Term::Switch { discr: Operand::Use(p), .. } => {
@@ -1727,20 +1780,24 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
 
     /// `let x: &'static T = ..;`: what it holds must not be borrowed from
     /// the function's own data.
-    fn static_annotation(&mut self, v: Local, st: &State) {
+    fn static_annotation(&mut self, v: Local, st: &State, at: NodeId) {
         let Some(slots) = st.held.get(&v.0) else { return };
         let Some(first) = slots.first() else { return };
         let ids = first.clone();
-        self.flag_static(&ids);
+        self.flag_static(&ids, at);
     }
 
     /// Loans of the function's own data that must outlive `'static`.
-    fn flag_static(&mut self, ids: &[u32]) {
+    fn flag_static(&mut self, ids: &[u32], _at: NodeId) {
         if self.const_mode {
             return;
         }
         for &l in ids {
             let loan = &self.loans[l as usize];
+            // (A parameter stored where `'static` is wanted is a lifetime error without a code.)
+            if loan.universal {
+                continue;
+            }
             if loan.ignored || self.through_ref(&loan.place) {
                 continue;
             }
@@ -1776,7 +1833,7 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
             for (k, syms) in ds.iter().enumerate() {
                 if syms.iter().any(|x| matches!(x, Sym::Reg(Region::Static))) {
                     let ids = vals[k].clone();
-                    self.flag_static(&ids);
+                    self.flag_static(&ids, s.node);
                 }
             }
         }
@@ -1803,14 +1860,14 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
             }
             if ds.get(si as usize).is_some_and(|x| x.iter().any(|y| matches!(y, Sym::Reg(Region::Static)))) {
                 let ids = held.get(si as usize).cloned().unwrap_or_default();
-                self.flag_static(&ids);
+                self.flag_static(&ids, s.node);
             }
         }
     }
 
     /// A call whose signature wants `'static` (`&'static T`, `F: 'static`) of
     /// an argument that holds a borrow of the function's own data.
-    fn static_requirements(&mut self, d: DefId, args: &[Operand], st: &State) {
+    fn static_requirements(&mut self, d: DefId, args: &[Operand], st: &State, at: NodeId) {
         let cx = self.cx;
         let Some(sig) = cx.sig(d) else { return };
         if sig.inputs.len() != args.len() {
@@ -1839,6 +1896,14 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
                 }
                 for &l in &slots[k] {
                     let loan = &self.loans[l as usize];
+                    if loan.universal {
+                        let node = match &args[j] {
+                            Operand::Use(p) => p.at.unwrap_or(at),
+                            Operand::Const(..) => at,
+                        };
+                        self.out.push(Raw { code: "E0521", node, message: "borrowed data escapes outside of the function".into(), local: None });
+                        continue;
+                    }
                     if loan.ignored || self.through_ref(&loan.place) {
                         continue;
                     }

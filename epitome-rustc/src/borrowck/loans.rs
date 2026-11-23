@@ -47,14 +47,17 @@ pub struct Cx<'a, 's> {
     pub var: &'a Variances,
     /// How each closure uses what it captured.
     pub closures: &'a FastMap<ClosureId, Vec<UpvarUse>>,
+    /// For each closure parameter, whether its region is one the caller
+    /// does not name (`F: FnOnce(&T)`): it stands for any lifetime.
+    pub hr: &'a FastMap<ClosureId, Vec<bool>>,
     sigs: RefCell<FastMap<DefId, Option<Rc<FnRegions>>>>,
     fields: RefCell<FastMap<DefId, Option<Rc<Vec<Vec<RTy>>>>>>,
     counts: RefCell<FastMap<Ty, u32>>,
 }
 
 impl<'a, 's> Cx<'a, 's> {
-    pub fn new(tcx: &'a TyCtxt<'s>, r: &'a Resolver<'s>, crates: &'a [ParsedCrate<'s>], var: &'a Variances, closures: &'a FastMap<ClosureId, Vec<UpvarUse>>) -> Self {
-        Cx { tcx, r, crates, var, closures, sigs: Default::default(), fields: Default::default(), counts: Default::default() }
+    pub fn new(tcx: &'a TyCtxt<'s>, r: &'a Resolver<'s>, crates: &'a [ParsedCrate<'s>], var: &'a Variances, closures: &'a FastMap<ClosureId, Vec<UpvarUse>>, hr: &'a FastMap<ClosureId, Vec<bool>>) -> Self {
+        Cx { tcx, r, crates, var, closures, hr, sigs: Default::default(), fields: Default::default(), counts: Default::default() }
     }
 
     fn sig(&self, d: DefId) -> Option<Rc<FnRegions>> {
@@ -517,7 +520,35 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
     /// `'static`) is held, on entry, by a loan of the caller's.
     fn universals(&mut self) {
         let (cx, cfg) = (self.cx, self.cfg);
-        if cfg.closure.is_some() || self.const_mode {
+        if self.const_mode {
+            return;
+        }
+        if let Some(c) = cfg.closure {
+            // A closure's parameters the caller does not name: any lifetime.
+            let Some(hr) = cx.hr.get(&c) else { return };
+            for (i, &is_hr) in hr.iter().enumerate() {
+                let a = 2 + i;
+                if !is_hr || a > cfg.arg_count || cx.slots(cfg.locals[a].ty) == 0 || !matches!(cx.tcx.kind(cfg.locals[a].ty), TyKind::Ref(..)) {
+                    continue;
+                }
+                let ty = cfg.locals[a].ty;
+                let id = self.loans.len() as u32;
+                self.loans.push(Loan {
+                    place: Place::local(Local(a as u32), ty),
+                    mutbl: Mutbl::Not,
+                    node: cfg.locals[a].node.unwrap_or(cfg.node),
+                    block: 0,
+                    idx: 0,
+                    act: None,
+                    reserved: Default::default(),
+                    ignored: true,
+                    capture: false,
+                    universal: true,
+                });
+                let mut slots: Vec<Set> = vec![Vec::new(); cx.slots(ty) as usize];
+                slots[0] = vec![id];
+                self.init.held.insert(a as u32, slots);
+            }
             return;
         }
         let Some(sig) = cx.sig(cfg.owner) else { return };
@@ -701,6 +732,8 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
                             idx.get(before as usize..(before + n) as usize).map_or(none(n), |s| s.to_vec())
                         }
                         TyKind::Adt(d, args) => self.field_slots(d, args, variant, *i, next, &idx, n),
+                        // (A closure's captures are one region.)
+                        TyKind::Closure(..) => idx.first().map_or(none(n), |&f| vec![f; n as usize]),
                         _ => none(n),
                     };
                     variant = 0;
@@ -1666,7 +1699,9 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
                     self.conflict(&st, &live[i + 1], a, own, (b.0, i as u32), &returns);
                 }
                 self.static_fields(s, &st);
+                let env_before = self.env_holds(&st);
                 self.transfer_stmt(b.0, i as u32, s, &mut st);
+                self.closure_env(env_before, &st, s.node);
                 self.static_params(s, &st);
                 if let StmtKind::Assign(d, _) = &s.kind
                     && d.proj.is_empty()
@@ -1745,7 +1780,9 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
                 }
                 _ => {}
             }
+            let env_before = self.env_holds(&st);
             self.transfer_term(term, &mut st);
+            self.closure_env(env_before, &st, *term_node);
         }
         let mut seen = std::collections::HashSet::new();
         self.out.retain(|r| seen.insert((r.code, r.node)));
@@ -1862,6 +1899,18 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
                 let ids = held.get(si as usize).cloned().unwrap_or_default();
                 self.flag_static(&ids, s.node);
             }
+        }
+    }
+
+    /// What a closure's own parameters stand for must not reach what it
+    /// captured (it lives longer than any call).
+    fn env_holds(&self, st: &State) -> bool {
+        self.cfg.closure.is_some() && st.held.get(&1).is_some_and(|slots| slots.iter().flatten().any(|&l| self.loans[l as usize].universal))
+    }
+
+    fn closure_env(&mut self, before: bool, st: &State, at: NodeId) {
+        if !before && self.env_holds(st) {
+            self.out.push(Raw { code: "E0521", node: at, message: "borrowed data escapes outside of closure".into(), local: None });
         }
     }
 
@@ -2082,6 +2131,33 @@ pub struct UpvarUse {
 }
 
 /// For each closure, how its body uses each captured variable.
+/// Which parameters of each closure the function it is passed to leaves
+/// to any lifetime: `with_int(|y| ..)` for `F: FnOnce(&isize)`.
+pub fn closure_hr<'s>(cfgs: &[Cfg], crates: &[ParsedCrate<'s>], r: &Resolver<'s>, tcx: &TyCtxt<'s>) -> FastMap<ClosureId, Vec<bool>> {
+    let mut out: FastMap<ClosureId, Vec<bool>> = FastMap::default();
+    let mut sigs: FastMap<DefId, Option<FnRegions>> = FastMap::default();
+    for cfg in cfgs {
+        for b in &cfg.blocks {
+            let Some((Term::Call { func: Callee::Fn(d, _), args, .. }, _)) = &b.term else { continue };
+            for (j, a) in args.iter().enumerate() {
+                let Operand::Use(p) = a else { continue };
+                let TyKind::Closure(c, _, _) = tcx.kind(p.ty) else { continue };
+                let sig = sigs.entry(*d).or_insert_with(|| sig::fn_regions(crates, r, tcx, *d));
+                let Some(sig) = sig else { continue };
+                let Some(RTy::Param(pp)) = sig.inputs.get(j) else { continue };
+                for (t, bound) in &sig.bounds {
+                    if !matches!(t, RTy::Param(q) if q == pp) {
+                        continue;
+                    }
+                    let Some(RArg::Ty(RTy::Tuple(ts))) = bound.args.first() else { continue };
+                    out.insert(c, ts.iter().map(|t| matches!(t, RTy::Ref(Region::Bound(_), _, _))).collect());
+                }
+            }
+        }
+    }
+    out
+}
+
 pub fn closure_uses(cfgs: &[Cfg], tcx: &TyCtxt) -> FastMap<ClosureId, Vec<UpvarUse>> {
     let is_mut_ref = |t: Ty| matches!(tcx.kind(t), TyKind::Ref(Mutbl::Mut, _));
     let mut out: FastMap<ClosureId, Vec<UpvarUse>> = FastMap::default();

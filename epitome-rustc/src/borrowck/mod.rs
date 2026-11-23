@@ -68,13 +68,14 @@ impl Session {
         let index = crate::typeck::Index::new(tcx, r);
         let var = self.variances(crates, r, tcx);
         let uses = loans::closure_uses(&built.cfgs, tcx);
+        let hr = loans::closure_hr(&built.cfgs, crates, r, tcx);
         // A compiler's stack: the solver recurses deeply on some types.
         let mut out: Vec<Diagnostic> = std::thread::scope(|sc| {
             std::thread::Builder::new()
                 .stack_size(512 << 20)
                 .spawn_scoped(sc, || {
                     let mut out = Vec::new();
-                    let lcx = loans::Cx::new(tcx, r, crates, &var, &uses);
+                    let lcx = loans::Cx::new(tcx, r, crates, &var, &uses, &hr);
                     for cfg in &built.cfgs {
                         let ast = &crates[cfg.krate as usize].files[cfg.file as usize].ast;
                         let found = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

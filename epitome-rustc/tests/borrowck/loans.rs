@@ -241,3 +241,11 @@ fn closure_escapes(x: &u8) {
 fn fine_when_static(x: &'static u8) {
     needs_static(move || { let _ = x; });
 }
+
+fn needs_any_lifetime<F: FnOnce(&u8)>(_f: F) {}
+
+fn closure_param_escapes() {
+    let mut keep: Option<&u8> = None;
+    needs_any_lifetime(|y| keep = Some(y)); //~ E0521
+    let _ = keep;
+}

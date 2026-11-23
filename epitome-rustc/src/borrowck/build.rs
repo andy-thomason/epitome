@@ -89,6 +89,9 @@ pub struct Builder<'a, 's> {
     /// Before edition 2024 the temporaries of a block's tail expression live to
     /// the end of the statement the block is in: that scope.
     tail_outer: Option<(usize, usize)>,
+    /// The block about to be built is coerced as a whole (its tail's
+    /// temporaries live until after the coercion).
+    block_adjusted: bool,
     /// When each local first got a value (a count of what was emitted): what
     /// is dropped is dropped in reverse of this, as rustc's temporaries are.
     first_def: FastMap<u32, u32>,
@@ -207,6 +210,7 @@ impl<'a, 's> Builder<'a, 's> {
             extend: None,
             extending: false,
             tail_outer: None,
+            block_adjusted: false,
             first_def: FastMap::default(),
             seq: 0,
             depth: 0,
@@ -596,8 +600,13 @@ impl<'a, 's> Builder<'a, 's> {
     /// The value of `n` into `dest`.
     fn expr_into(&mut self, n: NodeId, dest: &Place) -> R<()> {
         if self.tables.adjustments.get(&n).is_some_and(|a| !a.is_empty()) {
-            let p = self.expr_place(n)?;
-            self.assign(dest, Rvalue::Use(Operand::Use(p)), n);
+            self.block_adjusted = self.ast.kind(n) == Kind::Block;
+            let p = self.expr_place(n);
+            self.block_adjusted = false;
+            let p = p?;
+            // (A coerced block's value is its tail's: errors point there.)
+            let at = if self.ast.kind(n) == Kind::Block { self.kids(n).last().copied().unwrap_or(n) } else { n };
+            self.assign(dest, Rvalue::Use(Operand::Use(p)), at);
             return Ok(());
         }
         self.expr_into_raw(n, dest)
@@ -1428,6 +1437,7 @@ impl<'a, 's> Builder<'a, 's> {
     /// A block's statements, in a scope of their own for the variables, each
     /// in one for its temporaries; the last, if an expression, is the value.
     fn stmts(&mut self, stmts: &[NodeId], dest: &Place, node: NodeId) -> R<()> {
+        let adjusted = std::mem::take(&mut self.block_adjusted);
         self.push_scope(true);
         let mut valued = false;
         let last = stmts.len().checked_sub(1);
@@ -1444,7 +1454,7 @@ impl<'a, 's> Builder<'a, 's> {
                 }
                 Kind::EmptyStmt => {}
                 k if is_item(k) => {}
-                _ if Some(i) == last && self.scopes.len() >= 2 && matches!(self.cx.crates[self.cfg.krate as usize].edition, crate::lexer::Edition::E2015 | crate::lexer::Edition::E2018 | crate::lexer::Edition::E2021) => {
+                _ if Some(i) == last && self.scopes.len() >= 2 && (adjusted || matches!(self.cx.crates[self.cfg.krate as usize].edition, crate::lexer::Edition::E2015 | crate::lexer::Edition::E2018 | crate::lexer::Edition::E2021)) => {
                     let saved = self.tail_outer.replace((self.scopes.len() - 2, self.scopes.len()));
                     let r = self.expr_into(s, dest);
                     self.tail_outer = saved;

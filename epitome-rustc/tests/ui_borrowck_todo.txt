@@ -134,7 +134,6 @@ borrowck/reassignment_immutable_fields.rs: wrong diagnostics (missing ; extra E0
 borrowck/reassignment_immutable_fields_overlapping.rs: wrong diagnostics (missing ; extra E0594@12)
 borrowck/reassignment_immutable_fields_twice.rs: wrong diagnostics (missing ; extra E0594@12 E0594@13 E0594@14)
 borrowck/reborrow-sugg-move-then-borrow.rs: no diagnostics (missing E0382@20)
-borrowck/regions-escape-unboxed-closure.rs: no diagnostics (missing E0521@5)
 borrowck/return-local-binding-from-desugaring.rs: wrong diagnostics (missing E0515@30; extra E0716@26)
 borrowck/slice-index-bounds-check-invalidation.rs: no diagnostics (missing E0510@36 E0510@50 E0510@64 E0510@71)
 borrowck/span-semicolon-issue-139049.rs: wrong diagnostics (missing E0597@11 E0597@11; extra E0597@16 E0597@19)

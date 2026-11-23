@@ -2133,6 +2133,32 @@ pub struct UpvarUse {
 /// For each closure, how its body uses each captured variable.
 /// Which parameters of each closure the function it is passed to leaves
 /// to any lifetime: `with_int(|y| ..)` for `F: FnOnce(&isize)`.
+/// The closure a reference local was made from, through borrows and casts.
+fn closure_behind(cfg: &Cfg, mut l: Local, tcx: &TyCtxt) -> Option<ClosureId> {
+    for _ in 0..4 {
+        let mut next = None;
+        for b in &cfg.blocks {
+            for s in &b.stmts {
+                let StmtKind::Assign(d, rv) = &s.kind else { continue };
+                if d.local != l || !d.proj.is_empty() {
+                    continue;
+                }
+                match rv {
+                    Rvalue::Ref(_, q) => {
+                        if let TyKind::Closure(c, _, _) = tcx.kind(q.ty) {
+                            return Some(c);
+                        }
+                    }
+                    Rvalue::Use(Operand::Use(q)) | Rvalue::Cast(Operand::Use(q), _) if q.proj.is_empty() => next = Some(q.local),
+                    _ => {}
+                }
+            }
+        }
+        l = next?;
+    }
+    None
+}
+
 pub fn closure_hr<'s>(cfgs: &[Cfg], crates: &[ParsedCrate<'s>], r: &Resolver<'s>, tcx: &TyCtxt<'s>) -> FastMap<ClosureId, Vec<bool>> {
     let mut out: FastMap<ClosureId, Vec<bool>> = FastMap::default();
     let mut sigs: FastMap<DefId, Option<FnRegions>> = FastMap::default();
@@ -2141,9 +2167,22 @@ pub fn closure_hr<'s>(cfgs: &[Cfg], crates: &[ParsedCrate<'s>], r: &Resolver<'s>
             let Some((Term::Call { func: Callee::Fn(d, _), args, .. }, _)) = &b.term else { continue };
             for (j, a) in args.iter().enumerate() {
                 let Operand::Use(p) = a else { continue };
-                let TyKind::Closure(c, _, _) = tcx.kind(p.ty) else { continue };
                 let sig = sigs.entry(*d).or_insert_with(|| sig::fn_regions(crates, r, tcx, *d));
                 let Some(sig) = sig else { continue };
+                if let Some(RTy::Ref(_, _, inner)) = sig.inputs.get(j) {
+                    // `&mut |y| ..` unsized to `&mut dyn FnMut(&T)`.
+                    if let RTy::Dyn(_, bs) = &**inner {
+                        if let Some(c) = closure_behind(cfg, p.local, tcx) {
+                            for bound in bs {
+                                if let Some(RArg::Ty(RTy::Tuple(ts))) = bound.args.first() {
+                                    out.insert(c, ts.iter().map(|t| matches!(t, RTy::Ref(Region::Bound(_), _, _))).collect());
+                                }
+                            }
+                        }
+                    }
+                    continue;
+                }
+                let TyKind::Closure(c, _, _) = tcx.kind(p.ty) else { continue };
                 let Some(RTy::Param(pp)) = sig.inputs.get(j) else { continue };
                 for (t, bound) in &sig.bounds {
                     if !matches!(t, RTy::Param(q) if q == pp) {

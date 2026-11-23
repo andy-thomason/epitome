@@ -348,6 +348,9 @@ struct Loan {
 enum Kind {
     Read,
     SharedBorrow,
+    /// The reservation of a two-phase mutable borrow: as a shared one, but
+    /// it is a mutable borrow that it conflicts with.
+    Reserve,
     MutBorrow,
     Write,
     Move,
@@ -1427,7 +1430,7 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
             Rvalue::Ref(m, p) => {
                 // (A two-phase borrow only reserves, as a shared one, until its call.)
                 let reserving = s.two_phase && *m == Mutbl::Mut && self.has_activation(s);
-                let kind = if *m == Mutbl::Mut && !reserving { Kind::MutBorrow } else { Kind::SharedBorrow };
+                let kind = if *m == Mutbl::Mut && !reserving { Kind::MutBorrow } else if reserving { Kind::Reserve } else { Kind::SharedBorrow };
                 reads.push(Access { place: p.clone(), kind, node: p.at.unwrap_or(s.node), shallow: false });
             }
             Rvalue::AddrOf(m, p) => {
@@ -1463,6 +1466,7 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
             let reserved = loan.reserved.contains(&pt);
             let (code, what): (&'static str, String) = match (acc.kind, loan.mutbl) {
                 (Kind::Read, Mutbl::Mut) if !reserved => ("E0503", "cannot use a value while it is mutably borrowed".into()),
+                (Kind::Reserve, Mutbl::Mut) if !reserved => ("E0499", "cannot borrow as mutable more than once at a time".into()),
                 (Kind::SharedBorrow, Mutbl::Mut) if !reserved => ("E0502", "cannot borrow as immutable because it is also borrowed as mutable".into()),
                 (Kind::MutBorrow, Mutbl::Mut) => ("E0499", "cannot borrow as mutable more than once at a time".into()),
                 (Kind::MutBorrow, Mutbl::Not) => ("E0502", "cannot borrow as mutable because it is also borrowed as immutable".into()),
@@ -1629,6 +1633,12 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
     /// there, else the last.
     fn result_def(&self, b: u32) -> (Option<NodeId>, bool) {
         let find = |data: &BlockData| {
+            if let Some((Term::Call { dest, .. }, n)) = &data.term
+                && dest.local == Local(0)
+                && dest.proj.is_empty()
+            {
+                return Some((Some(*n), false));
+            }
             data.stmts.iter().rev().find_map(|s| match &s.kind {
                 StmtKind::Assign(d, rv) if d.local == Local(0) && d.proj.is_empty() => {
                     let from_var = matches!(rv, Rvalue::Use(Operand::Use(p)) if self.cfg.locals[p.local.0 as usize].kind == LocalKind::Var);

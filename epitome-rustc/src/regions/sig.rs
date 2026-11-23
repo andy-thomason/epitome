@@ -192,6 +192,10 @@ struct B<'c, 's> {
     seen: Vec<Region>,
     /// In the arguments.
     inputs: bool,
+    /// Inside a reference type (an associated type there is what is lent).
+    under_ref: u32,
+    /// The function takes `&self` (what it lends is not `Self`'s own).
+    self_by_ref: bool,
     /// Reading an impl's header: elided lifetimes are the impl's.
     header: Option<u32>,
 }
@@ -278,7 +282,9 @@ impl<'c, 's> B<'c, 's> {
                     Some(l) => self.lifetime(l),
                     None => self.elide(),
                 };
+                self.under_ref += 1;
                 let inner = self.ty(*kids.last().unwrap(), Some(r));
+                self.under_ref -= 1;
                 RTy::Ref(r, if is_mut { Mutbl::Mut } else { Mutbl::Not }, Box::new(inner))
             }
             Kind::PtrType => {
@@ -456,7 +462,25 @@ impl<'c, 's> B<'c, 's> {
                 None => RTy::Plain,
             },
             Res::SelfTy(f, n) => self.self_ty(f as usize, n),
-            Res::Partial(..) => mentioned(self),
+            Res::Partial(base, _) => {
+                // `T::Assoc`, `Self::Assoc`: it holds what its base type does.
+                let mut a = Vec::new();
+                let name = last.and_then(|s| ast.children(s).first().copied()).map(|n| ast.token(n).0).unwrap_or("");
+                match *base {
+                    _ if self.under_ref > 0 || self.self_by_ref || name == "Output" => {}
+                    Res::Generic(n) => {
+                        if let Some(pid) = self.tcx.param_at.get(&(self.k as u32, self.file as u32, n)).copied()
+                            && !self.tcx.params[pid.0 as usize].is_const
+                        {
+                            a.push(RArg::Ty(self.subst.get(&pid).cloned().unwrap_or(RTy::Param(pid))));
+                        }
+                    }
+                    Res::SelfTy(f, n) => a.push(RArg::Ty(self.self_ty(f as usize, n))),
+                    _ => {}
+                }
+                a.extend(self.mentioned(p));
+                RTy::Proj(a)
+            }
             Res::Def(d) => match self.r.defs[d.0 as usize].kind {
                 DefKind::Struct | DefKind::Enum | DefKind::Union => RTy::Adt(d, self.args(g, d)),
                 DefKind::TypeAlias => self.alias(d, g, default_region),
@@ -825,6 +849,8 @@ pub fn fn_regions<'s>(crates: &[ParsedCrate<'s>], r: &Resolver<'s>, tcx: &TyCtxt
         bound: 0,
         seen: Vec::new(),
         inputs: true,
+        under_ref: 0,
+        self_by_ref: false,
         header: None,
     };
     let mut out = FnRegions::default();
@@ -852,6 +878,7 @@ pub fn fn_regions<'s>(crates: &[ParsedCrate<'s>], r: &Resolver<'s>, tcx: &TyCtxt
                     // `&'a self`, `&mut self`, `self: &Self`, or `self`.
                     let kids = ast.children(p);
                     let is_ref = kids.iter().any(|&c| ast.kind(c) == Kind::Op && ast.token(c).0 == "&");
+                    b.self_by_ref = is_ref;
                     let typed = kids.iter().copied().find(|&c| is_type(ast.kind(c)));
                     let before = b.seen.len();
                     let ty = if let Some(t) = typed {
@@ -967,6 +994,8 @@ pub fn adt_fields<'s>(crates: &[ParsedCrate<'s>], r: &Resolver<'s>, tcx: &TyCtxt
         bound: 0,
         seen: Vec::new(),
         inputs: false,
+        under_ref: 0,
+        self_by_ref: false,
         header: None,
     };
     for (i, (name, _)) in lifetime_params(ast, def.node).into_iter().enumerate() {

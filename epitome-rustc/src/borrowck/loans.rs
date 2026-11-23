@@ -397,14 +397,14 @@ impl Bits {
 const MAX_LOANS: usize = 1500;
 
 pub fn check<'b, 's>(cx: &Cx<'_, 's>, cfg: &Cfg, solver: &mut Solver<'b, 's>, original: &dyn Fn(NodeId) -> bool) -> Vec<Raw> {
-    // What a constant or static borrows is promoted to `'static`.
-    if matches!(
+    // What a constant or static borrows is promoted to `'static`: only a
+    // variable of its own body, borrowed in its value, is an error.
+    let const_mode = matches!(
         cx.r.defs[cfg.owner.0 as usize].kind,
         crate::resolve::DefKind::Const | crate::resolve::DefKind::Static | crate::resolve::DefKind::AssocConst
-    ) {
-        return Vec::new();
-    }
+    );
     let mut an = An::new(cx, cfg);
+    an.const_mode = const_mode;
     an.original = Some(original);
     if an.loans.is_empty() || an.loans.len() > MAX_LOANS || cfg.blocks.len() * cfg.locals.len() > 2_000_000 {
         return Vec::new();
@@ -416,6 +416,8 @@ pub fn check<'b, 's>(cx: &Cx<'_, 's>, cfg: &Cfg, solver: &mut Solver<'b, 's>, or
 }
 
 struct An<'a, 'c, 's> {
+    /// The body of a constant or static.
+    const_mode: bool,
     /// Types the function says outlive `'static`: they hold no loans.
     static_proj: bool,
     static_params: Vec<ParamId>,
@@ -454,6 +456,7 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
             .map(|s| s.ty_outlives.iter().filter_map(|(t, r)| if let (RTy::Param(p), Region::Static) = (t, r) { Some(*p) } else { None }).collect())
             .unwrap_or_default();
         let mut an = An {
+            const_mode: false,
             static_proj,
             static_params,
             original: None,
@@ -1456,9 +1459,13 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
     }
 
     fn conflict(&mut self, st: &State, live: &Bits, acc: &Access, except: Option<u32>, pt: (u32, u32), returns: &Set) {
+        if self.const_mode && acc.kind != Kind::Dead {
+            return;
+        }
         let mut ids = self.live_loans(st, live);
         // What an assignment overwrites is not in the way of its own loan.
         ids.retain(|&l| Some(l) != except);
+        ids.sort_unstable();
         for l in ids {
             let loan = &self.loans[l as usize];
             if loan.ignored || !self.overlap(&loan.place, &acc.place, acc.shallow) {
@@ -1484,7 +1491,13 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
                     {
                         continue;
                     }
-                    if loan.capture && returns.binary_search(&l).is_ok() && !self.result_def(pt.0).1 {
+                    if self.const_mode {
+                        // (Its temporaries are promoted; its variables are not.)
+                        if self.cfg.locals[local.0 as usize].kind != LocalKind::Var || returns.binary_search(&l).is_err() || matches!(self.cx.tcx.kind(self.cfg.locals[0].ty), TyKind::Ptr(..)) {
+                            continue;
+                        }
+                        ("E0597", "a borrowed value does not live long enough".into())
+                    } else if loan.capture && returns.binary_search(&l).is_ok() && !self.result_def(pt.0).1 {
                         ("E0373", "closure may outlive the current function, but it borrows a variable".into())
                     } else if loan.capture && returns.binary_search(&l).is_ok() {
                         ("E0597", "a borrowed value does not live long enough".into())
@@ -1511,6 +1524,10 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
                 _ => acc.node,
             };
             self.out.push(Raw { code, node, message: what, local: None });
+            // (One error for what dies, at the first borrow of it.)
+            if acc.kind == Kind::Dead {
+                break;
+            }
         }
     }
 
@@ -1633,6 +1650,18 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
                             if loan.ignored || self.through_ref(&loan.place) {
                                 continue;
                             }
+                            if self.const_mode {
+                                // (Its temporaries are promoted; its variables are not.)
+                                let local = loan.place.local;
+                                if self.cfg.locals[local.0 as usize].kind == LocalKind::Var
+                                    && let (Some(n), Some(orig)) = (self.cfg.locals[local.0 as usize].node, self.original)
+                                    && orig(n)
+                                {
+                                    let node = loan.node;
+                                    self.out.push(Raw { code: "E0597", node, message: "a borrowed value does not live long enough".into(), local: None });
+                                }
+                                continue;
+                            }
                             let (rnode, from_var) = self.result_def(b.0);
                             let node = rnode.unwrap_or(loan.node);
                             let code = if loan.capture && from_var { "E0597" } else if loan.capture { "E0373" } else { "E0515" };
@@ -1687,6 +1716,9 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
 
     /// Loans of the function's own data that must outlive `'static`.
     fn flag_static(&mut self, ids: &[u32]) {
+        if self.const_mode {
+            return;
+        }
         for &l in ids {
             let loan = &self.loans[l as usize];
             if loan.ignored || self.through_ref(&loan.place) {

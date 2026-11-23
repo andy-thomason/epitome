@@ -206,3 +206,17 @@ fn annotated_static_ok() {
     let r: &'static i32 = &5;
     let _ = r;
 }
+
+fn cast_static() {
+    let x = 1u32;
+    let _y: &u32 = (&x) as &'static u32; //~ E0597
+}
+
+struct Guard8<'a>(&'a u8);
+impl<'a> Drop for Guard8<'a> { fn drop(&mut self) {} }
+
+fn declared_order() {
+    let (g, owner);
+    owner = 1u8;
+    g = Guard8(&owner); //~ E0597
+}

@@ -1235,6 +1235,7 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
         }
         let _ = targs;
         let mut ins: Vec<Option<Vec<Vec<Sym>>>> = Vec::new();
+        let mut ins_w: Vec<Option<Vec<Vec<Sym>>>> = Vec::new();
         for (j, t) in sig.inputs.iter().enumerate() {
             let mut ds = Vec::new();
             let aty = match &args[j] {
@@ -1243,6 +1244,25 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
             };
             desc(cx, t, aty, &mut ds);
             ins.push((ds.len() == argv[j].len()).then_some(ds));
+            // (What an `impl Trait<Item = T>` argument is bound to is not what it holds.)
+            let mut ws = Vec::new();
+            if let RTy::Opaque(a, bs) = t {
+                let bs2: Vec<_> = bs
+                    .iter()
+                    .map(|b| {
+                        let mut b2 = b.clone();
+                        let sugar = b.args.len() == 1 && matches!(&b.args[0], RArg::Ty(RTy::Tuple(_))) && b.assoc.iter().any(|(n, _)| n == "Output");
+                        if !sugar {
+                            b2.assoc.clear();
+                        }
+                        b2
+                    })
+                    .collect();
+                desc(cx, &RTy::Opaque(a.clone(), bs2), aty, &mut ws);
+            } else {
+                ws = ins.last().and_then(|x| x.clone()).unwrap_or_default();
+            }
+            ins_w.push((ws.len() == argv[j].len()).then_some(ws));
         }
         let mut out_ds = Vec::new();
         desc(cx, &sig.output, dest_ty, &mut out_ds);
@@ -1271,7 +1291,7 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
             let Some(dj) = &ins[j] else { continue };
             for (k, syms) in dj.iter().enumerate().skip(1) {
                 let mut loans: Set = Vec::new();
-                for (j2, d2) in ins.iter().enumerate() {
+                for (j2, d2) in ins_w.iter().enumerate() {
                     if j2 == j {
                         continue;
                     }

@@ -236,6 +236,8 @@ pub struct Cfg {
     /// environment: whether it was declared `mut`, whether it is held by value,
     /// and its type.
     pub upvars: Vec<(bool, bool, Ty)>,
+    /// Variables whose declared type is a reference to 'static.
+    pub static_vars: Vec<Local>,
 }
 
 impl Cfg {

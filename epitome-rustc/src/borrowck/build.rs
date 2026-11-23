@@ -1661,7 +1661,12 @@ impl<'a, 's> Builder<'a, 's> {
                     Rvalue::Use(Operand::Const("<what the guard reads>".into(), ty))
                 }
                 (BindingMode::Value, None) => Rvalue::Use(Operand::Use(b.place)),
-                (BindingMode::Ref(m), _) => Rvalue::Ref(m, b.place),
+                (BindingMode::Ref(m), _) => {
+                    // (Conflicts are the binding's.)
+                    let mut p = b.place;
+                    p.at = Some(b.pat);
+                    Rvalue::Ref(m, p)
+                }
             };
             self.assign(&place, rv, node);
         }

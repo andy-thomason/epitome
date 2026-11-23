@@ -337,7 +337,10 @@ impl<'c, 's> B<'c, 's> {
                 }
                 if ast.kind(n) == Kind::DynTraitType {
                     // `&'a dyn Trait` is `&'a (dyn Trait + 'a)`; elsewhere `'static`.
-                    RTy::Dyn(region.or(default_region).unwrap_or(Region::Static), bounds)
+                    // (A trait with a `'static` bound, as `Any` has, makes it `'static`.)
+                    let from_trait = region.is_none() && bounds.iter().any(|b| self.trait_is_static(b.trait_def, 0));
+                    let dflt = if from_trait { Some(Region::Static) } else { default_region };
+                    RTy::Dyn(region.or(dflt).unwrap_or(Region::Static), bounds)
                 } else {
                     RTy::Opaque(regions, bounds)
                 }
@@ -615,6 +618,29 @@ impl<'c, 's> B<'c, 's> {
                 }
             }
         }
+    }
+
+    /// Whether the trait `d` (or one it requires) is declared `: 'static`.
+    fn trait_is_static(&self, d: DefId, depth: u32) -> bool {
+        let def = &self.r.defs[d.0 as usize];
+        let ast = &self.crates[def.krate as usize].files[def.file as usize].ast;
+        let Some(b) = ast.child(def.node, Kind::Bounds) else { return false };
+        for &c in ast.children(b) {
+            match ast.kind(c) {
+                Kind::Lifetime if ast.token(c).0 == "'static" => return true,
+                Kind::TraitBound if depth < 4 => {
+                    if let Some(p) = ast.child(c, Kind::Path)
+                        && let Some(Res::Def(sd)) = self.r.res_of(def.krate as usize, def.file as usize, p).cloned()
+                        && sd != d
+                        && self.trait_is_static(sd, depth + 1)
+                    {
+                        return true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        false
     }
 
     fn bound_of(&mut self, tb: NodeId) -> Option<RBound> {

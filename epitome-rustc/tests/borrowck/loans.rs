@@ -231,3 +231,13 @@ fn dyn_receiver_is_reborrowed(x: &mut dyn Lend) {
     x.other(); //~ E0499
     use_ref(y);
 }
+
+fn needs_static<F: FnOnce() + 'static>(_f: F) {}
+
+fn closure_escapes(x: &u8) {
+    needs_static(|| { let _ = x; }); //~ E0521
+}
+
+fn fine_when_static(x: &'static u8) {
+    needs_static(move || { let _ = x; });
+}

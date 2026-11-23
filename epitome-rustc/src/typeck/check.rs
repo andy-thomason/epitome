@@ -1867,7 +1867,7 @@ impl<'a, 's> FnCtxt<'a, 's> {
                             // A>`).
                             self.oblige_item(item, &args);
                             self.methods.push((n, item, args));
-                            let adj = Self::step_adjustments(steps, k, borrow);
+                            let adj = self.receiver_adjustments(steps, k, borrow);
                             self.adjust(recv_node, adj, recv);
                             return Some((item, inputs[1..].to_vec(), output));
                         }
@@ -1876,13 +1876,23 @@ impl<'a, 's> FnCtxt<'a, 's> {
                 }
                 if let Some((item, args, inputs, output)) = self.trait_method(recv, name, scoped) {
                     self.methods.push((n, item, args));
-                    let adj = Self::step_adjustments(steps, k, borrow);
+                    let adj = self.receiver_adjustments(steps, k, borrow);
                     self.adjust(recv_node, adj, recv);
                     return Some((item, inputs, output));
                 }
             }
         }
         None
+    }
+
+    /// The adjustments of a method's receiver: as `step_adjustments`, and a
+    /// `&mut` taken as it is is reborrowed (`&mut *x`), not moved.
+    fn receiver_adjustments(&self, steps: &[(Ty, Option<Adjust>)], k: usize, borrow: Option<Mutbl>) -> Vec<Adjust> {
+        let adj = Self::step_adjustments(steps, k, borrow);
+        if adj.is_empty() && matches!(self.tcx.kind(steps[k].0), TyKind::Ref(Mutbl::Mut, _)) {
+            return vec![Adjust::Deref, Adjust::Borrow(Mutbl::Mut)];
+        }
+        adj
     }
 
     // ---- expressions ----

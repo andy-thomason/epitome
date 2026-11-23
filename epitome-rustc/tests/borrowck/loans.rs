@@ -220,3 +220,14 @@ fn declared_order() {
     owner = 1u8;
     g = Guard8(&owner); //~ E0597
 }
+
+trait Lend {
+    fn first(&mut self) -> &u8;
+    fn other(&mut self);
+}
+
+fn dyn_receiver_is_reborrowed(x: &mut dyn Lend) {
+    let y = x.first();
+    x.other(); //~ E0499
+    use_ref(y);
+}

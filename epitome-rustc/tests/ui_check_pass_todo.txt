@@ -24,6 +24,7 @@ impl-trait/precise-capturing/external-macro.rs: path not resolved: element
 lexer/ident_normalization.rs: path not resolved: K
 macros/issue-34171.rs: error: in `null!`: no rule of the macro matches this input (issue-34171.rs:5:20)
 macros/parse-test.rs: error: expected a macro matcher in delimiters (parse-test.rs:8:5)
+nll/issue-46589.rs#legacy: borrowck rejects it (E0499@29)
 nll/issue-48179.rs: borrowck rejects it (E0515@32)
 pattern/deref-patterns/const-pats-do-not-mislead-inference.rs#deref_patterns: type check: a type left unknown
 pin-ergonomics/pattern-matching-deref-pattern.rs#pin_ergonomics: type check: pattern of another type

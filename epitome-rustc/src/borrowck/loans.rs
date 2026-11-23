@@ -1243,6 +1243,9 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
         }
         let mut out_ds = Vec::new();
         desc(cx, &sig.output, dest_ty, &mut out_ds);
+        if self.trace {
+            eprintln!("  call {:?}: in={:?} out={:?} ins={:?} out_ds={:?} n={n}", d, sig.inputs, sig.output, ins, out_ds);
+        }
         // `for<'a> T::Assoc<'a>: 'static` lets nothing out.
         let proj_static = sig.ty_outlives.iter().any(|(t, r)| *r == Region::Static && matches!(t, RTy::Proj(_)));
         // (What a trait's method returns as `impl Trait` is what the impl chooses.)

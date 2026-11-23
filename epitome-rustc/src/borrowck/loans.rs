@@ -1551,6 +1551,12 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
                     self.conflict(&st, &live[i + 1], a, own, (b.0, i as u32), &returns);
                 }
                 self.transfer_stmt(b.0, i as u32, s, &mut st);
+                if let StmtKind::Assign(d, _) = &s.kind
+                    && d.proj.is_empty()
+                    && self.cfg.static_vars.contains(&d.local)
+                {
+                    self.static_annotation(d.local, &st);
+                }
             }
             // The terminator.
             let ti = n as u32;
@@ -1635,6 +1641,29 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
             return r;
         }
         self.cfg.reachable().iter().rev().find_map(|x| find(&self.cfg.blocks[x.0 as usize])).unwrap_or((None, false))
+    }
+
+    /// `let x: &'static T = ..;`: what it holds must not be borrowed from
+    /// the function's own data.
+    fn static_annotation(&mut self, v: Local, st: &State) {
+        let Some(slots) = st.held.get(&v.0) else { return };
+        let Some(first) = slots.first() else { return };
+        for &l in first {
+            let loan = &self.loans[l as usize];
+            if loan.ignored || self.through_ref(&loan.place) {
+                continue;
+            }
+            let local = loan.place.local;
+            let temp = self.cfg.locals[local.0 as usize].kind == LocalKind::Temp;
+            let decl = if temp { self.def_node.get(&local.0).copied() } else { self.cfg.locals[local.0 as usize].node };
+            if let (Some(n), Some(orig)) = (decl, self.original)
+                && !orig(n)
+            {
+                continue;
+            }
+            let (code, node) = if temp { ("E0716", self.def_node.get(&local.0).copied().unwrap_or(loan.node)) } else { ("E0597", loan.node) };
+            self.out.push(Raw { code, node, message: "borrowed data must outlive 'static".into(), local: None });
+        }
     }
 
     /// A call whose signature wants `'static` (`&'static T`, `F: 'static`) of

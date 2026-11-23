@@ -195,3 +195,14 @@ fn vec_of_refs_may_dangle() {
     x = 2;
     take(x);
 }
+
+fn annotated_static() {
+    let x = 5;
+    let r: &'static i32 = &x; //~ E0597
+    let _ = r;
+}
+
+fn annotated_static_ok() {
+    let r: &'static i32 = &5;
+    let _ = r;
+}

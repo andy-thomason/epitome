@@ -194,7 +194,7 @@ impl<'a, 's> Builder<'a, 's> {
             types: &cx.res.types[k as usize][file as usize],
             k,
             file,
-            cfg: Cfg { owner, krate: k, file, node, closure, name, locals: Vec::new(), arg_count: 0, blocks: Vec::new(), upvars: Vec::new() },
+            cfg: Cfg { owner, krate: k, file, node, closure, name, locals: Vec::new(), arg_count: 0, blocks: Vec::new(), upvars: Vec::new(), static_vars: Vec::new() },
             cur: None,
             scopes: Vec::new(),
             loops: Vec::new(),
@@ -1503,7 +1503,11 @@ impl<'a, 's> Builder<'a, 's> {
         let sk: Vec<NodeId> = self.kids(s).into_iter().filter(|&c| self.ast.kind(c) != Kind::Keyword).collect();
         let pat = sk[0];
         let mut rest = &sk[1..];
+        let mut static_ann = false;
         if rest.first().is_some_and(|&t| crate::ty::lower::is_type(self.ast.kind(t))) {
+            let t = rest[0];
+            static_ann = self.ast.kind(t) == Kind::RefType
+                && self.ast.children(t).iter().any(|&c| self.ast.kind(c) == Kind::Lifetime && self.ast.token(c).0 == "'static");
             rest = &rest[1..];
         }
         let Some(&init) = rest.first() else {
@@ -1541,6 +1545,9 @@ impl<'a, 's> Builder<'a, 's> {
             }
             if self.is_simple_binding(pat) {
                 let l = self.declare_var(pat)?;
+                if static_ann {
+                    self.cfg.static_vars.push(l);
+                }
                 let place = Place::local(l, self.cfg.locals[l.0 as usize].ty);
                 self.extend = Some(block_scope);
                 self.extending = true;

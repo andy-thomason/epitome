@@ -1572,7 +1572,9 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
                     // pointed to: they are not in its way unless it is.)
                     self.conflict(&st, &live[i + 1], a, own, (b.0, i as u32), &returns);
                 }
+                self.static_fields(s, &st);
                 self.transfer_stmt(b.0, i as u32, s, &mut st);
+                self.static_params(s, &st);
                 if let StmtKind::Assign(d, _) = &s.kind
                     && d.proj.is_empty()
                     && self.cfg.static_vars.contains(&d.local)
@@ -1676,7 +1678,13 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
     fn static_annotation(&mut self, v: Local, st: &State) {
         let Some(slots) = st.held.get(&v.0) else { return };
         let Some(first) = slots.first() else { return };
-        for &l in first {
+        let ids = first.clone();
+        self.flag_static(&ids);
+    }
+
+    /// Loans of the function's own data that must outlive `'static`.
+    fn flag_static(&mut self, ids: &[u32]) {
+        for &l in ids {
             let loan = &self.loans[l as usize];
             if loan.ignored || self.through_ref(&loan.place) {
                 continue;
@@ -1691,6 +1699,57 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
             }
             let (code, node) = if temp { ("E0716", self.def_node.get(&local.0).copied().unwrap_or(loan.node)) } else { ("E0597", loan.node) };
             self.out.push(Raw { code, node, message: "borrowed data must outlive 'static".into(), local: None });
+        }
+    }
+
+    /// A value stored where the type says `'static`: into a field declared
+    /// `&'static T`, before it is stored.
+    fn static_fields(&mut self, s: &Stmt, st: &State) {
+        let StmtKind::Assign(_, Rvalue::Aggregate(AggKind::Adt(d, v, _), ops)) = &s.kind else { return };
+        let cx = self.cx;
+        let Some(fields) = cx.adt_fields(*d) else { return };
+        let Some(fs) = fields.get(*v as usize) else { return };
+        for (i, o) in ops.iter().enumerate() {
+            let Some(rty) = fs.get(i) else { continue };
+            let oty = match o { Operand::Use(p) => p.ty, Operand::Const(_, t) => *t };
+            let mut ds = Vec::new();
+            desc(cx, rty, oty, &mut ds);
+            let vals = self.operand(st, o);
+            if ds.len() != vals.len() {
+                continue;
+            }
+            for (k, syms) in ds.iter().enumerate() {
+                if syms.iter().any(|x| matches!(x, Sym::Reg(Region::Static))) {
+                    let ids = vals[k].clone();
+                    self.flag_static(&ids);
+                }
+            }
+        }
+    }
+
+    /// A store into a parameter (through it) whose declared type says
+    /// `'static` there.
+    fn static_params(&mut self, s: &Stmt, st: &State) {
+        let StmtKind::Assign(d, _) = &s.kind else { return };
+        let a = d.local.0 as usize;
+        if self.cfg.closure.is_some() || a == 0 || a > self.cfg.arg_count || self.cfg.locals[a].kind != LocalKind::Arg {
+            return;
+        }
+        let cx = self.cx;
+        let Some(sig) = cx.sig(self.cfg.owner) else { return };
+        let Some(rty) = sig.inputs.get(a - 1) else { return };
+        let mut ds = Vec::new();
+        desc(cx, rty, self.cfg.locals[a].ty, &mut ds);
+        let idx = self.place_slots(d);
+        let Some(held) = st.held.get(&d.local.0) else { return };
+        for &si in &idx {
+            if si == u32::MAX {
+                continue;
+            }
+            if ds.get(si as usize).is_some_and(|x| x.iter().any(|y| matches!(y, Sym::Reg(Region::Static)))) {
+                let ids = held.get(si as usize).cloned().unwrap_or_default();
+                self.flag_static(&ids);
+            }
         }
     }
 

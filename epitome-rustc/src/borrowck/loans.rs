@@ -1489,6 +1489,12 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
                         ("E0515", "cannot return a value referencing data owned by the current function".into())
                     } else if self.cfg.locals[local.0 as usize].kind == LocalKind::Temp {
                         ("E0716", "a temporary value is dropped while borrowed".into())
+                    } else if loan.capture
+                        && st.held.iter().any(|(&h, slots)| h != 0 && h < local.0 && live.get(h) && slots.iter().any(|s| s.contains(&l)) && !self.moved_from_temp(h))
+                    {
+                        // A closure that outlives what it borrows, held by a
+                        // variable declared before it.
+                        ("E0373", "closure may outlive the current block, but it borrows a variable".into())
                     } else {
                         ("E0597", "a borrowed value does not live long enough".into())
                     }
@@ -1503,6 +1509,18 @@ impl<'a, 'c, 's> An<'a, 'c, 's> {
             };
             self.out.push(Raw { code, node, message: what, local: None });
         }
+    }
+
+    /// Whether `h` is given a value by a call, or a block tail (a temporary
+    /// moved into it): `let f = { let x = ..; || x };`.
+    fn moved_from_temp(&self, h: u32) -> bool {
+        self.cfg.blocks.iter().any(|b| {
+            matches!(&b.term, Some((Term::Call { dest, .. }, _)) if dest.local.0 == h) ||
+            b.stmts.iter().any(|s| {
+                matches!(&s.kind, StmtKind::Assign(d, Rvalue::Use(Operand::Use(p)))
+                    if d.local.0 == h && d.proj.is_empty() && self.cfg.locals[p.local.0 as usize].kind == LocalKind::Temp)
+            })
+        })
     }
 
     fn report(mut self, solver: &mut Solver<'_, '_>) -> Vec<Raw> {

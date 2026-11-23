@@ -170,7 +170,6 @@ borrowck/var-matching-lifetime-but-unused-not-mentioned.rs: no diagnostics (miss
 box/leak-alloc.rs: no diagnostics (missing E0505@26)
 closure_context/issue-42065.rs: no diagnostics (missing E0382@11)
 closures/2229_closure_analysis/diagnostics/arrays.rs: wrong diagnostics (missing ; extra E0506@14)
-closures/2229_closure_analysis/diagnostics/borrowck/borrowck-3.rs: wrong diagnostics (missing E0373@11; extra E0597@11)
 closures/2229_closure_analysis/diagnostics/borrowck/borrowck-4.rs: wrong diagnostics (missing E0597@12; extra E0597@10)
 closures/2229_closure_analysis/diagnostics/cant-mutate-imm-borrow.rs: wrong diagnostics (missing E0596@13; extra E0594@15)
 closures/2229_closure_analysis/diagnostics/closure-origin-multi-variant-diagnostics.rs: no diagnostics (missing E0382@26)
@@ -537,7 +536,6 @@ type-alias-impl-trait/precise-capture-155151.rs#current: no diagnostics (missing
 type-alias-impl-trait/recursive-drop-elaboration-2.rs: before borrowck: type check: reference pattern on a value that is not a reference
 type-alias-impl-trait/type_of_a_let.rs#current: no diagnostics (missing E0382@23 E0382@24)
 unboxed-closures/unboxed-closure-illegal-move.rs: no diagnostics (missing E0507@15 E0507@19 E0507@28 E0507@32)
-unboxed-closures/unboxed-closure-region.rs: wrong diagnostics (missing E0373@8; extra E0597@8)
 unboxed-closures/unboxed-closures-failed-recursive-fn-1.rs: no diagnostics (missing E0506@20 E0506@33 E0597@15 E0597@28)
 unboxed-closures/unboxed-closures-infer-fnmut-calling-fnmut-no-mut.rs: no diagnostics (missing E0596@19)
 unboxed-closures/unboxed-closures-infer-fnonce-call-twice.rs: no diagnostics (missing E0382@10)
